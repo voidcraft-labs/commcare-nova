@@ -19,7 +19,7 @@
  *     MCP sign-in: `/oauth2/token` 500s with an empty body, surfacing client-
  *     side as "Invalid OAuth error response".
  *
- * Two shims, applied by `withCompleteFirestoreAdapter`, close the whole class
+ * Three shims, applied by `withCompleteFirestoreAdapter`, close the whole class
  * rather than one missing method at a time:
  *
  * 1. **Native atomic `incrementOne`.** The guarded compare-and-increment the
@@ -49,8 +49,21 @@
  *    Nova's auth surface (Google OAuth + the OAuth provider + API keys) runs no
  *    such flow — the OAuth provider and API-key plugins use no transactions,
  *    and only core's email/password sign-up does, which Nova does not enable.
- *    Single-use of authorization codes is preserved by Better Auth's in-process
- *    verification-consume lock plus PKCE binding, not by transaction isolation.
+ *
+ * 3. **Native atomic `consumeOne`.** Single-use consumption — authorization
+ *    codes, magic links, OTPs: everything that flows through Better Auth's
+ *    `consumeVerificationValue`. The adapter ships no native `consumeOne`, so
+ *    core synthesizes it as `findMany` + `deleteMany` by document id inside a
+ *    transaction — but the Firestore adapter special-cases the `id` field only
+ *    in `findMany`, not `deleteMany`. The delete then filters on a literal `id`
+ *    field that no document carries, matches nothing, and the synthesized
+ *    `consumeOne` returns null. At the OAuth token endpoint that surfaces as
+ *    `invalid_grant` / "invalid code" on every sign-in. This supplies a real
+ *    `consumeOne` backed by a Firestore transaction: locate the row by id (or
+ *    its equality locator), read it, delete it, return it. The transaction
+ *    makes the read-and-delete atomic, so a code is consumable exactly once
+ *    even across Cloud Run instances — exactly what Better Auth's own
+ *    `consumeOne` fallback error asks adapters to implement.
  */
 
 import type { firestoreAdapter } from "better-auth-firestore";
@@ -62,6 +75,8 @@ type AdapterInstance = ReturnType<AdapterFactory>;
 type IncrementOneFn = AdapterInstance["incrementOne"];
 type IncrementOneArgs = Parameters<IncrementOneFn>[0];
 type WhereClause = IncrementOneArgs["where"][number];
+type ConsumeOneFn = NonNullable<AdapterInstance["consumeOne"]>;
+type ConsumeOneArgs = Parameters<ConsumeOneFn>[0];
 
 /**
  * Collection-name overrides, mirroring the `firestoreAdapter` config so this
@@ -181,6 +196,62 @@ function toAppRow(data: Record<string, unknown>): Record<string, unknown> {
 	return out;
 }
 
+/**
+ * Locate the single row addressed by `where` inside transaction `tx`, ready for
+ * a guarded read-modify-write. `id` addresses a document directly — it's the doc
+ * id, not a stored field — so it can't be queried with `.where()`; any other
+ * model uses a unique equality field (the rate limiter's `key`, a verification's
+ * id). Remaining conditions are guards, enforced in JS so a row matched on its
+ * identity field can carry two range guards at once (Firestore forbids
+ * inequality filters on more than one field per query). Surfaces the document id
+ * as the `id` field so guards on it resolve. Returns null when nothing matches —
+ * no such row, or a guard missed because a concurrent writer moved it — which
+ * callers treat as "no row" / "retry". `op` names the calling primitive for the
+ * locate-condition error.
+ */
+async function locateGuardedRow(
+	tx: FirebaseFirestore.Transaction,
+	col: FirebaseFirestore.CollectionReference,
+	where: WhereClause[],
+	op: string,
+	model: string,
+): Promise<{
+	docRef: FirebaseFirestore.DocumentReference;
+	stored: Record<string, unknown>;
+	row: Record<string, unknown>;
+} | null> {
+	const idCondition = where.find((c) => c.field === "id");
+	let docRef: FirebaseFirestore.DocumentReference | undefined;
+	let stored: Record<string, unknown> | undefined;
+	if (
+		idCondition &&
+		(idCondition.operator ?? "eq") === "eq" &&
+		typeof idCondition.value === "string"
+	) {
+		docRef = col.doc(idCondition.value);
+		const doc = await tx.get(docRef);
+		stored = doc.exists ? doc.data() : undefined;
+	} else {
+		const identity = where.find(
+			(c) => c.field !== "id" && (c.operator ?? "eq") === "eq",
+		);
+		if (!identity)
+			throw new Error(
+				`Firestore ${op} needs an equality condition to locate the row (model "${model}").`,
+			);
+		const snap = await tx.get(
+			col.where(identity.field, "==", identity.value).limit(1),
+		);
+		const doc = snap.docs[0];
+		docRef = doc?.ref;
+		stored = doc?.data();
+	}
+	if (!docRef || !stored) return null;
+	const row = { id: docRef.id, ...stored };
+	if (!rowMatchesWhere(row, where)) return null;
+	return { docRef, stored, row };
+}
+
 function makeIncrementOne(
 	db: AdminFirestore,
 	collections: AuthCollections,
@@ -193,44 +264,15 @@ function makeIncrementOne(
 	}: IncrementOneArgs): Promise<Record<string, unknown> | null> => {
 		const col = collectionFor(db, model, collections);
 		return db.runTransaction(async (tx) => {
-			/* Locate the target row by its identity condition. `id` is the
-			 * document id (not a stored field), so it addresses a doc directly;
-			 * any other model uses a unique equality field (the rate limiter's
-			 * `key`). Remaining conditions are guards, checked in JS below. */
-			const idCondition = where.find((c) => c.field === "id");
-			let docRef: FirebaseFirestore.DocumentReference | undefined;
-			let stored: Record<string, unknown> | undefined;
-			if (
-				idCondition &&
-				(idCondition.operator ?? "eq") === "eq" &&
-				typeof idCondition.value === "string"
-			) {
-				docRef = col.doc(idCondition.value);
-				const doc = await tx.get(docRef);
-				stored = doc.exists ? doc.data() : undefined;
-			} else {
-				const identity = where.find(
-					(c) => c.field !== "id" && (c.operator ?? "eq") === "eq",
-				);
-				if (!identity)
-					throw new Error(
-						`Firestore incrementOne needs an equality condition to locate the row (model "${model}").`,
-					);
-				const snap = await tx.get(
-					col.where(identity.field, "==", identity.value).limit(1),
-				);
-				const doc = snap.docs[0];
-				docRef = doc?.ref;
-				stored = doc?.data();
-			}
-			if (!docRef || !stored) return null;
-
-			/* Surface the document id as the `id` field so guards on it resolve,
-			 * then enforce every guard. A miss means another writer moved the row
-			 * out from under the guard — the caller treats null as "retry". */
-			const row = { id: docRef.id, ...stored };
-			if (!rowMatchesWhere(row, where)) return null;
-
+			const located = await locateGuardedRow(
+				tx,
+				col,
+				where,
+				"incrementOne",
+				model,
+			);
+			if (!located) return null;
+			const { docRef, stored, row } = located;
 			const values = nextValues(stored, increment, set ?? {});
 			tx.update(docRef, toFirestoreWrite(values));
 			return { ...toAppRow(row), ...values };
@@ -242,15 +284,51 @@ function makeIncrementOne(
 }
 
 /**
+ * Native single-use `consumeOne` — atomically reads and deletes the located row
+ * inside one Firestore transaction, returning the consumed row (or null if it
+ * was already gone). The atomic read-and-delete is the single-use guarantee:
+ * concurrent token requests racing the same authorization code can't both
+ * observe-and-delete it, even across Cloud Run instances. Stands in for the
+ * adapter's missing native `consumeOne`, whose synthesized fallback can't delete
+ * by document id on this adapter (see this module's header).
+ */
+function makeConsumeOne(
+	db: AdminFirestore,
+	collections: AuthCollections,
+): ConsumeOneFn {
+	const consumeOne = async ({
+		model,
+		where,
+	}: ConsumeOneArgs): Promise<Record<string, unknown> | null> => {
+		const col = collectionFor(db, model, collections);
+		return db.runTransaction(async (tx) => {
+			const located = await locateGuardedRow(
+				tx,
+				col,
+				where,
+				"consumeOne",
+				model,
+			);
+			if (!located) return null;
+			tx.delete(located.docRef);
+			return toAppRow(located.row);
+		});
+	};
+	/* Bridge the adapter's generic `consumeOne` return to the concrete row, as
+	 * with `incrementOne` above. */
+	return consumeOne as ConsumeOneFn;
+}
+
+/**
  * Wraps a `firestoreAdapter` factory so the adapter Better Auth builds meets
  * core's full method contract — see this module's header for the two shims.
  *
- * Ordering is load-bearing: `incrementOne` is installed first so the as-is
- * `transaction` closure, which captures `adapter` by reference, hands the
- * patched adapter (native atomic `incrementOne` included) to every transaction
- * callback. `getCurrentAdapter()` resolves the same object, so a method called
- * via `trx` inside a transaction is the identical implementation as the direct
- * call.
+ * Ordering is load-bearing: the native primitives are installed first so the
+ * as-is `transaction` closure, which captures `adapter` by reference, hands the
+ * patched adapter (native atomic `incrementOne` and `consumeOne` included) to
+ * every transaction callback. `getCurrentAdapter()` resolves the same object, so
+ * a method called via `trx` inside a transaction is the identical implementation
+ * as the direct call.
  */
 export function withCompleteFirestoreAdapter(
 	factory: AdapterFactory,
@@ -260,6 +338,7 @@ export function withCompleteFirestoreAdapter(
 	return (options) => {
 		const adapter = factory(options);
 		adapter.incrementOne = makeIncrementOne(db, collections);
+		adapter.consumeOne = makeConsumeOne(db, collections);
 		/* Run transaction callbacks against the complete base adapter. The
 		 * adapter's native transaction exposes only create/update/findOne, so
 		 * core's transaction-scoped findMany/deleteMany/updateMany/count/
