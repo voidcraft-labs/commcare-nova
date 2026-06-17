@@ -67,12 +67,21 @@ describe("useBreadcrumbs", () => {
 						},
 					],
 				},
+				{
+					/* A bare case list — caseType, no forms, caseListOnly. The
+					 *  module IS its case list, so its breadcrumb collapses. */
+					uuid: "module-2-uuid",
+					name: "Villages",
+					caseType: "village",
+					caseListOnly: true,
+				},
 			],
 		}),
 	);
 	const state = store.getState();
 	const moduleUuid = state.moduleOrder[0];
 	const formUuid = state.formOrder[moduleUuid][0];
+	const bareCaseListUuid = state.moduleOrder[1];
 
 	function wrapperFn({ children }: { children: ReactNode }) {
 		return (
@@ -103,6 +112,42 @@ describe("useBreadcrumbs", () => {
 				key: `m:${moduleUuid}`,
 				label: "Patients",
 				location: { kind: "module", moduleUuid },
+			},
+		]);
+	});
+
+	it("at a form-bearing module's case list, shows [Home, Module, Case List]", () => {
+		mockSegments.current = [moduleUuid, "cases"];
+		const { result } = renderHook(() => useBreadcrumbs(), {
+			wrapper: wrapperFn,
+		});
+		expect(result.current).toEqual([
+			{ key: "home", label: "My App", location: { kind: "home" } },
+			{
+				key: `m:${moduleUuid}`,
+				label: "Patients",
+				location: { kind: "module", moduleUuid },
+			},
+			{
+				key: `cases:${moduleUuid}`,
+				label: "Case List",
+				location: { kind: "cases", moduleUuid },
+			},
+		]);
+	});
+
+	it("at a bare case list, collapses to [Home, Module→cases] with no Case List crumb", () => {
+		mockSegments.current = [bareCaseListUuid, "cases"];
+		const { result } = renderHook(() => useBreadcrumbs(), {
+			wrapper: wrapperFn,
+		});
+		expect(result.current).toEqual([
+			{ key: "home", label: "My App", location: { kind: "home" } },
+			{
+				key: `m:${bareCaseListUuid}`,
+				label: "Villages",
+				/* The module crumb IS the case list — no redundant trailing crumb. */
+				location: { kind: "cases", moduleUuid: bareCaseListUuid },
 			},
 		]);
 	});

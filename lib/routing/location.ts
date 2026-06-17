@@ -305,9 +305,21 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 	}
 
 	if (loc.kind === "module") return loc;
-	if (loc.kind === "cases") return loc;
-	if (loc.kind === "search-config") return loc;
-	if (loc.kind === "detail-config") return loc;
+
+	/* The three case-list workspace URLs require a case type — the workspace
+	 * renders nothing without one. If the module has no case type (e.g. it was
+	 * cleared, which also drops the caseListOnly viewer flag), fall back to the
+	 * module screen rather than stranding the user on a blank workspace. */
+	if (
+		loc.kind === "cases" ||
+		loc.kind === "search-config" ||
+		loc.kind === "detail-config"
+	) {
+		if (doc.modules[loc.moduleUuid]?.caseType === undefined) {
+			return { kind: "module", moduleUuid: loc.moduleUuid };
+		}
+		return loc;
+	}
 
 	/* loc.kind === "form" — walk inward: form, then selected field. */
 	if (doc.forms[loc.formUuid] === undefined) {

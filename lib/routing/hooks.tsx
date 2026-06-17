@@ -37,6 +37,7 @@ import {
 	useBlueprintDoc,
 	useBlueprintDocShallow,
 } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
 import { buildUrl, parsePathToLocation } from "@/lib/routing/location";
@@ -229,6 +230,11 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 	const formName = useBlueprintDoc((s) =>
 		formUuid ? s.forms[formUuid]?.name : undefined,
 	);
+	/* A bare case list (a `caseListOnly` module) has no module screen — it IS
+	 * its case list. Its module crumb points straight at the list, and the
+	 * intermediate "Case List" crumb is dropped (below) so the trail doesn't
+	 * restate the same destination twice. */
+	const moduleIsBareCaseList = useIsBareCaseListModule(moduleUuid);
 
 	return useMemo<BreadcrumbItem[]>(() => {
 		const items: BreadcrumbItem[] = [
@@ -238,7 +244,9 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 			items.push({
 				key: `m:${moduleUuid}`,
 				label: moduleName ?? "Module",
-				location: { kind: "module", moduleUuid },
+				location: moduleIsBareCaseList
+					? { kind: "cases", moduleUuid }
+					: { kind: "module", moduleUuid },
 			});
 		}
 		// The trailing crumb names the workspace tab, word-for-word
@@ -246,11 +254,15 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		// already carries the case-type context, so a "client search"-
 		// style prefix would just restate it in a different casing.
 		if (loc.kind === "cases") {
-			items.push({
-				key: `cases:${moduleUuid}`,
-				label: "Case List",
-				location: { kind: "cases", moduleUuid: loc.moduleUuid },
-			});
+			/* The module crumb already points at the list for a bare case
+			 * list, so this intermediate crumb would just repeat it. */
+			if (!moduleIsBareCaseList) {
+				items.push({
+					key: `cases:${moduleUuid}`,
+					label: "Case List",
+					location: { kind: "cases", moduleUuid: loc.moduleUuid },
+				});
+			}
 			if (loc.caseId) {
 				items.push({
 					key: `case:${loc.caseId}`,
@@ -285,7 +297,15 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 			});
 		}
 		return items;
-	}, [appName, loc, moduleUuid, formUuid, moduleName, formName]);
+	}, [
+		appName,
+		loc,
+		moduleUuid,
+		formUuid,
+		moduleName,
+		formName,
+		moduleIsBareCaseList,
+	]);
 }
 
 /**

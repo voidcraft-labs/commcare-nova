@@ -44,8 +44,11 @@ const MISSING_Q = asUuid("missing-q");
  */
 const doc: LocationDoc = {
 	modules: {
-		[MOD_A]: { uuid: MOD_A, name: "A" } as never,
-		[MOD_B]: { uuid: MOD_B, name: "B" } as never,
+		/* Both modules carry a case type so the case-list workspace URLs
+		 *  (`cases` / `search-config` / `detail-config`) recover as identity —
+		 *  the case-type-less degrade is exercised in its own describe below. */
+		[MOD_A]: { uuid: MOD_A, name: "A", caseType: "type_a" } as never,
+		[MOD_B]: { uuid: MOD_B, name: "B", caseType: "type_b" } as never,
 	},
 	forms: {
 		[FORM_A]: { uuid: FORM_A, name: "FA" } as never,
@@ -101,6 +104,30 @@ describe("recoverLocation — cases", () => {
 			caseId: "abc",
 		};
 		expect(recoverLocation(loc, doc)).toEqual({ kind: "home" });
+	});
+});
+
+describe("recoverLocation — case-list workspace without a case type", () => {
+	/* A module that lost its case type (cleared from the workspace gear, which
+	 * also drops the caseListOnly viewer flag) can't render the case-list
+	 * workspace — the three workspace URLs degrade to the module screen rather
+	 * than stranding the user on a blank canvas. */
+	const noCaseTypeDoc: LocationDoc = {
+		modules: { [MOD_A]: { uuid: MOD_A, name: "A" } as never },
+		forms: {},
+		fields: {},
+	};
+
+	it.each([
+		"cases",
+		"search-config",
+		"detail-config",
+	] as const)("%s on a case-type-less module → module", (kind) => {
+		const loc = { kind, moduleUuid: MOD_A } as Location;
+		expect(recoverLocation(loc, noCaseTypeDoc)).toEqual({
+			kind: "module",
+			moduleUuid: MOD_A,
+		});
 	});
 });
 
@@ -194,6 +221,8 @@ describe("recoverLocation — identity guarantee", () => {
 			{ kind: "module", moduleUuid: MOD_A },
 			{ kind: "cases", moduleUuid: MOD_A },
 			{ kind: "cases", moduleUuid: MOD_A, caseId: "x" },
+			{ kind: "search-config", moduleUuid: MOD_A },
+			{ kind: "detail-config", moduleUuid: MOD_A },
 			{ kind: "form", moduleUuid: MOD_A, formUuid: FORM_A },
 			{
 				kind: "form",

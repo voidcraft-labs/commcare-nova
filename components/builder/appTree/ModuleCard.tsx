@@ -100,7 +100,18 @@ export const ModuleCard = memo(function ModuleCard({
 		>
 			<TreeItemRow
 				className={`group pl-3 pr-3 py-2.5 flex items-center justify-between gap-2 ${locked ? "pointer-events-none" : "cursor-pointer"}`}
-				onClick={() => onSelect({ kind: "module", moduleUuid })}
+				// A `caseListOnly` module IS its case list (no forms anywhere in
+				// the app), so the module screen would be an empty form menu —
+				// open the case-list config instead. Selecting it still tints this
+				// row (useIsModuleSelected covers `cases`) AND borders the Case
+				// List & Search node below, so the two read as one unit.
+				onClick={() =>
+					onSelect(
+						mod.caseListOnly
+							? { kind: "cases", moduleUuid }
+							: { kind: "module", moduleUuid },
+					)
+				}
 			>
 				<div className="flex items-center gap-2 min-w-0">
 					<CollapseChevron

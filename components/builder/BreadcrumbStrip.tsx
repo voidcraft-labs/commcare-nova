@@ -25,7 +25,10 @@ import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
 import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
-import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
+import {
+	useIsBareCaseListModule,
+	useOrderedForms,
+} from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
@@ -74,6 +77,21 @@ export function BreadcrumbStrip() {
 			? loc.moduleUuid
 			: undefined;
 	const moduleForms = useOrderedForms((moduleUuid ?? "") as Uuid);
+	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
+
+	/* A bare case list has no module screen — its only ancestor is Home. From
+	 * the workspace root, `parentLocation` would send "up" to the (nonexistent)
+	 * module screen, which redirects straight back, so the up button would just
+	 * bounce. parentLocation is doc-free and can't know this, so reroute here.
+	 * A case detail (cases + caseId) keeps its normal parent (the list). */
+	const atBareCaseListRoot =
+		isBareCaseList &&
+		((loc.kind === "cases" && !loc.caseId) ||
+			loc.kind === "search-config" ||
+			loc.kind === "detail-config");
+	const onUp = atBareCaseListRoot
+		? () => navigate.goHome()
+		: () => navigate.up();
 
 	const effectiveBreadcrumbs: PreviewBreadcrumbItem[] = useMemo(() => {
 		if (!previewing) return breadcrumbs;
@@ -141,7 +159,7 @@ export function BreadcrumbStrip() {
 						canGoBack={canGoBack}
 						canGoUp={canGoUp}
 						onBack={() => navigate.back()}
-						onUp={() => navigate.up()}
+						onUp={onUp}
 					/>
 				)}
 				<CollapsibleBreadcrumb parts={breadcrumbParts} />
