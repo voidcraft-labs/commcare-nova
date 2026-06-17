@@ -89,12 +89,75 @@ function emit(payload: LogPayload): void {
 }
 
 /**
+ * Context keys promoted from free-form `extra` onto indexed Sentry tags,
+ * so an issue is filterable by the entity it happened to — every error on
+ * one app, for one user, in one CommCare domain. Tags are indexed and
+ * searchable in Sentry where `extra` is not. The allowlist is deliberately
+ * identity-shaped and small: promoting an unbounded value (a blueprint, an
+ * `args` array) would bloat Sentry's tag index. Anything not listed here
+ * still rides along in `extra`, so no detail is lost — only un-indexed.
+ * These names match the keys call sites already pass in their log context
+ * (`{ appId }`, `{ userId, appId }`, …), so promotion happens with no
+ * change to a single call site.
+ */
+const SENTRY_TAG_KEYS = [
+	"appId",
+	"ownerId",
+	"userId",
+	"runId",
+	"threadId",
+	"domain",
+	"assetId",
+	"clientId",
+] as const;
+
+/**
+ * Pull the leading `[component]` marker off a log message — the `[chat]` /
+ * `[mcp]` / `[commcare/upload]` prefix every server log line already
+ * carries — so Sentry issues filter by subsystem. Returns `undefined` for
+ * a message with no leading bracket (a few don't follow the convention).
+ */
+function sentryComponentTag(message: string): string | undefined {
+	const match = /^\[([^\]]+)\]/.exec(message);
+	return match?.[1];
+}
+
+/**
+ * Build the indexed Sentry tag set for one log entry from its `[component]`
+ * prefix plus the identity keys (`SENTRY_TAG_KEYS`) present in its context.
+ * Values are coerced to strings the same way Cloud Logging labels are, and
+ * `null` / `undefined` keys are skipped (call sites pass `userId: ctx ?? null`
+ * freely). Returns `undefined` when nothing is promotable so the capture
+ * omits an empty `tags` object. Exported for unit testing in isolation.
+ */
+export function sentryTagsFor(
+	message: string,
+	context: LogContext | undefined,
+): Record<string, string> | undefined {
+	const tags: Record<string, string> = {};
+	const component = sentryComponentTag(message);
+	if (component) tags.component = component;
+	if (context) {
+		for (const key of SENTRY_TAG_KEYS) {
+			const value = context[key];
+			if (value === undefined || value === null) continue;
+			tags[key] = typeof value === "string" ? value : JSON.stringify(value);
+		}
+	}
+	return Object.keys(tags).length > 0 ? tags : undefined;
+}
+
+/**
  * Mirror an error/critical entry to Sentry. `captureException` when the
  * caller passed a thrown value — Sentry fingerprints on its stack, which
  * groups far better than message text — and `captureMessage` otherwise.
  * The log message + context ride along as `extra` so the Sentry issue
- * carries the same detail as the Cloud Logging line. The SDK never
- * throws and no-ops when uninitialized (e.g. unit tests).
+ * carries the same detail as the Cloud Logging line; the identity-shaped
+ * subset is additionally promoted to indexed `tags` (see `sentryTagsFor`)
+ * so issues are filterable by app / user / run. The caller's request scope
+ * already carries the `Sentry.setUser` identity set in `lib/auth-utils.ts`
+ * / the MCP dispatcher, so this capture inherits the user automatically.
+ * The SDK never throws and no-ops when uninitialized (e.g. unit tests).
  */
 function captureToSentry(
 	level: "error" | "fatal",
@@ -102,7 +165,12 @@ function captureToSentry(
 	error: unknown,
 	context: LogContext | undefined,
 ): void {
-	const capture = { level, extra: { log_message: message, ...context } };
+	const tags = sentryTagsFor(message, context);
+	const capture = {
+		level,
+		extra: { log_message: message, ...context },
+		...(tags && { tags }),
+	};
 	if (error !== undefined) {
 		Sentry.captureException(error, capture);
 	} else {

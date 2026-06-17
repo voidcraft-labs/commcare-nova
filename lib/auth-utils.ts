@@ -12,6 +12,7 @@
 
 import { isValidIP, normalizeIP } from "@better-auth/core/utils/ip";
 import { FieldValue } from "@google-cloud/firestore";
+import * as Sentry from "@sentry/nextjs";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
@@ -20,6 +21,31 @@ import { ApiError } from "./apiError";
 import { getAuth, type Session } from "./auth";
 import { getDb } from "./db/firestore";
 import { log } from "./logger";
+
+// ── Sentry user attribution ─────────────────────────────────────────
+
+/**
+ * Attach the authenticated user to Sentry's per-request isolation scope so
+ * every event captured while serving this request — a thrown route error the
+ * SDK auto-instruments, or a `log.error` mirror from `lib/logger.ts` — is
+ * attributed to the person who hit it, by name and email rather than just an
+ * IP. Set at the two session choke points below (`getSessionSafe` for route
+ * handlers, `getSession` for Server Components) so no individual handler has
+ * to remember to.
+ *
+ * Email + name ship even though `sentry.server.config.ts` runs with
+ * `sendDefaultPii: false`: that flag governs only the PII the SDK harvests on
+ * its own (cookies, request headers, inferred IP) — an explicitly set user is
+ * always sent. This is the controlled inverse of why PII is off there: we ship
+ * the identity we choose, never the session cookie.
+ */
+function identifySentryUser(session: Session): void {
+	Sentry.setUser({
+		id: session.user.id,
+		email: session.user.email,
+		username: session.user.name,
+	});
+}
 
 // ── Caller IP ───────────────────────────────────────────────────────
 
@@ -176,6 +202,7 @@ export async function requireAdmin(req: Request): Promise<Session> {
 export async function getSessionSafe(req: Request): Promise<Session | null> {
 	try {
 		const result = await getAuth().api.getSession({ headers: req.headers });
+		if (result) identifySentryUser(result);
 		return result ?? null;
 	} catch {
 		return null;
@@ -204,9 +231,10 @@ export const getSession = cache(async (): Promise<Session | null> => {
 	 * session read hangs indefinitely in Cloud Build where there's no database. */
 	await connection();
 	try {
-		return (
-			(await getAuth().api.getSession({ headers: await headers() })) ?? null
-		);
+		const session =
+			(await getAuth().api.getSession({ headers: await headers() })) ?? null;
+		if (session) identifySentryUser(session);
+		return session;
 	} catch {
 		return null;
 	}
