@@ -23,6 +23,29 @@ export default defineConfig({
 		// `lib/case-store/sql/__tests__/globalSetup.ts` for the
 		// container-per-run + per-test BEGIN/ROLLBACK contract.
 		globalSetup: ["./lib/case-store/sql/__tests__/globalSetup.ts"],
+		// Files whose change must force the WHOLE suite to run under the
+		// CI async-leak gate. That gate (`.github/workflows/ci.yml`) runs
+		// `vitest --changed`, which otherwise restricts the run to test
+		// files whose module import graph the PR touched — sound for leaks,
+		// since the detector attributes every leaked resource to the single
+		// test file that created it (no cross-file leak), so an unchanged
+		// graph yields a byte-identical run. The inputs below sit OUTSIDE
+		// every test's import graph yet change how all of them execute
+		// (installed deps — including a lockfile-only bump that leaves
+		// package.json untouched — this config, the global logger/motion
+		// stubs, the shared Postgres container), so a change to any one
+		// invalidates that optimization and must re-sweep everything.
+		// Patterns match the absolute paths `vitest --changed` feeds
+		// picomatch; note the no-trailing-`/**` form — vitest's own default
+		// trigger appends `/**`, which silently fails to match a bare config
+		// file there.
+		forceRerunTriggers: [
+			"**/package.json",
+			"**/package-lock.json",
+			"**/{vitest,vite}.config.*",
+			"**/vitest.setup.ts",
+			"**/lib/case-store/sql/__tests__/globalSetup.ts",
+		],
 		// Container boot is the long pole. 60 s default test timeout
 		// applies to test bodies, not to globalSetup itself; raising
 		// `hookTimeout` covers fixtures that touch the container.
