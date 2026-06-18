@@ -1101,7 +1101,7 @@ export const PromptInputSubmit = ({
 		<InputGroupButton
 			aria-label={isGenerating ? "Stop" : "Submit"}
 			className={cn(
-				"text-nova-violet-bright transition-colors hover:text-white disabled:opacity-30",
+				"text-nova-violet-bright transition-colors hover:text-white disabled:opacity-40",
 				className,
 			)}
 			onClick={handleClick}

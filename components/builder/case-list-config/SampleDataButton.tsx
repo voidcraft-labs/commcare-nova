@@ -31,7 +31,7 @@ export function GenerateSampleDataButton({
 				type="button"
 				onClick={generate.run}
 				disabled={running}
-				className={`inline-flex items-center justify-center gap-2 px-4 min-h-11 text-[13px] font-medium rounded-lg bg-nova-violet/[0.15] border border-nova-violet/[0.35] text-nova-violet-bright hover:bg-nova-violet/[0.25] transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${className}`}
+				className={`inline-flex items-center justify-center gap-2 px-4 min-h-11 text-[13px] font-medium rounded-lg bg-nova-violet/[0.15] border border-nova-violet/[0.35] text-nova-violet-bright hover:bg-nova-violet/[0.25] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
 			>
 				<Icon
 					icon={running ? tablerLoader2 : tablerSparkles}

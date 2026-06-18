@@ -1075,7 +1075,7 @@ function MintForm({
 				<button
 					type="submit"
 					disabled={!canSubmit}
-					className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-nova-violet px-4 py-1.5 text-sm font-medium text-white outline-none transition-all hover:bg-nova-violet/90 focus-visible:ring-1 focus-visible:ring-nova-violet-bright disabled:cursor-not-allowed disabled:opacity-40"
+					className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-nova-action px-4 py-1.5 text-sm font-medium text-white outline-none transition-all hover:bg-nova-action-hover focus-visible:ring-1 focus-visible:ring-nova-violet-bright disabled:cursor-not-allowed disabled:opacity-40"
 				>
 					{submitting && (
 						<Icon
@@ -1198,7 +1198,7 @@ function RevealedKey({
 				<button
 					type="button"
 					onClick={onAcknowledge}
-					className="rounded-md bg-nova-violet px-4 py-1.5 text-sm font-medium text-white transition-all hover:bg-nova-violet/90"
+					className="rounded-md bg-nova-action px-4 py-1.5 text-sm font-medium text-white transition-all hover:bg-nova-action-hover"
 				>
 					I've saved this key
 				</button>
@@ -1358,7 +1358,7 @@ function EditScopesDialog({
 							type="button"
 							onClick={handleSave}
 							disabled={!dirty || submitting}
-							className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-nova-violet px-4 py-1.5 text-sm font-medium text-white outline-none transition-all hover:bg-nova-violet/90 focus-visible:ring-1 focus-visible:ring-nova-violet-bright disabled:cursor-not-allowed disabled:opacity-40"
+							className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-nova-action px-4 py-1.5 text-sm font-medium text-white outline-none transition-all hover:bg-nova-action-hover focus-visible:ring-1 focus-visible:ring-nova-violet-bright disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							{submitting && (
 								<Icon

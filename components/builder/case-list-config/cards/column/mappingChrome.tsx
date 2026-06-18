@@ -91,7 +91,7 @@ export function MappingRowShell({
 						aria-label="Move entry up"
 						onClick={onMoveUp}
 						disabled={isFirst}
-						className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-violet-bright hover:bg-white/[0.05] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+						className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-violet-bright hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
 					>
 						<Icon icon={tablerArrowUp} width="13" height="13" />
 					</button>
@@ -102,7 +102,7 @@ export function MappingRowShell({
 						aria-label="Move entry down"
 						onClick={onMoveDown}
 						disabled={isLast}
-						className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-violet-bright hover:bg-white/[0.05] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+						className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-violet-bright hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
 					>
 						<Icon icon={tablerArrowDown} width="13" height="13" />
 					</button>

@@ -39,7 +39,7 @@ export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {
 				aria-pressed={previewing}
 				className={`inline-flex items-center gap-2 px-4 min-h-11 rounded-lg text-[13px] font-semibold whitespace-nowrap cursor-pointer border transition-all ${
 					previewing
-						? "bg-nova-violet border-nova-violet text-white shadow-[0_0_16px_rgba(139,92,246,0.4)]"
+						? "bg-nova-action border-nova-action text-white shadow-[0_0_16px_rgba(79,70,229,0.4)]"
 						: "bg-nova-violet/[0.12] border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.2]"
 				}`}
 			>

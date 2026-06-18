@@ -467,7 +467,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				<button
 					type="button"
 					onClick={() => proceedWithCase(openCase)}
-					className="mt-4 inline-flex items-center gap-2 px-4 min-h-11 rounded-lg bg-nova-violet text-white text-[13px] font-semibold hover:brightness-110 transition-all cursor-pointer"
+					className="mt-4 inline-flex items-center gap-2 px-4 min-h-11 rounded-lg bg-pv-accent text-white text-[13px] font-semibold hover:brightness-110 transition-all cursor-pointer"
 				>
 					Continue
 					<Icon icon={tablerArrowRight} width="15" height="15" />

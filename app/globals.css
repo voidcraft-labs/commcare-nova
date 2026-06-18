@@ -32,24 +32,40 @@
 	   than --nova-text-secondary, so the three-step text hierarchy holds. */
 	--nova-text-muted: #8888aa;
 
-	/* Filled-surface violet. Darkened from #8b5cf6 so white/light text on a
-	   solid violet fill (primary buttons, badges, pills) clears AA — the old
-	   value gave white only 4.23:1. Borders and glows keep the lighter brand
-	   rgba(139,92,246,...) since a low-alpha edge reads as a highlight, not a
-	   text-bearing surface. --nova-violet-bright stays light for violet *text*
-	   and links, where the contrast requirement runs the opposite direction. */
-	--nova-violet: #7c54de;
+	/* Brand violet — the single non-semantic accent (borders, glows, the logo,
+	   violet-tinted fills, selected states). NOT used as a fill behind white text:
+	   white on #8b5cf6 is only 4.23:1. White-text CTAs use --nova-action instead;
+	   violet text and links use --nova-violet-bright. */
+	--nova-violet: #8b5cf6;
 	--nova-violet-bright: #a78bfa;
-	/* Hover fill for filled violet controls — one clear step DARKER than the base
-	   fill (white text 6.36:1, ~1.26:1 lighter↔darker distance from the base so
-	   the state actually reads). The fill can't lighten meaningfully on hover and
-	   keep white legible — white only clears AA on violets up to ~#8558ec — so the
-	   hover deepens instead. Replaces hover:bg-nova-violet-bright, which lifted the
-	   fill to #a78bfa where white dropped to 2.72:1. */
-	--nova-violet-hover: #6b48bf;
+	/* Hover for filled violet controls = the base mixed one interaction step
+	   (14%) toward black in oklab. See the interaction-state model below: every
+	   solid-fill hover uses this same perceptual step so the hover distance reads
+	   identically regardless of the fill's color. */
+	--nova-violet-hover: color-mix(in oklab, var(--nova-violet), black 14%);
 	/* Faint violet wash for decorative fills (skeleton shimmer midpoint, editor
 	   active-line). Consolidates the repeated rgba(139,92,246,0.06) literals. */
 	--nova-violet-wash: rgba(139, 92, 246, 0.06);
+
+	/* ── Interaction-state model ─────────────────────────────────────────
+	 * State distance is measured in perceptual lightness (oklab L), so a step
+	 * looks like the same amount of change on any color — WCAG relative
+	 * luminance is NOT perceptually uniform and is wrong for this. Two families:
+	 *   • Solid fills (buttons): hover = base mixed 14% toward black in oklab
+	 *     (one step darker — white text stays legible; lightening can't, since
+	 *     white only clears AA on light fills up to a point). See *-hover tokens.
+	 *   • Foreground icon/text controls: a 3-rung ladder, ~0.3 oklab L apart at
+	 *     each step — idle = text-nova-text-muted, hover = text-nova-text,
+	 *     disabled = idle at opacity 0.40.
+	 * Disabled everywhere = opacity 0.40 (one value; opacity is the universal,
+	 * color-independent "inactive" signal). */
+
+	/* Primary action / CTA fill — indigo. Distinct from the brand violet accent
+	   yet cohesive on the dark theme, and dark enough to carry white text at AA
+	   (6.29:1). Drives Nova-chrome CTAs (the previewed CommCare app keeps violet
+	   via --pv-accent). */
+	--nova-action: #4f46e5;
+	--nova-action-hover: color-mix(in oklab, var(--nova-action), black 14%);
 	--nova-emerald: #86cebc;
 	--nova-amber: #d4a76a;
 	--nova-rose: #d4708f;
@@ -73,7 +89,7 @@
 	--pv-input-bg: #10102a;
 	--pv-input-border: rgba(139, 92, 246, 0.2);
 	--pv-input-focus: rgba(139, 92, 246, 0.4);
-	--pv-accent: var(--nova-violet);
+	--pv-accent: color-mix(in oklab, var(--nova-violet), black 14%);
 	--pv-accent-bright: var(--nova-violet-bright);
 	--background: oklch(1 0 0);
 	--foreground: oklch(0.145 0 0);
@@ -126,6 +142,8 @@
 	--color-nova-violet: var(--nova-violet);
 	--color-nova-violet-bright: var(--nova-violet-bright);
 	--color-nova-violet-hover: var(--nova-violet-hover);
+	--color-nova-action: var(--nova-action);
+	--color-nova-action-hover: var(--nova-action-hover);
 	--color-nova-emerald: var(--nova-emerald);
 	--color-nova-amber: var(--nova-amber);
 	--color-nova-rose: var(--nova-rose);
@@ -695,7 +713,7 @@ body {
 	--pv-input-bg: #10102a;
 	--pv-input-border: rgba(139, 92, 246, 0.2);
 	--pv-input-focus: rgba(139, 92, 246, 0.4);
-	--pv-accent: var(--nova-violet);
+	--pv-accent: color-mix(in oklab, var(--nova-violet), black 14%);
 	--pv-accent-bright: var(--nova-violet-bright);
 }
 
@@ -1060,7 +1078,7 @@ html.dark {
 	--card-foreground: var(--nova-text);
 	--popover: var(--nova-deep);
 	--popover-foreground: var(--nova-text);
-	--primary: var(--nova-violet);
+	--primary: var(--nova-action);
 	--primary-foreground: #ffffff;
 	--secondary: var(--nova-surface);
 	--secondary-foreground: var(--nova-text);

@@ -61,7 +61,7 @@ export function ImpersonationBanner({
 				type="button"
 				onClick={handleStopImpersonating}
 				disabled={loading}
-				className="ml-1 flex items-center gap-1 rounded-md bg-nova-orchid/15 px-2 py-0.5 text-xs font-medium transition-colors hover:bg-nova-orchid/25 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+				className="ml-1 flex items-center gap-1 rounded-md bg-nova-orchid/15 px-2 py-0.5 text-xs font-medium transition-colors hover:bg-nova-orchid/25 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
 			>
 				<Icon icon={tablerArrowBackUp} width="14" height="14" />
 				{loading ? "Switching..." : "Switch back"}

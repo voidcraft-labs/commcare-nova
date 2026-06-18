@@ -129,7 +129,7 @@ function SampleDataControls({
 	const [confirmingReset, setConfirmingReset] = useState(false);
 
 	const buttonCls =
-		"inline-flex items-center justify-center gap-1.5 px-3 min-h-11 text-xs rounded-lg border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
+		"inline-flex items-center justify-center gap-1.5 px-3 min-h-11 text-xs rounded-lg border transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed";
 
 	return (
 		<div className="space-y-2">

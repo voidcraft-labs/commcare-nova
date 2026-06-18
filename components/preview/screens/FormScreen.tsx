@@ -454,7 +454,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 								type="button"
 								onClick={autoGenerate.run}
 								disabled={autoGenerate.status.kind === "running"}
-								className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
+								className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
 							>
 								<Icon
 									icon={
@@ -481,7 +481,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 								type="button"
 								onClick={handleSubmit}
 								disabled={submitStatus.kind === "running" || caseMissing}
-								className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+								className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
 							>
 								{submitStatus.kind === "running" && (
 									<Icon
@@ -497,7 +497,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 								type="button"
 								onClick={handleClear}
 								disabled={submitStatus.kind === "running"}
-								className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer rounded-lg disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+								className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer rounded-lg disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
 							>
 								<Icon icon={tablerRefresh} width="14" height="14" />
 								Clear form

@@ -284,7 +284,7 @@ function DownloadOriginal({
 			<a
 				href={src}
 				download={name}
-				className="inline-flex items-center gap-1.5 rounded-md bg-nova-violet px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright"
+				className="inline-flex items-center gap-1.5 rounded-md bg-nova-action px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright"
 			>
 				<Icon icon={tablerDownload} className="size-4" />
 				Download original

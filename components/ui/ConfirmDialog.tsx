@@ -84,7 +84,7 @@ export function ConfirmDialog({
 								className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
 									confirmVariant === "danger"
 										? "bg-nova-rose text-nova-void hover:brightness-110"
-										: "bg-nova-violet text-white hover:brightness-110"
+										: "bg-nova-action text-white hover:brightness-110"
 								}`}
 							>
 								{confirmLabel}

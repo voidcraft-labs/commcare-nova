@@ -26,7 +26,14 @@ Pages are Server Components; the server layout is the auth gate (`requireAuth` /
 
 Dark "Violet Monochrome": violet is the single non-semantic accent; success / warning / error hues are reserved for semantic states, never decoration. Every color is a CSS custom property in `globals.css`; never hardcode one — if a one-off color appears, promote it to a token (reuse one, or add a new `--nova-*`). Z-index is a semantic token scale — use the Tailwind classes that reference it.
 
-**Contrast is calibrated into the tokens (WCAG 2.2 AA, 4.5:1 — the theme is dark-only, so every text token must clear it on every surface).** Two rules keep it that way:
+**Contrast is calibrated into the tokens (WCAG 2.2 AA, 4.5:1 — the theme is dark-only, so every text token must clear it on every surface).** The rules that keep it that way:
 
-- **Violet has two roles.** `--nova-violet` is the *fill* (it's dark enough to carry white text — primary buttons, badges; hover lifts to `--nova-violet-hover`, still white-safe). `--nova-violet-bright` is the *text/link* color. Never swap them: violet-as-text must be `bright` (the fill is too dark to read on a dark surface), and white text must never sit on `violet-bright` (too light). The other accents (rose/emerald/amber/orchid) are all *light* — as a fill they carry **dark** text (`text-nova-void`), never white.
-- **Don't fade text with opacity.** `text-nova-*/NN` and `opacity-*` on a text element drop it below AA on dark surfaces — use a solid token (`text` → `secondary` → `muted`) for de-emphasis instead. Opacity dimming is only acceptable on genuinely inactive/disabled affordances (which WCAG exempts).
+- **Brand violet ≠ CTA fill.** `--nova-violet` (#8b5cf6) is the brand *accent* only — borders, glows, the logo, violet-tinted fills, selected states, dots. It is never a fill behind white text (white on it is 4.23:1). White-text CTAs use **`--nova-action`** (indigo, distinct from the brand yet cohesive). Violet *text/links* use `--nova-violet-bright`. The previewed CommCare app keeps violet for its own buttons via `--pv-accent` (a white-safe darkened violet) — that's the user's app, not Nova chrome.
+- **Light accents carry dark text.** rose / emerald / amber / orchid (and violet-bright) are light — as a fill they take **dark** text (`text-nova-void`), never white.
+- **Don't fade text with opacity.** `text-nova-*/NN` and `opacity-*` on a text element drop it below AA on dark surfaces — use a solid token (`text` → `secondary` → `muted`) for de-emphasis instead. Opacity dimming is only for genuinely inactive/disabled affordances (which WCAG exempts).
+
+**Interaction states** are measured in *perceptual lightness* (oklab L — WCAG relative luminance is not perceptually uniform, so a fixed luminance/contrast step looks uneven across colors). The model is color-independent:
+
+- **Solid-fill hover** = the base mixed one step (14%) toward black in oklab — `--*-hover` tokens are derived with `color-mix(in oklab, <base>, black 14%)`, so every fill's hover reads as the same perceptual darken regardless of color. (Fills darken, not lighten: white text can't survive lightening a light fill.)
+- **Foreground icon/text controls** use a 3-rung ladder ~0.3 oklab L apart at each step: idle `text-nova-text-muted` → hover `text-nova-text` → disabled = idle at `opacity-40`.
+- **Disabled = `opacity-40` everywhere** (one value; opacity is the universal, color-independent "inactive" signal). Don't reintroduce 30/50/60.

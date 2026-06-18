@@ -1025,7 +1025,7 @@ function DialogBody({
 							type="button"
 							onClick={confirm}
 							disabled={!canConfirm}
-							className="rounded-lg bg-nova-violet px-3 py-1.5 text-xs font-medium text-white transition-colors enabled:cursor-pointer enabled:hover:brightness-110 disabled:opacity-40"
+							className="rounded-lg bg-nova-action px-3 py-1.5 text-xs font-medium text-white transition-colors enabled:cursor-pointer enabled:hover:brightness-110 disabled:opacity-40"
 						>
 							Enable Connect
 						</button>
