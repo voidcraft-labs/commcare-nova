@@ -429,7 +429,7 @@ export function DraftField({
 	// Tones match the form-settings `InlineField` exactly so the two share one
 	// visual language (this is a controlled field; that one blur-commits).
 	const base =
-		"w-full text-xs rounded-md border px-2 py-1.5 outline-none transition-colors placeholder:text-nova-text-muted/60";
+		"w-full text-xs rounded-md border px-2 py-1.5 outline-none transition-colors placeholder:text-nova-text-muted";
 	const tone = error
 		? "border-nova-rose/60 bg-nova-surface shadow-[0_0_0_1px_rgba(212,112,143,0.15)]"
 		: "border-white/[0.06] bg-nova-deep/50 hover:border-nova-violet/30 focus:border-nova-violet/50 focus:bg-nova-surface focus:shadow-[0_0_0_1px_rgba(139,92,246,0.1)]";
@@ -480,7 +480,7 @@ export function DraftField({
 			{error ? (
 				<p className="mt-1 text-[10px] text-nova-rose">{error}</p>
 			) : hint ? (
-				<p className="mt-1 text-[10px] leading-snug text-nova-text-muted/70">
+				<p className="mt-1 text-[10px] leading-snug text-nova-text-muted">
 					{hint}
 				</p>
 			) : null}
@@ -1025,7 +1025,7 @@ function DialogBody({
 							type="button"
 							onClick={confirm}
 							disabled={!canConfirm}
-							className="rounded-lg bg-nova-violet px-3 py-1.5 text-xs font-medium text-white transition-colors enabled:cursor-pointer enabled:hover:brightness-110 disabled:opacity-40"
+							className="rounded-lg bg-nova-action px-3 py-1.5 text-xs font-medium text-white transition-colors enabled:cursor-pointer enabled:hover:brightness-110 disabled:opacity-40"
 						>
 							Enable Connect
 						</button>

@@ -52,7 +52,7 @@ export function IsNullCard({ value, onChange, path }: IsNullCardProps) {
 				</div>
 				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
-			<div className="text-[11px] text-nova-text-muted/70 leading-snug">
+			<div className="text-[11px] text-nova-text-muted leading-snug">
 				Matches only when the property has never been written. The empty string
 				is treated as a value, not absence.
 			</div>

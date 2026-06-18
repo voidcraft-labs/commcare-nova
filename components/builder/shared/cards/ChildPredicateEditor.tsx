@@ -307,7 +307,7 @@ function KindReplaceMenu({ currentValue, onChange }: KindReplaceMenuProps) {
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label="Change card type"
-				className="group flex items-center gap-1 px-2 min-h-11 text-[10px] uppercase tracking-wider rounded-md text-nova-text-muted/60 hover:text-nova-violet-bright hover:bg-white/[0.04] transition-colors cursor-pointer"
+				className="group flex items-center gap-1 px-2 min-h-11 text-[10px] uppercase tracking-wider rounded-md text-nova-text-muted hover:text-nova-violet-bright hover:bg-white/[0.04] transition-colors cursor-pointer"
 			>
 				<span>Change</span>
 				<svg
@@ -390,7 +390,7 @@ function KindReplaceMenu({ currentValue, onChange }: KindReplaceMenuProps) {
 										<div
 											className={`text-[10px] truncate ${
 												isCurrent
-													? "text-nova-violet-bright/60"
+													? "text-nova-violet-bright"
 													: "text-nova-text-muted"
 											}`}
 										>

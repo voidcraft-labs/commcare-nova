@@ -745,7 +745,7 @@ export function PredicateVerbMenu({
 					<div className="truncate">{entry.label}</div>
 					<div
 						className={`text-[11px] truncate ${
-							isCurrent ? "text-nova-violet-bright/60" : "text-nova-text-muted"
+							isCurrent ? "text-nova-violet-bright" : "text-nova-text-muted"
 						}`}
 					>
 						{admitted || reason === undefined ? entry.description : reason}
@@ -770,7 +770,7 @@ export function PredicateVerbMenu({
 				aria-label={`Condition: ${currentVerbLabel(value)}`}
 				className={`group flex items-center gap-1.5 px-3 min-h-11 text-[13px] rounded-lg border bg-nova-deep/50 transition-colors cursor-pointer @max-md:justify-self-start ${
 					invalid
-						? "border-nova-rose/40 text-nova-rose/90 hover:border-nova-rose/60"
+						? "border-nova-rose/40 text-nova-rose hover:border-nova-rose/60"
 						: "border-white/[0.06] text-nova-violet-bright hover:border-nova-violet/30"
 				}`}
 			>

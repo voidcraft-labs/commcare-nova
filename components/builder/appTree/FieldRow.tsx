@@ -147,7 +147,7 @@ export const FieldRow = memo(function FieldRow({
 				{showIdMatch ? (
 					<span className="flex items-center gap-1.5 min-w-0 flex-1">
 						<span
-							className={`truncate shrink ${hasChildren ? "font-medium text-[#b8b8dd]" : ""}`}
+							className={`truncate shrink ${hasChildren ? "font-medium text-nova-text" : ""}`}
 						>
 							{textIndices ? (
 								<HighlightedText text={displayText} indices={textIndices} />
@@ -162,7 +162,7 @@ export const FieldRow = memo(function FieldRow({
 					</span>
 				) : (
 					<span
-						className={`truncate ${hasChildren ? "font-medium text-[#b8b8dd]" : ""}`}
+						className={`truncate ${hasChildren ? "font-medium text-nova-text" : ""}`}
 					>
 						{textIndices ? (
 							<HighlightedText text={displayText} indices={textIndices} />

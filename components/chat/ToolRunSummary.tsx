@@ -86,7 +86,7 @@ function ToolCallRow({
 						<div
 							className={cn(
 								"mt-0.5 whitespace-pre-wrap break-words text-nova-text-muted",
-								status === "failed" && "text-nova-rose/90",
+								status === "failed" && "text-nova-rose",
 							)}
 						>
 							{detail}
@@ -105,7 +105,7 @@ function ToolCallRow({
 function ValidateErrors({ errors }: { errors: string[] }) {
 	return (
 		<Collapsible className="mt-1">
-			<CollapsibleTrigger className="group flex cursor-pointer items-center gap-1 text-left text-nova-rose/90 text-xs">
+			<CollapsibleTrigger className="group flex cursor-pointer items-center gap-1 text-left text-nova-rose text-xs">
 				<Icon
 					className="size-3.5 shrink-0 transition-transform group-data-[panel-open]:rotate-180"
 					icon={tablerChevronDown}
@@ -113,7 +113,7 @@ function ValidateErrors({ errors }: { errors: string[] }) {
 				{errors.length} {errors.length === 1 ? "issue" : "issues"} found
 			</CollapsibleTrigger>
 			<CollapsibleContent>
-				<ul className="mt-1 list-disc space-y-1 pl-4 text-nova-rose/90 text-xs marker:text-nova-rose/50">
+				<ul className="mt-1 list-disc space-y-1 pl-4 text-nova-rose text-xs marker:text-nova-rose">
 					{errors.map((error, i) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: static error list for one render; messages can legitimately repeat across forms
 						<li className="break-words" key={i}>

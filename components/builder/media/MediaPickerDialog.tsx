@@ -547,7 +547,7 @@ function UploadTab({
 					type="button"
 					onClick={() => inputRef.current?.click()}
 					disabled={status.state === "uploading"}
-					className="rounded-md bg-nova-violet px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright disabled:opacity-50"
+					className="rounded-md bg-nova-action px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright disabled:opacity-40"
 				>
 					{status.state === "uploading" ? "Uploading…" : "Browse files"}
 				</button>
@@ -566,7 +566,7 @@ function UploadTab({
 			    accepts; anything else is filtered out here and in the
 			    library. */}
 				<div className="flex flex-col gap-1 pt-1">
-					<span className="text-center text-[10px] uppercase tracking-wider text-nova-text-muted/70">
+					<span className="text-center text-[10px] uppercase tracking-wider text-nova-text-muted">
 						{kinds.length === 1 ? "Supported format" : "Supported formats"}
 					</span>
 					{kinds.map((kind) => {
@@ -798,7 +798,7 @@ function LibraryTab({
 					type="button"
 					onClick={loadMore}
 					disabled={isLoading}
-					className="self-center rounded-md border border-nova-border px-3 py-1 text-xs text-nova-text-muted transition-colors hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:opacity-50"
+					className="self-center rounded-md border border-nova-border px-3 py-1 text-xs text-nova-text-muted transition-colors hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:opacity-40"
 				>
 					{isLoading ? "Loading…" : "Load more"}
 				</button>
@@ -825,7 +825,7 @@ function FilterChip({
 			onClick={onClick}
 			className={`rounded-full px-2.5 py-0.5 text-xs transition-colors focus-visible:outline-1 focus-visible:outline-nova-violet-bright ${
 				active
-					? "bg-nova-violet text-white"
+					? "bg-nova-action text-white"
 					: "bg-nova-surface text-nova-text-muted hover:text-nova-text"
 			}`}
 		>
@@ -894,7 +894,7 @@ function MediaDeleteConfirmDialog({
 					<div className="mt-4 flex justify-end gap-2">
 						<AlertDialog.Close
 							disabled={deleting}
-							className="rounded-md border border-nova-border px-3 py-1.5 text-sm text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:opacity-50"
+							className="rounded-md border border-nova-border px-3 py-1.5 text-sm text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:opacity-40"
 						>
 							Cancel
 						</AlertDialog.Close>
@@ -902,7 +902,7 @@ function MediaDeleteConfirmDialog({
 							type="button"
 							onClick={onConfirm}
 							disabled={deleting}
-							className="rounded-md bg-nova-rose px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-rose disabled:opacity-50"
+							className="rounded-md bg-nova-rose px-3 py-1.5 text-sm font-medium text-nova-void transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-rose disabled:opacity-40"
 						>
 							{deleting ? "Deleting…" : "Delete"}
 						</button>

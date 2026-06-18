@@ -46,7 +46,7 @@ export function IsBlankCard({ value, onChange, path }: IsBlankCardProps) {
 				</div>
 				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
-			<div className="text-[11px] text-nova-text-muted/70 leading-snug">
+			<div className="text-[11px] text-nova-text-muted leading-snug">
 				Matches when the property is missing or set to the empty string.
 			</div>
 		</div>

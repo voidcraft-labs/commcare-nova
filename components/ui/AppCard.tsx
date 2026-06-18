@@ -131,7 +131,7 @@ export function AppCard({
 				</h3>
 				<p className="text-sm text-nova-text-secondary mt-1 flex items-center gap-3">
 					{isFailed ? (
-						<span className="text-nova-rose/70">Generation failed</span>
+						<span className="text-nova-rose">Generation failed</span>
 					) : (
 						<>
 							<RelativeTime date={updatedAt} />
@@ -207,7 +207,7 @@ export function AppCard({
 										e.stopPropagation();
 										handleReplay();
 									}}
-									className="p-1.5 text-nova-text-muted hover:text-nova-violet transition-colors rounded-md hover:bg-nova-violet/10 cursor-pointer"
+									className="p-1.5 text-nova-text-muted hover:text-white transition-colors rounded-md hover:bg-nova-violet/10 cursor-pointer"
 									aria-label="Replay generation"
 								>
 									<Icon icon={tablerPlayerPlay} width="18" height="18" />

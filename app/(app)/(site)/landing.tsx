@@ -143,7 +143,7 @@ export function Landing({ signInError }: LandingProps) {
 						type="button"
 						onClick={signInWithGoogle}
 						disabled={signingIn}
-						className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white text-gray-800 font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
+						className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white text-gray-800 font-medium rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-sm"
 					>
 						<GoogleLogo />
 						{signingIn ? "Redirecting..." : "Sign in with Google"}

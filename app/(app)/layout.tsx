@@ -31,7 +31,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 			{/* Skip link — visually hidden until focused, jumps keyboard users past the header chrome. */}
 			<a
 				href="#main-content"
-				className="sr-only focus:not-sr-only focus:absolute focus:z-system focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:rounded-lg focus:bg-nova-violet focus:text-white focus:text-sm focus:font-medium focus:outline-none"
+				className="sr-only focus:not-sr-only focus:absolute focus:z-system focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:rounded-lg focus:bg-nova-action focus:text-white focus:text-sm focus:font-medium focus:outline-none"
 			>
 				Skip to main content
 			</a>

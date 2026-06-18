@@ -77,7 +77,7 @@ function GetStarted() {
 			</p>
 			<Link
 				href="/build/new"
-				className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-lg bg-nova-violet text-white hover:bg-nova-violet-bright shadow-[var(--nova-glow-violet)] transition-all duration-200"
+				className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-lg bg-nova-action text-white hover:bg-nova-action-hover shadow-[var(--nova-glow-violet)] transition-all duration-200"
 			>
 				<Icon icon={tablerSparkles} width="16" height="16" />
 				Get Started

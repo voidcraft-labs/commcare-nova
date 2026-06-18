@@ -107,7 +107,7 @@ export function CardShell({
 						type="button"
 						ref={dragHandleRef}
 						aria-label="Drag to reorder"
-						className="size-11 -ml-2.5 grid place-items-center rounded-md cursor-grab text-nova-text-muted/50 hover:text-nova-text-muted transition-colors"
+						className="size-11 -ml-2.5 grid place-items-center rounded-md cursor-grab text-nova-text-muted hover:text-nova-text-muted transition-colors"
 					>
 						<Icon icon={tablerGripVertical} width="14" height="14" />
 					</button>
@@ -117,13 +117,13 @@ export function CardShell({
 					icon={icon}
 					width="14"
 					height="14"
-					className="text-nova-violet-bright/80"
+					className="text-nova-violet-bright"
 				/>
-				<span className="text-[10px] font-semibold uppercase tracking-widest text-nova-text-muted/80">
+				<span className="text-[10px] font-semibold uppercase tracking-widest text-nova-text-muted">
 					{label}
 				</span>
 				{kindAccent !== undefined && (
-					<span className="ml-1 text-[10px] text-nova-text-muted/60">
+					<span className="ml-1 text-[10px] text-nova-text-muted">
 						{kindAccent}
 					</span>
 				)}
@@ -133,7 +133,7 @@ export function CardShell({
 						<Menu.Trigger
 							ref={triggerRef}
 							aria-label="Card actions"
-							className="size-11 -mr-1.5 grid place-items-center rounded-md text-nova-text-muted/60 hover:text-nova-text hover:bg-white/[0.05] transition-colors cursor-pointer"
+							className="size-11 -mr-1.5 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-text hover:bg-white/[0.05] transition-colors cursor-pointer"
 						>
 							<Icon icon={tablerDotsVertical} width="14" height="14" />
 						</Menu.Trigger>
@@ -148,7 +148,7 @@ export function CardShell({
 								<Menu.Popup className={MENU_POPUP_CLS}>
 									<Menu.Item
 										onClick={onRemove}
-										className={`rounded-xl ${MENU_ITEM_CLS} text-nova-rose/90 hover:text-nova-rose`}
+										className={`rounded-xl ${MENU_ITEM_CLS} text-nova-rose hover:text-nova-rose`}
 									>
 										<Icon icon={tablerTrash} width="14" height="14" />
 										<span>Delete</span>
@@ -195,7 +195,7 @@ export function CardShell({
 				{errors?.map((message) => (
 					<div
 						key={message}
-						className="text-[11px] leading-snug text-nova-rose/90"
+						className="text-[11px] leading-snug text-nova-rose"
 					>
 						{message}
 					</div>
@@ -254,7 +254,7 @@ export function PredicateRowShell({
 					type="button"
 					ref={dragHandleRef}
 					aria-label="Drag to reorder"
-					className="absolute left-0 top-0 bottom-0 w-7 grid place-items-center rounded-l-md cursor-grab text-nova-text-muted/40 hover:text-nova-text-muted transition-colors"
+					className="absolute left-0 top-0 bottom-0 w-7 grid place-items-center rounded-l-md cursor-grab text-nova-text-muted hover:text-nova-text-muted transition-colors"
 				>
 					<Icon icon={tablerGripVertical} width="14" height="14" />
 				</button>
@@ -267,7 +267,7 @@ export function PredicateRowShell({
 					<Menu.Trigger
 						ref={triggerRef}
 						aria-label="Condition actions"
-						className="absolute top-0 right-0 w-11 h-11 grid place-items-center rounded-md text-nova-text-muted/60 hover:text-nova-text transition-colors cursor-pointer"
+						className="absolute top-0 right-0 w-11 h-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 					>
 						<Icon icon={tablerDotsVertical} width="14" height="14" />
 					</Menu.Trigger>
@@ -282,7 +282,7 @@ export function PredicateRowShell({
 							<Menu.Popup className={MENU_POPUP_CLS}>
 								<Menu.Item
 									onClick={onRemove}
-									className={`rounded-xl ${MENU_ITEM_CLS} text-nova-rose/90 hover:text-nova-rose`}
+									className={`rounded-xl ${MENU_ITEM_CLS} text-nova-rose hover:text-nova-rose`}
 								>
 									<Icon icon={tablerTrash} width="14" height="14" />
 									<span>Delete</span>
@@ -300,7 +300,7 @@ export function PredicateRowShell({
 				{errors?.map((message) => (
 					<div
 						key={message}
-						className="text-[11px] leading-snug text-nova-rose/90"
+						className="text-[11px] leading-snug text-nova-rose"
 					>
 						{message}
 					</div>
@@ -348,10 +348,7 @@ export function InlineError({ errors }: InlineErrorProps) {
 			 *  merged paths, so every `errors` entry is guaranteed
 			 *  unique within a single render. */}
 			{errors.map((message) => (
-				<div
-					key={message}
-					className="text-[11px] leading-snug text-nova-rose/90"
-				>
+				<div key={message} className="text-[11px] leading-snug text-nova-rose">
 					{message}
 				</div>
 			))}

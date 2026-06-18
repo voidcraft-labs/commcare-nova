@@ -102,7 +102,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 			<div className="grid grid-cols-1 @md:grid-cols-[auto_1fr] gap-2 items-start">
 				<KindMenu kind={value.kind} setKind={setKind} />
 				<div>
-					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 						Connection
 					</div>
 					<RelationPathBuilder
@@ -115,7 +115,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 
 			<div>
 				<div className="flex items-center justify-between mb-1">
-					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider">
+					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 						Where (optional)
 					</div>
 					<button
@@ -123,7 +123,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 						onClick={() =>
 							setWhere(value.where === undefined ? matchAll() : undefined)
 						}
-						className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
+						className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted hover:text-nova-violet-bright transition-colors cursor-pointer"
 					>
 						{value.where === undefined ? "+ Add filter" : "Remove filter"}
 					</button>
@@ -139,7 +139,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 					</WithCurrentCaseType>
 				)}
 				{value.where !== undefined && destinationCaseType === undefined && (
-					<div className="text-[11px] text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
+					<div className="text-[11px] text-nova-text-muted italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
 						Pick a valid connection before narrowing it with a condition.
 					</div>
 				)}
@@ -177,7 +177,7 @@ function KindMenu({
 					icon={current.icon}
 					width="14"
 					height="14"
-					className="text-nova-violet-bright/70"
+					className="text-nova-violet-bright"
 				/>
 				<span>{current.label}</span>
 				<svg

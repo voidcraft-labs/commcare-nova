@@ -252,10 +252,10 @@ function BoundEditor({
 						disabled={toggleDisabled}
 						className={`min-h-11 px-1.5 text-[10px] uppercase tracking-wider transition-colors ${
 							toggleDisabled
-								? "text-nova-text-muted/40 cursor-not-allowed"
+								? "text-nova-text-muted cursor-not-allowed"
 								: isEnabled
 									? "text-nova-violet-bright cursor-pointer"
-									: "text-nova-text-muted/60 hover:text-nova-text-muted cursor-pointer"
+									: "text-nova-text-muted hover:text-nova-text-muted cursor-pointer"
 						}`}
 					>
 						{label}
@@ -283,7 +283,7 @@ function BoundEditor({
 					/>
 				</div>
 			) : (
-				<div className="text-xs text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
+				<div className="text-xs text-nova-text-muted italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
 					No {label.toLowerCase()} bound
 				</div>
 			)}
@@ -315,7 +315,7 @@ function InclusiveToggle({
 				disabled={disabled}
 				className={`flex items-center gap-1 min-h-11 px-1.5 text-[10px] uppercase tracking-wider transition-colors ${
 					disabled
-						? "text-nova-text-muted/30 cursor-not-allowed"
+						? "text-nova-text-muted cursor-not-allowed"
 						: inclusive
 							? "text-nova-violet-bright cursor-pointer"
 							: "text-nova-text-muted hover:text-nova-text cursor-pointer"

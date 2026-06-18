@@ -40,7 +40,7 @@ export default async function AdminUserDetailPage({
 					<Icon icon={tablerChevronLeft} width="16" height="16" />
 					Admin
 				</Link>
-				<span className="text-nova-text-muted/50">/</span>
+				<span className="text-nova-text-muted">/</span>
 				<span className="text-nova-text-secondary">User</span>
 			</nav>
 

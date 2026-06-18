@@ -83,11 +83,11 @@ export function DateCoerceCard({ value, onChange, path }: DateCoerceCardProps) {
 
 	return (
 		<div className="space-y-2">
-			<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider">
+			<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 				{description}
 			</div>
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 					Source value (text-shaped)
 				</div>
 				<ExpressionPicker

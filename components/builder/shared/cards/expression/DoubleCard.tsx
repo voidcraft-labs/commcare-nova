@@ -52,11 +52,11 @@ export function DoubleCard({ value, onChange, path }: DoubleCardProps) {
 
 	return (
 		<div className="space-y-2">
-			<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider">
+			<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 				Force a value to a numeric (decimal) type.
 			</div>
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 					Source value
 				</div>
 				<ExpressionPicker

@@ -667,7 +667,7 @@ function BindingPicker({
 					icon={tablerDatabase}
 					width="16"
 					height="16"
-					className="text-nova-violet-bright/80 shrink-0"
+					className="text-nova-violet-bright shrink-0"
 				/>
 				<span className="flex-1 min-w-0 text-left">
 					{row.property === "" ? (
@@ -770,7 +770,7 @@ function PropertyGroup({
 						</span>
 						<span
 							className={`text-[10px] uppercase tracking-wider ${
-								active ? "text-nova-violet-bright/60" : "text-nova-text-muted"
+								active ? "text-nova-violet-bright" : "text-nova-text-muted"
 							}`}
 						>
 							{effectiveDataType(p)}
@@ -864,7 +864,7 @@ function TypePicker({
 					icon={SEARCH_INPUT_TYPE_ICONS[value]}
 					width="16"
 					height="16"
-					className="text-nova-violet-bright/80 shrink-0"
+					className="text-nova-violet-bright shrink-0"
 				/>
 				<span className="flex-1 min-w-0 text-left">
 					<span className="block text-nova-text">
@@ -931,7 +931,7 @@ function TypePicker({
 										<div
 											className={`text-[11px] ${
 												isActive
-													? "text-nova-violet-bright/60"
+													? "text-nova-violet-bright"
 													: "text-nova-text-muted"
 											}`}
 										>
@@ -999,7 +999,7 @@ function MatchPicker({
 				}`}
 			>
 				<span className="flex-1 min-w-0 text-left flex items-center gap-2">
-					<span className={invalid ? "text-nova-rose/90" : "text-nova-text"}>
+					<span className={invalid ? "text-nova-rose" : "text-nova-text"}>
 						{triggerLabel}
 					</span>
 					{invalid && (
@@ -1007,7 +1007,7 @@ function MatchPicker({
 							icon={tablerExclamationCircle}
 							width="14"
 							height="14"
-							className="text-nova-rose/80"
+							className="text-nova-rose"
 							aria-hidden="true"
 						/>
 					)}
@@ -1048,7 +1048,7 @@ function MatchPicker({
 										<div
 											className={`text-[11px] ${
 												isActive
-													? "text-nova-violet-bright/60"
+													? "text-nova-violet-bright"
 													: "text-nova-text-muted"
 											}`}
 										>
@@ -1087,7 +1087,7 @@ function MatchPicker({
 								<div
 									className={`text-[11px] ${
 										isCustom
-											? "text-nova-violet-bright/60"
+											? "text-nova-violet-bright"
 											: "text-nova-text-muted"
 									}`}
 								>

@@ -290,7 +290,7 @@ export function UploadToHqDialog({
 											disabled={isUploading}
 											autoComplete="off"
 											data-1p-ignore
-											className="w-full px-4 py-2.5 bg-nova-deep border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)] transition-all duration-200 disabled:opacity-50"
+											className="w-full px-4 py-2.5 bg-nova-deep border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)] transition-all duration-200 disabled:opacity-40"
 										/>
 									</label>
 
@@ -334,7 +334,7 @@ export function UploadToHqDialog({
 											<Link
 												href="/settings"
 												onClick={onClose}
-												className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-nova-violet-bright hover:text-nova-violet transition-colors"
+												className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-nova-violet-bright hover:text-white transition-colors"
 											>
 												Go to Settings
 												<Icon
@@ -349,14 +349,14 @@ export function UploadToHqDialog({
 
 								{/* Action buttons */}
 								<div className="mt-5 flex justify-end gap-2">
-									<Dialog.Close className="px-4 py-2 text-sm font-medium rounded-lg border border-nova-border text-nova-text-secondary hover:text-nova-text transition-colors cursor-pointer disabled:opacity-50">
+									<Dialog.Close className="px-4 py-2 text-sm font-medium rounded-lg border border-nova-border text-nova-text-secondary hover:text-nova-text transition-colors cursor-pointer disabled:opacity-40">
 										Cancel
 									</Dialog.Close>
 									<button
 										type="button"
 										onClick={handleUpload}
 										disabled={!canUpload}
-										className="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium bg-nova-violet text-white hover:bg-nova-violet-bright transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+										className="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium bg-nova-action text-white hover:bg-nova-action-hover transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
 									>
 										{isUploading ? (
 											<>
@@ -466,7 +466,7 @@ function LoadErrorView({
 				<Link
 					href="/settings"
 					onClick={onClose}
-					className="inline-flex items-center gap-1 text-sm font-medium text-nova-violet-bright hover:text-nova-violet transition-colors"
+					className="inline-flex items-center gap-1 text-sm font-medium text-nova-violet-bright hover:text-white transition-colors"
 				>
 					Go to Settings
 					<Icon icon={tablerChevronRight} width="14" height="14" />

@@ -578,7 +578,7 @@ function HqPendingFootnote() {
 					aria-hidden
 					className="shrink-0 text-nova-amber"
 				/>
-				<span className="flex-1 text-[10px] font-medium uppercase tracking-[0.12em] text-nova-amber/85">
+				<span className="flex-1 text-[10px] font-medium uppercase tracking-[0.12em] text-nova-amber">
 					Awaiting CommCare HQ setup
 				</span>
 				<Icon
@@ -586,7 +586,7 @@ function HqPendingFootnote() {
 					width="12"
 					height="12"
 					aria-hidden
-					className="shrink-0 text-nova-amber/55 transition-colors duration-150 group-hover:text-nova-amber group-focus-visible:text-nova-amber"
+					className="shrink-0 text-nova-amber transition-colors duration-150 group-hover:text-nova-amber group-focus-visible:text-nova-amber"
 				/>
 			</Popover.Trigger>
 			<Popover.Portal>

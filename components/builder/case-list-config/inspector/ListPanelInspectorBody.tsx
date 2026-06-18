@@ -129,7 +129,7 @@ function SampleDataControls({
 	const [confirmingReset, setConfirmingReset] = useState(false);
 
 	const buttonCls =
-		"inline-flex items-center justify-center gap-1.5 px-3 min-h-11 text-xs rounded-lg border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
+		"inline-flex items-center justify-center gap-1.5 px-3 min-h-11 text-xs rounded-lg border transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed";
 
 	return (
 		<div className="space-y-2">
@@ -203,18 +203,18 @@ function SampleDataControls({
 				</InspectorHint>
 			)}
 			{confirmingReset && (
-				<p className="text-[11px] text-nova-rose/80 leading-relaxed">
+				<p className="text-[11px] text-nova-rose leading-relaxed">
 					Reset deletes every case in this case type — including ones edited
 					through Preview — and writes fresh sample data.
 				</p>
 			)}
 			{generate.status.kind === "error" && (
-				<p className="text-[11px] text-nova-rose/90 whitespace-pre-line">
+				<p className="text-[11px] text-nova-rose whitespace-pre-line">
 					{generate.status.message}
 				</p>
 			)}
 			{reset.status.kind === "error" && (
-				<p className="text-[11px] text-nova-rose/90 whitespace-pre-line">
+				<p className="text-[11px] text-nova-rose whitespace-pre-line">
 					{reset.status.message}
 				</p>
 			)}

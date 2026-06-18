@@ -91,7 +91,7 @@ export function BuilderHeader({
 								type="button"
 								onClick={undo}
 								disabled={!canUndo}
-								className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
+								className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-40 disabled:cursor-default"
 								aria-label="Undo"
 							>
 								<Icon icon={tablerArrowBackUp} width="18" height="18" />
@@ -102,7 +102,7 @@ export function BuilderHeader({
 								type="button"
 								onClick={redo}
 								disabled={!canRedo}
-								className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-[0.38] disabled:cursor-default"
+								className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-40 disabled:cursor-default"
 								aria-label="Redo"
 							>
 								<Icon icon={tablerArrowForwardUp} width="18" height="18" />

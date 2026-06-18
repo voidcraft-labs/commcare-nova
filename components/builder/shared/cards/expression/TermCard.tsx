@@ -372,7 +372,7 @@ function ModeMenu({ mode, setMode, admission, computedItems }: ModeMenuProps) {
 					icon={activeItem.icon}
 					width="14"
 					height="14"
-					className="text-nova-violet-bright/70"
+					className="text-nova-violet-bright"
 				/>
 				<span>{activeItem.label}</span>
 				<svg
@@ -595,7 +595,7 @@ function InputRefMenu({
 
 	if (items.length === 0) {
 		return (
-			<div className="text-xs text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
+			<div className="text-xs text-nova-text-muted italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
 				No matching search inputs
 			</div>
 		);
@@ -1034,9 +1034,9 @@ function LiteralShapeMenu({
 }
 
 const LITERAL_INPUT_CLS_VALID =
-	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
+	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
 const LITERAL_INPUT_CLS_INVALID =
-	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-nova-rose/40 bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 focus:border-nova-rose/60 focus:ring-nova-rose/30 transition-colors";
+	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-nova-rose/40 bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 focus:border-nova-rose/60 focus:ring-nova-rose/30 transition-colors";
 
 function literalInputCls(invalid: boolean): string {
 	return invalid ? LITERAL_INPUT_CLS_INVALID : LITERAL_INPUT_CLS_VALID;
@@ -1306,7 +1306,7 @@ function LiteralBooleanToggle({
  *  user wants a non-null value. */
 function LiteralNullChip() {
 	return (
-		<div className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md border border-dashed border-white/[0.08] bg-nova-deep/30 text-nova-text-muted/80 italic">
+		<div className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md border border-dashed border-white/[0.08] bg-nova-deep/30 text-nova-text-muted italic">
 			<span className="font-mono">null</span>
 		</div>
 	);
@@ -1369,7 +1369,7 @@ function UserFieldInput({
 	readonly invalid: boolean;
 }) {
 	const inputCls = [
-		"w-full px-3 min-h-11 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors font-mono",
+		"w-full px-3 min-h-11 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 transition-colors font-mono",
 		invalid
 			? "border-nova-rose/40 focus:border-nova-rose/60 focus:ring-nova-rose/30"
 			: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30",

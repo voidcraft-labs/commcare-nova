@@ -458,7 +458,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 						<button
 							type="button"
 							onClick={turnOff}
-							className="cursor-pointer text-[11px] font-medium text-nova-rose/80 transition-colors hover:text-nova-rose"
+							className="cursor-pointer text-[11px] font-medium text-nova-rose transition-colors hover:text-nova-rose"
 						>
 							Turn off Connect
 						</button>
@@ -471,7 +471,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 							type="button"
 							onClick={apply}
 							disabled={!canApply}
-							className="rounded-lg bg-nova-violet px-3 py-1.5 text-xs font-medium text-white transition-colors enabled:cursor-pointer enabled:hover:brightness-110 disabled:opacity-40"
+							className="rounded-lg bg-nova-action px-3 py-1.5 text-xs font-medium text-white transition-colors enabled:cursor-pointer enabled:hover:brightness-110 disabled:opacity-40"
 						>
 							{primaryLabel}
 						</button>

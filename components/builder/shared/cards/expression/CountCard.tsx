@@ -96,7 +96,7 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 	return (
 		<div className="space-y-2">
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 					Count related cases via
 				</div>
 				<RelationPathBuilder
@@ -110,7 +110,7 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 
 			<div>
 				<div className="flex items-center justify-between mb-1">
-					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider">
+					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 						Where (optional)
 					</div>
 					<button
@@ -118,7 +118,7 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 						onClick={() =>
 							setWhere(value.where === undefined ? matchAll() : undefined)
 						}
-						className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
+						className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted hover:text-nova-violet-bright transition-colors cursor-pointer"
 					>
 						{value.where === undefined ? "+ Add filter" : "Remove filter"}
 					</button>
@@ -134,7 +134,7 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 					</WithCurrentCaseType>
 				)}
 				{value.where !== undefined && destinationCaseType === undefined && (
-					<div className="text-[11px] text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
+					<div className="text-[11px] text-nova-text-muted italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
 						Pick a valid connection before narrowing it with a condition.
 					</div>
 				)}

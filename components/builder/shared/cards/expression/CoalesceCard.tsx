@@ -98,7 +98,7 @@ export function CoalesceCard({
 
 	return (
 		<div className="space-y-1.5">
-			<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider">
+			<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 				First non-empty value (fallback chain)
 			</div>
 			{value.values.map((v, i) => (
@@ -206,7 +206,7 @@ function CoalesceValueDragPreview({ index }: { readonly index: number }) {
 				icon={schema.icon}
 				width="14"
 				height="14"
-				className="text-nova-violet-bright/80"
+				className="text-nova-violet-bright"
 			/>
 			<span className="max-w-[240px] truncate">Fallback {index + 1}</span>
 		</div>
