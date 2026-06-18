@@ -107,7 +107,7 @@ export function HomeScreen() {
 										icon={tablerGridDots}
 										width="20"
 										height="20"
-										className="text-pv-accent"
+										className="text-pv-accent-bright"
 									/>
 								</div>
 							)}

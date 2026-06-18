@@ -31,7 +31,7 @@ export function MappingSectionLabel() {
  *  stored", "rows show no image"). */
 export function MappingEmptyNotice({ children }: { children: ReactNode }) {
 	return (
-		<div className="text-[11px] leading-snug text-nova-text-muted/70 px-2 py-1.5 rounded-md border border-dashed border-white/[0.06] bg-nova-deep/30">
+		<div className="text-[11px] leading-snug text-nova-text-muted px-2 py-1.5 rounded-md border border-dashed border-white/[0.06] bg-nova-deep/30">
 			{children}
 		</div>
 	);
@@ -91,7 +91,7 @@ export function MappingRowShell({
 						aria-label="Move entry up"
 						onClick={onMoveUp}
 						disabled={isFirst}
-						className="size-11 grid place-items-center rounded-md text-nova-text-muted/60 hover:text-nova-violet-bright hover:bg-white/[0.05] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+						className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-violet-bright hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
 					>
 						<Icon icon={tablerArrowUp} width="13" height="13" />
 					</button>
@@ -102,7 +102,7 @@ export function MappingRowShell({
 						aria-label="Move entry down"
 						onClick={onMoveDown}
 						disabled={isLast}
-						className="size-11 grid place-items-center rounded-md text-nova-text-muted/60 hover:text-nova-violet-bright hover:bg-white/[0.05] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+						className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-violet-bright hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
 					>
 						<Icon icon={tablerArrowDown} width="13" height="13" />
 					</button>
@@ -112,7 +112,7 @@ export function MappingRowShell({
 						type="button"
 						aria-label="Remove entry"
 						onClick={onRemove}
-						className="size-11 grid place-items-center rounded-md text-nova-text-muted/60 hover:text-nova-rose hover:bg-white/[0.05] transition-colors cursor-pointer"
+						className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-rose hover:bg-white/[0.05] transition-colors cursor-pointer"
 					>
 						<Icon icon={tablerTrash} width="13" height="13" />
 					</button>

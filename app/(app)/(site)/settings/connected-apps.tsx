@@ -136,7 +136,7 @@ export function ConnectedApps({ initial }: ConnectedAppsProps) {
 							href={docsLink("/mcp/access")}
 							target="_blank"
 							rel="noopener noreferrer"
-							className="inline-flex items-center gap-0.5 text-nova-violet-bright transition-colors hover:text-nova-violet-bright/80 underline-offset-2 hover:underline"
+							className="inline-flex items-center gap-0.5 text-nova-violet-bright transition-colors hover:text-nova-violet-bright underline-offset-2 hover:underline"
 						>
 							Learn more
 							<Icon icon={tablerExternalLink} width="11" height="11" />
@@ -198,9 +198,9 @@ export function ConnectedApps({ initial }: ConnectedAppsProps) {
 					icon={tablerShieldLock}
 					width="14"
 					height="14"
-					className="mt-0.5 shrink-0 text-nova-violet/50"
+					className="mt-0.5 shrink-0 text-nova-violet-bright"
 				/>
-				<p className="text-xs text-nova-text-muted/70 leading-relaxed">
+				<p className="text-xs text-nova-text-muted leading-relaxed">
 					Revoking access takes effect immediately. The app will be signed out
 					the next time it tries to act on your behalf.
 				</p>
@@ -366,10 +366,10 @@ function EmptyState() {
 				icon={tablerPlugConnected}
 				width="28"
 				height="28"
-				className="text-nova-text-muted/40"
+				className="text-nova-text-muted"
 			/>
 			<p className="text-sm text-nova-text">No connected applications</p>
-			<p className="max-w-xs text-xs text-nova-text-muted/70 leading-relaxed">
+			<p className="max-w-xs text-xs text-nova-text-muted leading-relaxed">
 				Apps appear here after you authorize them via OAuth — for example, when
 				you connect a coding agent.
 			</p>

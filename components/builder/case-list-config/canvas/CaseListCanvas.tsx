@@ -307,7 +307,7 @@ export function CaseListCanvas({
 			 *  state arms explain every other situation themselves. */}
 			{preview.kind === "rows" && (
 				<div className="flex items-center gap-2.5 mt-2.5 text-xs text-nova-text-muted">
-					<span className="font-mono text-[9px] tracking-[0.13em] text-nova-violet-bright/70">
+					<span className="font-mono text-[9px] tracking-[0.13em] text-nova-violet-bright">
 						LIVE
 					</span>
 					<span>

@@ -68,7 +68,7 @@ export const STATUS_STYLES: Record<
 	},
 	generating: {
 		bg: "bg-nova-violet/15",
-		text: "text-violet-400",
+		text: "text-nova-violet-bright",
 		label: "Generating",
 	},
 	error: { bg: "bg-nova-rose/15", text: "text-nova-rose", label: "Error" },

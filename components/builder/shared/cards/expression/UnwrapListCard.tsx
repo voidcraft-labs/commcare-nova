@@ -117,17 +117,17 @@ export function UnwrapListCard({ value, onChange, path }: UnwrapListCardProps) {
 					icon={tablerForklift}
 					width="14"
 					height="14"
-					className="text-nova-violet-bright/70 mt-0.5 shrink-0"
+					className="text-nova-violet-bright mt-0.5 shrink-0"
 				/>
 				<div className="text-xs space-y-1 min-w-0 flex-1">
 					<div className="text-nova-text">
 						Every option selected in
-						<span className="font-mono text-nova-violet-bright/80 mx-1">
+						<span className="font-mono text-nova-violet-bright mx-1">
 							{operandSummary}
 						</span>
 						, as a list.
 					</div>
-					<div className="text-[10px] text-nova-text-muted/70">
+					<div className="text-[10px] text-nova-text-muted">
 						A list of values only fits inside choice comparisons — it can't
 						stand where a single value is expected. Replace it to edit the value
 						inside.
@@ -137,7 +137,7 @@ export function UnwrapListCard({ value, onChange, path }: UnwrapListCardProps) {
 					type="button"
 					onClick={() => onChange(value.value)}
 					aria-label="Replace with the value inside"
-					className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer shrink-0"
+					className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted hover:text-nova-violet-bright transition-colors cursor-pointer shrink-0"
 				>
 					Replace
 				</button>

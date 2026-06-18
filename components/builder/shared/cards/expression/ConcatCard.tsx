@@ -207,7 +207,7 @@ function ConcatPartDragPreview({ index }: { readonly index: number }) {
 				icon={schema.icon}
 				width="14"
 				height="14"
-				className="text-nova-violet-bright/80"
+				className="text-nova-violet-bright"
 			/>
 			<span className="max-w-[240px] truncate">Part {index + 1}</span>
 		</div>

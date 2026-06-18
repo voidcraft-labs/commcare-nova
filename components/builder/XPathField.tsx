@@ -47,7 +47,7 @@ const readOnlyTheme = EditorView.theme({
 		fontFamily: "var(--font-nova-mono)",
 		background: "var(--nova-surface)",
 		borderRadius: "6px",
-		border: "1px solid rgba(139, 92, 246, 0.1)",
+		border: "1px solid var(--nova-border)",
 	},
 	"&.cm-focused": { outline: "none" },
 	".cm-scroller": { overflow: "visible", padding: "6px 8px" },
@@ -86,7 +86,7 @@ const editingTheme = EditorView.theme({
 	".cm-scroller": { overflow: "auto", padding: "6px 8px" },
 	".cm-content": { padding: 0, fontFamily: "var(--font-nova-mono)" },
 	".cm-line": { padding: "1px 0" },
-	".cm-activeLine": { backgroundColor: "rgba(139, 92, 246, 0.06)" },
+	".cm-activeLine": { backgroundColor: "var(--nova-violet-wash)" },
 });
 
 /** Base extensions shared across all inline editing instances. */

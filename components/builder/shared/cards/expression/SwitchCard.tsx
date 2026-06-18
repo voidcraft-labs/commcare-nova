@@ -313,7 +313,7 @@ function CaseRow({
 					type="button"
 					ref={setHandleEl}
 					aria-label="Reorder case"
-					className="size-11 -ml-2 grid place-items-center rounded-md cursor-grab text-nova-text-muted/50 hover:text-nova-text-muted transition-colors"
+					className="size-11 -ml-2 grid place-items-center rounded-md cursor-grab text-nova-text-muted hover:text-nova-text-muted transition-colors"
 				>
 					<Icon icon={tablerGripVertical} width="14" height="14" />
 				</button>
@@ -327,7 +327,7 @@ function CaseRow({
 							type="button"
 							aria-label="Remove case"
 							onClick={onRemove}
-							className="size-11 grid place-items-center rounded-md text-nova-text-muted/60 hover:text-nova-rose hover:bg-white/[0.05] transition-colors cursor-pointer"
+							className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-rose hover:bg-white/[0.05] transition-colors cursor-pointer"
 						>
 							<Icon icon={tablerTrash} width="13" height="13" />
 						</button>
@@ -393,7 +393,7 @@ function SwitchCaseDragPreview({ index }: { readonly index: number }) {
 				icon={schema.icon}
 				width="14"
 				height="14"
-				className="text-nova-violet-bright/80"
+				className="text-nova-violet-bright"
 			/>
 			<span className="max-w-[240px] truncate">Case {index + 1}</span>
 		</div>

@@ -148,7 +148,7 @@ function NotBody({ value, onChange, path }: NotBodyProps) {
 	};
 	return (
 		<div>
-			<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1.5">
+			<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1.5">
 				Inverts the inner clause
 			</div>
 			<ChildPredicateEditor
@@ -378,7 +378,7 @@ function ClauseDragPreview({ kind }: { readonly kind: Predicate["kind"] }) {
 				icon={schema.icon}
 				width="14"
 				height="14"
-				className="text-nova-violet-bright/80"
+				className="text-nova-violet-bright"
 			/>
 			<span className="max-w-[240px] truncate">{schema.label}</span>
 		</div>

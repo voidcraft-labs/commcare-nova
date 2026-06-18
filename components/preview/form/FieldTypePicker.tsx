@@ -180,7 +180,7 @@ export function FieldTypePickerPopup({
 									icon={tablerChevronRight}
 									width="14"
 									height="14"
-									className="text-nova-text-muted/50 shrink-0 -mr-0.5"
+									className="text-nova-text-muted shrink-0 -mr-0.5"
 								/>
 							</Menu.SubmenuTrigger>
 							<Menu.Portal>

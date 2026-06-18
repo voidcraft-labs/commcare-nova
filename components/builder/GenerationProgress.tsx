@@ -241,8 +241,8 @@ export function GenerationProgress() {
 							<span
 								className={`text-sm transition-colors duration-300 ${
 									status === "done"
-										? "text-nova-emerald/40"
-										: "text-nova-text-muted/40"
+										? "text-nova-emerald"
+										: "text-nova-text-muted"
 								}`}
 							>
 								&mdash;
@@ -283,7 +283,7 @@ export function GenerationProgress() {
 				<motion.p
 					initial={{ opacity: 0 }}
 					animate={{ opacity: 1 }}
-					className="text-nova-rose/80 mt-1.5 text-xs"
+					className="text-nova-rose mt-1.5 text-xs"
 				>
 					{statusMessage}
 				</motion.p>

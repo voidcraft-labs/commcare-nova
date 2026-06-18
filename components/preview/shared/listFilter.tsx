@@ -73,7 +73,7 @@ export function ListFilterBox({
 				placeholder="Filter the list…"
 				autoComplete="off"
 				data-1p-ignore
-				className="w-full min-h-11 pl-9 pr-11 text-[13px] rounded-lg border border-pv-input-border bg-pv-surface text-nova-text placeholder:text-nova-text-muted/70 focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
+				className="w-full min-h-11 pl-9 pr-11 text-[13px] rounded-lg border border-pv-input-border bg-pv-surface text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
 			/>
 			{value !== "" && (
 				<button

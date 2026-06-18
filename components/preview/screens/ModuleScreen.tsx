@@ -145,7 +145,7 @@ export function ModuleScreen({ screen: _screen }: ModuleScreenProps) {
 									icon={icon}
 									width="18"
 									height="18"
-									className="text-nova-text-muted group-hover:text-pv-accent transition-colors shrink-0"
+									className="text-nova-text-muted group-hover:text-pv-accent-bright transition-colors shrink-0"
 								/>
 							)}
 							<div className="flex-1 min-w-0">

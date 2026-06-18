@@ -66,14 +66,14 @@ export default function XPathTestPage() {
 					<button
 						type="button"
 						onClick={handleFormat}
-						className="px-4 py-2 rounded-lg bg-nova-violet text-white text-sm font-medium hover:bg-nova-violet-bright transition-colors"
+						className="px-4 py-2 rounded-lg bg-nova-action text-white text-sm font-medium hover:bg-nova-action-hover transition-colors"
 					>
 						Simple Format
 					</button>
 					<button
 						type="button"
 						onClick={handlePrettyPrint}
-						className="px-4 py-2 rounded-lg bg-nova-violet text-white text-sm font-medium hover:bg-nova-violet-bright transition-colors"
+						className="px-4 py-2 rounded-lg bg-nova-action text-white text-sm font-medium hover:bg-nova-action-hover transition-colors"
 					>
 						Pretty Format
 					</button>

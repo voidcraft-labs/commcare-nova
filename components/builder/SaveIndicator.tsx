@@ -53,7 +53,7 @@ export function SaveIndicator() {
 		: isSaving
 			? tablerCloudUpload
 			: tablerCloudCheck;
-	const colorClass = isError ? "text-nova-rose/80" : "text-nova-text-muted";
+	const colorClass = isError ? "text-nova-rose" : "text-nova-text-muted";
 	const label = isError
 		? "Save failed"
 		: isSaving

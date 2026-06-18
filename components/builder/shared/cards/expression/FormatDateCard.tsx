@@ -97,7 +97,7 @@ export function FormatDateCard({ value, onChange, path }: FormatDateCardProps) {
 	return (
 		<div className="space-y-2">
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 					Date / datetime
 				</div>
 				<ExpressionPicker
@@ -110,7 +110,7 @@ export function FormatDateCard({ value, onChange, path }: FormatDateCardProps) {
 			</div>
 
 			<div className="space-y-1.5">
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider">
+				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 					Pattern
 				</div>
 				<CustomDatePatternInput

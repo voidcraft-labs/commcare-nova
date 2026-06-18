@@ -100,7 +100,7 @@ export function IfCard({
 			{operatorErrors.length > 0 && <InlineError errors={operatorErrors} />}
 
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 					When
 				</div>
 				<ChildPredicateEditor
@@ -112,7 +112,7 @@ export function IfCard({
 			</div>
 
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 					Then
 				</div>
 				<ExpressionPicker
@@ -125,7 +125,7 @@ export function IfCard({
 			</div>
 
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 					Else
 				</div>
 				<ExpressionPicker

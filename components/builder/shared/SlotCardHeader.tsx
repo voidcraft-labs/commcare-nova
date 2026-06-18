@@ -105,7 +105,7 @@ export function SlotCardHeader({
 							icon={collapse.isOpen ? tablerChevronDown : tablerChevronRight}
 							width="12"
 							height="12"
-							className="shrink-0 text-nova-text-muted/70 group-hover:text-nova-violet-bright transition-colors"
+							className="shrink-0 text-nova-text-muted group-hover:text-nova-violet-bright transition-colors"
 						/>
 						<h3
 							className={`${ETCHED_LABEL_CLS} group-hover:text-nova-text-secondary transition-colors`}
@@ -123,7 +123,7 @@ export function SlotCardHeader({
 					<button
 						type="button"
 						onClick={clear.onClick}
-						className="shrink-0 inline-flex items-center gap-1 px-2.5 min-h-11 text-[10px] uppercase tracking-wider whitespace-nowrap rounded-md text-nova-text-muted/70 hover:text-nova-rose hover:bg-nova-rose/10 transition-colors cursor-pointer"
+						className="shrink-0 inline-flex items-center gap-1 px-2.5 min-h-11 text-[10px] uppercase tracking-wider whitespace-nowrap rounded-md text-nova-text-muted hover:text-nova-rose hover:bg-nova-rose/10 transition-colors cursor-pointer"
 						aria-label={clear.ariaLabel}
 					>
 						<Icon icon={tablerX} width="11" height="11" />
