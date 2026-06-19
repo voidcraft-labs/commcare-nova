@@ -32,7 +32,8 @@ import { userFacingError } from "@/lib/doc/userFacingErrors";
 import { blueprintDocSchema } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
-import { resolveMediaManifest } from "@/lib/media/manifest";
+import { assetWirePaths, resolveMediaManifest } from "@/lib/media/manifest";
+import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 
 export async function POST(req: NextRequest) {
 	try {
@@ -186,17 +187,20 @@ export async function POST(req: NextRequest) {
 				warnings.push(
 					"The app was created and its media uploaded — CommCare is still processing it, so it may take a few minutes to appear.",
 				);
-			} else if (mediaResult.unmatched > 0 || mediaResult.errors.length > 0) {
+			} else {
+				// Reconcile HQ's unmatched-file report against the app: name the
+				// genuine failures by their carrier, and separate the app-logo
+				// case (a logo-only image is unmatched by design). The shared
+				// reporter owns the warning copy + the error/warn log decision.
 				warnings.push(
-					mediaUploadWarning(mediaResult.unmatched + mediaResult.errors.length),
+					...reportMediaAttach({
+						result: mediaResult,
+						assetWirePath: assetWirePaths(manifest),
+						doc: docWithParent,
+						logPrefix: "[commcare/upload]",
+						logContext: { domain: body.domain, appId: result.appId },
+					}),
 				);
-				log.error("[commcare/upload] some media files did not attach", {
-					domain: body.domain,
-					appId: result.appId,
-					matched: mediaResult.matched,
-					unmatched: mediaResult.unmatched,
-					errors: mediaResult.errors,
-				});
 			}
 		}
 
@@ -209,19 +213,6 @@ export async function POST(req: NextRequest) {
 }
 
 // ── Warnings + error messages (upload context) ────────────────────
-
-/**
- * User-facing warning when one or more media assets failed to upload.
- * The app was still created on HQ — the affected media just won't render
- * until re-uploaded. Kept count-based (not per-asset paths) so the
- * message stays readable; server logs hold the detail.
- */
-function mediaUploadWarning(failedCount: number): string {
-	const noun = failedCount === 1 ? "file" : "files";
-	return `${failedCount} media ${noun} could not be uploaded — the app was created, but ${
-		failedCount === 1 ? "that file" : "those files"
-	} won't display until re-uploaded.`;
-}
 
 /** Map CommCare HQ status codes to messages appropriate for the upload dialog. */
 function uploadErrorMessage(status: number): string {
