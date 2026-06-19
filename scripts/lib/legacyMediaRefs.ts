@@ -29,8 +29,11 @@ import {
 } from "@google-cloud/firestore";
 import type { BlueprintDoc, Mutation, Uuid } from "../../lib/doc/types";
 import { asUuid, type Media, type SelectOption } from "../../lib/domain";
-import { type AssetRef, walkAssetRefs } from "../../lib/domain/mediaRefs";
-import { describeCarrier } from "../../lib/media/assetDeletion";
+import {
+	type AssetRef,
+	describeCarrier,
+	walkAssetRefs,
+} from "../../lib/domain/mediaRefs";
 
 /** A pending row older than this can never confirm: the bucket lifecycle
  *  rule reaps `pending/` objects after one day, so the bytes are gone. */

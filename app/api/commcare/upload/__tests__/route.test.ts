@@ -33,7 +33,17 @@ vi.mock("@/lib/db/settings", () => ({
 vi.mock("@/lib/media/boundaryValidation", () => ({
 	collectBoundaryViolations: vi.fn(),
 }));
-vi.mock("@/lib/media/manifest", () => ({ resolveMediaManifest: vi.fn() }));
+// `resolveMediaManifest` is mocked (it reads Firestore + GCS); `assetWirePaths`
+// is a pure projection, so give the mock its real behavior — the outcome
+// interpreter joins it against the doc to name the unmatched carrier.
+vi.mock("@/lib/media/manifest", () => ({
+	resolveMediaManifest: vi.fn(),
+	assetWirePaths: (manifest: Map<string, { wirePath: string }>) => {
+		const out = new Map<string, string>();
+		for (const [id, asset] of manifest) out.set(id, asset.wirePath);
+		return out;
+	},
+}));
 vi.mock("@/lib/commcare/expander", () => ({ expandDoc: vi.fn() }));
 vi.mock("@/lib/commcare/client", async (orig) => ({
 	// Keep the real `isValidDomainSlug` (the route calls it); mock the
@@ -87,6 +97,47 @@ function validDoc() {
 	return doc;
 }
 
+/**
+ * A schema-valid doc whose `photo` question carries `assetId` as its label
+ * image — so the real `walkAssetRefs` (run inside the route's outcome
+ * interpreter) resolves an unmatched wire path back to this carrier.
+ */
+function docWithFieldImage(assetId: string) {
+	const { fieldParent: _fieldParent, ...doc } = buildDoc({
+		appName: "Vaccine Tracker",
+		caseTypes: [
+			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				forms: [
+					{
+						name: "Reg",
+						type: "registration",
+						fields: [
+							{
+								kind: "text",
+								id: "case_name",
+								label: "Name",
+								case_property_on: "patient",
+							},
+							{
+								kind: "text",
+								id: "photo",
+								label: "Photo",
+								label_media: { image: assetId },
+							},
+						],
+					},
+				],
+			},
+		],
+	});
+	return doc;
+}
+
 /** Build the stub request — only `json()` is read after `requireSession`. */
 function reqWith(body: unknown) {
 	return { json: async () => body } as unknown as Parameters<typeof POST>[0];
@@ -117,6 +168,7 @@ beforeEach(() => {
 	vi.mocked(uploadAppMediaBundle).mockResolvedValue({
 		matched: 0,
 		unmatched: 0,
+		unmatchedFiles: [],
 		errors: [],
 		timedOut: false,
 	});
@@ -196,29 +248,79 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		expect(uploadAppMediaBundle).not.toHaveBeenCalled();
 	});
 
-	it("warns when HQ leaves media files unmatched", async () => {
+	it("names the carrier when HQ leaves a form's media unmatched", async () => {
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-3",
 			appUrl: "https://hq.example/app",
 			warnings: [],
 		});
+		// The doc references asset `a1` as a field's label image; the manifest
+		// resolves it to a wire path, and HQ reports THAT path unmatched. The
+		// route must name where the media lives, not just count it.
 		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
-			new Map([["a1", {} as never]]) as never,
+			new Map([["a1", { wirePath: "commcare/img.png" } as never]]) as never,
 		);
 		vi.mocked(uploadAppMediaBundle).mockResolvedValueOnce({
 			matched: 0,
 			unmatched: 1,
+			unmatchedFiles: [
+				{ path: "commcare/img.png", reason: "Did not match any Image paths." },
+			],
 			errors: [],
 			timedOut: false,
 		});
 
 		const res = await POST(
-			reqWith({ domain: DOMAIN, appName: "T", doc: validDoc() }),
+			reqWith({ domain: DOMAIN, appName: "T", doc: docWithFieldImage("a1") }),
 		);
 		const body = (await res.json()) as { warnings: string[] };
 
 		expect(res.status).toBe(201);
-		expect(body.warnings.join(" ")).toMatch(/could not be uploaded/i);
+		const text = body.warnings.join(" ");
+		expect(text).toMatch(/couldn't attach/i);
+		// The carrier is named — the question id and form, not a bare number.
+		expect(text).toContain("photo");
+		expect(text).toContain("Reg");
+	});
+
+	it("treats a standalone logo as a heads-up, not a failure", async () => {
+		vi.mocked(importApp).mockResolvedValueOnce({
+			success: true,
+			appId: "hq-4",
+			appUrl: "https://hq.example/app",
+			warnings: [],
+		});
+		// The logo image is used nowhere else, so HQ reports it unmatched by
+		// design (logos aren't in its bulk-match set). The route explains it
+		// gently rather than telling the user to "re-upload".
+		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
+			new Map([["logoA", { wirePath: "commcare/logo.png" } as never]]) as never,
+		);
+		vi.mocked(uploadAppMediaBundle).mockResolvedValueOnce({
+			matched: 0,
+			unmatched: 1,
+			unmatchedFiles: [
+				{ path: "commcare/logo.png", reason: "Did not match any Image paths." },
+			],
+			errors: [],
+			timedOut: false,
+		});
+
+		const res = await POST(
+			reqWith({
+				domain: DOMAIN,
+				appName: "T",
+				doc: { ...validDoc(), logo: "logoA" },
+			}),
+		);
+		const body = (await res.json()) as { warnings: string[] };
+
+		expect(res.status).toBe(201);
+		const text = body.warnings.join(" ");
+		expect(text).toMatch(/logo/i);
+		expect(text).toContain("CommCare HQ");
+		// The logo case is NOT framed as a failed attach.
+		expect(text).not.toMatch(/couldn't attach/i);
 	});
 });

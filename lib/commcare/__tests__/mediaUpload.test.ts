@@ -148,6 +148,7 @@ describe("uploadAppMediaBundle", () => {
 		expect(result).toEqual({
 			matched: 1,
 			unmatched: 0,
+			unmatchedFiles: [],
 			errors: [],
 			timedOut: false,
 		});
@@ -175,7 +176,7 @@ describe("uploadAppMediaBundle", () => {
 		);
 	});
 
-	it("surfaces unmatched files + errors from the status result", async () => {
+	it("surfaces unmatched files (path + reason) + errors from the status result", async () => {
 		fetchMock.mockImplementation(
 			async (input: RequestInfo | URL, init?: RequestInit) => {
 				const url = String(input);
@@ -186,11 +187,20 @@ describe("uploadAppMediaBundle", () => {
 						{ status: 200, headers: { "Content-Type": "application/json" } },
 					);
 				}
+				// HQ's status report carries the per-file detail (`unmatched_files`)
+				// behind the `unmatched_count` — the upload route maps each path
+				// back to the carrier it serves.
 				return new Response(
 					JSON.stringify({
 						complete: true,
 						matched_count: 2,
 						unmatched_count: 1,
+						unmatched_files: [
+							{
+								path: "commcare/abc.png",
+								reason: "Did not match any Image paths in application.",
+							},
+						],
 						errors: ["a file errored"],
 					}),
 					{ status: 200, headers: { "Content-Type": "application/json" } },
@@ -202,6 +212,12 @@ describe("uploadAppMediaBundle", () => {
 		expect(result).toEqual({
 			matched: 2,
 			unmatched: 1,
+			unmatchedFiles: [
+				{
+					path: "commcare/abc.png",
+					reason: "Did not match any Image paths in application.",
+				},
+			],
 			errors: ["a file errored"],
 			timedOut: false,
 		});

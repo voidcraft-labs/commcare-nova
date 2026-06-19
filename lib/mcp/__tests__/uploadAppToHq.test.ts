@@ -70,6 +70,13 @@ vi.mock("@/lib/commcare/expander", () => ({
 }));
 vi.mock("@/lib/media/manifest", () => ({
 	resolveMediaManifest: vi.fn(),
+	// Pure projection — give the mock its real behavior so the outcome
+	// interpreter can join wire paths against the doc's references.
+	assetWirePaths: (manifest: Map<string, { wirePath: string }>) => {
+		const out = new Map<string, string>();
+		for (const [id, asset] of manifest) out.set(id, asset.wirePath);
+		return out;
+	},
 }));
 /* The media-validation gate reads Firestore; mock it so the unit suite
  * stays hermetic. Default `[]` = no media issues = proceed past the gate;
@@ -200,6 +207,7 @@ beforeEach(() => {
 	vi.mocked(uploadAppMediaBundle).mockResolvedValue({
 		matched: 0,
 		unmatched: 0,
+		unmatchedFiles: [],
 		errors: [],
 		timedOut: false,
 	});
@@ -310,7 +318,13 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 		});
 		vi.mocked(uploadAppMediaBundle).mockImplementation(async () => {
 			order.push("upload");
-			return { matched: 1, unmatched: 0, errors: [], timedOut: false };
+			return {
+				matched: 1,
+				unmatched: 0,
+				unmatchedFiles: [],
+				errors: [],
+				timedOut: false,
+			};
 		});
 
 		const { server, capture } = makeFakeServer();
@@ -362,20 +376,29 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 		);
 	});
 
-	it("surfaces partial media failure as a warning without failing the upload", async () => {
+	it("surfaces a standalone-logo heads-up as a warning without failing the upload", async () => {
+		// The loaded app's logo image is used nowhere else, so HQ reports it
+		// unmatched by design (logos aren't in its bulk-match set). This is the
+		// real NOVA-1P scenario — surfaced gently, never as a failed attach.
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce({
+			doc: { ...fixtureBlueprint(), logo: "logoA" },
+			app: fixtureAppDoc(),
+		});
 		vi.mocked(importApp).mockResolvedValueOnce({
 			success: true,
 			appId: "hq-1",
 			appUrl: "https://hq.example/app",
 			warnings: [],
 		});
-		// Non-empty manifest so the upload runs; HQ leaves one file unmatched.
 		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
-			new Map([["a1", {} as never]]) as never,
+			new Map([["logoA", { wirePath: "commcare/logo.png" } as never]]) as never,
 		);
 		vi.mocked(uploadAppMediaBundle).mockResolvedValueOnce({
-			matched: 1,
+			matched: 0,
 			unmatched: 1,
+			unmatchedFiles: [
+				{ path: "commcare/logo.png", reason: "Did not match any Image paths." },
+			],
 			errors: [],
 			timedOut: false,
 		});
@@ -394,9 +417,11 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 		/* Still a success envelope — the app was created. */
 		expect(parsed.stage).toBe("upload_complete");
 		expect(parsed.hq_app_id).toBe("hq-1");
-		/* The unmatched file becomes a single user-facing warning. */
+		/* The logo becomes a single gentle warning, not a "couldn't attach". */
 		expect(parsed.warnings).toHaveLength(1);
-		expect(parsed.warnings[0]).toContain("1 media file");
+		expect(parsed.warnings[0]).toMatch(/logo/i);
+		expect(parsed.warnings[0]).toContain("CommCare HQ");
+		expect(parsed.warnings[0]).not.toMatch(/couldn't attach/i);
 	});
 });
 

@@ -48,7 +48,10 @@ vi.mock("@/lib/db/mediaAssets", () => ({
 	hasOtherAssetForGcsObjectKey,
 }));
 vi.mock("@/lib/storage/media", () => ({ deleteAsset: deleteGcsObject }));
-vi.mock("@/lib/domain/mediaRefs", () => ({
+vi.mock("@/lib/domain/mediaRefs", async (importOriginal) => ({
+	// Keep the real `describeCarrier` (a pure domain switch carriersForAsset
+	// renders refs through); override only the walk + adapter.
+	...(await importOriginal<typeof import("@/lib/domain/mediaRefs")>()),
 	walkAssetRefs,
 	// `carriersForAsset` calls `asWalkableDoc` before walking; the walk is mocked,
 	// so the adapter is a passthrough here.
