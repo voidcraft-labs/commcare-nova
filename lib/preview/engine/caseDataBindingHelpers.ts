@@ -29,7 +29,10 @@ import type {
 	SortKey as CaseStoreSortKey,
 	CaseUpdate,
 } from "@/lib/case-store";
-import { SchemaNotSyncedError } from "@/lib/case-store/errors";
+import {
+	CasePropertiesValidationError,
+	SchemaNotSyncedError,
+} from "@/lib/case-store/errors";
 import { loadApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
@@ -668,35 +671,60 @@ export function applySurveyMutation(): Extract<
 }
 
 /**
- * Self-heal a case-store call whose `case_type_schemas` row is missing:
- * re-materialize the schemas from the app's PERSISTED blueprint and run
- * the call once more.
+ * Self-heal a case-store call defeated by a `case_type_schemas` row that
+ * no longer mirrors the app's PERSISTED blueprint: re-materialize the
+ * blueprint's schemas and run the call once more. Two recoverable shapes:
  *
- * `SchemaNotSyncedError` means a blueprint writer's case-store sync
- * never landed (the canonical producer: a transient Postgres failure at
- * an edit run's drain-end materialize — the chat surface's saves are
- * Firestore-only, so nothing re-attempts the sync until a
- * case-type-touching commit happens to run the cross-store saga). The
- * Firestore blueprint is the source of truth and the materialize is an
- * idempotent UPSERT, so the right response at the point of use is to
- * materialize and retry, not to surface "not synced yet" and wait for an
- * unrelated edit. The persisted blueprint (not the caller's wire copy)
- * drives the heal — the schema rows must mirror what is stored.
+ *   - `SchemaNotSyncedError` — the row is MISSING. A blueprint writer's
+ *     case-store sync never landed (canonical producer: a transient
+ *     Postgres failure at an edit run's drain-end materialize — the chat
+ *     surface's saves are Firestore-only, so nothing re-attempts the
+ *     sync until a case-type-touching commit happens to run the
+ *     cross-store saga). Always a sync gap, so always healed.
+ *   - `CasePropertiesValidationError` whose failures include an
+ *     `additionalProperty` — the row is PRESENT but STALE, built from an
+ *     older catalog, and rejected a property added since it last synced.
+ *     This is the failure behind "Generated sample data … must NOT have
+ *     additional properties": the generator derives its rows from the
+ *     live catalog while validation runs against the stale row. ONLY this
+ *     drift signature is healed — a type / format / enum failure carries
+ *     no `additionalProperty` and is treated as genuine invalid data, so
+ *     it surfaces immediately WITHOUT a Firestore read + re-materialize.
+ *     (Genuine bad data that happens to be an extra-property write — not
+ *     drift — re-fails the retry against the unchanged schema and surfaces
+ *     honestly; never masked.)
+ *
+ * The heal re-materializes the WHOLE persisted blueprint, not just the
+ * one failing type: a single partial materialize-failure can leave
+ * several types missing/stale, and a multi-type write (a registration
+ * creating children of several case types) only recovers in one pass if
+ * every stale type is re-synced together. Because the heal now fires only
+ * on a rare genuine missing/drift event (the drift gate above), the
+ * redundant idempotent UPSERTs for already-synced types are not on any
+ * hot path.
+ *
+ * Limitation: the heal can only fix drift that the PERSISTED blueprint
+ * reflects. If the same failure that left the row stale ALSO left
+ * Firestore stale (or an in-session edit isn't persisted yet), the
+ * re-materialize regenerates the same schema and the retry surfaces the
+ * error — correct, since the schema must mirror what is stored.
  *
  * `run` MUST be a single store operation, never a multi-write dispatch —
  * the granularity is the retry-safety argument. Each store method is
- * atomic (one statement or one Postgres transaction) and throws this
- * error before its own write lands, so the operation that threw is by
+ * atomic (one statement or one Postgres transaction) and throws BOTH of
+ * these errors before its own write lands (validator acquisition and
+ * JSON Schema validation both precede the INSERT/UPDATE, and a throw
+ * rolls the transaction back), so the operation that threw is by
  * definition the one that didn't land and re-running just it is
  * idempotent. Re-running a whole followup/close dispatch would re-insert
  * the child rows that already committed in their own transactions.
  * Production code reaches this through `schemaHealingCaseStore`, which
  * holds that granularity by construction.
  *
- * One retry only: a second `SchemaNotSyncedError` (or a heal that itself
- * fails — Postgres still down, app gone, foreign owner) rethrows the
- * ORIGINAL error so the action's typed `schema-not-synced` arm stays the
- * honest backstop.
+ * One retry only: a second failure (or a heal that itself fails —
+ * Postgres still down, app gone, foreign owner) rethrows the ORIGINAL
+ * error so the action's typed `schema-not-synced` / `validation-failure`
+ * arm stays the honest backstop.
  */
 export async function withSchemaHeal<T>(
 	args: { appId: string; userId: string },
@@ -705,7 +733,19 @@ export async function withSchemaHeal<T>(
 	try {
 		return await run();
 	} catch (err) {
-		if (!(err instanceof SchemaNotSyncedError)) throw err;
+		// Heal only a row that doesn't mirror the persisted blueprint:
+		// a MISSING row (always a sync gap), or a STALE row that rejected
+		// a newly-added property (`additionalProperty` set — schema
+		// drift). A type/format/enum validation failure carries no
+		// `additionalProperty` and is genuine invalid data — surface it
+		// immediately rather than pay a Firestore read + re-materialize.
+		const isMissingRow = err instanceof SchemaNotSyncedError;
+		const isStaleRowDrift =
+			err instanceof CasePropertiesValidationError &&
+			err.failures.some((f) => f.additionalProperty !== undefined);
+		if (!isMissingRow && !isStaleRowDrift) {
+			throw err;
+		}
 		try {
 			const app = await loadApp(args.appId);
 			if (!app || app.owner !== args.userId) throw err;
@@ -725,14 +765,15 @@ export async function withSchemaHeal<T>(
 }
 
 /**
- * A `CaseStore` whose every operation self-heals a missing
+ * A `CaseStore` whose every operation self-heals a missing OR stale
  * `case_type_schemas` row via {@link withSchemaHeal} — the heal lives at
  * the INDIVIDUAL store call, so a multi-write flow (a followup/close
  * submission: primary update, then per-child inserts in separate
  * transactions) resumes from the write that threw instead of re-running
- * writes that already landed. The per-case-type validator acquisition is
- * what throws, before the failing operation's own write commits, so
- * retrying just that operation is idempotent at exactly this granularity.
+ * writes that already landed. The per-case-type validator acquisition
+ * (missing row) or JSON Schema validation (stale row) is what throws,
+ * before the failing operation's own write commits, so retrying just
+ * that operation is idempotent at exactly this granularity.
  *
  * `applySchemaChange` / `dropSchema` delegate un-healed: they are the
  * schema-row writers themselves (`applySchemaChange` IS the heal's

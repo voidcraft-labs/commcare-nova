@@ -1,15 +1,19 @@
 /**
  * `withSchemaHeal` — the point-of-use self-heal for a case-store call
- * that hits `SchemaNotSyncedError`. The contract under test:
+ * defeated by a schema row that no longer mirrors the persisted
+ * blueprint. The contract under test:
  *
- *   - only `SchemaNotSyncedError` triggers a heal; every other throw
- *     passes through untouched (no Firestore read);
+ *   - a heal triggers on a MISSING row (`SchemaNotSyncedError`) AND on a
+ *     STALE row (`CasePropertiesValidationError` — a write carrying a
+ *     property the row's older catalog lacks); every other throw passes
+ *     through untouched (no Firestore read);
  *   - a heal re-materializes from the app's PERSISTED blueprint (not a
  *     caller-supplied copy) and retries the call exactly once;
  *   - a foreign-owned or missing app, or a failing materialize, rethrows
- *     the ORIGINAL error so the typed `schema-not-synced` arm stays the
- *     honest backstop;
- *   - a retry that fails again surfaces its own error — never a loop.
+ *     the ORIGINAL error so the typed `schema-not-synced` /
+ *     `validation-failure` arm stays the honest backstop;
+ *   - a retry that fails again surfaces its own error — never a loop, and
+ *     never a masked genuine validation failure.
  *
  * `schemaHealingCaseStore` scopes that heal to ONE store operation at a
  * time, which is what makes a multi-write submission retry-safe: the
@@ -19,7 +23,10 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaseStore } from "@/lib/case-store";
-import { SchemaNotSyncedError } from "@/lib/case-store/errors";
+import {
+	CasePropertiesValidationError,
+	SchemaNotSyncedError,
+} from "@/lib/case-store/errors";
 
 const { loadAppMock, materializeMock } = vi.hoisted(() => ({
 	loadAppMock: vi.fn(),
@@ -40,6 +47,24 @@ import {
 const ARGS = { appId: "app-1", userId: "user-1" };
 const BLUEPRINT = { caseTypes: [{ name: "patient", properties: [] }] };
 const notSynced = () => new SchemaNotSyncedError("app-1", "patient");
+// A STALE-row DRIFT failure: the row exists but its older catalog lacks a
+// property the write carries — `additionalProperty` set is the structural
+// signal the heal keys on. Each call is a fresh instance so identity
+// assertions hold.
+const staleDrift = () =>
+	new CasePropertiesValidationError("app-1", "patient", [
+		{
+			path: "",
+			message: "must NOT have additional property 'phone'",
+			additionalProperty: "phone",
+		},
+	]);
+// A GENUINE invalid-data failure (a type mismatch) — no `additionalProperty`,
+// so it is NOT drift and must NOT trigger the heal.
+const genuineInvalid = () =>
+	new CasePropertiesValidationError("app-1", "patient", [
+		{ path: "/age", message: "must be integer" },
+	]);
 
 describe("withSchemaHeal", () => {
 	beforeEach(() => {
@@ -110,6 +135,76 @@ describe("withSchemaHeal", () => {
 		await expect(withSchemaHeal(ARGS, run)).rejects.toBe(second);
 		expect(run).toHaveBeenCalledTimes(2);
 		expect(materializeMock).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("withSchemaHeal — stale schema row (CasePropertiesValidationError)", () => {
+	beforeEach(() => {
+		loadAppMock.mockReset();
+		materializeMock.mockReset();
+	});
+
+	it("re-materializes from the persisted blueprint and retries once when a stale row trips additionalProperties", async () => {
+		// The drift case: the row is present but built from a catalog that
+		// predates the `phone` property, so the first write fails. The heal
+		// re-syncs the row from the persisted blueprint and the retry lands.
+		loadAppMock.mockResolvedValue({ owner: "user-1", blueprint: BLUEPRINT });
+		materializeMock.mockResolvedValue(undefined);
+		const run = vi
+			.fn()
+			.mockRejectedValueOnce(staleDrift())
+			.mockResolvedValueOnce("rows");
+
+		await expect(withSchemaHeal(ARGS, run)).resolves.toBe("rows");
+		expect(materializeMock).toHaveBeenCalledWith({
+			appId: "app-1",
+			userId: "user-1",
+			blueprint: BLUEPRINT,
+		});
+		expect(run).toHaveBeenCalledTimes(2);
+	});
+
+	it("does NOT heal a non-drift validation failure (type/format) — surfaces immediately, no Firestore read", async () => {
+		// A genuine invalid-data failure carries no `additionalProperty`, so
+		// it is not drift: the heal must not fire. The error surfaces on the
+		// first attempt with NO loadApp + re-materialize round-trip, and the
+		// write is not retried.
+		const invalid = genuineInvalid();
+		const run = vi.fn().mockRejectedValue(invalid);
+
+		await expect(withSchemaHeal(ARGS, run)).rejects.toBe(invalid);
+		expect(loadAppMock).not.toHaveBeenCalled();
+		expect(materializeMock).not.toHaveBeenCalled();
+		expect(run).toHaveBeenCalledTimes(1);
+	});
+
+	it("does NOT mask drift the re-materialize can't resolve (persisted blueprint also stale): the second error surfaces", async () => {
+		// Drift the heal fires on, but the persisted blueprint is ALSO stale
+		// (same failure left both Firestore and the row behind), so the
+		// re-materialize regenerates the same schema and the retry fails
+		// again. That second error propagates — one extra materialize +
+		// retry, never a swallowed failure.
+		loadAppMock.mockResolvedValue({ owner: "user-1", blueprint: BLUEPRINT });
+		materializeMock.mockResolvedValue(undefined);
+		const second = staleDrift();
+		const run = vi
+			.fn()
+			.mockRejectedValueOnce(staleDrift())
+			.mockRejectedValueOnce(second);
+
+		await expect(withSchemaHeal(ARGS, run)).rejects.toBe(second);
+		expect(run).toHaveBeenCalledTimes(2);
+		expect(materializeMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("rethrows the ORIGINAL validation error when the app is foreign-owned", async () => {
+		const original = staleDrift();
+		loadAppMock.mockResolvedValue({ owner: "someone-else", blueprint: {} });
+		const run = vi.fn().mockRejectedValue(original);
+
+		await expect(withSchemaHeal(ARGS, run)).rejects.toBe(original);
+		expect(materializeMock).not.toHaveBeenCalled();
+		expect(run).toHaveBeenCalledTimes(1);
 	});
 });
 
