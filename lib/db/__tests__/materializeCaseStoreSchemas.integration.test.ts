@@ -17,17 +17,20 @@
 //     to the per-test handle.
 //
 // The unit-level tests (no testcontainer needed) cover the
-// no-op paths: null `caseTypes`, empty `caseTypes`. The
-// integration test covers the multi-case-type happy path —
-// every case-type row materializes + per-property indexes land.
-// A third arm pins the partial-failure contract: when
-// `applySchemaChange` throws on case type N of M, case types
-// 1..N-1 stay committed (no transactional rollback across case
-// types), N..M never get attempted, and the caller sees the
-// underlying throw bubble unwrapped. The SA wrapper relies on
-// that bubble shape to route the failure through
-// `classifyError` + `failApp` rather than letting the SA retry
-// the tool call.
+// no-op paths: null `caseTypes`, empty `caseTypes`. The integration
+// test covers the multi-case-type happy path — every case-type row
+// materializes + per-property indexes land — plus the retry policy:
+// a TRANSIENT (coded) failure is retried and the sync still lands,
+// while a DETERMINISTIC fault (no transient code) bubbles on the
+// first attempt without burning the budget. The partial-failure
+// contract: when `applySchemaChange` keeps throwing a transient
+// fault on case type N of M, case types 1..N-1 stay committed (no
+// transactional rollback across case types), N is retried to its
+// budget then the loop stops (N+1..M never attempted), and the
+// caller sees the underlying throw bubble unwrapped. The SA wrapper
+// relies on that bubble shape to route the failure through
+// `classifyError` + `failApp` rather than letting the SA retry the
+// tool call.
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -204,15 +207,16 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 // ── Partial-failure path — `applySchemaChange` throws on N of M ──
 
 describe("materializeCaseStoreSchemas — partial failure", () => {
-	it("stops at the offending case type and bubbles the throw with its name", async () => {
+	it("retries a TRANSIENT offending case type to its budget, then bubbles the throw with its name", async () => {
 		// Inject a fake `CaseStore` whose `applySchemaChange` resolves
-		// for the first two case types and rejects on the third. The
-		// helper's loop is sequential, so the third call's rejection
-		// must stop the loop entirely (case type 4 is never attempted).
-		// No testcontainer needed — the assertion is purely about
-		// call ordering + throw propagation, not about actual Postgres
-		// state. Probing rows would also work but adds container
-		// startup cost for a property the spy already proves.
+		// for the first two case types and rejects on the third EVERY
+		// time with a TRANSIENT (coded) error. A transient fault is
+		// retried to the budget (`PER_TYPE_SYNC_ATTEMPTS`), so the third
+		// type is attempted repeatedly; once the budget is exhausted the
+		// loop stops entirely (case type 4 is never attempted) and the
+		// underlying error bubbles unwrapped. No testcontainer needed —
+		// the assertion is purely about retry count + call ordering +
+		// throw propagation, not about actual Postgres state.
 		const calls: string[] = [];
 		const failureReason = "simulated postgres failure on case type C";
 		// Empty `MigrationReport` shape — the helper doesn't read it,
@@ -228,7 +232,11 @@ describe("materializeCaseStoreSchemas — partial failure", () => {
 		const applySchemaChangeMock = vi.fn(async (args: { caseType: string }) => {
 			calls.push(args.caseType);
 			if (args.caseType === "c") {
-				throw new Error(failureReason);
+				// Transient (coded) fault → eligible for retry, so it is
+				// attempted to the budget before bubbling.
+				throw Object.assign(new Error(failureReason), {
+					code: "ECONNRESET",
+				});
 			}
 			return emptyReport;
 		});
@@ -290,12 +298,197 @@ describe("materializeCaseStoreSchemas — partial failure", () => {
 			}),
 		).rejects.toThrow(failureReason);
 
-		// Sequential ordering: a + b succeeded, c was attempted (and
-		// threw), d was never attempted. The SA wrapper's
-		// `classifyError` + `failApp` path depends on the helper
-		// stopping at the offending case type — a regression that
-		// continued after a failure would leave the wrapper unable
-		// to identify which case type failed.
-		expect(calls).toEqual(["a", "b", "c"]);
+		// Sequential ordering: a + b each succeeded on their first
+		// attempt; c was attempted PER_TYPE_SYNC_ATTEMPTS (3) times (the
+		// transient-failure retry budget) and threw each time; d was
+		// never attempted. The SA wrapper's `classifyError` + `failApp`
+		// path depends on the helper stopping at the offending case type
+		// after the budget is spent — a regression that continued after a
+		// failure would leave the wrapper unable to identify which case
+		// type failed.
+		expect(calls).toEqual(["a", "b", "c", "c", "c"]);
+	});
+});
+
+// ── Transient-failure retry — recovers without leaving a stale row ──
+
+describe("materializeCaseStoreSchemas — transient-failure retry", () => {
+	it("retries a transient applySchemaChange failure and lands the sync", async () => {
+		// The canonical drain-end failure is a transient Postgres blip.
+		// `applySchemaChange` is idempotent, so the per-type retry must
+		// turn a first-attempt failure into a successful sync rather than
+		// bubbling — otherwise the row is left missing/stale and the
+		// point-of-use heal has to repair it later.
+		let attempts = 0;
+		const emptyReport = {
+			migrated: 0,
+			quarantined: 0,
+			skipped: 0,
+			failureReasons: [],
+		};
+		const applySchemaChangeMock = vi.fn(async () => {
+			attempts += 1;
+			if (attempts === 1) {
+				// Transient (coded) fault → retried; the second attempt lands.
+				throw Object.assign(new Error("transient postgres blip"), {
+					code: "ECONNRESET",
+				});
+			}
+			return emptyReport;
+		});
+		const unused = vi.fn(() => {
+			throw new Error("unused method");
+		});
+		const fakeStore = {
+			query: unused,
+			count: unused,
+			insert: unused,
+			insertWithChildren: unused,
+			update: unused,
+			close: unused,
+			traverse: unused,
+			applySchemaChange: applySchemaChangeMock,
+			dropSchema: unused,
+			generateSampleData: unused,
+			resetSampleData: unused,
+		} satisfies CaseStore;
+		withOwnerContextMock.mockImplementationOnce(async () => fakeStore);
+
+		const a: CaseType = {
+			name: "a",
+			properties: [{ name: "x", label: "X", data_type: "text" }],
+		};
+
+		// Resolves (does not throw) — the second attempt succeeded.
+		await expect(
+			materializeCaseStoreSchemas({
+				appId: APP_ID,
+				userId: OWNER_ID,
+				blueprint: makeBlueprint([a]),
+			}),
+		).resolves.toBeUndefined();
+		// One failure + one success = two attempts for the single type.
+		expect(applySchemaChangeMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("recognizes a transient fault wrapped one level deep on `cause` and retries", async () => {
+		// The Cloud SQL connector / pg driver can WRAP a transient blip so
+		// the SQLSTATE / errno sits on `error.cause.code` rather than
+		// `error.code`. `isTransientDbError` unwraps one level, so the
+		// retry must still fire and land.
+		let attempts = 0;
+		const emptyReport = {
+			migrated: 0,
+			quarantined: 0,
+			skipped: 0,
+			failureReasons: [],
+		};
+		const applySchemaChangeMock = vi.fn(async () => {
+			attempts += 1;
+			if (attempts === 1) {
+				throw Object.assign(new Error("wrapped connection failure"), {
+					cause: Object.assign(new Error("socket hang up"), {
+						code: "ECONNRESET",
+					}),
+				});
+			}
+			return emptyReport;
+		});
+		const unused = vi.fn(() => {
+			throw new Error("unused method");
+		});
+		const fakeStore = {
+			query: unused,
+			count: unused,
+			insert: unused,
+			insertWithChildren: unused,
+			update: unused,
+			close: unused,
+			traverse: unused,
+			applySchemaChange: applySchemaChangeMock,
+			dropSchema: unused,
+			generateSampleData: unused,
+			resetSampleData: unused,
+		} satisfies CaseStore;
+		withOwnerContextMock.mockImplementationOnce(async () => fakeStore);
+
+		const a: CaseType = {
+			name: "a",
+			properties: [{ name: "x", label: "X", data_type: "text" }],
+		};
+
+		await expect(
+			materializeCaseStoreSchemas({
+				appId: APP_ID,
+				userId: OWNER_ID,
+				blueprint: makeBlueprint([a]),
+			}),
+		).resolves.toBeUndefined();
+		expect(applySchemaChangeMock).toHaveBeenCalledTimes(2);
+	});
+});
+
+// ── Deterministic fault — NOT retried, bubbles on the first attempt ──
+
+describe("materializeCaseStoreSchemas — deterministic fault is not retried", () => {
+	it("bubbles a non-transient applySchemaChange fault on the FIRST attempt without burning the retry budget", async () => {
+		// A deterministic fault (no transient `code` — e.g. the
+		// identifier-collision throw at `applySchemaChange`'s pre-flight)
+		// would fail identically every retry, so it must bubble on attempt
+		// 1 rather than spend the backoff budget. The fake throws a plain
+		// Error (no `code`); the loop stops at the offending type (the
+		// second type is never attempted).
+		const calls: string[] = [];
+		const failureReason = "deterministic identifier collision";
+		const emptyReport = {
+			migrated: 0,
+			quarantined: 0,
+			skipped: 0,
+			failureReasons: [],
+		};
+		const applySchemaChangeMock = vi.fn(async (args: { caseType: string }) => {
+			calls.push(args.caseType);
+			if (args.caseType === "a") {
+				throw new Error(failureReason); // plain Error, no transient code
+			}
+			return emptyReport;
+		});
+		const unused = vi.fn(() => {
+			throw new Error("unused method");
+		});
+		const fakeStore = {
+			query: unused,
+			count: unused,
+			insert: unused,
+			insertWithChildren: unused,
+			update: unused,
+			close: unused,
+			traverse: unused,
+			applySchemaChange: applySchemaChangeMock,
+			dropSchema: unused,
+			generateSampleData: unused,
+			resetSampleData: unused,
+		} satisfies CaseStore;
+		withOwnerContextMock.mockImplementationOnce(async () => fakeStore);
+
+		const a: CaseType = {
+			name: "a",
+			properties: [{ name: "x", label: "X", data_type: "text" }],
+		};
+		const b: CaseType = {
+			name: "b",
+			properties: [{ name: "y", label: "Y", data_type: "text" }],
+		};
+
+		await expect(
+			materializeCaseStoreSchemas({
+				appId: APP_ID,
+				userId: OWNER_ID,
+				blueprint: makeBlueprint([a, b]),
+			}),
+		).rejects.toThrow(failureReason);
+
+		// `a` attempted exactly once (no retry); `b` never reached.
+		expect(calls).toEqual(["a"]);
 	});
 });

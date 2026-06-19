@@ -42,6 +42,7 @@ import {
 	readTextObject,
 	writeTextObject,
 } from "@/lib/storage/media";
+import { delay } from "@/lib/utils/delay";
 import {
 	type AttachmentCondenser,
 	CONDENSER_MODEL,
@@ -165,9 +166,6 @@ async function reloadExtractStatus(
 	};
 }
 
-const sleep = (ms: number): Promise<void> =>
-	new Promise((resolve) => setTimeout(resolve, ms));
-
 /**
  * Wait for a different in-flight job to produce the extract, reusing its result
  * instead of running a second model call. The wait is naturally bounded by the
@@ -189,7 +187,7 @@ async function waitForInflight(
 ): Promise<StoredExtractResult | null> {
 	let waiting = true;
 	while (waiting) {
-		await sleep(INFLIGHT_POLL_MS);
+		await delay(INFLIGHT_POLL_MS);
 		const fresh = await reloadExtractStatus(owner, assetId);
 		if (!fresh) return null; // record vanished / unreadable → we take over
 		if (
