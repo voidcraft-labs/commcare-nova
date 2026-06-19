@@ -205,7 +205,7 @@ function ValueRow({
 							type="button"
 							aria-label="Remove value"
 							onClick={onRemove}
-							className="size-11 grid place-items-center rounded-md text-nova-text-muted/60 hover:text-nova-rose hover:bg-white/[0.05] cursor-pointer transition-colors"
+							className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-rose hover:bg-white/[0.05] cursor-pointer transition-colors"
 						>
 							<Icon icon={tablerX} width="13" height="13" />
 						</button>

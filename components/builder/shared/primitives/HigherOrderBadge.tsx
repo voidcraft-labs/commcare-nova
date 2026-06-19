@@ -84,7 +84,7 @@ export function HigherOrderBadge({
 	return (
 		<div className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md border border-dashed border-white/[0.10] bg-nova-deep/30">
 			<span className="text-nova-text-muted shrink-0">Expression:</span>
-			<span className="font-mono text-nova-violet-bright/80 truncate">
+			<span className="font-mono text-nova-violet-bright truncate">
 				{label}
 			</span>
 			<div className="flex-1" />
@@ -96,7 +96,7 @@ export function HigherOrderBadge({
 				type="button"
 				aria-label={`Replace ${ariaLabel} expression (${label}) with a simple value`}
 				onClick={onReplace}
-				className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
+				className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted hover:text-nova-violet-bright transition-colors cursor-pointer"
 			>
 				Replace
 			</button>

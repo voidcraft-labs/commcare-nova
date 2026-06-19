@@ -95,7 +95,10 @@ export function HighlightedText({
 				const key = offset;
 				offset += seg.text.length;
 				return seg.highlight ? (
-					<mark key={key} className="bg-nova-violet/20 text-inherit rounded-sm">
+					<mark
+						key={key}
+						className="bg-nova-violet/20 text-nova-text rounded-sm"
+					>
 						{seg.text}
 					</mark>
 				) : (

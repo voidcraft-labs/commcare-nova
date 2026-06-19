@@ -509,7 +509,7 @@ function KindPicker({
 					icon={currentSchema.icon}
 					width="16"
 					height="16"
-					className="text-nova-violet-bright/80 shrink-0"
+					className="text-nova-violet-bright shrink-0"
 				/>
 				<span className="flex-1 min-w-0 text-left">
 					<span className="block text-nova-text">{currentSchema.label}</span>
@@ -574,7 +574,7 @@ function KindPicker({
 										<div
 											className={`text-[11px] truncate ${
 												isCurrent
-													? "text-nova-violet-bright/60"
+													? "text-nova-violet-bright"
 													: "text-nova-text-muted"
 											}`}
 										>

@@ -92,7 +92,7 @@ export function DateAddCard({ value, onChange, path }: DateAddCardProps) {
 	return (
 		<div className="space-y-2">
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 					Date
 				</div>
 				<ExpressionPicker
@@ -106,13 +106,13 @@ export function DateAddCard({ value, onChange, path }: DateAddCardProps) {
 
 			<div className="grid grid-cols-[auto_1fr] gap-2 items-start">
 				<div>
-					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 						Interval
 					</div>
 					<IntervalMenu interval={value.interval} setInterval={setInterval} />
 				</div>
 				<div>
-					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 						Quantity
 					</div>
 					<ExpressionPicker

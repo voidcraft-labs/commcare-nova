@@ -139,7 +139,7 @@ function TabButton({ active, onClick, label, count }: TabButtonProps) {
 			{label}
 			{count !== undefined && count > 0 && (
 				<span
-					className={`ml-1.5 ${active ? "text-nova-text-muted" : "text-nova-text-muted/70"}`}
+					className={`ml-1.5 ${active ? "text-nova-text-muted" : "text-nova-text-muted"}`}
 				>
 					{count}
 				</span>
@@ -157,10 +157,10 @@ function DeletedEmptyState() {
 				icon={tablerArchive}
 				width="32"
 				height="32"
-				className="text-nova-text-muted/40"
+				className="text-nova-text-muted"
 			/>
 			<p className="text-sm text-nova-text">Nothing in your trash</p>
-			<p className="max-w-sm text-xs leading-relaxed text-nova-text-muted/70">
+			<p className="max-w-sm text-xs leading-relaxed text-nova-text-muted">
 				Deleted apps stay here for 30 days before they&rsquo;re permanently
 				removed by an automated cleanup. Anything restored within that window
 				comes back exactly as it was.

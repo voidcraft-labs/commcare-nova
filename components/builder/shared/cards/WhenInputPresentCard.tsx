@@ -61,7 +61,7 @@ export function WhenInputPresentCard({
 	return (
 		<div className="space-y-2">
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 					When this input has a value
 				</div>
 				<InputMenu
@@ -72,7 +72,7 @@ export function WhenInputPresentCard({
 				<InlineError errors={inputErrors} />
 			</div>
 			<div>
-				<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 					Apply this clause
 				</div>
 				<ChildPredicateEditor
@@ -108,7 +108,7 @@ function InputMenu({
 
 	if (items.length === 0) {
 		return (
-			<div className="text-xs text-nova-text-muted/60 italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
+			<div className="text-xs text-nova-text-muted italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
 				No declared search inputs in scope
 			</div>
 		);
@@ -126,7 +126,7 @@ function InputMenu({
 						icon={tablerSwitch}
 						width="14"
 						height="14"
-						className="text-nova-violet-bright/70"
+						className="text-nova-violet-bright"
 					/>
 					<span className="font-mono text-nova-violet-bright">
 						{current?.name ?? "Pick an input"}

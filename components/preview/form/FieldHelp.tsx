@@ -30,7 +30,7 @@ export function FieldHelp({
 	return (
 		<div className="space-y-1.5">
 			{help && (
-				<div className="preview-markdown text-xs text-nova-text-muted/80">
+				<div className="preview-markdown text-xs text-nova-text-muted">
 					<PreviewMarkdown>{help}</PreviewMarkdown>
 				</div>
 			)}

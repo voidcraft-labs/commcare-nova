@@ -106,7 +106,7 @@ export function WithinDistanceCard({
 
 			<div className="grid grid-cols-1 @md:grid-cols-[1.6fr_auto_auto] gap-2 items-start">
 				<div>
-					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 						Center
 					</div>
 					{/* Center coordinate routes through `ExpressionPicker`.
@@ -127,13 +127,13 @@ export function WithinDistanceCard({
 					/>
 				</div>
 				<div>
-					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 						Distance
 					</div>
 					<DistanceInput value={value.distance} onChange={setDistance} />
 				</div>
 				<div>
-					<div className="text-[10px] text-nova-text-muted/70 uppercase tracking-wider mb-1">
+					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
 						Unit
 					</div>
 					<UnitMenu unit={value.unit} setUnit={setUnit} />

@@ -39,7 +39,7 @@ export function MatchAllCard({ value, onChange }: MatchAllCardProps) {
 					icon={tablerAsterisk}
 					width="13"
 					height="13"
-					className="text-nova-violet-bright/70 shrink-0"
+					className="text-nova-violet-bright shrink-0"
 				/>
 				{/* Context-neutral wording — this sentinel seeds the list
 				 *  filter AND non-case slots like the search button's

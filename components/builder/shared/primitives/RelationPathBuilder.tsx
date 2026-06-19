@@ -184,7 +184,7 @@ export function RelationPathBuilder({
 						icon={canonical === "subcase" ? tablerLink : tablerArrowsRight}
 						width="14"
 						height="14"
-						className="text-nova-text-muted/60 shrink-0"
+						className="text-nova-text-muted shrink-0"
 					/>
 					<IdentifierInput
 						value={identifier}
@@ -215,14 +215,14 @@ function NonCanonicalBadge({
 	return (
 		<div className="flex items-center gap-2 px-3 min-h-11 text-xs rounded-lg border border-dashed border-white/[0.10] bg-nova-deep/30">
 			<span className="text-nova-text-muted shrink-0">Connection:</span>
-			<span className="font-mono text-nova-violet-bright/80 truncate">
+			<span className="font-mono text-nova-violet-bright truncate">
 				{label}
 			</span>
 			<div className="flex-1" />
 			<button
 				type="button"
 				onClick={onReplace}
-				className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted/70 hover:text-nova-violet-bright transition-colors cursor-pointer"
+				className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted hover:text-nova-violet-bright transition-colors cursor-pointer"
 			>
 				Replace
 			</button>
@@ -278,7 +278,7 @@ function KindMenu({
 					icon={current.icon}
 					width="14"
 					height="14"
-					className="text-nova-violet-bright/70"
+					className="text-nova-violet-bright"
 				/>
 				<span>{current.label}</span>
 				<svg
@@ -341,7 +341,7 @@ function KindMenu({
 										<div
 											className={`text-[10px] ${
 												isActive
-													? "text-nova-violet-bright/60"
+													? "text-nova-violet-bright"
 													: "text-nova-text-muted"
 											}`}
 										>
@@ -368,7 +368,7 @@ function IdentifierInput({
 	readonly invalid: boolean;
 }) {
 	const cls = [
-		"w-32 min-h-11 px-3 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted/60 focus:outline-none focus:ring-1 transition-colors font-mono",
+		"w-32 min-h-11 px-3 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 transition-colors font-mono",
 		invalid
 			? "border-nova-rose/40 focus:border-nova-rose/60 focus:ring-nova-rose/30"
 			: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30",

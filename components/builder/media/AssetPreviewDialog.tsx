@@ -284,7 +284,7 @@ function DownloadOriginal({
 			<a
 				href={src}
 				download={name}
-				className="inline-flex items-center gap-1.5 rounded-md bg-nova-violet px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright"
+				className="inline-flex items-center gap-1.5 rounded-md bg-nova-action px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright"
 			>
 				<Icon icon={tablerDownload} className="size-4" />
 				Download original
@@ -302,7 +302,7 @@ function AssetUnavailable({ kind }: { kind: AssetKind }) {
 		<div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-nova-border px-6 py-12 text-center">
 			<Icon
 				icon={ASSET_KIND_META[kind].icon}
-				className="size-10 text-nova-text-muted/60"
+				className="size-10 text-nova-text-muted"
 			/>
 			<p className="text-sm text-nova-text-secondary">
 				This file is no longer available — it may have been deleted from your

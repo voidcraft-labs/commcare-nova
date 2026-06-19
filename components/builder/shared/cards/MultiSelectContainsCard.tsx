@@ -174,7 +174,7 @@ function TokenList({
 }) {
 	if (options.length === 0) {
 		return (
-			<div className="text-xs text-nova-text-muted/60 px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
+			<div className="text-xs text-nova-text-muted px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
 				This property has no options to pick from yet.
 			</div>
 		);
@@ -225,7 +225,7 @@ function TokenChip({
 	const cls = [
 		"group inline-flex items-center gap-1 pl-2.5 pr-0.5 min-h-11 text-[12px] rounded-lg border transition-colors",
 		invalid
-			? "border-nova-rose/40 bg-nova-rose/10 text-nova-rose/90"
+			? "border-nova-rose/40 bg-nova-rose/10 text-nova-rose"
 			: "border-nova-violet/25 bg-nova-violet/10 text-nova-violet-bright",
 	].join(" ");
 	return (
@@ -269,7 +269,7 @@ function OptionPicker({
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label="Add Option"
-				className="inline-flex items-center gap-1.5 px-3 min-h-11 text-[12px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted/80 hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				className="inline-flex items-center gap-1.5 px-3 min-h-11 text-[12px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 			>
 				<Icon icon={tablerPlus} width="13" height="13" />
 				<span>Add Option</span>

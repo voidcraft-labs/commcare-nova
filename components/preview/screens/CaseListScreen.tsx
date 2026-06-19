@@ -467,7 +467,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				<button
 					type="button"
 					onClick={() => proceedWithCase(openCase)}
-					className="mt-4 inline-flex items-center gap-2 px-4 min-h-11 rounded-lg bg-nova-violet text-white text-[13px] font-semibold hover:brightness-110 transition-all cursor-pointer"
+					className="mt-4 inline-flex items-center gap-2 px-4 min-h-11 rounded-lg bg-pv-accent text-white text-[13px] font-semibold hover:brightness-110 transition-all cursor-pointer"
 				>
 					Continue
 					<Icon icon={tablerArrowRight} width="15" height="15" />
@@ -511,7 +511,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 							icon={formTypeIcons[form.type]}
 							width="18"
 							height="18"
-							className="text-nova-text-muted group-hover:text-pv-accent transition-colors shrink-0"
+							className="text-nova-text-muted group-hover:text-pv-accent-bright transition-colors shrink-0"
 						/>
 						<span className="flex-1 min-w-0 text-sm font-medium text-nova-text">
 							{form.name}
@@ -665,7 +665,7 @@ function ResultsBody({
 
 	if (state.kind === "error") {
 		return (
-			<div className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] px-5 py-6 text-center text-xs text-nova-rose/90">
+			<div className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] px-5 py-6 text-center text-xs text-nova-rose">
 				{state.message}
 			</div>
 		);
@@ -742,7 +742,7 @@ function ResultsBody({
 
 	return (
 		<div
-			className={`transition-opacity ${fetching ? "opacity-60" : "opacity-100"}`}
+			className={`transition-opacity ${fetching ? "opacity-80" : "opacity-100"}`}
 		>
 			<ResultsTable
 				rows={rows}

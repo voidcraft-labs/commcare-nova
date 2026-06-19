@@ -59,7 +59,7 @@ describe("ArithCard — inline errors", () => {
 		// — `numeric operands` appears only in the type checker's
 		// arith-side rejection. One render = one DOM row carrying it.
 		const errorRows = Array.from(
-			container.querySelectorAll<HTMLElement>(".text-nova-rose\\/90"),
+			container.querySelectorAll<HTMLElement>(".text-nova-rose"),
 		).filter((el) => /numeric operands/i.test(el.textContent ?? ""));
 		expect(errorRows.length).toBe(1);
 	});

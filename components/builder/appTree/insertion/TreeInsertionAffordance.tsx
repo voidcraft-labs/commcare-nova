@@ -111,7 +111,7 @@ export function TreeInsertionLine({ revealed }: { revealed: boolean }) {
 			}`}
 		>
 			<span className="h-px flex-1 bg-nova-violet/40" />
-			<span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-nova-violet/40 bg-nova-surface text-nova-violet">
+			<span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-nova-violet/40 bg-nova-surface text-nova-violet-bright">
 				<Icon icon={tablerPlus} width="12" height="12" />
 			</span>
 			<span className="h-px flex-1 bg-nova-violet/40" />

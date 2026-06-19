@@ -125,7 +125,7 @@ export function AttachmentChip({
 									"flex size-4 shrink-0 items-center justify-center rounded-sm",
 									"focus-visible:outline-1 focus-visible:outline-nova-violet-bright",
 									removeDisabled
-										? "cursor-default text-nova-text-muted/40"
+										? "cursor-default text-nova-text-muted"
 										: "cursor-pointer text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text",
 								)}
 								aria-label={
