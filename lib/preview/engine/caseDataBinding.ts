@@ -4,7 +4,7 @@
 // Each action resolves the request's session, constructs a
 // tenant-scoped `CaseStore` via `withOwnerContext(session.user.id)`
 // wrapped in `schemaHealingCaseStore` (every individual store call
-// self-heals a missing schema row and retries itself once), and
+// self-heals a missing or stale schema row and retries itself once), and
 // delegates to an I/O helper in `./caseDataBindingHelpers.ts`
 // (server-only) or an error mapper in `./caseDataBindingClient.ts`
 // (client-bundle-safe). Tests bypass the actions and inject a

@@ -93,6 +93,7 @@ import type {
 	ResetSampleDataArgs,
 	SchemaChangeKind,
 } from "../store";
+import { ajvErrorToCaseFailure } from "./validationFailure";
 
 /**
  * Construction arguments. Production callers go through
@@ -655,10 +656,7 @@ export class PostgresCaseStore implements CaseStore {
 			const propertiesObject = parseJsonbInput(row.properties);
 			const ok = validator(propertiesObject);
 			if (!ok) {
-				const failures = (validator.errors ?? []).map((e) => ({
-					path: e.instancePath || "",
-					message: e.message ?? "invalid",
-				}));
+				const failures = (validator.errors ?? []).map(ajvErrorToCaseFailure);
 				throw new CasePropertiesValidationError(args.appId, caseType, failures);
 			}
 			return {
@@ -1482,11 +1480,10 @@ export class PostgresCaseStore implements CaseStore {
 		if (!ok) {
 			// Project AJV's errors onto `CasePropertyFailure` so API
 			// routes get one consistent shape across per-row and bulk
-			// paths.
-			const failures = (validator.errors ?? []).map((e) => ({
-				path: e.instancePath || "",
-				message: e.message ?? "invalid",
-			}));
+			// paths — `ajvErrorToCaseFailure` names the offending key on
+			// an `additionalProperties` failure (AJV's default message
+			// doesn't).
+			const failures = (validator.errors ?? []).map(ajvErrorToCaseFailure);
 			throw new CasePropertiesValidationError(
 				args.appId,
 				args.caseType,

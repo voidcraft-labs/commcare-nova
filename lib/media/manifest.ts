@@ -128,3 +128,16 @@ export async function resolveMediaManifest(
 	);
 	return new Map(entries);
 }
+
+/**
+ * Project a resolved manifest to its `AssetId → wirePath` map — the input
+ * the upload-outcome interpreter (`./uploadOutcome.ts`) joins against the
+ * doc's references to name which media, where, didn't attach. Keeps the
+ * `AssetManifest` type (a `lib/commcare` shape) on this side of the import
+ * boundary so the interpreter stays boundary-free.
+ */
+export function assetWirePaths(manifest: AssetManifest): Map<string, string> {
+	const map = new Map<string, string>();
+	for (const [assetId, asset] of manifest) map.set(assetId, asset.wirePath);
+	return map;
+}

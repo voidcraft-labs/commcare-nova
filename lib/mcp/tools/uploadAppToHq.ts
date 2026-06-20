@@ -76,7 +76,8 @@ import { errorToString } from "@/lib/commcare/validator/errors";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { log } from "@/lib/logger";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
-import { resolveMediaManifest } from "@/lib/media/manifest";
+import { assetWirePaths, resolveMediaManifest } from "@/lib/media/manifest";
+import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 import { initMcpCall } from "../context";
 import {
 	McpInvalidInputError,
@@ -352,26 +353,23 @@ export function registerUploadAppToHq(
 							warnings.push(
 								"The app was created and its media uploaded — CommCare is still processing it, so it may take a few minutes to appear.",
 							);
-						} else if (
-							mediaResult.unmatched > 0 ||
-							mediaResult.errors.length > 0
-						) {
-							const n = mediaResult.unmatched + mediaResult.errors.length;
+						} else {
+							// Name the genuine failures by carrier, and separate the
+							// app-logo case (a logo-only image is unmatched by design).
+							// The shared reporter owns the warning copy + the
+							// error/warn log decision (identical to the chat route).
 							warnings.push(
-								`${n} media ${n === 1 ? "file" : "files"} could not be attached — the app was created, but ${
-									n === 1 ? "that file" : "those files"
-								} won't display until re-uploaded.`,
-							);
-							log.error(
-								"[mcp/upload_app_to_hq] some media files did not attach",
-								{
-									domain: targetDomain,
-									appId,
-									hqAppId: result.appId,
-									matched: mediaResult.matched,
-									unmatched: mediaResult.unmatched,
-									errors: mediaResult.errors,
-								},
+								...reportMediaAttach({
+									result: mediaResult,
+									assetWirePath: assetWirePaths(manifest),
+									doc,
+									logPrefix: "[mcp/upload_app_to_hq]",
+									logContext: {
+										domain: targetDomain,
+										appId,
+										hqAppId: result.appId,
+									},
+								}),
 							);
 						}
 					}

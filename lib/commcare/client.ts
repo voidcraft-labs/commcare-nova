@@ -400,17 +400,29 @@ export async function importApp(
 
 // ── Multimedia upload (bulk API) ───────────────────────────────────
 
+/** One file HQ couldn't match to a reference, from the status report's
+ *  `unmatched_files` list — the wire path (`commcare/<hash><ext>`) plus HQ's
+ *  own reason string. The upload route maps the path back to the carrier it
+ *  serves so the user sees WHICH media, WHERE, didn't attach. */
+export interface UnmatchedMediaFileReport {
+	readonly path: string;
+	readonly reason: string;
+}
+
 /**
  * Outcome of a bulk media upload. `matched` / `unmatched` come from HQ's
  * async processing of the ZIP (files matched to the app's references vs
- * files the app doesn't reference); `errors` carries any processing errors
- * HQ reported. `timedOut` means we stopped polling before HQ finished — the
- * ZIP was accepted and is still processing server-side, so the media will
- * appear shortly even though we didn't confirm the match.
+ * files the app doesn't reference); `unmatchedFiles` carries the per-file
+ * detail behind `unmatched` (path + reason) so the caller can name what didn't
+ * attach instead of a bare count; `errors` carries any processing errors HQ
+ * reported. `timedOut` means we stopped polling before HQ finished — the ZIP
+ * was accepted and is still processing server-side, so the media will appear
+ * shortly even though we didn't confirm the match.
  */
 export interface MediaBundleUploadResult {
 	readonly matched: number;
 	readonly unmatched: number;
+	readonly unmatchedFiles: readonly UnmatchedMediaFileReport[];
 	readonly errors: readonly string[];
 	readonly timedOut: boolean;
 }
@@ -535,11 +547,18 @@ async function pollMediaBundleStatus(
 				errors?: string[];
 				matched_count?: number;
 				unmatched_count?: number;
+				// HQ's `BulkMultimediaStatusCache.get_response` records each
+				// unmatched ZIP entry as `{path, reason}` (`add_unmatched_path`).
+				unmatched_files?: { path?: string; reason?: string }[];
 			};
 			if (status.complete) {
 				return {
 					matched: status.matched_count ?? 0,
 					unmatched: status.unmatched_count ?? 0,
+					unmatchedFiles: (status.unmatched_files ?? []).map((f) => ({
+						path: f.path ?? "",
+						reason: f.reason ?? "",
+					})),
 					errors: status.errors ?? [],
 					timedOut: false,
 				};
@@ -547,7 +566,13 @@ async function pollMediaBundleStatus(
 		}
 		await delay(MEDIA_BUNDLE_POLL_INTERVAL_MS);
 	}
-	return { matched: 0, unmatched: 0, errors: [], timedOut: true };
+	return {
+		matched: 0,
+		unmatched: 0,
+		unmatchedFiles: [],
+		errors: [],
+		timedOut: true,
+	};
 }
 
 /** Promise-returning sleep for the bounded status poll. */

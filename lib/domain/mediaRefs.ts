@@ -484,6 +484,107 @@ export function collectAssetRefs(doc: BlueprintDoc): Set<string> {
 }
 
 /**
+ * Whether a carrier's bytes reach the device through CommCare HQ's bulk
+ * multimedia upload. HQ matches each uploaded file against the app's
+ * FORM and MENU media references only — `ApplicationMediaMixin.all_media`
+ * deliberately EXCLUDES app-level media (the logo) from that set — so an
+ * app-level carrier's file is reported unmatched by the bulk upload and
+ * never installed. Every other carrier (module/form menu media, field
+ * and option media, case-list detail images) DOES carry.
+ *
+ * The single home for that one CommCare fact: both the proactive
+ * app-settings warning (`uncarriedLogoAsset`) and the post-upload
+ * reconciliation (`lib/media/uploadOutcome.ts`) read it, so the rule
+ * can't drift across the two surfaces. Today only the app logo is
+ * app-level; when CommCare adds another app-level surface, this is the
+ * one place to teach.
+ */
+export function carriesViaBulkUpload(location: MediaRefLocation): boolean {
+	return location.kind !== "app_logo";
+}
+
+/**
+ * The app logo's `AssetId` IF it won't reach the device on its own —
+ * otherwise `undefined`.
+ *
+ * An image used ONLY as the app logo is never carried by the bulk upload
+ * (see `carriesViaBulkUpload`) — the web-apps banner stays blank. The
+ * SAME image also used as a form/menu graphic DOES carry (it matches via
+ * that reference and resolves to the shared path), so this returns
+ * `undefined` whenever the logo asset is referenced by any carrier that
+ * carries.
+ *
+ * This is the proactive (pre-upload) predicate the app-settings warning
+ * reads; the upload route reconciles the same fact against HQ's actual
+ * unmatched-file report (`lib/media/uploadOutcome.ts`).
+ */
+export function uncarriedLogoAsset(doc: BlueprintDoc): string | undefined {
+	const logo = doc.logo;
+	if (!logo) return undefined;
+	for (const ref of walkAssetRefs(doc)) {
+		if (ref.assetId === logo && carriesViaBulkUpload(ref.location)) {
+			return undefined;
+		}
+	}
+	return logo;
+}
+
+/**
+ * Render a media reference's carrier into a human-readable phrase that
+ * names the slot + the entity it lives on, in the authoring layer's own
+ * nouns (module / form / field / option / logo — never wire vocabulary).
+ * The single carrier-naming describer: the deletion-refusal message
+ * (`lib/media/assetDeletion.ts`) and the upload-attach warning
+ * (`lib/media/uploadOutcome.ts`) both read it, so the same carrier reads
+ * the same way everywhere. The validator's `describeLocation` is a
+ * separate, location-only variant (it has no `slotKind` and deliberately
+ * says "media", not the specific kind, since its job is to flag a
+ * wrong-kind asset).
+ *
+ * The `switch` is exhaustive over `MediaRefLocation.kind`; a new carrier
+ * variant fails to compile here until it's described.
+ */
+export function describeCarrier(ref: AssetRef): string {
+	const loc = ref.location;
+	switch (loc.kind) {
+		case "app_logo":
+			return "the app logo";
+		case "module_icon":
+			return `the icon on module "${loc.moduleName}"`;
+		case "module_audio_label":
+			return `the audio label on module "${loc.moduleName}"`;
+		case "case_list_icon":
+			return `the case-list icon on module "${loc.moduleName}"`;
+		case "case_list_audio_label":
+			return `the case-list audio label on module "${loc.moduleName}"`;
+		case "form_icon":
+			return `the icon on form "${loc.formName}" (module "${loc.moduleName}")`;
+		case "form_audio_label":
+			return `the audio label on form "${loc.formName}" (module "${loc.moduleName}")`;
+		case "field_media_bundle":
+			return `the ${ref.slotKind} on field "${loc.fieldId}"'s ${bundleSlotLabel(loc.bundleKey)} (form "${loc.formName}")`;
+		case "option_media":
+			return `the ${ref.slotKind} on option "${loc.optionValue}" of field "${loc.fieldId}" (form "${loc.formName}")`;
+		case "image_map_mapping":
+			return `the image-map row "${loc.rowValue}" in column "${loc.columnHeader}" (module "${loc.moduleName}")`;
+	}
+}
+
+/** Friendly label for a field message-bundle key, for `describeCarrier`. */
+function bundleSlotLabel(bundleKey: FieldMediaBundleKey): string {
+	switch (bundleKey) {
+		case "label_media":
+			return "label";
+		case "hint_media":
+			return "hint";
+		case "help_media":
+			return "help";
+		case "validate_msg_media":
+			return "validation message";
+	}
+}
+
+/**
  * Adapt a `PersistableDoc` (the on-disk shape, no derived `fieldParent`) into
  * the `BlueprintDoc` the asset walk types against. `walkAssetRefs` traverses
  * only `logo` / `moduleOrder` / `modules` / `formOrder` / `forms` / `fields` /

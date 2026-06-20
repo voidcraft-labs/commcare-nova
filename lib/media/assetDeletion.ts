@@ -15,9 +15,9 @@
 //     content-addressed siblings, e.g. a document's extract) only when no other
 //     asset row shares the bytes.
 //
-// `describeCarrier` renders a reference into the authoring layer's own nouns
-// (module / form / field / option / logo) for the refusal message — no wire
-// vocabulary.
+// Carrier phrasing comes from the shared `describeCarrier` (lib/domain/mediaRefs)
+// so the refusal message and the upload-attach warning name a carrier the same
+// way — no wire vocabulary.
 
 import { listApps, loadApp } from "@/lib/db/apps";
 import {
@@ -27,8 +27,8 @@ import {
 } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import {
-	type AssetRef,
 	asWalkableDoc,
+	describeCarrier,
 	walkAssetRefs,
 } from "@/lib/domain/mediaRefs";
 import { log } from "@/lib/logger";
@@ -200,54 +200,5 @@ export async function purgeAssetStorage(
 		for (const key of opts.alsoDelete ?? []) {
 			if (key) await deleteGcsObject(key);
 		}
-	}
-}
-
-/**
- * Render a media reference's carrier into a human-readable phrase for a refusal
- * message. Each `MediaRefLocation` variant names the slot + the entity it lives
- * on, so the user (or SA) knows exactly which attachment to clear. The phrasing
- * speaks the authoring layer's own nouns — module / form / field / option / logo
- * — never wire vocabulary.
- */
-export function describeCarrier(ref: AssetRef): string {
-	const loc = ref.location;
-	switch (loc.kind) {
-		case "app_logo":
-			return "the app logo";
-		case "module_icon":
-			return `the icon on module "${loc.moduleName}"`;
-		case "module_audio_label":
-			return `the audio label on module "${loc.moduleName}"`;
-		case "case_list_icon":
-			return `the case-list icon on module "${loc.moduleName}"`;
-		case "case_list_audio_label":
-			return `the case-list audio label on module "${loc.moduleName}"`;
-		case "form_icon":
-			return `the icon on form "${loc.formName}" (module "${loc.moduleName}")`;
-		case "form_audio_label":
-			return `the audio label on form "${loc.formName}" (module "${loc.moduleName}")`;
-		case "field_media_bundle":
-			return `the ${ref.slotKind} on field "${loc.fieldId}"'s ${bundleSlotLabel(loc.bundleKey)} (form "${loc.formName}")`;
-		case "option_media":
-			return `the ${ref.slotKind} on option "${loc.optionValue}" of field "${loc.fieldId}" (form "${loc.formName}")`;
-		case "image_map_mapping":
-			return `the image-map row "${loc.rowValue}" in column "${loc.columnHeader}" (module "${loc.moduleName}")`;
-	}
-}
-
-/** Friendly label for a field message-bundle key. */
-function bundleSlotLabel(
-	bundleKey: "label_media" | "hint_media" | "help_media" | "validate_msg_media",
-): string {
-	switch (bundleKey) {
-		case "label_media":
-			return "label";
-		case "hint_media":
-			return "hint";
-		case "help_media":
-			return "help";
-		case "validate_msg_media":
-			return "validation message";
 	}
 }

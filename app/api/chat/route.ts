@@ -904,12 +904,16 @@ export async function POST(req: Request) {
 					 * saves never touch Postgres — so sync the case-store schemas
 					 * here, the same "any case-store action after a commit sees a
 					 * synced schema" contract the build arm holds. Idempotent
-					 * upsert; failure is log-only because the edit itself succeeded
-					 * and the case-store consumers self-heal at the point of use —
-					 * a `SchemaNotSyncedError` on sample-populate / form submit /
-					 * live preview re-materializes from the persisted blueprint and
-					 * retries once (`withSchemaHeal` in the case-data-binding
-					 * actions). */
+					 * upsert; `materializeCaseStoreSchemas` retries transient
+					 * failures internally, so a Postgres blip here usually still
+					 * lands the sync rather than leaving a stale/missing row. If it
+					 * STILL fails it's log-only — the edit itself succeeded, and the
+					 * case-store consumers self-heal at the point of use: a MISSING
+					 * (`SchemaNotSyncedError`) or STALE-drift
+					 * (`CasePropertiesValidationError` with an `additionalProperty`)
+					 * row on sample-populate / form submit / live preview
+					 * re-materializes the persisted blueprint and retries once
+					 * (`withSchemaHeal` in the case-data-binding actions). */
 					const editDoc = ctx.latestPersistedDoc();
 					if (editDoc) {
 						try {
