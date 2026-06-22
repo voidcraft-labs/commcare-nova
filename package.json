@@ -74,7 +74,7 @@
 		"dom-serializer": "^2.0.0",
 		"domutils": "^3.2.2",
 		"file-type": "^22.0.1",
-		"firebase-admin": "^13.8.0",
+		"firebase-admin": "^14.0.0",
 		"fumadocs-core": "^16.8.4",
 		"fumadocs-mdx": "^14.3.1",
 		"fumadocs-ui": "^16.8.4",
