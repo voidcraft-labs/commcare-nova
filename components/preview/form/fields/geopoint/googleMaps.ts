@@ -16,15 +16,17 @@ const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 const mapId = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID;
 let configured = false;
 
-/** True when a browser key is present — the picker degrades to manual
- *  coordinate entry when it isn't (e.g. local dev without the env var). */
+/** True when the picker is fully configured — both the browser key AND the
+ *  vector Map ID are required (the map runs a WebGL vector basemap + the modern
+ *  `AdvancedMarkerElement`, which needs a Map ID; there is no classic-marker
+ *  fallback). The picker degrades to manual coordinate entry when either is
+ *  missing (e.g. local dev without the env vars). */
 export function googleMapsConfigured(): boolean {
-	return Boolean(apiKey);
+	return Boolean(apiKey) && Boolean(mapId && mapId.length > 0);
 }
 
-/** The vector Map ID, when configured. Its presence switches the map to a
- *  WebGL vector basemap + the modern (draggable) `AdvancedMarkerElement`;
- *  without it the map is raster + the classic `google.maps.Marker`. */
+/** The vector Map ID. Required (see `googleMapsConfigured`); returns undefined
+ *  only in a misconfigured environment, where the map won't mount. */
 export function googleMapsMapId(): string | undefined {
 	return mapId && mapId.length > 0 ? mapId : undefined;
 }

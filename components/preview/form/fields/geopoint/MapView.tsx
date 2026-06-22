@@ -6,13 +6,13 @@
 // the map to drop/move it. Commit happens on drag-END (and on click), so the
 // form engine never recomputes mid-drag.
 //
-// Two rendering modes, chosen by whether a vector Map ID is configured
-// (`NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID`):
-//   • Map ID set → WebGL **vector** basemap + `AdvancedMarkerElement`
-//     (modern, no deprecation notice) styled as a Nova-violet pin.
-//   • No Map ID → **raster** basemap + classic `google.maps.Marker`
-//     (works with no provisioning; logs a one-time deprecation notice).
-// The drag-pin UX is identical either way.
+// A vector **Map ID** (`NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID`) is required — it's
+// part of the picker's config gate (`googleMapsConfigured`), so this component
+// only mounts when one is present. That buys the WebGL **vector** basemap plus
+// the modern `AdvancedMarkerElement` (draggable, no deprecation notice), styled
+// as a Nova-violet pin. There is no raster / classic-`Marker` fallback: classic
+// markers are deprecated and `google.maps.Marker` isn't loaded here, so a
+// keyless/Map-ID-less environment degrades to manual entry one level up instead.
 
 "use client";
 import {
@@ -53,7 +53,8 @@ interface MapViewProps {
 	readonly onPick: (lat: number, lng: number) => void;
 }
 
-/** A draggable pin, abstracted over Advanced vs. classic markers. */
+/** A handle to the draggable Advanced Marker — move it or tear it down without
+ *  the rest of the component touching the Maps element directly. */
 interface PinMarker {
 	setPosition(lat: number, lng: number): void;
 	remove(): void;
@@ -148,17 +149,22 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
 		const mapId = googleMapsMapId();
 
 		(async () => {
-			const { Map: GoogleMap } = await loadMaps();
+			// The parent gates on `googleMapsConfigured()` (key + Map ID), so a
+			// missing Map ID here means config drift — bail rather than fall back
+			// to a deprecated classic marker.
+			if (!mapId) return;
+			const [{ Map: GoogleMap }, { AdvancedMarkerElement }] = await Promise.all(
+				[loadMaps(), loadMarker()],
+			);
 			const container = containerRef.current;
 			if (cancelled || !container) return;
 			const initial = pointRef.current;
 			const map = new GoogleMap(container, {
-				...(mapId ? { mapId } : {}),
+				mapId,
 				// Force Google's dark basemap to match the dark preview theme. The
 				// Maps API accepts the color-scheme by string literal as well as the
-				// `ColorScheme` enum, so we skip importing "core" just for it. Applies
-				// to the standard vector style behind our Map ID (and the raster
-				// fallback); it can only be set at construction.
+				// `ColorScheme` enum, so we skip importing "core" just for it; it can
+				// only be set at construction.
 				colorScheme: "DARK" as google.maps.ColorScheme,
 				center: initial
 					? { lat: initial.lat, lng: initial.lon }
@@ -173,51 +179,28 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
 			});
 			mapRef.current = map;
 
-			// Build the marker factory: Advanced (vector Map ID) or classic.
-			if (mapId) {
-				const { AdvancedMarkerElement } = await loadMarker();
-				if (cancelled) return;
-				makeMarkerRef.current = (lat, lng) => {
-					const m = new AdvancedMarkerElement({
-						map,
-						position: { lat, lng },
-						gmpDraggable: true,
-						content: createPinElement(),
-					});
-					m.addListener("dragend", () => {
-						const ll = readPosition(m.position);
-						if (!ll) return;
-						onPickRef.current(ll.lat, ll.lng);
-						panIfClipped(map, ll.lat, ll.lng);
-					});
-					return {
-						setPosition: (la, ln) => {
-							m.position = { lat: la, lng: ln };
-						},
-						remove: () => {
-							m.map = null;
-						},
-					};
+			makeMarkerRef.current = (lat, lng) => {
+				const m = new AdvancedMarkerElement({
+					map,
+					position: { lat, lng },
+					gmpDraggable: true,
+					content: createPinElement(),
+				});
+				m.addListener("dragend", () => {
+					const ll = readPosition(m.position);
+					if (!ll) return;
+					onPickRef.current(ll.lat, ll.lng);
+					panIfClipped(map, ll.lat, ll.lng);
+				});
+				return {
+					setPosition: (la, ln) => {
+						m.position = { lat: la, lng: ln };
+					},
+					remove: () => {
+						m.map = null;
+					},
 				};
-			} else {
-				makeMarkerRef.current = (lat, lng) => {
-					const m = new google.maps.Marker({
-						map,
-						position: { lat, lng },
-						draggable: true,
-					});
-					m.addListener("dragend", () => {
-						const pos = m.getPosition();
-						if (!pos) return;
-						onPickRef.current(pos.lat(), pos.lng());
-						panIfClipped(map, pos.lat(), pos.lng());
-					});
-					return {
-						setPosition: (la, ln) => m.setPosition({ lat: la, lng: ln }),
-						remove: () => m.setMap(null),
-					};
-				};
-			}
+			};
 
 			// Place the initial pin now that the factory exists.
 			const p = pointRef.current;
@@ -234,8 +217,8 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
 				}),
 			);
 		})().catch(() => {
-			/* key missing / load failure — the parent shows a manual-entry
-			   fallback when `googleMapsConfigured()` is false. */
+			/* load failure — the parent shows a manual-entry fallback when
+			   `googleMapsConfigured()` is false. */
 		});
 
 		return () => {

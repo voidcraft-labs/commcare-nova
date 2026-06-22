@@ -208,8 +208,9 @@ export function GeopointPicker({
 				</>
 			) : (
 				<div className="rounded-lg border border-dashed border-pv-input-border bg-pv-surface px-4 py-3 text-sm text-nova-text-muted">
-					Map unavailable — set <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to
-					enable it. You can still enter coordinates manually below.
+					Map unavailable — set <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> and{" "}
+					<code>NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID</code> to enable it. You can
+					still enter coordinates manually below.
 				</div>
 			)}
 
