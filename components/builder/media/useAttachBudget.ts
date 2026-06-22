@@ -27,6 +27,7 @@
 
 import { useCallback } from "react";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
+import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	type ExportBudgetRowView,
@@ -56,11 +57,21 @@ export function useAttachBudgetGuard(): (
 
 	return useCallback(
 		async (candidate: MediaAssetView) => {
+			// Built-in icons (`nova-icon:<slug>`) are shared, tiny, and have no
+			// Firestore row — they can't meaningfully move the export budget and a
+			// gap-fetch for one would 404. Picking one always passes.
+			if (isBuiltinIconRef(candidate.id)) return { ok: true };
+
 			// The candidate's own row is known-good metadata — record it so
 			// a later check (or a re-attach) needs no fetch for it.
 			session.getState().recordAssetMeta([candidate]);
 
-			const referencedIds = [...collectAssetRefs(docApi.getState())];
+			// Drop built-in refs already in the doc: they're not Firestore assets,
+			// so the gap-fetch below would 404 on them, and they don't count toward
+			// this courtesy check (the export boundary still tallies them).
+			const referencedIds = [...collectAssetRefs(docApi.getState())].filter(
+				(id) => !isBuiltinIconRef(id),
+			);
 			const known = session.getState().assetMeta;
 			const missing = referencedIds.filter(
 				(id) => known[id] === undefined && id !== candidate.id,

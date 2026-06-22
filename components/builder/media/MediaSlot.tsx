@@ -51,6 +51,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/shadcn/tooltip";
+import type { IconSlotKind } from "@/lib/domain/builtinIcons";
 import {
 	isMediaKind,
 	type Media,
@@ -244,6 +245,24 @@ export interface SingleAssetSlotProps {
 	ariaLabel?: string;
 }
 
+/**
+ * The built-in icon family an image slot should offer, or `undefined` when it
+ * shouldn't. Only menu-tile icon slots qualify (`module:`/`caselist:`/`form:` +
+ * `:icon`): module and case-list tiles take topic icons, form tiles take action
+ * icons. The app logo, field/option message media, image-map cells, and audio
+ * slots all fall through to `undefined`, so the Icon Library never appears there
+ * (image questions and non-icon attachments aren't menu tiles).
+ */
+function iconLibraryFamilyFor(
+	slotKey: string,
+	kind: MediaKind,
+): IconSlotKind | undefined {
+	if (kind !== "image") return undefined;
+	const match = /^(module|caselist|form):.+:icon$/.exec(slotKey);
+	if (!match) return undefined;
+	return match[1] === "form" ? "form" : "module";
+}
+
 export function SingleAssetSlot({
 	value,
 	onChange,
@@ -293,6 +312,7 @@ export function SingleAssetSlot({
 				open={pickerOpen}
 				onOpenChange={setPickerOpen}
 				kinds={[kind]}
+				iconLibrary={iconLibraryFamilyFor(slotKey, kind)}
 				onAssetsLoaded={recordLoadedAssets}
 				// Budget BEFORE dispatch — an over-ceiling pick never reaches
 				// the doc; the shared prose lands as a toast (the picker has

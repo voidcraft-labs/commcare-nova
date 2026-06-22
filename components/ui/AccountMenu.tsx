@@ -258,11 +258,14 @@ export function AccountMenu() {
 			{/* The file manager opens OUTSIDE the Popover (it portals to body
 			 *  anyway), so it outlives the menu closing on the click that opened it.
 			 *  Omitting onPick puts the dialog in manage mode — all asset kinds,
-			 *  browse / upload / preview / delete, with no carrier to pick into. */}
+			 *  browse / upload / preview / delete, with no carrier to pick into.
+			 *  `iconLibrary="all"` surfaces the built-in icon set here for discovery
+			 *  (browse-only — clicking previews; there's no slot to attach to). */}
 			<MediaPickerDialog
 				open={fileManagerOpen}
 				onOpenChange={setFileManagerOpen}
 				kinds={ASSET_KINDS}
+				iconLibrary="all"
 			/>
 		</>
 	);

@@ -20,7 +20,7 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, FORM_ICON_SLUGS } from "@/lib/domain";
 import { resolveFormUuid, setFormMediaMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import type { MutatingToolResult } from "../common";
@@ -28,6 +28,8 @@ import {
 	attachGuardedMutate,
 	brandAssetSlot,
 	nullableAssetSlot,
+	nullableIconSlot,
+	resolveIconInput,
 	slotExpectation,
 } from "./shared";
 
@@ -35,9 +37,12 @@ export const setFormMediaInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index within the module"),
-		icon: nullableAssetSlot(
-			"Asset id of the image shown on the form's menu tile, or null to clear " +
-				"it. Discover image asset ids with list_media_assets.",
+		icon: nullableIconSlot(
+			FORM_ICON_SLUGS,
+			"The image on the form's menu tile. Pass a built-in icon slug (one of " +
+				"the listed action icons, e.g. register, follow_up, refer) for a " +
+				"ready-made icon with no upload, OR the asset id of an uploaded image " +
+				"from list_media_assets, OR null to clear it.",
 		),
 		audioLabel: nullableAssetSlot(
 			"Asset id of the audio prompt played for the form's menu label, or null " +
@@ -53,7 +58,7 @@ export type SetFormMediaResult = string | { error: string };
 
 export const setFormMediaTool = {
 	description:
-		"Set or clear a form's menu media — the per-form tile icon (image) and the audio label (audio prompt). Both slots are set together; pass an asset id from list_media_assets to set a slot, or null to clear it. Forms carry image + audio only, no video.",
+		"Set or clear a form's menu media — the per-form tile icon (image) and the audio label (audio prompt). Both slots are set together. For the icon, pass a built-in icon slug (e.g. register) or an uploaded image's asset id from list_media_assets; for the audio label, an audio asset id; or null to clear either. Forms carry image + audio only, no video.",
 	inputSchema: setFormMediaInputSchema,
 	async execute(
 		input: SetFormMediaInput,
@@ -74,6 +79,15 @@ export const setFormMediaTool = {
 				};
 			}
 
+			const carrierName =
+				doc.forms[formUuid]?.name ?? `m${moduleIndex}-f${formIndex}`;
+			// The icon may be a built-in slug or an uploaded asset id; resolve it
+			// to the stored ref + the verdict expectation it imposes (built-ins
+			// impose none — they have no library row to check).
+			const resolvedIcon = resolveIconInput(
+				icon,
+				`the icon on form "${carrierName}"`,
+			);
 			// Emit the dedicated `setFormMedia` mutation: a clear must ride
 			// the SSE wire as an explicit `null` (the reducer maps it to
 			// `undefined`). An `updateForm` patch would encode a clear as
@@ -81,22 +95,16 @@ export const setFormMediaTool = {
 			// stale ref on the client.
 			const mutations = setFormMediaMutations(
 				formUuid,
-				brandAssetSlot(icon),
+				resolvedIcon.icon,
 				brandAssetSlot(audioLabel),
 			);
-			const carrierName =
-				doc.forms[formUuid]?.name ?? `m${moduleIndex}-f${formIndex}`;
 			const commit = await attachGuardedMutate(
 				ctx,
 				doc,
 				mutations,
 				`media:form:${moduleIndex}-${formIndex}`,
 				[
-					...slotExpectation(
-						icon,
-						"image",
-						`the icon on form "${carrierName}"`,
-					),
+					...resolvedIcon.expectations,
 					...slotExpectation(
 						audioLabel,
 						"audio",

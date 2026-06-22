@@ -28,6 +28,10 @@ import {
 } from "@/lib/domain/multimedia";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
+import {
+	partitionAssetRefs,
+	resolveBuiltinManifestEntries,
+} from "./builtinIconAssets";
 
 /**
  * Max GCS object downloads in flight at once when resolving a manifest's
@@ -79,6 +83,12 @@ export async function resolveMediaManifest(
 	const ids = [...collectAssetRefs(doc)];
 	if (ids.length === 0) return new Map();
 
+	// Built-in icon refs (`nova-icon:<slug>`) carry no Firestore row — they
+	// resolve from the shipped catalog + `public/nova-icons/` bytes. Route them
+	// away from the Firestore load and synthesize their manifest entries; only
+	// the real ids hit `loadAssetsByIds`.
+	const { realIds, builtinSlugs } = partitionAssetRefs(ids);
+
 	// Keep `ready` rows of a wire-attachable (media) kind. Carrier slots
 	// hold an opaque `AssetId` (the brand doesn't encode kind), so the
 	// wire/library boundary is RUNTIME-enforced and fail-closed, not
@@ -88,10 +98,13 @@ export async function resolveMediaManifest(
 	// Keep it even though it reads as redundant — it's the last guard that
 	// a document never lands in the suite. It also narrows the row into
 	// `ResolvedMediaAsset` (whose `kind` is `MediaKind`).
-	const rows = (await loadAssetsByIds(owner, ids)).filter(
-		(row): row is MediaAssetRecord & { kind: MediaKind } =>
-			row.status === "ready" && isMediaKind(row.kind),
-	);
+	const rows =
+		realIds.length === 0
+			? []
+			: (await loadAssetsByIds(owner, realIds)).filter(
+					(row): row is MediaAssetRecord & { kind: MediaKind } =>
+						row.status === "ready" && isMediaKind(row.kind),
+				);
 	// Bytes (when requested) stream from GCS. Compile is interactive (the
 	// user clicked "Compile to CCZ"), so serializing the awaits in a `for`
 	// loop would stretch the round-trip to sum(per-asset latency) — but
@@ -126,7 +139,15 @@ export async function resolveMediaManifest(
 			] as const;
 		},
 	);
-	return new Map(entries);
+	// Built-in icons resolve to the same `ResolvedMediaAsset` shape, deduped by
+	// slug, so the emitters (CCZ bundle, media_suite, itext, HQ upload) treat them
+	// identically to uploads. Multiple modules referencing one slug collapse to a
+	// single wire entry via the shared content-hash wire path.
+	const builtinEntries = await resolveBuiltinManifestEntries(
+		builtinSlugs,
+		options.withBytes,
+	);
+	return new Map([...entries, ...builtinEntries]);
 }
 
 /**

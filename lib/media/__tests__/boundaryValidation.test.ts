@@ -23,6 +23,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { makeAssetRecord } from "@/lib/commcare/validator/rules/media/__tests__/fixtures";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
+import { builtinIconRef } from "@/lib/domain/builtinIcons";
 import { MAX_MEDIA_EXPORT_BYTES } from "@/lib/domain/multimedia";
 import { collectBoundaryViolations } from "../boundaryValidation";
 
@@ -224,5 +225,72 @@ describe("collectBoundaryViolations", () => {
 		vi.mocked(loadAssetsByIds).mockResolvedValue([]);
 		await collectBoundaryViolations(validDoc("some-asset"), OWNER);
 		expect(loadAssetsByIds).toHaveBeenCalledWith(OWNER, ["some-asset"]);
+	});
+
+	it("resolves a built-in icon ref clean, with no Firestore read", async () => {
+		// A built-in icon (`nova-icon:<slug>`) in an image slot has no library
+		// row — the boundary synthesizes a ready/image row from the catalog, so
+		// the media rules pass and `loadAssetsByIds` is never called (no real ids).
+		const errors = await collectBoundaryViolations(
+			validDoc(builtinIconRef("household")),
+			OWNER,
+		);
+		expect(errors).toHaveLength(0);
+		expect(loadAssetsByIds).not.toHaveBeenCalled();
+	});
+
+	it("loads only the real ids when a doc mixes built-in and uploaded refs", async () => {
+		vi.mocked(loadAssetsByIds).mockResolvedValue([
+			makeAssetRecord("real-asset"),
+		]);
+		const doc = buildDoc({
+			appName: "T",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "village", label: "Village" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+									label_media: { image: "real-asset" },
+								}),
+								f({
+									kind: "text",
+									id: "village",
+									label: "Village",
+									case_property_on: "patient",
+									label_media: { image: builtinIconRef("household") },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+		const errors = await collectBoundaryViolations(doc, OWNER);
+		expect(errors).toHaveLength(0);
+		// Only the uploaded asset hit Firestore; the built-in resolved from the
+		// catalog without a read.
+		expect(loadAssetsByIds).toHaveBeenCalledWith(OWNER, ["real-asset"]);
 	});
 });
