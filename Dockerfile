@@ -1,5 +1,20 @@
+# Base image pinned to an exact Node patch, shared by every stage so they
+# can't drift. The floating `node:22-alpine` tag silently advanced
+# 22.22.3 → 22.23.0 between two source rebuilds with no code change, and
+# 22.23.0 (a security release) carried an http keep-alive change that
+# regressed the bundled undici: gaxios / google-auth-library token fetches
+# to oauth2.googleapis.com and the metadata server began throwing
+# ERR_STREAM_PREMATURE_CLOSE. Every `/api/auth/*` request touches Firestore
+# (the rate limiter's per-request counter), so all of them 500'd — prod
+# login went down with nothing in Sentry (the throw escapes Better Auth's
+# own try/catch). See nodejs/node#63989. This is the same mutable-tag
+# supply-chain logic that digest-pins arigaio/atlas below; an exact patch
+# tag suffices here — it freezes Node while still flowing Alpine security
+# patches. Bump deliberately once a corrected Node 22.x ships the undici fix.
+ARG NODE_IMAGE=node:22.22.3-alpine
+
 # --- Stage 1: Install dependencies ---
-FROM node:22-alpine AS deps
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -26,7 +41,7 @@ RUN npm ci --ignore-scripts
 FROM arigaio/atlas@sha256:6d34257110be51093e9daf215bf3bc17e6690214434b516196b1cc267dd1dac6 AS atlas-binary
 
 # --- Stage 3: Build the application ---
-FROM node:22-alpine AS builder
+FROM ${NODE_IMAGE} AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -59,7 +74,7 @@ ARG NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID
 RUN npm run build
 
 # --- Stage 4: Production runner ---
-FROM node:22-alpine AS runner
+FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
