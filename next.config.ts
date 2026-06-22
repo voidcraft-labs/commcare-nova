@@ -50,10 +50,12 @@ const nextConfig: NextConfig = {
 					{ key: "X-Frame-Options", value: "DENY" },
 					/* Send full URL as referrer to same-origin; origin-only cross-origin */
 					{ key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-					/* Restrict browser features the app never uses */
+					/* Restrict browser features. `geolocation=(self)` lets the GPS
+					   location picker's "use my location" read the device position;
+					   camera/microphone stay fully disabled. */
 					{
 						key: "Permissions-Policy",
-						value: "camera=(), microphone=(), geolocation=()",
+						value: "camera=(), microphone=(), geolocation=(self)",
 					},
 				],
 			},
