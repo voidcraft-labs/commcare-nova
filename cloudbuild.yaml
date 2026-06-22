@@ -9,16 +9,25 @@
 # `deploy`, so the old revision keeps serving and we never ship code ahead of a
 # failed schema change (same guarantee the old startup CMD gave, at deploy time).
 steps:
-  # The Sentry auth token (Secret Manager: `nova-sentry`) rides into the image
-  # build as a build arg so `next build` can upload source maps — without it
-  # every Sentry stack trace stays minified. Secrets only reach a step through
-  # env vars, and env vars only expand under a shell, hence the bash wrapper.
-  # The trigger's service account needs `roles/secretmanager.secretAccessor`
-  # on the secret or the build fails before this step runs.
+  # Two values ride into the image build as build args because `next build`
+  # consumes them at BUILD time, not runtime:
+  #   • SENTRY_AUTH_TOKEN (Secret Manager: `nova-sentry`) — lets the build
+  #     upload source maps; without it every Sentry stack trace stays minified.
+  #   • NEXT_PUBLIC_GOOGLE_MAPS_API_KEY (Secret Manager: `nova-google_maps_api_key`,
+  #     the PROD browser key, referrer-restricted to commcare.app) +
+  #     NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID (a public, non-secret identifier, inlined
+  #     literally) — `NEXT_PUBLIC_` vars are baked into the client bundle by
+  #     `next build`, so a Cloud Run runtime env var would NOT reach them; they
+  #     must be present at build. Without them the geopoint picker degrades to
+  #     manual lat/lon entry.
+  # Secrets only reach a step through env vars, and env vars only expand under a
+  # shell, hence the bash wrapper. The trigger's service account needs
+  # `roles/secretmanager.secretAccessor` on each secret or the build fails
+  # before this step runs.
   - id: build
     name: gcr.io/cloud-builders/docker
     entrypoint: bash
-    secretEnv: ["SENTRY_AUTH_TOKEN"]
+    secretEnv: ["SENTRY_AUTH_TOKEN", "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY"]
     args:
       - -c
       - |
@@ -26,6 +35,8 @@ steps:
         docker build \
           -t "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA" \
           --build-arg SENTRY_AUTH_TOKEN="$$SENTRY_AUTH_TOKEN" \
+          --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY="$$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY" \
+          --build-arg NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID="ac18fb2d87e44a1eb5a19883" \
           -f Dockerfile .
 
   - id: push
@@ -99,3 +110,5 @@ availableSecrets:
   secretManager:
     - versionName: projects/$PROJECT_ID/secrets/nova-sentry/versions/latest
       env: SENTRY_AUTH_TOKEN
+    - versionName: projects/$PROJECT_ID/secrets/nova-google_maps_api_key/versions/latest
+      env: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY

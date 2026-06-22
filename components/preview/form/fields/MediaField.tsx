@@ -5,9 +5,10 @@ import { useEditMode } from "@/lib/session/hooks";
 
 /**
  * Placeholder card for media-capture kinds (image/audio/video/barcode/
- * signature/geopoint). The preview engine has no native capture affordance,
- * so we render the icon + kind label with an "(not available in preview)"
- * note outside of edit mode.
+ * signature). The preview engine has no native capture affordance for
+ * these, so we render the icon + kind label with an "(not available in
+ * preview)" note outside of edit mode. `geopoint` is NOT routed here —
+ * it has a real interactive picker (`geopoint/GeopointField`).
  *
  * Icon + human-readable label come from `fieldRegistry[kind]` — the
  * domain-owned metadata registry. The lookup is total over `FieldKind`,

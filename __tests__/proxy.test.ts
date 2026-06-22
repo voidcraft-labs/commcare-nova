@@ -116,6 +116,25 @@ function expectAuthRedirect(res: NextResponse): void {
 	expect(new URL(location ?? "", "http://example.test").pathname).toBe("/");
 }
 
+/**
+ * Parse a CSP string into a directive→value map so Maps-relaxation
+ * assertions read against whole directives (e.g. `img-src`) instead of
+ * brittle substring matches across the joined policy. Splitting on `;`
+ * mirrors how the proxy assembles it (`.join("; ")`).
+ */
+function directives(csp: string): Map<string, string> {
+	const map = new Map<string, string>();
+	for (const part of csp
+		.split(";")
+		.map((s) => s.trim())
+		.filter(Boolean)) {
+		const sp = part.indexOf(" ");
+		if (sp === -1) map.set(part, "");
+		else map.set(part.slice(0, sp), part.slice(sp + 1));
+	}
+	return map;
+}
+
 describe("proxy: mcp.commcare.app routing", () => {
 	it("rewrites /mcp → /api/mcp", () => {
 		const res = proxy(req("mcp.commcare.app", "/mcp"));
@@ -338,6 +357,64 @@ describe("proxy: commcare.app (main) routing", () => {
 		const res = proxy(req("commcare.app", "/api/auth/sign-in"));
 		expectBypassPassthrough(res);
 		expect(res.status).not.toBe(307);
+	});
+});
+
+/**
+ * The geopoint GPS picker loads the Google Maps JS API, which needs CSP
+ * relaxations (`'unsafe-eval'` + Google hosts on img/connect/frame/font/
+ * style). CSP is fixed per DOCUMENT and the main host is one App-Router SPA,
+ * so the relaxation rides EVERY main-host page — a document first loaded at
+ * `/` can client-navigate into `/build` where Maps then loads under that
+ * original document's policy. These specs pin both halves of that contract:
+ * every main-host page (including the unauthenticated landing `/`) carries the
+ * relaxation, and the separate docs host — which never reaches the builder —
+ * stays strict. NODE_ENV is `test` here (so `isDev` is false), matching the
+ * production posture where `'unsafe-eval'` appears ONLY via the Maps opt-in.
+ */
+describe("proxy: Google Maps CSP relaxation", () => {
+	it("relaxes CSP for the Maps JS API on an authenticated main-host page", () => {
+		const res = proxy(reqWithSession("commcare.app", "/build"));
+		const csp = res.headers.get("content-security-policy");
+		expect(csp).not.toBeNull();
+		const d = directives(csp ?? "");
+		expect(d.get("script-src")).toContain("'unsafe-eval'");
+		expect(d.get("img-src")).toContain("https://*.googleapis.com");
+		expect(d.get("connect-src")).toContain("https://*.googleapis.com");
+		expect(d.get("style-src")).toContain("https://fonts.googleapis.com");
+		expect(d.get("font-src")).toContain("https://fonts.gstatic.com");
+		expect(d.get("frame-src")).toBe("https://*.google.com");
+	});
+
+	it("relaxes CSP on the unauthenticated landing page too (SPA can client-nav into the builder)", () => {
+		/* The landing page intentionally is NOT kept strict: `/` is one
+		 * route of the main-host SPA and links into `/build`, where Maps
+		 * would otherwise load under `/`'s policy and be blocked. Root is
+		 * auth-exempt, so no session cookie is needed to reach page handling. */
+		const res = proxy(req("commcare.app", "/"));
+		const csp = res.headers.get("content-security-policy");
+		expect(csp).not.toBeNull();
+		const d = directives(csp ?? "");
+		expect(d.get("script-src")).toContain("'unsafe-eval'");
+		expect(d.get("img-src")).toContain("https://*.googleapis.com");
+		expect(d.has("frame-src")).toBe(true);
+	});
+
+	it("keeps the docs host strict — no Maps relaxation leaks onto it", () => {
+		/* Docs rewrites carry CSP on the response (HTML, same as any page),
+		 * but with `allowGoogleMaps` false. `storage.googleapis.com` stays in
+		 * connect-src (media uploads, unrelated), so assert against the Maps-
+		 * specific tokens — wildcard host, fonts hosts, frame-src, unsafe-eval. */
+		const res = proxy(req("docs.commcare.app", "/"));
+		const csp = res.headers.get("content-security-policy");
+		expect(csp).not.toBeNull();
+		const d = directives(csp ?? "");
+		expect(d.get("script-src")).not.toContain("'unsafe-eval'");
+		expect(d.get("img-src")).not.toContain("googleapis.com");
+		expect(d.get("connect-src")).not.toContain("https://*.googleapis.com");
+		expect(d.get("style-src")).not.toContain("fonts.googleapis.com");
+		expect(d.get("font-src")).toBe("'self'");
+		expect(d.has("frame-src")).toBe(false);
 	});
 });
 
