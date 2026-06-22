@@ -38,7 +38,26 @@ const handler = async (req: Request) => {
 
 	const authReq = isOAuthRevoke ? req.clone() : req;
 	const revokedToken = isOAuthRevoke ? await readRevokedToken(req) : null;
-	const response = await getAuth().handler(authReq);
+
+	let response: Response;
+	try {
+		response = await getAuth().handler(authReq);
+	} catch (err) {
+		/* Better Auth catches its OWN failures and routes them through the
+		 * logger bridge (`lib/auth-logger.ts`) into Sentry. An error thrown
+		 * OUTSIDE that try/catch — a transport-level fault like the Google-auth
+		 * token fetch's `ERR_STREAM_PREMATURE_CLOSE` surfacing through the
+		 * per-request rate-limiter's Firestore call — escapes to here, where
+		 * Next would otherwise return an empty 500 that never reaches Sentry.
+		 * That was the blind spot behind the prod-login outage: the whole
+		 * `/api/auth/*` surface 500'd with nothing logged anywhere. Mirror it to
+		 * Sentry via `log.error`, then return the same opaque 500 to the client. */
+		log.error("[auth] handler threw before Better Auth could handle it", err, {
+			path: url.pathname,
+			method: req.method,
+		});
+		return new Response(null, { status: 500 });
+	}
 
 	if (isOAuthRegister && response.ok) {
 		/* Cleanup is opportunistic housekeeping — not load-bearing for any
