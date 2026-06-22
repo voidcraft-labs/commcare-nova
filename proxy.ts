@@ -400,5 +400,5 @@ export const config = {
 	 * intentionally NOT excluded so that the MCP host can intercept
 	 * `/api/mcp` in step 1; the API short-circuit in step 2 handles the
 	 * matched main-host API requests. */
-	matcher: ["/((?!_next/static|_next/image|favicon.ico|nova-icons).*)"],
+	matcher: ["/((?!_next/static|_next/image|favicon.ico|nova-icons/).*)"],
 };

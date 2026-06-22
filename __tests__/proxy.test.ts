@@ -20,7 +20,7 @@
 
 import { NextRequest, type NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { proxy } from "../proxy";
+import { config, proxy } from "../proxy";
 
 /**
  * Build a `NextRequest` with the wire `Host` header set explicitly. The
@@ -446,5 +446,32 @@ describe("proxy: dev-mode /docs bypass does NOT fire in production", () => {
 		 * production. */
 		const res = proxy(req("nova-abc-uc.a.run.app", "/docs"));
 		expectAuthRedirect(res);
+	});
+});
+
+describe("proxy: matcher excludes static asset paths", () => {
+	/* The middleware never runs on excluded paths — Next applies `config.matcher`
+	 * BEFORE invoking `proxy()`, so an excluded path is served as a plain static
+	 * asset (no hostname allowlist, no CSP, no auth redirect). Reconstruct the
+	 * negative-lookahead matcher and assert what it runs on. `nova-icons` is the
+	 * regression guard: without the exclusion the optimistic auth redirect 307s
+	 * every `<img src="/nova-icons/…">` and the main-host allowlist 404s it in
+	 * prod (localhost's unknown-host branch skips the allowlist, masking it). */
+	const matcher = new RegExp(`^${config.matcher[0]}$`);
+
+	it("does NOT run on built-in icons or framework static assets", () => {
+		expect(matcher.test("/nova-icons/household.png")).toBe(false);
+		expect(matcher.test("/_next/static/chunk.js")).toBe(false);
+		expect(matcher.test("/_next/image")).toBe(false);
+		expect(matcher.test("/favicon.ico")).toBe(false);
+	});
+
+	it("DOES run on pages and API routes", () => {
+		expect(matcher.test("/")).toBe(true);
+		expect(matcher.test("/build/app123")).toBe(true);
+		expect(matcher.test("/api/chat")).toBe(true);
+		// A path that merely starts with the same letters as the icons dir is
+		// NOT the excluded segment, so the proxy still runs on it.
+		expect(matcher.test("/nova-icons-admin")).toBe(true);
 	});
 });
