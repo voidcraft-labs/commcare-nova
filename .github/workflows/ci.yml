@@ -23,6 +23,15 @@ concurrency:
 permissions:
   contents: read
 
+# Pin Node to the exact patch the production image ships (the Dockerfile's
+# `ARG NODE_IMAGE`). CI has to run the runtime we deploy: the floating `22`
+# major silently advanced to 22.23.0, whose undici regression took prod login
+# down (#143), and a green CI on a different patch would have masked it. One
+# value, referenced by every setup-node step below so they can't drift — keep
+# it in lockstep with the Dockerfile when bumping.
+env:
+  NODE_VERSION: "22.22.3"
+
 jobs:
   quality:
     name: Lint & type-check
@@ -31,7 +40,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
       - name: Lint (Biome)
@@ -46,7 +55,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
       # The suite boots a Postgres testcontainer and applies the case-store
@@ -71,7 +80,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
       - name: Install Atlas
@@ -99,7 +108,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
       # next build resolves the fumadocs `@/.source/server` import; this
