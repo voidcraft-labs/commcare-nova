@@ -23,7 +23,7 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, MODULE_ICON_SLUGS } from "@/lib/domain";
 import { setModuleMediaMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import type { MutatingToolResult } from "../common";
@@ -32,15 +32,20 @@ import {
 	attachGuardedMutate,
 	brandAssetSlot,
 	nullableAssetSlot,
+	nullableIconSlot,
+	resolveIconInput,
 	slotExpectation,
 } from "./shared";
 
 export const setModuleMediaInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
-		icon: nullableAssetSlot(
-			"Asset id of the image shown on the module's home-screen tile, or " +
-				"null to clear it. Discover image asset ids with list_media_assets.",
+		icon: nullableIconSlot(
+			MODULE_ICON_SLUGS,
+			"The image on the module's home-screen tile. Pass a built-in icon slug " +
+				"(one of the listed topic icons, e.g. household, patient, lab) for a " +
+				"ready-made icon with no upload, OR the asset id of an uploaded image " +
+				"from list_media_assets, OR null to clear it.",
 		),
 		audioLabel: nullableAssetSlot(
 			"Asset id of the audio prompt played for the module's menu label, or " +
@@ -56,7 +61,7 @@ export type SetModuleMediaResult = string | { error: string };
 
 export const setModuleMediaTool = {
 	description:
-		"Set or clear a module's menu media — the home-screen tile icon (image) and the audio label (audio prompt). Both slots are set together; pass an asset id from list_media_assets to set a slot, or null to clear it. Modules carry image + audio only, no video.",
+		"Set or clear a module's menu media — the home-screen tile icon (image) and the audio label (audio prompt). Both slots are set together. For the icon, pass a built-in icon slug (e.g. household) or an uploaded image's asset id from list_media_assets; for the audio label, an audio asset id; or null to clear either. Modules carry image + audio only, no video.",
 	inputSchema: setModuleMediaInputSchema,
 	async execute(
 		input: SetModuleMediaInput,
@@ -80,6 +85,13 @@ export const setModuleMediaTool = {
 					"set module media",
 				);
 
+			// The icon may be a built-in slug or an uploaded asset id; resolve it
+			// to the stored ref + the verdict expectation it imposes (built-ins
+			// impose none — they have no library row to check).
+			const resolvedIcon = resolveIconInput(
+				icon,
+				`the icon on module "${mod.name}"`,
+			);
 			// Emit the dedicated `setModuleMedia` mutation: a clear must ride
 			// the SSE wire as an explicit `null` (the reducer maps it to
 			// `undefined`). An `updateModule` patch would encode a clear as
@@ -87,7 +99,7 @@ export const setModuleMediaTool = {
 			// stale ref on the client.
 			const mutations = setModuleMediaMutations(
 				mod.uuid,
-				brandAssetSlot(icon),
+				resolvedIcon.icon,
 				brandAssetSlot(audioLabel),
 			);
 			const commit = await attachGuardedMutate(
@@ -96,7 +108,7 @@ export const setModuleMediaTool = {
 				mutations,
 				`media:module:${moduleIndex}`,
 				[
-					...slotExpectation(icon, "image", `the icon on module "${mod.name}"`),
+					...resolvedIcon.expectations,
 					...slotExpectation(
 						audioLabel,
 						"audio",

@@ -51,8 +51,24 @@ export function asAssetId(s: string): AssetId {
  * Zod schema for `AssetId`. Plain non-empty string at runtime; the
  * brand is applied at the type system only. Pairs with `asAssetId`
  * for the explicit cast where the brand matters.
+ *
+ * Reserved form: an id starting `nova-icon:` is NOT a stored upload but a
+ * reference to a built-in library icon (see `builtinIcons.ts`). The blueprint
+ * carries just the slug; every app points at one shared, deployment-bundled
+ * copy. The prefix can't collide with a real id — those are `randomUUID()`
+ * (`lib/db/mediaAssets.ts::createPendingAsset`), which never contain a colon —
+ * so consumers ask `isBuiltinIconRef` BEFORE any Firestore/GCS lookup
+ * (`lib/media/manifest.ts`, `boundaryValidation.ts`, `lib/db/apps.ts`,
+ * `components/builder/media/mediaClient.ts`, `useAttachBudget.ts`).
  */
 export const assetIdSchema = z.string().min(1);
+
+/**
+ * Prefix marking an `AssetId` as a built-in library icon reference rather than
+ * a stored upload. The slug follows (`nova-icon:household`). Lives here beside
+ * the `AssetId` contract; the catalog + helpers are in `builtinIcons.ts`.
+ */
+export const NOVA_ICON_REF_PREFIX = "nova-icon:";
 
 /**
  * MIME types accepted at the upload validation gate, partitioned by

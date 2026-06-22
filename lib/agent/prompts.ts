@@ -296,6 +296,8 @@ What can carry media:
 - **A menu tile.** A module's home-screen tile and a form's menu tile each take an icon image and an audio label (no video). Use \`set_module_media\` and \`set_form_media\`.
 - **The app logo.** A single image shown on the login and home screens. Use \`set_app_logo\`.
 
+**Built-in menu icons.** \`set_module_media\` and \`set_form_media\` accept a built-in icon BY NAME for the tile — no upload, no \`list_media_assets\` step: pass the \`icon\` slug (modules take topic icons like \`household\`, \`patient\`, \`lab\`; forms take action icons like \`register\`, \`follow_up\`, \`refer\`). Give each module and form an icon as you build the app so the menus read clearly — prefer this over uploading an image. Use \`default\` for a neutral tile. Pass an uploaded image's asset id to the same \`icon\` slot instead only when the user wants their own image.
+
 How to attach it:
 
 1. The user uploads media in the library (or, if you're a Claude Code-style client, with \`upload_media_asset\`). You don't create media — you reference what's already there.

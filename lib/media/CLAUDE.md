@@ -36,6 +36,19 @@ Media-ON compile / HQ upload load every referenced ready asset's bytes into memo
 
 `boundaryValidation.ts::collectBoundaryViolations` runs at EVERY media-ON export entry (`.ccz` compile, HQ upload, JSON export) before the emitter: it walks the doc's asset refs, loads the rows (ready AND pending, so a still-uploading ref surfaces "not ready" rather than "not found"), runs the validator's media group (`mediaAssetExists` / `mediaAssetReady` / `mediaKindMatches`), and appends the aggregate budget error. ANY finding rejects with actionable prose. This is defense-in-depth — legacy refs committed before the attach verdict existed, plus ops disasters (a hand-deleted row, a reaped object) — the same standing role the rest of the boundary plays. `manifest.ts::resolveMediaManifest` then resolves refs → wire paths and streams bytes under bounded concurrency; it filters to `ready` + media-kind, so a media-free app does zero I/O.
 
+## Built-in library icons — one shared copy, no Firestore row
+
+A module/form menu tile can carry a curated **built-in icon** instead of an upload. The blueprint stores only a reserved-form `AssetId` — `nova-icon:<slug>` (`NOVA_ICON_REF_PREFIX` + the catalog slug; helpers in `lib/domain/builtinIcons.ts`) — and EVERY app points at ONE shared copy of the bytes, shipped at `public/nova-icons/<slug>.png` (crunched 512² PNGs, regenerated from the 1024² masters by `scripts/build-builtin-icons.ts`). No per-user asset, no Firestore row, no GCS object. The reserved string is a valid slot value everywhere with zero schema change — the `AssetId` brand is an opaque string and real ids are `randomUUID()`, which can't contain a colon (collision-free).
+
+Built-in awareness is **quarantined to `lib/media/builtinIconAssets.ts`** (the partition + synthesis) plus three other seams; the validator, the wire emitters, and the export budget stay built-in-agnostic and consume synthesized rows:
+
+- **Manifest** (`manifest.ts`) — `partitionAssetRefs` splits collected refs into real ids (the Firestore load runs on those only) and built-in slugs; `resolveBuiltinManifestEntries` synthesizes a `ResolvedMediaAsset` per slug, with a **content-hash** wire path (from the catalog hash, so HQ bulk-upload path-matching + cross-app dedup work identically to an upload) and bytes read from `public/nova-icons/` only when `withBytes`.
+- **Boundary** (`boundaryValidation.ts`) — same partition; `builtinAssetRows` synthesizes `ready`/`image` rows into the map so the validator's media group passes and the budget counts them (distinct slugs, deduped). The reference-count cap is `realIds + distinct builtin slugs`.
+- **Reverse index** (`lib/db/apps.ts::syncMediaReferences`) — built-in refs are filtered out before `addReferencingApp`: they have no asset doc, so an `arrayUnion` would `NOT_FOUND` (and built-ins are shared + undeletable, so they need no deletion-guard index).
+- **Client** (`components/builder/media/mediaClient.ts::mediaSrc`) routes a built-in id to its static `/nova-icons/<slug>.png` (not `/api/media`), and `useAttachBudget.ts` short-circuits a built-in candidate + drops built-in refs from its gap-fetch.
+
+The commit gate needs no awareness — it runs without a manifest and skips the media rules (`gate.ts::evaluateCommit`), so setting a built-in icon is never rejected there. The runtime `fs` read of `public/` is invisible to the standalone tracer, so `next.config.ts`'s `outputFileTracingIncludes` ships `public/nova-icons/**` with the emit routes (the browser's static handler needs nothing). The SA sets a built-in via `set_module_media`/`set_form_media`'s `icon` slug (`lib/agent/tools/media/shared.ts::resolveIconInput` — a slug → the reserved ref with NO attach expectation, so the Firestore verdict is skipped; any other string → an uploaded id with the normal verdict).
+
 ## Media-OFF / ON emit contract — artifacts emit only where bytes ship
 
 The manifest threads through the emitter as `opts.assets`; the wire media artifacts emit ONLY on the paths that also ship the bytes:
@@ -45,6 +58,16 @@ The manifest threads through the emitter as `opts.assets`; the wire media artifa
 - **JSON export** (`/api/compile/json`, MCP `compile_app` json) — a media-ON bundle (app JSON + the same bulk zip) when the app has media; the plain media-OFF JSON otherwise.
 
 itext `<value form="image|audio|video">` (image→audio→video order, after the text + markdown values), `multimedia_map`, and the logo profile property emit the same way. **An app with NO media emits output byte-identical to the pre-media output** — empty manifest means the media-on code paths never run, `multimedia_map: {}`, no `media_suite.xml`, no media itext values. The validator returns zero findings for a media-free doc, so this is structural, not a special case.
+
+## Built-in icons — a shared, Firestore-less media ref
+
+A module/form icon slot may hold a built-in icon ref (`nova-icon:<slug>`, see `lib/domain/builtinIcons.ts`) instead of an uploaded asset id. These have NO Firestore row and NO GCS object — the bytes ship once at `public/nova-icons/<slug>.png`, shared by every app. `builtinIconAssets.ts` is the server-side bridge (allowlisted for the `@/lib/commcare` boundary alongside `manifest.ts`): `partitionAssetRefs` splits a doc's refs into real ids vs built-in slugs (deduped, stale slugs dropped → fail closed), then `resolveBuiltinManifestEntries` synthesizes a `ResolvedMediaAsset` (content-hash wire path from the catalog, bytes read from `public/` only when `withBytes`) and `builtinAssetRows` synthesizes ready/image rows for the boundary's media rules + budget. So the seam is three places, all in `lib/media` + two siblings — the validator, wire emitters, and budget stay built-in-agnostic and consume the synthesized entries:
+
+- **`manifest.ts`** routes built-ins past `loadAssetsByIds` and merges their entries (deduped by slug → one wire entry per icon).
+- **`boundaryValidation.ts`** excludes them from the Firestore load and counts distinct slugs toward `MAX_MEDIA_EXPORT_ASSETS`.
+- **`lib/db/apps.ts::syncMediaReferences`** filters them before `addReferencingApp` (no row to index — an unfiltered built-in would log a Firestore `NOT_FOUND` on nearly every save).
+
+The SA sets one via `set_module_media`/`set_form_media`'s `icon` slot, which accepts a built-in slug OR an uploaded asset id (`tools/media/shared.ts::resolveIconInput` disambiguates by catalog membership); a built-in imposes NO attach expectation, so `attachGuardedMutate` skips the verdict's Firestore read for it. The browser routes a built-in chip's bytes via `mediaClient.ts::mediaSrc` → the static `/nova-icons/<slug>.png`, and `useAttachBudget` short-circuits a built-in pick. The runtime `fs` read needs `outputFileTracingIncludes` in `next.config.ts` (the standalone tracer doesn't see it).
 
 ## Clearing a media slot uses a dedicated mutation kind
 

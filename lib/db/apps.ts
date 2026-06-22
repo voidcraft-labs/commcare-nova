@@ -23,6 +23,7 @@ import type {
 	PersistableDoc,
 	PersistedBlueprint,
 } from "../domain/blueprint";
+import { isBuiltinIconRef } from "../domain/builtinIcons";
 import { asWalkableDoc, collectAssetRefs } from "../domain/mediaRefs";
 import { refundReservation } from "./credits";
 import { collections, docs, getDb } from "./firestore";
@@ -264,8 +265,15 @@ async function syncMediaReferences(
 	doc: PersistableDoc,
 ): Promise<void> {
 	try {
-		const referenced = collectAssetRefs(asWalkableDoc(doc));
-		await addReferencingApp([...referenced], appId);
+		// Built-in icon refs (`nova-icon:<slug>`) have no Firestore asset row, so
+		// `addReferencingApp` would `update()` a non-existent doc and reject
+		// NOT_FOUND — logged on every save of any app the SA gave a built-in icon
+		// (i.e. nearly every generated app). They need no reverse index: they're
+		// shared + undeletable, never subject to the deletion guard. Drop them here.
+		const referenced = [...collectAssetRefs(asWalkableDoc(doc))].filter(
+			(id) => !isBuiltinIconRef(id),
+		);
+		await addReferencingApp(referenced, appId);
 	} catch (err) {
 		log.error("[syncMediaReferences] reverse-index update failed", err, {
 			appId,

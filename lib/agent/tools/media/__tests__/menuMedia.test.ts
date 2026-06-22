@@ -266,6 +266,68 @@ describe("setAppLogo", () => {
 	});
 });
 
+describe("menu-media built-in icons", () => {
+	// A built-in slug (e.g. "household") is NOT in the in-memory asset table, so
+	// these passing at all proves the built-in path resolves WITHOUT the at-source
+	// asset verdict — an uploaded id that wasn't seeded would error "not in library".
+	it("setModuleMedia stores the reserved ref for a built-in icon slug", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		const result = await setModuleMediaTool.execute(
+			{ moduleIndex: 0, icon: "household", audioLabel: null },
+			ctx,
+			doc,
+		);
+		expect(result.kind).toBe("mutate");
+		if (typeof result.result !== "string") {
+			throw new Error(result.result.error);
+		}
+		expect(result.newDoc.modules[MOD_A]?.icon).toBe("nova-icon:household");
+	});
+
+	it("setFormMedia stores the reserved ref for a built-in icon slug", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		const result = await setFormMediaTool.execute(
+			{ moduleIndex: 0, formIndex: 0, icon: "register", audioLabel: null },
+			ctx,
+			doc,
+		);
+		if (typeof result.result !== "string") {
+			throw new Error(result.result.error);
+		}
+		expect(result.newDoc.forms[FORM_A]?.icon).toBe("nova-icon:register");
+	});
+
+	it("sets a built-in icon alongside an uploaded audio label (audio still verified)", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		const result = await setModuleMediaTool.execute(
+			{ moduleIndex: 0, icon: "patient", audioLabel: "asset-audio" },
+			ctx,
+			doc,
+		);
+		if (typeof result.result !== "string") {
+			throw new Error(result.result.error);
+		}
+		const mod = result.newDoc.modules[MOD_A];
+		expect(mod?.icon).toBe("nova-icon:patient");
+		expect(mod?.audioLabel).toBe("asset-audio");
+	});
+
+	it("still accepts an uploaded asset id for the icon (slug-vs-id disambiguation)", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		// "asset-icon" is a seeded image asset, not a catalog slug → the upload
+		// path: stored verbatim, verified against the library.
+		const result = await setModuleMediaTool.execute(
+			{ moduleIndex: 0, icon: "asset-icon", audioLabel: null },
+			ctx,
+			doc,
+		);
+		if (typeof result.result !== "string") {
+			throw new Error(result.result.error);
+		}
+		expect(result.newDoc.modules[MOD_A]?.icon).toBe("asset-icon");
+	});
+});
+
 describe("menu-media attach verdict", () => {
 	it("setModuleMedia refuses a kind mismatch on either slot", async () => {
 		const { doc, ctx } = makeMediaFixture();

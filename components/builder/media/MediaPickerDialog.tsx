@@ -32,6 +32,14 @@ import {
 	TooltipTrigger,
 } from "@/components/shadcn/tooltip";
 import {
+	builtinIconPublicPath,
+	builtinIconRef,
+	builtinIconsForSlot,
+	ICON_CATALOG,
+	type IconCatalogEntry,
+	type IconSlotKind,
+} from "@/lib/domain/builtinIcons";
+import {
 	type AssetKind,
 	assetKindForFilename,
 	assetKindForMimeType,
@@ -58,7 +66,7 @@ const BACKDROP_CLS =
 const POPUP_CLS =
 	"fixed z-modal top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl bg-nova-deep border border-nova-border shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
 
-type Tab = "upload" | "library";
+type Tab = "upload" | "library" | "icons";
 /** Library browse filter: one allowed kind, or "all" of them. */
 type LibraryFilter = AssetKind | "all";
 
@@ -114,6 +122,17 @@ export interface MediaPickerDialogProps {
 	 * delete; the caller no-ops when the id isn't one it's staging.
 	 */
 	onAssetDeleted?: (assetId: string) => void;
+	/**
+	 * Surfaces the built-in "Icon Library" tab — a curated set of menu-tile icons
+	 * the user picks by sight (no upload). ONLY for image icon slots: a module/
+	 * caselist slot passes `"module"` (topic icons), a form slot `"form"` (action
+	 * icons), and the standalone file manager `"all"` (browse the whole set).
+	 * Omitted everywhere else — field/option media, image questions, and the app
+	 * logo never offer it. In a picker (with `onPick`) clicking an icon attaches
+	 * it; in the file manager (no `onPick`) it previews. Selecting one stores the
+	 * reserved `nova-icon:<slug>` ref, resolved to shared bytes at emit.
+	 */
+	iconLibrary?: IconSlotKind | "all";
 }
 
 export function MediaPickerDialog({
@@ -125,6 +144,7 @@ export function MediaPickerDialog({
 	onAssetsLoaded,
 	attachedAssetIds,
 	onAssetDeleted,
+	iconLibrary,
 }: MediaPickerDialogProps) {
 	// No `onPick` → this is the standalone file manager (see the prop doc): no
 	// carrier to pick into, so library clicks preview and Upload just lands files.
@@ -162,6 +182,7 @@ export function MediaPickerDialog({
 						onAssetsLoaded={onAssetsLoaded}
 						attachedAssetIds={attachedAssetIds}
 						onAssetDeleted={onAssetDeleted}
+						iconLibrary={iconLibrary}
 					/>
 				</Dialog.Popup>
 			</Dialog.Portal>
@@ -179,6 +200,7 @@ function PickerBody({
 	onAssetsLoaded,
 	attachedAssetIds,
 	onAssetDeleted,
+	iconLibrary,
 }: {
 	manage: boolean;
 	kinds: readonly AssetKind[];
@@ -187,10 +209,26 @@ function PickerBody({
 	onAssetsLoaded?: (assets: MediaAssetView[]) => void;
 	attachedAssetIds?: readonly string[];
 	onAssetDeleted?: (assetId: string) => void;
+	iconLibrary?: IconSlotKind | "all";
 }) {
-	// The manager opens on the Library (your existing files); a picker opens on
-	// Upload (you came here to add something to a slot).
-	const [tab, setTab] = useState<Tab>(manage ? "library" : "upload");
+	// The built-in icons offered: a slot's family (`module`/`form`) for a picker,
+	// the whole set (`all`) for the file manager. Empty → no Icon Library tab.
+	const iconEntries = useMemo<readonly IconCatalogEntry[]>(
+		() =>
+			iconLibrary === undefined
+				? []
+				: iconLibrary === "all"
+					? ICON_CATALOG
+					: builtinIconsForSlot(iconLibrary),
+		[iconLibrary],
+	);
+	const showIcons = iconEntries.length > 0;
+	// The manager opens on the Library (your existing files); an icon-slot picker
+	// opens on the curated Icon Library (the point of the click); any other picker
+	// opens on Upload (you came here to add something to a slot).
+	const [tab, setTab] = useState<Tab>(
+		manage ? "library" : showIcons ? "icons" : "upload",
+	);
 	// A multi-kind slot gets a browse filter (defaulting to "all"); a
 	// single-kind slot is pinned to its one kind with no filter UI.
 	const multiKind = kinds.length > 1;
@@ -257,6 +295,15 @@ function PickerBody({
 			summary: asset.extract?.summary,
 		});
 
+	// An Icon Library click: a picker ATTACHES the built-in (the synthetic view
+	// carries the reserved `nova-icon:<slug>` id; the attach-budget guard
+	// short-circuits it); the file manager (no carrier) PREVIEWS the bitmap.
+	const pickIcon = (entry: IconCatalogEntry) => {
+		const asset = builtinIconAssetView(entry);
+		if (manage) openPreview(asset);
+		else onPick(asset);
+	};
+
 	// In the manager an inline upload has nowhere to pick to: land the asset in the
 	// library and switch to it so the user sees what they just added. Reset the
 	// type filter to "all" — the Upload tab accepts any kind, so a kind that
@@ -321,6 +368,11 @@ function PickerBody({
 				aria-label="Media source"
 				className="flex gap-1 border-b border-nova-border px-4 pt-3"
 			>
+				{showIcons && (
+					<TabButton active={tab === "icons"} onClick={() => setTab("icons")}>
+						Icon Library
+					</TabButton>
+				)}
 				<TabButton active={tab === "upload"} onClick={() => setTab("upload")}>
 					Upload
 				</TabButton>
@@ -330,7 +382,9 @@ function PickerBody({
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-y-auto p-4">
-				{tab === "upload" ? (
+				{tab === "icons" ? (
+					<IconLibraryTab icons={iconEntries} onPickIcon={pickIcon} />
+				) : tab === "upload" ? (
 					<UploadTab
 						kinds={kinds}
 						onUploaded={manage ? onManagedUpload : commit}
@@ -831,6 +885,100 @@ function FilterChip({
 		>
 			{children}
 		</button>
+	);
+}
+
+/**
+ * A `MediaAssetView` standing in for a built-in icon, built from its catalog
+ * entry. Its id is the reserved `nova-icon:<slug>` ref the slot stores; the
+ * other fields back the preview header + `mediaSrc` (which routes a built-in id
+ * to its static bytes). There is no Firestore row — built-ins never reach the
+ * library list or the budget fetch.
+ */
+function builtinIconAssetView(entry: IconCatalogEntry): MediaAssetView {
+	return {
+		id: builtinIconRef(entry.slug),
+		contentHash: entry.contentHash,
+		mimeType: "image/png",
+		kind: "image",
+		extension: ".png",
+		sizeBytes: entry.sizeBytes,
+		originalFilename: `${entry.slug}.png`,
+		displayName: entry.label,
+		status: "ready",
+		createdAt: "",
+	};
+}
+
+/**
+ * The built-in Icon Library: a searchable grid of curated menu-tile icons the
+ * user picks by sight, no upload. `icons` is already scoped to the slot's family
+ * (topic icons for a module/caselist slot, action icons for a form slot) or the
+ * whole set in the file manager.
+ */
+function IconLibraryTab({
+	icons,
+	onPickIcon,
+}: {
+	icons: readonly IconCatalogEntry[];
+	onPickIcon: (entry: IconCatalogEntry) => void;
+}) {
+	const [query, setQuery] = useState("");
+	const filtered = useMemo(() => {
+		const q = query.trim().toLowerCase();
+		if (!q) return icons;
+		return icons.filter(
+			(e) =>
+				e.label.toLowerCase().includes(q) || e.slug.toLowerCase().includes(q),
+		);
+	}, [icons, query]);
+
+	return (
+		<div className="flex flex-col gap-3">
+			<input
+				type="text"
+				value={query}
+				onChange={(e) => setQuery(e.target.value)}
+				placeholder="Search icons"
+				autoComplete="off"
+				data-1p-ignore
+				className="w-full rounded-md border border-nova-border bg-nova-surface px-3 py-1.5 text-sm text-nova-text outline-none placeholder:text-nova-text-muted focus:border-nova-violet"
+			/>
+			{filtered.length === 0 ? (
+				<p className="py-6 text-center text-sm text-nova-text-muted">
+					No matching icons.
+				</p>
+			) : (
+				<ul className="grid grid-cols-4 gap-2">
+					{filtered.map((entry) => (
+						<li key={entry.slug}>
+							<button
+								type="button"
+								onClick={() => onPickIcon(entry)}
+								className="block aspect-square w-full overflow-hidden rounded-md border border-nova-border bg-nova-surface transition-colors hover:border-nova-violet focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+							>
+								{/* biome-ignore lint/performance/noImgElement: a tiny fixed static PNG from /nova-icons; next/image adds no value */}
+								<img
+									src={builtinIconPublicPath(entry.slug)}
+									alt={entry.label}
+									className="size-full object-contain p-1.5"
+								/>
+							</button>
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<p className="mt-1.5 truncate text-center text-xs leading-tight text-nova-text">
+											{entry.label}
+										</p>
+									}
+								/>
+								<TooltipContent>{entry.label}</TooltipContent>
+							</Tooltip>
+						</li>
+					))}
+				</ul>
+			)}
+		</div>
 	);
 }
 

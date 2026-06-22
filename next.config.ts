@@ -24,6 +24,19 @@ const nextConfig: NextConfig = {
 	 * Next's built-in default external list; these two we import directly. */
 	serverExternalPackages: ["@google-cloud/firestore", "@google-cloud/kms"],
 
+	/* Built-in icon bytes (public/nova-icons/*.png) are read at runtime via `fs`
+	 * by the export pipeline (`lib/media/builtinIconAssets.ts` → the .ccz compile,
+	 * HQ upload, and MCP compile paths). The standalone tracer only bundles files
+	 * it detects as statically imported, so a runtime `fs.readFile` of public/ is
+	 * NOT traced — without this the icon bytes would be absent from the Cloud Run
+	 * image and every built-in-icon export would fail in prod, while localhost
+	 * (which serves public/ directly) masks it. The browser path needs nothing —
+	 * Next's static handler serves /nova-icons/* as-is. Single-server standalone,
+	 * so the global key is the robust choice; the cost is one ~1.2MB copy. */
+	outputFileTracingIncludes: {
+		"/*": ["./public/nova-icons/**"],
+	},
+
 	/* Silence the dev-mode "ƒ serverAction(args)" trace — its safe-stable-stringify
 	   truncation renders large args (e.g. saveThread's ThreadDoc) as [Object] /
 	   "N items not stringified", which is noise rather than signal. */

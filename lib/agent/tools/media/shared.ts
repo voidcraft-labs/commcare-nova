@@ -37,6 +37,9 @@ import type { Mutation } from "@/lib/doc/types";
 import {
 	type AssetId,
 	type BlueprintDoc,
+	builtinIconRef,
+	type IconSlug,
+	iconCatalogEntry,
 	type Media,
 	mediaSchema,
 } from "@/lib/domain";
@@ -76,6 +79,24 @@ export const mediaBundleInput = (description: string) =>
  */
 export const nullableAssetSlot = (description: string) =>
 	z.string().min(1).nullable().describe(description);
+
+/**
+ * The icon slot for a menu carrier (module / form tile). Unlike a plain
+ * `nullableAssetSlot`, it accepts EITHER a built-in icon slug (the listed
+ * enum — the common path, no upload needed) OR an uploaded image's asset id
+ * (any other string), OR `null` to clear. Built-in icons are the library Nova
+ * ships; the SA picks one by name, no `list_media_assets` round-trip. The
+ * `anyOf` carries the slug list so the model sees the choices while still
+ * allowing an asset-id string. `resolveIconInput` disambiguates at runtime.
+ */
+export const nullableIconSlot = (
+	slugs: readonly [string, ...string[]],
+	description: string,
+) =>
+	z
+		.union([z.enum(slugs), z.string().min(1)])
+		.nullable()
+		.describe(description);
 
 /**
  * Cast a parsed nullable asset-slot value to the branded `AssetId | null`
@@ -170,6 +191,36 @@ export function slotExpectation(
 	slotPhrase: string,
 ): MediaAttachExpectation[] {
 	return value === null ? [] : [{ assetId: value, kind, slot: slotPhrase }];
+}
+
+/**
+ * Resolve a menu-tile icon input (from `nullableIconSlot`) into the `AssetId`
+ * the mutation stores plus the attach expectation it imposes:
+ *
+ *   - a value matching a built-in icon slug → the reserved `nova-icon:<slug>`
+ *     ref and NO expectation. Built-ins have no library row — they're always a
+ *     ready image, resolved from the shipped set at emit — so the at-source
+ *     verdict (which reads Firestore) must not run for them. An empty
+ *     expectation list is exactly what skips it.
+ *   - any other non-null value → an uploaded asset id: branded, with the
+ *     standard image expectation so the verdict checks it exists / is ready.
+ *   - `null` → clear, no expectation.
+ *
+ * Slugs and uploaded asset-id UUIDs can't collide, so catalog membership is a
+ * sound discriminator.
+ */
+export function resolveIconInput(
+	value: string | null,
+	slotPhrase: string,
+): { icon: AssetId | null; expectations: MediaAttachExpectation[] } {
+	if (value === null) return { icon: null, expectations: [] };
+	if (iconCatalogEntry(value)) {
+		return { icon: builtinIconRef(value as IconSlug), expectations: [] };
+	}
+	return {
+		icon: brandAssetSlot(value),
+		expectations: [{ assetId: value, kind: "image", slot: slotPhrase }],
+	};
 }
 
 /**

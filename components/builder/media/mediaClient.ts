@@ -12,6 +12,11 @@
 
 import type { WireMediaAsset } from "@/lib/db/mediaAssets";
 import {
+	builtinIconPublicPath,
+	isBuiltinIconRef,
+	parseBuiltinIconSlug,
+} from "@/lib/domain/builtinIcons";
+import {
 	type AssetKind,
 	EXTRACTOR_VERSION,
 	type Media,
@@ -67,6 +72,14 @@ export function clearMediaSlot(
  * assignable to it.
  */
 export function mediaSrc(assetId: string): string {
+	// Built-in icon refs (`nova-icon:<slug>`) aren't Firestore assets — their
+	// bytes ship statically at `/nova-icons/<slug>.png`. A known slug resolves to
+	// that static URL; an unknown/stale slug falls through to the API route, which
+	// 404s — the same broken-image outcome as a deleted upload, surfaced to fix.
+	if (isBuiltinIconRef(assetId)) {
+		const slug = parseBuiltinIconSlug(assetId);
+		if (slug) return builtinIconPublicPath(slug);
+	}
 	return `/api/media/${assetId}`;
 }
 

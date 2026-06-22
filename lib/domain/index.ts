@@ -4,6 +4,7 @@
 // imports from here or from the kind-specific files under ./fields.
 
 export * from "./blueprint";
+export * from "./builtinIcons";
 export * from "./casePropertyTypes";
 export * from "./caseTypes";
 export * from "./expressionSource";
