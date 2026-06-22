@@ -3,6 +3,7 @@ import type { Field } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { assertNever } from "@/lib/utils/assertNever";
 import { DateField } from "./fields/DateField";
+import { GeopointField } from "./fields/geopoint/GeopointField";
 import { LabelField } from "./fields/LabelField";
 import { MediaField } from "./fields/MediaField";
 import { NumberField } from "./fields/NumberField";
@@ -88,12 +89,21 @@ export function FieldRenderer({
 			);
 		case "label":
 			return <LabelField field={field} state={state} />;
-		// Media-capture kinds (including geopoint — coordinate pair whose
-		// UI affordance matches the media capture pattern). All dispatch
-		// to the same placeholder card; the icon + label come from the
-		// field registry, so adding another media kind doesn't need a new
-		// case here but DOES need the kind listed explicitly.
+		// Geopoint has a real, interactive picker in preview (map + address
+		// search + geolocate); it no longer shares the media placeholder.
 		case "geopoint":
+			return (
+				<GeopointField
+					field={field}
+					state={state}
+					onChange={onChange}
+					onBlur={onBlur}
+				/>
+			);
+		// Media-capture kinds. All dispatch to the same placeholder card;
+		// the icon + label come from the field registry, so adding another
+		// media kind doesn't need a new case here but DOES need the kind
+		// listed explicitly.
 		case "image":
 		case "audio":
 		case "video":

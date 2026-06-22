@@ -158,7 +158,10 @@ function notFound(): NextResponse {
  * browser. Without the request side, `'strict-dynamic'` blocks every
  * framework bundle and the page renders blank in production.
  */
-function buildCsp(isDev: boolean): { csp: string; nonce: string } {
+function buildCsp(
+	isDev: boolean,
+	allowGoogleMaps: boolean,
+): { csp: string; nonce: string } {
 	/* 16 raw random bytes encoded as base64. `randomUUID()` would yield
 	 * an ASCII string with structurally fixed dashes and version nibbles —
 	 * base64-encoding that wastes entropy the CSP nonce relies on to
@@ -166,12 +169,31 @@ function buildCsp(isDev: boolean): { csp: string; nonce: string } {
 	const nonceBytes = new Uint8Array(16);
 	crypto.getRandomValues(nonceBytes);
 	const nonce = Buffer.from(nonceBytes).toString("base64");
+
+	/* The GPS location picker (in the builder) loads the Google Maps JS API,
+	 * which REQUIRES `'unsafe-eval'` and fetches map tiles, Places, Geocoding,
+	 * fonts, and frames from Google hosts. CSP is fixed per DOCUMENT, and the
+	 * main host is one App-Router SPA: a document first loaded at `/` (or any
+	 * page) can client-navigate into `/build`, where Maps then loads under
+	 * that original document's policy. So the relaxation must cover every
+	 * main-host page document, not just `/build` — `allowGoogleMaps` is true
+	 * for all main-host pages and false for the separate docs subdomain (which
+	 * never reaches the builder), keeping docs strict. Under `'strict-dynamic'`
+	 * the Maps loader script is trusted transitively from the bundled code, so
+	 * no script HOST needs allow-listing — only `'unsafe-eval'`. */
+	const gmapsHosts =
+		"https://*.googleapis.com https://*.gstatic.com https://*.google.com";
+	const gImg = allowGoogleMaps ? ` ${gmapsHosts}` : "";
+	const gConnect = allowGoogleMaps ? ` ${gmapsHosts}` : "";
+	const gFont = allowGoogleMaps ? " https://fonts.gstatic.com" : "";
+	const gStyle = allowGoogleMaps ? " https://fonts.googleapis.com" : "";
+
 	const csp = [
 		"default-src 'self'",
-		`script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
-		"style-src 'self' 'unsafe-inline'",
-		"img-src 'self' blob: data: *.googleusercontent.com",
-		"font-src 'self'",
+		`script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev || allowGoogleMaps ? " 'unsafe-eval'" : ""}`,
+		`style-src 'self' 'unsafe-inline'${gStyle}`,
+		`img-src 'self' blob: data: *.googleusercontent.com${gImg}`,
+		`font-src 'self'${gFont}`,
 		/* Sentry Session Replay compresses its payload in a Web Worker created
 		 * from a blob: URL; without an explicit worker-src the directive falls
 		 * back to default-src 'self', which blocks blob: workers. */
@@ -181,8 +203,11 @@ function buildCsp(isDev: boolean): { csp: string; nonce: string } {
 		 * stay same-origin (the `/api/media/[assetId]` route proxies them), so only
 		 * the upload PUT needs this. In local dev the upload target is the
 		 * same-origin `/api/media/upload/dev-put` route, so it only matters in
-		 * prod. */
-		"connect-src 'self' https://storage.googleapis.com",
+		 * prod. The Google hosts (main-host pages) carry the Maps tile,
+		 * Places, and Geocoding XHRs. */
+		`connect-src 'self' https://storage.googleapis.com${gConnect}`,
+		/* Google Maps embeds a few same-purpose iframes (main-host pages). */
+		...(allowGoogleMaps ? ["frame-src https://*.google.com"] : []),
 		"object-src 'none'",
 		"base-uri 'self'",
 		"form-action 'self'",
@@ -203,8 +228,9 @@ function attachCsp(
 	requestHeaders: Headers,
 	target: { type: "next" } | { type: "rewrite"; url: URL },
 	isDev: boolean,
+	allowGoogleMaps = false,
 ): NextResponse {
-	const { csp, nonce } = buildCsp(isDev);
+	const { csp, nonce } = buildCsp(isDev, allowGoogleMaps);
 	requestHeaders.set("x-nonce", nonce);
 	requestHeaders.set("Content-Security-Policy", csp);
 
@@ -383,7 +409,12 @@ export function proxy(request: NextRequest): NextResponse {
 		return NextResponse.redirect(new URL("/", request.url));
 	}
 
-	return attachCsp(requestHeaders, { type: "next" }, isDev);
+	/* Every main-host page document gets the Google-Maps-relaxed CSP: this is
+	 * one App-Router SPA, so any page can client-navigate into the builder
+	 * where the GPS picker's Google Map loads under the original document's
+	 * policy. (The docs subdomain — handled in its own branch above — stays
+	 * strict; it never reaches the builder.) */
+	return attachCsp(requestHeaders, { type: "next" }, isDev, true);
 }
 
 export const config = {

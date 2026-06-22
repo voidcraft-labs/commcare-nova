@@ -46,6 +46,16 @@ ENV CI=true
 # Only the builder stage sees it — nothing leaks into the pushed runner image.
 ARG SENTRY_AUTH_TOKEN
 
+# Google Maps config for the geopoint picker. `NEXT_PUBLIC_` vars are inlined
+# into the client bundle by `next build`, so they MUST be present here at build
+# time (a Cloud Run runtime env var would never reach them). Cloud Build passes
+# the key from Secret Manager (`nova-google_maps_api_key`, the prod browser key)
+# and the Map ID as a literal. A local `docker build` leaves them empty, and the
+# picker degrades to manual lat/lon entry. The key is a referrer-restricted
+# public key (it ships in the bundle by design), so this is not a secret leak.
+ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+ARG NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID
+
 RUN npm run build
 
 # --- Stage 4: Production runner ---
