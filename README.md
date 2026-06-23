@@ -34,6 +34,16 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+**Node version.** `.nvmrc` pins the exact patch the production image ships (`predev`
+and CI both enforce it). To switch to it automatically on `cd` — rather than running
+`nvm use` by hand — install [`fnm`](https://github.com/Schniz/fnm) and add its
+auto-switch hook to your shell rc (it reads `.nvmrc`, so there's no second source of
+truth to keep in sync):
+
+```bash
+eval "$(fnm env --use-on-cd)"   # bash/zsh: ~/.bashrc or ~/.zshrc
+```
+
 ### Docker
 
 ```bash

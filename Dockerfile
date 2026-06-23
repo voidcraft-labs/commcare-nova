@@ -11,6 +11,10 @@
 # supply-chain logic that digest-pins arigaio/atlas below; an exact patch
 # tag suffices here — it freezes Node while still flowing Alpine security
 # patches. Bump deliberately once a corrected Node 22.x ships the undici fix.
+#
+# `.nvmrc` is the canonical Node version (CI reads it via `node-version-file`,
+# local nvm/fnm read it directly). Keep this patch in lockstep with it — the
+# `quality` CI job fails if `.nvmrc` and this ARG drift.
 ARG NODE_IMAGE=node:22.22.3-alpine
 
 # --- Stage 1: Install dependencies ---

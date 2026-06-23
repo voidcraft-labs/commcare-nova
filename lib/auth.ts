@@ -33,6 +33,7 @@ import { SIGN_IN_ERROR } from "./auth-errors";
 import { withCompleteFirestoreAdapter } from "./auth-firestore-adapter";
 import { forwardBetterAuthLog } from "./auth-logger";
 import { NOVA_API_KEY_PREFIX, NOVA_API_KEY_SCOPES } from "./auth-public";
+import { firestoreClientOptions } from "./db/firestoreClientOptions";
 import { MCP_RESOURCE_URL } from "./hostnames";
 import { log } from "./logger";
 
@@ -125,8 +126,7 @@ function getAuthDb(): AdminFirestore {
 	if (!_authDb) {
 		_authDb = new AdminFirestore({
 			projectId: process.env.GOOGLE_CLOUD_PROJECT,
-			ignoreUndefinedProperties: true,
-			preferRest: true,
+			...firestoreClientOptions(),
 		});
 	}
 	return _authDb;

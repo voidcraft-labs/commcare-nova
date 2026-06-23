@@ -45,6 +45,7 @@ Next.js 16 (App Router, Turbopack) · TypeScript strict · Tailwind v4. Vercel A
 npm run dev          # boots local case-store Postgres (compose.yaml) + migrations, then Turbopack
 npm run build / lint / format / test
 npm run test:leaks   # full suite under the async-leak detector (CI scopes it to PR-changed tests via --changed)
+npm run test:smoke   # Playwright UI smoke (Firestore emulator + local Postgres + seeded session) — see e2e/CLAUDE.md
 npm run typecheck    # fumadocs-mdx + tsc --noEmit
 npm run db:diff / db:lint        # author / lint a case-store migration (Atlas)
 npx tsx scripts/test-schema.ts   # verify SA tool-input schemas are API-accepted
