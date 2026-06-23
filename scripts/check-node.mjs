@@ -20,6 +20,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const want = readFileSync(path.join(root, ".nvmrc"), "utf8").trim();
 const have = process.versions.node;
 
+// Escape hatch for someone who knowingly wants a different patch (e.g. testing
+// a Node bump) without editing .nvmrc: `SKIP_NODE_CHECK=1 npm run dev`.
+if (process.env.SKIP_NODE_CHECK) process.exit(0);
+
 if (have !== want) {
 	console.error(
 		[
@@ -30,6 +34,8 @@ if (have !== want) {
 			"    Switch with your version manager (both read .nvmrc):",
 			"      nvm:  nvm install && nvm use",
 			"      fnm:  fnm use --install-if-missing",
+			"",
+			"    (Or bypass once: SKIP_NODE_CHECK=1 npm run dev)",
 			"",
 		].join("\n"),
 	);

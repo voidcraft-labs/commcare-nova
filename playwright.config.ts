@@ -1,4 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
+import { SMOKE_RETRIES } from "./e2e/lib/config";
+import { urlHost } from "./e2e/lib/url";
 
 /**
  * Playwright smoke configuration.
@@ -21,16 +23,13 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const BASE_URL = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const isCI = !!process.env.CI;
-// Parse the host rather than substring-match the URL (a substring check is both
-// imprecise and a CodeQL js/incomplete-url-substring-sanitization finding).
-const isLocalTarget = ((): boolean => {
-	try {
-		const host = new URL(BASE_URL).hostname;
-		return host === "localhost" || host === "127.0.0.1" || host === "::1";
-	} catch {
-		return false;
-	}
-})();
+const localHost = urlHost(BASE_URL);
+const isLocalTarget =
+	localHost === "localhost" || localHost === "127.0.0.1" || localHost === "::1";
+// Only manage our own `next dev` when scripts/smoke.sh is driving (it exports
+// this). Otherwise — e.g. `test:smoke:url` probing an already-running URL, even
+// a localhost one — don't spin up a server (and don't require the emulator env).
+const manageServer = process.env.SMOKE_MANAGE_SERVER === "1";
 
 /**
  * Env handed to the `next dev` the suite manages, forwarded explicitly so it
@@ -79,7 +78,8 @@ export default defineConfig({
 	outputDir: "./e2e/test-results",
 	fullyParallel: true,
 	forbidOnly: isCI,
-	retries: isCI ? 2 : 0,
+	// Single-sourced with the seed's throwaway-app count (e2e/lib/config.ts).
+	retries: SMOKE_RETRIES,
 	// One worker: the suite shares a single emulator + seeded dataset; the delete
 	// test mutates app rows, so parallel workers could race the app list.
 	workers: 1,
@@ -118,23 +118,24 @@ export default defineConfig({
 			},
 		},
 	],
-	// Only manage a server when pointing at localhost. Against a deployed URL we
-	// test what's already running.
-	webServer: isLocalTarget
-		? {
-				command: "next dev",
-				url: BASE_URL,
-				// Never reuse a stray server: a dev's own `npm run dev` on :3000
-				// points at REAL Firestore with a different secret, so reusing it
-				// would run the authed tests against the wrong backend (the forged
-				// emulator cookie fails to validate) — a confusing red. Always start
-				// the suite's own emulator-wired server.
-				reuseExistingServer: false,
-				// Next 16 + Turbopack cold compile of the first route is slow.
-				timeout: 180_000,
-				stdout: "pipe",
-				stderr: "pipe",
-				env: smokeWebServerEnv(),
-			}
-		: undefined,
+	// Manage our own `next dev` only when smoke.sh is driving a localhost run.
+	// Against a deployed URL (or any already-running server) we test what's there.
+	webServer:
+		manageServer && isLocalTarget
+			? {
+					command: "next dev",
+					url: BASE_URL,
+					// Never reuse a stray server: a dev's own `npm run dev` on :3000
+					// points at REAL Firestore with a different secret, so reusing it
+					// would run the authed tests against the wrong backend (the forged
+					// emulator cookie fails to validate) — a confusing red. Always start
+					// the suite's own emulator-wired server.
+					reuseExistingServer: false,
+					// Next 16 + Turbopack cold compile of the first route is slow.
+					timeout: 180_000,
+					stdout: "pipe",
+					stderr: "pipe",
+					env: smokeWebServerEnv(),
+				}
+			: undefined,
 });

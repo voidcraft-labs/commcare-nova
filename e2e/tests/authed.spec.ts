@@ -17,7 +17,6 @@ interface SeedManifest {
 	userEmail: string;
 	openAppName: string;
 	deleteAppName: string;
-	deleteAppCount: number;
 	openAppId: string;
 	deleteAppIds: string[];
 }

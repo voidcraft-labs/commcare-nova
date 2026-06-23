@@ -149,8 +149,9 @@ jobs:
       # Atlas (same as the `test` job), so Atlas must be on PATH.
       - name: Install Atlas
         uses: ariga/setup-atlas@master
-      # Cache the Chromium binary (~150MB) so it isn't re-downloaded every run;
-      # the lockfile hash keys it to the installed @playwright/test version.
+      # Cache the Chromium binary (~150MB) so it isn't re-downloaded every run.
+      # Keyed on the whole lockfile (coarse — any dep bump re-saves, but
+      # restore-keys still serves the existing binary, so no re-download).
       # `--with-deps` still installs the (apt) OS deps, which are fast.
       - name: Cache Playwright browsers
         uses: actions/cache@v5
@@ -220,6 +221,10 @@ jobs:
       # outbound stack (undici / gaxios / node-fetch) throws here and reds the PR.
       - name: Auth → Firestore round-trip on the prod Node
         run: npx tsx scripts/ci/auth-healthz.ts
+        env:
+          # Set explicitly rather than relying on google-github-actions/auth to
+          # export it — the script requires GOOGLE_CLOUD_PROJECT.
+          GOOGLE_CLOUD_PROJECT: ${{ vars.CI_GCP_PROJECT }}
 
   auth-contract:
     # Gates the session-cookie contract (a forged cookie ⇄ the real
@@ -245,15 +250,15 @@ jobs:
       # Vitest's globalSetup boots a Postgres testcontainer migrated by Atlas.
       - name: Install Atlas
         uses: ariga/setup-atlas@master
+      # Distinct cache key from the smoke job's so the two don't race to reserve
+      # the same key on a cold run ("Unable to reserve cache …").
       - name: Cache Firestore emulator
         uses: actions/cache@v5
         with:
           path: ~/.cache/firebase/emulators
-          key: firebase-emulators-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: firebase-emulators-${{ runner.os }}-
+          key: firebase-emulators-contract-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: firebase-emulators-contract-${{ runner.os }}-
       - name: Session-cookie contract (emulator)
         run: |
           node_modules/.bin/firebase emulators:exec --only firestore --project demo-test \
             'GOOGLE_CLOUD_PROJECT=demo-test node_modules/.bin/vitest run sessionCookie.integration.test.ts'
-        env:
-          GOOGLE_CLOUD_PROJECT: ${{ vars.CI_GCP_PROJECT }}

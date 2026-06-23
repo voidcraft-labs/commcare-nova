@@ -24,6 +24,9 @@ export GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT:-demo-test}"
 export BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-smoke-test-secret-do-not-use-in-prod}"
 export BETTER_AUTH_URL="${BETTER_AUTH_URL:-http://localhost:3000}"
 export SMOKE_BASE_URL="${SMOKE_BASE_URL:-http://localhost:3000}"
+# Tell playwright.config to manage its own `next dev` (vs `test:smoke:url`, which
+# probes an already-running server and sets no flag).
+export SMOKE_MANAGE_SERVER=1
 # Dummy OAuth creds: the suite never calls Google. sign-in/social only needs a
 # non-empty client id to build the consent URL.
 export GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-smoke-dummy.apps.googleusercontent.com}"
@@ -66,11 +69,12 @@ done
 # emulators:exec sets FIRESTORE_EMULATOR_HOST for everything it spawns, so the
 # seed and the dev server share one offline Firestore. The emulator is torn down
 # when the wrapped command exits (data is ephemeral — no cleanup needed).
-# Forward extra args to Playwright, quoted with %q so spaces/globs survive the
-# inner shell that `emulators:exec` spawns (a raw `$*` would word-split them).
+# Forward extra args to Playwright. `emulators:exec` re-parses the command string
+# under /bin/sh (dash on CI), so POSIX-single-quote each arg — bash's `printf %q`
+# emits `$'...'` escapes dash doesn't understand. Replace `'` with `'\''`, wrap.
 playwright_cmd="node_modules/.bin/playwright test"
 for arg in "$@"; do
-  playwright_cmd="$playwright_cmd $(printf '%q' "$arg")"
+  playwright_cmd="$playwright_cmd '${arg//\'/\'\\\'\'}'"
 done
 
 echo "[smoke] starting Firestore emulator, seeding, running Playwright…"

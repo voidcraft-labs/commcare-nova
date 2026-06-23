@@ -1,4 +1,5 @@
 import { expect, test } from "../lib/fixtures";
+import { urlHost } from "../lib/url";
 
 /**
  * Public (unauthenticated) smoke checks — no seeded session, no Firestore data.
@@ -61,21 +62,11 @@ test.describe("public surface", () => {
 		await page.route("**/accounts.google.com/**", (route) =>
 			route.fulfill({ status: 200, contentType: "text/html", body: "" }),
 		);
-		// Match on the parsed hostname, not a substring — `url.includes(host)`
-		// would also match `accounts.google.com.evil.test`
-		// (js/incomplete-url-substring-sanitization).
-		const isGoogleAuth = (url: string): boolean => {
-			try {
-				return new URL(url).hostname === "accounts.google.com";
-			} catch {
-				return false;
-			}
-		};
+		// Match on the parsed hostname, not a substring (which would also match
+		// `accounts.google.com.evil.test`).
 		const googleHandoff = page.waitForRequest(
-			(req) => isGoogleAuth(req.url()),
-			{
-				timeout: 15_000,
-			},
+			(req) => urlHost(req.url()) === "accounts.google.com",
+			{ timeout: 15_000 },
 		);
 		await page.getByRole("button", { name: "Sign in with Google" }).click();
 		await googleHandoff;

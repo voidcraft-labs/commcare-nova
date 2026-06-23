@@ -1,9 +1,10 @@
 /**
- * Transport/settings options shared by every Firestore client we construct —
- * the two singletons (`getDb` in lib/db/firestore.ts, `getAuthDb` in
+ * Transport/settings options shared by the Firestore clients this code owns —
+ * the two prod singletons (`getDb` in lib/db/firestore.ts, `getAuthDb` in
  * lib/auth.ts), the CI auth healthz (scripts/ci/auth-healthz.ts), and the
- * emulator-gated integration tests — so the emulator decision lives in exactly
- * one place.
+ * session-cookie contract test — so the emulator transport decision is made in
+ * one place. (The older emulator-gated integration tests still construct their
+ * own clients; routing them through here too is a worthwhile follow-up.)
  *
  * A dependency-free leaf (only reads `process.env`) on purpose: lib/auth.ts and
  * the CI script can pull it without dragging in the Firestore converter graph.

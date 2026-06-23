@@ -101,15 +101,22 @@ const timer = setTimeout(() => {
 timer.unref();
 
 main()
-	.then(() => clearTimeout(timer))
+	.then(() => {
+		clearTimeout(timer);
+		// Force-exit rather than relying on natural drain: this gate deliberately
+		// exercises the WIF/gaxios keep-alive HTTP stack, and a lingering keep-alive
+		// socket (the exact layer being tested) could keep the loop alive past
+		// main() with the watchdog already cleared — a hung process burning to the
+		// CI job timeout on a SUCCESSFUL round-trip. Matches e2e/seed.ts's exit.
+		process.exit(0);
+	})
 	.catch((err) => {
 		clearTimeout(timer);
-		// Set the exit code and let the event loop drain (the client is already
-		// terminated in `finally`) rather than process.exit() — the synchronous
-		// logFailure above has already flushed the diagnostic.
+		// logFailure used writeSync (flushed synchronously), so process.exit(1)
+		// can't truncate the diagnostic.
 		logFailure(
 			"firebase-admin Firestore round-trip threw — the auth outbound stack is broken (this is how prod login outages look).",
 			err,
 		);
-		process.exitCode = 1;
+		process.exit(1);
 	});

@@ -25,6 +25,7 @@ import path from "node:path";
 import { Timestamp } from "@google-cloud/firestore";
 import { createApp } from "@/lib/db/apps";
 import { getDb } from "@/lib/db/firestore";
+import { DELETE_APP_COUNT } from "./lib/config";
 import { buildSessionStorageState } from "./lib/session";
 
 /** Stable identifiers the tests assert against (mirrored in `authed.spec.ts`). */
@@ -34,8 +35,6 @@ export const SEED = {
 	userName: "Smoke Test User",
 	openAppName: "Smoke — Open Me",
 	deleteAppName: "Smoke — Delete Me",
-	/** One throwaway app per Playwright attempt (retries: 2 → 3 attempts). */
-	deleteAppCount: 3,
 } as const;
 
 const AUTH_DIR = path.join(process.cwd(), "e2e", ".auth");
@@ -69,14 +68,15 @@ async function main(): Promise<void> {
 	const token = randomBytes(32).toString("hex");
 	const expiresAt = Timestamp.fromMillis(Date.now() + 2 * 24 * 60 * 60 * 1000);
 
-	// All of these are independent emulator round-trips — run them concurrently.
+	// Sequential writes — a one-shot seed, so clarity over concurrency (and no
+	// unhandled-rejection window from eagerly-started, late-awaited promises).
 	//   • auth_users: getSession loads this row by `userId`; the email-domain
-	//     allowlist only gates user *creation* (the OAuth hook), so a directly
-	//     seeded row is accepted on read regardless.
+	//     allowlist only gates user *creation*, so a directly-seeded row reads fine.
 	//   • auth_sessions: `token` is the cookie's secret material; the doc id is
 	//     unrelated (getSession looks rows up by the `token` field).
-	//   • the apps via the real no-LLM create path (status `complete`).
-	const userWrite = db.collection("auth_users").doc(SEED.userId).set({
+	//   • the apps via the real no-LLM create path (status `complete`), one
+	//     throwaway "delete me" app per possible Playwright attempt.
+	await db.collection("auth_users").doc(SEED.userId).set({
 		id: SEED.userId,
 		email: SEED.userEmail,
 		emailVerified: true,
@@ -88,7 +88,7 @@ async function main(): Promise<void> {
 		updatedAt: now.toDate(),
 		lastActiveAt: now.toDate(),
 	});
-	const sessionWrite = db.collection("auth_sessions").add({
+	await db.collection("auth_sessions").add({
 		token,
 		userId: SEED.userId,
 		expiresAt: expiresAt.toDate(),
@@ -97,20 +97,19 @@ async function main(): Promise<void> {
 		ipAddress: "",
 		userAgent: "smoke-test",
 	});
-	const appCreates = [
-		createApp(SEED.userId, randomUUID(), {
-			appName: SEED.openAppName,
-			status: "complete",
-		}),
-		...Array.from({ length: SEED.deleteAppCount }, () =>
-			createApp(SEED.userId, randomUUID(), {
+	const openAppId = await createApp(SEED.userId, randomUUID(), {
+		appName: SEED.openAppName,
+		status: "complete",
+	});
+	const deleteAppIds: string[] = [];
+	for (let i = 0; i < DELETE_APP_COUNT; i++) {
+		deleteAppIds.push(
+			await createApp(SEED.userId, randomUUID(), {
 				appName: SEED.deleteAppName,
 				status: "complete",
 			}),
-		),
-	];
-	const [openAppId, ...deleteAppIds] = await Promise.all(appCreates);
-	await Promise.all([userWrite, sessionWrite]);
+		);
+	}
 
 	// Emit storageState (consumed by the `authed` Playwright project) + a seed
 	// manifest the tests read for the concrete ids.
