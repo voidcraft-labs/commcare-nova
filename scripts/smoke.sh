@@ -38,9 +38,27 @@ export NOVA_DB_LOCAL_URL="${NOVA_DB_LOCAL_URL:-postgres://nova:nova@127.0.0.1:54
 # Not `npm run db:dev` — that script hardcodes a `localhost` URL for the Atlas
 # step, which hits the ::1 trap above. Boot the container and migrate over the
 # pinned IPv4 URL instead.
-echo "[smoke] booting case-store Postgres + applying migrations…"
+echo "[smoke] booting case-store Postgres…"
 docker compose up -d --wait
-atlas migrate apply --env testcontainer --url "$NOVA_DB_LOCAL_URL" --allow-dirty
+
+# `--wait` clears once the container healthcheck (pg_isready over the unix
+# socket) passes — but on a FRESH container that can happen DURING Postgres
+# first-boot init, before the TCP listener accepts queries, so atlas connects
+# and gets "EOF" / connection-reset. (A persisted local volume skips init, which
+# is why this only bites CI.) Retry the idempotent migrate until Postgres truly
+# accepts TCP queries.
+echo "[smoke] applying case-store migrations (retrying until Postgres is TCP-ready)…"
+for attempt in $(seq 1 20); do
+  if atlas migrate apply --env testcontainer --url "$NOVA_DB_LOCAL_URL" --allow-dirty; then
+    break
+  fi
+  if [ "$attempt" -eq 20 ]; then
+    echo "[smoke] Postgres never became ready for TCP queries — giving up." >&2
+    exit 1
+  fi
+  echo "[smoke] Postgres not ready yet (attempt $attempt/20); retrying in 2s…"
+  sleep 2
+done
 
 # ── 3+4. Emulator → seed → Playwright ────────────────────────────────
 # emulators:exec sets FIRESTORE_EMULATOR_HOST for everything it spawns, so the
