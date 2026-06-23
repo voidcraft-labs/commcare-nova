@@ -138,6 +138,23 @@ jobs:
       # Atlas (same as the `test` job), so Atlas must be on PATH.
       - name: Install Atlas
         uses: ariga/setup-atlas@master
+      # Cache the Chromium binary (~150MB) so it isn't re-downloaded every run;
+      # the lockfile hash keys it to the installed @playwright/test version.
+      # `--with-deps` still installs the (apt) OS deps, which are fast.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
+      # Cache the Firestore emulator JAR (the emulator itself warns it is
+      # re-downloaded every run without this).
+      - name: Cache Firestore emulator
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: firebase-emulators-${{ runner.os }}-
       - name: Install Playwright (Chromium + OS deps)
         run: npx playwright install --with-deps chromium
       # Hermetic: Firestore emulator + local Postgres + seeded session. No real
@@ -192,5 +209,40 @@ jobs:
       # outbound stack (undici / gaxios / node-fetch) throws here and reds the PR.
       - name: Auth → Firestore round-trip on the prod Node
         run: npx tsx scripts/ci/auth-healthz.ts
+
+  auth-contract:
+    # Gates the session-cookie contract (a forged cookie ⇄ the real
+    # better-auth / better-call / firestore-adapter session path) on every PR.
+    # The standalone test is emulator-gated, so without a job that boots the
+    # emulator it would never run. Credential-free — it uses the shared
+    # firestoreClientOptions (gRPC against the emulator, no ADC).
+    name: Auth session-cookie contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      # JVM for the Firestore emulator.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: npm ci
+      # Vitest's globalSetup boots a Postgres testcontainer migrated by Atlas.
+      - name: Install Atlas
+        uses: ariga/setup-atlas@master
+      - name: Cache Firestore emulator
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: firebase-emulators-${{ runner.os }}-
+      - name: Session-cookie contract (emulator)
+        run: |
+          node_modules/.bin/firebase emulators:exec --only firestore --project demo-test \
+            'GOOGLE_CLOUD_PROJECT=demo-test node_modules/.bin/vitest run sessionCookie.integration.test.ts'
         env:
           GOOGLE_CLOUD_PROJECT: ${{ vars.CI_GCP_PROJECT }}

@@ -17,8 +17,9 @@ interface SeedManifest {
 	userEmail: string;
 	openAppName: string;
 	deleteAppName: string;
+	deleteAppCount: number;
 	openAppId: string;
-	deleteAppId: string;
+	deleteAppIds: string[];
 }
 
 // Loaded in beforeAll, NOT at module scope: Playwright imports every spec to
@@ -49,10 +50,10 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 		await expect(page.getByText(seed.openAppName)).toBeVisible();
 
-		// Open the app — each card is a single <a href="/build/{id}">.
-		await page
-			.getByRole("link", { name: new RegExp(seed.openAppName) })
-			.click();
+		// Open the app — each card is a single <a href="/build/{id}">. getByRole's
+		// `name` does a substring match, so the plain string suffices (no RegExp,
+		// no regex-injection risk if a name ever contains a metachar).
+		await page.getByRole("link", { name: seed.openAppName }).click();
 		await page.waitForURL(new RegExp(`/build/${seed.openAppId}`));
 
 		// An empty app opens into the chat-first builder (the structural
@@ -99,25 +100,36 @@ test.describe("authenticated builder", () => {
 	}) => {
 		await page.goto("/");
 
-		// While idle the card is a <a href="/build/{id}"> — scope the trash button
-		// to it. Clicking trash flips the card to a confirming state (it re-renders
-		// as a non-link, so DON'T re-scope to `a` here); exactly one confirm
-		// dialog is open at a time, so target it at the page level.
-		const deleteCard = page.getByRole("link", {
-			name: new RegExp(seed.deleteAppName),
+		// Count active throwaway cards by HEADING. AppListBody renders only the
+		// active view, so a soft-deleted card leaves the DOM — but a *confirming*
+		// card keeps its heading, so the count drops only on a real deletion (a
+		// link-count would false-pass the moment the card flips out of <a>).
+		const deleteHeadings = page.getByRole("heading", {
+			name: seed.deleteAppName,
+			level: 3,
 		});
-		await expect(deleteCard).toBeVisible();
-		await deleteCard.getByRole("button", { name: "Delete app" }).click();
+		// Wait for the list to render before counting — `count()` doesn't auto-wait
+		// and would otherwise read 0 mid-hydration.
+		await expect(deleteHeadings.first()).toBeVisible();
+		const before = await deleteHeadings.count();
+		expect(before).toBeGreaterThan(0);
 
-		// Confirm → the real `deleteApp` Server Action → softDeleteApp →
-		// revalidatePath("/").
+		// Trash → confirm on the first throwaway card. The trash click flips THAT
+		// card to a confirming state (re-rendered as a non-link); exactly one
+		// confirm dialog is open at a time, so target Confirm at the page level.
+		// This is the real deleteApp Server Action → softDeleteApp →
+		// revalidatePath("/") round-trip.
+		await page
+			.getByRole("link", { name: seed.deleteAppName })
+			.first()
+			.getByRole("button", { name: "Delete app" })
+			.click();
 		await page.getByRole("button", { name: "Confirm delete" }).click();
 
-		// After the soft-delete revalidates, the active card is gone and the trash
-		// tab appears.
-		await expect(
-			page.getByRole("link", { name: new RegExp(seed.deleteAppName) }),
-		).toHaveCount(0, { timeout: 15_000 });
+		// One fewer active card, and the trash tab is present. Idempotent under
+		// retries: the seed mints several throwaway apps, so each attempt consumes
+		// a fresh one.
+		await expect(deleteHeadings).toHaveCount(before - 1, { timeout: 15_000 });
 		await expect(
 			page.getByRole("tab", { name: "Recently deleted" }),
 		).toBeVisible();

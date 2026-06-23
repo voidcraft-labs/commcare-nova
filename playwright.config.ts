@@ -33,24 +33,40 @@ const isLocalTarget = ((): boolean => {
 })();
 
 /**
- * Env handed to the `next dev` the suite manages. `scripts/smoke.sh` already
- * exports these into the process env (so the emulator/seed and the server agree
- * on the secret + project), but forwarding them explicitly here guarantees they
- * win over any `.env` the dev server would otherwise load.
+ * Env handed to the `next dev` the suite manages, forwarded explicitly so it
+ * wins over any `.env` the dev server would otherwise load. `scripts/smoke.sh`
+ * exports all of these; the REQUIRED ones must be present, or the seed and the
+ * server silently disagree on the Firestore namespace / signing secret and the
+ * authed tests fail with a confusing "no data" instead of a clear cause.
  */
-const webServerEnv: Record<string, string> = {};
-for (const key of [
+const REQUIRED_SERVER_ENV = [
 	"GOOGLE_CLOUD_PROJECT",
 	"FIRESTORE_EMULATOR_HOST",
 	"BETTER_AUTH_SECRET",
 	"BETTER_AUTH_URL",
+	"NOVA_DB_LOCAL_URL",
+] as const;
+const OPTIONAL_SERVER_ENV = [
 	"GOOGLE_CLIENT_ID",
 	"GOOGLE_CLIENT_SECRET",
 	"NOVA_MEDIA_BUCKET",
-	"NOVA_DB_LOCAL_URL",
-]) {
-	const value = process.env[key];
-	if (value) webServerEnv[key] = value;
+] as const;
+
+/** Build the managed-server env, failing loud if a required var is missing. */
+function smokeWebServerEnv(): Record<string, string> {
+	const missing = REQUIRED_SERVER_ENV.filter((k) => !process.env[k]);
+	if (missing.length > 0) {
+		throw new Error(
+			`Smoke web server is missing required env: ${missing.join(", ")}. ` +
+				"Run the suite via `npm run test:smoke` (scripts/smoke.sh sets these and boots the emulator), not `playwright test` directly.",
+		);
+	}
+	const env: Record<string, string> = {};
+	for (const key of [...REQUIRED_SERVER_ENV, ...OPTIONAL_SERVER_ENV]) {
+		const value = process.env[key];
+		if (value) env[key] = value;
+	}
+	return env;
 }
 
 export default defineConfig({
@@ -104,12 +120,17 @@ export default defineConfig({
 		? {
 				command: "next dev",
 				url: BASE_URL,
-				reuseExistingServer: !isCI,
+				// Never reuse a stray server: a dev's own `npm run dev` on :3000
+				// points at REAL Firestore with a different secret, so reusing it
+				// would run the authed tests against the wrong backend (the forged
+				// emulator cookie fails to validate) — a confusing red. Always start
+				// the suite's own emulator-wired server.
+				reuseExistingServer: false,
 				// Next 16 + Turbopack cold compile of the first route is slow.
 				timeout: 180_000,
 				stdout: "pipe",
 				stderr: "pipe",
-				env: webServerEnv,
+				env: smokeWebServerEnv(),
 			}
 		: undefined,
 });

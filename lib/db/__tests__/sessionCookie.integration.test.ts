@@ -16,8 +16,10 @@
  * fails loudly here — not silently in prod and not deep inside a Playwright
  * timeout.
  *
- * Auto-skipped when `FIRESTORE_EMULATOR_HOST` is unset — run via
- * `npm run test:integration` (or as part of `npm run test:smoke`).
+ * Auto-skipped when `FIRESTORE_EMULATOR_HOST` is unset. In CI the
+ * `auth-contract` job (`.github/workflows/ci.yml`) boots the Firestore emulator
+ * and runs exactly this file, so the gate is live on every PR; locally it runs
+ * under `npm run test:integration`.
  */
 import { betterAuth } from "better-auth";
 import { firestoreAdapter } from "better-auth-firestore";
@@ -26,6 +28,7 @@ import { Firestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { signSessionCookie } from "@/e2e/lib/session";
 import { withCompleteFirestoreAdapter } from "@/lib/auth-firestore-adapter";
+import { firestoreClientOptions } from "@/lib/db/firestoreClientOptions";
 
 const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
 
@@ -78,7 +81,12 @@ describe.skipIf(!emulatorAvailable)("session-cookie contract", () => {
 
 	beforeAll(() => {
 		initializeApp({ projectId: TEST_PROJECT_ID });
-		db = new Firestore({ projectId: TEST_PROJECT_ID, preferRest: true });
+		// Same options as the production clients — gRPC against the emulator, so
+		// no ADC is needed and this runs credential-free in CI.
+		db = new Firestore({
+			projectId: TEST_PROJECT_ID,
+			...firestoreClientOptions(),
+		});
 		auth = createTestAuth(db);
 	});
 

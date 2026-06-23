@@ -41,22 +41,19 @@ export NOVA_DB_LOCAL_URL="${NOVA_DB_LOCAL_URL:-postgres://nova:nova@127.0.0.1:54
 echo "[smoke] booting case-store Postgres…"
 docker compose up -d --wait
 
-# `--wait` clears once the container healthcheck (pg_isready over the unix
-# socket) passes — but on a FRESH container that can happen DURING Postgres
-# first-boot init, before the TCP listener accepts queries, so atlas connects
-# and gets "EOF" / connection-reset. (A persisted local volume skips init, which
-# is why this only bites CI.) Retry the idempotent migrate until Postgres truly
-# accepts TCP queries.
-echo "[smoke] applying case-store migrations (retrying until Postgres is TCP-ready)…"
-for attempt in $(seq 1 20); do
+# compose.yaml's healthcheck now probes over TCP, so the `--wait` above already
+# guarantees Postgres accepts TCP queries. Keep a short retry as cheap insurance
+# against any docker-proxy port-forward warmup; the migrate is idempotent.
+echo "[smoke] applying case-store migrations…"
+for attempt in $(seq 1 8); do
   if atlas migrate apply --env testcontainer --url "$NOVA_DB_LOCAL_URL" --allow-dirty; then
     break
   fi
-  if [ "$attempt" -eq 20 ]; then
+  if [ "$attempt" -eq 8 ]; then
     echo "[smoke] Postgres never became ready for TCP queries — giving up." >&2
     exit 1
   fi
-  echo "[smoke] Postgres not ready yet (attempt $attempt/20); retrying in 2s…"
+  echo "[smoke] Postgres not ready yet (attempt $attempt/8); retrying in 2s…"
   sleep 2
 done
 
@@ -64,8 +61,15 @@ done
 # emulators:exec sets FIRESTORE_EMULATOR_HOST for everything it spawns, so the
 # seed and the dev server share one offline Firestore. The emulator is torn down
 # when the wrapped command exits (data is ephemeral — no cleanup needed).
+# Forward extra args to Playwright, quoted with %q so spaces/globs survive the
+# inner shell that `emulators:exec` spawns (a raw `$*` would word-split them).
+playwright_cmd="node_modules/.bin/playwright test"
+for arg in "$@"; do
+  playwright_cmd="$playwright_cmd $(printf '%q' "$arg")"
+done
+
 echo "[smoke] starting Firestore emulator, seeding, running Playwright…"
 node_modules/.bin/firebase emulators:exec \
   --only firestore \
   --project demo-test \
-  "node_modules/.bin/tsx e2e/seed.ts && node_modules/.bin/playwright test $*"
+  "node_modules/.bin/tsx e2e/seed.ts && $playwright_cmd"

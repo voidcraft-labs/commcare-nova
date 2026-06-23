@@ -8,19 +8,18 @@
  *
  *   1. an `auth_users` row (the signed-in Dimagi user),
  *   2. an `auth_sessions` row (a live, non-expired session token),
- *   3. two `complete` apps via the real `createApp` — NO LLM spend:
- *        • "Smoke — Open Me"   → opened in the builder by a test,
- *        • "Smoke — Delete Me" → soft-deleted through the UI by a test.
+ *   3. one `complete` app to open in the builder, plus a handful of throwaway
+ *      `complete` apps for the delete test to consume — all via the real no-LLM
+ *      `createApp`, so the suite never calls Anthropic.
  *
- * App creation goes through `lib/db/apps.ts::createApp` (a pure Firestore
- * write), not the chat agent, so the suite never calls Anthropic. Everything is
- * written to the Firestore emulator the running app also points at, so the
- * authed UI sees this data.
+ * The delete test mutates seeded state irreversibly, and Playwright retries
+ * tests in CI; seeding several throwaway apps (one per possible attempt) keeps
+ * the delete test idempotent so a retry always has a fresh app to delete.
  *
  * SAFETY: this refuses to run unless `FIRESTORE_EMULATOR_HOST` is set, so it can
  * never write into the real `commcare-nova-dev` / `commcare-nova` projects.
  */
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Timestamp } from "@google-cloud/firestore";
@@ -35,6 +34,8 @@ export const SEED = {
 	userName: "Smoke Test User",
 	openAppName: "Smoke — Open Me",
 	deleteAppName: "Smoke — Delete Me",
+	/** One throwaway app per Playwright attempt (retries: 2 → 3 attempts). */
+	deleteAppCount: 3,
 } as const;
 
 const AUTH_DIR = path.join(process.cwd(), "e2e", ".auth");
@@ -63,12 +64,19 @@ async function main(): Promise<void> {
 	const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 
 	const db = getDb();
-
-	// 1) The signed-in user. getSession loads this row by `userId`; the
-	//    email-domain allowlist only gates user *creation* (the OAuth hook), so
-	//    a directly-seeded row is accepted on read regardless.
 	const now = Timestamp.now();
-	await db.collection("auth_users").doc(SEED.userId).set({
+	// Opaque secret shared between the session row and the cookie.
+	const token = randomBytes(32).toString("hex");
+	const expiresAt = Timestamp.fromMillis(Date.now() + 2 * 24 * 60 * 60 * 1000);
+
+	// All of these are independent emulator round-trips — run them concurrently.
+	//   • auth_users: getSession loads this row by `userId`; the email-domain
+	//     allowlist only gates user *creation* (the OAuth hook), so a directly
+	//     seeded row is accepted on read regardless.
+	//   • auth_sessions: `token` is the cookie's secret material; the doc id is
+	//     unrelated (getSession looks rows up by the `token` field).
+	//   • the apps via the real no-LLM create path (status `complete`).
+	const userWrite = db.collection("auth_users").doc(SEED.userId).set({
 		id: SEED.userId,
 		email: SEED.userEmail,
 		emailVerified: true,
@@ -80,13 +88,7 @@ async function main(): Promise<void> {
 		updatedAt: now.toDate(),
 		lastActiveAt: now.toDate(),
 	});
-
-	// 2) A live session. `token` is the secret material the cookie carries; the
-	//    Firestore doc id is unrelated (getSession looks rows up by the `token`
-	//    field). expiresAt must be in the future.
-	const token = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
-	const expiresAt = Timestamp.fromMillis(Date.now() + 2 * 24 * 60 * 60 * 1000);
-	await db.collection("auth_sessions").add({
+	const sessionWrite = db.collection("auth_sessions").add({
 		token,
 		userId: SEED.userId,
 		expiresAt: expiresAt.toDate(),
@@ -95,33 +97,45 @@ async function main(): Promise<void> {
 		ipAddress: "",
 		userAgent: "smoke-test",
 	});
-
-	// 3) Two empty-but-valid apps via the real no-LLM create path.
-	const openAppId = await createApp(SEED.userId, randomUUID(), {
-		appName: SEED.openAppName,
-		status: "complete",
-	});
-	const deleteAppId = await createApp(SEED.userId, randomUUID(), {
-		appName: SEED.deleteAppName,
-		status: "complete",
-	});
+	const appCreates = [
+		createApp(SEED.userId, randomUUID(), {
+			appName: SEED.openAppName,
+			status: "complete",
+		}),
+		...Array.from({ length: SEED.deleteAppCount }, () =>
+			createApp(SEED.userId, randomUUID(), {
+				appName: SEED.deleteAppName,
+				status: "complete",
+			}),
+		),
+	];
+	const [openAppId, ...deleteAppIds] = await Promise.all(appCreates);
+	await Promise.all([userWrite, sessionWrite]);
 
 	// Emit storageState (consumed by the `authed` Playwright project) + a seed
-	// manifest the tests read for the concrete app ids.
+	// manifest the tests read for the concrete ids.
 	const storageState = buildSessionStorageState({ token, secret, baseUrl });
 	await mkdir(AUTH_DIR, { recursive: true });
 	await writeFile(STATE_FILE, JSON.stringify(storageState, null, 2));
 	await writeFile(
 		SEED_FILE,
-		JSON.stringify({ ...SEED, openAppId, deleteAppId, baseUrl }, null, 2),
+		JSON.stringify({ ...SEED, openAppId, deleteAppIds, baseUrl }, null, 2),
 	);
 
 	console.log(
-		`[seed] user=${SEED.userId} openApp=${openAppId} deleteApp=${deleteAppId}\n[seed] wrote ${path.relative(process.cwd(), STATE_FILE)} + ${path.relative(process.cwd(), SEED_FILE)}`,
+		`[seed] user=${SEED.userId} openApp=${openAppId} deleteApps=${deleteAppIds.length}\n[seed] wrote ${path.relative(process.cwd(), STATE_FILE)} + ${path.relative(process.cwd(), SEED_FILE)}`,
 	);
+
+	// Release the Firestore client so the process exits promptly — the gRPC
+	// channel (emulator transport) would otherwise keep the event loop alive and
+	// stall the `tsx e2e/seed.ts && playwright test` chain. Matches the
+	// process-exit discipline of scripts/ci/auth-healthz.ts and scripts/.
+	await db.terminate();
 }
 
-main().catch((err) => {
-	console.error(err);
-	process.exitCode = 1;
-});
+main()
+	.then(() => process.exit(0))
+	.catch((err) => {
+		console.error(err);
+		process.exit(1);
+	});
