@@ -51,10 +51,12 @@ import {
 } from "@/lib/domain";
 import {
 	ancestorPath,
+	and,
 	arith,
 	concat,
 	eq,
 	literal,
+	matchAll,
 	prop,
 	relationStep,
 	subcasePath,
@@ -438,6 +440,110 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		expect(xml).toContain(`name = &apos;Alice&apos;`);
 		expect(xml).toContain(`status = &apos;active&apos;`);
 		expect(xml).toContain(` and `);
+	});
+
+	it("drops a `match-all` filter (conjunction identity) instead of prefixing _xpath_query with `match-all() and`", () => {
+		// `match-all` is the AND identity — the builder seeds it on
+		// "Add a Filter" and an author may leave it untouched. Composed
+		// with any other clause it must vanish, NOT emit a literal
+		// `concat('match-all() and ', …)` prefix on the wire. (The
+		// composer once trusted the shared `and(...)` reducer to drop the
+		// identity, but `reduceAnd` deliberately preserves multi-clause
+		// sentinels for editing-state fidelity — the drop lives at the
+		// emission boundary now.) The advanced predicate carries no
+		// `when-input-present` else branch, so a clean emission has no
+		// `match-all` token anywhere.
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				filter: matchAll(),
+				searchInputs: [
+					advancedSearchInputDef(
+						INPUT_UUIDS.a,
+						"adv",
+						"Advanced",
+						"text",
+						eq(prop("patient", "status"), literal("active")),
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).not.toContain("match-all");
+		// The advanced predicate is the only effective clause, so it
+		// rides alone — no AND envelope wrapping a vanished identity.
+		expect(xml).toContain(`status = &apos;active&apos;`);
+		expect(xml).toContain(`key="_xpath_query"`);
+	});
+
+	it("drops a `match-all` filter composed with a non-exact simple input — no `match-all() and` prefix (exact reported regression)", () => {
+		// The reported bug: a `match-all` filter + one fuzzy search input
+		// emitted `concat('match-all() and ', if(count(...), …))`. The
+		// identity filter must drop, leaving the fuzzy input's
+		// `when-input-present` wrapper byte-identical to the no-filter
+		// emission. The `'match-all()'` token still appears legitimately
+		// as the when-input-present else branch — only the leading
+		// `match-all() and ` prefix was the bug.
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				filter: matchAll(),
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"name_fuzzy",
+						"Name",
+						"text",
+						"case_name",
+						{ mode: { kind: "fuzzy" } },
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).not.toContain("match-all() and");
+		// Byte-identical to the no-filter fuzzy emission — the identity
+		// filter contributed nothing to the composed query.
+		expect(xml).toContain(
+			`<data key="_xpath_query" ref="concat(if(count(instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_fuzzy&apos;]), concat(&apos;fuzzy-match(case_name, &quot;&apos;, instance(&apos;search-input:results&apos;)/input/field[@name=&apos;name_fuzzy&apos;], &apos;&quot;)&apos;), &apos;match-all()&apos;))"/>`,
+		);
+	});
+
+	it("drops a `match-all` nested inside an authored `and` filter — no `match-all() and` at depth", () => {
+		// A user authors an "All of these" group, then flips one clause to
+		// "Always true": `and(match-all, eq(...))`. The top-level kind is
+		// `and`, so a shallow identity drop would keep it and re-emit the
+		// `match-all() and …` prefix at depth. `simplifyForEmission`
+		// removes the identity recursively, leaving only the real clause.
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				filter: and(
+					matchAll(),
+					eq(prop("patient", "status"), literal("active")),
+				),
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"name_fuzzy",
+						"Name",
+						"text",
+						"case_name",
+						{ mode: { kind: "fuzzy" } },
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+		expect(xml).not.toContain("match-all() and");
+		// The real clause survives and AND-composes with the fuzzy input.
+		expect(xml).toContain(`status = &apos;active&apos;`);
 	});
 });
 

@@ -39,7 +39,7 @@ import {
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain";
-import { prop, term } from "@/lib/domain/predicate";
+import { and, eq, literal, matchAll, prop, term } from "@/lib/domain/predicate";
 import { emitShortDetail } from "../shortDetail";
 
 // ============================================================
@@ -712,6 +712,31 @@ describe("emitShortDetail — search-action emission", () => {
 		// serializer round-trips XPath single-quote literals as
 		// `&apos;` inside the double-quoted `relevant` attribute.
 		expect(out.xml).toContain(`relevant="active = &apos;yes&apos;"`);
+	});
+
+	it("normalizes a match-all nested in the displayCondition (no `true() and` conjunct)", () => {
+		// `simplifyForEmission` strips the redundant `match-all` identity
+		// from an authored `and(match-all, eq)` so the `relevant`
+		// attribute carries just `active = 'yes'`, not `true() and
+		// active = 'yes'`.
+		const mod = moduleWithName("patient");
+		const out = emitShortDetail({
+			module: mod,
+			moduleIndex: 0,
+			doc: buildDoc({
+				module: mod,
+				caseTypes: [{ name: "patient", properties: [{ name: "active" }] }],
+			}),
+			searchAction: {
+				autoLaunch: false,
+				displayCondition: and(
+					matchAll(),
+					eq(prop("patient", "active"), literal("yes")),
+				),
+			},
+		});
+		expect(out.xml).toContain(`relevant="active = &apos;yes&apos;"`);
+		expect(out.xml).not.toContain("true() and");
 	});
 
 	it("omits the relevant attribute when searchAction.displayCondition is absent", () => {

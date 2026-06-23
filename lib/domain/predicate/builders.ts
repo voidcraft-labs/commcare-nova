@@ -840,6 +840,38 @@ export function matchNone(): Extract<Predicate, { kind: "match-none" }> {
 }
 
 /**
+ * Type guard for the always-true sentinel. The single home of the
+ * `kind === "match-all"` literal so the emission filter surfaces
+ * (`nodesetFilter.ts`, `hqJson/caseList.ts::projectCaseListFilter`,
+ * `case-search/xpathQuery.ts`) and the shape/validator decisions that
+ * ask "does this filter narrow anything?" (`compileForPlatform.ts`,
+ * `caseSearchConfigRequiresSearchableSurface.ts`) all spell the
+ * sentinel check one way. Narrows to the precise arm so callers can
+ * branch without re-discriminating.
+ *
+ * This is the SHALLOW check (literal top-level sentinel). To ask "does
+ * this predicate REDUCE to the always-true identity?" — e.g. an
+ * `and(match-all, match-all)` — run `simplifyForEmission` first, then
+ * this guard. Emission surfaces do exactly that.
+ */
+export function isMatchAll(
+	p: Predicate,
+): p is Extract<Predicate, { kind: "match-all" }> {
+	return p.kind === "match-all";
+}
+
+/**
+ * Type guard for the always-false sentinel. Symmetric with
+ * `isMatchAll` — the shared spelling of the `kind === "match-none"`
+ * check across the same emission / decision sites.
+ */
+export function isMatchNone(
+	p: Predicate,
+): p is Extract<Predicate, { kind: "match-none" }> {
+	return p.kind === "match-none";
+}
+
+/**
  * Constructs an `is-null` predicate — the strict-absent operator.
  * Asks "does `left` resolve to absent (key not present in the JSONB /
  * Map)?" Postgres / in-memory distinguish absent from cleared and

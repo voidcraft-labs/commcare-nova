@@ -47,6 +47,10 @@ import type {
 	SearchInputDef,
 	SimpleSearchInputDef,
 } from "@/lib/domain";
+import {
+	effectiveFilterForEmission,
+	simplifyForEmission,
+} from "@/lib/domain/predicate";
 import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
 import { caseSearchConfigShell, detailColumn, detailPair } from "../hqShells";
 import {
@@ -334,9 +338,14 @@ function projectSortElements(mod: Module, doc: BlueprintDoc): SortElement[] {
 function projectCaseListFilter(
 	filter: CaseListConfig["filter"],
 ): string | null {
-	if (filter === undefined) return null;
-	if (filter.kind === "match-all") return null;
-	return emitCaseListFilter(filter);
+	// `effectiveFilterForEmission` returns null-equivalent (`undefined`)
+	// for an absent filter OR one that reduces to `match-all` (top-level
+	// or nested in an authored `and`), so the projection is null rather
+	// than a tautological `true() and …` string. Mirrors the suite-XML
+	// `nodesetFilter.ts` surface so both case-list-filter wire forms stay
+	// identity-clean. See `lib/domain/predicate/simplify.ts`.
+	const effective = effectiveFilterForEmission(filter);
+	return effective === undefined ? null : emitCaseListFilter(effective);
 }
 
 // ============================================================
@@ -538,9 +547,12 @@ function buildSearchConfigDocument(
 		if (caseSearchConfig.searchButtonDisplayCondition !== undefined) {
 			// CCHQ stores the gating predicate as a bare on-device XPath
 			// string; the runtime evaluates it before rendering the
-			// search button.
+			// search button. `simplifyForEmission` strips any redundant
+			// boolean identity (e.g. a `match-all` left inside an authored
+			// `and`) so the condition doesn't emit a `true() and …`
+			// conjunct — same normalize the filter surfaces apply.
 			config.search_button_display_condition = emitCaseListFilter(
-				caseSearchConfig.searchButtonDisplayCondition,
+				simplifyForEmission(caseSearchConfig.searchButtonDisplayCondition),
 			);
 		}
 		if (caseSearchConfig.excludedOwnerIds !== undefined) {

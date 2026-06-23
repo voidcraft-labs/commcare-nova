@@ -19,6 +19,7 @@
  */
 
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
 
 export function caseSearchConfigRequiresSearchableSurface(
@@ -28,8 +29,14 @@ export function caseSearchConfigRequiresSearchableSurface(
 ): ValidationError[] {
 	if (!mod.caseSearchConfig) return [];
 
-	const filter = mod.caseListConfig?.filter;
-	const hasFilter = filter !== undefined && filter.kind !== "match-all";
+	// "Has a filter" means it narrows something AFTER normalization, so
+	// the gate agrees with what emission produces: a filter that reduces
+	// to `match-all` (e.g. an authored `and` of all-true clauses) emits
+	// no query, so it is NOT a searchable surface. `effectiveFilterForEmission`
+	// is the shared "no effective filter" decision; a shallow check here
+	// would pass a config the emitter strips to nothing.
+	const hasFilter =
+		effectiveFilterForEmission(mod.caseListConfig?.filter) !== undefined;
 	const hasInputs = (mod.caseListConfig?.searchInputs ?? []).length > 0;
 	if (hasFilter || hasInputs) return [];
 

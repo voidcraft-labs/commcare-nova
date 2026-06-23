@@ -106,6 +106,10 @@
 //                        write-time validator
 //   - `./reduction`    — `reduceAnd` / `reduceOr` / `reduceNot`
 //                        invariants the builders apply
+//   - `./simplify`     — `simplifyForEmission`, the DEEP boolean-identity
+//                        normalizer the wire-emission filter surfaces
+//                        apply (contrast `./reduction`'s shallow,
+//                        editing-state-preserving construction reducers)
 //   - `./rewrite`      — `renameCasePropertyInPredicate` /
 //                        `renameCasePropertyInExpression` /
 //                        `relationDestinationCaseType` — structural
@@ -128,6 +132,7 @@ export * from "./errors";
 export * from "./jsonSchema";
 export * from "./reduction";
 export * from "./rewrite";
+export * from "./simplify";
 export * from "./slotConstraints";
 export * from "./typeChecker";
 export * from "./types";

@@ -62,6 +62,19 @@ describe("emitNodesetFilter — absent / match-all collapse", () => {
 		// unchanged. The cleaner wire form omits the bracket pair.
 		expect(emitNodesetFilter(matchAll())).toBe("");
 	});
+
+	it("returns empty string when an authored and reduces to match-all", () => {
+		// `and(match-all, match-all)` is still the identity — normalized
+		// away so no tautological `[true() and true()]` bracket appends.
+		expect(emitNodesetFilter(and(matchAll(), matchAll()))).toBe("");
+	});
+
+	it("drops a match-all nested inside an authored and, keeping only the real clause", () => {
+		// `and(match-all, eq)` ≡ `eq` — the nested identity must vanish so
+		// the nodeset reads `[age = 18]`, not `[true() and age = 18]`.
+		const filter = and(matchAll(), eq(prop("patient", "age"), literal(18)));
+		expect(emitNodesetFilter(filter)).toBe("[age = 18]");
+	});
 });
 
 // ============================================================
