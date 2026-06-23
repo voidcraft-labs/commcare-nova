@@ -126,7 +126,11 @@ function getAuthDb(): AdminFirestore {
 		_authDb = new AdminFirestore({
 			projectId: process.env.GOOGLE_CLOUD_PROJECT,
 			ignoreUndefinedProperties: true,
-			preferRest: true,
+			/* REST in prod (build-safety + serverless — see lib/db/firestore.ts),
+			 * but gRPC against the emulator: REST needs ADC even there, which a
+			 * credential-free CI run lacks; gRPC connects insecurely with no auth.
+			 * Prod never sets FIRESTORE_EMULATOR_HOST, so prod keeps REST. */
+			preferRest: !process.env.FIRESTORE_EMULATOR_HOST,
 		});
 	}
 	return _authDb;

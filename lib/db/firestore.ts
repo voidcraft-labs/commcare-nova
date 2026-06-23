@@ -83,8 +83,15 @@ export function getDb(): Firestore {
 			 * 2. Serverless fit — Cloud Run scales to zero. gRPC keeps a persistent
 			 *    channel that must be re-established after cold starts and competes
 			 *    with connection pooling across instances. REST is stateless and
-			 *    avoids these issues. Recommended by Google for serverless. */
-			preferRest: true,
+			 *    avoids these issues. Recommended by Google for serverless.
+			 *
+			 * EXCEPT against the emulator: the REST transport still calls
+			 * GoogleAuth.getClient(), which needs ADC even though the emulator
+			 * validates nothing — so a credential-free environment (CI smoke)
+			 * fails to load default credentials. gRPC connects to the emulator
+			 * over an insecure channel with no auth at all. Prod never sets
+			 * FIRESTORE_EMULATOR_HOST, so production keeps REST unchanged. */
+			preferRest: !process.env.FIRESTORE_EMULATOR_HOST,
 		});
 	}
 	return _db;
