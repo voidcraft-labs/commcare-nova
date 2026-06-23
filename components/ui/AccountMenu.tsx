@@ -118,8 +118,19 @@ export function AccountMenu() {
 		return () => controller.abort();
 	}, [open, isAuthenticated, refresh]);
 
+	/* Hold the placeholder until mounted to avoid an SSR/client hydration
+	 * mismatch: the auth client resolves the session synchronously on the client
+	 * (`isPending` false on first paint) while SSR has none (`isPending` true),
+	 * so the server renders the placeholder and the client would render the menu
+	 * — a mismatch React has to discard. Gating the first client render on mount
+	 * makes it match the server, then it swaps to the resolved menu. */
+	const [mounted, setMounted] = useState(false);
+	useEffect(() => {
+		setMounted(true);
+	}, []);
+
 	/* ── Loading placeholder while session check is in flight ────── */
-	if (isPending) {
+	if (!mounted || isPending) {
 		return (
 			<div className="w-7 h-7 rounded-full bg-nova-surface animate-pulse" />
 		);

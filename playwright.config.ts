@@ -50,6 +50,10 @@ const OPTIONAL_SERVER_ENV = [
 	"GOOGLE_CLIENT_ID",
 	"GOOGLE_CLIENT_SECRET",
 	"NOVA_MEDIA_BUCKET",
+	// Suppresses google-auth's GCE metadata probe (and its MetadataLookupWarning,
+	// which next dev forwards into the browser console) — the smoke env is not on
+	// GCP. See scripts/smoke.sh.
+	"METADATA_SERVER_DETECTION",
 ] as const;
 
 /** Build the managed-server env, failing loud if a required var is missing. */
