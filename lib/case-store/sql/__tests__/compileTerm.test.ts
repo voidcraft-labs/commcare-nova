@@ -204,16 +204,17 @@ describe("compileTerm — prop (self via) cast mapping", () => {
 				compileTerm(prop("patient", property), makeCtx()),
 			);
 			// JSONB read shape — `c.properties` is the anchor read,
-			// `arrow` is the operator, the property name is a
-			// bound parameter (not inlined). Kysely's typed
-			// `eb.cast<T>(expr, type)` emits the SQL-standard
+			// `arrow` is the operator, and the property name inlines as a
+			// quoted JSON key. Kysely 0.29's `ref(col, op).key(name)`
+			// serializes the key literally (`properties->>'name'`),
+			// matching the inlined key in the expression-index DDL. Kysely's
+			// typed `eb.cast<T>(expr, type)` emits the SQL-standard
 			// `cast(<expr> as <type>)` shape rather than the
 			// Postgres-specific `(<expr>)::<type>` shorthand; both
 			// are semantically identical at the engine layer
 			// (verified by harness round-trips).
-			expect(compiled.sql).toContain(`"c"."properties" ${arrow}`);
+			expect(compiled.sql).toContain(`"c"."properties"${arrow}'${property}'`);
 			expect(compiled.sql).toContain(`as ${cast})`);
-			expect(compiled.parameters).toContain(property);
 		});
 	}
 });
@@ -310,10 +311,9 @@ describe("compileTerm — prop (non-self via)", () => {
 		// not the anchor's. Cast is `integer` because `size` on the
 		// `household` schema is declared `int`.
 		expect(compiled.sql).toContain(
-			`"${RELATION_PATH_LEAF_ALIAS}"."properties" ->>`,
+			`"${RELATION_PATH_LEAF_ALIAS}"."properties"->>'size'`,
 		);
 		expect(compiled.sql).toContain("as integer)");
-		expect(compiled.parameters).toContain("size");
 		// The term compiler emits the relation-path leaf as part of
 		// the scalar subquery — the `inner join` between
 		// `case_indices` and `cases` lives inside the subquery body.
@@ -354,7 +354,7 @@ describe("compileTerm — prop (non-self via)", () => {
 		const compiled = compileTerm_(
 			compileTerm(prop("patient", "name", selfPath()), makeCtx()),
 		);
-		expect(compiled.sql).toContain(`"c"."properties" ->>`);
+		expect(compiled.sql).toContain(`"c"."properties"->>'name'`);
 		expect(compiled.sql).toContain("as text)");
 		// Self-via reads emit no scalar subquery — the read is a
 		// direct JSONB extraction off the anchor's `cases` row.
@@ -566,8 +566,7 @@ describe("compileTerm — anchor alias contract", () => {
 				).as("v"),
 			)
 			.compile();
-		expect(compiled.sql).toContain('"outer_case"."properties" ->>');
-		expect(compiled.parameters).toContain("name");
+		expect(compiled.sql).toContain(`"outer_case"."properties"->>'name'`);
 	});
 
 	it("honors a custom anchor alias for reserved scalar reads", () => {

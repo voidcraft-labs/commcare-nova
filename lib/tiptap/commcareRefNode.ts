@@ -249,7 +249,7 @@ export const CommcareRef = Node.create({
 				if (posBefore <= 0) return false;
 
 				const nodeBefore = state.doc.resolve(posBefore).nodeBefore;
-				if (!nodeBefore || nodeBefore.type.name !== "commcareRef") return false;
+				if (nodeBefore?.type.name !== "commcareRef") return false;
 
 				/* Build the canonical form and trim the last character for re-suggestion. */
 				const raw = `#${nodeBefore.attrs.refType}/${nodeBefore.attrs.path}`;

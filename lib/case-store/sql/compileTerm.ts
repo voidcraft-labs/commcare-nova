@@ -317,10 +317,17 @@ function compileNonSelfViaPropertyRef(args: {
 
 /**
  * JSONB property read with per-`data_type` cast + read operator.
- * Shape: `eb.cast<T>(eb(<properties-ref>, <readOp>, <key>),
+ * Shape: `eb.cast<T>(eb.ref(<properties-ref>, <readOp>).key(<key>),
  * <cast>)`. Read operator (`->>` / `->`) and cast both come from
  * closed-enum lookups so the typed builder's accepted-literal
  * surfaces are satisfied.
+ *
+ * Kysely 0.29 moved `->` / `->>` off the `eb(lhs, op, rhs)` binary form
+ * (they're JSON operators now, reached via `ref(col, op).key(...)`). The
+ * key serializes inline as `properties->>'<key>'` — matching the inlined
+ * key in the expression-index DDL (`computeDesiredIndexSet` uses
+ * `sql.lit`), so the read and the index it targets stay byte-aligned.
+ * Property names are validated identifiers, so inlining can't inject.
  */
 function jsonbColumnRead(args: {
 	sourceAlias: string;
@@ -334,11 +341,9 @@ function jsonbColumnRead(args: {
 	// Type-erased: the runtime alias prefix can't be enumerated
 	// against `Database` statically, but every concrete site names
 	// a `cases`-shaped row at the alias position.
-	const jsonRead = (eb as DynamicExprBuilder)(
-		propertiesRef,
-		readOperator,
-		property,
-	);
+	const jsonRead = (eb as DynamicExprBuilder)
+		.ref(propertiesRef, readOperator)
+		.key(property);
 	return eb.cast(jsonRead, cast);
 }
 
@@ -570,7 +575,13 @@ function compileBoundRef(
 /** Binary-op + column-ref shape over a runtime `${alias}.${column}` string. */
 type DynamicExprBuilder = {
 	(left: string, op: string, right: unknown): AliasableExpression<unknown>;
-	ref: (reference: string) => AliasableExpression<unknown>;
+	ref: {
+		(reference: string): AliasableExpression<unknown>;
+		(
+			reference: string,
+			op: "->" | "->>",
+		): { key: (key: string) => AliasableExpression<unknown> };
+	};
 };
 
 /** Correlated scalar subquery shape for `compileNonSelfViaPropertyRef`. */

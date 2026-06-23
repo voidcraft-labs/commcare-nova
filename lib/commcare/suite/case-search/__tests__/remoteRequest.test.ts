@@ -72,10 +72,11 @@ function makeModule(args: {
 //
 // Compact serializer output — no per-element whitespace. Element
 // order, attribute insertion order, and the XML-spec-equivalent
-// entity encodings (`'` → `&apos;`, `$` → `&#x24;` etc.) are the
+// entity encodings (`'` → `&apos;`, `<` → `&lt;` etc.) are the
 // load-bearing properties. CCHQ's XML parser decodes the entities
 // identically before the suite-parse and XPath layers see the
-// attribute values.
+// attribute values. (`$` is not a special XML character, so it rides
+// verbatim — as it does in CCHQ's own suite.xml.)
 const MINIMAL_REMOTE_REQUEST_XML =
 	`<remote-request>` +
 	`<post url="https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/"` +

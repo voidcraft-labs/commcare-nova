@@ -19,8 +19,8 @@
  * the walk avoids the second DOM traversal.
  */
 
-import type { Document, Element } from "domhandler";
-import { findAll, getAttributeValue, getChildren, isTag } from "domutils";
+import { type Document, type Element, isTag } from "domhandler";
+import { findAll, getAttributeValue, getChildren } from "domutils";
 import { XMLValidator } from "fast-xml-parser";
 import { parseDocument } from "htmlparser2";
 import { type ValidationError, validationError } from "./errors";

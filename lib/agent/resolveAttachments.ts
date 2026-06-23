@@ -72,7 +72,7 @@ function refsOf(message: NovaUIMessage): AttachmentRef[] {
  */
 export function countDocumentsNeedingRead(messages: NovaUIMessage[]): number {
 	const last = messages.at(-1);
-	if (!last || last.role !== "user") return 0;
+	if (last?.role !== "user") return 0;
 	return refsOf(last).filter(documentNeedsRead).length;
 }
 

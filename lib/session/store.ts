@@ -1071,7 +1071,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				setStagedUploadProgress(slotKey: string, progress: number) {
 					const record = get().stagedUploads[slotKey];
-					if (!record || record.status.state !== "uploading") return;
+					if (record?.status.state !== "uploading") return;
 					const clamped = Math.min(Math.max(progress, 0), 1);
 					if (clamped === record.status.progress) return;
 					set((s) => ({

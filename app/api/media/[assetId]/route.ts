@@ -47,7 +47,7 @@ export async function GET(
 				throw err;
 			},
 		);
-		if (!asset || asset.status !== "ready") {
+		if (asset?.status !== "ready") {
 			throw new ApiError("Media asset not found.", 404);
 		}
 

@@ -74,8 +74,8 @@
  * so a legitimately runtime-resolved reference is never flagged.
  */
 
-import type { Document, Element } from "domhandler";
-import { findAll, getAttributeValue, getChildren, isTag } from "domutils";
+import { type Document, type Element, isTag } from "domhandler";
+import { findAll, getAttributeValue, getChildren } from "domutils";
 import { XMLValidator } from "fast-xml-parser";
 import { parseDocument } from "htmlparser2";
 import { collectInstanceRefs } from "@/lib/commcare/xform/instanceRefs";

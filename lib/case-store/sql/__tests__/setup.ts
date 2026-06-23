@@ -75,6 +75,11 @@ function singleConnectionPool(client: PoolClient): PostgresPool {
 		end: async () => {
 			// no-op — the worker pool's `afterAll` owns lifecycle.
 		},
+		// Kysely 0.29's PostgresDriver reads `pool.options` when it
+		// constructs a connection (passed through as `poolOptions`).
+		// Forward the real worker pool's options so the wrapper behaves
+		// identically to the pool it stands in for.
+		options: pool.options,
 	};
 }
 

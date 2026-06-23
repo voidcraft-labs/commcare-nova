@@ -240,10 +240,9 @@ describe("emitLongDetail — per-kind goldens", () => {
 		expect(out.xml).toContain(
 			'locale id="m0.case_long.case_calculated_property_1.header"',
 		);
-		// `$calculated_property` round-trips through the serializer as
-		// `&#x24;calculated_property` — XML-spec-equivalent, decoded
-		// identically by every conforming XML parser.
-		expect(out.xml).toContain('<xpath function="&#x24;calculated_property">');
+		// `$calculated_property` serializes verbatim — `$` is not a special
+		// XML character, matching CCHQ's own bare-`$` suite.xml.
+		expect(out.xml).toContain('<xpath function="$calculated_property">');
 		expect(out.xml).toContain('<variable name="calculated_property">');
 		expect(out.xml).toContain('<xpath function="phone"/>');
 		expect(out.strings).toEqual({
@@ -480,8 +479,8 @@ describe("emitLongDetail — multi-kind integration", () => {
 			"if(last_visit = &apos;&apos;, &apos;!&apos;, if(today() - date(last_visit) &gt; 28, &apos;!&apos;, &apos;&apos;))",
 		);
 		// Calculated column — inline-variable template shape.
-		// `$calculated_property` round-trips as `&#x24;calculated_property`.
-		expect(out.xml).toContain('<xpath function="&#x24;calculated_property">');
+		// `$calculated_property` serializes verbatim (bare `$`).
+		expect(out.xml).toContain('<xpath function="$calculated_property">');
 		expect(out.xml).toContain('<variable name="calculated_property">');
 
 		// No <sort> blocks — long detail suppresses them per CCHQ's

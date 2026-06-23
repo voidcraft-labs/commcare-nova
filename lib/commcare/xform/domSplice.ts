@@ -33,12 +33,26 @@ import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 export const PARSE_OPTS = { xmlMode: true } as const;
 
 /**
+ * The XForm declaration `buildXForm` prepends. Held out of the parse→serialize
+ * round-trip (see `parseXForm`) and re-emitted by `serializeXForm`.
+ */
+const XML_DECLARATION = '<?xml version="1.0"?>';
+
+/**
  * Re-parse a serialized XForm into a mutable DOM the splice helpers operate on.
- * The parsed document carries the input's `<?xml ...?>` processing instruction,
- * which `serializeXForm` renders back verbatim.
+ *
+ * The leading `<?xml ...?>` declaration is stripped before parsing rather than
+ * round-tripped through the DOM: htmlparser2 stores the declaration as a
+ * directive node whose `data` drops the trailing `?`, so `dom-serializer`
+ * re-emits a malformed `<?xml ...>` (no `?>`) that the next re-parse can't read
+ * — it swallows the whole document, and `findDataElement` then can't find the
+ * primary instance. The declaration is a constant CCHQ artifact, so holding it
+ * out of the round-trip is both correct and robust; `serializeXForm` re-prepends
+ * it. (Mirrors how `buildXForm` builds the tree without the PI and prepends on
+ * the way out.)
  */
 export function parseXForm(xform: string) {
-	return parseDocument(xform, PARSE_OPTS);
+	return parseDocument(xform.replace(/^<\?xml[^>]*\?>\n?/, ""), PARSE_OPTS);
 }
 
 /**
@@ -46,15 +60,11 @@ export function parseXForm(xform: string) {
  * XML-escaping authority, so every interpolated XPath body / identifier flows
  * through one structural pass with no hand-escaping.
  *
- * Unlike the from-scratch `buildXForm` emitter — which prepends the XML
- * declaration because the serializer doesn't emit one — these post-processors
- * serialize a tree the parser already populated with the input's `<?xml ...?>`
- * PI. The serializer renders that PI verbatim, so prepending another declaration
- * would produce two and trip the XML well-formedness gate ("XML declaration
- * allowed only at the start of the document").
+ * Re-prepends the `<?xml ...?>` declaration `parseXForm` strips — the same
+ * build-without-PI-then-prepend shape `buildXForm` uses.
  */
 export function serializeXForm(doc: ReturnType<typeof parseXForm>): string {
-	return render(doc, RENDER_OPTS);
+	return `${XML_DECLARATION}\n${render(doc, RENDER_OPTS)}`;
 }
 
 /**
