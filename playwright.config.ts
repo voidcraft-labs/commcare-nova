@@ -21,8 +21,16 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const BASE_URL = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const isCI = !!process.env.CI;
-const isLocalTarget =
-	BASE_URL.includes("localhost") || BASE_URL.includes("127.0.0.1");
+// Parse the host rather than substring-match the URL (a substring check is both
+// imprecise and a CodeQL js/incomplete-url-substring-sanitization finding).
+const isLocalTarget = ((): boolean => {
+	try {
+		const host = new URL(BASE_URL).hostname;
+		return host === "localhost" || host === "127.0.0.1" || host === "::1";
+	} catch {
+		return false;
+	}
+})();
 
 /**
  * Env handed to the `next dev` the suite manages. `scripts/smoke.sh` already

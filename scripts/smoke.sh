@@ -29,11 +29,18 @@ export SMOKE_BASE_URL="${SMOKE_BASE_URL:-http://localhost:3000}"
 export GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-smoke-dummy.apps.googleusercontent.com}"
 export GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-smoke-dummy-secret}"
 export NOVA_MEDIA_BUCKET="${NOVA_MEDIA_BUCKET:-demo-test-multimedia}"
-export NOVA_DB_LOCAL_URL="${NOVA_DB_LOCAL_URL:-postgres://nova:nova@localhost:5432/nova_cases?sslmode=disable}"
+# Pin 127.0.0.1, not `localhost`: on Linux CI runners `localhost` resolves to
+# ::1 first, where the compose-published port (IPv4 only) isn't reachable —
+# atlas/the app get "connection reset by peer" on [::1]:5432.
+export NOVA_DB_LOCAL_URL="${NOVA_DB_LOCAL_URL:-postgres://nova:nova@127.0.0.1:5432/nova_cases?sslmode=disable}"
 
 # ── 1+2. Case-store Postgres (compose) + migrations ──────────────────
+# Not `npm run db:dev` — that script hardcodes a `localhost` URL for the Atlas
+# step, which hits the ::1 trap above. Boot the container and migrate over the
+# pinned IPv4 URL instead.
 echo "[smoke] booting case-store Postgres + applying migrations…"
-npm run db:dev
+docker compose up -d --wait
+atlas migrate apply --env testcontainer --url "$NOVA_DB_LOCAL_URL" --allow-dirty
 
 # ── 3+4. Emulator → seed → Playwright ────────────────────────────────
 # emulators:exec sets FIRESTORE_EMULATOR_HOST for everything it spawns, so the

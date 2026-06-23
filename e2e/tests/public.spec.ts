@@ -58,9 +58,21 @@ test.describe("public surface", () => {
 		// never depends on Google being reachable.
 		await page.goto("/");
 		await page.route("**/accounts.google.com/**", (route) => route.abort());
+		// Match on the parsed hostname, not a substring — `url.includes(host)`
+		// would also match `accounts.google.com.evil.test`
+		// (js/incomplete-url-substring-sanitization).
+		const isGoogleAuth = (url: string): boolean => {
+			try {
+				return new URL(url).hostname === "accounts.google.com";
+			} catch {
+				return false;
+			}
+		};
 		const googleHandoff = page.waitForRequest(
-			(req) => req.url().includes("accounts.google.com"),
-			{ timeout: 15_000 },
+			(req) => isGoogleAuth(req.url()),
+			{
+				timeout: 15_000,
+			},
 		);
 		await page.getByRole("button", { name: "Sign in with Google" }).click();
 		await googleHandoff;
