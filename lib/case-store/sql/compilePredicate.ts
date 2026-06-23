@@ -1097,11 +1097,9 @@ function compilePropertyAbsenceCheck(
 	if (op === "is-null") {
 		return eb.not(keyExists);
 	}
-	const textRead = (eb as DynamicExprBuilder)(
-		propertiesRef,
-		"->>",
-		propertyName,
-	);
+	const textRead = (eb as DynamicExprBuilder)
+		.ref(propertiesRef, "->>")
+		.key(propertyName);
 	return eb.or([eb.not(keyExists), eb(textRead, "=", eb.val(""))]);
 }
 
@@ -1110,7 +1108,13 @@ function compilePropertyAbsenceCheck(
 
 type DynamicExprBuilder = {
 	(left: string, op: string, right: unknown): AliasableExpression<unknown>;
-	ref: (reference: string) => AliasableExpression<unknown>;
+	ref: {
+		(reference: string): AliasableExpression<unknown>;
+		(
+			reference: string,
+			op: "->" | "->>",
+		): { key: (key: string) => AliasableExpression<unknown> };
+	};
 };
 
 /** Builder shape for the EXISTS subquery in `compileExistsOrMissing`. */

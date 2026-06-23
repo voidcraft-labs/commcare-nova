@@ -36,7 +36,7 @@ jobs:
     name: Lint & type-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # Enforce the single source of truth: the deployed image's Node must match
       # `.nvmrc` (which CI reads). A drift here is the #143 class — CI green on a
       # different patch than prod ships.
@@ -63,7 +63,7 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
@@ -83,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # `vitest --changed` diffs the working tree against the PR base to
           # decide which tests to run; that needs the base commit present in
@@ -116,7 +116,7 @@ jobs:
     name: Production build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
@@ -134,7 +134,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
@@ -154,7 +154,7 @@ jobs:
       # restore-keys still serves the existing binary, so no re-download).
       # `--with-deps` still installs the (apt) OS deps, which are fast.
       - name: Cache Playwright browsers
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -162,7 +162,7 @@ jobs:
       # Cache the Firestore emulator JAR (the emulator itself warns it is
       # re-downloaded every run without this).
       - name: Cache Firestore emulator
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/firebase/emulators
           key: firebase-emulators-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -201,7 +201,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
@@ -236,7 +236,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
@@ -253,7 +253,7 @@ jobs:
       # Distinct cache key from the smoke job's so the two don't race to reserve
       # the same key on a cold run ("Unable to reserve cache …").
       - name: Cache Firestore emulator
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/firebase/emulators
           key: firebase-emulators-contract-${{ runner.os }}-${{ hashFiles('package-lock.json') }}

@@ -136,6 +136,7 @@ export function ConnectedApps({ initial }: ConnectedAppsProps) {
 							href={docsLink("/mcp/access")}
 							target="_blank"
 							rel="noopener noreferrer"
+							aria-label="Learn more about connected apps"
 							className="inline-flex items-center gap-0.5 text-nova-violet-bright transition-colors hover:text-nova-violet-bright underline-offset-2 hover:underline"
 						>
 							Learn more

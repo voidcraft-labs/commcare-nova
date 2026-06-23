@@ -259,11 +259,9 @@ describe("emitShortDetail — single-kind goldens", () => {
 		// Calc lives at source index 1 → position 2.
 		expect(out.xml).toContain("case_name_1");
 		expect(out.xml).toContain("case_calculated_property_2");
-		// `$calculated_property` round-trips through the serializer as
-		// the XML numeric character reference `&#x24;calculated_property`
-		// — XML-spec-equivalent, decoded identically by every conforming
-		// XML parser.
-		expect(out.xml).toContain('<xpath function="&#x24;calculated_property">');
+		// `$calculated_property` serializes verbatim — `$` is not a special
+		// XML character, matching CCHQ's own bare-`$` suite.xml.
+		expect(out.xml).toContain('<xpath function="$calculated_property">');
 		expect(out.xml).toContain('<variable name="calculated_property">');
 		expect(out.xml).toContain('<xpath function="phone"/>');
 	});
@@ -400,10 +398,10 @@ describe("emitShortDetail — sort emission", () => {
 		});
 		const out = emitShortDetail({ module: mod, moduleIndex: 0, doc });
 		// The sort block uses the inline-variable shape — the calc's
-		// xpath rides inside `$calculated_property` (round-tripped
-		// through the serializer as `&#x24;calculated_property`).
+		// xpath rides inside `$calculated_property` (serialized verbatim;
+		// `$` is not a special XML character).
 		expect(out.xml).toMatch(
-			/<sort type="string" order="1" direction="descending">[\s\S]*?<xpath function="&#x24;calculated_property">[\s\S]*?<variable name="calculated_property">[\s\S]*?<xpath function="phone"\/>/,
+			/<sort type="string" order="1" direction="descending">[\s\S]*?<xpath function="\$calculated_property">[\s\S]*?<variable name="calculated_property">[\s\S]*?<xpath function="phone"\/>/,
 		);
 	});
 });
@@ -553,9 +551,9 @@ describe("emitShortDetail — multi-kind integration", () => {
 			"if(last_visit = &apos;&apos;, &apos;!&apos;, if(today() - date(last_visit) &gt; 28, &apos;!&apos;, &apos;&apos;))",
 		);
 		// Calculated column — inline-variable template shape.
-		// `$calculated_property` → `&#x24;calculated_property` (XML
-		// numeric reference, decoded identically).
-		expect(out.xml).toContain('<xpath function="&#x24;calculated_property">');
+		// `$calculated_property` serializes verbatim (`$` is not a special
+		// XML character).
+		expect(out.xml).toContain('<xpath function="$calculated_property">');
 		expect(out.xml).toContain('<variable name="calculated_property">');
 
 		// Sort attached to the name column at order=1.
@@ -660,12 +658,11 @@ describe("emitShortDetail — search-action emission", () => {
 			doc: buildDoc({ module: mod }),
 			searchAction: { autoLaunch: true },
 		});
-		// `$next_input` round-trips as the XML numeric reference
-		// `&#x24;next_input`; XPath single-quote literals round-trip as
-		// `&apos;`. Both XML-spec-equivalent encodings decode identically
-		// in CCHQ's runtime.
+		// `$next_input` serializes verbatim (`$` is not a special XML
+		// character); XPath single-quote literals encode as `&apos;`,
+		// which CCHQ's runtime decodes identically.
 		expect(out.xml).toContain(
-			`auto_launch="&#x24;next_input = &apos;&apos; or count(instance(&apos;casedb&apos;)/casedb/case[@case_id=&#x24;next_input]) = 0"`,
+			`auto_launch="$next_input = &apos;&apos; or count(instance(&apos;casedb&apos;)/casedb/case[@case_id=$next_input]) = 0"`,
 		);
 	});
 

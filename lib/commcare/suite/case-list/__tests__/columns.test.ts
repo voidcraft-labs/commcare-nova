@@ -327,11 +327,10 @@ describe("emitColumnField — calculated", () => {
 			'locale id="m0.case_short.case_calculated_property_1.header"',
 		);
 		// Template references `$calculated_property` and embeds the
-		// lowered XPath as a `<variable>` block. The serializer encodes
-		// `$` as the XML numeric character reference `&#x24;` —
-		// XML-spec-equivalent to the literal `$`, decoded identically
-		// by every conforming XML parser before the XPath layer sees it.
-		expect(out.xml).toContain('<xpath function="&#x24;calculated_property">');
+		// lowered XPath as a `<variable>` block. `$` is not a special XML
+		// character, so it serializes verbatim — matching CCHQ's own
+		// bare-`$` suite.xml.
+		expect(out.xml).toContain('<xpath function="$calculated_property">');
 		expect(out.xml).toContain('<variable name="calculated_property">');
 		expect(out.xml).toContain('<xpath function="name"/>');
 		// The strings map carries the calc's authored header text.
@@ -368,9 +367,9 @@ describe("emitColumnField — calculated", () => {
 		const sortMatches = out.xml.match(/<sort[\s\S]*?<\/sort>/);
 		expect(sortMatches).not.toBeNull();
 		const sortBlock = sortMatches?.[0] ?? "";
-		// `$calculated_property` encodes as `&#x24;calculated_property`;
-		// XPath `'constant'` literal encodes as `&apos;constant&apos;`.
-		expect(sortBlock).toContain('<xpath function="&#x24;calculated_property">');
+		// `$calculated_property` serializes verbatim (bare `$`); XPath
+		// `'constant'` literal encodes as `&apos;constant&apos;`.
+		expect(sortBlock).toContain('<xpath function="$calculated_property">');
 		expect(sortBlock).toContain("&apos;constant&apos;");
 	});
 

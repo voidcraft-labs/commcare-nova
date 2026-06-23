@@ -181,9 +181,9 @@ describe("compileExpression — term arm", () => {
 			compileExpression(term(prop("patient", "name")), makeCtx()),
 		);
 		// JSONB read shape from `compileTerm`'s self-via property arm.
-		expect(compiled.sql).toContain('"c"."properties" ->>');
+		// The property key inlines as a quoted JSON key (kysely 0.29).
+		expect(compiled.sql).toContain(`"c"."properties"->>'name'`);
 		expect(compiled.sql).toContain("as text)");
-		expect(compiled.parameters).toContain("name");
 	});
 
 	it("delegates a literal term to the Term compiler", () => {
@@ -728,7 +728,9 @@ describe("compileExpression — composition", () => {
 		);
 		expect(compiled.sql).toContain("+");
 		expect(compiled.sql).toContain("as integer)");
-		expect(compiled.parameters).toContain("age");
+		// The property key inlines as a quoted JSON key (kysely 0.29);
+		// the literal addend `1` stays a bound parameter.
+		expect(compiled.sql).toContain(`->>'age'`);
 		expect(compiled.parameters).toContain(1);
 	});
 
@@ -740,7 +742,9 @@ describe("compileExpression — composition", () => {
 			),
 		);
 		expect(compiled.sql.toLowerCase()).toContain("coalesce(");
-		expect(compiled.parameters).toContain("name");
+		// The property key inlines as a quoted JSON key (kysely 0.29);
+		// the literal coalesce fallback stays a bound parameter.
+		expect(compiled.sql).toContain(`->>'name'`);
 		expect(compiled.parameters).toContain("unknown");
 	});
 

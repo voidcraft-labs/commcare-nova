@@ -388,11 +388,12 @@ describe("compilePredicate — multi-select-contains", () => {
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		// JSONB any-key-exists operator. The `multi_select` data_type
 		// reads via `->`, so the property side lands as JSONB and
-		// `?|` is the right operator dispatch.
+		// `?|` is the right operator dispatch. The property key inlines
+		// as a quoted JSON key (kysely 0.29); the search value array
+		// stays a bound parameter.
 		expect(compiled.sql).toContain("?|");
-		expect(compiled.parameters).toEqual(
-			expect.arrayContaining(["tags", ["urgent"]]),
-		);
+		expect(compiled.sql).toContain(`->'tags'`);
+		expect(compiled.parameters).toEqual(expect.arrayContaining([["urgent"]]));
 	});
 
 	it("emits ?| for `any` quantifier (multiple values)", () => {

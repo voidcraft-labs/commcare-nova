@@ -47,15 +47,17 @@ export function text(data: string): Text {
  *
  * `xmlMode: true` is the load-bearing flag — it routes element names /
  * namespaces / self-closing through XML rules AND switches the
- * attribute-value + text encoder to `encodeXML` (the named-entity table
- * keyed by `/["&'<>$\x80-￿]/`). `encodeXML` rewrites `<` / `>` /
- * `&` / `"` / `'` to their named entities (`&lt;` / `&gt;` / `&amp;` /
- * `&quot;` / `&apos;`), `$` to the numeric reference `&#x24;`, and
- * every non-ASCII code point (`\x80-￿`) to a numeric character
- * reference (`&#xNNNN;`). All output forms are XML-spec-equivalent —
- * a conforming parser (CCHQ uses Java's standard `DocumentBuilder`)
- * decodes them back identically before the XPath / suite-parse layers
- * see the value.
+ * attribute-value + text encoder to `encodeXML`. `encodeXML` rewrites
+ * `<` / `>` / `&` / `"` / `'` to their named entities (`&lt;` / `&gt;` /
+ * `&amp;` / `&quot;` / `&apos;`) and every non-ASCII code point
+ * (`\x80-￿`) to a numeric character reference (`&#xNNNN;`). `$` is NOT a
+ * special XML character, so it serializes literally — matching CCHQ's
+ * own suite.xml, whose Python serializer emits a bare `$` too. (The
+ * `entities` library encoded `$` as `&#x24;` through v7; v8 — which
+ * htmlparser2 12 / dom-serializer 3 pull in — dropped that over-
+ * encoding. Both forms are XML-spec-equivalent: a conforming parser
+ * (CCHQ uses Java's standard `DocumentBuilder`) decodes them back
+ * identically before the XPath / suite-parse layers see the value.)
  *
  * `selfClosingTags: true` is the xmlMode default but is stated
  * explicitly for clarity. `encodeEntities: "utf8"` is set defensively

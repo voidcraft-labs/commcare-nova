@@ -59,7 +59,8 @@
  */
 
 import type { SyntaxNode } from "@lezer/common";
-import { findAll, getAttributeValue, getChildren, isTag } from "domutils";
+import { isTag } from "domhandler";
+import { findAll, getAttributeValue, getChildren } from "domutils";
 import { parser } from "@/lib/commcare/xpath";
 import {
 	type ValidationError,

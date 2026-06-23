@@ -61,8 +61,8 @@
  * stays.
  */
 
-import type { Document, Element } from "domhandler";
-import { findAll, getAttributeValue, getChildren, isTag } from "domutils";
+import { type Document, type Element, isTag } from "domhandler";
+import { findAll, getAttributeValue, getChildren } from "domutils";
 import {
 	isParseableXPath,
 	isPathExpression,

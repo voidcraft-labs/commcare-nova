@@ -725,12 +725,10 @@ describe("emitSortBlock — calculated arm", () => {
 		expect(xml).toContain('order="1"');
 		expect(xml).toContain('direction="descending"');
 		// CCHQ's `useXpathExpression` shape carries the literal
-		// `$calculated_property` as the outer xpath function. The
-		// serializer encodes `$` as the XML numeric character reference
-		// `&#x24;` — XML-spec-equivalent to the literal `$`, decoded
-		// identically by every conforming XML parser before the XPath
-		// layer (JavaRosa, CCHQ's runtime) sees the value.
-		expect(xml).toContain('<xpath function="&#x24;calculated_property">');
+		// `$calculated_property` as the outer xpath function. `$` is not a
+		// special XML character, so it serializes verbatim — matching
+		// CCHQ's own bare-`$` suite.xml.
+		expect(xml).toContain('<xpath function="$calculated_property">');
 		expect(xml).toContain('<variable name="calculated_property">');
 		// The inner xpath carries the calc's lowered expression.
 		expect(xml).toContain("today() - date(opened_on)");
@@ -745,7 +743,7 @@ describe("emitSortBlock — calculated arm", () => {
 			calcXpath: "if(a < b, 'x', 'y')",
 		});
 		expect(xml).toContain("a &lt; b");
-		expect(xml).toContain('<xpath function="&#x24;calculated_property">');
+		expect(xml).toContain('<xpath function="$calculated_property">');
 	});
 });
 

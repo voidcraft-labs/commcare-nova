@@ -283,6 +283,7 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 								href={docsLink("/mcp/api-keys")}
 								target="_blank"
 								rel="noopener noreferrer"
+								aria-label="Learn more about API keys"
 								className="inline-flex items-center gap-0.5 text-nova-violet-bright transition-colors hover:text-nova-violet-bright underline-offset-2 hover:underline"
 							>
 								Learn more
