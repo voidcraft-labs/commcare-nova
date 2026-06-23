@@ -23,14 +23,13 @@ concurrency:
 permissions:
   contents: read
 
-# Pin Node to the exact patch the production image ships (the Dockerfile's
-# `ARG NODE_IMAGE`). CI has to run the runtime we deploy: the floating `22`
-# major silently advanced to 22.23.0, whose undici regression took prod login
-# down (#143), and a green CI on a different patch would have masked it. One
-# value, referenced by every setup-node step below so they can't drift — keep
-# it in lockstep with the Dockerfile when bumping.
-env:
-  NODE_VERSION: "22.22.3"
+# Node is single-sourced in `.nvmrc`: every `setup-node` below reads it via
+# `node-version-file`, and the guard step in the `quality` job asserts the
+# Dockerfile's `ARG NODE_IMAGE` matches it, so CI, the deployed image, and local
+# nvm/fnm can't drift. Pin the exact patch the production image ships — the
+# floating `22` major silently advanced to 22.23.0, whose undici regression took
+# prod login down (#143), and a green CI on a different patch would have masked
+# it. Bump in one place (`.nvmrc`); the guard flags the Dockerfile if it lags.
 
 jobs:
   quality:
@@ -38,9 +37,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      # Enforce the single source of truth: the deployed image's Node must match
+      # `.nvmrc` (which CI reads). A drift here is the #143 class — CI green on a
+      # different patch than prod ships.
+      - name: Node version is single-sourced (.nvmrc ⇄ Dockerfile)
+        run: |
+          nvmrc="$(cat .nvmrc)"
+          docker_node="$(sed -n 's/^ARG NODE_IMAGE=node:\([0-9.]*\)-.*/\1/p' Dockerfile)"
+          if [ "$nvmrc" != "$docker_node" ]; then
+            echo "::error::Node drift: .nvmrc=$nvmrc but the Dockerfile pins $docker_node. Update the Dockerfile ARG NODE_IMAGE to match .nvmrc."
+            exit 1
+          fi
+          echo "Node pinned to $nvmrc in both .nvmrc and the Dockerfile."
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - name: Lint (Biome)
@@ -55,7 +66,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       # The suite boots a Postgres testcontainer and applies the case-store
@@ -80,7 +91,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - name: Install Atlas
@@ -108,7 +119,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       # next build resolves the fumadocs `@/.source/server` import; this
@@ -117,3 +128,137 @@ jobs:
         run: npx fumadocs-mdx
       - name: Build
         run: npm run build
+
+  smoke:
+    name: Smoke (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # The Firestore emulator (scripts/smoke.sh) runs on a JVM.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: npm ci
+      # The case store boots a Postgres container and applies migrations via
+      # Atlas (same as the `test` job), so Atlas must be on PATH.
+      - name: Install Atlas
+        uses: ariga/setup-atlas@master
+      # Cache the Chromium binary (~150MB) so it isn't re-downloaded every run.
+      # Keyed on the whole lockfile (coarse — any dep bump re-saves, but
+      # restore-keys still serves the existing binary, so no re-download).
+      # `--with-deps` still installs the (apt) OS deps, which are fast.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
+      # Cache the Firestore emulator JAR (the emulator itself warns it is
+      # re-downloaded every run without this).
+      - name: Cache Firestore emulator
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: firebase-emulators-${{ runner.os }}-
+      - name: Install Playwright (Chromium + OS deps)
+        run: npx playwright install --with-deps chromium
+      # Hermetic: Firestore emulator + local Postgres + seeded session. No real
+      # GCP, no prod credentials, no LLM spend. Runs the credential-free
+      # `public` checks and the seeded-session `authed` checks. This catches
+      # UI / route / render / session-contract breaks — but NOT the outbound
+      # dependency breaks (the emulator stubs that network out); the
+      # `auth-healthz` job below is the gate for those.
+      - name: Smoke suite
+        run: npm run test:smoke -- --project=public --project=authed
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7
+
+  auth-healthz:
+    # The faithful gate for the auth-dependency outages (#143 undici, #145
+    # node-fetch): a REAL firebase-admin → REAL Firestore round-trip over the
+    # real outbound HTTP stack, on the prod-pinned Node. The emulator-backed
+    # smoke can't catch this class because the emulator replaces that exact
+    # network layer. See scripts/ci/auth-healthz.ts.
+    name: Auth Firestore healthz
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # WIF needs to mint an OIDC token; everything else stays read-only. Job-level
+    # permissions REPLACE the workflow default, so `contents: read` is restated
+    # for checkout.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # Keyless auth to the isolated commcare-nova-ci project: GitHub's OIDC
+      # token is exchanged via Workload Identity Federation for a CI service
+      # account whose ONLY access is that dataless project. No long-lived keys
+      # exist anywhere; the WIF provider is org-restricted and the SA is bound
+      # only to this repo.
+      - uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.CI_GCP_PROJECT }}
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+      # Mint WIF creds + run the real Firestore round-trip. A regression in the
+      # outbound stack (undici / gaxios / node-fetch) throws here and reds the PR.
+      - name: Auth → Firestore round-trip on the prod Node
+        run: npx tsx scripts/ci/auth-healthz.ts
+        env:
+          # Set explicitly rather than relying on google-github-actions/auth to
+          # export it — the script requires GOOGLE_CLOUD_PROJECT.
+          GOOGLE_CLOUD_PROJECT: ${{ vars.CI_GCP_PROJECT }}
+
+  auth-contract:
+    # Gates the session-cookie contract (a forged cookie ⇄ the real
+    # better-auth / better-call / firestore-adapter session path) on every PR.
+    # The standalone test is emulator-gated, so without a job that boots the
+    # emulator it would never run. Credential-free — it uses the shared
+    # firestoreClientOptions (gRPC against the emulator, no ADC).
+    name: Auth session-cookie contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # JVM for the Firestore emulator.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: npm ci
+      # Vitest's globalSetup boots a Postgres testcontainer migrated by Atlas.
+      - name: Install Atlas
+        uses: ariga/setup-atlas@master
+      # Distinct cache key from the smoke job's so the two don't race to reserve
+      # the same key on a cold run ("Unable to reserve cache …").
+      - name: Cache Firestore emulator
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-contract-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: firebase-emulators-contract-${{ runner.os }}-
+      - name: Session-cookie contract (emulator)
+        run: |
+          node_modules/.bin/firebase emulators:exec --only firestore --project demo-test \
+            'GOOGLE_CLOUD_PROJECT=demo-test node_modules/.bin/vitest run sessionCookie.integration.test.ts'
