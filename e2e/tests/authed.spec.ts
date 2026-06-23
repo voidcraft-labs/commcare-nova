@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../lib/fixtures";
 
 /**
  * Authenticated smoke checks, driven by the seeded session cookie in

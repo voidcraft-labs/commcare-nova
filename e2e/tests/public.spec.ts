@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../lib/fixtures";
 
 /**
  * Public (unauthenticated) smoke checks — no seeded session, no Firestore data.
