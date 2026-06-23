@@ -27,7 +27,7 @@
 		"@ai-sdk/google": "^4.0.0-beta.49",
 		"@ai-sdk/react": "^4.0.0-beta.116",
 		"@atlaskit/pragmatic-drag-and-drop": "^1.7.10",
-		"@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^2.1.5",
+		"@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.0.0",
 		"@atlaskit/pragmatic-drag-and-drop-hitbox": "^1.1.0",
 		"@better-auth/api-key": "1.6.18",
 		"@better-auth/oauth-provider": "1.6.18",
