@@ -117,3 +117,80 @@ jobs:
         run: npx fumadocs-mdx
       - name: Build
         run: npm run build
+
+  smoke:
+    name: Smoke (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      # The Firestore emulator (scripts/smoke.sh) runs on a JVM.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: npm ci
+      # The case store boots a Postgres container and applies migrations via
+      # Atlas (same as the `test` job), so Atlas must be on PATH.
+      - name: Install Atlas
+        uses: ariga/setup-atlas@master
+      - name: Install Playwright (Chromium + OS deps)
+        run: npx playwright install --with-deps chromium
+      # Hermetic: Firestore emulator + local Postgres + seeded session. No real
+      # GCP, no prod credentials, no LLM spend. Runs the credential-free
+      # `public` checks and the seeded-session `authed` checks. This catches
+      # UI / route / render / session-contract breaks — but NOT the outbound
+      # dependency breaks (the emulator stubs that network out); the
+      # `auth-healthz` job below is the gate for those.
+      - name: Smoke suite
+        run: npm run test:smoke -- --project=public --project=authed
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7
+
+  auth-healthz:
+    # The faithful gate for the auth-dependency outages (#143 undici, #145
+    # node-fetch): a REAL firebase-admin → REAL Firestore round-trip over the
+    # real outbound HTTP stack, on the prod-pinned Node. The emulator-backed
+    # smoke can't catch this class because the emulator replaces that exact
+    # network layer. See scripts/ci/auth-healthz.ts.
+    name: Auth Firestore healthz
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # WIF needs to mint an OIDC token; everything else stays read-only. Job-level
+    # permissions REPLACE the workflow default, so `contents: read` is restated
+    # for checkout.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # Keyless auth to the isolated commcare-nova-ci project: GitHub's OIDC
+      # token is exchanged via Workload Identity Federation for a CI service
+      # account whose ONLY access is that dataless project. No long-lived keys
+      # exist anywhere; the WIF provider is org-restricted and the SA is bound
+      # only to this repo.
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ vars.CI_GCP_PROJECT }}
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+      # Mint WIF creds + run the real Firestore round-trip. A regression in the
+      # outbound stack (undici / gaxios / node-fetch) throws here and reds the PR.
+      - name: Auth → Firestore round-trip on the prod Node
+        run: npx tsx scripts/ci/auth-healthz.ts
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ vars.CI_GCP_PROJECT }}

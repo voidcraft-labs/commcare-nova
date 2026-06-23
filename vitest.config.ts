@@ -72,7 +72,14 @@ export default defineConfig({
 		// inside a worktree (root = `.claude/worktrees/foo/`) the same
 		// test's root-relative path is `lib/...` — no `.claude/worktrees`
 		// segment, no match, no surprise filtering.
-		exclude: [...vitestConfigDefaults.exclude, "**/.claude/worktrees/**"],
+		// `e2e/tests/**` are Playwright specs (`*.spec.ts`), not Vitest tests —
+		// they import `@playwright/test` and would throw under Vitest. The
+		// emulator-gated `e2e/lib/**` helpers and their `.test.ts` stay in.
+		exclude: [
+			...vitestConfigDefaults.exclude,
+			"**/.claude/worktrees/**",
+			"e2e/tests/**",
+		],
 	},
 	resolve: {
 		alias: {

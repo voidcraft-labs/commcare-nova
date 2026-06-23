@@ -9,7 +9,10 @@
 			"**",
 			"!!.*",
 			"!!**/dist",
-			"!!**/__fixtures__/*.snapshot.json"
+			"!!**/__fixtures__/*.snapshot.json",
+			"!!e2e/.auth",
+			"!!e2e/test-results",
+			"!!e2e/playwright-report"
 		],
 		"ignoreUnknown": true
 	},
