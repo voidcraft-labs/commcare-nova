@@ -23,14 +23,13 @@ concurrency:
 permissions:
   contents: read
 
-# Pin Node to the exact patch the production image ships (the Dockerfile's
-# `ARG NODE_IMAGE`). CI has to run the runtime we deploy: the floating `22`
-# major silently advanced to 22.23.0, whose undici regression took prod login
-# down (#143), and a green CI on a different patch would have masked it. One
-# value, referenced by every setup-node step below so they can't drift — keep
-# it in lockstep with the Dockerfile when bumping.
-env:
-  NODE_VERSION: "22.22.3"
+# Node is single-sourced in `.nvmrc`: every `setup-node` below reads it via
+# `node-version-file`, and the guard step in the `quality` job asserts the
+# Dockerfile's `ARG NODE_IMAGE` matches it, so CI, the deployed image, and local
+# nvm/fnm can't drift. Pin the exact patch the production image ships — the
+# floating `22` major silently advanced to 22.23.0, whose undici regression took
+# prod login down (#143), and a green CI on a different patch would have masked
+# it. Bump in one place (`.nvmrc`); the guard flags the Dockerfile if it lags.
 
 jobs:
   quality:
@@ -38,9 +37,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      # Enforce the single source of truth: the deployed image's Node must match
+      # `.nvmrc` (which CI reads). A drift here is the #143 class — CI green on a
+      # different patch than prod ships.
+      - name: Node version is single-sourced (.nvmrc ⇄ Dockerfile)
+        run: |
+          nvmrc="$(cat .nvmrc)"
+          docker_node="$(sed -n 's/^ARG NODE_IMAGE=node:\([0-9.]*\)-.*/\1/p' Dockerfile)"
+          if [ "$nvmrc" != "$docker_node" ]; then
+            echo "::error::Node drift: .nvmrc=$nvmrc but the Dockerfile pins $docker_node. Update the Dockerfile ARG NODE_IMAGE to match .nvmrc."
+            exit 1
+          fi
+          echo "Node pinned to $nvmrc in both .nvmrc and the Dockerfile."
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - name: Lint (Biome)
@@ -55,7 +66,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       # The suite boots a Postgres testcontainer and applies the case-store
@@ -80,7 +91,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - name: Install Atlas
@@ -108,7 +119,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       # next build resolves the fumadocs `@/.source/server` import; this
@@ -126,7 +137,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: npm
       # The Firestore emulator (scripts/smoke.sh) runs on a JVM.
       - uses: actions/setup-java@v5
@@ -192,7 +203,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       # Keyless auth to the isolated commcare-nova-ci project: GitHub's OIDC
@@ -223,7 +234,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: npm
       # JVM for the Firestore emulator.
       - uses: actions/setup-java@v5
