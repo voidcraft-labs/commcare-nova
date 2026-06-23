@@ -27,14 +27,15 @@ const isCI = !!process.env.CI;
 const localHost = urlHost(BASE_URL);
 const isLocalTarget =
 	localHost === "localhost" || localHost === "127.0.0.1" || localHost === "::1";
-// Only manage our own `next dev` when scripts/smoke.sh is driving (it exports
-// this). Otherwise — e.g. `test:smoke:url` probing an already-running URL, even
-// a localhost one — don't spin up a server (and don't require the emulator env).
+// Only manage our own server when scripts/smoke.sh is driving (it exports this).
+// Otherwise — e.g. `test:smoke:url` probing an already-running URL, even a
+// localhost one — don't spin up a server (and don't require the emulator env).
 const manageServer = process.env.SMOKE_MANAGE_SERVER === "1";
 
 /**
- * Env handed to the `next dev` the suite manages, forwarded explicitly so it
- * wins over any `.env` the dev server would otherwise load. `scripts/smoke.sh`
+ * Env handed to the production server the suite builds + runs, forwarded
+ * explicitly so it wins over any `.env` the server would otherwise load.
+ * `scripts/smoke.sh`
  * exports all of these; the REQUIRED ones must be present, or the seed and the
  * server silently disagree on the Firestore namespace / signing secret and the
  * authed tests fail with a confusing "no data" instead of a clear cause.
@@ -83,8 +84,8 @@ export default defineConfig({
 	// One worker: the suite shares a single emulator + seeded dataset; the delete
 	// test mutates app rows, so parallel workers could race the app list.
 	workers: 1,
-	// Generous: the suite drives `next dev`, which compiles each route on first
-	// hit. CI retries reuse the already-compiled server, so a retry is fast.
+	// Generous headroom for a full page load + assertions. `next start` serves
+	// pre-compiled routes, so this isn't covering a cold compile.
 	timeout: 90_000,
 	expect: { timeout: 15_000 },
 	reporter: isCI

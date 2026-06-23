@@ -58,8 +58,9 @@ npx playwright show-report e2e/playwright-report
 ```
 
 `scripts/smoke.sh` boots local Postgres (compose) + migrations, starts the Firestore
-emulator, seeds, then runs Playwright (which starts `next dev`). It uses a throwaway
-`BETTER_AUTH_SECRET` and dummy OAuth creds — never production secrets.
+emulator, seeds, then runs Playwright (which builds + starts the production server,
+`next build && next start`). It uses a throwaway `BETTER_AUTH_SECRET` and dummy OAuth
+creds — never production secrets.
 
 ## Run against a live deployment (post-deploy prod probe)
 

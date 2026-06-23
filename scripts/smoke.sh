@@ -6,7 +6,7 @@
 #   1. local Postgres (the case store) via docker compose + Atlas migrations,
 #   2. the Firestore emulator (project `demo-test`, fully offline),
 #   3. seeds a user/session/apps into the emulator,
-#   4. runs Playwright, which starts `next dev` pointed at both.
+#   4. runs Playwright, which builds + starts the production server, pointed at both.
 #
 # No real GCP project, no prod credentials, no LLM spend. Extra args are passed
 # through to Playwright, e.g.:
@@ -18,13 +18,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # ── Smoke env ────────────────────────────────────────────────────────
-# A throwaway secret — the seed signs the session cookie with it and `next dev`
+# A throwaway secret — the seed signs the session cookie with it and the server
 # verifies with the same value. NEVER reuse the production secret here.
 export GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT:-demo-test}"
 export BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-smoke-test-secret-do-not-use-in-prod}"
 export BETTER_AUTH_URL="${BETTER_AUTH_URL:-http://localhost:3000}"
 export SMOKE_BASE_URL="${SMOKE_BASE_URL:-http://localhost:3000}"
-# Tell playwright.config to manage its own `next dev` (vs `test:smoke:url`, which
+# Tell playwright.config to manage its own server (vs `test:smoke:url`, which
 # probes an already-running server and sets no flag).
 export SMOKE_MANAGE_SERVER=1
 # Dummy OAuth creds: the suite never calls Google. sign-in/social only needs a
