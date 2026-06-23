@@ -48,6 +48,7 @@
 //     emitter's contract.
 
 import { emitCaseListFilter } from "@/lib/commcare/predicate";
+import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import type { Predicate } from "@/lib/domain/predicate/types";
 
 /**
@@ -62,21 +63,20 @@ import type { Predicate } from "@/lib/domain/predicate/types";
  * concern of the session-datum builder.
  */
 export function emitNodesetFilter(filter: Predicate | undefined): string {
-	// Absent filter — most modules. The session-datum nodeset stays
-	// at the canonical `[@case_type='X'][@status='open']` shape.
-	if (filter === undefined) return "";
-
-	// `match-all` is the boolean-algebra identity element of
-	// conjunction; the on-device emitter produces `true()` for it.
-	// Appending `[true()]` to the nodeset is a no-op against CCHQ's
-	// XPath semantics, so the cleaner wire form omits the bracket
-	// pair entirely.
-	if (filter.kind === "match-all") return "";
+	// `effectiveFilterForEmission` returns the narrowing predicate to
+	// emit, or `undefined` when nothing narrows — an absent filter (most
+	// modules) OR one that reduces to `match-all` (top-level or nested
+	// in an authored `and`). Either way no bracket appends, so the
+	// session-datum nodeset stays at the canonical
+	// `[@case_type='X'][@status='open']` shape rather than a tautological
+	// `[true() and …]`. See `lib/domain/predicate/simplify.ts`.
+	const effective = effectiveFilterForEmission(filter);
+	if (effective === undefined) return "";
 
 	// Every other predicate (including `match-none`) compiles via
 	// the shared on-device emitter and wraps in `[...]` at the
 	// nodeset position. `match-none` emits as `false()` — wrapped
 	// here as `[false()]`, the wire form that faithfully represents
 	// "match no cases" against the surrounding nodeset.
-	return `[${emitCaseListFilter(filter)}]`;
+	return `[${emitCaseListFilter(effective)}]`;
 }

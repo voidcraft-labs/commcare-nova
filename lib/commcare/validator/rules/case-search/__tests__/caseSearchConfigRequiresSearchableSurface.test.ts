@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { asUuid, plainColumn, simpleSearchInputDef } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/predicate";
+import { and, eq, literal, matchAll, prop } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE" as const;
@@ -145,6 +145,32 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
 						filter: { kind: "match-all" },
+						searchInputs: [],
+					},
+					caseSearchConfig: {},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(1);
+	});
+
+	it("still fires when filter REDUCES to match-all (and(match-all, match-all))", () => {
+		// The gate must agree with emission: a filter whose `kind` is
+		// `and` but which normalizes to match-all narrows nothing and
+		// emits no query, so it is not a searchable surface. A shallow
+		// top-level check would miss this and pass an unsearchable config.
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						filter: and(matchAll(), matchAll()),
 						searchInputs: [],
 					},
 					caseSearchConfig: {},

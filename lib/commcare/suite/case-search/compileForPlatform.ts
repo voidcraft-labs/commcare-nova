@@ -9,6 +9,7 @@
 // landing).
 
 import type { CaseListConfig, CaseSearchConfig } from "@/lib/domain";
+import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import type { PlatformContext, WireShape } from "./types";
 
 /**
@@ -59,13 +60,16 @@ export function compileForPlatform(
 		};
 	}
 
-	// `match-all` is the conjunction identity element — CCHQ's wire
-	// emission is `true()`, which leaves the match set unchanged. A
-	// `match-all` filter with zero inputs would otherwise trip skip-
-	// to-results without an effective narrowing predicate.
+	// "Effective" = narrows something AFTER boolean-identity
+	// normalization, so this decision agrees with what emission
+	// actually produces. An absent filter, or one that reduces to
+	// `match-all` (the top-level sentinel OR e.g. `and(match-all,
+	// match-all)`), emits no query, so it must NOT trip skip-to-results.
+	// `effectiveFilterForEmission` is the shared "no effective filter"
+	// decision the wire emitters consume too; a shallow check here would
+	// desync the flags from the emitted query.
 	const filterEffective =
-		caseListConfig.filter !== undefined &&
-		caseListConfig.filter.kind !== "match-all";
+		effectiveFilterForEmission(caseListConfig.filter) !== undefined;
 	const noSearchInputs = caseListConfig.searchInputs.length === 0;
 	if (filterEffective && noSearchInputs) {
 		return {

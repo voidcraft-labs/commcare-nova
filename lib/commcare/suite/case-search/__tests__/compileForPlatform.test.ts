@@ -30,7 +30,13 @@ import {
 	type CaseSearchConfig,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { eq, literal, matchAll, prop } from "@/lib/domain/predicate/builders";
+import {
+	and,
+	eq,
+	literal,
+	matchAll,
+	prop,
+} from "@/lib/domain/predicate/builders";
 import { compileForPlatform } from "../compileForPlatform";
 import type { PlatformContext, WireShape } from "../types";
 
@@ -187,6 +193,23 @@ describe("compileForPlatform — web skip-to-results vs list-first", () => {
 		expect(
 			compileForPlatform(MATCH_ALL_FILTER_CONFIG, SEARCH_CONFIG, WEB),
 		).toEqual(LIST_FIRST_SHAPE);
+	});
+
+	it("emits list-first when the filter REDUCES to match-all and zero inputs", () => {
+		// `and(match-all, match-all)` is not literally match-all (kind is
+		// `and`), but it narrows nothing — emission strips it to no
+		// query. A shallow `isMatchAll` here would judge it "effective"
+		// and trip skip-to-results for a query that emits nothing; the
+		// shared `effectiveFilterForEmission` keeps this decision in sync
+		// with what the emitter actually produces.
+		const reducesToMatchAll: CaseListConfig = {
+			columns: [],
+			filter: and(matchAll(), matchAll()),
+			searchInputs: [],
+		};
+		expect(compileForPlatform(reducesToMatchAll, SEARCH_CONFIG, WEB)).toEqual(
+			LIST_FIRST_SHAPE,
+		);
 	});
 
 	it("emits list-first when no filter and zero inputs", () => {

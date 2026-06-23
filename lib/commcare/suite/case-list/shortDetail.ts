@@ -79,6 +79,7 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { BlueprintDoc, Module } from "@/lib/domain";
+import { simplifyForEmission } from "@/lib/domain/predicate";
 import type { Predicate } from "@/lib/domain/predicate/types";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { emitCaseListFilter } from "../../predicate";
@@ -314,7 +315,14 @@ function buildSearchActionBlock(
 		redo_last: "false",
 	};
 	if (searchAction.displayCondition !== undefined) {
-		actionAttribs.relevant = emitCaseListFilter(searchAction.displayCondition);
+		// `simplifyForEmission` strips any redundant boolean identity (a
+		// `match-all` left inside an authored `and`) so the `relevant`
+		// expression doesn't carry a `true() and …` conjunct — the same
+		// normalize the filter surfaces + the HQ-JSON
+		// `search_button_display_condition` apply.
+		actionAttribs.relevant = emitCaseListFilter(
+			simplifyForEmission(searchAction.displayCondition),
+		);
 	}
 
 	return el("action", actionAttribs, [

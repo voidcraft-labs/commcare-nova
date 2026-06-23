@@ -39,6 +39,7 @@ import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { and, eq, literal, prop, term } from "@/lib/domain/predicate/builders";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+import { effectiveFilterForEmission } from "@/lib/domain/predicate/simplify";
 import { log } from "@/lib/logger";
 import type {
 	JsonObject,
@@ -137,15 +138,18 @@ export async function readCases(
  *     filter, no inputs; return `undefined` and the case-store falls
  *     through to the unfiltered scan.
  *   - `caseListConfig.searchInputs.length === 0` OR `inputValues`
- *     absent — no runtime contribution exists. Skip
- *     `composeRuntimeFilter` entirely and pass `caseListConfig.filter`
- *     through verbatim. The Filters / Display previews and the calc
- *     surface call `readCases` without `inputValues`, so this is the
- *     branch they take.
- *   - Both slots populated — compose the at-most-two contributing
- *     predicates through the `and(...)` builder; the `match-all`
- *     conjunction-identity is short-circuited to `undefined` so the
- *     case-store sees the same shape as the unfiltered passthrough.
+ *     absent — no runtime contribution. Just the base filter (the
+ *     Filters / Display previews and the calc surface call `readCases`
+ *     without `inputValues`, so this is the branch they take).
+ *   - Both slots populated — AND the base filter with the runtime
+ *     filter.
+ *
+ * Either way the result runs through `effectiveFilterForEmission`, so a
+ * `match-all` — top-level OR nested inside an authored `and` — folds to
+ * `undefined` (the case-store falls through to the unfiltered scan)
+ * rather than pushing a redundant `TRUE` operand into the SQL. This is
+ * the same "match-all ≡ no filter" decision the wire emitters apply, so
+ * preview and export agree on the effective filter.
  */
 function composeQueryPredicate(
 	caseListConfig: CaseListConfig | undefined,
@@ -155,7 +159,7 @@ function composeQueryPredicate(
 	if (caseListConfig === undefined) return undefined;
 	const baseFilter = caseListConfig.filter;
 	if (inputValues === undefined || caseListConfig.searchInputs.length === 0) {
-		return baseFilter;
+		return effectiveFilterForEmission(baseFilter);
 	}
 
 	const runtimeFilter = composeRuntimeFilter(
@@ -164,25 +168,11 @@ function composeQueryPredicate(
 		caseType,
 	);
 
-	// `match-all` clauses are conjunction-identity — including them
-	// in the AND envelope produces a structurally noisy predicate
-	// that emits a redundant `TRUE` operand into the SQL. Drop them
-	// here so the case-store sees the same shape it would have seen
-	// with the unfiltered passthrough.
-	const clauses: Predicate[] = [];
-	if (baseFilter !== undefined && baseFilter.kind !== "match-all") {
-		clauses.push(baseFilter);
-	}
-	if (runtimeFilter.kind !== "match-all") {
-		clauses.push(runtimeFilter);
-	}
-
-	if (clauses.length === 0) return undefined;
-	if (clauses.length === 1) return clauses[0];
-	// `clauses` holds at most two entries (`baseFilter` +
-	// `runtimeFilter`); the two-element branch falls straight into
-	// `and`'s `(first, second, ...rest)` overload.
-	return and(clauses[0], clauses[1]);
+	// At most two contributing predicates (base + runtime); AND them
+	// when both are present, then normalize.
+	const composed =
+		baseFilter === undefined ? runtimeFilter : and(baseFilter, runtimeFilter);
+	return effectiveFilterForEmission(composed);
 }
 
 /**
@@ -242,7 +232,11 @@ export async function readCaseListPreview(
 		calculated: args.caseListConfig.columns.filter(
 			(col) => col.kind === "calculated",
 		),
-		predicate: args.caseListConfig.filter,
+		// Normalize so a `match-all`-reducing filter falls through to the
+		// unfiltered scan instead of a redundant `TRUE` operand — same
+		// "no effective filter" decision the wire emitters + `readCases`
+		// apply, so every preview surface agrees on the effective filter.
+		predicate: effectiveFilterForEmission(args.caseListConfig.filter),
 		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 		limit,
 	});
@@ -307,11 +301,16 @@ export async function readFilterPreview(
 ): Promise<LoadFilterPreviewResult> {
 	const limit = args.limit ?? FILTER_PREVIEW_DEFAULT_LIMIT;
 
-	// Row sample. The filter-section preview is a "results that pass
-	// the filter" view, so the predicate slot is the load-bearing
-	// arg here — `caseListConfig.filter` flows through verbatim. The
-	// calc-arm projection mirrors the Display preview's shape so
-	// table cells render uniformly.
+	// The filter-section preview is a "results that pass the filter"
+	// view, so the predicate is the load-bearing arg. Normalize ONCE
+	// (the shared "no effective filter" decision: a `match-all`-reducing
+	// filter falls through to the unfiltered scan) and reuse it for both
+	// the row sample and the count, so the two SELECTs are guaranteed to
+	// compile the identical WHERE clause.
+	const predicate = effectiveFilterForEmission(args.caseListConfig.filter);
+
+	// Row sample. The calc-arm projection mirrors the Display preview's
+	// shape so table cells render uniformly.
 	const rows = await store.query({
 		appId: args.appId,
 		caseType: args.caseType,
@@ -319,20 +318,18 @@ export async function readFilterPreview(
 		calculated: args.caseListConfig.columns.filter(
 			(col) => col.kind === "calculated",
 		),
-		predicate: args.caseListConfig.filter,
+		predicate,
 		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 		limit,
 	});
 
-	// Count of all matching rows. The same predicate compiles
-	// through the same `compilePredicate` stack — the count and
-	// the row sample are guaranteed to use the identical WHERE
-	// clause.
+	// Count of all matching rows, through the same `compilePredicate`
+	// stack with the same predicate.
 	const totalCount = await store.count({
 		appId: args.appId,
 		caseType: args.caseType,
 		caseTypeSchemas: args.caseTypeSchemas,
-		predicate: args.caseListConfig.filter,
+		predicate,
 	});
 
 	return { kind: "rows", rows, totalCount };

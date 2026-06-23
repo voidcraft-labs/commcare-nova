@@ -35,7 +35,7 @@
 // shape is the only wire-correct option.
 
 import type { CaseListConfig } from "@/lib/domain";
-import { and } from "@/lib/domain/predicate";
+import { and, effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import { type CsqlEmissionResult, emitCsql } from "../../predicate";
@@ -55,22 +55,20 @@ import {
 export type ComposedXPathQuery = CsqlEmissionResult;
 
 /**
- * Compose the unified `_xpath_query`. Returns `undefined` when the
- * AND-composition collapses to `match-all` (no filter authored, no
- * advanced-arm predicates, no cross-walk simple inputs) —
- * consumers omit the slot entirely rather than emitting
- * `_xpath_query = "true()"`, which CCHQ accepts but reads as noise.
+ * Compose the unified `_xpath_query`. Returns `undefined` when
+ * nothing narrows the case list (no filter authored, no advanced-arm
+ * predicates, no cross-walk simple inputs, OR every clause is a
+ * `match-all` identity) — consumers omit the slot entirely rather
+ * than emitting `_xpath_query = "true()"`, which CCHQ accepts but
+ * reads as noise.
  *
- * Reducer policy:
- *
- *   - Zero clauses → `undefined` (consumer omits the slot).
- *   - One clause → that clause, used directly (no `and(...)` envelope).
- *   - 2+ clauses → standard `and(...)` envelope; the reducer folds
- *     authored `match-all` clauses on the way through.
- *
- * Single-clause short-circuit also handles the `match-all` arm — a
- * lone authored `match-all` lands here and the explicit check below
- * routes it to `undefined`.
+ * Composition policy: collect the filter + advanced-arm predicates +
+ * derived simple-arm predicates, AND-compose them, then run
+ * `simplifyForEmission` so boolean identities never reach the wire
+ * (see the body comment for why the normalize lives here, not in the
+ * shared `and(...)` reducer). A composition that reduces to `match-all`
+ * (nothing narrows) returns `undefined` and the consumer omits the
+ * slot.
  *
  * `caseType` is the module's `caseType`; it threads to every
  * derived `prop(...)` reference for simple-arm inputs that need
@@ -118,23 +116,22 @@ export function composeXPathQueryEmission(
 		return undefined;
 	}
 
-	// `and(...)` runs through `reduceAnd` at construction time —
-	// flattens nested `and` clauses, drops `match-all` identity
-	// clauses, short-circuits to `match-none` on any `match-none`
-	// absorbing clause, and unwraps single-clause / empty results to
-	// the wrapped predicate / sentinel. So `composed` is either a
-	// sentinel (`match-all` / `match-none`), a single non-sentinel
-	// clause, or a normalized `and` envelope with no nested `and` or
-	// `match-all` arms inside it.
-	const composed =
+	// AND-compose, then normalize via `effectiveFilterForEmission`: it
+	// drops boolean identities at every depth and folds an all-true
+	// result to `undefined`. Without it a `match-all` conjunct would
+	// emit a literal `concat('match-all() and ', …)` prefix (the
+	// reported bug) — usually from a `caseListConfig.filter` the builder
+	// seeded with `matchAll()` on "Add a Filter" and left untouched, or
+	// a `match-all` nested inside an authored `and` filter. `undefined`
+	// means nothing narrows, so omit the slot (CCHQ matches every case
+	// by default); a `match-none` composition rides through and emits
+	// `match-none()` (the author asked for "match nothing").
+	const composed = effectiveFilterForEmission(
 		clauses.length === 1
 			? clauses[0]
-			: and(clauses[0], clauses[1], ...clauses.slice(2));
-
-	// `match-all` collapses to no `_xpath_query` slot at all — CCHQ's
-	// default behavior matches every case, exactly what the identity
-	// predicate means.
-	if (composed.kind === "match-all") {
+			: and(clauses[0], clauses[1], ...clauses.slice(2)),
+	);
+	if (composed === undefined) {
 		return undefined;
 	}
 
