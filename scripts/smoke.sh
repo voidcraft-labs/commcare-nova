@@ -29,6 +29,11 @@ export SMOKE_BASE_URL="${SMOKE_BASE_URL:-http://localhost:3000}"
 export GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-smoke-dummy.apps.googleusercontent.com}"
 export GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-smoke-dummy-secret}"
 export NOVA_MEDIA_BUCKET="${NOVA_MEDIA_BUCKET:-demo-test-multimedia}"
+# Don't probe the GCE metadata server: the credential-free emulator env isn't on
+# GCP, so google-auth's probe just emits a noisy MetadataLookupWarning — which
+# `next dev` forwards into the browser console, where the smoke's strict error
+# guard would (flakily) catch it. `none` skips the probe entirely.
+export METADATA_SERVER_DETECTION="${METADATA_SERVER_DETECTION:-none}"
 # Pin 127.0.0.1, not `localhost`: on Linux CI runners `localhost` resolves to
 # ::1 first, where the compose-published port (IPv4 only) isn't reachable —
 # atlas/the app get "connection reset by peer" on [::1]:5432.
