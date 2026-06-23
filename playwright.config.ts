@@ -8,8 +8,9 @@ import { urlHost } from "./e2e/lib/url";
  * Two ways to run, switched by `SMOKE_BASE_URL`:
  *
  *   • LOCAL / CI (default) — `scripts/smoke.sh` boots the Firestore emulator +
- *     a local Postgres, seeds data, and Playwright starts `next dev` itself
- *     (the `webServer` block). Both projects run. This is the full gate.
+ *     a local Postgres, seeds data, and Playwright builds + serves the
+ *     production server itself (the `webServer` block — `next build && next
+ *     start`, not dev, for prod fidelity). Both projects run. This is the full gate.
  *
  *   • AGAINST A LIVE URL — `SMOKE_BASE_URL=https://commcare.app npm run
  *     test:smoke:url` skips the local server and the seeded-session project,
@@ -49,9 +50,8 @@ const OPTIONAL_SERVER_ENV = [
 	"GOOGLE_CLIENT_ID",
 	"GOOGLE_CLIENT_SECRET",
 	"NOVA_MEDIA_BUCKET",
-	// Suppresses google-auth's GCE metadata probe (and its MetadataLookupWarning,
-	// which next dev forwards into the browser console) — the smoke env is not on
-	// GCP. See scripts/smoke.sh.
+	// Suppresses google-auth's GCE metadata probe (a noisy MetadataLookupWarning)
+	// — the smoke env is not on GCP. See scripts/smoke.sh.
 	"METADATA_SERVER_DETECTION",
 ] as const;
 
@@ -118,12 +118,19 @@ export default defineConfig({
 			},
 		},
 	],
-	// Manage our own `next dev` only when smoke.sh is driving a localhost run.
+	// Manage our own server only when smoke.sh is driving a localhost run.
 	// Against a deployed URL (or any already-running server) we test what's there.
 	webServer:
 		manageServer && isLocalTarget
 			? {
-					command: "next dev",
+					// Build + serve the PRODUCTION artifact, not `next dev`. Two reasons:
+					// (1) fidelity — the smoke then exercises what actually deploys
+					// (minified, prod React), so a build-only break is caught here; and
+					// (2) `next dev` forwards SERVER console output into the BROWSER
+					// console, where the error guard would catch benign server logs —
+					// `next start` doesn't. `fumadocs-mdx` first generates the
+					// `@/.source/server` import `next build` needs (as typecheck does).
+					command: "npx fumadocs-mdx && next build && next start",
 					url: BASE_URL,
 					// Never reuse a stray server: a dev's own `npm run dev` on :3000
 					// points at REAL Firestore with a different secret, so reusing it
@@ -131,8 +138,9 @@ export default defineConfig({
 					// emulator cookie fails to validate) — a confusing red. Always start
 					// the suite's own emulator-wired server.
 					reuseExistingServer: false,
-					// Next 16 + Turbopack cold compile of the first route is slow.
-					timeout: 180_000,
+					// Covers the production build (~2 min) + boot. `next start` serves
+					// pre-compiled routes, so per-test requests are fast after this.
+					timeout: 300_000,
 					stdout: "pipe",
 					stderr: "pipe",
 					env: smokeWebServerEnv(),
