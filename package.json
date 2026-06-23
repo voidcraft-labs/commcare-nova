@@ -83,7 +83,7 @@
 		"fumadocs-mdx": "^14.3.1",
 		"fumadocs-ui": "^16.8.4",
 		"fuse.js": "^7.3.0",
-		"htmlparser2": "^10.1.0",
+		"htmlparser2": "^12.0.0",
 		"immer": "^11.1.4",
 		"kysely": "^0.28.16",
 		"lucide-react": "^1.14.0",
