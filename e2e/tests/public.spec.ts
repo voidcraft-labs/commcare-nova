@@ -53,11 +53,14 @@ test.describe("public surface", () => {
 		// sign-in/social 500s (the prod-outage signature), no redirect happens and
 		// this fails.
 		//
-		// We abort the Google request instead of loading it — the assertion is
-		// purely "the click sends you to Google", so the test stays hermetic and
-		// never depends on Google being reachable.
+		// Stub Google's page with an empty 200 instead of loading it — the
+		// assertion is purely "the click sends you to Google", so the test stays
+		// hermetic and never depends on Google being reachable. (A stub rather than
+		// an abort so it logs no console error, which the error guard would catch.)
 		await page.goto("/");
-		await page.route("**/accounts.google.com/**", (route) => route.abort());
+		await page.route("**/accounts.google.com/**", (route) =>
+			route.fulfill({ status: 200, contentType: "text/html", body: "" }),
+		);
 		// Match on the parsed hostname, not a substring — `url.includes(host)`
 		// would also match `accounts.google.com.evil.test`
 		// (js/incomplete-url-substring-sanitization).
