@@ -9,6 +9,26 @@ const nextConfig: NextConfig = {
 	/* Produces a self-contained build with only necessary node_modules. */
 	output: "standalone",
 
+	/* Version-skew protection. Stamps the build with a per-build id (the Cloud
+	 * Build `$BUILD_ID`) so a client still holding an OLD build hard-reloads onto
+	 * the new one (rather than erroring) when it requests a JS chunk or a Server
+	 * Action ID the new deploy changed or removed. Injected as a build arg in
+	 * cloudbuild.yaml — see there for why $BUILD_ID and not the commit SHA; absent
+	 * locally (`next dev` / a bare `docker build`) it is `undefined`, so skew
+	 * protection is simply off: the client never force-reloads on a version
+	 * mismatch.
+	 *
+	 * This is the second half of the fix. The first half is the
+	 * `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` build-env var (set in the Dockerfile,
+	 * read by `next build` automatically — it needs NO config entry here): it
+	 * pins the key Next derives Server Action IDs from, so every UNCHANGED action
+	 * keeps the same ID build-over-build and an already-open builder tab keeps
+	 * calling the new server's actions. With both in place, the common deploy is
+	 * invisible to open tabs and only a genuinely-removed/renamed action triggers
+	 * the reload above. Without the key, Next re-rolls every action ID per build,
+	 * so EVERY deploy 500s every open tab's next Server Action call. */
+	deploymentId: process.env.NEXT_DEPLOYMENT_ID,
+
 	/* Run the Google Cloud server SDKs from node_modules instead of bundling
 	 * them into the minified server chunk.
 	 *
