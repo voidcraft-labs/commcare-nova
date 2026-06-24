@@ -104,7 +104,12 @@ describe("TextEditor — onChange no-op gate", () => {
 		);
 
 		const input = screen.getByLabelText("Hint") as HTMLInputElement;
-		input.focus();
+		// `fireEvent.focus`, not the raw `input.focus()` DOM call: focusing
+		// drives EditableText's `handleFocus` state update (draft snapshot +
+		// focused flag), which must run inside React's act() scope. A bare
+		// `.focus()` dispatches the event outside act and trips the
+		// "update … was not wrapped in act(...)" warning.
+		fireEvent.focus(input);
 		fireEvent.change(input, { target: { value: "" } });
 		fireEvent.blur(input);
 
