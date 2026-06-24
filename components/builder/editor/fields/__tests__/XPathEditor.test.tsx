@@ -175,8 +175,11 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 		) as HTMLInputElement;
 		expect(messageInput.value).toBe("Must be greater than zero.");
 
-		// User clears the input and blurs.
-		messageInput.focus();
+		// User clears the input and blurs. `fireEvent.focus`, not the raw
+		// `messageInput.focus()` DOM call: focusing drives EditableText's
+		// `handleFocus` state update, which must run inside React's act()
+		// scope or React warns the update was not wrapped in act(...).
+		fireEvent.focus(messageInput);
 		fireEvent.change(messageInput, { target: { value: "" } });
 		fireEvent.blur(messageInput);
 

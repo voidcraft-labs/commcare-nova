@@ -17,7 +17,7 @@
 // intents and PreviewShell's Activity boundaries; live data loading
 // is a black box from this surface's perspective.
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
@@ -149,12 +149,18 @@ function renderShell() {
 }
 
 describe("PreviewShell — case-list-authoring integration", () => {
-	it("at /cases (edit mode) renders the workspace tabs + case-list canvas, with no Preview affordance", () => {
+	it("at /cases (edit mode) renders the workspace tabs + case-list canvas, with no Preview affordance", async () => {
 		currentLocation = {
 			kind: "cases",
 			moduleUuid: MODULE_UUID,
 		};
-		renderShell();
+		// The real workspace fires `loadCaseListPreviewAction` (stubbed) in a
+		// mount effect; its resolution sets state after the synchronous
+		// render. Render inside `act(async)` so that settle happens in scope —
+		// otherwise React warns the update was not wrapped in act(...).
+		await act(async () => {
+			renderShell();
+		});
 
 		// The three config tabs are present…
 		expect(screen.getByRole("button", { name: /Search/ })).toBeDefined();
@@ -168,13 +174,17 @@ describe("PreviewShell — case-list-authoring integration", () => {
 		expect(screen.getByText("Patient module")).toBeDefined();
 	});
 
-	it("the Case Detail tab fires navigate.openDetailConfig", () => {
+	it("the Case Detail tab fires navigate.openDetailConfig", async () => {
 		currentLocation = {
 			kind: "cases",
 			moduleUuid: MODULE_UUID,
 		};
 		navigateMock.openDetailConfig.mockClear();
-		renderShell();
+		// Settle the mount-effect preview load inside act() before
+		// interacting — see the sibling test above.
+		await act(async () => {
+			renderShell();
+		});
 		fireEvent.click(screen.getByRole("button", { name: /Case Detail/ }));
 		expect(navigateMock.openDetailConfig).toHaveBeenCalledOnce();
 		expect(navigateMock.openDetailConfig).toHaveBeenCalledWith(MODULE_UUID);
