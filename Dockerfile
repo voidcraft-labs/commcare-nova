@@ -75,6 +75,26 @@ ARG SENTRY_AUTH_TOKEN
 ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 ARG NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID
 
+# Server Action / asset version-skew protection. Both are consumed by
+# `next build`, not at runtime — a build ARG is visible to the RUN step's
+# `process.env`, exactly like SENTRY_AUTH_TOKEN above, so neither needs a
+# separate ENV line and neither leaks into the runner stage.
+#   • NEXT_SERVER_ACTIONS_ENCRYPTION_KEY pins the key Next derives Server Action
+#     IDs (and closure encryption) from. With it fixed, every UNCHANGED action
+#     keeps the same ID across builds, so an already-open builder tab keeps
+#     calling the new deploy's actions instead of getting "Failed to find Server
+#     Action". Cloud Build passes it from Secret Manager (`nova-server-actions-key`);
+#     a local `docker build` leaves it empty and Next falls back to a per-build
+#     random key (fine for dev — there are no rolling deploys locally). It is a
+#     server-side key (never shipped to the browser).
+#   • NEXT_DEPLOYMENT_ID (a per-build id; cloudbuild passes $BUILD_ID) feeds
+#     next.config.ts's `deploymentId`: on a deploy that DID change/remove an
+#     action, or when a stale JS chunk is requested, the client hard-reloads onto
+#     the consistent new build instead of erroring. Empty locally → skew
+#     protection off (no forced reload on a version mismatch).
+ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
+ARG NEXT_DEPLOYMENT_ID
+
 RUN npm run build
 
 # --- Stage 4: Production runner ---

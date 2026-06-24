@@ -9,7 +9,7 @@
 # `deploy`, so the old revision keeps serving and we never ship code ahead of a
 # failed schema change (same guarantee the old startup CMD gave, at deploy time).
 steps:
-  # Two values ride into the image build as build args because `next build`
+  # These values ride into the image build as build args because `next build`
   # consumes them at BUILD time, not runtime:
   #   • SENTRY_AUTH_TOKEN (Secret Manager: `nova-sentry`) — lets the build
   #     upload source maps; without it every Sentry stack trace stays minified.
@@ -20,6 +20,25 @@ steps:
   #     `next build`, so a Cloud Run runtime env var would NOT reach them; they
   #     must be present at build. Without them the geopoint picker degrades to
   #     manual lat/lon entry.
+  #   • NEXT_SERVER_ACTIONS_ENCRYPTION_KEY (Secret Manager: `nova-server-actions-key`,
+  #     a base64 AES key) — pins the key Next derives Server Action IDs from, so an
+  #     already-open builder tab keeps calling the new deploy's actions instead of
+  #     getting "Failed to find Server Action". Create the secret AND grant the
+  #     trigger SA accessor (see the note below) BEFORE this change lands: Cloud
+  #     Build fetches every `availableSecrets` entry up front and fails the whole
+  #     build if one is missing or unreadable. (`next build` itself tolerates an
+  #     empty value — it falls back to a per-build random key that re-rolls action
+  #     IDs every build — but the build never reaches that point without the
+  #     secret existing.)
+  #   • NEXT_DEPLOYMENT_ID (= $BUILD_ID, a non-secret literal) — feeds
+  #     next.config.ts's `deploymentId`, so a client on an old build hard-reloads
+  #     onto the new one when it hits a changed/removed action or a stale chunk.
+  #     Use $BUILD_ID, NOT $COMMIT_SHA: $COMMIT_SHA is empty for non-commit builds
+  #     (a manual `gcloud builds submit` / console re-run), which would ship a
+  #     revision with `deploymentId:""` (falsy → skew protection silently off);
+  #     and a retried/rebuilt commit reuses the same SHA but gets fresh per-build
+  #     chunk hashes, so a SHA-keyed id would miss that skew. $BUILD_ID is always
+  #     set and unique per build, so it changes between any two deploys.
   # Secrets only reach a step through env vars, and env vars only expand under a
   # shell, hence the bash wrapper. The trigger's service account needs
   # `roles/secretmanager.secretAccessor` on each secret or the build fails
@@ -27,7 +46,10 @@ steps:
   - id: build
     name: gcr.io/cloud-builders/docker
     entrypoint: bash
-    secretEnv: ["SENTRY_AUTH_TOKEN", "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY"]
+    secretEnv:
+      - SENTRY_AUTH_TOKEN
+      - NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+      - NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
     args:
       - -c
       - |
@@ -37,6 +59,8 @@ steps:
           --build-arg SENTRY_AUTH_TOKEN="$$SENTRY_AUTH_TOKEN" \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY="$$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY" \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID="ac18fb2d87e44a1eb5a19883" \
+          --build-arg NEXT_SERVER_ACTIONS_ENCRYPTION_KEY="$$NEXT_SERVER_ACTIONS_ENCRYPTION_KEY" \
+          --build-arg NEXT_DEPLOYMENT_ID="$BUILD_ID" \
           -f Dockerfile .
 
   - id: push
@@ -112,3 +136,12 @@ availableSecrets:
       env: SENTRY_AUTH_TOKEN
     - versionName: projects/$PROJECT_ID/secrets/nova-google_maps_api_key/versions/latest
       env: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    # Pinned to an explicit version, NOT `latest`: this key's whole job is to stay
+    # constant across builds. Following `latest` would let a routine secret rotation
+    # silently change the key with no code change, re-rolling every Server Action ID
+    # and 500-ing every already-open tab on the next deploy. Rotating is therefore a
+    # deliberate, breaking-for-open-tabs act: add a new secret version, bump this
+    # pin to match, and expect open sessions to reload once. Value must be a base64
+    # AES key (16/24/32 bytes) — `openssl rand -base64 32`.
+    - versionName: projects/$PROJECT_ID/secrets/nova-server-actions-key/versions/1
+      env: NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
