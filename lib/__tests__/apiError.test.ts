@@ -9,7 +9,14 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { readJsonBody } from "../apiError";
+import {
+	BLUEPRINT_REQUEST_MAX_BYTES,
+	CHAT_REQUEST_MAX_BYTES,
+	CLIENT_ERROR_MAX_BYTES,
+	declaredBodyTooLarge,
+	OAUTH_REVOKE_MAX_BYTES,
+	readJsonBody,
+} from "../apiError";
 
 function fakeReq(opts: {
 	contentLength?: string;
@@ -63,5 +70,42 @@ describe("readJsonBody", () => {
 			4096,
 		);
 		expect(parsed).toEqual({ b: 2 });
+	});
+});
+
+describe("declaredBodyTooLarge", () => {
+	it("is true only when Content-Length exceeds the cap", () => {
+		const json = async () => ({});
+		expect(
+			declaredBodyTooLarge(fakeReq({ contentLength: "5000", json }), 4096),
+		).toBe(true);
+		expect(
+			declaredBodyTooLarge(fakeReq({ contentLength: "4096", json }), 4096),
+		).toBe(false);
+		// Chunked (no Content-Length) can't be judged here — the platform limit
+		// is the backstop, so this returns false rather than rejecting.
+		expect(declaredBodyTooLarge(fakeReq({ json }), 4096)).toBe(false);
+	});
+});
+
+describe("request-size budgets", () => {
+	it("keep the public/auth caps tiny, blueprint above the 1 MiB doc limit, and all under the platform ceiling", () => {
+		expect(CLIENT_ERROR_MAX_BYTES).toBeLessThanOrEqual(64 * 1024);
+		expect(OAUTH_REVOKE_MAX_BYTES).toBeLessThanOrEqual(64 * 1024);
+		// A blueprint is one ~1 MiB-bounded Firestore doc; the cap must clear it.
+		expect(BLUEPRINT_REQUEST_MAX_BYTES).toBeGreaterThan(1024 * 1024);
+		// Chat carries the blueprint PLUS bounded history, so it's the largest.
+		expect(CHAT_REQUEST_MAX_BYTES).toBeGreaterThanOrEqual(
+			BLUEPRINT_REQUEST_MAX_BYTES,
+		);
+		// Every cap stays well under Cloud Run's ~32 MB inbound limit.
+		for (const cap of [
+			CLIENT_ERROR_MAX_BYTES,
+			OAUTH_REVOKE_MAX_BYTES,
+			BLUEPRINT_REQUEST_MAX_BYTES,
+			CHAT_REQUEST_MAX_BYTES,
+		]) {
+			expect(cap).toBeLessThan(32 * 1024 * 1024);
+		}
 	});
 });

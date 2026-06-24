@@ -31,6 +31,11 @@ export async function POST(req: NextRequest) {
 		// the pre-media output.
 		const hasMedia = assets.size > 0;
 		const hqJson = expandDoc(doc, hasMedia ? { assets } : {});
+		// ASCII-safe name for the `Content-Disposition` HEADER (a Latin-1
+		// ByteString — non-ASCII would throw in the `Headers` constructor). The
+		// ZIP's internal member name is sanitized separately inside the builder
+		// and keeps Unicode, so the download filename can be ASCII while the
+		// member preserves the app's real name.
 		const appName = sanitizeFilename(doc.appName);
 
 		if (!hasMedia) {
@@ -44,7 +49,9 @@ export async function POST(req: NextRequest) {
 		}
 
 		// Media-ON: the json + HQ-format multimedia zip + import README bundle.
-		const archive = buildHqJsonExportArchive(appName, hqJson, assets);
+		// Pass the RAW name — the builder's Unicode-safe member sanitizer keeps
+		// non-Latin/accented names intact inside the archive.
+		const archive = buildHqJsonExportArchive(doc.appName, hqJson, assets);
 		return new NextResponse(new Uint8Array(archive), {
 			headers: {
 				"Content-Type": "application/zip",

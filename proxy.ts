@@ -55,23 +55,27 @@ const TRUSTED_CLIENT_IP_HEADER = "x-nova-client-ip";
 
 /**
  * Number of XFF entries the proxy treats as trusted (counted from the
- * right). The deployment is Cloud Run with domain mappings — no
- * Application Load Balancer in front, no Cloud Armor — so the only
- * trusted hop is Google Front End's own appendage. Per Cloud
- * Functions / Cloud Run header documentation the GFE places the real
- * client IP in `X-Forwarded-For`; if a client supplied additional
- * values, GFE may preserve them on the left (the spoofable region).
- * Trim down to the rightmost entry to keep only what GFE wrote.
+ * right). The deployment NOW fronts Cloud Run with a Global External
+ * Application Load Balancer + Cloud Armor (the serverless-NEG topology
+ * stood up by `scripts/infra/setup-cloud-armor-lb.sh`). Google's external
+ * ALB appends `<client-ip>, <lb-ip>` to `X-Forwarded-For`, so the trusted
+ * suffix is the rightmost TWO entries and the real client IP is the
+ * second-from-right. Anything to the left is the client-supplied (spoofable)
+ * region.
  *
- * If the deployment ever fronts the service with an external
- * Application Load Balancer, this constant moves to 2 — ALB appends
- * `<client-ip>, <lb-ip>` (per Google's load-balancer documentation),
- * making the rightmost two entries the trusted suffix. Anything
- * deeper (CDN, transparent proxy) shifts the count further. Update
- * here whenever the deployment topology changes; the comment is the
- * source of truth for "how many hops do we trust."
+ * This was `1` under the prior Cloud-Run-domain-mappings topology (GFE's
+ * single appendage). The LB cutover added the extra hop; leaving it at 1
+ * would take the rightmost entry — the LOAD BALANCER IP — for every request,
+ * collapsing Better Auth's per-IP rate limiter and all IP attribution onto
+ * one shared address.
+ *
+ * Anything deeper (CDN, transparent proxy) shifts the count further. Update
+ * here whenever the deployment topology changes; this comment is the source
+ * of truth for "how many hops do we trust." VALIDATE post-deploy that
+ * `x-nova-client-ip` shows real, varied client IPs (not the LB IP) — if the
+ * serverless NEG adds a further Cloud Run hop, bump to 3.
  */
-const TRUSTED_XFF_HOPS = 1;
+const TRUSTED_XFF_HOPS = 2;
 
 /**
  * Pull the trusted client IP from `X-Forwarded-For`. Takes the value

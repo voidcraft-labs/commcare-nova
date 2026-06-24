@@ -69,7 +69,10 @@ function validDoc() {
 }
 
 function reqWith(body: unknown) {
-	return { json: async () => body } as unknown as Parameters<typeof POST>[0];
+	return {
+		headers: new Headers(),
+		json: async () => body,
+	} as unknown as Parameters<typeof POST>[0];
 }
 
 beforeEach(() => {

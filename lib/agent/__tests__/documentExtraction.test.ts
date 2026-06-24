@@ -9,6 +9,7 @@
 // round-trips through the real SheetJS encoder so we verify the actual library
 // contract, not a hand-rolled mock of its output shape.
 
+import AdmZip from "adm-zip";
 import { describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 import {
@@ -113,8 +114,12 @@ describe("extractDocument", () => {
 
 	it("converts a docx document via mammoth before condensing", async () => {
 		const { condenser, call } = recordingCondenser();
+		// A real (minimal) ZIP so the office-archive preflight passes; mammoth is
+		// mocked, so the entry content is irrelevant to the conversion itself.
+		const docxBytes = new AdmZip();
+		docxBytes.addFile("word/document.xml", Buffer.from("<document/>"));
 		await extractDocument({
-			bytes: Buffer.from("PK-docx-bytes"),
+			bytes: docxBytes.toBuffer(),
 			mimeType:
 				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 			kind: "docx",

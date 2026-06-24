@@ -71,15 +71,16 @@ const PENDING_OBJECT_TTL_DAYS = 1;
  * objects under the `pending/` prefix.
  *
  * Browser uploads PUT to a per-attempt `pending/<owner>/...` key via a V4
- * signed URL. A V4 signed PUT can't bind a maximum Content-Length (that's
- * a signed-POST-policy feature), so a client that uploads an oversized
- * object and then never calls confirm leaves it in `pending/` — confirm-
- * time validation is what deletes oversized bytes, and it only runs if the
- * client calls confirm. This rule is the backstop: GCS itself deletes any
- * `pending/` object older than `PENDING_OBJECT_TTL_DAYS`, reaping both
- * abandoned and oversized attempts with no server-side cron. Ready objects
- * are never touched — confirm promotes validated bytes OUT of `pending/`
- * to the content-hash key before flipping the row to ready.
+ * signed URL. The signed URL now binds a MAXIMUM body length (the
+ * `x-goog-content-length-range` extension header — see
+ * `createSignedUploadUrl`), so GCS rejects an oversized write at the storage
+ * boundary; what still accumulates is the WITHIN-cap object whose client
+ * never calls confirm (confirm promotes validated bytes out of `pending/`).
+ * This rule is the backstop for those abandoned attempts: GCS itself deletes
+ * any `pending/` object older than `PENDING_OBJECT_TTL_DAYS` with no
+ * server-side cron. Ready objects are never touched — confirm promotes
+ * validated bytes OUT of `pending/` to the content-hash key before flipping
+ * the row to ready.
  *
  * Idempotent: `append: false` replaces the bucket's lifecycle with this
  * single rule. The media bucket is dedicated, so it owns no other rules to
@@ -108,44 +109,98 @@ export async function applyPendingObjectLifecycle(): Promise<void> {
  *    uploads use `pending/<owner>/<assetId>.<ext>`; the owner segment
  *    keeps a different owner's namespace structurally unreachable),
  *  - the request `Content-Type` header (the upload must declare
- *    the same MIME the route's pre-screen accepted).
+ *    the same MIME the route's pre-screen accepted),
+ *  - a MAXIMUM body length, via the signed `x-goog-content-length-range`
+ *    extension header (`0,<maxBytes>`). Because the header is part of the V4
+ *    signature, the client MUST send it verbatim (returned in
+ *    `requiredHeaders`) and GCS REJECTS a body outside the range at the
+ *    storage boundary — so a client can't push an over-cap object into
+ *    `pending/` by lying about its size at initiate (CWE-770). The bucket
+ *    CORS must allow this request header or the browser preflight strips it
+ *    and the PUT 403s — see {@link applyMediaBucketCors} (a deploy
+ *    prerequisite).
  *
- * A 5-minute TTL keeps a leaked URL short-lived. Confirm-time
- * validation is the authoritative tamper protection: the confirm step
- * downloads the bytes from `gcsObjectKey`, re-computes the sha256, and
- * rejects if the actual hash doesn't match the row's claimed hash.
- * There's no server-side body-hash binding here — we'd need a separate
- * canonical-request mechanism, and the confirm-time re-validation
- * already covers it.
+ * A 5-minute TTL keeps a leaked URL short-lived. Confirm-time validation
+ * still re-downloads + re-hashes the bytes as the authoritative content
+ * check; the byte-range binding is what stops an oversized object from ever
+ * existing, even unconfirmed.
  */
 export async function createSignedUploadUrl(args: {
 	gcsObjectKey: string;
 	contentType: string;
-}): Promise<{ url: string; expiresAtMs: number }> {
+	maxBytes: number;
+}): Promise<{
+	url: string;
+	expiresAtMs: number;
+	requiredHeaders: Record<string, string>;
+}> {
 	const ttlMs = 5 * 60 * 1000;
 	const expiresAtMs = Date.now() + ttlMs;
+
+	// The byte range the write must fall within — the GCS XML-API
+	// `x-goog-content-length-range: <min>,<max>` form.
+	const contentLengthRange = `0,${args.maxBytes}`;
 
 	// Local dev: developer ADC is a user credential with no private key, so
 	// it cannot mint a V4 signature (prod's runtime service account signs
 	// via the IAM credentials API). The browser instead PUTs to a
 	// same-origin dev-only route that writes the bytes through this
-	// module's storage client. The rest of the upload flow (initiate → PUT
-	// → confirm → validate → promote) stays byte-identical to prod — only
-	// the signed-PUT hop is swapped. The route 404s outside development.
+	// module's storage client. That proxy enforces the same cap server-side
+	// via the `max` query param (it writes the bytes itself, so there's no
+	// signed GCS write to bind the range onto). The rest of the upload flow
+	// (initiate → PUT → confirm → validate → promote) stays byte-identical
+	// to prod — only the signed-PUT hop is swapped. The route 404s outside
+	// development.
 	if (process.env.NODE_ENV === "development") {
 		const url = `/api/media/upload/dev-put?key=${encodeURIComponent(
 			args.gcsObjectKey,
-		)}`;
-		return { url, expiresAtMs };
+		)}&max=${args.maxBytes}`;
+		return { url, expiresAtMs, requiredHeaders: {} };
 	}
 
-	const [url] = await getBucket().file(args.gcsObjectKey).getSignedUrl({
-		version: "v4",
-		action: "write",
-		expires: expiresAtMs,
-		contentType: args.contentType,
-	});
-	return { url, expiresAtMs };
+	const [url] = await getBucket()
+		.file(args.gcsObjectKey)
+		.getSignedUrl({
+			version: "v4",
+			action: "write",
+			expires: expiresAtMs,
+			contentType: args.contentType,
+			extensionHeaders: { "x-goog-content-length-range": contentLengthRange },
+		});
+	return {
+		url,
+		expiresAtMs,
+		requiredHeaders: { "x-goog-content-length-range": contentLengthRange },
+	};
+}
+
+/**
+ * Apply the media bucket's CORS policy for browser direct uploads.
+ *
+ * A browser upload is a cross-origin V4 signed PUT, so the bucket must allow
+ * the PUT method and EVERY request header the upload sends: `Content-Type`
+ * AND `x-goog-content-length-range` (the signed max-length binding from
+ * {@link createSignedUploadUrl}). A PUT is never a CORS-"simple" request, so
+ * the browser always preflights — and if `x-goog-content-length-range` isn't
+ * in this allowlist the preflight drops it, the client can't send the signed
+ * header, and the PUT 403s. This MUST be applied (with the size-bound upload's
+ * header added to the pre-existing CORS) BEFORE that code ships, or uploads
+ * break.
+ *
+ * `setCorsConfiguration` REPLACES the bucket's CORS, so `origins` must be the
+ * COMPLETE set of app origins the browser uploads from. The media bucket is
+ * dedicated, so it owns no other CORS rule to preserve. Operational, not on
+ * the request path — run via `scripts/infra/apply-media-bucket-cors.ts`.
+ */
+export async function applyMediaBucketCors(origins: string[]): Promise<void> {
+	await getBucket().setCorsConfiguration([
+		{
+			origin: origins,
+			method: ["PUT", "OPTIONS"],
+			responseHeader: ["Content-Type", "x-goog-content-length-range"],
+			maxAgeSeconds: 3600,
+		},
+	]);
 }
 
 /**

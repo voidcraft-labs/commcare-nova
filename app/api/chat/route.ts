@@ -15,6 +15,7 @@ import {
 	MESSAGES,
 	resolveAttachments,
 } from "@/lib/agent";
+import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveAnthropicKey } from "@/lib/auth-utils";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
@@ -60,7 +61,32 @@ export const maxDuration = 300;
 // ── Route Handler ──────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-	const body = await req.json();
+	// Bound the UNauthenticated parse: reject a declared-oversized body before
+	// `req.json()` buffers it, ahead of `resolveAnthropicKey` below. The cap is
+	// generous enough for the largest real request (blueprint + bounded message
+	// history); the message/attachment/text limits stay as the secondary,
+	// post-parse controls.
+	if (declaredBodyTooLarge(req, CHAT_REQUEST_MAX_BYTES)) {
+		return Response.json(
+			{
+				error:
+					"That request is too large to process. Start a fresh conversation — the history has grown past what one request can send.",
+				type: "invalid_request",
+			},
+			{ status: 413 },
+		);
+	}
+	let body: { messages?: unknown; [k: string]: unknown };
+	try {
+		body = await req.json();
+	} catch {
+		// Malformed-but-within-cap JSON: a clean 4xx, not an opaque 500 (matches
+		// the structured 413 above and the 400s below).
+		return Response.json(
+			{ error: "Invalid request body", type: "invalid_request" },
+			{ status: 400 },
+		);
+	}
 
 	// Messages come from the AI SDK's useChat. The route owns the SECURITY gate on
 	// them: the untrusted attachment metadata is re-resolved every turn (each ref

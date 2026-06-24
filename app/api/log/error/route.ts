@@ -11,6 +11,7 @@
  * grouping, and filterable `source: client` labels alongside server errors.
  */
 import { z } from "zod/v4";
+import { CLIENT_ERROR_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { log } from "@/lib/logger";
 
 // ── Payload Schema ────────────────────────────────────────────────────
@@ -19,6 +20,21 @@ import { log } from "@/lib/logger";
 const MAX_MESSAGE = 2000;
 const MAX_STACK = 8000;
 const MAX_URL = 2000;
+
+// ── Server-side flood control ─────────────────────────────────────────
+//
+// This endpoint is intentionally public, and the only client-side throttle
+// (`lib/clientErrorReporter.ts`) is bypassed by a direct HTTP caller. Without
+// a bound, an anonymous client can emit unbounded production `ERROR` records —
+// Cloud Logging cost + alert fatigue (CWE-770).
+//
+// The rate limit lives at the EDGE in Cloud Armor, NOT in app code: a per-IP
+// throttle rule (60 req / 60s → 429) on the `nova-armor` security policy
+// attached to the Global External Application Load Balancer that fronts Cloud
+// Run drops the flood before it reaches this service (so it costs no Cloud Run
+// request at all). See `scripts/infra/setup-cloud-armor-lb.sh`. The route keeps
+// only the per-request body-size cap below; aggregate request-rate control is
+// the edge's job.
 
 const clientErrorSchema = z.object({
 	message: z.string().max(MAX_MESSAGE),
@@ -36,6 +52,13 @@ const clientErrorSchema = z.object({
 // ── Route Handler ─────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
+	// Reject a declared-oversized body before parsing — every accepted field is
+	// schema-capped (~20 KB total), so anything over 32 KB is abuse. (Aggregate
+	// request-rate flood control is enforced at the edge by Cloud Armor.)
+	if (declaredBodyTooLarge(req, CLIENT_ERROR_MAX_BYTES)) {
+		return new Response(null, { status: 413 });
+	}
+
 	let body: unknown;
 	try {
 		body = await req.json();

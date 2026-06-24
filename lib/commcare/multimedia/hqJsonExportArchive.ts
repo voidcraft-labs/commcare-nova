@@ -16,6 +16,7 @@
 // emission boundary alongside its sibling wire builders.
 
 import AdmZip from "adm-zip";
+import { sanitizeArchiveMemberName } from "@/lib/utils/sanitize";
 import type { HqApplication } from "../types";
 import type { AssetManifest } from "./assetWirePath";
 import { buildMediaBulkUploadZip } from "./bulkUploadZip";
@@ -36,13 +37,24 @@ export function buildHqJsonExportArchive(
 	hqJson: HqApplication,
 	assets: AssetManifest,
 ): Buffer {
+	// Sanitize HERE, at the archive boundary, so the `<app>.json` member is
+	// always a safe relative leaf no matter which caller arrives — `appName` is
+	// an owner-controlled string the blueprint schema leaves unconstrained, so a
+	// name carrying `/`, `\`, `:`, CR/LF, or `..` segments would otherwise become
+	// the ZIP entry path a downstream extractor trusts. Use the archive-member
+	// sanitizer (NOT `sanitizeFilename`): a ZIP member is UTF-8, so a non-Latin
+	// or accented app name (`调查表`, `Café Survey`) keeps its identity here,
+	// while the HTTP route's separate `Content-Disposition` filename stays ASCII.
+	// The README's filename references use the same safe name so its
+	// instructions match the actual member.
+	const safeName = sanitizeArchiveMemberName(appName);
 	const bundle = new AdmZip();
 	bundle.addFile(
-		`${appName}.json`,
+		`${safeName}.json`,
 		Buffer.from(JSON.stringify(hqJson, null, 2), "utf-8"),
 	);
 	bundle.addFile("multimedia.zip", buildMediaBulkUploadZip(assets));
-	bundle.addFile("README.txt", Buffer.from(importReadme(appName), "utf-8"));
+	bundle.addFile("README.txt", Buffer.from(importReadme(safeName), "utf-8"));
 	return bundle.toBuffer();
 }
 

@@ -17,7 +17,12 @@
  */
 
 import { type NextRequest, NextResponse } from "next/server";
-import { ApiError, handleApiError } from "@/lib/apiError";
+import {
+	ApiError,
+	BLUEPRINT_REQUEST_MAX_BYTES,
+	handleApiError,
+	readJsonBody,
+} from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import {
 	importApp,
@@ -38,11 +43,18 @@ import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 export async function POST(req: NextRequest) {
 	try {
 		const session = await requireSession(req);
-		const body = (await req.json()) as {
+		// Cap the body before materializing it (one ~1 MiB-bounded blueprint +
+		// a small envelope); rejects the pathological without touching a real
+		// upload.
+		const body = (await readJsonBody(req, BLUEPRINT_REQUEST_MAX_BYTES)) as {
 			domain?: string;
 			appName?: string;
 			doc?: unknown;
-		};
+		} | null;
+
+		if (!body) {
+			throw new ApiError("App data is required", 400);
+		}
 
 		/* ── Validate inputs ────────────────────────────────────────── */
 		if (!body.domain?.trim()) {

@@ -8,6 +8,7 @@
  * singleton is initialized on first request via `getAuth()`, not at module
  * import time (which would crash during `next build`).
  */
+import { declaredBodyTooLarge, OAUTH_REVOKE_MAX_BYTES } from "@/lib/apiError";
 import { getAuth } from "@/lib/auth";
 import {
 	cleanupStalePublicOAuthClients,
@@ -16,6 +17,11 @@ import {
 import { log } from "@/lib/logger";
 
 async function readRevokedToken(req: Request): Promise<string | null> {
+	// A revoke body is a single token. Bound this app-owned read so a public
+	// caller can't make the wrapper buffer a large body ahead of Better Auth's
+	// own handling; an over-cap body just skips the watermark bookkeeping (the
+	// cloned request still reaches the provider, which applies its own limits).
+	if (declaredBodyTooLarge(req, OAUTH_REVOKE_MAX_BYTES)) return null;
 	const contentType = req.headers.get("content-type") ?? "";
 	if (contentType.includes("application/json")) {
 		const body = (await req.json().catch(() => null)) as {

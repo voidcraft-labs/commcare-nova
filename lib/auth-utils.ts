@@ -19,8 +19,58 @@ import { connection } from "next/server";
 import { cache } from "react";
 import { ApiError } from "./apiError";
 import { getAuth, type Session } from "./auth";
+import { isUserActive } from "./db/api-keys";
 import { getDb } from "./db/firestore";
 import { log } from "./logger";
+
+/**
+ * Live check that a session's user is still active (not banned or deleted).
+ * Better Auth's compact cookie cache (5-minute `maxAge`, configured at
+ * `lib/auth.ts::session.cookieCache`) means a raw `getSession` can return a
+ * still-valid-looking payload for up to that window after a ban or deletion
+ * revoked the underlying session row (CWE-613). The MCP api-key route
+ * (`api-key-auth.ts`) and the api-key Server Actions (`api-key-actions.ts`)
+ * already gate on this `isUserActive` read; this is the shared primitive that
+ * extends the same revocation lock to EVERY authenticated surface.
+ *
+ * It runs at the two session choke points — `getSessionSafe` (route handlers)
+ * and `getSession` (RSC + Server Actions) — so a revoked user is denied on
+ * every page, API route, and action within the cache window, not just the
+ * costly/mutating ones. The cost is one Firestore read per authenticated
+ * request (the cookie cache still spares the Better Auth session-row read);
+ * unauthenticated requests pay nothing (no session → no lookup).
+ *
+ * A definitive `false` (banned/deleted) DENIES; a lookup ERROR fails OPEN (see
+ * the body) — denying every authenticated request on a transient Firestore
+ * blip would be a self-inflicted outage, far worse than the bounded revocation
+ * gap that only reopens while Firestore itself is unreachable.
+ */
+async function sessionUserIsActive(session: Session): Promise<boolean> {
+	// During admin impersonation `session.user` is the impersonated TARGET, so
+	// gate revocation on the ACTING ADMIN (`impersonatedBy`): banning a user
+	// then impersonating them to investigate must NOT read as signed-out, and a
+	// banned admin still can't impersonate. Single-sourced here so the two
+	// session choke points can't drift on the impersonation rule.
+	const userId = session.session.impersonatedBy ?? session.user.id;
+	try {
+		return await isUserActive(userId);
+	} catch (err) {
+		// Fail OPEN on a lookup ERROR — distinct from a definitive `false`
+		// (banned/deleted), which still denies. Because this now runs on EVERY
+		// authenticated request (RSC renders, API routes, Server Actions,
+		// including the per-inline-image media route), denying on a transient
+		// Firestore blip would mass-sign-out the whole user base and break every
+		// media load — strictly worse than the bounded revocation gap that
+		// reopens only during an outage, when the app is already degraded. Use
+		// `log.warn` (Cloud-Logging-only, NOT mirrored to Sentry) so an outage
+		// doesn't also flood Sentry with one event per authenticated request.
+		log.warn("[auth] user-status lookup failed; allowing (fail-open)", {
+			userId,
+			err: err instanceof Error ? err.message : String(err),
+		});
+		return true;
+	}
+}
 
 // ── Sentry user attribution ─────────────────────────────────────────
 
@@ -120,6 +170,8 @@ type AnthropicKeyResult = AnthropicKeyResolved | AnthropicKeyError;
 export async function resolveAnthropicKey(
 	req: Request,
 ): Promise<AnthropicKeyResult> {
+	// `getSessionSafe` already applies the live banned/deleted revocation lock,
+	// so a revoked user reads as signed-out here (no paid model call).
 	const session = await getSessionSafe(req);
 	if (!session) {
 		return {
@@ -147,6 +199,7 @@ export async function resolveAnthropicKey(
  * so the admin dashboard reflects actual app usage, not just chat activity.
  */
 export async function requireSession(req: Request): Promise<Session> {
+	// `getSessionSafe` already applies the live banned/deleted revocation lock.
 	const session = await getSessionSafe(req);
 	if (!session) {
 		throw new ApiError("Authentication required", 401);
@@ -204,13 +257,18 @@ export async function requireAdmin(req: Request): Promise<Session> {
 /**
  * Safely attempt to retrieve the session from a request.
  *
- * Returns null instead of throwing when auth headers are missing or invalid.
+ * Returns null instead of throwing when auth headers are missing or invalid —
+ * AND when the resolved user has been banned or deleted ({@link
+ * sessionUserIsActive}), so the universal revocation lock applies to every API
+ * route that authenticates through here.
  */
 export async function getSessionSafe(req: Request): Promise<Session | null> {
 	try {
 		const result = await getAuth().api.getSession({ headers: req.headers });
-		if (result) identifySentryUser(result);
-		return result ?? null;
+		if (!result) return null;
+		if (!(await sessionUserIsActive(result))) return null;
+		identifySentryUser(result);
+		return result;
 	} catch {
 		return null;
 	}
@@ -228,7 +286,10 @@ export async function getSessionSafe(req: Request): Promise<Session | null> {
  * caching, each would be a separate Firestore read for the same session.
  *
  * Returns null if not authenticated — use when authentication is optional
- * (e.g. the landing page checking whether to redirect).
+ * (e.g. the landing page checking whether to redirect). Also returns null when
+ * the resolved user has been banned or deleted ({@link sessionUserIsActive}),
+ * so the universal revocation lock applies to every RSC page and Server Action
+ * that authenticates through here, not just the costly/mutating ones.
  */
 export const getSession = cache(async (): Promise<Session | null> => {
 	/* Bail out of static prerendering before touching auth or Firestore.
@@ -240,7 +301,9 @@ export const getSession = cache(async (): Promise<Session | null> => {
 	try {
 		const session =
 			(await getAuth().api.getSession({ headers: await headers() })) ?? null;
-		if (session) identifySentryUser(session);
+		if (!session) return null;
+		if (!(await sessionUserIsActive(session))) return null;
+		identifySentryUser(session);
 		return session;
 	} catch {
 		return null;

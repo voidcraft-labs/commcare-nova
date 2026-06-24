@@ -64,6 +64,7 @@ beforeEach(() => {
 	vi.mocked(createSignedUploadUrl).mockResolvedValue({
 		url: "https://storage.example/signed",
 		expiresAtMs: 123,
+		requiredHeaders: { "x-goog-content-length-range": "0,100" },
 	});
 });
 
@@ -80,11 +81,19 @@ describe("POST /api/media/upload", () => {
 		const body = (await res.json()) as {
 			assetId: string;
 			uploadUrl: string;
+			uploadHeaders: Record<string, string>;
 		};
 
 		expect(res.status).toBe(200);
 		expect(body.assetId).toBe("asset-1");
 		expect(body.uploadUrl).toBe("https://storage.example/signed");
+		// The signed `x-goog-content-length-range` header the browser MUST echo on
+		// the PUT — the most deploy-fragile wire of this change. If the route
+		// stopped forwarding `requiredHeaders` as `uploadHeaders`, every upload
+		// would 403 the V4 signature; this is the tripwire.
+		expect(body.uploadHeaders).toEqual({
+			"x-goog-content-length-range": "0,100",
+		});
 		const pendingArgs = vi.mocked(createPendingAsset).mock.calls[0]?.[0];
 		expect(pendingArgs).toMatchObject({
 			owner: "user-1",
@@ -95,6 +104,8 @@ describe("POST /api/media/upload", () => {
 		expect(createSignedUploadUrl).toHaveBeenCalledWith({
 			gcsObjectKey: "pending/user-1/asset-1.png",
 			contentType: "image/png",
+			// The per-kind byte cap is bound onto the signed PUT.
+			maxBytes: expect.any(Number),
 		});
 	});
 });
