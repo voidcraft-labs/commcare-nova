@@ -372,7 +372,7 @@ export function useNavigate(): NavigateActions {
 				if (parent) push(parent);
 			},
 		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentional stable object; all state read at call time via locRef/window.location
+		// Intentional stable object; all state read at call time via locRef/window.location.
 	}, []);
 }
 
