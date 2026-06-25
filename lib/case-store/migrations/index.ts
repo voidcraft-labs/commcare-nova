@@ -10,8 +10,9 @@
 //
 // Keys are the migration names Kysely records in its `kysely_migration`
 // ledger; they sort lexicographically, so the timestamp prefix preserves
-// apply order. They MUST match the names the self-adoption step seeds for the
-// pre-Kysely (Atlas-migrated) baseline — see `lib/case-store/migrate.ts`.
+// apply order. The first two entries are idempotent *adoption baselines* (see
+// `lib/case-store/migrate.ts` + each module's header); later entries are normal
+// forward-only migrations.
 
 import type { Migration, MigrationProvider } from "kysely/migration";
 import * as baseline from "./20260505152732_baseline";
@@ -22,12 +23,6 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260505152732_baseline": baseline,
 	"20260506022302_add_case_name_column": addCaseNameColumn,
 };
-
-/** The two baseline names already applied on Atlas-migrated databases. */
-export const ATLAS_BASELINE_MIGRATION_NAMES = [
-	"20260505152732_baseline",
-	"20260506022302_add_case_name_column",
-] as const;
 
 export const caseStoreMigrationProvider: MigrationProvider = {
 	getMigrations: async () => caseStoreMigrations,

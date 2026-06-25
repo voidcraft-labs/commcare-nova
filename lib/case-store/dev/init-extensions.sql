@@ -2,9 +2,9 @@
 -- (docker-compose, see compose.yaml at the repo root). Mounted into
 -- /docker-entrypoint-initdb.d, so it runs ONCE as the superuser when the
 -- data volume is empty — the same split production and the test harness use:
--- extensions install once under the superuser at provisioning time, and
--- Atlas (a non-superuser, which can't CREATE EXTENSION) applies only the
--- schema migrations afterward.
+-- extensions install once under the superuser at provisioning time, and the
+-- migrate runner (a non-superuser, which can't CREATE EXTENSION) applies only
+-- the schema migrations afterward.
 --
 -- The compiler stack depends on all three (see lib/case-store/CLAUDE.md →
 -- "Required Postgres extensions"):

@@ -244,16 +244,32 @@ deploys — **enforce it by review**, not a tool:
 The testcontainers harness replays every migration against a real
 Postgres on each run, so an authoring-time SQL error fails CI loudly.
 
-### Self-adoption of the former Atlas baseline
+### Migration modules are immutable once applied
+
+Kysely's ledger records migration NAMES, not content hashes (the
+`atlas.sum` content checksum is gone with Atlas). So **never edit the body
+of a migration that has shipped** — every database that already ran it
+carries its name in `kysely_migration` and silently skips the edit, so the
+change lands on fresh databases (CI) but not on production. Fix forward: add
+a new migration. (The two adoption baselines below are the one exception,
+edited only because they had not yet shipped as Kysely migrations.)
+
+### Adoption baselines are idempotent (the former Atlas schema)
 
 The case store was previously migrated by Atlas, whose revision ledger
-Kysely doesn't read. `runCaseStoreMigrations` detects an Atlas-migrated
-database (the `cases` tables exist but `kysely_migration` is empty) and
-seeds the ledger with the already-applied baseline names instead of
-re-running them. This is automatic and idempotent, covering both prod at
-cutover and every developer's existing local `nova-cases-data` volume —
-no manual one-off step. (Remove this shim once every environment is on
-the Kysely ledger.)
+Kysely doesn't read — so production and existing local `nova-cases-data`
+volumes carry the schema but no `kysely_migration` ledger. Rather than a
+detection shim that seeds the ledger (which raced the migrator's advisory
+lock and had to guess which baselines had landed), the two baseline
+migration modules are **idempotent** (`CREATE TABLE IF NOT EXISTS`, a
+`pg_constraint`-guarded CHECK): replaying them against the pre-existing Atlas
+schema is a clean no-op, so the first `migrateToLatest` just records them as
+applied. Fresh databases get the tables created; production at cutover and
+every dev volume converge with no shim and no race. This covers even a
+volume created in the brief window when only the first baseline had run (the
+idempotent second baseline still adds `case_name`). Migrations added after
+these two are normal forward-only migrations — only the adoption baselines
+are idempotent.
 
 ### Production: the migrate Cloud Run Job
 

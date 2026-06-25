@@ -15,8 +15,12 @@
 // the exact same `@google-cloud/cloud-sql-connector` + IAM path the runtime
 // uses — one connection code path, prod parity. The Job's env therefore wires
 // `NOVA_DB_INSTANCE_CONNECTION_NAME` (the connector's input), not the raw
-// `NOVA_DB_HOST` Atlas needed.
+// `NOVA_DB_HOST` Atlas needed. The Job also sets `NOVA_DB_POOL_MAX` to a small
+// value (see cloudbuild.yaml): the sequential migrator needs only ~1 connection,
+// and a small cap keeps it from competing with the still-live old revision's
+// pool for Cloud SQL's connection budget during the pre-traffic-shift window.
 
+import type { Kysely } from "kysely";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import {
 	closeCaseStoreDatabase,
@@ -25,13 +29,9 @@ import {
 
 async function main(): Promise<void> {
 	const db = await getCaseStoreDatabase();
-	await runCaseStoreMigrations(
-		db as unknown as Parameters<typeof runCaseStoreMigrations>[0],
-	);
-	// Phase 1 (Better Auth → Postgres) adds the auth-table migration here:
-	//   await getMigrations(getAuthMigratorOptions()).runMigrations();
-	// Better Auth's migrator is introspection-based and idempotent, so it runs
-	// alongside the case-store migrations with no ledger of its own.
+	// `getCaseStoreDatabase()` is typed `Kysely<Database>`; the migrator takes the
+	// schema-agnostic `Kysely<unknown>` (it only issues raw `sql` + DDL).
+	await runCaseStoreMigrations(db as unknown as Kysely<unknown>);
 	console.log("[migrate] case-store migrations applied");
 }
 
