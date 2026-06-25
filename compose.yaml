@@ -38,15 +38,16 @@ services:
       - nova-cases-data:/var/lib/postgresql
       # Runs ONCE, on first boot when the data volume is empty: creates the
       # three extensions the compiler stack needs as the superuser, mirroring
-      # the test harness + Cloud SQL provisioning. Atlas (which applies the
-      # schema migrations afterward, as a non-superuser) can't CREATE EXTENSION.
+      # the test harness + Cloud SQL provisioning. The migrate runner (which
+      # applies the schema migrations afterward, as a non-superuser) can't
+      # CREATE EXTENSION.
       - ./lib/case-store/dev/init-extensions.sql:/docker-entrypoint-initdb.d/10-extensions.sql:ro
     # `docker compose up --wait` blocks until this passes, so consumers (`db:dev`,
-    # the smoke suite) only run `atlas migrate apply` once the server accepts
+    # the smoke suite) only run the migrate step once the server accepts
     # connections. Check over TCP (`-h 127.0.0.1`), NOT the default unix socket:
     # during Postgres first-boot init a temp server accepts socket connections
     # while the real TCP listener is still down, so a socket-only check goes green
-    # too early and the over-TCP `atlas migrate apply` gets "EOF" on a fresh
+    # too early and the over-TCP migrate run gets "EOF" on a fresh
     # container (a persisted volume skips init, hiding it locally).
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U nova -d nova_cases"]

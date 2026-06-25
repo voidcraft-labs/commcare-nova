@@ -13,9 +13,9 @@
 // the contract this test guards. The contract this test guards is:
 //
 //   1. Every column on the four base tables (`cases`, `case_indices`,
-//      `case_type_schemas`, `cases_quarantine`) declared in
-//      `lib/case-store/schema.sql` is reachable from a typed Kysely
-//      query.
+//      `case_type_schemas`, `cases_quarantine`) declared in the
+//      migration modules under `lib/case-store/migrations/` is
+//      reachable from a typed Kysely query.
 //   2. The Postgres dialect adapter compiles those queries into
 //      well-formed SQL with parameters captured as a positional
 //      array — the same shape every Term/Predicate/Expression
@@ -29,8 +29,9 @@
 // what catches a typo in `database.ts` that would otherwise show
 // up only when the compilers integrate.
 //
-// `lib/case-store/schema.sql` is the authority on column names,
-// types, and nullability; this file's type contract mirrors it.
+// The migration modules under `lib/case-store/migrations/` are the
+// authority on column names, types, and nullability; this file's type
+// contract mirrors them.
 
 import {
 	type CompiledQuery,

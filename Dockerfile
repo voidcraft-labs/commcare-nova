@@ -8,9 +8,10 @@
 # (the rate limiter's per-request counter), so all of them 500'd — prod
 # login went down with nothing in Sentry (the throw escapes Better Auth's
 # own try/catch). See nodejs/node#63989. This is the same mutable-tag
-# supply-chain logic that digest-pins arigaio/atlas below; an exact patch
-# tag suffices here — it freezes Node while still flowing Alpine security
-# patches. Bump deliberately once a corrected Node 22.x ships the undici fix.
+# supply-chain logic that digest-pins the testcontainers postgis image in
+# `lib/case-store/sql/__tests__/globalSetup.ts`; an exact patch tag suffices
+# here — it freezes Node while still flowing Alpine security patches. Bump
+# deliberately once a corrected Node 22.x ships the undici fix.
 #
 # `.nvmrc` is the canonical Node version (CI reads it via `node-version-file`,
 # local nvm/fnm read it directly). Keep this patch in lockstep with it — the
@@ -24,27 +25,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 
-# --- Stage 2: Atlas binary source ---
-#
-# `arigaio/atlas` is the upstream-maintained Atlas image. The image
-# is distroless with `ENTRYPOINT ["/atlas"]`, so
-# `COPY --from=atlas-binary /atlas ...` lifts a single statically-
-# linked Go binary into the runner stage. We digest-pin the image:
-# `:latest` is mutable, and atlas runs in our Cloud Run container
-# with IAM credentials to Cloud SQL, so an upstream account
-# compromise that pushed a malicious `:latest` would have a data-
-# exfiltration blast radius. The same supply-chain logic governs
-# the testcontainers harness's postgis image pin in
-# `globalSetup.ts`.
-#
-# Bumping: pull `arigaio/atlas:latest`, capture the new digest with
-# `docker inspect arigaio/atlas:latest --format='{{index .RepoDigests 0}}'`,
-# and replace below. Bump on each Atlas minor release or quarterly,
-# whichever comes first; the migration directory's `atlas.sum` file
-# catches any directory-format drift the bump would otherwise hide.
-FROM arigaio/atlas@sha256:6d34257110be51093e9daf215bf3bc17e6690214434b516196b1cc267dd1dac6 AS atlas-binary
-
-# --- Stage 3: Build the application ---
+# --- Stage 2: Build the application ---
 FROM ${NODE_IMAGE} AS builder
 WORKDIR /app
 
@@ -97,7 +78,20 @@ ARG NEXT_DEPLOYMENT_ID
 
 RUN npm run build
 
-# --- Stage 4: Production runner ---
+# Bundle the standalone migration entrypoint. The Next standalone runner stage
+# carries no full node_modules, so esbuild inlines the migrator's deps (kysely,
+# pg, the Cloud SQL connector) into one self-contained CJS file the
+# `commcare-nova-migrate` Cloud Run Job runs with `node migrate.cjs`. This
+# replaces the former `atlas` binary copied from a separate image. `--tsconfig`
+# resolves the `@/*` path alias; `pg-native` is pg's optional native binding
+# (lazily required behind a guard) — left external so the bundle doesn't try to
+# resolve a module that isn't installed.
+RUN npx esbuild scripts/migrate.ts \
+      --bundle --platform=node --target=node22 --format=cjs \
+      --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=migrate.cjs
+
+# --- Stage 3: Production runner ---
 FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
 
@@ -113,21 +107,12 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Atlas binary + migration assets. The atlas binary lives on PATH
-# so the CMD invocation reads as a normal command. The migrations
-# directory + atlas.hcl land at the working directory's repo-
-# relative paths so atlas's `file://lib/case-store/migrations`
-# URL resolves at startup. `schema.sql` is NOT copied — the prod
-# env reads only `migration.dir`, not `schema.src`.
-COPY --from=atlas-binary /atlas /usr/local/bin/atlas
-# Force exec bit for the non-root `nextjs` user. The classic docker
-# builder Cloud Build uses doesn't honor `COPY --chmod`, and the
-# upstream arigaio/atlas image's binary perms don't reliably grant
-# execute-for-other through the COPY. Without this, the runner exits
-# 126 ("Permission denied") on startup before node ever binds :8080.
-RUN chmod 0755 /usr/local/bin/atlas
-COPY --chown=nextjs:nodejs atlas.hcl ./atlas.hcl
-COPY --chown=nextjs:nodejs lib/case-store/migrations ./lib/case-store/migrations
+# Self-contained migration entrypoint. The `commcare-nova-migrate` Cloud Run
+# Job reuses THIS image with a `node migrate.cjs` command override, so the
+# bundled migrator (kysely + pg + Cloud SQL connector, inlined by esbuild in
+# the builder stage) must be present. No external binary and no raw migration
+# files — the migration modules are bundled into `migrate.cjs`.
+COPY --from=builder --chown=nextjs:nodejs /app/migrate.cjs ./migrate.cjs
 
 USER nextjs
 
@@ -136,18 +121,14 @@ ENV PORT=8080
 ENV HOSTNAME="0.0.0.0"
 EXPOSE 8080
 
-# Boot is node-only — migrations do NOT run here. A per-boot
-# `atlas migrate apply` put a Cloud SQL connect + advisory-lock
-# acquisition on the cold-start critical path (Node didn't start
-# until atlas finished), adding seconds to every cold start and
-# serializing concurrent instance startups on the one lock. The
-# migration now runs once per deploy via the `commcare-nova-migrate`
-# Cloud Run Job (cloudbuild runs it before shifting traffic), so a
-# cold boot is just Node coming up.
+# Boot is node-only — migrations do NOT run here. Running migrations on boot
+# would put a Cloud SQL connect + migration-lock acquisition on the cold-start
+# critical path and serialize concurrent instance startups. The migration runs
+# once per deploy via the `commcare-nova-migrate` Cloud Run Job (cloudbuild runs
+# it before shifting traffic), so a cold boot is just Node coming up.
 #
-# The atlas binary + migrations stay copied into this image on
-# purpose: the migrate Job reuses THIS image with a command
-# override, so the binary and migration files must be present.
+# The bundled `migrate.cjs` stays in this image on purpose: the migrate Job
+# reuses THIS image with a `node migrate.cjs` command override.
 #
 # Exec-form CMD (no `sh -c` wrapper) makes Node PID 1, so SIGTERM
 # from Cloud Run reaches it directly for graceful shutdown.

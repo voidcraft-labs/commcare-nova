@@ -3,8 +3,8 @@
 # revision.
 #
 # Migrations run as a dedicated Cloud Run Job here — NOT on every container
-# boot — so a cold start is just Node coming up (no Cloud SQL connect + Atlas
-# advisory-lock wait on the startup critical path). The Job reuses the app
+# boot — so a cold start is just Node coming up (no Cloud SQL connect +
+# migration-lock wait on the startup critical path). The Job reuses the app
 # image with a command override. If the migration fails the build stops before
 # `deploy`, so the old revision keeps serving and we never ship code ahead of a
 # failed schema change (same guarantee the old startup CMD gave, at deploy time).
@@ -71,11 +71,14 @@ steps:
 
   # Apply pending case-store migrations against live Cloud SQL, once. `jobs
   # deploy` is create-or-update (idempotent) so the Job's config lives here in
-  # version control and stays pinned to the image being deployed. The Job
-  # mirrors the service's identity + network so Atlas's `prod` env resolves:
-  # the IAM service account, Direct VPC Egress (private-IP Cloud SQL), and the
-  # NOVA_DB_* vars its `postgres://` URL composes from. `execute --wait` fails
-  # the build on a non-zero migration exit.
+  # version control and stays pinned to the image being deployed. The Job runs
+  # the bundled `migrate.cjs` entrypoint (`node migrate.cjs`), which reuses
+  # `getCaseStoreDatabase()` — so it connects through the SAME
+  # `@google-cloud/cloud-sql-connector` + IAM path the runtime uses, not Atlas's
+  # raw `postgres://` URL. It therefore needs `NOVA_DB_INSTANCE_CONNECTION_NAME`
+  # (the connector's input), NOT `NOVA_DB_HOST`. The Job mirrors the service's
+  # identity + network: the IAM service account and Direct VPC Egress (private-IP
+  # Cloud SQL). `execute --wait` fails the build on a non-zero migration exit.
   - id: migrate
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: bash
@@ -88,9 +91,9 @@ steps:
           --region=us-central1 \
           --service-account=commcare-nova@commcare-nova.iam.gserviceaccount.com \
           --network=default --subnet=default --vpc-egress=private-ranges-only \
-          --set-env-vars=NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_HOST=10.9.160.3,NOVA_DB_NAME=nova_cases \
-          --command=atlas \
-          --args=migrate,apply,--env,prod,--allow-dirty \
+          --set-env-vars=NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases \
+          --command=node \
+          --args=migrate.cjs \
           --max-retries=1 \
           --task-timeout=600
         gcloud run jobs execute commcare-nova-migrate --region=us-central1 --wait

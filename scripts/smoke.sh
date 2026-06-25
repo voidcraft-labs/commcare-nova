@@ -3,7 +3,7 @@
 # Local + CI smoke runner.
 #
 # Stands up the hermetic stack the Playwright smoke suite needs and runs it:
-#   1. local Postgres (the case store) via docker compose + Atlas migrations,
+#   1. local Postgres (the case store) via docker compose + Kysely migrations,
 #   2. the Firestore emulator (project `demo-test`, fully offline),
 #   3. seeds a user/session/apps into the emulator,
 #   4. runs Playwright, which builds + starts the production server, pointed at both.
@@ -13,7 +13,7 @@
 #   scripts/smoke.sh --project=public          # public checks only
 #   scripts/smoke.sh e2e/tests/authed.spec.ts  # one file
 #
-# Requires: docker, the Atlas CLI on PATH, and a JDK (the Firestore emulator).
+# Requires: docker and a JDK (the Firestore emulator).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -38,13 +38,14 @@ export NOVA_MEDIA_BUCKET="${NOVA_MEDIA_BUCKET:-demo-test-multimedia}"
 export METADATA_SERVER_DETECTION="${METADATA_SERVER_DETECTION:-none}"
 # Pin 127.0.0.1, not `localhost`: on Linux CI runners `localhost` resolves to
 # ::1 first, where the compose-published port (IPv4 only) isn't reachable —
-# atlas/the app get "connection reset by peer" on [::1]:5432.
+# the migrate runner / the app get "connection reset by peer" on [::1]:5432.
 export NOVA_DB_LOCAL_URL="${NOVA_DB_LOCAL_URL:-postgres://nova:nova@127.0.0.1:5432/nova_cases?sslmode=disable}"
 
 # ── 1+2. Case-store Postgres (compose) + migrations ──────────────────
-# Not `npm run db:dev` — that script hardcodes a `localhost` URL for the Atlas
+# Not `npm run db:dev` — that script hardcodes a `localhost` URL for the migrate
 # step, which hits the ::1 trap above. Boot the container and migrate over the
-# pinned IPv4 URL instead.
+# pinned IPv4 URL (already exported as NOVA_DB_LOCAL_URL, which the migrate
+# runner reads) instead.
 echo "[smoke] booting case-store Postgres…"
 docker compose up -d --wait
 
@@ -53,7 +54,7 @@ docker compose up -d --wait
 # against any docker-proxy port-forward warmup; the migrate is idempotent.
 echo "[smoke] applying case-store migrations…"
 for attempt in $(seq 1 8); do
-  if atlas migrate apply --env testcontainer --url "$NOVA_DB_LOCAL_URL" --allow-dirty; then
+  if npm run db:migrate; then
     break
   fi
   if [ "$attempt" -eq 8 ]; then

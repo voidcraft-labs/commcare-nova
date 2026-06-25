@@ -41,9 +41,9 @@ import {
 	SchemaNotSyncedError,
 } from "@/lib/case-store";
 import { buildSimpleBlueprint } from "@/lib/case-store/__tests__/fixtures/simpleBlueprint";
+import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
-import { applyMigrationsViaAtlas } from "@/lib/case-store/sql/__tests__/applyMigrationsViaAtlas";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 // `Database` is the Kysely type contract for the four case-store
 // tables — package-private, so the test reaches in via the
@@ -137,7 +137,7 @@ const dbHandle = setupPerTestDatabase({
 	databaseNamePrefix: "binding_test_",
 });
 
-beforeEach(() => {
+beforeEach(async () => {
 	// The action tests queue per-call resolutions on the shared
 	// `getSession` / `withOwnerContext` module mocks via
 	// `mockResolvedValueOnce`. The `clearMocks` config runs `mockClear`
@@ -149,7 +149,7 @@ beforeEach(() => {
 	// boundary — are vi.fn()s at this point; in-test spies/stubs are
 	// created inside the bodies that follow.)
 	vi.resetAllMocks();
-	applyMigrationsViaAtlas(dbHandle.uri, { stdio: "pipe" });
+	await runCaseStoreMigrations(dbHandle.db);
 });
 
 // ---------------------------------------------------------------
