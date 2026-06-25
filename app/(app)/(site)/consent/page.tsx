@@ -22,6 +22,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAuth } from "@/lib/auth";
+import { getSession } from "@/lib/auth-utils";
 import { getCommCareSettings } from "@/lib/db/settings";
 import { ConsentForm } from "./ConsentForm";
 
@@ -99,8 +100,15 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	/* Nova's sign-in surface lives at `/` (the landing page's Google OAuth
 	 * button) — there is no `/sign-in` route. An unauthenticated user who
 	 * lands here gets bounced to landing to sign in, which is the same UX
-	 * as any other protected page in the app. */
-	const session = await auth.api.getSession({ headers: hdrs });
+	 * as any other protected page in the app.
+	 *
+	 * Use the GATED `getSession` (not `auth.api.getSession` directly), so the
+	 * universal revocation lock applies here too: a banned/deleted user with a
+	 * still-valid 5-min cookie cache must not be able to approve a NEW OAuth
+	 * grant. (`getSession` returns null for an inactive user; the MCP JWT path
+	 * also re-checks `isUserActive` on every request, so any token minted past
+	 * this point is inert anyway — this is the defense-in-depth front door.) */
+	const session = await getSession();
 	if (!session) redirect("/");
 
 	const clientId = typeof sp.client_id === "string" ? sp.client_id : undefined;

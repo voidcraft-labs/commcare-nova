@@ -89,23 +89,36 @@ export function declaredBodyTooLarge(req: Request, maxBytes: number): boolean {
 }
 
 /**
- * Read a JSON request body, rejecting a declared-oversized one BEFORE
- * materializing it (see {@link declaredBodyTooLarge}). For routes that hand
- * their `catch` to {@link handleApiError}: an over-cap body throws
- * `ApiError(413)`; a non-JSON body resolves to `null` (let the caller's Zod
- * schema produce the field-level message).
+ * Read a JSON request body, rejecting an oversized one with `ApiError(413)` for
+ * routes that hand their `catch` to {@link handleApiError}; a non-JSON body
+ * resolves to `null` (let the caller's Zod schema produce the field message).
+ *
+ * The cap is enforced TWICE: the cheap declared-size fast path
+ * ({@link declaredBodyTooLarge}) rejects a `Content-Length`-large body without
+ * reading the stream, and the ACTUAL byte length is re-checked after buffering.
+ * The second check is load-bearing: a chunked request omits `Content-Length`
+ * entirely, so the declared-size gate alone is advisory — it would wave a
+ * headerless stream straight into the expensive `JSON.parse` + Zod. Buffering
+ * is bounded by Cloud Run's ~32 MB inbound limit, so this can't itself be made
+ * to hold unbounded memory.
  */
 export async function readJsonBody(
 	req: Request,
 	maxBytes: number,
 ): Promise<unknown> {
+	const tooLargeMessage = `Request body is too large — this endpoint accepts at most ${maxBytes} bytes of JSON.`;
 	if (declaredBodyTooLarge(req, maxBytes)) {
-		throw new ApiError(
-			`Request body is too large — this endpoint accepts at most ${maxBytes} bytes of JSON.`,
-			413,
-		);
+		throw new ApiError(tooLargeMessage, 413);
 	}
-	return req.json().catch(() => null);
+	const buf = await req.arrayBuffer();
+	if (buf.byteLength > maxBytes) {
+		throw new ApiError(tooLargeMessage, 413);
+	}
+	try {
+		return JSON.parse(new TextDecoder().decode(buf));
+	} catch {
+		return null;
+	}
 }
 
 /**

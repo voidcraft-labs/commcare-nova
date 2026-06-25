@@ -61,13 +61,15 @@ export const maxDuration = 300;
 // ── Route Handler ──────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-	// Bound the UNauthenticated parse: reject a declared-oversized body before
-	// `req.json()` buffers it, ahead of `resolveAnthropicKey` below. The cap is
-	// generous enough for the largest real request (blueprint + bounded message
-	// history); the message/attachment/text limits stay as the secondary,
-	// post-parse controls.
-	if (declaredBodyTooLarge(req, CHAT_REQUEST_MAX_BYTES)) {
-		return Response.json(
+	// Bound the UNauthenticated parse ahead of `resolveAnthropicKey` below. The
+	// cap is generous enough for the largest real request (blueprint + bounded
+	// message history); the message/attachment/text limits stay as the secondary,
+	// post-parse controls. Enforced on BOTH the declared size (cheap, pre-buffer)
+	// AND the actual byte length — a chunked request omits Content-Length, so the
+	// declared-size check alone would wave a headerless stream into the full
+	// parse. Buffering is bounded by Cloud Run's ~32 MB inbound limit.
+	const tooLarge = () =>
+		Response.json(
 			{
 				error:
 					"That request is too large to process. Start a fresh conversation — the history has grown past what one request can send.",
@@ -75,10 +77,12 @@ export async function POST(req: Request) {
 			},
 			{ status: 413 },
 		);
-	}
+	if (declaredBodyTooLarge(req, CHAT_REQUEST_MAX_BYTES)) return tooLarge();
+	const rawBody = await req.arrayBuffer();
+	if (rawBody.byteLength > CHAT_REQUEST_MAX_BYTES) return tooLarge();
 	let body: { messages?: unknown; [k: string]: unknown };
 	try {
-		body = await req.json();
+		body = JSON.parse(new TextDecoder().decode(rawBody));
 	} catch {
 		// Malformed-but-within-cap JSON: a clean 4xx, not an opaque 500 (matches
 		// the structured 413 above and the 400s below).

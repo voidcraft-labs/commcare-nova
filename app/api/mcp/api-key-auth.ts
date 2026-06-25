@@ -219,9 +219,10 @@ export async function handleApiKeyMcp(
 	/* Live revocation lock — the api-key plugin's `validateApiKey`
 	 * does not cross-reference `auth_users`, so a banned or deleted
 	 * user's pre-minted keys would otherwise authenticate forever.
-	 * The JWT path is implicitly bounded by access-token TTL plus
-	 * `hasActiveConsent`; the API-key path has neither, so this read
-	 * is the equivalent revocation gate. The local catch translates
+	 * The JWT path runs this SAME `isUserActive` gate (alongside its
+	 * access-token TTL + `hasActiveConsent`), so revocation is universal
+	 * across both MCP bearers; this read is its equivalent. The local catch
+	 * translates
 	 * a Firestore outage into 401, matching the verifier-throw branch
 	 * — fail-closed posture: a transient outage rejects rather than
 	 * authenticates a possibly-banned user. */

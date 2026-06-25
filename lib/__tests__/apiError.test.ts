@@ -1,11 +1,12 @@
 /**
- * Tests for `readJsonBody` — the small-metadata JSON body guard that
- * rejects a declared-oversized request before parsing it.
+ * Tests for `readJsonBody` — the JSON body guard that rejects an oversized
+ * request both before buffering (declared Content-Length) AND after (actual
+ * byte length, so a headerless/chunked stream can't slip the cap).
  *
- * A minimal `Request`-shaped fake (just `headers.get` + `json`) keeps the
- * test focused on the Content-Length gate, and lets the "rejected before
- * parse" assertion be exact: the 413 case uses a `json` that throws, so a
- * passing test proves the body was never read.
+ * A minimal `Request`-shaped fake (just `headers.get` + `arrayBuffer`) keeps the
+ * test focused on the size gates. The "rejected before buffering" assertion is
+ * exact: the declared-413 case uses an `arrayBuffer` mock and asserts it was
+ * never called, proving the oversized body was never materialized.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -20,8 +21,13 @@ import {
 
 function fakeReq(opts: {
 	contentLength?: string;
-	json: () => Promise<unknown>;
+	body?: string;
+	arrayBuffer?: () => Promise<ArrayBuffer>;
 }): Request {
+	const arrayBuffer =
+		opts.arrayBuffer ??
+		(async () =>
+			new TextEncoder().encode(opts.body ?? "").buffer as ArrayBuffer);
 	return {
 		headers: {
 			get: (key: string) =>
@@ -29,62 +35,61 @@ function fakeReq(opts: {
 					? (opts.contentLength ?? null)
 					: null,
 		},
-		json: opts.json,
+		arrayBuffer,
 	} as unknown as Request;
 }
 
 describe("readJsonBody", () => {
 	it("parses a body within the cap", async () => {
 		const parsed = await readJsonBody(
-			fakeReq({ contentLength: "9", json: async () => ({ a: 1 }) }),
+			fakeReq({ contentLength: "7", body: '{"a":1}' }),
 			4096,
 		);
 		expect(parsed).toEqual({ a: 1 });
 	});
 
-	it("rejects an over-cap declared body with 413, BEFORE reading it", async () => {
-		const json = vi.fn(async () => ({}));
+	it("rejects an over-cap DECLARED body with 413, BEFORE buffering it", async () => {
+		const arrayBuffer = vi.fn(async () => new ArrayBuffer(0));
 		await expect(
-			readJsonBody(fakeReq({ contentLength: "5000", json }), 4096),
+			readJsonBody(fakeReq({ contentLength: "5000", arrayBuffer }), 4096),
 		).rejects.toMatchObject({ status: 413 });
 		// The whole point: the oversized body is never materialized.
-		expect(json).not.toHaveBeenCalled();
+		expect(arrayBuffer).not.toHaveBeenCalled();
+	});
+
+	it("rejects a chunked body whose ACTUAL bytes exceed the cap (no Content-Length)", async () => {
+		// The bypass a Content-Length-only gate misses: a chunked request omits
+		// the header, so only the post-buffer byte check can reject it.
+		await expect(
+			readJsonBody(fakeReq({ body: "x".repeat(5000) }), 4096),
+		).rejects.toMatchObject({ status: 413 });
 	});
 
 	it("returns null for an unparseable body (caller's schema makes the message)", async () => {
 		const parsed = await readJsonBody(
-			fakeReq({
-				contentLength: "8",
-				json: async () => {
-					throw new Error("not json");
-				},
-			}),
+			fakeReq({ contentLength: "8", body: "not json" }),
 			4096,
 		);
 		expect(parsed).toBeNull();
 	});
 
-	it("allows a request that omits Content-Length (chunked) through to parse", async () => {
-		const parsed = await readJsonBody(
-			fakeReq({ json: async () => ({ b: 2 }) }),
-			4096,
-		);
+	it("allows a chunked body UNDER the cap through to parse", async () => {
+		const parsed = await readJsonBody(fakeReq({ body: '{"b":2}' }), 4096);
 		expect(parsed).toEqual({ b: 2 });
 	});
 });
 
 describe("declaredBodyTooLarge", () => {
 	it("is true only when Content-Length exceeds the cap", () => {
-		const json = async () => ({});
-		expect(
-			declaredBodyTooLarge(fakeReq({ contentLength: "5000", json }), 4096),
-		).toBe(true);
-		expect(
-			declaredBodyTooLarge(fakeReq({ contentLength: "4096", json }), 4096),
-		).toBe(false);
-		// Chunked (no Content-Length) can't be judged here — the platform limit
-		// is the backstop, so this returns false rather than rejecting.
-		expect(declaredBodyTooLarge(fakeReq({ json }), 4096)).toBe(false);
+		expect(declaredBodyTooLarge(fakeReq({ contentLength: "5000" }), 4096)).toBe(
+			true,
+		);
+		expect(declaredBodyTooLarge(fakeReq({ contentLength: "4096" }), 4096)).toBe(
+			false,
+		);
+		// Chunked (no Content-Length) can't be judged here — the post-buffer byte
+		// check in `readJsonBody` is what actually bounds it.
+		expect(declaredBodyTooLarge(fakeReq({}), 4096)).toBe(false);
 	});
 });
 

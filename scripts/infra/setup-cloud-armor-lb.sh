@@ -166,7 +166,7 @@ cat <<EOF
     first-5 bracket, so this is the ~\$18/mo step):
       gcloud certificate-manager maps create nova-cert-map
       gcloud certificate-manager maps entries create nova-cert-map-entry \\
-        --map=nova-cert-map --certificates=nova-cert --hostname='*'   # primary entry
+        --map=nova-cert-map --certificates=nova-cert --set-primary   # primary (catch-all) entry; --hostname takes a real FQDN, not '*'
       gcloud compute target-https-proxies create nova-https-proxy \\
         --url-map=nova-url-map --certificate-map=nova-cert-map
       gcloud compute forwarding-rules create nova-fr --global \\

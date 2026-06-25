@@ -6,10 +6,14 @@
  * the header would make the platform's `Headers` constructor throw and turn an
  * export into an opaque 500. These tests pin that the sanitizer strips interior
  * CR/LF/tabs (not just edge whitespace) while preserving ordinary names.
+ *
+ * `sanitizeArchiveMemberName` is the UTF-8 sibling for ZIP member names: it
+ * keeps non-Latin scripts but strips path separators and ALL control bytes
+ * (notably NUL, which truncates a member name in C-string extractors).
  */
 
 import { describe, expect, it } from "vitest";
-import { sanitizeFilename } from "../sanitize";
+import { sanitizeArchiveMemberName, sanitizeFilename } from "../sanitize";
 
 describe("sanitizeFilename", () => {
 	it("preserves ordinary names (letters, digits, spaces, dots, parens, hyphens)", () => {
@@ -50,5 +54,37 @@ describe("sanitizeFilename", () => {
 		expect(sanitizeFilename("   ")).toBe("app");
 		expect(sanitizeFilename("\n\t")).toBe("app");
 		expect(sanitizeFilename("日本語")).toBe("app"); // \w is ASCII-only; non-Latin drops
+	});
+});
+
+describe("sanitizeArchiveMemberName", () => {
+	// NUL built by code point so no literal control byte sits in this source file.
+	const NUL = String.fromCharCode(0);
+
+	it("PRESERVES non-Latin / accented names (a ZIP member is UTF-8)", () => {
+		expect(sanitizeArchiveMemberName("调查表")).toBe("调查表");
+		expect(sanitizeArchiveMemberName("Café Survey")).toBe("Café Survey");
+	});
+
+	it("strips a NUL byte so it can't truncate/collapse the member name", () => {
+		// In a C-string-based unzipper `a\0b` extracts as `a`, collapsing distinct
+		// names onto one entry — strip the NUL so the full names survive distinct.
+		expect(sanitizeArchiveMemberName(`a${NUL}b`)).toBe("ab");
+		expect(sanitizeArchiveMemberName(`report${NUL}A`)).toBe("reportA");
+		expect(sanitizeArchiveMemberName(`report${NUL}B`)).toBe("reportB");
+		expect(sanitizeArchiveMemberName(`x${NUL}y`)).not.toContain(NUL);
+	});
+
+	it("strips path separators + the reserved set so the result is a safe leaf", () => {
+		// Slashes drop, then the leading dot-run is stripped → no traversal segment.
+		expect(sanitizeArchiveMemberName("../../etc/passwd")).toBe("etcpasswd");
+		expect(sanitizeArchiveMemberName("a\\b/c:d")).toBe("abcd");
+		expect(sanitizeArchiveMemberName("..")).toBe("app");
+	});
+
+	it("falls back to 'app' when nothing survives", () => {
+		expect(sanitizeArchiveMemberName("")).toBe("app");
+		expect(sanitizeArchiveMemberName("///")).toBe("app");
+		expect(sanitizeArchiveMemberName("  ")).toBe("app");
 	});
 });
