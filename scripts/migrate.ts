@@ -35,16 +35,24 @@ async function main(): Promise<void> {
 	console.log("[migrate] case-store migrations applied");
 }
 
+/** Cap on best-effort teardown; the OS reclaims the socket on exit anyway. */
+const TEARDOWN_TIMEOUT_MS = 10_000;
+
 /**
- * Tear down and exit with `code`. Teardown errors NEVER change the exit code: a
- * `closeCaseStoreDatabase()` failure after a committed migration must not turn a
- * succeeded migration into a failed deploy (`gcloud run jobs execute --wait`
- * keys on the exit code). The migration's success/failure is decided in
- * `main()`; this only releases the pool.
+ * Tear down and exit with `code`. The migration's outcome (and `code`) is
+ * already decided in `main()`; this only releases the pool, so it must NEVER
+ * change the exit code. It guards both failure modes: a teardown ERROR is
+ * caught, and a teardown that never RESOLVES (a hung `pool.end()` /
+ * `connector.close()`) is bounded by `TEARDOWN_TIMEOUT_MS` — otherwise the Job
+ * would run to cloudbuild's `--task-timeout` and `gcloud run jobs execute
+ * --wait` would report a committed migration as a failed deploy.
  */
 async function finish(code: number): Promise<never> {
 	try {
-		await closeCaseStoreDatabase();
+		await Promise.race([
+			closeCaseStoreDatabase(),
+			new Promise((resolve) => setTimeout(resolve, TEARDOWN_TIMEOUT_MS)),
+		]);
 	} catch (err) {
 		console.error("[migrate] teardown error (ignored):", err);
 	}
