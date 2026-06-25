@@ -413,7 +413,7 @@ export async function mintApiKey(
 			};
 		}
 
-		const auth = getAuth();
+		const auth = await getAuth();
 		/* Server-only mode: passing `headers` to `auth.api.createApiKey`
 		 * makes the plugin's `isClientRequest` flag truthy, which then
 		 * rejects every server-only field (including `permissions`) with
@@ -596,7 +596,7 @@ export async function revokeApiKey(keyId: string): Promise<RevokeApiKeyResult> {
 	}
 
 	try {
-		const auth = getAuth();
+		const auth = await getAuth();
 		const reqHeaders = await headers();
 		await auth.api.deleteApiKey({
 			body: { keyId },
@@ -664,7 +664,7 @@ export async function editApiKeyScopes(
 	}
 
 	try {
-		const auth = getAuth();
+		const auth = await getAuth();
 		/* Server-only mode (same rationale as `mintApiKey`): omit
 		 * `headers` so the plugin's `authRequired` flag stays false and
 		 * the `permissions` field isn't rejected as a server-only

@@ -89,7 +89,8 @@ const dispatch = async (req: Request): Promise<Response> => {
 		log.error("[mcp] failed to synthesize auth-router request", err);
 		return new Response(null, { status: 503 });
 	}
-	return getAuth().handler(authReq);
+	const auth = await getAuth();
+	return auth.handler(authReq);
 };
 
 /**

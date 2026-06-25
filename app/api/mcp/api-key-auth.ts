@@ -152,7 +152,7 @@ export async function handleApiKeyMcp(
 	req: Request,
 	key: string,
 ): Promise<Response> {
-	const auth = getAuth();
+	const auth = await getAuth();
 
 	let result: Awaited<ReturnType<typeof auth.api.verifyApiKey>>;
 	try {

@@ -245,9 +245,8 @@ export async function requireAdmin(req: Request): Promise<Session> {
 		 * swallow the 403. A user who was NEVER an admin just gets the 403;
 		 * we don't sign them out for poking an admin endpoint. */
 		if (session.user.role === "admin") {
-			await getAuth()
-				.api.signOut({ headers: req.headers })
-				.catch(() => {});
+			const auth = await getAuth();
+			await auth.api.signOut({ headers: req.headers }).catch(() => {});
 		}
 		throw new ApiError("Admin access required", 403);
 	}
@@ -264,7 +263,8 @@ export async function requireAdmin(req: Request): Promise<Session> {
  */
 export async function getSessionSafe(req: Request): Promise<Session | null> {
 	try {
-		const result = await getAuth().api.getSession({ headers: req.headers });
+		const auth = await getAuth();
+		const result = await auth.api.getSession({ headers: req.headers });
 		if (!result) return null;
 		if (!(await sessionUserIsActive(result))) return null;
 		identifySentryUser(result);
@@ -292,15 +292,16 @@ export async function getSessionSafe(req: Request): Promise<Session | null> {
  * that authenticates through here, not just the costly/mutating ones.
  */
 export const getSession = cache(async (): Promise<Session | null> => {
-	/* Bail out of static prerendering before touching auth or Firestore.
+	/* Bail out of static prerendering before touching auth or the database.
 	 * Without this, `getAuth()` initializes Better Auth (reads BETTER_AUTH_SECRET,
-	 * creates the Firestore adapter) synchronously before `headers()` signals
-	 * dynamic rendering — the missing secret throws a warning and the Firestore
-	 * session read hangs indefinitely in Cloud Build where there's no database. */
+	 * opens the Postgres pool) before `headers()` signals dynamic rendering — the
+	 * missing secret throws a warning and the session read hangs in Cloud Build
+	 * where there's no database. */
 	await connection();
 	try {
+		const auth = await getAuth();
 		const session =
-			(await getAuth().api.getSession({ headers: await headers() })) ?? null;
+			(await auth.api.getSession({ headers: await headers() })) ?? null;
 		if (!session) return null;
 		if (!(await sessionUserIsActive(session))) return null;
 		identifySentryUser(session);
@@ -346,9 +347,10 @@ export async function requireAdminAccess(): Promise<Session> {
 	 * so admin demotions take effect on the next page load, not after the
 	 * 5-minute cache window. */
 	if (!(await readsFreshAsAdmin(session.user.id))) {
-		/* Live revocation — sign out clears the session from Firestore and
-		 * wipes auth cookies so stale role data can't linger. */
-		await getAuth().api.signOut({ headers: await headers() });
+		/* Live revocation — sign out clears the session row and wipes auth
+		 * cookies so stale role data can't linger. */
+		const auth = await getAuth();
+		await auth.api.signOut({ headers: await headers() });
 		redirect("/");
 	}
 	return session;

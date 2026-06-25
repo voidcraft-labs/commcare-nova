@@ -47,7 +47,8 @@ const handler = async (req: Request) => {
 
 	let response: Response;
 	try {
-		response = await getAuth().handler(authReq);
+		const auth = await getAuth();
+		response = await auth.handler(authReq);
 	} catch (err) {
 		/* Better Auth catches its OWN failures and routes them through the
 		 * logger bridge (`lib/auth-logger.ts`) into Sentry. An error thrown
