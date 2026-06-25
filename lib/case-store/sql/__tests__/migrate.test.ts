@@ -10,7 +10,12 @@ import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { caseStoreMigrations } from "@/lib/case-store/migrations";
 import { setupPerTestDatabase } from "./perTestDatabase";
 
-const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "migrate_test_" });
+// These tests only assert table/column existence + ledger contents; they never
+// touch the compiler stack, so skip the heavy `postgis` extension install.
+const dbHandle = setupPerTestDatabase({
+	databaseNamePrefix: "migrate_test_",
+	installExtensions: false,
+});
 
 // Derive the expected ledger contents from the migration set itself, so adding
 // a migration doesn't require editing this test (the ledger lists every applied

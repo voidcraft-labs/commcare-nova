@@ -35,6 +35,13 @@ export interface PerTestDatabaseHandle {
 export interface PerTestDatabaseOptions {
 	/** Postgres identifier rules: alphanumeric + underscore, lowercase, no leading digit. */
 	databaseNamePrefix: string;
+	/**
+	 * Install the compiler-stack extensions (`pg_trgm`, `fuzzystrmatch`,
+	 * `postgis`) into each per-test database. Default `true`. Schema-only tests
+	 * that never touch the compiler stack (e.g. the migrator's own tests) pass
+	 * `false` to skip the heavy `postgis` install (~1-3 s per database).
+	 */
+	installExtensions?: boolean;
 }
 
 const REQUIRED_EXTENSIONS = ["pg_trgm", "fuzzystrmatch", "postgis"] as const;
@@ -59,7 +66,10 @@ export function setupPerTestDatabase(
 	} | null = null;
 
 	beforeEach(async () => {
-		const created = await createIsolatedDatabase(options.databaseNamePrefix);
+		const created = await createIsolatedDatabase(
+			options.databaseNamePrefix,
+			options.installExtensions ?? true,
+		);
 		const built = buildIsolatedDb(created.uri);
 		active = {
 			databaseName: created.databaseName,
@@ -131,13 +141,14 @@ function urlForDatabase(baseUri: string, databaseName: string): string {
 }
 
 /**
- * `CREATE DATABASE <prefix><rand>` against the superuser
- * connection from globalSetup, then install the three required
- * extensions (`pg_trgm`, `fuzzystrmatch`, `postgis`) the case-store
- * compiler stack depends on.
+ * `CREATE DATABASE <prefix><rand>` against the superuser connection from
+ * globalSetup, then (unless `installExtensions` is false) install the three
+ * extensions (`pg_trgm`, `fuzzystrmatch`, `postgis`) the case-store compiler
+ * stack depends on.
  */
 async function createIsolatedDatabase(
 	databaseNamePrefix: string,
+	installExtensions: boolean,
 ): Promise<{ databaseName: string; uri: string }> {
 	const baseUri = inject("postgresTestUrl");
 	const databaseName = `${databaseNamePrefix}${Math.random().toString(36).slice(2, 10)}`;
@@ -151,6 +162,8 @@ async function createIsolatedDatabase(
 	}
 
 	const targetUri = urlForDatabase(baseUri, databaseName);
+	if (!installExtensions) return { databaseName, uri: targetUri };
+
 	const targetClient = new Client({ connectionString: targetUri });
 	await targetClient.connect();
 	try {

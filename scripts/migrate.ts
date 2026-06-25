@@ -15,10 +15,10 @@
 // the exact same `@google-cloud/cloud-sql-connector` + IAM path the runtime
 // uses — one connection code path, prod parity. The Job's env therefore wires
 // `NOVA_DB_INSTANCE_CONNECTION_NAME` (the connector's input), not the raw
-// `NOVA_DB_HOST` Atlas needed. The Job also sets `NOVA_DB_POOL_MAX` to a small
-// value (see cloudbuild.yaml): the sequential migrator needs only ~1 connection,
-// and a small cap keeps it from competing with the still-live old revision's
-// pool for Cloud SQL's connection budget during the pre-traffic-shift window.
+// `NOVA_DB_HOST` Atlas needed. Kysely's `Migrator` is sequential, so this Job
+// holds just ONE Cloud SQL connection at a time — it fits within the connection
+// budget even while the old revision is still serving during the pre-traffic
+// window.
 
 import type { Kysely } from "kysely";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
@@ -35,13 +35,26 @@ async function main(): Promise<void> {
 	console.log("[migrate] case-store migrations applied");
 }
 
-main()
-	.then(async () => {
+/**
+ * Tear down and exit with `code`. Teardown errors NEVER change the exit code: a
+ * `closeCaseStoreDatabase()` failure after a committed migration must not turn a
+ * succeeded migration into a failed deploy (`gcloud run jobs execute --wait`
+ * keys on the exit code). The migration's success/failure is decided in
+ * `main()`; this only releases the pool.
+ */
+async function finish(code: number): Promise<never> {
+	try {
 		await closeCaseStoreDatabase();
-		process.exit(0);
-	})
-	.catch(async (err: unknown) => {
+	} catch (err) {
+		console.error("[migrate] teardown error (ignored):", err);
+	}
+	process.exit(code);
+}
+
+main().then(
+	() => finish(0),
+	(err: unknown) => {
 		console.error("[migrate] failed:", err);
-		await closeCaseStoreDatabase().catch(() => {});
-		process.exit(1);
-	});
+		return finish(1);
+	},
+);

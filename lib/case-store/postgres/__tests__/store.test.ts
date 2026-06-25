@@ -21,7 +21,7 @@
 //
 // Per-test databases give every test its own engine state without
 // any outer-transaction wrapping. Each test pays for `CREATE
-// DATABASE` + `CREATE EXTENSION` + `applyMigrations` once
+// DATABASE` + `CREATE EXTENSION` + `runCaseStoreMigrations` once
 // (~50 ms on a modern laptop) but the store's transaction-using
 // methods execute as authored.
 //
@@ -34,16 +34,16 @@
 // `setupPerTestDatabase` provisions the database + installs
 // extensions; it does NOT apply migrations. The store needs every
 // case-store table to exist before any method runs, so this file
-// calls `applyMigrations(perTestUri)` (Kysely's `Migrator`, in
-// process) in a sibling `beforeEach` after the database handle is
-// provisioned.
+// calls `runCaseStoreMigrations(dbHandle.db)` (Kysely's `Migrator`,
+// in process, reusing the per-test handle's pool) in a sibling
+// `beforeEach` after the database handle is provisioned.
 //
 // The split mirrors the production split between Cloud SQL
 // provisioning (extensions installed at provisioning time under
 // `cloudsqlsuperuser`) and migration application (the
 // `commcare-nova-migrate` Cloud Run Job applies the migrations
 // per deploy under the IAM-auth runtime SA). In tests, the helper
-// plays the role of the superuser provisioning; `applyMigrations`
+// plays the role of the superuser provisioning; `runCaseStoreMigrations`
 // plays the role of the per-deploy migration Job.
 
 import type { Kysely } from "kysely";
@@ -51,8 +51,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { BlueprintDoc, CaseProperty, CaseType } from "@/lib/domain";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { runStoreContract } from "../../__tests__/storeContract";
+import { runCaseStoreMigrations } from "../../migrate";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
-import { applyMigrations } from "../../sql/__tests__/applyMigrations";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
 import { buildCaseTypeMap } from "../../store";
@@ -86,17 +86,17 @@ const dbHandle = setupPerTestDatabase({
 // The contract harness exercises every method on the live
 // database. All four case-store tables (`cases`,
 // `case_type_schemas`, `case_indices`, `cases_quarantine`) must
-// exist before the first method call — `applyMigrations` is the
-// canonical path that creates them.
+// exist before the first method call — `runCaseStoreMigrations` is
+// the canonical path that creates them.
 //
 // The call runs inside `beforeEach` so each test starts with a
 // fresh-migrated database. Vitest fires this `beforeEach` AFTER the
 // helper's own `beforeEach` (Vitest hooks run in registration
-// order); when this body executes, `dbHandle.uri` is bound to the
+// order); when this body executes, `dbHandle.db` is bound to the
 // freshly-created per-test database.
 
 beforeEach(async () => {
-	await applyMigrations(dbHandle.uri);
+	await runCaseStoreMigrations(dbHandle.db);
 });
 
 // ---------------------------------------------------------------

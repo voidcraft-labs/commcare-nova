@@ -82,24 +82,6 @@ export const CLOUD_RUN_MAX_INSTANCES = 5;
 export const POOL_MAX_PER_INSTANCE = 4;
 
 /**
- * Resolve the pool `max` for THIS process. Defaults to `POOL_MAX_PER_INSTANCE`
- * (the serving-instance budget `enforceConnectionBudget` is sized for). The
- * transient migrate Job overrides it via `NOVA_DB_POOL_MAX` to a small value:
- * the sequential migrator needs ~1 connection, and a low cap keeps it from
- * competing with the still-live old revision's pool for Cloud SQL's connection
- * budget during the pre-traffic-shift deploy window. Ignores absent / non-
- * positive values so a typo can't silently shrink the serving pool.
- */
-function resolvePoolMax(): number {
-	const raw = process.env.NOVA_DB_POOL_MAX;
-	if (raw === undefined || raw.length === 0) return POOL_MAX_PER_INSTANCE;
-	const parsed = Number(raw);
-	return Number.isInteger(parsed) && parsed > 0
-		? parsed
-		: POOL_MAX_PER_INSTANCE;
-}
-
-/**
  * Connection-budget invariant. Throws when the four constants drift
  * into a configuration that would let Cloud Run instances overrun
  * Cloud SQL's cap. Fires once per process on the first
@@ -238,7 +220,7 @@ export function buildPoolConfig(
 		stream: clientOpts.stream,
 		user: env.NOVA_DB_USER,
 		database: env.NOVA_DB_NAME,
-		max: resolvePoolMax(),
+		max: POOL_MAX_PER_INSTANCE,
 	};
 }
 
@@ -280,7 +262,7 @@ async function initialize(): Promise<CaseStoreHandles> {
 	if (localUrl !== undefined && localUrl.length > 0) {
 		const pool = new Pool({
 			connectionString: localUrl,
-			max: resolvePoolMax(),
+			max: POOL_MAX_PER_INSTANCE,
 		});
 		const dialect = new PostgresDialect({
 			pool: pool as unknown as PostgresPool,

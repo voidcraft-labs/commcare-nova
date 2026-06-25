@@ -244,6 +244,18 @@ deploys — **enforce it by review**, not a tool:
 The testcontainers harness replays every migration against a real
 Postgres on each run, so an authoring-time SQL error fails CI loudly.
 
+Two safety nets Atlas's lint provided are gone too, and review must cover
+them: (1) a `DROP TABLE`/`DROP COLUMN` in a migration runs against live
+Cloud SQL on the next deploy with no automated gate — so destructive DDL
+needs deliberate review; and (2) Kysely wraps the whole migration batch in
+ONE transaction (Postgres `supportsTransactionalDdl`), which means a
+migration CANNOT use `CREATE INDEX CONCURRENTLY` and a plain `CREATE INDEX`
+on a large `cases` holds `ACCESS EXCLUSIVE` for the build's duration — and
+the migrate Job runs while the OLD revision is still serving, so live reads
+stall. Build per-property/large-table indexes through the runtime
+`applySchemaChange` Phase-B path (`CREATE INDEX CONCURRENTLY`, no outer
+transaction), NOT a migration. Migrations are for the fixed base schema.
+
 ### Migration modules are immutable once applied
 
 Kysely's ledger records migration NAMES, not content hashes (the

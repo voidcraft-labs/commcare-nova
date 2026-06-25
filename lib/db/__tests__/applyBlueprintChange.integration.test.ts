@@ -24,16 +24,16 @@
 //     the production singleton's Cloud SQL connector).
 //
 // Migration application mirrors the `PostgresCaseStore` test
-// pattern (`beforeEach` runs `applyMigrations` — Kysely's `Migrator`
-// in process — against the per-test database).
+// pattern (`beforeEach` runs `runCaseStoreMigrations` — Kysely's
+// `Migrator` in process — against the per-test handle).
 
 import type { Kysely } from "kysely";
 import { v7 as uuidv7 } from "uuid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildCaseTypeMap } from "@/lib/case-store";
+import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
-import { applyMigrations } from "@/lib/case-store/sql/__tests__/applyMigrations";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import type { AppDoc } from "@/lib/db/types";
@@ -96,7 +96,7 @@ const dbHandle = setupPerTestDatabase({
 });
 
 beforeEach(async () => {
-	await applyMigrations(dbHandle.uri);
+	await runCaseStoreMigrations(dbHandle.db);
 });
 
 beforeEach(() => {

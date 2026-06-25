@@ -41,9 +41,9 @@ import {
 	SchemaNotSyncedError,
 } from "@/lib/case-store";
 import { buildSimpleBlueprint } from "@/lib/case-store/__tests__/fixtures/simpleBlueprint";
+import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
-import { applyMigrations } from "@/lib/case-store/sql/__tests__/applyMigrations";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 // `Database` is the Kysely type contract for the four case-store
 // tables — package-private, so the test reaches in via the
@@ -149,7 +149,7 @@ beforeEach(async () => {
 	// boundary — are vi.fn()s at this point; in-test spies/stubs are
 	// created inside the bodies that follow.)
 	vi.resetAllMocks();
-	await applyMigrations(dbHandle.uri);
+	await runCaseStoreMigrations(dbHandle.db);
 });
 
 // ---------------------------------------------------------------

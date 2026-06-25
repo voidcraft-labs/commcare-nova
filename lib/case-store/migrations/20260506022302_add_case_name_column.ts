@@ -11,6 +11,13 @@
 // (Postgres 18), so the CHECK is guarded on `pg_constraint`. The column is added
 // before the constraint so the CHECK's reference resolves on a fresh table.
 //
+// The column add is `NOT NULL` with no DEFAULT (matching the original Atlas
+// migration): safe on a fresh table (empty when the first baseline just created
+// it) and on the normal adoption path (the column already exists → no-op). It
+// would fail only on a POPULATED table that somehow lacks `case_name` — a
+// baseline-only dev volume that also has rows, not a real production state
+// (prod already has the column); wipe such a volume.
+//
 // Forward-only in production; `down` exists for local/test teardown only.
 
 import { type Kysely, sql } from "kysely";
