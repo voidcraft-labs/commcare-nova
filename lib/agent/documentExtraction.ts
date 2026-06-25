@@ -22,6 +22,7 @@ import {
 	createGoogleGenerativeAI,
 	type GoogleLanguageModelOptions,
 } from "@ai-sdk/google";
+import AdmZip from "adm-zip";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import { z } from "zod";
@@ -423,10 +424,84 @@ export function rowsToMarkdownTable(rows: string[][]): string {
 	return [line(header), line(separator), ...body.map(line)].join("\n");
 }
 
+// DOCX and XLSX are ZIP containers, so the upload's COMPRESSED-byte cap
+// (`ASSET_SIZE_CAPS_BYTES`, 10 MB) does NOT bound what they expand to in
+// memory — a few-MB archive can declare gigabytes of uncompressed entries (a
+// classic zip/decompression bomb), and Mammoth/SheetJS parse the whole thing
+// in-process on the shared extraction worker (CWE-400). This preflight reads
+// only the central directory (no decompression) and rejects before the parser
+// runs when the declared uncompressed total or the entry count is implausibly
+// large for a requirements document. It bounds the EXPANSION vector; it is not
+// a wall-clock guard (Node is single-threaded — a hard parse timeout needs a
+// worker/subprocess, a heavier change tracked separately), but it closes the
+// primary in-process DoS. The thresholds are generous: a real 10 MB Office
+// file expands to a few hundred MB at most.
+const MAX_OFFICE_DECOMPRESSED_BYTES = 300 * 1024 * 1024;
+const MAX_OFFICE_ARCHIVE_ENTRIES = 5_000;
+
+/**
+ * The pure decompression-budget guard, split from the adm-zip parse so the
+ * PRIMARY zip-bomb defense — the declared-uncompressed-size cap — is
+ * unit-testable without forging a 300 MB archive. Exported for that test.
+ *
+ * `entrySizes` are the UNCOMPRESSED sizes the ZIP central directory declares;
+ * they are attacker-controlled, so a non-finite or negative size is rejected
+ * rather than trusted (a `NaN` would otherwise poison the running total —
+ * `NaN > MAX` is always false — and silently skip the cap). The cap stops the
+ * honest-declaration bomb; it does NOT bound an archive that under-declares its
+ * sizes (the robust bound is parsing in a resource-limited worker/subprocess,
+ * deferred here for complexity).
+ */
+export function assertOfficeArchiveBudget(
+	entrySizes: number[],
+	label: string,
+): void {
+	if (entrySizes.length > MAX_OFFICE_ARCHIVE_ENTRIES) {
+		throw new Error(
+			`This ${label} has too many internal parts (${entrySizes.length}) to read safely. Export a simpler version and try again.`,
+		);
+	}
+	let total = 0;
+	for (const size of entrySizes) {
+		if (!Number.isFinite(size) || size < 0) {
+			throw new Error(
+				`This ${label} couldn't be read — it declares an invalid internal size. Re-export it from your office app and try again.`,
+			);
+		}
+		total += size;
+		if (total > MAX_OFFICE_DECOMPRESSED_BYTES) {
+			throw new Error(
+				`This ${label} is too large to read — its contents expand to over ${Math.round(
+					MAX_OFFICE_DECOMPRESSED_BYTES / (1024 * 1024),
+				)} MB when uncompressed, far beyond what a requirements file needs. Export a smaller version (fewer rows, sheets, or embedded media) and try again.`,
+			);
+		}
+	}
+}
+
+function preflightOfficeArchive(buffer: Buffer, kind: "docx" | "xlsx"): void {
+	const label = kind === "docx" ? "document" : "spreadsheet";
+	let entries: ReturnType<AdmZip["getEntries"]>;
+	try {
+		entries = new AdmZip(buffer).getEntries();
+	} catch {
+		throw new Error(
+			`This ${label} couldn't be read — the file isn't a valid ${kind.toUpperCase()} archive. Re-export it from your office app and try again.`,
+		);
+	}
+	// `header.size` is each entry's UNCOMPRESSED size from the central directory
+	// — read without decompressing the bytes.
+	assertOfficeArchiveBudget(
+		entries.map((e) => e.header.size),
+		label,
+	);
+}
+
 /** docx buffer → markdown. mammoth maps Word styles (headings, lists, tables)
  *  to clean markdown structure, which preserves the document's outline far
  *  better than a flat text extraction. */
 export async function docxToMarkdown(buffer: Buffer): Promise<string> {
+	preflightOfficeArchive(buffer, "docx");
 	const { value } = await mammoth.convertToMarkdown({ buffer });
 	return value;
 }
@@ -512,6 +587,7 @@ function collectSheetFormulae(
  * formulas on `cell.f` for `collectSheetFormulae` to read.
  */
 export function xlsxToMarkdown(buffer: Buffer): string {
+	preflightOfficeArchive(buffer, "xlsx");
 	const workbook = XLSX.read(buffer, { type: "buffer", cellFormula: true });
 	// Cap the sheet count first — each sheet does bounded-but-real work.
 	return workbook.SheetNames.slice(0, MAX_XLSX_SHEETS)

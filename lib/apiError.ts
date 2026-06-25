@@ -37,35 +37,88 @@ export class ApiError extends Error {
 }
 
 /**
- * Read a small JSON request body, rejecting a declared-oversized one
- * BEFORE materializing it. Routes whose body is a fixed-shape metadata
- * object (not a blueprint or chat transcript) pass a tight `maxBytes` so a
- * single authenticated request can't make the server buffer and parse an
- * arbitrarily large payload (CWE-400) ahead of the schema's own checks.
+ * Per-route request-body byte budgets. Every JSON route should reject a
+ * declared-oversized body BEFORE materializing it, so a single request can't
+ * make the server buffer and parse an arbitrarily large payload (CWE-400)
+ * ahead of any auth or schema check. The values are deliberately generous —
+ * they exist to reject the pathological, never a real request — and all sit
+ * well under Cloud Run's ~32 MB inbound limit so the platform stays the
+ * outer backstop.
  *
- * `Content-Length` is the cheap gate: a request that DECLARES a body over
- * the cap is rejected without touching the stream. A chunked request that
- * omits `Content-Length` falls through to `req.json()` — the platform's
- * request-body limit (Cloud Run caps inbound bodies) is the backstop
- * there; this helper rejects the common declared-large case, it doesn't
- * re-implement a streaming byte counter.
+ * - `BLUEPRINT_REQUEST_MAX_BYTES` — routes that carry one `BlueprintDoc`
+ *   (compile/export, CommCare HQ upload, app autosave). A blueprint is
+ *   persisted as ONE Firestore document field, so it can never legitimately
+ *   exceed Firestore's ~1 MiB document limit; 2 MB leaves ample room for the
+ *   JSON envelope and a basis token while still bounding parse cost 16× below
+ *   the platform ceiling.
+ * - `CHAT_REQUEST_MAX_BYTES` — `/api/chat` also ships the blueprint PLUS the
+ *   bounded message history (`MAX_CHAT_MESSAGES` turns, each typed message
+ *   `MAX_CHAT_MESSAGE_CHARS`), so it gets a larger budget than the pure
+ *   blueprint routes. This is the only UNauthenticated parse, so the cap is
+ *   the first line before `resolveAnthropicKey`.
+ * - `CLIENT_ERROR_MAX_BYTES` — the public `/api/log/error` relay, whose
+ *   schema caps every field; the sum of those caps is ~20 KB, so 32 KB
+ *   accepts every valid report and rejects the rest.
+ * - `OAUTH_REVOKE_MAX_BYTES` — the auth wrapper's pre-handler revoke-token
+ *   read, whose body is a single token.
+ */
+export const BLUEPRINT_REQUEST_MAX_BYTES = 2 * 1024 * 1024;
+export const CHAT_REQUEST_MAX_BYTES = 16 * 1024 * 1024;
+export const CLIENT_ERROR_MAX_BYTES = 32 * 1024;
+export const OAUTH_REVOKE_MAX_BYTES = 16 * 1024;
+
+/**
+ * The cheap declared-size gate shared by every body-capped route: a request
+ * that DECLARES (via `Content-Length`) a body over `maxBytes` is rejected
+ * without touching the stream. A chunked request that omits `Content-Length`
+ * isn't caught here — the platform's request-body limit (Cloud Run) is the
+ * backstop for that case; this rejects the common declared-large case, it
+ * doesn't re-implement a streaming byte counter. Pure predicate so routes
+ * that don't use `readJsonBody` (bare-`Response` handlers like the chat and
+ * client-error routes) can apply the same gate in their own error shape.
+ */
+export function declaredBodyTooLarge(req: Request, maxBytes: number): boolean {
+	// A duplicate Content-Length header comes back comma-joined ("100, 100"), so
+	// `Number(...)` of the raw value would be NaN and slip an oversized body past
+	// the gate. Take the first declared value (a request-smuggling-shaped input
+	// gets caught here rather than waved through).
+	const declared = Number(
+		req.headers.get("content-length")?.split(",")[0]?.trim(),
+	);
+	return Number.isFinite(declared) && declared > maxBytes;
+}
+
+/**
+ * Read a JSON request body, rejecting an oversized one with `ApiError(413)` for
+ * routes that hand their `catch` to {@link handleApiError}; a non-JSON body
+ * resolves to `null` (let the caller's Zod schema produce the field message).
  *
- * Mirrors the route's existing lenient parse: a non-JSON body resolves to
- * `null` (let the caller's Zod schema produce the field-level message),
- * while an over-cap body throws `ApiError(413)`.
+ * The cap is enforced TWICE: the cheap declared-size fast path
+ * ({@link declaredBodyTooLarge}) rejects a `Content-Length`-large body without
+ * reading the stream, and the ACTUAL byte length is re-checked after buffering.
+ * The second check is load-bearing: a chunked request omits `Content-Length`
+ * entirely, so the declared-size gate alone is advisory — it would wave a
+ * headerless stream straight into the expensive `JSON.parse` + Zod. Buffering
+ * is bounded by Cloud Run's ~32 MB inbound limit, so this can't itself be made
+ * to hold unbounded memory.
  */
 export async function readJsonBody(
 	req: Request,
 	maxBytes: number,
 ): Promise<unknown> {
-	const declared = Number(req.headers.get("content-length"));
-	if (Number.isFinite(declared) && declared > maxBytes) {
-		throw new ApiError(
-			`Request body is too large — this endpoint accepts at most ${maxBytes} bytes of JSON.`,
-			413,
-		);
+	const tooLargeMessage = `Request body is too large — this endpoint accepts at most ${maxBytes} bytes of JSON.`;
+	if (declaredBodyTooLarge(req, maxBytes)) {
+		throw new ApiError(tooLargeMessage, 413);
 	}
-	return req.json().catch(() => null);
+	const buf = await req.arrayBuffer();
+	if (buf.byteLength > maxBytes) {
+		throw new ApiError(tooLargeMessage, 413);
+	}
+	try {
+		return JSON.parse(new TextDecoder().decode(buf));
+	} catch {
+		return null;
+	}
 }
 
 /**

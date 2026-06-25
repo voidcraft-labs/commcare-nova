@@ -1,14 +1,14 @@
 /**
  * Apply the media bucket's pending-object lifecycle rule.
  *
- * Browser uploads PUT to `pending/<owner>/...` via a V4 signed URL, and a
- * V4 signed PUT can't bind a maximum Content-Length — so a client that
- * uploads an oversized object and never calls confirm leaves it sitting in
- * `pending/` (confirm-time validation is the only thing that deletes
- * oversized bytes, and it only runs if confirm is called). This idempotent
- * operation installs the GCS lifecycle rule that reaps any `pending/`
- * object older than a day — the backstop the per-request path can't
- * provide. The rule itself lives in
+ * Browser uploads PUT to `pending/<owner>/...` via a V4 signed URL. That URL
+ * now binds a maximum body length (the `x-goog-content-length-range` header —
+ * see `createSignedUploadUrl`), so GCS rejects an OVERSIZED write at the
+ * boundary; what still accumulates is a WITHIN-cap object whose client never
+ * calls confirm (confirm promotes validated bytes out of `pending/`). This
+ * idempotent operation installs the GCS lifecycle rule that reaps any
+ * `pending/` object older than a day — the backstop for those abandoned
+ * attempts. The rule itself lives in
  * `lib/storage/media.ts::applyPendingObjectLifecycle` so the prefix + TTL
  * stay coupled to the upload code.
  *

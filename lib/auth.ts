@@ -334,13 +334,21 @@ function createAuth() {
 			updateAge: 60 * 60 * 12, // refresh every 12h of activity
 
 			/**
-			 * Session cookie cache — avoids a Firestore read on every request.
+			 * Session cookie cache — avoids the Better Auth session-row read on
+			 * every request.
 			 *
 			 * Compact strategy (Base64url + HMAC) has the smallest cookie payload.
-			 * 5-minute maxAge means session data is re-fetched from Firestore at
-			 * most every 5 minutes. Admin checks (`requireAdminAccess`) bypass
-			 * the cache entirely — they read `auth_users` directly — so cached
-			 * role staleness is a display-only concern, not a security one.
+			 * 5-minute maxAge means the cached session payload is re-fetched from
+			 * Firestore at most every 5 minutes. Admin checks (`requireAdminAccess`)
+			 * bypass the cache entirely — they read `auth_users` directly — so
+			 * cached role staleness is a display-only concern, not a security one.
+			 *
+			 * Account REVOCATION (ban / delete) does NOT ride this cache: the two
+			 * session choke points (`auth-utils.ts::{getSessionSafe,getSession}`)
+			 * run a live `isUserActive` read on every authenticated request, so a
+			 * banned or deleted user is denied within the window rather than after
+			 * it. The cache still spares the session-row read; the live check is a
+			 * separate `auth_users` read.
 			 */
 			cookieCache: {
 				enabled: true,

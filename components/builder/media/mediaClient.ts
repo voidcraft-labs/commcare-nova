@@ -117,6 +117,9 @@ interface InitiateResponse {
 	uploadUrl?: string;
 	/** The exact `Content-Type` the PUT must send (the normalized MIME). */
 	uploadContentType?: string;
+	/** Extra signed headers the PUT MUST send verbatim — the
+	 *  `x-goog-content-length-range` byte-cap binding. Absent/empty in dev. */
+	uploadHeaders?: Record<string, string>;
 	expiresAtMs?: number;
 }
 
@@ -182,19 +185,23 @@ export async function uploadMediaAsset(
 
 	// PUT the bytes straight to GCS. The `Content-Type` MUST match the
 	// value the signed URL was bound to (the server's normalized MIME),
-	// not the raw `file.type`, or GCS rejects the signature. With a
-	// progress callback the PUT rides XHR (fetch can't observe upload
-	// bytes); without one, plain fetch.
+	// not the raw `file.type`, or GCS rejects the signature. Any
+	// `uploadHeaders` (the `x-goog-content-length-range` byte-cap binding)
+	// are also signed, so they must be sent verbatim too. With a progress
+	// callback the PUT rides XHR (fetch can't observe upload bytes); without
+	// one, plain fetch.
+	const extraHeaders = initiate.uploadHeaders ?? {};
 	if (onProgress) {
 		await putBytesWithProgress(initiate.uploadUrl, initiate.uploadContentType, {
 			body: file,
 			signal,
 			onProgress,
+			extraHeaders,
 		});
 	} else {
 		const putRes = await fetch(initiate.uploadUrl, {
 			method: "PUT",
-			headers: { "Content-Type": initiate.uploadContentType },
+			headers: { "Content-Type": initiate.uploadContentType, ...extraHeaders },
 			body: file,
 			signal,
 		});
@@ -226,6 +233,8 @@ function putBytesWithProgress(
 		body: Blob;
 		signal?: AbortSignal;
 		onProgress: (fraction: number) => void;
+		/** Extra signed headers to send verbatim (the byte-cap binding). */
+		extraHeaders?: Record<string, string>;
 	},
 ): Promise<void> {
 	return new Promise<void>((resolve, reject) => {
@@ -240,6 +249,9 @@ function putBytesWithProgress(
 
 		xhr.open("PUT", url);
 		xhr.setRequestHeader("Content-Type", contentType);
+		for (const [name, value] of Object.entries(opts.extraHeaders ?? {})) {
+			xhr.setRequestHeader(name, value);
+		}
 		xhr.upload.onprogress = (e) => {
 			if (e.lengthComputable && e.total > 0) {
 				opts.onProgress(e.loaded / e.total);

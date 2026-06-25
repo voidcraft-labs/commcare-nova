@@ -61,7 +61,12 @@ function validDoc() {
 }
 
 function reqWith(body: unknown) {
-	return { json: async () => body } as unknown as NextRequest;
+	return {
+		headers: new Headers(),
+		json: async () => body,
+		arrayBuffer: async () =>
+			new TextEncoder().encode(JSON.stringify(body)).buffer as ArrayBuffer,
+	} as unknown as NextRequest;
 }
 
 beforeEach(() => {

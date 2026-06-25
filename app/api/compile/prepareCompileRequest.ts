@@ -1,5 +1,9 @@
 import type { NextRequest } from "next/server";
-import { ApiError } from "@/lib/apiError";
+import {
+	ApiError,
+	BLUEPRINT_REQUEST_MAX_BYTES,
+	readJsonBody,
+} from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
@@ -44,8 +48,11 @@ export async function prepareCompileRequest(
 	{ boundaryErrorVerb }: { boundaryErrorVerb: "compile" | "export" },
 ): Promise<PreparedCompileRequest> {
 	const session = await requireSession(req);
-	const body = await req.json();
-	const { doc } = body;
+	// Cap the body before materializing it — a blueprint is one ~1 MiB-bounded
+	// Firestore doc, so 2 MB rejects only the pathological without ever
+	// touching a real export.
+	const body = await readJsonBody(req, BLUEPRINT_REQUEST_MAX_BYTES);
+	const doc = (body as { doc?: unknown } | null)?.doc;
 
 	if (!doc) {
 		throw new ApiError("doc is required", 400);

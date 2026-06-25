@@ -51,6 +51,32 @@ export async function PUT(req: NextRequest) {
 		const contentType =
 			req.headers.get("content-type") ?? "application/octet-stream";
 		const bytes = Buffer.from(await req.arrayBuffer());
+
+		// Enforce the per-kind byte cap that prod binds onto the signed PUT via
+		// `x-goog-content-length-range`. The proxy writes the bytes itself, so
+		// there's no GCS-side range check — this keeps dev byte-identical to the
+		// prod boundary rejection of an oversized write. The legit producer
+		// (`createSignedUploadUrl`) always appends `&max=<positive int>`. Handle
+		// the edges explicitly: ABSENT → no cap (skip, don't 413 on the
+		// `Number(null)===0` trap); PRESENT-but-not-a-positive-number → 400
+		// (don't silently fail open on `?max=` or `?max=abc`); valid → enforce.
+		const maxParam = new URL(req.url).searchParams.get("max");
+		if (maxParam !== null) {
+			const max = Number(maxParam);
+			if (!Number.isFinite(max) || max <= 0) {
+				throw new ApiError(
+					"dev-put: `max` must be a positive byte count.",
+					400,
+				);
+			}
+			if (bytes.length > max) {
+				throw new ApiError(
+					`Upload is ${bytes.length} bytes, over the ${max}-byte cap for this attempt.`,
+					413,
+				);
+			}
+		}
+
 		await uploadAssetBytes({ gcsObjectKey: key, bytes, contentType });
 
 		return new NextResponse(null, { status: 200 });

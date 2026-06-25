@@ -13,17 +13,20 @@
  * Code can auto-discover the AS and start the OAuth flow.
  *
  * After verify succeeds, the inner callback enforces structural
- * claim presence (`sub`, `azp`, `iat`) and runs the per-grant
- * revocation lock (`hasActiveConsent`) before building the
- * `ToolContext` and dispatching tools. The revocation lock exists
- * because access-token verification is self-contained — without it,
- * a token whose grant was revoked from `/settings` would keep
- * authenticating until the token expires.
+ * claim presence (`sub`, `azp`, `iat`), then runs TWO revocation
+ * locks before building the `ToolContext` and dispatching tools —
+ * access-token verification is self-contained, so without them a
+ * token outlives the conditions it was minted under. The per-GRANT
+ * lock (`hasActiveConsent`) catches a consent revoked from
+ * `/settings`; the per-USER lock (`isUserActive`) catches a
+ * banned/deleted user, the same gate the API-key path runs so
+ * revocation is universal across both MCP bearers.
  */
 
 import { mcpHandler } from "@better-auth/oauth-provider";
 import type { JWTPayload } from "jose";
 import { NOVA_MCP_FLOOR_SCOPES } from "@/lib/auth-public";
+import { isUserActive } from "@/lib/db/api-keys";
 import { hasActiveConsent } from "@/lib/db/oauth-consents";
 import {
 	AS_ISSUER,
@@ -48,6 +51,7 @@ type JwtUnauthorizedReason =
 	| "missing subject claim"
 	| "missing token issue time"
 	| "consent revoked"
+	| "account disabled"
 	| "auth check failed";
 
 /**
@@ -145,6 +149,29 @@ export const handleJwtMcp: (req: Request) => Promise<Response> = mcpHandler(
 		}
 		if (!consentActive) {
 			return jwtUnauthorizedResponse("consent revoked");
+		}
+
+		/* Live revocation lock on the USER, not just the grant. `hasActiveConsent`
+		 * above catches a revoked GRANT, but a banned/deleted user whose grant is
+		 * still live would keep authenticating until the access token's TTL
+		 * lapsed — and could even mint a fresh grant inside the 5-min cookie
+		 * cache window (the consent page reads the cached session). This makes the
+		 * JWT path enforce the SAME `isUserActive` gate the API-key path runs, so
+		 * revocation is universal across both MCP bearers. Fail CLOSED on a lookup
+		 * error (the consent check above is fail-closed too): a transient Firestore
+		 * outage rejects rather than authenticates a possibly-banned user. (The
+		 * web-session choke points fail OPEN instead, to avoid mass sign-out;
+		 * rejecting a narrow MCP call is the safer trade here.) */
+		let userActive: boolean;
+		try {
+			userActive = await isUserActive(jwt.sub);
+		} catch (err) {
+			log.error("[mcp] user-status lookup failed", err);
+			return jwtUnauthorizedResponse("auth check failed");
+		}
+		if (!userActive) {
+			log.warn("[mcp] user disabled or deleted", { sub: jwt.sub, clientId });
+			return jwtUnauthorizedResponse("account disabled");
 		}
 
 		const claims: JwtClaims = {

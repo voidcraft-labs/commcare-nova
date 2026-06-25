@@ -8,7 +8,12 @@
  * explicitly — the app's `owner` field must match `session.user.id`.
  */
 
-import { ApiError, handleApiError } from "@/lib/apiError";
+import {
+	ApiError,
+	BLUEPRINT_REQUEST_MAX_BYTES,
+	handleApiError,
+	readJsonBody,
+} from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { BlueprintBasisStaleError, loadApp } from "@/lib/db/apps";
@@ -66,10 +71,15 @@ export async function PUT(
 			throw new ApiError("App not found", 404);
 		}
 
-		let body: unknown;
-		try {
-			body = await req.json();
-		} catch {
+		// Cap the body before materializing it. The blueprint is one
+		// ~1 MiB-bounded Firestore doc, so 2 MB rejects only the pathological;
+		// a declared-oversize body throws `ApiError(413)` here.
+		const body = await readJsonBody(req, BLUEPRINT_REQUEST_MAX_BYTES);
+		// `readJsonBody` returns `null` for an UNPARSEABLE body — surface that as
+		// "Invalid JSON body", not the misleading "Invalid blueprint" the schema
+		// parse below would otherwise produce (which sends a dev debugging the
+		// wrong layer).
+		if (body === null) {
 			throw new ApiError("Invalid JSON body", 400);
 		}
 

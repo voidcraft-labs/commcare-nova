@@ -25,7 +25,9 @@ const mocks = vi.hoisted(() => ({
 	deleteCommCareSettings: vi.fn(),
 }));
 
-vi.mock("@/lib/auth-utils", () => ({ getSession: mocks.getSession }));
+vi.mock("@/lib/auth-utils", () => ({
+	getSession: mocks.getSession,
+}));
 vi.mock("@/lib/commcare/client", () => ({
 	discoverAccessibleDomains: mocks.discoverAccessibleDomains,
 }));

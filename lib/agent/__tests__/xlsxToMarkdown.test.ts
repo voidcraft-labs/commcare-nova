@@ -6,9 +6,13 @@
  * place that logic survives the office→markdown conversion.
  */
 
+import AdmZip from "adm-zip";
 import { describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
-import { xlsxToMarkdown } from "../documentExtraction";
+import {
+	assertOfficeArchiveBudget,
+	xlsxToMarkdown,
+} from "../documentExtraction";
 
 /* Importing `documentExtraction` pulls in mammoth, which pulls in bluebird —
  * bluebird creates a module-level promise at import time that the async-leak
@@ -102,5 +106,78 @@ describe("xlsxToMarkdown", () => {
 		expect(md).toContain("- B2 = A2*C2");
 		// Bounded output — not a dump of the full declared range.
 		expect(md.length).toBeLessThan(100_000);
+	});
+});
+
+describe("office-archive preflight (decompression-bomb guard)", () => {
+	// DOCX/XLSX are ZIP containers, so the upload's COMPRESSED-byte cap doesn't
+	// bound what they expand to in memory. The preflight reads only the central
+	// directory and rejects an implausible archive before the parser runs.
+	it("rejects a non-archive buffer before the parser runs", () => {
+		expect(() => xlsxToMarkdown(Buffer.from("this is not a zip"))).toThrow(
+			/valid XLSX archive/,
+		);
+	});
+
+	it("rejects an archive with an implausible number of entries", () => {
+		const zip = new AdmZip();
+		// Just over the 5,000-entry cap — the many-small-files bomb shape.
+		for (let i = 0; i < 5_001; i++) zip.addFile(`e${i}.bin`, Buffer.from("x"));
+		expect(() => xlsxToMarkdown(zip.toBuffer())).toThrow(
+			/too many internal parts/,
+		);
+	});
+
+	it("passes a normal workbook through (preflight is transparent for real files)", () => {
+		const buffer = workbookBuffer({
+			S: [
+				["a", "b"],
+				[1, 2],
+			],
+		});
+		expect(() => xlsxToMarkdown(buffer)).not.toThrow();
+	});
+});
+
+describe("assertOfficeArchiveBudget — the declared-uncompressed-size cap (primary defense)", () => {
+	// Tested directly (not through a forged 300 MB zip): a few entries declaring
+	// a huge expansion is the canonical zip-bomb shape, and the size accumulation
+	// is the branch that actually bounds it.
+	it("rejects when declared uncompressed sizes exceed the 300 MB cap", () => {
+		expect(() =>
+			assertOfficeArchiveBudget([400 * 1024 * 1024], "spreadsheet"),
+		).toThrow(/too large to read/);
+		// Accumulates across entries, not per-entry.
+		expect(() =>
+			assertOfficeArchiveBudget(
+				new Array(4).fill(100 * 1024 * 1024),
+				"document",
+			),
+		).toThrow(/too large to read/);
+	});
+
+	it("rejects a non-finite or negative declared size (a NaN can't poison the total)", () => {
+		expect(() =>
+			assertOfficeArchiveBudget([Number.NaN], "spreadsheet"),
+		).toThrow(/invalid internal size/);
+		expect(() => assertOfficeArchiveBudget([-1], "spreadsheet")).toThrow(
+			/invalid internal size/,
+		);
+		// A NaN mid-list must trip the guard, not silently skip the cap.
+		expect(() =>
+			assertOfficeArchiveBudget([1000, Number.NaN, 1000], "spreadsheet"),
+		).toThrow(/invalid internal size/);
+	});
+
+	it("rejects too many entries", () => {
+		expect(() =>
+			assertOfficeArchiveBudget(new Array(5001).fill(1), "spreadsheet"),
+		).toThrow(/too many internal parts/);
+	});
+
+	it("passes a normal archive within budget", () => {
+		expect(() =>
+			assertOfficeArchiveBudget([1000, 50_000, 2_000_000], "spreadsheet"),
+		).not.toThrow();
 	});
 });

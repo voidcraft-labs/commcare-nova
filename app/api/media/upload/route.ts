@@ -142,9 +142,15 @@ export async function POST(req: NextRequest) {
 			sizeBytes,
 			originalFilename: filename,
 		});
-		const { url, expiresAtMs } = await createSignedUploadUrl({
+		// Bind the per-kind byte cap onto the signed PUT itself (the
+		// `x-goog-content-length-range` header), so GCS rejects an oversized
+		// direct write at the storage boundary rather than letting the client
+		// land an over-cap object in `pending/` by under-declaring `sizeBytes`
+		// above. The browser must echo every `requiredHeaders` entry on the PUT.
+		const { url, expiresAtMs, requiredHeaders } = await createSignedUploadUrl({
 			gcsObjectKey: pending.gcsObjectKey,
 			contentType: mimeType,
+			maxBytes: cap,
 		});
 
 		return NextResponse.json({
@@ -156,6 +162,9 @@ export async function POST(req: NextRequest) {
 			// `image/apng`). The browser must send this exact value as
 			// the PUT `Content-Type`, or GCS rejects the signature.
 			uploadContentType: mimeType,
+			// Extra signed headers the PUT must send verbatim (the
+			// content-length-range binding). Empty in dev.
+			uploadHeaders: requiredHeaders,
 			expiresAtMs,
 		});
 	} catch (err) {
