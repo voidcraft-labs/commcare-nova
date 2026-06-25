@@ -5,7 +5,8 @@
 	"scripts": {
 		"predev": "node scripts/check-node.mjs",
 		"dev": "npm run db:dev && next dev",
-		"db:dev": "docker compose up -d --wait && atlas migrate apply --env testcontainer --url \"postgres://nova:nova@localhost:5432/nova_cases?sslmode=disable\" --allow-dirty",
+		"db:dev": "docker compose up -d --wait && NOVA_DB_LOCAL_URL=postgres://nova:nova@localhost:5432/nova_cases?sslmode=disable npm run db:migrate",
+		"db:migrate": "tsx scripts/migrate.ts",
 		"db:dev:down": "docker compose down",
 		"build": "next build",
 		"start": "next start",
@@ -18,9 +19,7 @@
 		"test:integration": "node_modules/.bin/firebase emulators:exec --only firestore --project demo-test 'GOOGLE_CLOUD_PROJECT=demo-test ./node_modules/.bin/vitest run --no-file-parallelism integration.test.ts'",
 		"test:smoke": "bash scripts/smoke.sh",
 		"test:smoke:headed": "bash scripts/smoke.sh --headed",
-		"test:smoke:url": "playwright test --project=public",
-		"db:diff": "atlas migrate diff --env local",
-		"db:lint": "atlas migrate lint --env local --latest 1"
+		"test:smoke:url": "playwright test --project=public"
 	},
 	"dependencies": {
 		"@ai-sdk/anthropic": "^4.0.0-beta.42",
@@ -128,6 +127,7 @@
 		"@types/react-dom": "19.2.3",
 		"class-variance-authority": "^0.7.1",
 		"dotenv": "^17.3.1",
+		"esbuild": "^0.28.1",
 		"fast-check": "^4.8.0",
 		"firebase-tools": "^15.21.0",
 		"happy-dom": "^20.10.6",

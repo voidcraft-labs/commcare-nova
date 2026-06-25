@@ -14,7 +14,7 @@
 //
 // The harness wires in:
 //   - `setupPerTestDatabase` for Postgres (per-test database +
-//     atlas migrations applied in a sibling `beforeEach`).
+//     migrations applied in a sibling `beforeEach`).
 //   - A `vi.mock` of `@/lib/db/apps` returning a controllable
 //     `loadApp` / `updateApp` / `updateAppForRun` triple. The
 //     saga's `applyBlueprintChange` reads + writes via these.
@@ -23,9 +23,9 @@
 //     against the per-test handle (production parity, just bypasses
 //     the production singleton's Cloud SQL connector).
 //
-// Atlas migration application mirrors the `PostgresCaseStore`
-// test pattern (`beforeEach` shells out to atlas with stdio piped
-// so per-test output doesn't drown the real test results).
+// Migration application mirrors the `PostgresCaseStore` test
+// pattern (`beforeEach` runs `applyMigrations` — Kysely's `Migrator`
+// in process — against the per-test database).
 
 import type { Kysely } from "kysely";
 import { v7 as uuidv7 } from "uuid";
@@ -33,7 +33,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildCaseTypeMap } from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
-import { applyMigrationsViaAtlas } from "@/lib/case-store/sql/__tests__/applyMigrationsViaAtlas";
+import { applyMigrations } from "@/lib/case-store/sql/__tests__/applyMigrations";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import type { AppDoc } from "@/lib/db/types";
@@ -95,8 +95,8 @@ const dbHandle = setupPerTestDatabase({
 	databaseNamePrefix: "saga_test_",
 });
 
-beforeEach(() => {
-	applyMigrationsViaAtlas(dbHandle.uri, { stdio: "pipe" });
+beforeEach(async () => {
+	await applyMigrations(dbHandle.uri);
 });
 
 beforeEach(() => {

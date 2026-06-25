@@ -11,7 +11,7 @@
 //
 // The harness mirrors `applyBlueprintChange.integration.test.ts`:
 //   - `setupPerTestDatabase` boots a fresh per-test Postgres
-//     database + applies atlas migrations.
+//     database + applies migrations (`applyMigrations`).
 //   - A `vi.mock` of `@/lib/case-store` swaps `withOwnerContext`
 //     for a constructor that returns a `PostgresCaseStore` bound
 //     to the per-test handle.
@@ -37,7 +37,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaseStore } from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
-import { applyMigrationsViaAtlas } from "@/lib/case-store/sql/__tests__/applyMigrationsViaAtlas";
+import { applyMigrations } from "@/lib/case-store/sql/__tests__/applyMigrations";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import type { CaseType, PersistableDoc } from "@/lib/domain";
@@ -75,8 +75,8 @@ const dbHandle = setupPerTestDatabase({
 	databaseNamePrefix: "matsync_test_",
 });
 
-beforeEach(() => {
-	applyMigrationsViaAtlas(dbHandle.uri, { stdio: "pipe" });
+beforeEach(async () => {
+	await applyMigrations(dbHandle.uri);
 });
 
 beforeEach(() => {

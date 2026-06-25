@@ -31,13 +31,12 @@
 // ## Schema seeding
 //
 // Extensions install via the container's superuser. `CREATE EXTENSION`
-// requires `cloudsqlsuperuser` on production, and atlas runs as the
-// IAM runtime SA which lacks superuser; the harness mirrors the
-// production split (extensions installed at provisioning under a
-// superuser; schema migrations applied under the runtime SA via atlas).
-// `applyMigrationsViaAtlas` shells out to atlas to apply
-// `lib/case-store/migrations/`, the same directory production runs at
-// Cloud Run startup. No harness-only schema shape that could mask a
+// requires `cloudsqlsuperuser` on production, and the runtime IAM SA the
+// migrate Job runs as lacks superuser; the harness mirrors the production
+// split (extensions installed at provisioning under a superuser; schema
+// migrations applied under the runtime SA). `applyMigrations` runs the same
+// `runCaseStoreMigrations` (Kysely's `Migrator`) production runs against
+// `lib/case-store/migrations/`. No harness-only schema shape that could mask a
 // migration bug.
 
 import {
@@ -46,7 +45,7 @@ import {
 } from "@testcontainers/postgresql";
 import { Client } from "pg";
 import type { TestProject } from "vitest/node";
-import { applyMigrationsViaAtlas } from "./applyMigrationsViaAtlas";
+import { applyMigrations } from "./applyMigrations";
 
 // `inject()` is typed against `ProvidedContext`; the augmentation
 // here keeps the publisher and consumer contracts single-source.
@@ -102,7 +101,7 @@ export async function setup(project: TestProject): Promise<void> {
 		await extClient.end();
 	}
 
-	applyMigrationsViaAtlas(connectionString);
+	await applyMigrations(connectionString);
 
 	// `project.provide` is the typed channel for cross-process
 	// state in Vitest 4. Env vars would lose the type augmentation

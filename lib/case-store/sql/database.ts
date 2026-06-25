@@ -1,9 +1,11 @@
 // lib/case-store/sql/database.ts
 //
-// The Kysely `Database` type. The DDL the types mirror lives at
-// `lib/case-store/schema.sql` (the desired-state source atlas reads
-// to autogenerate forward-only migrations). Any schema change
-// updates `schema.sql`, this file, and the migration set in lockstep.
+// The Kysely `Database` type. The DDL the types mirror lives in the
+// forward-only migration modules at `lib/case-store/migrations/`
+// (applied by Kysely's `Migrator` — see `lib/case-store/migrate.ts`).
+// Any schema change adds a migration module and updates this file in
+// lockstep; the compile-only `database.test.ts` and the harness smoke
+// tests catch drift between them.
 //
 // ## Multi-tenancy
 //

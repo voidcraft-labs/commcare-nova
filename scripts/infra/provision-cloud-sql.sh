@@ -20,8 +20,8 @@
 # Phase 5 (extension installs + grants) is intentionally NOT in this script.
 # `CREATE EXTENSION pg_trgm / fuzzystrmatch / postgis` requires the
 # `cloudsqlsuperuser` role; only Cloud SQL's built-in `postgres` account
-# carries that role at instance creation, and the runtime SA atlas runs as
-# does not. The Phase 5 stub at the bottom of this script enumerates the
+# carries that role at instance creation, and the runtime SA the migrate Job
+# runs as does not. The Phase 5 stub at the bottom of this script enumerates the
 # four manual steps that run interactively in Cloud SQL Studio.
 #
 # Usage: ./scripts/infra/provision-cloud-sql.sh [--dry-run]
@@ -234,13 +234,14 @@ fi
 #        GRANT USAGE ON SCHEMA public TO "51003905459-compute@developer";
 #        GRANT USAGE ON SCHEMA public TO "bperry@dimagi.com";
 #
-#        -- Atlas's `migrate apply` at Cloud Run startup creates the
-#        -- `atlas_schema_revisions` schema for its migration ledger and
-#        -- creates the case-store tables in `public`. Both require the
-#        -- runtime SA to hold DDL rights at the database + public scopes —
-#        -- without these, startup fails with
-#        -- `permission denied for database nova_cases` and the Cloud Run
-#        -- revision never binds :8080.
+#        -- The per-deploy migrate Job (Kysely's `Migrator`) creates its
+#        -- `kysely_migration` ledger and the case-store tables in `public`.
+#        -- That requires the runtime SA to hold CREATE on `public`; the
+#        -- DATABASE-scope grant below is no longer strictly required (Kysely's
+#        -- ledger lives in `public`, not a separate schema like Atlas's old
+#        -- `atlas_schema_revisions`) but is harmless and left for headroom.
+#        -- Without the public-scope grant the migrate Job fails with
+#        -- `permission denied for schema public`.
 #        GRANT CREATE ON DATABASE nova_cases TO "51003905459-compute@developer";
 #        GRANT CREATE ON SCHEMA public TO "51003905459-compute@developer";
 #        GRANT CREATE ON SCHEMA public TO "bperry@dimagi.com";
@@ -251,12 +252,12 @@ fi
 #      user (a smoke query against `pg_extension`).
 #
 # The split exists because PostGIS specifically requires `cloudsqlsuperuser`
-# per Cloud SQL's documented extension allowlist, and atlas-applied schema
-# migrations can only assume the runtime SA's privilege set. The CREATE
-# grants above are the bridge: atlas runs as the runtime SA, but needs DDL
-# rights one layer up (database for its tracking schema, public for the
-# migration target). Once granted, every subsequent schema migration runs
-# through atlas under the runtime SA at Cloud Run startup.
+# per Cloud SQL's documented extension allowlist, while the migrate Job's
+# schema migrations can only assume the runtime SA's privilege set. The CREATE
+# grants above are the bridge: the migrate Job runs as the runtime SA but needs
+# DDL rights on `public` (the migration target + the `kysely_migration`
+# ledger). Once granted, every subsequent schema migration runs through the
+# migrate Job under the runtime SA, per deploy.
 # ---------------------------------------------------------------------------
 echo "=== Phase 5: SKIPPED (manual — runs interactively in Cloud SQL Studio) ==="
 

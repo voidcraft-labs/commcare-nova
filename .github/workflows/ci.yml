@@ -70,11 +70,10 @@ jobs:
           cache: npm
       - run: npm ci
       # The suite boots a Postgres testcontainer and applies the case-store
-      # migrations through the Atlas CLI (lib/case-store/sql/__tests__/globalSetup.ts),
-      # so Atlas has to be on PATH. ubuntu-latest already runs a Docker daemon
-      # for the container itself.
-      - name: Install Atlas
-        uses: ariga/setup-atlas@master
+      # migrations in-process via Kysely's Migrator
+      # (lib/case-store/sql/__tests__/applyMigrations.ts), so no migration CLI
+      # is needed on PATH. ubuntu-latest already runs a Docker daemon for the
+      # container itself.
       - name: Test suite
         run: npm test
 
@@ -94,8 +93,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Install Atlas
-        uses: ariga/setup-atlas@master
       # Scope the leak sweep to what the PR touched. `vitest --changed <base>`
       # runs only the test files whose module import graph reaches a changed
       # file — including unchanged tests that import a changed source file, so
@@ -145,10 +142,6 @@ jobs:
           distribution: temurin
           java-version: "21"
       - run: npm ci
-      # The case store boots a Postgres container and applies migrations via
-      # Atlas (same as the `test` job), so Atlas must be on PATH.
-      - name: Install Atlas
-        uses: ariga/setup-atlas@master
       # Cache the Chromium binary (~150MB) so it isn't re-downloaded every run.
       # Keyed on the whole lockfile (coarse — any dep bump re-saves, but
       # restore-keys still serves the existing binary, so no re-download).
@@ -247,9 +240,6 @@ jobs:
           distribution: temurin
           java-version: "21"
       - run: npm ci
-      # Vitest's globalSetup boots a Postgres testcontainer migrated by Atlas.
-      - name: Install Atlas
-        uses: ariga/setup-atlas@master
       # Distinct cache key from the smoke job's so the two don't race to reserve
       # the same key on a cold run ("Unable to reserve cache …").
       - name: Cache Firestore emulator

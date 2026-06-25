@@ -43,7 +43,7 @@ import { updateSearchInputTool } from "@/lib/agent/tools/case-list-config/update
 import { buildCaseTypeMap, type CaseStore } from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
-import { applyMigrationsViaAtlas } from "@/lib/case-store/sql/__tests__/applyMigrationsViaAtlas";
+import { applyMigrations } from "@/lib/case-store/sql/__tests__/applyMigrations";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -1213,7 +1213,7 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 		// store's `query`. Same tie-break rule: the column at the
 		// lower display index drives the primary sort.
 		const { doc } = buildCollisionModule();
-		applyMigrationsViaAtlas(dbHandle.uri, { stdio: "pipe" });
+		await applyMigrations(dbHandle.uri);
 		const store = buildStore();
 		await store.applySchemaChange({
 			appId: APP_ID,
@@ -1410,8 +1410,8 @@ describe("migration v0 → v2", () => {
 // =================================================================
 
 describe("preview rendering (PostgresCaseStore.query against v2 caseListConfig)", () => {
-	beforeEach(() => {
-		applyMigrationsViaAtlas(dbHandle.uri, { stdio: "pipe" });
+	beforeEach(async () => {
+		await applyMigrations(dbHandle.uri);
 	});
 
 	it("filters, sorts, and projects calc values per the authored config", async () => {

@@ -22,7 +22,7 @@ The two centers of gravity are the **domain vocabulary** and the **doc that inst
 - **`lib/doc`** — the normalized, undoable doc store, the `Mutation` reducer, the commit gate, the reference index, and the text⇄AST bridge. Private; reach it through `lib/doc/hooks`.
 - **`lib/agent`** — the one SA `ToolLoopAgent` and everything Claude-facing: prompts, the tool surface, structured-output schema generation, and the `/api/chat` build/edit flow (plan, then atomic create, gated, drained server-side). Treat its prompts / schemas / model as load-bearing infrastructure — they are coupled to prompt-caching and grammar-constrained decoding. The MCP server (`lib/mcp`, `app/api/mcp`) exposes the same shared tools with no agent loop.
 - **`lib/commcare`** — `BlueprintDoc` → wire (XForm XML, HQ JSON, suite.xml, `.ccz`), the validator and its parse-time oracles, the XPath dialect + transpiler (`lib/commcare/xpath`), the HQ REST client, and KMS credential encryption. This is the compile / export / HQ-upload path; the barrel is client-safe and consumers are allowlisted in `biome.json`.
-- **`lib/case-store`** — Cloud SQL Postgres holding the user's real case data, tenant-scoped by `(app_id, owner_id)`; the only evaluator is the AST→Kysely compiler (`lib/case-store/sql`). Schema + indexes are materialized from the blueprint; Atlas owns migrations.
+- **`lib/case-store`** — Cloud SQL Postgres holding the user's real case data, tenant-scoped by `(app_id, owner_id)`; the only evaluator is the AST→Kysely compiler (`lib/case-store/sql`). Schema + indexes are materialized from the blueprint; Kysely's `Migrator` owns migrations (`lib/case-store/migrate.ts` + `migrations/`).
 - **`lib/media`** — asset validation, the attach- and export-time verdicts, the export budget, the wire manifest, and the deletion guard. Bytes live in GCS (`lib/storage`), a status row in Firestore (`lib/db/mediaAssets`).
 - **The builder UI** — `components/builder` (the canvas, flipbook, inspector rail, case-list workspace, media pickers; its doc opens with the three-sources-of-truth state model) draws on `lib/routing` (URL-driven location / selection via the History API), `lib/session` (ephemeral run / UI state), `lib/preview` (the client-side form engine), `lib/codemirror` (the XPath editor), and `lib/ui` (cross-cutting hooks + the toast / keyboard singletons). Repo-wide React conventions — icons, inputs, floating elements, theme — live in `components/CLAUDE.md`.
 - **`lib/db`** — the Firestore client, the app / thread / run / credit / usage schemas, the two-ledger credit gate, and the fail-closed run-finalization invariants. `lib/log` is the per-run event stream that powers replay and admin inspect.
@@ -39,7 +39,7 @@ The two centers of gravity are the **domain vocabulary** and the **doc that inst
 
 ## Stack & commands
 
-Next.js 16 (App Router, Turbopack) · TypeScript strict · Tailwind v4. Vercel AI SDK (v7 beta) + Anthropic Claude. Better Auth. Firestore (app state) · Cloud SQL Postgres via Kysely + Atlas (case data) · Cloud KMS · GCS (media). Zustand (+ zundo) for builder state. Biome + Lefthook · Vitest.
+Next.js 16 (App Router, Turbopack) · TypeScript strict · Tailwind v4. Vercel AI SDK (v7 beta) + Anthropic Claude. Better Auth. Firestore (app state) · Cloud SQL Postgres via Kysely (case data; Kysely's `Migrator` owns migrations) · Cloud KMS · GCS (media). Zustand (+ zundo) for builder state. Biome + Lefthook · Vitest.
 
 ```bash
 npm run dev          # boots local case-store Postgres (compose.yaml) + migrations, then Turbopack
@@ -47,7 +47,7 @@ npm run build / lint / format / test
 npm run test:leaks   # full suite under the async-leak detector (CI scopes it to PR-changed tests via --changed)
 npm run test:smoke   # Playwright UI smoke (Firestore emulator + local Postgres + seeded session) — see e2e/CLAUDE.md
 npm run typecheck    # fumadocs-mdx + tsc --noEmit
-npm run db:diff / db:lint        # author / lint a case-store migration (Atlas)
+npm run db:migrate               # apply case-store migrations (Kysely Migrator) against NOVA_DB_LOCAL_URL
 npx tsx scripts/test-schema.ts   # verify SA tool-input schemas are API-accepted
 ```
 

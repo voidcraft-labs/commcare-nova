@@ -73,7 +73,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { buildCaseTypeMap, type CaseStore } from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
-import { applyMigrationsViaAtlas } from "@/lib/case-store/sql/__tests__/applyMigrationsViaAtlas";
+import { applyMigrations } from "@/lib/case-store/sql/__tests__/applyMigrations";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
@@ -460,7 +460,7 @@ beforeEach(async () => {
 	navigateMock.goHome.mockClear();
 	navigateMock.openForm.mockClear();
 
-	applyMigrationsViaAtlas(dbHandle.uri, { stdio: "pipe" });
+	await applyMigrations(dbHandle.uri);
 
 	// Bind a per-test store + sync the case-type schema so `insert`
 	// / `update` validators have a row in `case_type_schemas`. Every

@@ -47,7 +47,7 @@ through the real adapter stack and fails loudly if a dependency bump breaks it.
 
 ## Run it locally
 
-Requires **Docker**, the **Atlas CLI** on PATH, and a **JDK** (the Firestore emulator).
+Requires **Docker** and a **JDK** (the Firestore emulator).
 
 ```bash
 npx playwright install chromium   # one-time
