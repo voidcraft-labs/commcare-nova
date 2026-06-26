@@ -32,7 +32,10 @@ import { v7 as uuidv7 } from "uuid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildCaseTypeMap } from "@/lib/case-store";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
-import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
+import {
+	indexScopeTag,
+	PostgresCaseStore,
+} from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
@@ -643,14 +646,17 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 		expect(postSchemaRows.rows).toHaveLength(0);
 
 		// Per-property expression indexes are dropped. The Phase 1
-		// trgm GIN landed `cases_patient_name_fuzzy`; the
-		// compensation's `DROP INDEX CONCURRENTLY IF EXISTS` removes
-		// it. Probe `pg_indexes` directly — Kysely's typed builder
-		// doesn't compile against the catalog views.
+		// trgm GIN landed an app-scoped `cases_<scopeTag>_name_fuzzy`
+		// index; the compensation's `DROP INDEX CONCURRENTLY IF
+		// EXISTS` removes it. Probe `pg_indexes` directly — Kysely's
+		// typed builder doesn't compile against the catalog views. The
+		// `cases_<scopeTag>_%` prefix is the exact `(app, case_type)`
+		// scope enumeration `readLiveIndexSet` uses.
 		const postIndexes = await dbHandle.pool.query<{ indexname: string }>(
 			`SELECT indexname FROM pg_indexes
 			 WHERE tablename = 'cases'
-			 AND indexname LIKE 'cases\\_patient\\_%' ESCAPE '\\'`,
+			 AND indexname LIKE $1 ESCAPE '\\'`,
+			[`cases\\_${indexScopeTag(APP_ID, "patient")}\\_%`],
 		);
 		expect(postIndexes.rows).toHaveLength(0);
 

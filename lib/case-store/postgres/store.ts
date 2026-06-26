@@ -36,6 +36,7 @@
 // `case_type_schemas` untouched — the database never holds a
 // schema row whose properties cannot all be indexed.
 
+import { createHash } from "node:crypto";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { type Insertable, type Kysely, sql, type Transaction } from "kysely";
@@ -883,6 +884,7 @@ export class PostgresCaseStore implements CaseStore {
 		// 63-byte identifier cap). A throw here leaves
 		// `case_type_schemas` untouched. Pure CPU, no I/O.
 		const desiredIndexes = computeDesiredIndexSet(
+			args.appId,
 			args.caseType,
 			caseType.properties,
 		);
@@ -942,6 +944,7 @@ export class PostgresCaseStore implements CaseStore {
 		// intact; the next call retries idempotently via the
 		// `indisvalid`-aware catalog diff.
 		await this.syncExpressionIndexes({
+			appId: args.appId,
 			caseType: args.caseType,
 			desired: desiredIndexes,
 		});
@@ -962,16 +965,19 @@ export class PostgresCaseStore implements CaseStore {
 			.where("case_type", "=", args.caseType)
 			.execute();
 
-		// Phase B: drop every per-property expression index. The
-		// "desired set" for a dropped case type is empty, so
-		// `diffIndexSets` would emit drops for every live index.
-		// Calling `syncExpressionIndexes` with an empty desired map
-		// is the established way to express "drop everything for
-		// this case type" — keeping the index-DDL plumbing in one
-		// place. `DROP INDEX CONCURRENTLY IF EXISTS` survives a
-		// missing-index path (Phase B already committed in a prior
-		// run, the schema-row DELETE is the only outstanding work).
+		// Phase B: drop every per-property expression index for THIS
+		// app's case type. The "desired set" for a dropped case type is
+		// empty, so `diffIndexSets` would emit drops for every live
+		// index `readLiveIndexSet` returns — and that read is scoped to
+		// `(appId, caseType)`, so a drop never touches another app's
+		// same-named case type. Calling `syncExpressionIndexes` with an
+		// empty desired map is the established way to express "drop
+		// everything for this app's case type" — keeping the index-DDL
+		// plumbing in one place. `DROP INDEX CONCURRENTLY IF EXISTS`
+		// survives a missing-index path (Phase B already committed in a
+		// prior run, the schema-row DELETE is the only outstanding work).
 		await this.syncExpressionIndexes({
+			appId: args.appId,
 			caseType: args.caseType,
 			desired: new Map(),
 		});
@@ -979,19 +985,26 @@ export class PostgresCaseStore implements CaseStore {
 
 	/**
 	 * Sync per-property expression indexes against the pre-flighted
-	 * desired set. Naming convention
-	 * `cases_<case_type>_<property>_<mode>` makes the diff mechanical
-	 * — a property rename drops old-name indexes and creates new-name
-	 * indexes; a retype drops the old type's indexes (text trgm) and
-	 * creates the new type's (int btree). The
-	 * `WHERE case_type = '<type>'` partial-index predicate scopes
-	 * each index to one case-type's rows.
+	 * desired set, scoped to one `(appId, caseType)`. Naming
+	 * convention `cases_<scopeTag>_<property>_<mode>` makes the diff
+	 * mechanical — a property rename drops old-name indexes and
+	 * creates new-name indexes; a retype drops the old type's indexes
+	 * and creates the new type's, because `<mode>` encodes the full
+	 * index shape so a type change always lands a distinct name (e.g.
+	 * `text → int` shifts `fuzzy → int`; `int → decimal` shifts
+	 * `int → num` since the two btree casts differ). The `<scopeTag>`
+	 * name segment (a fixed-width hash of `(app_id, case_type)`) plus
+	 * the `WHERE app_id = '<app>' AND case_type = '<type>'`
+	 * partial-index predicate scope each index to one app's case-type
+	 * rows, so two apps that share a case-type + property name never
+	 * collide.
 	 */
 	private async syncExpressionIndexes(args: {
+		appId: string;
 		caseType: string;
 		desired: ReadonlyMap<string, DesiredIndex>;
 	}): Promise<void> {
-		const live = await readLiveIndexSet(this.db, args.caseType);
+		const live = await readLiveIndexSet(this.db, args.appId, args.caseType);
 		const { creates, drops } = diffIndexSets(args.desired, live);
 
 		// Drops first so a same-name INVALID artifact clears before
@@ -1762,10 +1775,29 @@ function findRemovedOptionConflict(
 // shape the predicate compiler emits at query time, and the
 // matching expression-index DDL is what makes the emitted SQL hit
 // the index instead of a sequential scan. Index names follow
-// `cases_<case_type>_<property>_<mode>` so a shape change (e.g.
-// retype text → int picks suffix `fuzzy` → `btree`) flows through
-// as drop + create under distinct names rather than a same-name
-// rewrite. Each shape was empirically verified via `EXPLAIN`.
+// `cases_<scopeTag>_<property>_<mode>`: the `<scopeTag>` segment is a
+// fixed-width hash of `(app_id, case_type)` (plus the `app_id` /
+// `case_type` partial predicate) that scopes each index to one app's
+// case type — case-type names are per-app, so without it one global
+// index would span every app's rows of a shared case-type name and
+// evaluate its cast against another app's values. The case type is
+// hashed into the tag, not spelled out, so the name length depends on
+// the property name alone. The `<mode>` segment encodes the full
+// index SHAPE (access method +
+// opclass + cast), so a shape change always picks a different suffix
+// and flows through as drop + create under distinct names rather
+// than a same-name rewrite — the property the name-keyed catalog
+// diff (`diffIndexSets`) relies on. This is load-bearing across a
+// retype: `text → int` shifts
+// `fuzzy → int`, and crucially `int → decimal` shifts `int → num`
+// because the two btree casts (`::integer` vs `::numeric`) are
+// distinct expressions that MUST carry distinct names. (A shared
+// `btree` suffix for both — the prior shape — left an `int↔decimal`
+// retype's stale-cast index in place: the diff saw a same-name
+// match and skipped it, and the next insert of a value the new cast
+// rejected — a fractional `17.01` under a stale `::integer` index —
+// failed with a raw Postgres cast error at write time.) Each shape
+// was empirically verified via `EXPLAIN`.
 
 /**
  * The index naming-suffix label per `(data_type, mode)` shape. A
@@ -1781,17 +1813,46 @@ function findRemovedOptionConflict(
  *   preview-scale row counts those scan sequentially; the index is
  *   retained as the established text-property index slot, and
  *   dropping it is a separate schema-migration decision.
- * - `btree` — btree on the typed cast. Covers `compare` / `between`
- *   for `int` / `decimal`.
+ * - `int` / `num` — btree on the typed numeric cast. Covers
+ *   `compare` / `between` for `int` (`::integer`) and `decimal`
+ *   (`::numeric`). They share the btree access method but split by
+ *   cast: the suffix encodes the cast token so the two never collide
+ *   on one name (see `BTREE_SUFFIX_FOR_DATA_TYPE`). Kept compact (≤
+ *   the prior shared `btree`) so they never tighten `indexName`'s
+ *   63-byte budget.
  * - `contains` — jsonb_ops GIN. Covers `multi-select-contains`
  *   (`?|` / `?&` / `@>`); jsonb_path_ops is the wrong choice — it
  *   only supports `@>`.
  */
-type IndexModeSuffix = "fuzzy" | "btree" | "contains";
+type IndexModeSuffix = "fuzzy" | "int" | "num" | "contains";
 
-/** One expression-index entry — name + DDL pieces the build step needs. */
-interface DesiredIndex {
-	/** `cases_<case_type>_<property>_<mode>`. */
+/**
+ * Index-name suffix per numeric `data_type`. `int` and `decimal`
+ * are the two types that index a btree on a typed cast; the suffix
+ * MUST distinguish their casts (`::integer` vs `::numeric`) so the
+ * name-keyed catalog diff (`diffIndexSets`) treats an `int↔decimal`
+ * retype as a drop + create rather than a no-op same-name match.
+ * The pure unit test "two data types share an index name only if
+ * they share a cast" pins this against any future numeric type that
+ * reuses a suffix; the tokens are kept compact (no longer than the
+ * prior shared `btree`) so the rename never tightens `indexName`'s
+ * 63-byte identifier budget.
+ */
+const BTREE_SUFFIX_FOR_DATA_TYPE: Readonly<
+	Record<"int" | "decimal", IndexModeSuffix>
+> = {
+	int: "int",
+	decimal: "num",
+};
+
+/**
+ * One expression-index entry — name + DDL pieces the build step
+ * needs. Exported for the index-shape invariant test (the
+ * `diffIndexSets` name-keying contract that an `int↔decimal` retype
+ * once violated); not on the package barrel.
+ */
+export interface DesiredIndex {
+	/** `cases_<scopeTag>_<property>_<mode>`. */
 	name: string;
 	/** Postgres access method. */
 	using: "gin" | "btree";
@@ -1803,7 +1864,17 @@ interface DesiredIndex {
 	 */
 	expression: ReturnType<typeof sql>;
 	opclass?: "gin_trgm_ops" | "jsonb_ops";
-	/** Feeds the partial-index predicate `WHERE case_type = ...`. */
+	/**
+	 * Feeds the partial-index predicate
+	 * `WHERE app_id = ... AND case_type = ...`. The `app_id` scope is
+	 * load-bearing: case-type names are per-app (`case_type_schemas`
+	 * is keyed `(app_id, case_type)`), so a predicate on `case_type`
+	 * alone makes ONE global index span every app's rows of that
+	 * case-type name — and two apps that declare the same case-type +
+	 * property name with different `data_type`s then share a single
+	 * index whose cast rejects the other app's values at INSERT.
+	 */
+	appId: string;
 	caseType: string;
 }
 
@@ -1836,6 +1907,7 @@ interface LiveIndex {
  * author can disambiguate at the blueprint layer.
  */
 function computeDesiredIndexSet(
+	appId: string,
 	caseType: string,
 	properties: ReadonlyArray<CaseProperty>,
 ): Map<string, DesiredIndex> {
@@ -1845,7 +1917,7 @@ function computeDesiredIndexSet(
 	// the post-transform composed string.
 	const sourceProperty = new Map<string, string>();
 	for (const property of properties) {
-		const entry = desiredIndexForProperty(caseType, property);
+		const entry = desiredIndexForProperty(appId, caseType, property);
 		if (entry === undefined) {
 			continue;
 		}
@@ -1864,6 +1936,92 @@ function computeDesiredIndexSet(
 		result.set(entry.name, entry);
 	}
 	return result;
+}
+
+/**
+ * Eagerly (re)build the app-scoped expression indexes for one case
+ * type from its property set — drop any prior (possibly INVALID)
+ * build of each desired index, then recreate it `CONCURRENTLY`. Runs
+ * outside any transaction (the caller holds no `BEGIN`), so the
+ * CONCURRENTLY builds are legal and online. Idempotent and safe to
+ * re-run: drop-then-create converges even over a half-built artifact
+ * a prior failed run left behind.
+ *
+ * This is the one-time index-rebuild Job's create path
+ * (`scripts/rebuild-indices.ts`): it materializes the app-scoped
+ * indexes for every `(app, case_type)` directly from
+ * `case_type_schemas`, so the heal is EAGER — no app waits for its
+ * next blueprint write to get a correct index.
+ */
+export async function rebuildAppScopedIndexes(
+	executor: Kysely<Database>,
+	appId: string,
+	caseType: string,
+	properties: ReadonlyArray<CaseProperty>,
+): Promise<void> {
+	const desired = computeDesiredIndexSet(appId, caseType, properties);
+	for (const entry of desired.values()) {
+		await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(entry.name)}`.execute(
+			executor,
+		);
+		await emitCreateIndex(executor, entry);
+	}
+}
+
+/**
+ * Whether a `cases_…` per-property index name is a pre-app-scoping
+ * GLOBAL index — identified purely by NAME SHAPE, so no partial
+ * predicate text is read. App-scoped names carry the fixed-width
+ * `indexScopeTag` (12 lowercase-hex) as the segment right after
+ * `cases_`; legacy names carry a case-type fragment there instead. A
+ * case type literally named 12 lowercase-hex characters is the only
+ * (astronomically unlikely) false negative.
+ */
+function isLegacyGlobalIndexName(name: string): boolean {
+	const scopeSegment = name.split("_")[1];
+	if (scopeSegment === undefined) return false;
+	if (scopeSegment.length !== INDEX_SCOPE_TAG_LENGTH) return true;
+	for (const ch of scopeSegment) {
+		const isHex = (ch >= "0" && ch <= "9") || (ch >= "a" && ch <= "f");
+		if (!isHex) return true;
+	}
+	return false;
+}
+
+/**
+ * Drop every pre-app-scoping GLOBAL per-property index — the
+ * `cases_<case_type>_<property>_<mode>` indexes whose partial
+ * predicate is on `case_type` alone, so a single index spans every
+ * app's rows of a shared case-type name (the cross-app cast
+ * collision this scoping fixes). Found by name shape (see
+ * `isLegacyGlobalIndexName`), `DROP … CONCURRENTLY` (online), and
+ * returns the dropped names. The one-time index-rebuild Job calls
+ * this AFTER `rebuildAppScopedIndexes` has materialized the
+ * replacements, so no case type is ever left with no usable index.
+ */
+export async function dropLegacyGlobalIndexes(
+	executor: Kysely<Database>,
+): Promise<string[]> {
+	const result = await sql<{ indexname: string }>`
+		SELECT c.relname AS indexname
+		FROM pg_index i
+		JOIN pg_class c ON c.oid = i.indexrelid
+		JOIN pg_class t ON t.oid = i.indrelid
+		JOIN pg_namespace n ON n.oid = t.relnamespace
+		WHERE n.nspname = current_schema()
+		  AND t.relname = 'cases'
+		  AND i.indpred IS NOT NULL
+		  AND c.relname LIKE ${"cases\\_%"} ESCAPE '\\'`.execute(executor);
+	const legacy = result.rows
+		.map((r) => r.indexname)
+		.filter(isLegacyGlobalIndexName)
+		.sort();
+	for (const name of legacy) {
+		await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(name)}`.execute(
+			executor,
+		);
+	}
+	return legacy;
 }
 
 /**
@@ -1889,7 +2047,8 @@ function computeDesiredIndexSet(
  * Properties with no declared `data_type` default to `text` (same
  * default `lib/domain/predicate/jsonSchema.ts` uses).
  */
-function desiredIndexForProperty(
+export function desiredIndexForProperty(
+	appId: string,
 	caseType: string,
 	property: CaseProperty,
 ): DesiredIndex | undefined {
@@ -1900,21 +2059,32 @@ function desiredIndexForProperty(
 		case "text": {
 			const suffix: IndexModeSuffix = "fuzzy";
 			return {
-				name: indexName(caseType, propertyKey, suffix),
+				name: indexName(appId, caseType, propertyKey, suffix),
 				using: "gin",
 				// Postgres requires expression-index expressions be
 				// parenthesized.
 				expression: sql`((properties->>${sql.lit(propertyKey)}))`,
 				opclass: "gin_trgm_ops",
+				appId,
 				caseType,
 			};
 		}
 		case "int":
 		case "decimal": {
-			const suffix: IndexModeSuffix = "btree";
+			// `int` and `decimal` share the btree access method but
+			// compile to DIFFERENT casts (`::integer` vs `::numeric`),
+			// so each MUST carry a distinct index name. The suffix
+			// encodes the cast (`int` / `num`) — the one dimension the
+			// btree family varies by — so the name-keyed catalog diff
+			// treats an `int↔decimal` retype as drop + create. A shared
+			// `btree` suffix (the prior shape) left such a retype's
+			// stale-cast index in place, and the next insert of a value
+			// the new cast rejected (a fractional `17.01` under a stale
+			// `::integer` index) failed at write time.
+			const suffix: IndexModeSuffix = BTREE_SUFFIX_FOR_DATA_TYPE[dataType];
 			const cast = POSTGRES_CAST_FOR_DATA_TYPE[dataType];
 			return {
-				name: indexName(caseType, propertyKey, suffix),
+				name: indexName(appId, caseType, propertyKey, suffix),
 				using: "btree",
 				// `((properties->>'<key>')::<cast>)` matches the term
 				// compiler's emission so the planner reaches the index.
@@ -1922,13 +2092,14 @@ function desiredIndexForProperty(
 				// the query path reads, so retyping retargets both
 				// surfaces in lockstep.
 				expression: sql`(((properties->>${sql.lit(propertyKey)}))::${sql.raw(cast)})`,
+				appId,
 				caseType,
 			};
 		}
 		case "multi_select": {
 			const suffix: IndexModeSuffix = "contains";
 			return {
-				name: indexName(caseType, propertyKey, suffix),
+				name: indexName(appId, caseType, propertyKey, suffix),
 				using: "gin",
 				// `->` (returns jsonb) NOT `->>` — `jsonb_ops` supports
 				// the full `?` / `?|` / `?&` / `@>` set, while
@@ -1937,6 +2108,7 @@ function desiredIndexForProperty(
 				// to a sequential scan.
 				expression: sql`((properties->${sql.lit(propertyKey)}))`,
 				opclass: "jsonb_ops",
+				appId,
 				caseType,
 			};
 		}
@@ -1971,29 +2143,78 @@ function desiredIndexForProperty(
 }
 
 /**
- * Compose the index name from `(caseType, property, mode)`.
- * Hyphens transform to underscores because Postgres unquoted
- * identifiers don't admit them; the JSONB key inside the indexed
- * expression keeps the hyphen verbatim via `sql.lit`. Throws on
- * overflow of Postgres's 63-byte identifier cap so the diff stays
- * mechanical against the live set (Postgres silently truncates
- * longer names, which would produce false collisions).
+ * Length of the hex `indexScopeTag` segment. 12 hex chars = 48 bits
+ * of the pair's SHA-256; the collision probability across any
+ * realistic `(app, case_type)` population (a shared tag would let
+ * two scopes' same-`(property, mode)` indexes collide on one name)
+ * is negligible, and the fixed width keeps the name's scope segment
+ * bounded so the 63-byte budget below is predictable.
+ */
+const INDEX_SCOPE_TAG_LENGTH = 12;
+
+/**
+ * A short, fixed-length, Postgres-identifier-safe tag derived from
+ * the `(appId, caseType)` pair, used as the FIRST name segment of
+ * every per-property expression index. Folding both into one
+ * fixed-WIDTH tag is what makes `readLiveIndexSet`'s name prefix
+ * (`cases_<tag>_%`) an EXACT scope match: distinct `(app, case_type)`
+ * pairs hash to distinct tags, so the prefix never bleeds across apps
+ * NOR across case types whose names are prefixes of each other
+ * (`patient` vs `patient_visit`, which a `..._patient_%` prefix would
+ * otherwise both match) — the diff stays scoped to one
+ * `(app, case_type)` without reading the partial predicate. The
+ * property name still follows the tag in the composed name (readable
+ * for ops); the case type is NOT spelled out a second time — the tag
+ * already encodes it, and carrying the literal would only re-consume
+ * the 63-byte identifier budget the scope tag already costs. The
+ * space separator can't appear in either fragment (Firestore app ids
+ * are alphanumeric; case-type names follow `CASE_PROPERTY_PATTERN`),
+ * so `("ab","c")` and `("a","bc")` never collide. SHA-256 is
+ * deterministic, so `materializeCaseStoreSchemas` (runtime) and the
+ * index-rebuild migration compose the same name for a given scope.
+ */
+export function indexScopeTag(appId: string, caseType: string): string {
+	return createHash("sha256")
+		.update(`${appId} ${caseType}`)
+		.digest("hex")
+		.slice(0, INDEX_SCOPE_TAG_LENGTH);
+}
+
+/**
+ * Compose the index name `cases_<scopeTag>_<property>_<mode>` from
+ * `(appId, caseType, property, mode)`. The leading `indexScopeTag`
+ * segment scopes the name to one `(app, case_type)` so two apps that
+ * declare the same case-type + property name (or two prefix-related
+ * case types in one app) get distinct index identities and exact
+ * prefix enumeration (paired with the app-scoped partial predicate
+ * in `emitCreateIndex`, the indexes are fully independent). The case
+ * type is NOT carried as a literal segment — the tag already
+ * encodes it, so the budget below depends on the property name
+ * alone, not on the case-type length. Hyphens transform to
+ * underscores because Postgres unquoted identifiers don't admit them;
+ * the JSONB key inside the indexed expression keeps the hyphen
+ * verbatim via `sql.lit`. Throws on overflow of Postgres's 63-byte
+ * identifier cap so the diff stays mechanical against the live set
+ * (Postgres silently truncates longer names, which would produce
+ * false collisions); the fixed-width tag leaves ~40 bytes for the
+ * property name + mode, so only a very long property name can trip it.
  */
 function indexName(
+	appId: string,
 	caseType: string,
 	property: string,
 	mode: IndexModeSuffix,
 ): string {
 	assertSafeIdentifierFragment(caseType, "case type");
 	assertSafeIdentifierFragment(property, "property");
-	const composed = `cases_${transformHyphens(caseType)}_${transformHyphens(property)}_${mode}`;
+	const composed = `cases_${indexScopeTag(appId, caseType)}_${transformHyphens(property)}_${mode}`;
 	if (Buffer.byteLength(composed, "utf8") > 63) {
 		throw new Error(
 			compilerBugMessage({
 				where: "case-store.indexName",
 				invariant: `composed index name \`${composed}\` exceeds Postgres' 63-byte identifier cap (\`NAMEDATALEN - 1\`)`,
 				detail:
-					"Postgres silently truncates identifiers at 63 bytes, so a long case-type + long property pair could collide in `pg_indexes` even with distinct pre-truncate names. The blueprint authoring layer is responsible for keeping case-type + property names short enough to compose; reaching this throw means the upstream gate didn't catch it.\n\nHint: shorten the case-type name or the property name at the blueprint layer.",
+					"Postgres silently truncates identifiers at 63 bytes, so an over-long name could collide in `pg_indexes` even with distinct pre-truncate names. Only the fixed-width scope tag (12 hex) + the property name + the mode compose into the name — the case-type length no longer counts — so reaching this throw means a single very long property name (>~35 bytes) overflowed. The blueprint authoring layer is responsible for keeping property names short enough to compose under the fixed-width scope tag.\n\nHint: shorten the property name at the blueprint layer.",
 			}),
 		);
 	}
@@ -2002,7 +2223,7 @@ function indexName(
 
 /** Hyphens → underscores for Postgres identifier compatibility. */
 function transformHyphens(fragment: string): string {
-	return fragment.replace(/-/g, "_");
+	return fragment.replaceAll("-", "_");
 }
 
 /**
@@ -2028,10 +2249,18 @@ function assertSafeIdentifierFragment(
 }
 
 /**
- * Read every live per-property expression index for a case type
- * from the catalog. The name-prefix filter pins to indexes the
- * helper owns so foreign indexes (manually created, the static
- * `case_indices_*_idx` set) don't appear in the diff.
+ * Read every live per-property expression index for one
+ * `(appId, caseType)` scope from the catalog. The name-prefix filter
+ * pins the `indexScopeTag` segment, which is a fixed-width hash of
+ * the `(appId, caseType)` pair — so `cases_<tag>_%` is an EXACT scope
+ * match: it sees only THIS scope's indexes, never another app's
+ * indexes, never a prefix-related case type's indexes (`patient` vs
+ * `patient_visit` hash to different tags), and never the
+ * pre-app-scoping global indexes (a different name shape — no scope
+ * tag — that the one-time index-rebuild migration drops). Foreign
+ * indexes (manual, the static `case_indices_*_idx` set) fall outside
+ * the prefix too. The exactness comes from the fixed-width tag, so
+ * the diff never reads or parses the partial predicate.
  *
  * The query joins `pg_index` + `pg_class` (twice — once for the
  * index, once for the underlying table) + `pg_namespace` rather
@@ -2045,6 +2274,7 @@ function assertSafeIdentifierFragment(
  */
 async function readLiveIndexSet(
 	executor: Kysely<Database>,
+	appId: string,
 	caseType: string,
 ): Promise<Map<string, LiveIndex>> {
 	// `n.nspname = current_schema()` matches `pg_indexes`'s implicit
@@ -2052,12 +2282,11 @@ async function readLiveIndexSet(
 	//
 	// Underscores in the prefix are LIKE single-char wildcards on
 	// `_`; the `ESCAPE '\\'` form treats `\_` as a literal underscore
-	// so the prefix matches only structural underscores (the
-	// `cases_<type>_` convention shape) — the `indexName`
-	// hyphen-to-underscore transform also applies on the case-type
-	// fragment so this filter aligns with the create path.
+	// so the prefix matches only the structural `cases_<tag>_` shape.
+	// The `indexScopeTag` is hex (LIKE-safe) and fixed-width, so the
+	// prefix can't bleed into an adjacent scope.
 	assertSafeIdentifierFragment(caseType, "case type");
-	const prefix = `cases\\_${transformHyphens(caseType)}\\_%`;
+	const prefix = `cases\\_${indexScopeTag(appId, caseType)}\\_%`;
 	const result = await sql<{
 		indexname: string;
 		isvalid: boolean;
@@ -2080,12 +2309,18 @@ async function readLiveIndexSet(
 }
 
 /**
- * Diff the desired and live sets. Same name implies same shape (a
- * shape change always picks a different mode suffix), so a valid
- * matching name skips. INVALID matches drop-and-recreate (the
- * `indisvalid = false` recovery path); ordered drop-then-create in
- * `syncExpressionIndexes` ensures the name is free before reuse.
- * Live names not in desired drop regardless of validity.
+ * Diff the desired and live sets. Same name implies same shape
+ * because `<mode>` encodes the full index shape (access method +
+ * opclass + cast) — a shape change always picks a different suffix,
+ * including `int → num` for an `int↔decimal` retype whose btree
+ * casts differ — so a valid matching name skips. (Were two distinct
+ * shapes to ever share a name, this skip would leave the stale shape
+ * in place; `BTREE_SUFFIX_FOR_DATA_TYPE` and the index-shape
+ * invariant test are what keep that from recurring.) INVALID matches
+ * drop-and-recreate (the `indisvalid = false` recovery path);
+ * ordered drop-then-create in `syncExpressionIndexes` ensures the
+ * name is free before reuse. Live names not in desired drop
+ * regardless of validity.
  */
 function diffIndexSets(
 	desired: ReadonlyMap<string, DesiredIndex>,
@@ -2115,10 +2350,14 @@ function diffIndexSets(
 }
 
 /**
- * Emit one `CREATE INDEX CONCURRENTLY` statement. The case-type
- * flows as a `sql.lit` string literal because expression-index
- * predicates require IMMUTABLE; bound parameters would silently
- * fail the immutability check.
+ * Emit one `CREATE INDEX CONCURRENTLY` statement. The partial-index
+ * predicate is scoped to BOTH `app_id` and `case_type` so the index
+ * covers only the owning app's rows — case-type names are per-app,
+ * so a `case_type`-only predicate would make one index span every
+ * app's rows of that name and evaluate its cast against other apps'
+ * values. The `app_id` / `case_type` literals flow as `sql.lit`
+ * strings because expression-index predicates require IMMUTABLE;
+ * bound parameters would silently fail the immutability check.
  */
 async function emitCreateIndex(
 	executor: Kysely<Database>,
@@ -2127,7 +2366,7 @@ async function emitCreateIndex(
 	const opclass =
 		entry.opclass !== undefined ? sql` ${sql.raw(entry.opclass)}` : sql``;
 	const using = sql.raw(entry.using.toUpperCase());
-	await sql`CREATE INDEX CONCURRENTLY ${sql.id(entry.name)} ON cases USING ${using} (${entry.expression}${opclass}) WHERE case_type = ${sql.lit(entry.caseType)}`.execute(
+	await sql`CREATE INDEX CONCURRENTLY ${sql.id(entry.name)} ON cases USING ${using} (${entry.expression}${opclass}) WHERE app_id = ${sql.lit(entry.appId)} AND case_type = ${sql.lit(entry.caseType)}`.execute(
 		executor,
 	);
 }

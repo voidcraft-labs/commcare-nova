@@ -183,15 +183,17 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 		]);
 
 		// Per-property expression indexes landed. The text-typed
-		// `name` property materializes `cases_patient_name_fuzzy`
-		// (text properties get a `gin_trgm_ops` partial GIN
-		// expression index for `match` / `compare` coverage); the
-		// text-typed `notes` property on `visit` materializes its
-		// own `cases_visit_notes_fuzzy`. Index names follow the
-		// `cases_<case_type>_<property>_<mode>` convention enforced
-		// by the case-store; one assertion per case type proves
-		// every iteration of the helper's loop ran the Phase B
-		// path, not just the first.
+		// `name` property materializes a `..._name_fuzzy` index (text
+		// properties get a `gin_trgm_ops` partial GIN expression index
+		// for `match` / `compare` coverage); the text-typed `notes`
+		// property on `visit` materializes its own `..._notes_fuzzy`.
+		// Index names follow the app-scoped
+		// `cases_<scopeTag>_<property>_<mode>` convention enforced by the
+		// case-store (the `<scopeTag>` hashes `(app, case_type)`, so the
+		// case type isn't spelled out), so the assertions match on the
+		// readable `<property>_<mode>` suffix rather than the hash; one
+		// assertion per case type proves every iteration of the helper's
+		// loop ran the Phase B path, not just the first.
 		const indexes = await dbHandle.pool.query<{ indexname: string }>(
 			`SELECT indexname FROM pg_indexes
 			 WHERE tablename = 'cases'
@@ -199,8 +201,8 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 			 ORDER BY indexname`,
 		);
 		const indexNames = indexes.rows.map((r) => r.indexname);
-		expect(indexNames).toContain("cases_patient_name_fuzzy");
-		expect(indexNames).toContain("cases_visit_notes_fuzzy");
+		expect(indexNames.some((n) => n.endsWith("_name_fuzzy"))).toBe(true);
+		expect(indexNames.some((n) => n.endsWith("_notes_fuzzy"))).toBe(true);
 	});
 });
 
