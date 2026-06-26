@@ -1939,101 +1939,6 @@ function computeDesiredIndexSet(
 }
 
 /**
- * Eagerly bring one case type's app-scoped expression indexes to the
- * desired set, computed from its property declarations — the same
- * read-live / diff / drop-not-desired + create-missing reconciliation
- * the runtime's `syncExpressionIndexes` runs, but driven by an
- * explicit property set rather than a blueprint. Runs outside any
- * transaction (the caller holds no `BEGIN`), so the `CONCURRENTLY`
- * builds are legal and online; idempotent (a re-run diffs to empty).
- *
- * Using the live-set DIFF (not a blind create) is load-bearing for
- * the heal: it also drops any STALE app-scoped index in the scope —
- * e.g. one a prior code revision created under a different (longer,
- * pre-hash) property-name segment — so the rebuild converges to
- * exactly the desired set with no orphan duplicates.
- *
- * This is the one-time index-rebuild Job's path
- * (`scripts/rebuild-indices.ts`): it reconciles every `(app,
- * case_type)` directly from `case_type_schemas`, so the heal is EAGER
- * — no app waits for its next blueprint write to get a correct index.
- */
-export async function rebuildAppScopedIndexes(
-	executor: Kysely<Database>,
-	appId: string,
-	caseType: string,
-	properties: ReadonlyArray<CaseProperty>,
-): Promise<void> {
-	const desired = computeDesiredIndexSet(appId, caseType, properties);
-	const live = await readLiveIndexSet(executor, appId, caseType);
-	const { creates, drops } = diffIndexSets(desired, live);
-	for (const drop of drops) {
-		await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(drop.name)}`.execute(
-			executor,
-		);
-	}
-	for (const create of creates) {
-		await emitCreateIndex(executor, create);
-	}
-}
-
-/**
- * Whether a `cases_…` per-property index name is a pre-app-scoping
- * GLOBAL index — identified purely by NAME SHAPE, so no partial
- * predicate text is read. App-scoped names carry the fixed-width
- * `indexScopeTag` (12 lowercase-hex) as the segment right after
- * `cases_`; legacy names carry a case-type fragment there instead. A
- * case type literally named 12 lowercase-hex characters is the only
- * (astronomically unlikely) false negative.
- */
-function isLegacyGlobalIndexName(name: string): boolean {
-	const scopeSegment = name.split("_")[1];
-	if (scopeSegment === undefined) return false;
-	if (scopeSegment.length !== INDEX_SCOPE_TAG_LENGTH) return true;
-	for (const ch of scopeSegment) {
-		const isHex = (ch >= "0" && ch <= "9") || (ch >= "a" && ch <= "f");
-		if (!isHex) return true;
-	}
-	return false;
-}
-
-/**
- * Drop every pre-app-scoping GLOBAL per-property index — the
- * `cases_<case_type>_<property>_<mode>` indexes whose partial
- * predicate is on `case_type` alone, so a single index spans every
- * app's rows of a shared case-type name (the cross-app cast
- * collision this scoping fixes). Found by name shape (see
- * `isLegacyGlobalIndexName`), `DROP … CONCURRENTLY` (online), and
- * returns the dropped names. The one-time index-rebuild Job calls
- * this AFTER `rebuildAppScopedIndexes` has materialized the
- * replacements, so no case type is ever left with no usable index.
- */
-export async function dropLegacyGlobalIndexes(
-	executor: Kysely<Database>,
-): Promise<string[]> {
-	const result = await sql<{ indexname: string }>`
-		SELECT c.relname AS indexname
-		FROM pg_index i
-		JOIN pg_class c ON c.oid = i.indexrelid
-		JOIN pg_class t ON t.oid = i.indrelid
-		JOIN pg_namespace n ON n.oid = t.relnamespace
-		WHERE n.nspname = current_schema()
-		  AND t.relname = 'cases'
-		  AND i.indpred IS NOT NULL
-		  AND c.relname LIKE ${"cases\\_%"} ESCAPE '\\'`.execute(executor);
-	const legacy = result.rows
-		.map((r) => r.indexname)
-		.filter(isLegacyGlobalIndexName)
-		.sort();
-	for (const name of legacy) {
-		await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(name)}`.execute(
-			executor,
-		);
-	}
-	return legacy;
-}
-
-/**
  * Build the desired-index entry for one property, or `undefined`
  * when the data type carries no per-property index.
  *
@@ -2179,8 +2084,8 @@ const INDEX_SCOPE_TAG_LENGTH = 12;
  * separator can't appear in either fragment (Firestore app ids are
  * alphanumeric; case-type names follow `CASE_PROPERTY_PATTERN`), so
  * `("ab","c")` and `("a","bc")` never collide. SHA-256 is
- * deterministic, so `materializeCaseStoreSchemas` (runtime) and the
- * index-rebuild migration compose the same name for a given scope.
+ * deterministic, so every write composes the same name for a given
+ * scope — the catalog diff stays stable across runs.
  */
 export function indexScopeTag(appId: string, caseType: string): string {
 	return createHash("sha256")
@@ -2274,13 +2179,12 @@ function assertSafeIdentifierFragment(
  * pins the `indexScopeTag` segment, which is a fixed-width hash of
  * the `(appId, caseType)` pair — so `cases_<tag>_%` is an EXACT scope
  * match: it sees only THIS scope's indexes, never another app's
- * indexes, never a prefix-related case type's indexes (`patient` vs
- * `patient_visit` hash to different tags), and never the
- * pre-app-scoping global indexes (a different name shape — no scope
- * tag — that the one-time index-rebuild migration drops). Foreign
- * indexes (manual, the static `case_indices_*_idx` set) fall outside
- * the prefix too. The exactness comes from the fixed-width tag, so
- * the diff never reads or parses the partial predicate.
+ * indexes, and never a prefix-related case type's indexes (`patient`
+ * vs `patient_visit` hash to different tags). Foreign indexes
+ * (manual, the static `case_indices_*_idx` set, or any name without
+ * the leading scope tag) fall outside the prefix too. The exactness
+ * comes from the fixed-width tag, so the diff never reads or parses
+ * the partial predicate.
  *
  * The query joins `pg_index` + `pg_class` (twice — once for the
  * index, once for the underlying table) + `pg_namespace` rather

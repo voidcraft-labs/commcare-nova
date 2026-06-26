@@ -130,36 +130,6 @@ steps:
       - --min-instances=1
       - --startup-probe=httpGet.path=/warmup,httpGet.port=8080,initialDelaySeconds=0,timeoutSeconds=10,periodSeconds=10,failureThreshold=24
 
-  # Heal the pre-app-scoping global case-store indexes, ONCE, AFTER the deploy —
-  # so only the app-scoped index code is serving and the legacy globals this
-  # drops can't be recreated by the old revision. The Job reuses the app image
-  # with a `node rebuild-indices.cjs` command override: it eagerly rebuilds every
-  # app-scoped index from `case_type_schemas` and drops the legacy globals, all
-  # CONCURRENTLY (online) and idempotently. Postgres-only, so it needs the same
-  # Cloud SQL connector env as the migrate Job (`NOVA_DB_INSTANCE_CONNECTION_NAME`,
-  # not a raw host) and the same identity + Direct VPC Egress. `jobs deploy` is
-  # create-or-update; `execute --wait` fails the build on a non-zero exit so a
-  # botched heal is loud. `--task-timeout` is generous: each index builds
-  # CONCURRENTLY (seconds), and the Job touches every case type.
-  - id: rebuild-indices
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        set -euo pipefail
-        gcloud run jobs deploy commcare-nova-rebuild-indices \
-          --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA \
-          --region=us-central1 \
-          --service-account=commcare-nova@commcare-nova.iam.gserviceaccount.com \
-          --network=default --subnet=default --vpc-egress=private-ranges-only \
-          --set-env-vars=NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases \
-          --command=node \
-          --args=rebuild-indices.cjs \
-          --max-retries=1 \
-          --task-timeout=1800
-        gcloud run jobs execute commcare-nova-rebuild-indices --region=us-central1 --wait
-
 options:
   logging: CLOUD_LOGGING_ONLY
 

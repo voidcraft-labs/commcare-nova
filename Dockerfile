@@ -91,16 +91,6 @@ RUN npx esbuild scripts/migrate.ts \
       --tsconfig=tsconfig.json --external:pg-native \
       --outfile=migrate.cjs
 
-# Bundle the one-time index-rebuild entrypoint the same way. The
-# `commcare-nova-rebuild-indices` Cloud Run Job runs it with `node
-# rebuild-indices.cjs` AFTER a deploy to heal the pre-app-scoping global
-# indexes. Postgres-only (derives the index set from `case_type_schemas`), so it
-# inlines the SAME deps as `migrate.cjs` — no Firestore SDK to bundle.
-RUN npx esbuild scripts/rebuild-indices.ts \
-      --bundle --platform=node --target=node22 --format=cjs \
-      --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=rebuild-indices.cjs
-
 # --- Stage 3: Production runner ---
 FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
@@ -123,10 +113,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # the builder stage) must be present. No external binary and no raw migration
 # files — the migration modules are bundled into `migrate.cjs`.
 COPY --from=builder --chown=nextjs:nodejs /app/migrate.cjs ./migrate.cjs
-
-# The one-time index-rebuild entrypoint, reused the same way by the
-# `commcare-nova-rebuild-indices` Cloud Run Job (`node rebuild-indices.cjs`).
-COPY --from=builder --chown=nextjs:nodejs /app/rebuild-indices.cjs ./rebuild-indices.cjs
 
 USER nextjs
 

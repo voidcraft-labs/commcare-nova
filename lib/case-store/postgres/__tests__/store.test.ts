@@ -66,11 +66,9 @@ import type { Database } from "../../sql/database";
 import { buildCaseTypeMap } from "../../store";
 import {
 	desiredIndexForProperty,
-	dropLegacyGlobalIndexes,
 	indexScopeTag,
 	PostgresCaseStore,
 	propertyIndexTag,
-	rebuildAppScopedIndexes,
 } from "../store";
 
 /**
@@ -1897,67 +1895,5 @@ describe("PostgresCaseStore — int property range validation", () => {
 				},
 			}),
 		).rejects.toBeInstanceOf(CasePropertiesValidationError);
-	});
-});
-
-// ---------------------------------------------------------------
-// One-time index-rebuild migration (`scripts/rebuild-indices.ts`)
-// ---------------------------------------------------------------
-//
-// The deploy-time `commcare-nova-rebuild-indices` Cloud Run Job heals the
-// pre-app-scoping global indexes as the runtime SA: eagerly (re)build every
-// app-scoped index from `case_type_schemas`, then drop the legacy globals. These
-// pin the two store-level helpers it composes.
-
-describe("PostgresCaseStore — index-rebuild migration helpers", () => {
-	it("rebuildAppScopedIndexes eagerly creates the app-scoped index set and is idempotent", async () => {
-		const db = dbHandle.db as unknown as Kysely<Database>;
-		const properties: CaseProperty[] = [
-			{ name: "age", label: "Age", data_type: "int" },
-			{ name: "city", label: "City", data_type: "text" },
-		];
-
-		await rebuildAppScopedIndexes(db, APP_ID, "patient", properties);
-		const names = (await readPropertyIndexes(dbHandle.pool, APP_ID, "patient"))
-			.map((i) => i.name)
-			.sort();
-		expect(names).toEqual(
-			[
-				idxName(APP_ID, "patient", "age", "int"),
-				idxName(APP_ID, "patient", "city", "fuzzy"),
-			].sort(),
-		);
-
-		// Re-run converges to the same set (drop-then-create per index).
-		await rebuildAppScopedIndexes(db, APP_ID, "patient", properties);
-		const again = (await readPropertyIndexes(dbHandle.pool, APP_ID, "patient"))
-			.map((i) => i.name)
-			.sort();
-		expect(again).toEqual(names);
-	});
-
-	it("dropLegacyGlobalIndexes drops pre-app-scoping globals but keeps app-scoped indexes", async () => {
-		const db = dbHandle.db as unknown as Kysely<Database>;
-
-		// A legacy GLOBAL index: old naming (no scope tag), partial predicate on
-		// `case_type` alone — exactly the shape that caused the cross-app
-		// collision. Created directly since the new code never composes it.
-		await dbHandle.pool.query(
-			`CREATE INDEX cases_patient_age_btree ON cases USING btree ((((properties->>'age'))::integer)) WHERE case_type = 'patient'`,
-		);
-		// An app-scoped index (new naming) that MUST survive the drop.
-		await rebuildAppScopedIndexes(db, APP_ID, "patient", [
-			{ name: "weight", label: "Weight", data_type: "decimal" },
-		]);
-
-		const dropped = await dropLegacyGlobalIndexes(db);
-		expect(dropped).toContain("cases_patient_age_btree");
-
-		const live = await dbHandle.pool.query<{ indexname: string }>(
-			`SELECT indexname FROM pg_indexes WHERE tablename = 'cases' AND indexname LIKE 'cases\\_%' ESCAPE '\\' ORDER BY indexname`,
-		);
-		const liveNames = live.rows.map((r) => r.indexname);
-		expect(liveNames).not.toContain("cases_patient_age_btree");
-		expect(liveNames).toContain(idxName(APP_ID, "patient", "weight", "num"));
 	});
 });
