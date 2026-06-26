@@ -82,6 +82,17 @@ export const CLOUD_RUN_MAX_INSTANCES = 5;
 export const POOL_MAX_PER_INSTANCE = 4;
 
 /**
+ * Cap on how long a query waits to ACQUIRE a pooled connection before erroring.
+ * Without it `pg.Pool` queues indefinitely; since the auth migration funnels a
+ * per-request `isUserActive` read onto this 4-connection pool (which also serves
+ * case-store/preview queries), a saturated pool could otherwise hang requests to
+ * the route's 300s ceiling. A bounded timeout fails fast instead — the auth read
+ * is fail-open on error (`sessionUserIsActive` allows the request), and
+ * case-store queries surface a clear error rather than stalling.
+ */
+export const POOL_CONNECTION_TIMEOUT_MS = 10_000;
+
+/**
  * Connection-budget invariant. Throws when the four constants drift
  * into a configuration that would let Cloud Run instances overrun
  * Cloud SQL's cap. Fires once per process on the first
@@ -221,6 +232,7 @@ export function buildPoolConfig(
 		user: env.NOVA_DB_USER,
 		database: env.NOVA_DB_NAME,
 		max: POOL_MAX_PER_INSTANCE,
+		connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
 	};
 }
 
@@ -271,6 +283,7 @@ async function initialize(): Promise<CaseStoreHandles> {
 		const pool = new Pool({
 			connectionString: localUrl,
 			max: POOL_MAX_PER_INSTANCE,
+			connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
 		});
 		const dialect = new PostgresDialect({
 			pool: pool as unknown as PostgresPool,

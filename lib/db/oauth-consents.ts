@@ -273,14 +273,20 @@ export async function hasActiveConsent(
 	tokenIssuedAt?: number,
 ): Promise<boolean> {
 	const db = await getAuthDb();
-	const consent = await db
-		.selectFrom("auth_oauth_consent")
-		.select("id")
-		.where("userId", "=", userId)
-		.where("clientId", "=", clientId)
+	// One round-trip on the per-request MCP path: the consent existence test
+	// LEFT JOINed to the (user, client) revocation watermark. `revokedAt` is null
+	// when no consent matches (row absent) OR no watermark exists.
+	const row = await db
+		.selectFrom("auth_oauth_consent as c")
+		.leftJoin("auth_oauth_grant_revocation as r", (join) =>
+			join.on("r.userId", "=", userId).on("r.clientId", "=", clientId),
+		)
+		.select(["c.id as consentId", "r.revokedAt as revokedAt"])
+		.where("c.userId", "=", userId)
+		.where("c.clientId", "=", clientId)
 		.limit(1)
 		.executeTakeFirst();
-	if (!consent) return false;
+	if (!row) return false;
 
 	if (tokenIssuedAt === undefined) return true;
 
@@ -289,17 +295,14 @@ export async function hasActiveConsent(
 		: null;
 	if (issuedAtMs === null) return false;
 
-	const revocation = await db
-		.selectFrom("auth_oauth_grant_revocation")
-		.select("revokedAt")
-		.where("userId", "=", userId)
-		.where("clientId", "=", clientId)
-		.limit(1)
-		.executeTakeFirst();
-	if (!revocation) return true;
-
-	const revokedAtMs = toMillis(revocation.revokedAt);
+	if (row.revokedAt == null) return true;
+	const revokedAtMs = toMillis(row.revokedAt);
 	if (revokedAtMs === null) return false;
+	/* Fail-closed at the JWT `iat`'s second granularity: `issuedAtMs` is floored
+	 * to a whole second, so a token issued in the SAME wall-clock second as a
+	 * revocation is treated as revoked (a brief, self-healing denial). The
+	 * inequality never fails OPEN — a token from a later second always reads as
+	 * active. */
 	return revokedAtMs < issuedAtMs;
 }
 

@@ -2,10 +2,7 @@
 // automatically by the migrate Job AFTER the auth tables are created, BEFORE
 // traffic shifts to the Postgres-backed auth. Idempotent + guarded: it runs
 // only when `auth_user` is empty (the first deploy after the tables land), so a
-// re-deploy never re-copies over live Postgres writes. The whole copy is ONE
-// Kysely transaction — if any row fails it rolls back, `auth_user` stays empty,
-// the Job exits non-zero, and the next deploy retries the whole copy cleanly (no
-// partial migration can latch).
+// re-deploy never re-copies over live Postgres writes.
 //
 // Faithful, ID-preserving transfer — `apps.owner` and every case-store
 // `owner_id` key on the Better Auth user id, so the ids MUST survive verbatim.
@@ -14,21 +11,35 @@
 // working. Firestore is NOT touched — it stays as a backup until a later manual
 // cleanup, so a bad copy is always recoverable (empty `auth_user`, redeploy).
 //
+// Shape vs the destination's constraints. Better Auth's migrator creates real
+// foreign keys + NOT NULLs the Firestore source never enforced, so the copy
+// reconciles three things that would otherwise abort it:
+//   1. `auth_oauth_refresh_token.sessionId` FKs `auth_session(id)`, but sessions
+//      are intentionally NOT copied (ephemeral) — so sessionId is always nulled
+//      (the FK is `ON DELETE SET NULL`, i.e. nullable by design).
+//   2. consent / refresh-token / account / api-key rows FK `auth_oauth_client`
+//      and `auth_user`; Firestore tolerated rows whose client/user doc was gone.
+//      Rows whose required FK target wasn't copied are SKIPPED (counted), and a
+//      client whose owner is gone keeps the row with a nulled `userId`.
+//   3. The copy still runs as ONE transaction, so a genuinely malformed row (a
+//      missing NOT NULL the filters above don't cover) aborts the whole copy and
+//      fails the Job by design — that should halt + alert an operator, never
+//      silently drop a user. The structural cases that WOULD reliably fire
+//      (1 + 2) are handled, so the abort path is reserved for real anomalies.
+//
 // Source Firestore collections: the `auth_*` trio is prefixed, the plugin tables
 // use Better Auth's core default model names; targets are the `auth_`-prefixed
 // Postgres tables. Ephemeral collections are SKIPPED — sessions, verification,
-// rate-limit — so users sign in once more, in-flight OAuth flows restart, and
-// counters reset.
+// rate-limit.
 //
 // Reads/writes use the typed Kysely builder (`CopyTables`) — no SQL literals.
-// The destination columns mirror Better Auth's generated schema; columns are
-// typed permissively (nullable) because the COPY's correctness guarantee is the
-// destination tables' own NOT NULL constraints (a violation rolls the whole
-// transaction back). Conversions: a Firestore `Timestamp` → JS `Date` (→
-// timestamptz); a jsonb column takes the value as JSON text (the Firestore
-// adapter stores arrays as JSON strings) which Postgres casts to jsonb; `text`
-// columns (e.g. api-key `permissions`) copy the string verbatim; everything else
-// copies its scalar.
+// All collections are read up front (in parallel) so the transaction is
+// insert-only and short — it never holds a pooled connection across Firestore
+// round-trips. Inserts are chunked under Postgres' 65535-bind-parameter cap.
+// Conversions: a Firestore `Timestamp` → JS `Date` (→ timestamptz); a jsonb
+// column takes the value as JSON text (the Firestore adapter stores arrays as
+// JSON strings) which Postgres casts to jsonb; `text` columns (e.g. api-key
+// `permissions`) copy the string verbatim; everything else copies its scalar.
 
 import { Firestore, Timestamp } from "@google-cloud/firestore";
 import {
@@ -164,6 +175,10 @@ interface CopyTables {
 }
 
 type Doc = FirebaseFirestore.DocumentData;
+interface RawDoc {
+	id: string;
+	data: Doc;
+}
 
 /** Firestore `Timestamp`/`Date` → `Date`; anything else → null. */
 const dateOf = (v: unknown): Date | null =>
@@ -181,28 +196,31 @@ const boolOf = (v: unknown): boolean | null =>
 const numOf = (v: unknown): number | null => (typeof v === "number" ? v : null);
 
 /**
- * Read a Firestore collection and bulk-insert it into `table` via the typed
- * builder, conflict-skipping on `conflict`. Returns a per-table count.
+ * Postgres caps a single Bind message at 65535 parameters; chunk so even the
+ * widest table (auth_oauth_client, ~30 cols) stays well under it.
  */
-async function copyCollection<TB extends keyof CopyTables>(
-	fs: Firestore,
-	trx: Kysely<CopyTables>,
-	collection: string,
-	table: TB,
-	conflict: ReadonlyArray<keyof CopyTables[TB] & string>,
-	map: (id: string, data: Doc) => Insertable<CopyTables[TB]>,
-): Promise<{ table: string; read: number; inserted: number }> {
+const CHUNK_ROWS = 500;
+
+async function readDocs(fs: Firestore, collection: string): Promise<RawDoc[]> {
 	const snap = await fs.collection(collection).get();
-	if (snap.empty) return { table: String(table), read: 0, inserted: 0 };
+	return snap.docs.map((doc) => ({ id: doc.id, data: doc.data() }));
+}
 
-	const rows = snap.docs.map((doc) => map(doc.id, doc.data()));
-	await trx
-		.insertInto(table)
-		.values(rows)
-		.onConflict((oc) => oc.columns([...conflict]).doNothing())
-		.execute();
-
-	return { table: String(table), read: snap.size, inserted: rows.length };
+/** Bulk-insert `rows` into `table` in capped chunks, conflict-skipping. */
+async function chunkInsert<TB extends keyof CopyTables>(
+	trx: Kysely<CopyTables>,
+	table: TB,
+	rows: Array<Insertable<CopyTables[TB]>>,
+	conflict: ReadonlyArray<keyof CopyTables[TB] & string>,
+): Promise<void> {
+	for (let i = 0; i < rows.length; i += CHUNK_ROWS) {
+		const chunk = rows.slice(i, i + CHUNK_ROWS);
+		await trx
+			.insertInto(table)
+			.values(chunk)
+			.onConflict((oc) => oc.columns([...conflict]).doNothing())
+			.execute();
+	}
 }
 
 export interface AuthDataCopyResult {
@@ -211,11 +229,12 @@ export interface AuthDataCopyResult {
 }
 
 /**
- * Copy durable auth state Firestore → Postgres in one transaction, guarded on
- * an empty `auth_user`. Returns a per-table summary (or `{skipped:true}` when
- * `auth_user` already has rows). Throws on any failure (the transaction rolls
- * back first). Never ends the shared pool — that is owned by the connection
- * layer.
+ * Copy durable auth state Firestore → Postgres in one short, insert-only
+ * transaction, guarded on an empty `auth_user`. Returns a per-table summary
+ * (`read` = source rows, `inserted` = rows kept after FK-orphan filtering) or
+ * `{skipped:true}` when `auth_user` already has rows. Throws on any failure (the
+ * transaction rolls back first). Never ends the shared pool — that is owned by
+ * the connection layer.
  */
 export async function copyAuthDataFromFirestore(
 	pool: Pool,
@@ -234,210 +253,239 @@ export async function copyAuthDataFromFirestore(
 
 	const fs = new Firestore(firestoreClientOptions());
 	try {
-		// Ordered so foreign keys resolve: users first; the client before the
-		// consent/refresh rows that reference it; the user-referencing tables
-		// after users.
-		const perTable = await db.transaction().execute(async (trx) => {
-			const out: AuthDataCopyResult["perTable"] = [];
+		// Read every collection up front (parallel), so the transaction below is
+		// insert-only and never holds a connection across a Firestore round-trip.
+		const [
+			users,
+			clients,
+			accounts,
+			apikeys,
+			consents,
+			refreshTokens,
+			grants,
+			jwks,
+		] = await Promise.all([
+			readDocs(fs, "auth_users"),
+			readDocs(fs, "oauthClient"),
+			readDocs(fs, "auth_accounts"),
+			readDocs(fs, "apikey"),
+			readDocs(fs, "oauthConsent"),
+			readDocs(fs, "oauthRefreshToken"),
+			readDocs(fs, "oauthGrantRevocation"),
+			readDocs(fs, "jwks"),
+		]);
 
-			out.push(
-				await copyCollection(
-					fs,
-					trx,
-					"auth_users",
-					"auth_user",
-					["id"],
-					(id, d) => ({
-						id,
-						name: strOf(d.name),
-						email: strOf(d.email),
-						emailVerified: boolOf(d.emailVerified),
-						image: strOf(d.image),
-						role: strOf(d.role),
-						banned: boolOf(d.banned),
-						banReason: strOf(d.banReason),
-						banExpires: dateOf(d.banExpires),
-						lastActiveAt: dateOf(d.lastActiveAt),
-						createdAt: dateOf(d.createdAt),
-						updatedAt: dateOf(d.updatedAt),
-					}),
-				),
-			);
+		// FK target sets for orphan filtering. `auth_user.id` ← doc id;
+		// `auth_oauth_client.clientId` ← the client's `clientId` field.
+		const userIds = new Set(users.map((u) => u.id));
+		const clientIds = new Set(
+			clients
+				.map((c) => strOf(c.data.clientId))
+				.filter((v): v is string => v !== null),
+		);
+		const inUsers = (v: unknown): boolean =>
+			typeof v === "string" && userIds.has(v);
+		const inClients = (v: unknown): boolean =>
+			typeof v === "string" && clientIds.has(v);
 
-			out.push(
-				await copyCollection(
-					fs,
-					trx,
-					"oauthClient",
-					"auth_oauth_client",
-					["id"],
-					(id, d) => ({
-						id,
-						clientId: strOf(d.clientId),
-						clientSecret: strOf(d.clientSecret),
-						disabled: boolOf(d.disabled),
-						skipConsent: boolOf(d.skipConsent),
-						enableEndSession: boolOf(d.enableEndSession),
-						subjectType: strOf(d.subjectType),
-						scopes: jsonText(d.scopes),
-						userId: strOf(d.userId),
-						createdAt: dateOf(d.createdAt),
-						updatedAt: dateOf(d.updatedAt),
-						name: strOf(d.name),
-						uri: strOf(d.uri),
-						icon: strOf(d.icon),
-						contacts: jsonText(d.contacts),
-						tos: strOf(d.tos),
-						policy: strOf(d.policy),
-						softwareId: strOf(d.softwareId),
-						softwareVersion: strOf(d.softwareVersion),
-						softwareStatement: strOf(d.softwareStatement),
-						redirectUris: jsonText(d.redirectUris),
-						postLogoutRedirectUris: jsonText(d.postLogoutRedirectUris),
-						tokenEndpointAuthMethod: strOf(d.tokenEndpointAuthMethod),
-						grantTypes: jsonText(d.grantTypes),
-						responseTypes: jsonText(d.responseTypes),
-						public: boolOf(d.public),
-						type: strOf(d.type),
-						requirePKCE: boolOf(d.requirePKCE),
-						referenceId: strOf(d.referenceId),
-						metadata: jsonText(d.metadata),
-					}),
-				),
-			);
+		// ── Build typed rows (mapping + FK-orphan filtering) ──────────────
+		const userRows = users.map((u) => ({
+			id: u.id,
+			name: strOf(u.data.name),
+			email: strOf(u.data.email),
+			emailVerified: boolOf(u.data.emailVerified),
+			image: strOf(u.data.image),
+			role: strOf(u.data.role),
+			banned: boolOf(u.data.banned),
+			banReason: strOf(u.data.banReason),
+			banExpires: dateOf(u.data.banExpires),
+			lastActiveAt: dateOf(u.data.lastActiveAt),
+			createdAt: dateOf(u.data.createdAt),
+			updatedAt: dateOf(u.data.updatedAt),
+		}));
 
-			out.push(
-				await copyCollection(
-					fs,
-					trx,
-					"auth_accounts",
-					"auth_account",
-					["id"],
-					(id, d) => ({
-						id,
-						accountId: strOf(d.accountId),
-						providerId: strOf(d.providerId),
-						userId: strOf(d.userId),
-						accessToken: strOf(d.accessToken),
-						refreshToken: strOf(d.refreshToken),
-						idToken: strOf(d.idToken),
-						accessTokenExpiresAt: dateOf(d.accessTokenExpiresAt),
-						refreshTokenExpiresAt: dateOf(d.refreshTokenExpiresAt),
-						scope: strOf(d.scope),
-						password: strOf(d.password),
-						createdAt: dateOf(d.createdAt),
-						updatedAt: dateOf(d.updatedAt),
-					}),
-				),
-			);
+		const clientRows = clients.map((c) => ({
+			id: c.id,
+			clientId: strOf(c.data.clientId),
+			clientSecret: strOf(c.data.clientSecret),
+			disabled: boolOf(c.data.disabled),
+			skipConsent: boolOf(c.data.skipConsent),
+			enableEndSession: boolOf(c.data.enableEndSession),
+			subjectType: strOf(c.data.subjectType),
+			scopes: jsonText(c.data.scopes),
+			// A client whose registering user is gone keeps the row with a nulled
+			// owner (the FK is nullable) rather than aborting the copy.
+			userId: inUsers(c.data.userId) ? strOf(c.data.userId) : null,
+			createdAt: dateOf(c.data.createdAt),
+			updatedAt: dateOf(c.data.updatedAt),
+			name: strOf(c.data.name),
+			uri: strOf(c.data.uri),
+			icon: strOf(c.data.icon),
+			contacts: jsonText(c.data.contacts),
+			tos: strOf(c.data.tos),
+			policy: strOf(c.data.policy),
+			softwareId: strOf(c.data.softwareId),
+			softwareVersion: strOf(c.data.softwareVersion),
+			softwareStatement: strOf(c.data.softwareStatement),
+			redirectUris: jsonText(c.data.redirectUris),
+			postLogoutRedirectUris: jsonText(c.data.postLogoutRedirectUris),
+			tokenEndpointAuthMethod: strOf(c.data.tokenEndpointAuthMethod),
+			grantTypes: jsonText(c.data.grantTypes),
+			responseTypes: jsonText(c.data.responseTypes),
+			public: boolOf(c.data.public),
+			type: strOf(c.data.type),
+			requirePKCE: boolOf(c.data.requirePKCE),
+			referenceId: strOf(c.data.referenceId),
+			metadata: jsonText(c.data.metadata),
+		}));
 
-			out.push(
-				await copyCollection(
-					fs,
-					trx,
-					"apikey",
-					"auth_apikey",
-					["id"],
-					(id, d) => ({
-						id,
-						configId: strOf(d.configId),
-						name: strOf(d.name),
-						start: strOf(d.start),
-						referenceId: strOf(d.referenceId),
-						prefix: strOf(d.prefix),
-						key: strOf(d.key),
-						refillInterval: numOf(d.refillInterval),
-						refillAmount: numOf(d.refillAmount),
-						lastRefillAt: dateOf(d.lastRefillAt),
-						enabled: boolOf(d.enabled),
-						rateLimitEnabled: boolOf(d.rateLimitEnabled),
-						rateLimitTimeWindow: numOf(d.rateLimitTimeWindow),
-						rateLimitMax: numOf(d.rateLimitMax),
-						requestCount: numOf(d.requestCount),
-						remaining: numOf(d.remaining),
-						lastRequest: dateOf(d.lastRequest),
-						expiresAt: dateOf(d.expiresAt),
-						createdAt: dateOf(d.createdAt),
-						updatedAt: dateOf(d.updatedAt),
-						permissions: strOf(d.permissions),
-						metadata: strOf(d.metadata),
-					}),
-				),
-			);
+		const accountRows = accounts
+			.filter((a) => inUsers(a.data.userId))
+			.map((a) => ({
+				id: a.id,
+				accountId: strOf(a.data.accountId),
+				providerId: strOf(a.data.providerId),
+				userId: strOf(a.data.userId),
+				accessToken: strOf(a.data.accessToken),
+				refreshToken: strOf(a.data.refreshToken),
+				idToken: strOf(a.data.idToken),
+				accessTokenExpiresAt: dateOf(a.data.accessTokenExpiresAt),
+				refreshTokenExpiresAt: dateOf(a.data.refreshTokenExpiresAt),
+				scope: strOf(a.data.scope),
+				password: strOf(a.data.password),
+				createdAt: dateOf(a.data.createdAt),
+				updatedAt: dateOf(a.data.updatedAt),
+			}));
 
-			out.push(
-				await copyCollection(
-					fs,
-					trx,
-					"oauthConsent",
-					"auth_oauth_consent",
-					["id"],
-					(id, d) => ({
-						id,
-						clientId: strOf(d.clientId),
-						userId: strOf(d.userId),
-						referenceId: strOf(d.referenceId),
-						scopes: jsonText(d.scopes),
-						createdAt: dateOf(d.createdAt),
-						updatedAt: dateOf(d.updatedAt),
-					}),
-				),
-			);
+		const apikeyRows = apikeys
+			.filter((k) => inUsers(k.data.referenceId))
+			.map((k) => ({
+				id: k.id,
+				configId: strOf(k.data.configId),
+				name: strOf(k.data.name),
+				start: strOf(k.data.start),
+				referenceId: strOf(k.data.referenceId),
+				prefix: strOf(k.data.prefix),
+				key: strOf(k.data.key),
+				refillInterval: numOf(k.data.refillInterval),
+				refillAmount: numOf(k.data.refillAmount),
+				lastRefillAt: dateOf(k.data.lastRefillAt),
+				enabled: boolOf(k.data.enabled),
+				rateLimitEnabled: boolOf(k.data.rateLimitEnabled),
+				rateLimitTimeWindow: numOf(k.data.rateLimitTimeWindow),
+				rateLimitMax: numOf(k.data.rateLimitMax),
+				requestCount: numOf(k.data.requestCount),
+				remaining: numOf(k.data.remaining),
+				lastRequest: dateOf(k.data.lastRequest),
+				expiresAt: dateOf(k.data.expiresAt),
+				createdAt: dateOf(k.data.createdAt),
+				updatedAt: dateOf(k.data.updatedAt),
+				permissions: strOf(k.data.permissions),
+				metadata: strOf(k.data.metadata),
+			}));
 
-			out.push(
-				await copyCollection(
-					fs,
-					trx,
-					"oauthRefreshToken",
-					"auth_oauth_refresh_token",
-					["id"],
-					(id, d) => ({
-						id,
-						token: strOf(d.token),
-						clientId: strOf(d.clientId),
-						sessionId: strOf(d.sessionId),
-						userId: strOf(d.userId),
-						referenceId: strOf(d.referenceId),
-						expiresAt: dateOf(d.expiresAt),
-						createdAt: dateOf(d.createdAt),
-						revoked: dateOf(d.revoked),
-						authTime: dateOf(d.authTime),
-						scopes: jsonText(d.scopes),
-					}),
-				),
-			);
+		const consentRows = consents
+			.filter(
+				(c) =>
+					inClients(c.data.clientId) &&
+					(c.data.userId == null || inUsers(c.data.userId)),
+			)
+			.map((c) => ({
+				id: c.id,
+				clientId: strOf(c.data.clientId),
+				userId: strOf(c.data.userId),
+				referenceId: strOf(c.data.referenceId),
+				scopes: jsonText(c.data.scopes),
+				createdAt: dateOf(c.data.createdAt),
+				updatedAt: dateOf(c.data.updatedAt),
+			}));
 
-			out.push(
-				await copyCollection(
-					fs,
-					trx,
-					"oauthGrantRevocation",
-					"auth_oauth_grant_revocation",
-					["userId", "clientId"],
-					// Nova-owned table: the Firestore doc id was a sha256 digest; the
-					// Postgres PK is (userId, clientId), so the values come from the body.
-					(_id, d) => ({
-						userId: strOf(d.userId),
-						clientId: strOf(d.clientId),
-						revokedAt: dateOf(d.revokedAt),
-					}),
-				),
-			);
+		const refreshRows = refreshTokens
+			.filter((t) => inClients(t.data.clientId) && inUsers(t.data.userId))
+			.map((t) => ({
+				id: t.id,
+				token: strOf(t.data.token),
+				clientId: strOf(t.data.clientId),
+				// Sessions are intentionally not copied; null the FK (ON DELETE SET
+				// NULL) rather than reference a row that won't exist.
+				sessionId: null,
+				userId: strOf(t.data.userId),
+				referenceId: strOf(t.data.referenceId),
+				expiresAt: dateOf(t.data.expiresAt),
+				createdAt: dateOf(t.data.createdAt),
+				revoked: dateOf(t.data.revoked),
+				authTime: dateOf(t.data.authTime),
+				scopes: jsonText(t.data.scopes),
+			}));
 
-			out.push(
-				await copyCollection(fs, trx, "jwks", "auth_jwks", ["id"], (id, d) => ({
-					id,
-					publicKey: strOf(d.publicKey),
-					privateKey: strOf(d.privateKey),
-					createdAt: dateOf(d.createdAt),
-					expiresAt: dateOf(d.expiresAt),
-				})),
-			);
+		// Nova-owned table, no FK — copy every row (values come from the body, the
+		// Firestore doc id was a sha256 digest).
+		const grantRows = grants.map((g) => ({
+			userId: strOf(g.data.userId),
+			clientId: strOf(g.data.clientId),
+			revokedAt: dateOf(g.data.revokedAt),
+		}));
 
-			return out;
+		const jwksRows = jwks.map((j) => ({
+			id: j.id,
+			publicKey: strOf(j.data.publicKey),
+			privateKey: strOf(j.data.privateKey),
+			createdAt: dateOf(j.data.createdAt),
+			expiresAt: dateOf(j.data.expiresAt),
+		}));
+
+		// ── One short, insert-only transaction, in FK order ──────────────
+		await db.transaction().execute(async (trx) => {
+			await chunkInsert(trx, "auth_user", userRows, ["id"]);
+			await chunkInsert(trx, "auth_oauth_client", clientRows, ["id"]);
+			await chunkInsert(trx, "auth_account", accountRows, ["id"]);
+			await chunkInsert(trx, "auth_apikey", apikeyRows, ["id"]);
+			await chunkInsert(trx, "auth_oauth_consent", consentRows, ["id"]);
+			await chunkInsert(trx, "auth_oauth_refresh_token", refreshRows, ["id"]);
+			await chunkInsert(trx, "auth_oauth_grant_revocation", grantRows, [
+				"userId",
+				"clientId",
+			]);
+			await chunkInsert(trx, "auth_jwks", jwksRows, ["id"]);
 		});
 
-		return { skipped: false, perTable };
+		return {
+			skipped: false,
+			perTable: [
+				{ table: "auth_user", read: users.length, inserted: userRows.length },
+				{
+					table: "auth_oauth_client",
+					read: clients.length,
+					inserted: clientRows.length,
+				},
+				{
+					table: "auth_account",
+					read: accounts.length,
+					inserted: accountRows.length,
+				},
+				{
+					table: "auth_apikey",
+					read: apikeys.length,
+					inserted: apikeyRows.length,
+				},
+				{
+					table: "auth_oauth_consent",
+					read: consents.length,
+					inserted: consentRows.length,
+				},
+				{
+					table: "auth_oauth_refresh_token",
+					read: refreshTokens.length,
+					inserted: refreshRows.length,
+				},
+				{
+					table: "auth_oauth_grant_revocation",
+					read: grants.length,
+					inserted: grantRows.length,
+				},
+				{ table: "auth_jwks", read: jwks.length, inserted: jwksRows.length },
+			],
+		};
 	} finally {
 		// Release the Firestore transport so the Job process can exit. The pg pool
 		// is owned by the connection layer (the entrypoint closes it once) — never

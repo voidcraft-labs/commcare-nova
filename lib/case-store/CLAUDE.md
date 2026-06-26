@@ -7,7 +7,9 @@ JS evaluator, no parity tests.
 
 ## Public surface — barrel
 
-External consumers import from the `@/lib/case-store` barrel: the `CaseStore` interface, row/arg/result types, the `withOwnerContext` factory (the ONLY production constructor — it binds the owner id at the request boundary), the typed error classes, and JSONB value types. The implementation, connection layer, sample generator, and test harness stay package-private; tests reach them via subpath.
+External consumers import from the `@/lib/case-store` barrel: the `CaseStore` interface, row/arg/result types, the `withOwnerContext` factory (the ONLY production constructor — it binds the owner id at the request boundary), the typed error classes, and JSONB value types. The implementation, sample generator, and test harness stay package-private; tests reach them via subpath.
+
+**One deliberate exception:** the connection layer's `getCaseStorePool()` (subpath `@/lib/case-store/postgres/connection`) is a runtime export the auth layer (`lib/auth.ts`, `lib/auth/db.ts`) imports so Better Auth runs on the SAME `pg.Pool` — one pool per instance is what keeps the connection budget (`enforceConnectionBudget`) intact. Do not route it through the barrel or "tidy" it back to tests-only; the pool-sharing the budget depends on is the reason it's exposed.
 
 ## No preview mode — the running-app view shares the editor's rows
 

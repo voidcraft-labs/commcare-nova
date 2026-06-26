@@ -31,6 +31,7 @@ import { apiKey } from "@better-auth/api-key";
 import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
+import { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __setAuthDbForTests, type AuthDatabase } from "@/lib/auth/db";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
@@ -238,6 +239,24 @@ describe("api-key integration", () => {
 	it("isUserActive returns false for a missing user (deleted-account case)", async () => {
 		const { isUserActive } = await import("../api-keys");
 		expect(await isUserActive("user-that-was-deleted")).toBe(false);
+	});
+
+	it("isUserActive propagates a database error (the fail-closed contract)", async () => {
+		// handleApiKeyMcp's local catch turns a throw into a 401 — so a backing-store
+		// failure must REJECT, never resolve true. Point getAuthDb at a dead pool so
+		// the read errors; a future change that swallowed it (returning true) would
+		// fail-open a banned user's keys and trip here.
+		const deadPool = new Pool({ connectionString: dbHandle.uri, max: 1 });
+		await deadPool.end();
+		__setAuthDbForTests(
+			new Kysely<AuthDatabase>({
+				dialect: new PostgresDialect({
+					pool: deadPool as unknown as PostgresPool,
+				}),
+			}),
+		);
+		const { isUserActive } = await import("../api-keys");
+		await expect(isUserActive(TEST_USER_ID)).rejects.toThrow();
 	});
 
 	it("isUserActive treats an expired temp ban as active and a future ban as inactive", async () => {
