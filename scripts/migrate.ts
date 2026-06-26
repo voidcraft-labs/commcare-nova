@@ -60,16 +60,28 @@ async function main(): Promise<void> {
 	// once auth_user has rows, so it runs only on the first deploy after the
 	// tables land; all-or-nothing (a failure rolls back and fails the Job, so a
 	// retry redeploy re-copies cleanly).
-	const copy = await copyAuthDataFromFirestore(pool);
-	if (copy.skipped) {
-		console.log(
-			"[migrate] auth data copy skipped (auth_user already populated)",
-		);
+	//
+	// Restricted to the prod connector path: `NOVA_DB_LOCAL_URL` is set ONLY by
+	// local dev / smoke / tests (prod uses the Cloud SQL connector), and those
+	// must never pull the real Firestore auth collections into a local or
+	// testcontainer Postgres. The empty-auth_user guard inside the copy is the
+	// second line.
+	if (process.env.NOVA_DB_LOCAL_URL) {
+		console.log("[migrate] auth data copy skipped (local DB — prod-only step)");
 	} else {
-		console.log(
-			"[migrate] auth data copied:",
-			copy.perTable.map((t) => `${t.table}=${t.inserted}/${t.read}`).join(" "),
-		);
+		const copy = await copyAuthDataFromFirestore(pool);
+		if (copy.skipped) {
+			console.log(
+				"[migrate] auth data copy skipped (auth_user already populated)",
+			);
+		} else {
+			console.log(
+				"[migrate] auth data copied:",
+				copy.perTable
+					.map((t) => `${t.table}=${t.inserted}/${t.read}`)
+					.join(" "),
+			);
+		}
 	}
 }
 

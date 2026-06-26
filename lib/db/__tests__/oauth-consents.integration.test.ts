@@ -73,6 +73,7 @@ function createTestAuth(pool: typeof dbHandle.pool) {
 
 describe("oauth-consents integration", () => {
 	let auth: ReturnType<typeof createTestAuth>;
+	let authDb: Kysely<AuthDatabase>;
 
 	beforeEach(async () => {
 		const { runMigrations } = await getMigrations(
@@ -80,24 +81,31 @@ describe("oauth-consents integration", () => {
 		);
 		await runMigrations();
 		await runAuthAppMigrations(dbHandle.db);
-		// Consent + refresh-token rows FK to auth_user, so seed the users the
-		// tests reference.
-		for (const userId of ["user-test-1", "user-other"]) {
-			await dbHandle.pool.query(
-				`INSERT INTO auth_user (id, name, email, "emailVerified", "createdAt", "updatedAt")
-				 VALUES ($1, $1, $2, true, now(), now())`,
-				[userId, `${userId}@dimagi.com`],
-			);
-		}
-		// Point the module's getAuthDb at this test's Postgres.
-		__setAuthDbForTests(
-			new Kysely<AuthDatabase>({
-				dialect: new PostgresDialect({
-					pool: dbHandle.pool as unknown as PostgresPool,
-				}),
-			}),
-		);
 		auth = createTestAuth(dbHandle.pool);
+		authDb = new Kysely<AuthDatabase>({
+			dialect: new PostgresDialect({
+				pool: dbHandle.pool as unknown as PostgresPool,
+			}),
+		});
+		// Point the module's getAuthDb at this test's Postgres.
+		__setAuthDbForTests(authDb);
+		// Consent + refresh-token rows FK to auth_user, so seed the users the
+		// tests reference via Better Auth's adapter (honoring the id).
+		const ctx = await auth.$context;
+		for (const userId of ["user-test-1", "user-other"]) {
+			await ctx.adapter.create({
+				model: "user",
+				forceAllowId: true,
+				data: {
+					id: userId,
+					name: userId,
+					email: `${userId}@dimagi.com`,
+					emailVerified: true,
+					createdAt: new Date(),
+					updatedAt: new Date(),
+				},
+			});
+		}
 	});
 
 	afterEach(() => {
@@ -286,20 +294,20 @@ describe("oauth-consents integration", () => {
 		await revokeAuthorizedClient("user-test-1", consent.id);
 
 		/* Consent row gone. */
-		const consentRows = await dbHandle.pool.query(
-			`SELECT id FROM auth_oauth_consent WHERE id = $1`,
-			[consent.id],
-		);
-		expect(consentRows.rowCount).toBe(0);
+		const consentRow = await authDb
+			.selectFrom("auth_oauth_consent")
+			.select("id")
+			.where("id", "=", consent.id)
+			.executeTakeFirst();
+		expect(consentRow).toBeUndefined();
 
-		const tokens = await dbHandle.pool.query<{
-			token: string;
-			revoked: Date | null;
-		}>(
-			`SELECT token, revoked FROM auth_oauth_refresh_token WHERE "userId" = $1 AND "clientId" = $2`,
-			["user-test-1", created.client_id],
-		);
-		const byName = new Map(tokens.rows.map((r) => [r.token, r.revoked]));
+		const tokens = await authDb
+			.selectFrom("auth_oauth_refresh_token")
+			.select(["token", "revoked"])
+			.where("userId", "=", "user-test-1")
+			.where("clientId", "=", created.client_id)
+			.execute();
+		const byName = new Map(tokens.map((r) => [r.token, r.revoked]));
 
 		expect(byName.get("live-token")).not.toBeNull();
 		/* Already-revoked stays at its original timestamp — a rewrite would
@@ -383,10 +391,11 @@ describe("oauth-consents integration", () => {
 		});
 
 		expect(deleted).toBe(1);
-		const remaining = await dbHandle.pool.query<{ clientId: string }>(
-			`SELECT "clientId" FROM auth_oauth_client`,
-		);
-		const ids = remaining.rows.map((r) => r.clientId);
+		const remaining = await authDb
+			.selectFrom("auth_oauth_client")
+			.select("clientId")
+			.execute();
+		const ids = remaining.map((r) => r.clientId);
 		expect(ids).toContain(inUse.client_id);
 		expect(ids).not.toContain(orphan.client_id);
 	});

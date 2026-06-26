@@ -3,20 +3,26 @@
 // this Nova-owned table is created by our own auth-app migrator
 // (`lib/auth/migrate.ts`). `revokedAt` is the cutoff: a JWT whose `iat` precedes
 // it is rejected for that (user, client). Column names are camelCase to match
-// the rest of the auth schema. Idempotent (`IF NOT EXISTS`) so it self-adopts
-// if the table somehow already exists.
+// the rest of the auth schema. Built through Kysely's typed schema builder (no
+// SQL literals); idempotent (`ifNotExists`) so it self-adopts if the table
+// somehow already exists.
 
-import { type Kysely, sql } from "kysely";
+import type { Kysely } from "kysely";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
-	await sql`CREATE TABLE IF NOT EXISTS "auth_oauth_grant_revocation" (
-		"userId" text NOT NULL,
-		"clientId" text NOT NULL,
-		"revokedAt" timestamptz NOT NULL,
-		PRIMARY KEY ("userId", "clientId")
-	)`.execute(db);
+	await db.schema
+		.createTable("auth_oauth_grant_revocation")
+		.ifNotExists()
+		.addColumn("userId", "text", (col) => col.notNull())
+		.addColumn("clientId", "text", (col) => col.notNull())
+		.addColumn("revokedAt", "timestamptz", (col) => col.notNull())
+		.addPrimaryKeyConstraint("auth_oauth_grant_revocation_pkey", [
+			"userId",
+			"clientId",
+		])
+		.execute();
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
-	await sql`DROP TABLE IF EXISTS "auth_oauth_grant_revocation"`.execute(db);
+	await db.schema.dropTable("auth_oauth_grant_revocation").ifExists().execute();
 }

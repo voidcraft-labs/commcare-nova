@@ -175,14 +175,22 @@ describe("MCP route consent lock", () => {
 				}),
 			}),
 		);
-		// The route's user-revocation lock (isUserActive) + consent FKs need the
-		// caller's auth_user row.
-		await dbHandle.pool.query(
-			`INSERT INTO auth_user (id, name, email, "emailVerified", "createdAt", "updatedAt")
-			 VALUES ($1, 'MCP test user', 'mcp@dimagi.com', true, now(), now())`,
-			[TEST_USER_ID],
-		);
 		auth = createTestAuth(dbHandle.pool);
+		// The route's user-revocation lock (isUserActive) + consent FKs need the
+		// caller's auth_user row — seed it via Better Auth's adapter.
+		const ctx = await auth.$context;
+		await ctx.adapter.create({
+			model: "user",
+			forceAllowId: true,
+			data: {
+				id: TEST_USER_ID,
+				name: "MCP test user",
+				email: "mcp@dimagi.com",
+				emailVerified: true,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			},
+		});
 	});
 
 	afterEach(() => {

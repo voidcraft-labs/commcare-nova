@@ -84,16 +84,30 @@ function createTestAuth(pool: typeof dbHandle.pool) {
 	});
 }
 
-async function seedUser(banned = false): Promise<void> {
-	await dbHandle.pool.query(
-		`INSERT INTO auth_user (id, name, email, "emailVerified", banned, "createdAt", "updatedAt")
-		 VALUES ($1, 'Integration test user', 'user@dimagi.com', true, $2, now(), now())`,
-		[TEST_USER_ID, banned],
-	);
+/** Seed the key owner via Better Auth's own adapter (honoring the id). */
+async function seedUser(
+	auth: ReturnType<typeof createTestAuth>,
+	banned = false,
+): Promise<void> {
+	const ctx = await auth.$context;
+	await ctx.adapter.create({
+		model: "user",
+		forceAllowId: true,
+		data: {
+			id: TEST_USER_ID,
+			name: "Integration test user",
+			email: "user@dimagi.com",
+			emailVerified: true,
+			banned,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		},
+	});
 }
 
 describe("api-key integration", () => {
 	let auth: ReturnType<typeof createTestAuth>;
+	let authDb: Kysely<AuthDatabase>;
 
 	beforeEach(async () => {
 		const { runMigrations } = await getMigrations(
@@ -101,13 +115,12 @@ describe("api-key integration", () => {
 		);
 		await runMigrations();
 		await runAuthAppMigrations(dbHandle.db);
-		__setAuthDbForTests(
-			new Kysely<AuthDatabase>({
-				dialect: new PostgresDialect({
-					pool: dbHandle.pool as unknown as PostgresPool,
-				}),
+		authDb = new Kysely<AuthDatabase>({
+			dialect: new PostgresDialect({
+				pool: dbHandle.pool as unknown as PostgresPool,
 			}),
-		);
+		});
+		__setAuthDbForTests(authDb);
 		auth = createTestAuth(dbHandle.pool);
 	});
 
@@ -116,7 +129,7 @@ describe("api-key integration", () => {
 	});
 
 	it("mint + verify round-trip works against the real plugin (server-only mode)", async () => {
-		await seedUser();
+		await seedUser(auth);
 
 		/* Mint in server-only mode (no headers, explicit userId) — the exact
 		 * shape `mintApiKey` Server Action uses. */
@@ -168,9 +181,10 @@ describe("api-key integration", () => {
 		 * re-verify to confirm it's gone. The plugin emits `INVALID_API_KEY`
 		 * (not `KEY_NOT_FOUND`) for "no row matches the hashed bearer"; the
 		 * route's `mapApiKeyErrorCode` collapses both into "api key invalid". */
-		await dbHandle.pool.query(`DELETE FROM auth_apikey WHERE id = $1`, [
-			created.id,
-		]);
+		await authDb
+			.deleteFrom("auth_apikey")
+			.where("id", "=", created.id)
+			.execute();
 		const afterDelete = await auth.api.verifyApiKey({
 			body: { key: created.key },
 		});
@@ -179,7 +193,7 @@ describe("api-key integration", () => {
 	});
 
 	it("mintApiKey rejects `permissions` with SERVER_ONLY_PROPERTY when `headers` is passed", async () => {
-		await seedUser();
+		await seedUser(auth);
 		/* Passing both `headers` and `permissions` makes the plugin's
 		 * `isClientRequest` check fire and reject `permissions` as a server-only
 		 * property. If the plugin softens this rule (or our config disables it),
@@ -208,15 +222,16 @@ describe("api-key integration", () => {
 	});
 
 	it("isUserActive returns true for an existing non-banned user, false for a banned user", async () => {
-		await seedUser();
+		await seedUser(auth);
 		const { isUserActive } = await import("../api-keys");
 
 		expect(await isUserActive(TEST_USER_ID)).toBe(true);
 
-		await dbHandle.pool.query(
-			`UPDATE auth_user SET banned = true WHERE id = $1`,
-			[TEST_USER_ID],
-		);
+		await authDb
+			.updateTable("auth_user")
+			.set({ banned: true })
+			.where("id", "=", TEST_USER_ID)
+			.execute();
 		expect(await isUserActive(TEST_USER_ID)).toBe(false);
 	});
 
@@ -226,31 +241,34 @@ describe("api-key integration", () => {
 	});
 
 	it("isUserActive treats an expired temp ban as active and a future ban as inactive", async () => {
-		await seedUser();
+		await seedUser(auth);
 		const { isUserActive } = await import("../api-keys");
 
-		await dbHandle.pool.query(
-			`UPDATE auth_user SET banned = true, "banExpires" = now() - interval '1 hour' WHERE id = $1`,
-			[TEST_USER_ID],
-		);
+		await authDb
+			.updateTable("auth_user")
+			.set({ banned: true, banExpires: new Date(Date.now() - 3_600_000) })
+			.where("id", "=", TEST_USER_ID)
+			.execute();
 		expect(await isUserActive(TEST_USER_ID)).toBe(true);
 
-		await dbHandle.pool.query(
-			`UPDATE auth_user SET "banExpires" = now() + interval '1 hour' WHERE id = $1`,
-			[TEST_USER_ID],
-		);
+		await authDb
+			.updateTable("auth_user")
+			.set({ banExpires: new Date(Date.now() + 3_600_000) })
+			.where("id", "=", TEST_USER_ID)
+			.execute();
 		expect(await isUserActive(TEST_USER_ID)).toBe(false);
 	});
 
 	it("listUserApiKeys falls back to empty scopes on malformed permissions", async () => {
-		await seedUser();
+		await seedUser(auth);
 		const created = await auth.api.createApiKey({
 			body: { name: "malformed", userId: TEST_USER_ID },
 		});
-		await dbHandle.pool.query(
-			`UPDATE auth_apikey SET permissions = 'not-json' WHERE id = $1`,
-			[created.id],
-		);
+		await authDb
+			.updateTable("auth_apikey")
+			.set({ permissions: "not-json" })
+			.where("id", "=", created.id)
+			.execute();
 
 		const { listUserApiKeys } = await import("../api-keys");
 		const rows = await listUserApiKeys(TEST_USER_ID);
@@ -259,7 +277,7 @@ describe("api-key integration", () => {
 	});
 
 	it("countUserApiKeys counts all of a user's keys", async () => {
-		await seedUser();
+		await seedUser(auth);
 		const { countUserApiKeys } = await import("../api-keys");
 		expect(await countUserApiKeys(TEST_USER_ID)).toBe(0);
 

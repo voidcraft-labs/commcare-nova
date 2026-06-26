@@ -14,16 +14,20 @@ the non-obvious ones.
 - **The `test` fixture is a strict error guard.** Every page test fails on a browser
   `console.error` / `pageerror` / same-origin 5xx (`e2e/lib/fixtures.ts`, no benign-error
   allowlist). To provoke an error on purpose, scope a local handler in that test.
-- **Auth is a forged cookie, not real OAuth.** `e2e/seed.ts` writes a session row;
-  `e2e/lib/session.ts` signs the cookie exactly like `better-call`. Its validity is
-  pinned by `lib/db/__tests__/sessionCookie.integration.test.ts` — a better-auth/
-  better-call bump that breaks it fails *there*, not as a Playwright timeout, so
-  re-verify the signer after such a bump.
+- **Auth is a forged cookie, not real OAuth.** `e2e/seed.ts` writes the `auth_user`
+  + `auth_session` rows into the local **Postgres** (auth state lives in Postgres;
+  apps stay in Firestore); `e2e/lib/session.ts` signs the cookie exactly like
+  `better-call`. Its validity is pinned by
+  `lib/db/__tests__/sessionCookie.integration.test.ts` — a better-auth/better-call
+  bump that breaks it fails *there*, not as a Playwright timeout, so re-verify the
+  signer after such a bump.
 - **Prod cookie name differs.** Local (`http`) is `better-auth.session_token`; a
   deployed (`https`) target is `__Secure-better-auth.session_token`. `sessionCookieName`
   switches on the scheme — only the credential-free `public` project runs against prod.
-- **`seed.ts` refuses to run without `FIRESTORE_EMULATOR_HOST`** — a hard guard so it
-  can never write a fake session into real `commcare-nova-dev` / `commcare-nova`.
+- **`seed.ts` refuses to run without `FIRESTORE_EMULATOR_HOST` AND
+  `NOVA_DB_LOCAL_URL`** — hard guards so its app writes can only hit the Firestore
+  emulator and its auth writes can only hit the local Postgres, never the real
+  `commcare-nova-dev` / `commcare-nova` projects or Cloud SQL.
 - **No new RTL/jsdom tests.** UI logic is tested as `f(state)` in Vitest; real UI
   behavior is tested here in Playwright. Don't add `@testing-library/react` DOM tests.
 - **Selectors are roles / aria-labels / text** (the app has almost no `data-testid`) —

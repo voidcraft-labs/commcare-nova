@@ -55,44 +55,66 @@ function cookieHeader(value: string): Headers {
 	return new Headers({ cookie: `${SESSION_COOKIE}=${value}` });
 }
 
-async function seedUser(): Promise<void> {
-	await dbHandle.pool.query(
-		`INSERT INTO auth_user (id, name, email, "emailVerified", "createdAt", "updatedAt")
-		 VALUES ($1, $2, $3, true, now(), now())`,
-		[TEST_USER_ID, "Session contract user", TEST_EMAIL],
-	);
+/** Seed the signed-in user via Better Auth's own adapter (honoring the id). */
+async function seedUser(
+	auth: ReturnType<typeof createTestAuth>,
+): Promise<void> {
+	const ctx = await auth.$context;
+	await ctx.adapter.create({
+		model: "user",
+		forceAllowId: true,
+		data: {
+			id: TEST_USER_ID,
+			name: "Session contract user",
+			email: TEST_EMAIL,
+			emailVerified: true,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		},
+	});
 }
 
-/** Write a live session row and return its (random) token. */
-async function seedSession(expiresAt: Date): Promise<string> {
+/** Write a live session row via the adapter and return its (random) token. */
+async function seedSession(
+	auth: ReturnType<typeof createTestAuth>,
+	expiresAt: Date,
+): Promise<string> {
 	const token = `tok-${TEST_USER_ID}-${expiresAt.getTime()}`;
-	await dbHandle.pool.query(
-		`INSERT INTO auth_session (id, token, "userId", "expiresAt", "createdAt", "updatedAt", "userAgent")
-		 VALUES ($1, $2, $3, $4, now(), now(), 'contract-test')`,
-		[`sess-${token}`, token, TEST_USER_ID, expiresAt],
-	);
+	const ctx = await auth.$context;
+	await ctx.adapter.create({
+		model: "session",
+		data: {
+			token,
+			userId: TEST_USER_ID,
+			expiresAt,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			userAgent: "contract-test",
+		},
+	});
 	return token;
 }
 
 describe("session-cookie contract", () => {
+	let auth: ReturnType<typeof createTestAuth>;
+
 	beforeEach(async () => {
 		const { runMigrations } = await getMigrations(
 			authMigrateOptions(dbHandle.pool),
 		);
 		await runMigrations();
 		await runAuthAppMigrations(dbHandle.db);
-		await seedUser();
+		auth = createTestAuth(dbHandle.pool);
+		await seedUser(auth);
 	});
 
 	it("accepts a cookie forged by signSessionCookie() and returns the user", async () => {
-		const auth = createTestAuth(dbHandle.pool);
 		const token = await seedSession(
+			auth,
 			new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
 		);
-		const cookie = signSessionCookie(token, TEST_SECRET);
-
 		const session = await auth.api.getSession({
-			headers: cookieHeader(cookie),
+			headers: cookieHeader(signSessionCookie(token, TEST_SECRET)),
 		});
 
 		expect(session).not.toBeNull();
@@ -101,8 +123,8 @@ describe("session-cookie contract", () => {
 	});
 
 	it("rejects a cookie signed with the wrong secret (signature is verified)", async () => {
-		const auth = createTestAuth(dbHandle.pool);
 		const token = await seedSession(
+			auth,
 			new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
 		);
 		const forged = signSessionCookie(token, "not-the-server-secret");
@@ -115,9 +137,7 @@ describe("session-cookie contract", () => {
 	});
 
 	it("rejects an expired session row", async () => {
-		const auth = createTestAuth(dbHandle.pool);
-		const token = await seedSession(new Date(Date.now() - 60_000));
-
+		const token = await seedSession(auth, new Date(Date.now() - 60_000));
 		const session = await auth.api.getSession({
 			headers: cookieHeader(signSessionCookie(token, TEST_SECRET)),
 		});
