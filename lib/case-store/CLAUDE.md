@@ -131,25 +131,21 @@ compensation needed).
 `applySchemaChange`, before the transaction opens. Property names
 and case-type names compose into the index name through
 `indexName`, which throws on identifier-shape violations
-(non-alphanumeric+underscore+hyphen characters, post-transform
-collisions between hyphenated and underscored siblings, and the
-63-byte identifier cap). A throw at this point leaves
+(characters outside `[A-Za-z0-9_-]`). A throw at this point leaves
 `case_type_schemas` untouched.
 
 Property and case-type names admit hyphens at the blueprint layer
-(CommCare convention — `external-id` is real); the indexer maps
-them to underscores when composing the Postgres-side identifier
-because Postgres unquoted identifiers don't admit hyphens. The
-JSONB key inside the indexed expression preserves the hyphen
-verbatim via `sql.lit`. Two properties differing only by hyphen-
-vs-underscore (`external-id` and `external_id`) collide on the
-post-transform composed name; the pre-flight collision check
-surfaces both originating names so the author can disambiguate
-at the blueprint layer.
+(CommCare convention — `external-id` is real). The index NAME
+carries neither name verbatim — the `(app, case_type)` scope and
+the property each fold into a fixed-width SHA-256 tag
+(`indexScopeTag` / `propertyIndexTag`), so a hyphen needs no
+transform and the composed name can't overflow the 63-byte cap no
+matter how long the names are. The JSONB key inside the indexed
+expression preserves the hyphen verbatim via `sql.lit`.
 
 ### Expression indexes are app-scoped
 
-`case_type_schemas` is keyed `(app_id, case_type)`, so a case type's *desired* index set is per-app — but a case-type NAME (`patient`, `person`) is not globally unique. Every per-property expression index is therefore scoped on BOTH halves: the name carries a leading `indexScopeTag(appId, caseType)` segment (`cases_<scopeTag>_<property>_<mode>` — the case type is hashed into the tag, NOT spelled out a second time, so the 63-byte budget depends on the property name alone) and the partial predicate is `WHERE app_id = '<app>' AND case_type = '<type>'`. Without that, one global index spans every app's rows of a shared case-type name, and two apps that declare the same case-type + property with different `data_type`s collide on a single index whose cast rejects the other app's values at INSERT (the `::integer`-vs-`"17.01"` failure, cross-app variant). The `scopeTag` is a fixed-WIDTH (12-hex SHA-256) hash of the `(appId, caseType)` pair, which is what makes the catalog diff's name prefix (`cases_<scopeTag>_%`, in `readLiveIndexSet`) an EXACT scope match — distinct scopes hash to distinct tags, so the diff never bleeds across apps NOR across case types whose names are prefixes of each other (`patient` vs `patient_visit`) without ever parsing the partial predicate. It is deterministic, so the runtime and the index-rebuild migration compose the same name. **Pre-app-scoping global indexes (`cases_<case_type>_<property>_<mode>`, predicate on `case_type` alone) are healed once per deploy by the `commcare-nova-rebuild-indices` Cloud Run Job** (`scripts/rebuild-indices.ts`, bundled like the migrate Job, run as the runtime SA AFTER the new revision is serving): it eagerly (re)builds every app-scoped index from `case_type_schemas` (`rebuildAppScopedIndexes`) and drops the legacy globals (`dropLegacyGlobalIndexes`), all CONCURRENTLY and idempotently — no manual run, no lazy point-of-use heal.
+`case_type_schemas` is keyed `(app_id, case_type)`, so a case type's *desired* index set is per-app — but a case-type NAME (`patient`, `person`) is not globally unique. Every per-property expression index is therefore scoped on BOTH halves: the name carries a leading `indexScopeTag(appId, caseType)` segment (`cases_<scopeTag>_<propertyTag>_<mode>` — both the `(app, case_type)` scope and the property fold into fixed-width SHA-256 tags, so the name is ≤ 40 bytes and can't overflow Postgres' 63-byte identifier cap regardless of how long the names are; only `<mode>` stays readable) and the partial predicate is `WHERE app_id = '<app>' AND case_type = '<type>'`. Without that, one global index spans every app's rows of a shared case-type name, and two apps that declare the same case-type + property with different `data_type`s collide on a single index whose cast rejects the other app's values at INSERT (the `::integer`-vs-`"17.01"` failure, cross-app variant). The `scopeTag` is a fixed-WIDTH (12-hex SHA-256) hash of the `(appId, caseType)` pair, which is what makes the catalog diff's name prefix (`cases_<scopeTag>_%`, in `readLiveIndexSet`) an EXACT scope match — distinct scopes hash to distinct tags, so the diff never bleeds across apps NOR across case types whose names are prefixes of each other (`patient` vs `patient_visit`) without ever parsing the partial predicate. It is deterministic, so the runtime composes the same name for a given scope on every write.
 
 ### Per-data-type index coverage
 
