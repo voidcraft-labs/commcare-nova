@@ -35,14 +35,14 @@ import { log } from "./logger";
  * It runs at the two session choke points — `getSessionSafe` (route handlers)
  * and `getSession` (RSC + Server Actions) — so a revoked user is denied on
  * every page, API route, and action within the cache window, not just the
- * costly/mutating ones. The cost is one Firestore read per authenticated
+ * costly/mutating ones. The cost is one Postgres read per authenticated
  * request (the cookie cache still spares the Better Auth session-row read);
  * unauthenticated requests pay nothing (no session → no lookup).
  *
  * A definitive `false` (banned/deleted) DENIES; a lookup ERROR fails OPEN (see
- * the body) — denying every authenticated request on a transient Firestore
+ * the body) — denying every authenticated request on a transient Postgres
  * blip would be a self-inflicted outage, far worse than the bounded revocation
- * gap that only reopens while Firestore itself is unreachable.
+ * gap that only reopens while Postgres itself is unreachable.
  */
 async function sessionUserIsActive(session: Session): Promise<boolean> {
 	// During admin impersonation `session.user` is the impersonated TARGET, so
@@ -58,7 +58,7 @@ async function sessionUserIsActive(session: Session): Promise<boolean> {
 		// (banned/deleted), which still denies. Because this now runs on EVERY
 		// authenticated request (RSC renders, API routes, Server Actions,
 		// including the per-inline-image media route), denying on a transient
-		// Firestore blip would mass-sign-out the whole user base and break every
+		// Postgres blip would mass-sign-out the whole user base and break every
 		// media load — strictly worse than the bounded revocation gap that
 		// reopens only during an outage, when the app is already degraded. Use
 		// `log.warn` (Cloud-Logging-only, NOT mirrored to Sentry) so an outage
@@ -227,7 +227,7 @@ async function readsFreshAsAdmin(userId: string): Promise<boolean> {
 /**
  * Require an admin session or throw a 403.
  *
- * Authorizes on the role read FRESH from `auth_users`, not the cached
+ * Authorizes on the role read FRESH from `auth_user`, not the cached
  * `session.user.role` — the session cookie caches for up to 5 minutes, so
  * trusting the cached role would keep a just-demoted admin authorized for
  * the cache window. This matches the RSC admin gate (`requireAdminAccess`),
@@ -287,7 +287,7 @@ export async function getSessionSafe(req: Request): Promise<Session | null> {
  *
  * Wrapped in React `cache()` to deduplicate within a single RSC render pass.
  * The root layout and page-level auth checks both call `getSession()` — without
- * caching, each would be a separate Firestore read for the same session.
+ * caching, each would be a separate database read for the same session.
  *
  * Returns null if not authenticated — use when authentication is optional
  * (e.g. the landing page checking whether to redirect). Also returns null when
@@ -332,9 +332,9 @@ export async function requireAuth(): Promise<Session> {
 /**
  * Require an admin session in a Server Component.
  *
- * Reads the auth user's `role` directly from `auth_users` to bypass the
+ * Reads the auth user's `role` directly from `auth_user` to bypass the
  * 5-minute session cookie cache, ensuring demotions take effect immediately.
- * If admin access was revoked, the session is deleted from Firestore (live
+ * If admin access was revoked, the session is deleted from Postgres (live
  * revocation) and the user is redirected to the landing page. Stale auth
  * cookies become harmless — the next `getSession()` returns null.
  */
@@ -347,7 +347,7 @@ export async function requireAdminAccess(): Promise<Session> {
 		redirect("/");
 	}
 
-	/* Authorize on the fresh `auth_users` read (bypasses the cookie cache),
+	/* Authorize on the fresh `auth_user` read (bypasses the cookie cache),
 	 * so admin demotions take effect on the next page load, not after the
 	 * 5-minute cache window. */
 	if (!(await readsFreshAsAdmin(session.user.id))) {

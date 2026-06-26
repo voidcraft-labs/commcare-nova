@@ -28,8 +28,8 @@ import { getCurrentPeriod } from "./period";
 
 /**
  * To an ISO string. The auth-user reads come back from Kysely as `Date`;
- * the credit-grant audit path still reads Firestore (`Timestamp`) — handle
- * both shapes.
+ * the credit-grant audit path reads Firestore (`Timestamp`) — handle both
+ * shapes.
  */
 function toISOString(val: Timestamp | Date): string {
 	if (val instanceof Timestamp) return val.toDate().toISOString();

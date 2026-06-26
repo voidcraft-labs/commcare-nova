@@ -222,20 +222,16 @@ async function createAuth() {
 		},
 
 		/**
-		 * Postgres for all auth state. Better Auth runs its OWN Kysely on the
-		 * case-store's shared `pg.Pool` (passing a `pg.Pool` lets Better Auth
-		 * detect the Postgres dialect itself); one pool per instance keeps the
-		 * connection budget intact.
-		 *
-		 * The atomic rate-limiter counter (`incrementOne`) and OAuth single-use
-		 * token consumption (`consumeOne`) the community Firestore adapter needed
-		 * hand-written shims for are native to the built-in Kysely adapter — the
-		 * `withCompleteFirestoreAdapter` wrapper is gone.
+		 * Postgres for all auth state via Better Auth's built-in Kysely adapter.
+		 * Better Auth runs its OWN Kysely on the case-store's shared `pg.Pool`
+		 * (passing a `pg.Pool` lets it detect the Postgres dialect itself); one
+		 * pool per instance keeps the connection budget intact. The atomic
+		 * rate-limiter counter (`incrementOne`) and OAuth single-use token
+		 * consumption (`consumeOne`) are native to this adapter.
 		 *
 		 * Every model's table is `auth_`-prefixed via per-model `modelName` (here
 		 * for the core models + each plugin's `schema` below), so the whole schema
-		 * is namespaced — including `verification`, which the Firestore adapter
-		 * could not prefix.
+		 * is namespaced.
 		 */
 		database: pool,
 
@@ -278,7 +274,7 @@ async function createAuth() {
 				 *
 				 * Picked to absorb realistic agent-driven traffic without
 				 * letting an unauthenticated attacker hammer the
-				 * Firestore-backed `verifyApiKey` lookup or the JWT
+				 * Postgres-backed `verifyApiKey` lookup or the JWT
 				 * verifier. 120 req/min ≈ 2 per second, comfortably
 				 * above tool-call cadence even from concurrent worktrees
 				 * (each worktree gets its own per-IP counter).
@@ -290,7 +286,7 @@ async function createAuth() {
 				 * up to Cloud Run's per-instance request concurrency
 				 * (default 80) before any response-side increment
 				 * lands. Each burst request still hits `verifyApiKey`
-				 * and the Firestore lookup. The rate limiter starts
+				 * and the Postgres lookup. The rate limiter starts
 				 * blocking on the next sustained window, so over time
 				 * the cap holds — but it does not protect against
 				 * single-burst abuse. Edge-level rate limiting (Cloud
@@ -313,8 +309,8 @@ async function createAuth() {
 			 *
 			 * Compact strategy (Base64url + HMAC) has the smallest cookie payload.
 			 * 5-minute maxAge means the cached session payload is re-fetched from
-			 * Firestore at most every 5 minutes. Admin checks (`requireAdminAccess`)
-			 * bypass the cache entirely — they read `auth_users` directly — so
+			 * Postgres at most every 5 minutes. Admin checks (`requireAdminAccess`)
+			 * bypass the cache entirely — they read `auth_user` directly — so
 			 * cached role staleness is a display-only concern, not a security one.
 			 *
 			 * Account REVOCATION (ban / delete) does NOT ride this cache: the two
@@ -322,7 +318,7 @@ async function createAuth() {
 			 * run a live `isUserActive` read on every authenticated request, so a
 			 * banned or deleted user is denied within the window rather than after
 			 * it. The cache still spares the session-row read; the live check is a
-			 * separate `auth_users` read.
+			 * separate `auth_user` read.
 			 */
 			cookieCache: {
 				enabled: true,
@@ -363,17 +359,17 @@ async function createAuth() {
 		 *
 		 * Better Auth's `databaseHooks.user.create.before` fires inside
 		 * the OAuth callback handler — after Google's tokens have been
-		 * verified and userinfo fetched, but BEFORE the `auth_users` row
-		 * is written, the `auth_accounts` link is created, or any session
+		 * verified and userinfo fetched, but BEFORE the `auth_user` row
+		 * is written, the `auth_account` link is created, or any session
 		 * is established. Throwing `APIError` aborts the entire callback
-		 * chain, so a rejected user leaves no Firestore trace and never
+		 * chain, so a rejected user leaves no database trace and never
 		 * receives a session cookie. There is no in-between window where
 		 * a non-allowlisted user is partially signed in.
 		 *
 		 * The hook only fires on user creation, not on subsequent
 		 * sign-ins of an existing account. That is deliberate: the
 		 * allowlist polices who can be ADMITTED. Once an account
-		 * exists in `auth_users`, ban/role-based revocation is the
+		 * exists in `auth_user`, ban/role-based revocation is the
 		 * mechanism for removing access (handled by the admin plugin).
 		 *
 		 * Domain extraction takes the substring after the LAST `@`,
@@ -456,11 +452,11 @@ async function createAuth() {
 			 * Admin plugin — adds `role` to the auth user schema, plus
 			 * banning, impersonation, and user management APIs.
 			 *
-			 * `role` lives on `auth_users` (Better Auth's user table) and is
+			 * `role` lives on `auth_user` (Better Auth's user table) and is
 			 * available as `session.user.role`. No custom session field needed.
 			 *
 			 * `adminUserIds` bootstraps admin access from an env var so the
-			 * first admin doesn't need to manually edit Firestore. Users in
+			 * first admin doesn't need to manually edit the database. Users in
 			 * this list are always treated as admin regardless of their
 			 * `role` field.
 			 */
@@ -515,7 +511,7 @@ async function createAuth() {
 			 * per-endpoint limiter (distinct from Better Auth's global
 			 * `rateLimit` above) with sensible production defaults. We
 			 * override `register` specifically because it's the one public,
-			 * unauthenticated endpoint that persists a Firestore doc on
+			 * unauthenticated endpoint that persists a row on
 			 * success — tightening it to 5 req/min per IP caps storage
 			 * abuse without impacting legitimate clients (which register
 			 * once per install). Other endpoints stay on plugin defaults.
@@ -664,24 +660,19 @@ async function createAuth() {
 				 * suggest a second bound that doesn't behave like
 				 * "requests per window". */
 				rateLimit: { enabled: false },
-				/* Move the plugin's per-verify `lastRequest` write off
-				 * the auth hot path. Without this, every successful
-				 * `verifyApiKey` awaits a Firestore write to the same
-				 * `apikey/{id}` doc — exactly the document-hotspot shape
-				 * Firestore's scaling guidance flags (sustained writes to
-				 * one doc above ~1/sec cause contention). The risk is
-				 * concentrated for the shared-service-key case the
-				 * feature explicitly targets (one key, many concurrent
-				 * worktrees). With `deferUpdates: true` the write fires
-				 * via `runInBackground` after the verify response is
-				 * built — auth doesn't wait, the "Last used" timestamp
-				 * still updates, and the steady-state write rate to the
-				 * single doc no longer gates request throughput. The
-				 * tradeoff: a Firestore outage that breaks the deferred
-				 * write fails silently to logs without blocking the
-				 * request, which is the right shape — losing an audit
-				 * timestamp is preferable to denying authenticated
-				 * service-account traffic. */
+				/* Move the plugin's per-verify `lastRequest` write off the
+				 * auth hot path. Without this, every successful `verifyApiKey`
+				 * awaits an UPDATE to the key's `auth_apikey` row before
+				 * returning, so verify latency includes a write round-trip —
+				 * concentrated on the shared-service-key case the feature
+				 * targets (one key, many concurrent worktrees), where the same
+				 * row is updated on every call. With `deferUpdates: true` the
+				 * write fires via `runInBackground` after the verify response is
+				 * built — auth doesn't wait and the "Last used" timestamp still
+				 * updates. The tradeoff: a write failure degrades silently to
+				 * logs without blocking the request, which is the right shape —
+				 * losing an audit timestamp is preferable to denying
+				 * authenticated service-account traffic. */
 				deferUpdates: true,
 				keyExpiration: {
 					/* `defaultExpiresIn` is in SECONDS despite the plugin type
@@ -711,8 +702,7 @@ async function createAuth() {
 		 *
 		 * Even though we only use Google OAuth for sign-in (not API access on
 		 * behalf of users), encrypting stored tokens is defense-in-depth — if
-		 * the Firestore `auth_accounts` collection is ever exposed, raw tokens
-		 * can't be reused.
+		 * the `auth_account` table is ever exposed, raw tokens can't be reused.
 		 */
 		account: {
 			modelName: AUTH_TABLE_NAMES.account,

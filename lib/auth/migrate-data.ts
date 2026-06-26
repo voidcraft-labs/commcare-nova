@@ -14,18 +14,18 @@
 // working. Firestore is NOT touched — it stays as a backup until a later manual
 // cleanup, so a bad copy is always recoverable (empty `auth_user`, redeploy).
 //
-// Source collection names are the PRE-migration Firestore names (the `auth_*`
-// trio was prefixed; the plugin tables used core defaults); targets are the
-// `auth_`-prefixed Postgres tables. SKIPPED as ephemeral (per the chosen scope):
-// sessions, verification, rate-limit — users sign in once more, in-flight OAuth
-// flows restart, counters reset.
+// Source Firestore collections: the `auth_*` trio is prefixed, the plugin tables
+// use Better Auth's core default model names; targets are the `auth_`-prefixed
+// Postgres tables. Ephemeral collections are SKIPPED — sessions, verification,
+// rate-limit — so users sign in once more, in-flight OAuth flows restart, and
+// counters reset.
 //
-// Field names match column names verbatim (Better Auth's camelCase model fields
-// under the Firestore adapter's `namingStrategy: "default"`), so each spec's
-// column list doubles as the field selector. Conversions: Firestore `Timestamp`
-// → JS `Date` (→ timestamptz); for jsonb target columns the Firestore value (a
-// JSON string, since the Firestore adapter stringified arrays) is passed as JSON
-// text that Postgres casts to jsonb; everything else copies verbatim.
+// Field names match column names verbatim (Better Auth's camelCase model fields),
+// so each spec's column list doubles as the Firestore field selector.
+// Conversions: a Firestore `Timestamp` → JS `Date` (→ timestamptz); a jsonb
+// target column takes the Firestore value as JSON text (the Firestore adapter
+// stores arrays as JSON strings) that Postgres casts to jsonb; everything else
+// copies verbatim.
 
 import { Firestore, Timestamp } from "@google-cloud/firestore";
 import type { Pool } from "pg";

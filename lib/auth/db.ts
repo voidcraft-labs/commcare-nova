@@ -114,6 +114,17 @@ export interface AuthDatabase {
 }
 
 let cached: Kysely<AuthDatabase> | null = null;
+let injectedForTests: Kysely<AuthDatabase> | null = null;
+
+/**
+ * Test-only seam: point `getAuthDb` at a specific handle (e.g. a per-test
+ * Postgres from `setupPerTestDatabase`) so the auth-table reads/writes —
+ * which reach the DB through the `getAuthDb` singleton — can run against the
+ * testcontainer. Pass `null` to clear. No-op in production code paths.
+ */
+export function __setAuthDbForTests(db: Kysely<AuthDatabase> | null): void {
+	injectedForTests = db;
+}
 
 /**
  * The `Kysely<AuthDatabase>` handle for Nova's direct auth-table reads/writes,
@@ -121,6 +132,7 @@ let cached: Kysely<AuthDatabase> | null = null;
  * owned by the case-store connection layer).
  */
 export async function getAuthDb(): Promise<Kysely<AuthDatabase>> {
+	if (injectedForTests) return injectedForTests;
 	if (cached) return cached;
 	const pool = await getCaseStorePool();
 	cached = new Kysely<AuthDatabase>({

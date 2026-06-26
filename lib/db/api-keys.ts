@@ -97,13 +97,12 @@ export function toISOStringOrNull(val: Date | null | undefined): string | null {
  *
  * The api-key plugin writes via `JSON.stringify(permissions)` (see
  * `node_modules/@better-auth/api-key/dist/index.mjs::createApiKey`'s
- * `permissionsToApply` branch) and reads via `safeJSONParse`. Direct
- * Firestore reads bypass the plugin and see the raw string, so we
- * invert here.
+ * `permissionsToApply` branch) and reads via `safeJSONParse`. Our direct
+ * reads bypass the plugin and see the raw string, so we invert here.
  *
  * Falls through to an empty record on any unexpected shape — keeps a
  * future schema change from crashing the settings list view; the row
- * just renders with no scopes until the migration lands.
+ * just renders with no scopes.
  */
 function decodePermissions(raw: unknown): Record<string, string[]> {
 	if (raw && typeof raw === "object" && !Array.isArray(raw)) {

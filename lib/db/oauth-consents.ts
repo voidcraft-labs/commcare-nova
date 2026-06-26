@@ -75,10 +75,9 @@ function hashStoredOAuthToken(token: string): string {
  *
  * Postgres stores `scopes` as `jsonb`, so Kysely returns it already
  * decoded as an array — unlike the api-key `permissions` column, which is
- * a JSON string. This helper stays for defense: it filters non-string
- * entries and tolerates a JSON-string shape too (e.g. a row left by the
- * Firestore-era data migration), falling through to `[]` so a stray shape
- * never crashes the settings UI.
+ * a JSON string. This helper is defensive: it filters non-string entries
+ * and also tolerates a JSON-string shape, falling through to `[]` so a
+ * stray shape never crashes the settings UI.
  */
 function decodeScopes(raw: unknown): string[] {
 	if (Array.isArray(raw)) {
