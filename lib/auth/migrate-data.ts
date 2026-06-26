@@ -4,6 +4,19 @@
 // only when `auth_user` is empty (the first deploy after the tables land), so a
 // re-deploy never re-copies over live Postgres writes.
 //
+// CUTOVER-WINDOW CAVEAT (accepted residual risk of the automatic one-shot): the
+// copy reads a Firestore snapshot at migrate-Job time, but the OLD Firestore-auth
+// revision keeps serving until traffic shifts to the new revision moments later.
+// A brand-new user who FIRST signs in during that window writes to Firestore
+// after the snapshot, is never copied (the empty-`auth_user` guard skips the copy
+// on every later redeploy), and on the new revision re-logs in as a fresh user
+// id — so anything they created in the window (apps keyed on the OLD id) orphans.
+// The window is roughly the deploy's revision-promote time (seconds–minutes), so
+// deploy at low traffic to shrink it; Firestore is retained, so an orphaned row
+// is recoverable (an admin re-points `apps.owner` from the old id to the new).
+// A zero-window cutover would need downtime or a pre-traffic re-run, both
+// rejected in favor of this automatic single-shot.
+//
 // Faithful, ID-preserving transfer — `apps.owner` and every case-store
 // `owner_id` key on the Better Auth user id, so the ids MUST survive verbatim.
 // Encrypted account-token ciphertext and api-key hashes copy verbatim too
