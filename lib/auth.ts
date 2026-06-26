@@ -32,6 +32,9 @@ import { novaMcpPlugin } from "@/app/api/mcp/auth-plugin";
 import { SIGN_IN_ERROR } from "./auth-errors";
 import { forwardBetterAuthLog } from "./auth-logger";
 import { NOVA_API_KEY_PREFIX, NOVA_API_KEY_SCOPES } from "./auth-public";
+// Shared `auth_`-prefixed table names — single-sourced so the runtime config
+// here and the migrator (`lib/auth-migrate-options.ts`) can't diverge.
+import { AUTH_TABLE_NAMES } from "./auth-schema-shared";
 // The shared Cloud SQL pool. Better Auth runs its own Kysely on this ONE pool
 // (not a second) so the per-instance connection budget holds — see
 // `lib/case-store/postgres/connection.ts::enforceConnectionBudget`.
@@ -207,7 +210,7 @@ async function createAuth() {
 		 * `required: false` because pre-migration users lack this field.
 		 */
 		user: {
-			modelName: "auth_user",
+			modelName: AUTH_TABLE_NAMES.user,
 			additionalFields: {
 				lastActiveAt: {
 					type: "date",
@@ -236,7 +239,7 @@ async function createAuth() {
 		 */
 		database: pool,
 
-		verification: { modelName: "auth_verification" },
+		verification: { modelName: AUTH_TABLE_NAMES.verification },
 
 		/**
 		 * Trusted origins for CSRF validation.
@@ -264,7 +267,7 @@ async function createAuth() {
 		 */
 		rateLimit: {
 			storage: "database",
-			modelName: "auth_rate_limit",
+			modelName: AUTH_TABLE_NAMES.rateLimit,
 			customRules: {
 				"/api/auth/callback/:path": { window: 60, max: 10 },
 				/* Per-IP cap on the MCP route. The rule key is the path
@@ -300,7 +303,7 @@ async function createAuth() {
 		},
 
 		session: {
-			modelName: "auth_session",
+			modelName: AUTH_TABLE_NAMES.session,
 			expiresIn: 60 * 60 * 24 * 2, // 2 days max lifetime
 			updateAge: 60 * 60 * 12, // refresh every 12h of activity
 
@@ -481,7 +484,7 @@ async function createAuth() {
 			jwt({
 				disableSettingJwtHeader: true,
 				// `auth_`-prefix the JWKS table, like every other auth model.
-				schema: { jwks: { modelName: "auth_jwks" } },
+				schema: { jwks: { modelName: AUTH_TABLE_NAMES.jwks } },
 			}),
 
 			/**
@@ -551,10 +554,12 @@ async function createAuth() {
 				// unprefixed if omitted. The app-owned reads in
 				// `lib/db/oauth-consents.ts` query the client/consent/refresh names.
 				schema: {
-					oauthClient: { modelName: "auth_oauth_client" },
-					oauthConsent: { modelName: "auth_oauth_consent" },
-					oauthRefreshToken: { modelName: "auth_oauth_refresh_token" },
-					oauthAccessToken: { modelName: "auth_oauth_access_token" },
+					oauthClient: { modelName: AUTH_TABLE_NAMES.oauthClient },
+					oauthConsent: { modelName: AUTH_TABLE_NAMES.oauthConsent },
+					oauthRefreshToken: {
+						modelName: AUTH_TABLE_NAMES.oauthRefreshToken,
+					},
+					oauthAccessToken: { modelName: AUTH_TABLE_NAMES.oauthAccessToken },
 				},
 			}),
 
@@ -696,7 +701,7 @@ async function createAuth() {
 				},
 				references: "user",
 				// `auth_`-prefix the api-key table.
-				schema: { apikey: { modelName: "auth_apikey" } },
+				schema: { apikey: { modelName: AUTH_TABLE_NAMES.apikey } },
 			}),
 			novaMcpPlugin(),
 		],
@@ -710,7 +715,7 @@ async function createAuth() {
 		 * can't be reused.
 		 */
 		account: {
-			modelName: "auth_account",
+			modelName: AUTH_TABLE_NAMES.account,
 			encryptOAuthTokens: true,
 		},
 
