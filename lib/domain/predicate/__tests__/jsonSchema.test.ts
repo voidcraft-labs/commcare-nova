@@ -45,7 +45,11 @@ describe("caseTypeToJsonSchema", () => {
 			],
 		};
 		const schema = caseTypeToJsonSchema(ct);
-		expect(schema.properties.age).toEqual({ type: "integer" });
+		expect(schema.properties.age).toEqual({
+			type: "integer",
+			minimum: -2_147_483_648,
+			maximum: 2_147_483_647,
+		});
 		expect(schema.properties.bmi).toEqual({ type: "number" });
 		expect(schema.properties.dob).toEqual({ type: "string", format: "date" });
 		expect(schema.properties.appointment_at).toEqual({
@@ -239,6 +243,10 @@ describe("caseTypeToJsonSchema", () => {
 		};
 		const schema = caseTypeToJsonSchema(ct);
 		expect(schema.properties).not.toHaveProperty("case_name");
-		expect(schema.properties.age).toEqual({ type: "integer" });
+		expect(schema.properties.age).toEqual({
+			type: "integer",
+			minimum: -2_147_483_648,
+			maximum: 2_147_483_647,
+		});
 	});
 });

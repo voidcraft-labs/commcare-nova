@@ -74,6 +74,23 @@ import { unhandledKindMessage } from "./errors";
 const DECIMAL = String.raw`-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?`;
 const GEOPOINT_PATTERN = `^${DECIMAL}(?: ${DECIMAL}){3}$`;
 
+// The `int` data type compiles to Postgres `integer` (int4) at the
+// case-store boundary (`POSTGRES_CAST_FOR_DATA_TYPE.int` in
+// `lib/case-store/sql/dataTypeTokens.ts`). A bare `{ type:
+// "integer" }` accepts any integer, but the `(properties->>'k')::integer`
+// cast the write path's expression index evaluates rejects anything
+// outside int4's signed-32-bit range with a raw
+// `integer out of range` Postgres error at INSERT — the same class of
+// "AJV accepts, the Postgres cast rejects" failure as a fractional
+// value under an int index. Bounding the schema to int4 makes AJV's
+// acceptance set match the cast's, so an out-of-range value fails as
+// a typed `CasePropertiesValidationError` at the write boundary
+// rather than a 500 from the database. The case-store boundary owns
+// the cast token; this bound must track it (the cross-layer round
+// trip is pinned by `lib/case-store/postgres/__tests__/store.test.ts`).
+const INT4_MIN = -2_147_483_648;
+const INT4_MAX = 2_147_483_647;
+
 /**
  * The top-level shape: a closed object whose keys are the case type's
  * property names. `additionalProperties: false` is load-bearing — the
@@ -104,7 +121,7 @@ export type CaseTypeJsonSchema = {
  */
 export type CaseTypePropertyJsonSchema =
 	| { type: "string"; format?: string; enum?: string[]; pattern?: string }
-	| { type: "integer" }
+	| { type: "integer"; minimum: number; maximum: number }
 	| { type: "number" }
 	| { type: "array"; items: { type: "string"; enum?: string[] } };
 
@@ -171,7 +188,9 @@ function propertyToSchema(prop: CaseProperty): CaseTypePropertyJsonSchema {
 		case "text":
 			return { type: "string" };
 		case "int":
-			return { type: "integer" };
+			// Bounded to int4 so AJV rejects values the `::integer`
+			// cast would (see `INT4_MIN` / `INT4_MAX`).
+			return { type: "integer", minimum: INT4_MIN, maximum: INT4_MAX };
 		case "decimal":
 			return { type: "number" };
 		case "date":

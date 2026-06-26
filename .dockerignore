@@ -6,10 +6,11 @@ node_modules
 .env*
 .playwright-mcp
 # The scripts directory holds inspect / dev / one-off tooling the image
-# doesn't need — exclude it to keep the build context small. The ONE exception
-# is `scripts/migrate.ts`: the builder stage runs `npx esbuild scripts/migrate.ts`
-# to bundle the migrate-Job entrypoint into `migrate.cjs`, so that single file
-# must reach the build context (its `lib/` imports are not excluded). Keep the
-# negation in lockstep with the Dockerfile's esbuild step.
+# doesn't need — exclude it to keep the build context small. The exceptions are
+# the bundled Cloud Run Job entrypoints: the builder stage runs `npx esbuild`
+# over each to inline it into a self-contained `.cjs`, so those files (and their
+# `lib/` imports) must reach the build context. Keep these negations in lockstep
+# with the Dockerfile's esbuild steps.
 scripts
 !scripts/migrate.ts
+!scripts/rebuild-indices.ts
