@@ -172,6 +172,12 @@ export async function listUserApiKeys(
 			"lastRequest",
 		])
 		.where("referenceId", "=", userId)
+		// Order in SQL so the cap keeps the NEWEST rows (id desc as the
+		// same-millisecond tiebreaker), not an arbitrary physical-order subset —
+		// otherwise an over-cap user's newest keys could be invisible/unrevocable.
+		// The post-map JS sort below still runs, on the resulting set.
+		.orderBy("createdAt", "desc")
+		.orderBy("id", "desc")
 		.limit(LIST_KEYS_READ_CAP)
 		.execute();
 

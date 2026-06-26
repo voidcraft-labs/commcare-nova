@@ -456,35 +456,51 @@ export async function mintApiKey(
 		 * can revoke it from the UI. The plaintext return below
 		 * happens only after this check passes, preserving the
 		 * plaintext-once contract for the failure branch. */
-		const postCreateCount = await countUserApiKeys(session.user.id);
-		if (postCreateCount > PER_USER_KEY_LIMIT) {
-			const isLoser = await isOverLimitMintLoser(session.user.id, created.id);
-			if (isLoser) {
-				try {
-					const db = await getAuthDb();
-					await db
-						.deleteFrom("auth_apikey")
-						.where("id", "=", created.id)
-						.execute();
-					log.warn(
-						"[settings/api-keys] mint race detected — over-limit row deleted",
-						{
-							userId: session.user.id,
-							keyId: created.id,
-							postCreateCount,
-						},
-					);
-				} catch (delErr) {
-					log.error("[settings/api-keys] mint race delete failed", delErr);
+		/* The whole over-limit compensation is fail-open: the key row is
+		 * already committed and its plaintext is unrecoverable, so a
+		 * backing-store blip during the recount (e.g. a pool-acquire timeout)
+		 * must NOT turn a successful mint into a false failure. On any error
+		 * here we keep the key; an over-budget state surfaces as the
+		 * over-limit warn in `listUserApiKeys` and the user can revoke. */
+		try {
+			const postCreateCount = await countUserApiKeys(session.user.id);
+			if (postCreateCount > PER_USER_KEY_LIMIT) {
+				const isLoser = await isOverLimitMintLoser(session.user.id, created.id);
+				if (isLoser) {
+					try {
+						const db = await getAuthDb();
+						await db
+							.deleteFrom("auth_apikey")
+							.where("id", "=", created.id)
+							.execute();
+						log.warn(
+							"[settings/api-keys] mint race detected — over-limit row deleted",
+							{
+								userId: session.user.id,
+								keyId: created.id,
+								postCreateCount,
+							},
+						);
+					} catch (delErr) {
+						log.error("[settings/api-keys] mint race delete failed", delErr);
+					}
+					return {
+						success: false,
+						error: `You already have ${PER_USER_KEY_LIMIT} keys, the per-account limit. Revoke one before minting another.`,
+					};
 				}
-				return {
-					success: false,
-					error: `You already have ${PER_USER_KEY_LIMIT} keys, the per-account limit. Revoke one before minting another.`,
-				};
+				/* Else: I'm a winner of the race — keep my row, fall
+				 * through to the success path below. The losers handle
+				 * their own deletes. */
 			}
-			/* Else: I'm a winner of the race — keep my row, fall
-			 * through to the success path below. The losers handle
-			 * their own deletes. */
+		} catch (recountErr) {
+			/* error() (not warn) — this is rare (mint is a deliberate action, not a
+			 * per-request path) and notable: the per-user cap went unenforced for
+			 * this mint, worth Sentry visibility. */
+			log.error(
+				"[settings/api-keys] mint post-create recount failed; keeping key",
+				recountErr,
+			);
 		}
 
 		/* Build the success result FIRST, before any side-effect that

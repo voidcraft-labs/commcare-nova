@@ -21,7 +21,7 @@ program
 	.description(
 		"Read-only inspection of a user's monthly token usage + cost. Also lists their recent apps.",
 	)
-	.argument("<userId>", "Better Auth user id (auth_users doc id)")
+	.argument("<userId>", "Better Auth user id (auth_user.id)")
 	.option("--all", "show every month on record (default: current month only)")
 	.addHelpText(
 		"after",

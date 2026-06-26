@@ -113,14 +113,13 @@ export interface AuthDatabase {
 	auth_oauth_grant_revocation: AuthOAuthGrantRevocationTable;
 }
 
-let cached: Kysely<AuthDatabase> | null = null;
 let injectedForTests: Kysely<AuthDatabase> | null = null;
 
 /**
  * Test-only seam: point `getAuthDb` at a specific handle (e.g. a per-test
  * Postgres from `setupPerTestDatabase`) so the auth-table reads/writes —
- * which reach the DB through the `getAuthDb` singleton — can run against the
- * testcontainer. Pass `null` to clear. No-op in production code paths.
+ * which reach the DB through `getAuthDb` — can run against the testcontainer.
+ * Pass `null` to clear. No-op in production code paths.
  */
 export function __setAuthDbForTests(db: Kysely<AuthDatabase> | null): void {
 	injectedForTests = db;
@@ -128,15 +127,18 @@ export function __setAuthDbForTests(db: Kysely<AuthDatabase> | null): void {
 
 /**
  * The `Kysely<AuthDatabase>` handle for Nova's direct auth-table reads/writes,
- * on the shared case-store pool. Memoized; never destroyed here (the pool is
- * owned by the case-store connection layer).
+ * on the shared case-store pool.
+ *
+ * Builds a fresh `Kysely` wrapper each call (cheap — no connection opens until a
+ * query) rather than caching one. The cached resource is the POOL itself, owned
+ * by `getCaseStorePool`; caching a pool-derived handle here would survive
+ * `closeCaseStoreDatabase` (which ends the pool + rebuilds it on next use) and
+ * leave every later auth query throwing "Cannot use a pool after calling end".
  */
 export async function getAuthDb(): Promise<Kysely<AuthDatabase>> {
 	if (injectedForTests) return injectedForTests;
-	if (cached) return cached;
 	const pool = await getCaseStorePool();
-	cached = new Kysely<AuthDatabase>({
+	return new Kysely<AuthDatabase>({
 		dialect: new PostgresDialect({ pool: pool as unknown as PostgresPool }),
 	});
-	return cached;
 }

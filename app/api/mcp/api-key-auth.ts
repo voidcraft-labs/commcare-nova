@@ -217,7 +217,7 @@ export async function handleApiKeyMcp(
 	}
 
 	/* Live revocation lock — the api-key plugin's `validateApiKey`
-	 * does not cross-reference `auth_users`, so a banned or deleted
+	 * does not cross-reference `auth_user`, so a banned or deleted
 	 * user's pre-minted keys would otherwise authenticate forever.
 	 * The JWT path runs this SAME `isUserActive` gate (alongside its
 	 * access-token TTL + `hasActiveConsent`), so revocation is universal

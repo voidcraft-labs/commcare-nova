@@ -32,13 +32,14 @@ import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Pool } from "pg";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __setAuthDbForTests, type AuthDatabase } from "@/lib/auth/db";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { NOVA_API_KEY_PREFIX } from "@/lib/auth-public";
 import { AUTH_TABLE_NAMES } from "@/lib/auth-schema-shared";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
+import { log } from "@/lib/logger";
 
 const TEST_SECRET = "x".repeat(32);
 const TEST_USER_ID = "user-integration-test";
@@ -305,9 +306,10 @@ describe("api-key integration", () => {
 		expect(await countUserApiKeys(TEST_USER_ID)).toBe(2);
 	});
 
-	it("listUserApiKeys renders an empty displayPrefix when `start` is missing", async () => {
+	it("listUserApiKeys renders an empty displayPrefix + warns when `start` is missing", async () => {
 		// No misleading bare-prefix fallback: a row without `start` (a schema
-		// regression) surfaces as "" so the UI's `displayPrefix &&` guard hides it.
+		// regression) surfaces as "" so the UI's `displayPrefix &&` guard hides it,
+		// and a log.warn tripwire fires.
 		await seedUser(auth);
 		const created = await auth.api.createApiKey({
 			body: { name: "no-start", userId: TEST_USER_ID },
@@ -317,10 +319,45 @@ describe("api-key integration", () => {
 			.set({ start: null })
 			.where("id", "=", created.id)
 			.execute();
+		const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+
+		try {
+			const { listUserApiKeys } = await import("../api-keys");
+			const rows = await listUserApiKeys(TEST_USER_ID);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.displayPrefix).toBe("");
+			expect(warn).toHaveBeenCalledWith(
+				expect.stringContaining("missing `start`"),
+				expect.objectContaining({ keyId: created.id }),
+			);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	it("listUserApiKeys returns keys newest-first", async () => {
+		await seedUser(auth);
+		const older = await auth.api.createApiKey({
+			body: { name: "older", userId: TEST_USER_ID },
+		});
+		const newer = await auth.api.createApiKey({
+			body: { name: "newer", userId: TEST_USER_ID },
+		});
+		// Pin distinct createdAt so the sort is deterministic regardless of how
+		// close the two mints landed.
+		await authDb
+			.updateTable("auth_apikey")
+			.set({ createdAt: new Date("2026-01-01T00:00:00.000Z") })
+			.where("id", "=", older.id)
+			.execute();
+		await authDb
+			.updateTable("auth_apikey")
+			.set({ createdAt: new Date("2026-02-01T00:00:00.000Z") })
+			.where("id", "=", newer.id)
+			.execute();
 
 		const { listUserApiKeys } = await import("../api-keys");
 		const rows = await listUserApiKeys(TEST_USER_ID);
-		expect(rows).toHaveLength(1);
-		expect(rows[0]?.displayPrefix).toBe("");
+		expect(rows.map((r) => r.name)).toEqual(["newer", "older"]);
 	});
 });
