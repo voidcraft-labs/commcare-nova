@@ -1900,11 +1900,11 @@ interface LiveIndex {
  * temporal types, and `geopoint` map to `undefined` (see
  * `desiredIndexForProperty` for per-arm rationale).
  *
- * Detects post-transform collisions: two properties differing only
- * by hyphen-vs-underscore (e.g. `external-id` and `external_id`)
- * compose to the same index name after `indexName`'s hyphen-to-
- * underscore transform; throw with both originating names so the
- * author can disambiguate at the blueprint layer.
+ * Defends the `diffIndexSets` name-keying contract: if two distinct
+ * properties ever compose to the same index name (only possible via a
+ * `propertyIndexTag` SHA-256 collision, negligible at 48 bits), throw
+ * with both originating names rather than let one silently shadow the
+ * other in the diff.
  */
 function computeDesiredIndexSet(
 	appId: string,
@@ -1914,7 +1914,7 @@ function computeDesiredIndexSet(
 	const result = new Map<string, DesiredIndex>();
 	// Track which property name produced each index name so a
 	// collision error names both originating properties rather than
-	// the post-transform composed string.
+	// the composed hash.
 	const sourceProperty = new Map<string, string>();
 	for (const property of properties) {
 		const entry = desiredIndexForProperty(appId, caseType, property);
@@ -1926,9 +1926,9 @@ function computeDesiredIndexSet(
 			throw new Error(
 				compilerBugMessage({
 					where: "case-store.computeDesiredIndexSet",
-					invariant: `properties \`${existing}\` and \`${property.name}\` compose into the same index name \`${entry.name}\` after the hyphen-to-underscore transform`,
+					invariant: `properties \`${existing}\` and \`${property.name}\` compose into the same index name \`${entry.name}\``,
 					detail:
-						"Postgres unquoted identifiers don't admit hyphens, so the indexer maps them to underscores when composing the index name. Two blueprint properties differing only by hyphen-vs-underscore (e.g., `external-id` vs `external_id`) collide post-transform.\n\nHint: the blueprint authoring layer is responsible for rejecting sibling property names whose identifier-shape projections collide; reaching this throw means the upstream gate didn't catch it. Rename one of the two properties at the blueprint layer.",
+						"Distinct property names compose distinct fixed-width `propertyIndexTag` segments, so a shared index name means their SHA-256 tags collided (negligible at 48 bits) or a name segment lost its fixed width.\n\nHint: rename one of the two properties at the blueprint layer.",
 				}),
 			);
 		}
@@ -1939,19 +1939,24 @@ function computeDesiredIndexSet(
 }
 
 /**
- * Eagerly (re)build the app-scoped expression indexes for one case
- * type from its property set — drop any prior (possibly INVALID)
- * build of each desired index, then recreate it `CONCURRENTLY`. Runs
- * outside any transaction (the caller holds no `BEGIN`), so the
- * CONCURRENTLY builds are legal and online. Idempotent and safe to
- * re-run: drop-then-create converges even over a half-built artifact
- * a prior failed run left behind.
+ * Eagerly bring one case type's app-scoped expression indexes to the
+ * desired set, computed from its property declarations — the same
+ * read-live / diff / drop-not-desired + create-missing reconciliation
+ * the runtime's `syncExpressionIndexes` runs, but driven by an
+ * explicit property set rather than a blueprint. Runs outside any
+ * transaction (the caller holds no `BEGIN`), so the `CONCURRENTLY`
+ * builds are legal and online; idempotent (a re-run diffs to empty).
  *
- * This is the one-time index-rebuild Job's create path
- * (`scripts/rebuild-indices.ts`): it materializes the app-scoped
- * indexes for every `(app, case_type)` directly from
- * `case_type_schemas`, so the heal is EAGER — no app waits for its
- * next blueprint write to get a correct index.
+ * Using the live-set DIFF (not a blind create) is load-bearing for
+ * the heal: it also drops any STALE app-scoped index in the scope —
+ * e.g. one a prior code revision created under a different (longer,
+ * pre-hash) property-name segment — so the rebuild converges to
+ * exactly the desired set with no orphan duplicates.
+ *
+ * This is the one-time index-rebuild Job's path
+ * (`scripts/rebuild-indices.ts`): it reconciles every `(app,
+ * case_type)` directly from `case_type_schemas`, so the heal is EAGER
+ * — no app waits for its next blueprint write to get a correct index.
  */
 export async function rebuildAppScopedIndexes(
 	executor: Kysely<Database>,
@@ -1960,11 +1965,15 @@ export async function rebuildAppScopedIndexes(
 	properties: ReadonlyArray<CaseProperty>,
 ): Promise<void> {
 	const desired = computeDesiredIndexSet(appId, caseType, properties);
-	for (const entry of desired.values()) {
-		await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(entry.name)}`.execute(
+	const live = await readLiveIndexSet(executor, appId, caseType);
+	const { creates, drops } = diffIndexSets(desired, live);
+	for (const drop of drops) {
+		await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(drop.name)}`.execute(
 			executor,
 		);
-		await emitCreateIndex(executor, entry);
+	}
+	for (const create of creates) {
+		await emitCreateIndex(executor, create);
 	}
 }
 
@@ -2162,14 +2171,14 @@ const INDEX_SCOPE_TAG_LENGTH = 12;
  * NOR across case types whose names are prefixes of each other
  * (`patient` vs `patient_visit`, which a `..._patient_%` prefix would
  * otherwise both match) — the diff stays scoped to one
- * `(app, case_type)` without reading the partial predicate. The
- * property name still follows the tag in the composed name (readable
- * for ops); the case type is NOT spelled out a second time — the tag
- * already encodes it, and carrying the literal would only re-consume
- * the 63-byte identifier budget the scope tag already costs. The
- * space separator can't appear in either fragment (Firestore app ids
- * are alphanumeric; case-type names follow `CASE_PROPERTY_PATTERN`),
- * so `("ab","c")` and `("a","bc")` never collide. SHA-256 is
+ * `(app, case_type)` without reading the partial predicate. Neither
+ * the case type nor the property is spelled out in the name — both
+ * are folded into fixed-width hashes (this tag + `propertyIndexTag`)
+ * — so the composed name is BOUNDED and can't overflow the 63-byte
+ * identifier cap no matter how long those names are. The space
+ * separator can't appear in either fragment (Firestore app ids are
+ * alphanumeric; case-type names follow `CASE_PROPERTY_PATTERN`), so
+ * `("ab","c")` and `("a","bc")` never collide. SHA-256 is
  * deterministic, so `materializeCaseStoreSchemas` (runtime) and the
  * index-rebuild migration compose the same name for a given scope.
  */
@@ -2181,23 +2190,39 @@ export function indexScopeTag(appId: string, caseType: string): string {
 }
 
 /**
- * Compose the index name `cases_<scopeTag>_<property>_<mode>` from
- * `(appId, caseType, property, mode)`. The leading `indexScopeTag`
- * segment scopes the name to one `(app, case_type)` so two apps that
- * declare the same case-type + property name (or two prefix-related
- * case types in one app) get distinct index identities and exact
- * prefix enumeration (paired with the app-scoped partial predicate
- * in `emitCreateIndex`, the indexes are fully independent). The case
- * type is NOT carried as a literal segment — the tag already
- * encodes it, so the budget below depends on the property name
- * alone, not on the case-type length. Hyphens transform to
- * underscores because Postgres unquoted identifiers don't admit them;
- * the JSONB key inside the indexed expression keeps the hyphen
- * verbatim via `sql.lit`. Throws on overflow of Postgres's 63-byte
- * identifier cap so the diff stays mechanical against the live set
- * (Postgres silently truncates longer names, which would produce
- * false collisions); the fixed-width tag leaves ~40 bytes for the
- * property name + mode, so only a very long property name can trip it.
+ * A short, fixed-length, Postgres-identifier-safe tag for a property
+ * name — the second name segment of every per-property expression
+ * index. Hashing the property (rather than spelling it out) is what
+ * keeps the composed index name BOUNDED: `cases_` + scope tag +
+ * property tag + mode is at most `6 + 12 + 1 + 12 + 1 + 8 = 40`
+ * bytes, well under Postgres' 63-byte identifier cap, for ANY
+ * property name — a verbose 40-char field that overflowed when the
+ * property was carried literally no longer can. SHA-256 is
+ * deterministic, so runtime and migration compose the same name; a
+ * collision between two distinct properties in one scope is caught by
+ * `computeDesiredIndexSet` (negligible at 48 bits).
+ */
+export function propertyIndexTag(property: string): string {
+	return createHash("sha256")
+		.update(property)
+		.digest("hex")
+		.slice(0, INDEX_SCOPE_TAG_LENGTH);
+}
+
+/**
+ * Compose the index name `cases_<scopeTag>_<propertyTag>_<mode>` from
+ * `(appId, caseType, property, mode)`. Both identity segments are
+ * FIXED-WIDTH hashes — `indexScopeTag(appId, caseType)` for exact
+ * per-scope prefix enumeration (`readLiveIndexSet`), `propertyIndexTag`
+ * for per-property uniqueness — so the name is bounded (≤ 40 bytes)
+ * and can NEVER overflow Postgres' 63-byte identifier cap, regardless
+ * of how long the case-type or property names are (a 40-char property
+ * name once overflowed when carried literally). `<mode>` stays
+ * readable so the name still encodes the index SHAPE (the suffix's
+ * cast); the case-type + property text live in the partial predicate
+ * / indexed expression (`emitCreateIndex`), which `pg_get_indexdef`
+ * surfaces for ops. The cap assertion is belt-and-suspenders against
+ * a future change that reintroduces a variable-length segment.
  */
 function indexName(
 	appId: string,
@@ -2207,23 +2232,18 @@ function indexName(
 ): string {
 	assertSafeIdentifierFragment(caseType, "case type");
 	assertSafeIdentifierFragment(property, "property");
-	const composed = `cases_${indexScopeTag(appId, caseType)}_${transformHyphens(property)}_${mode}`;
+	const composed = `cases_${indexScopeTag(appId, caseType)}_${propertyIndexTag(property)}_${mode}`;
 	if (Buffer.byteLength(composed, "utf8") > 63) {
 		throw new Error(
 			compilerBugMessage({
 				where: "case-store.indexName",
 				invariant: `composed index name \`${composed}\` exceeds Postgres' 63-byte identifier cap (\`NAMEDATALEN - 1\`)`,
 				detail:
-					"Postgres silently truncates identifiers at 63 bytes, so an over-long name could collide in `pg_indexes` even with distinct pre-truncate names. Only the fixed-width scope tag (12 hex) + the property name + the mode compose into the name — the case-type length no longer counts — so reaching this throw means a single very long property name (>~35 bytes) overflowed. The blueprint authoring layer is responsible for keeping property names short enough to compose under the fixed-width scope tag.\n\nHint: shorten the property name at the blueprint layer.",
+					"Both identity segments are fixed-width hashes, so a composed name is at most 40 bytes and this throw is unreachable in the current scheme — reaching it means a name segment regained a variable length. Restore fixed-width composition so the `readLiveIndexSet` name-prefix contract holds.\n\nHint: keep every non-`mode` name segment fixed-width.",
 			}),
 		);
 	}
 	return composed;
-}
-
-/** Hyphens → underscores for Postgres identifier compatibility. */
-function transformHyphens(fragment: string): string {
-	return fragment.replaceAll("-", "_");
 }
 
 /**

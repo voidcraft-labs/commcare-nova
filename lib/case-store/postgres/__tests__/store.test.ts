@@ -69,15 +69,16 @@ import {
 	dropLegacyGlobalIndexes,
 	indexScopeTag,
 	PostgresCaseStore,
+	propertyIndexTag,
 	rebuildAppScopedIndexes,
 } from "../store";
 
 /**
  * Compose the expected per-property index name — mirrors the
- * implementation's `indexName` (`cases_<scopeTag>_<prop>_<mode>`,
- * hyphens transformed to underscores). Reuses the exported
- * `indexScopeTag` so the hashed scope segment can't drift from
- * production; only the readable `_<prop>_<mode>` tail is composed here.
+ * implementation's `indexName`
+ * (`cases_<scopeTag>_<propertyTag>_<mode>`). Reuses the exported
+ * fixed-width tags so the hashed segments can't drift from
+ * production; only the readable `_<mode>` tail is literal here.
  */
 function idxName(
 	appId: string,
@@ -85,8 +86,7 @@ function idxName(
 	property: string,
 	mode: string,
 ): string {
-	const prop = property.replaceAll("-", "_");
-	return `cases_${indexScopeTag(appId, caseType)}_${prop}_${mode}`;
+	return `cases_${indexScopeTag(appId, caseType)}_${propertyIndexTag(property)}_${mode}`;
 }
 
 // ---------------------------------------------------------------
@@ -462,26 +462,27 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		});
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		// One index per indexable property. Names follow the
-		// `cases_<case_type>_<property>_<mode>` convention. The
-		// non-indexable types (single_select, date, geopoint) are
-		// absent from the result.
+		// One index per indexable property
+		// (`cases_<scopeTag>_<propertyTag>_<mode>`). The non-indexable
+		// types (single_select, date, geopoint) are absent. Both
+		// segments are hashes, so the live set sorts by hash — compare
+		// against the same-sorted expected set.
 		const names = indexes.map((i) => i.name).sort();
-		expect(names).toEqual([
-			idxName(APP_ID, "patient", "age", "int"),
-			idxName(APP_ID, "patient", "name", "fuzzy"),
-			idxName(APP_ID, "patient", "tags", "contains"),
-			idxName(APP_ID, "patient", "weight", "num"),
-		]);
+		expect(names).toEqual(
+			[
+				idxName(APP_ID, "patient", "age", "int"),
+				idxName(APP_ID, "patient", "name", "fuzzy"),
+				idxName(APP_ID, "patient", "tags", "contains"),
+				idxName(APP_ID, "patient", "weight", "num"),
+			].sort(),
+		);
 	});
 
-	it("admits hyphenated property names and transforms them to underscores in the composed index name", async () => {
-		// Property names follow `CASE_PROPERTY_PATTERN` from
-		// `lib/domain/predicate/types.ts::CASE_PROPERTY_PATTERN` —
-		// alphanumerics + underscores + hyphens. CommCare convention
-		// includes `external-id`. The composed index name transforms
-		// hyphens to underscores so it's a legal unquoted Postgres
-		// identifier; the JSONB key inside the indexed expression
+	it("admits hyphenated property names — name uses the property hash, expression keeps the hyphen", async () => {
+		// Property names follow `CASE_PROPERTY_PATTERN` — alphanumerics +
+		// underscores + hyphens (CommCare's `external-id`). The name's
+		// `propertyIndexTag` hashes the raw property, so a hyphen needs
+		// no transform; the JSONB key inside the indexed expression
 		// stays exactly as the blueprint declares it.
 		const store = makeStore(OWNER_A);
 		const caseType: CaseType = {
@@ -498,19 +499,18 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
 		expect(indexes).toHaveLength(1);
-		// Index name has the transformed underscore.
+		// Name is the hash of the raw `external-id`.
 		expect(indexes[0]?.name).toBe(
-			idxName(APP_ID, "patient", "external_id", "fuzzy"),
+			idxName(APP_ID, "patient", "external-id", "fuzzy"),
 		);
 		// Indexed expression preserves the literal hyphen.
 		expect(indexes[0]?.def).toMatch(/->>\s*'external-id'/);
 	});
 
-	it("rejects two properties whose names collide after the hyphen-to-underscore transform", async () => {
-		// `external-id` and `external_id` both compose to
-		// `cases_patient_external_id_fuzzy`. The diff machinery is
-		// keyed by index name, so the collision must surface as a
-		// blueprint error before any index work runs.
+	it("gives `external-id` and `external_id` distinct indexes (hashing removes the old name collision)", async () => {
+		// The pre-hash naming transformed both to `..._external_id_...`
+		// and collided; hashing the RAW property name keeps two distinct
+		// properties distinct, so both get their own index.
 		const store = makeStore(OWNER_A);
 		const caseType: CaseType = {
 			name: "patient",
@@ -519,13 +519,20 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 				{ name: "external_id", label: "Underscore", data_type: "text" },
 			],
 		};
-		await expect(
-			store.applySchemaChange({
-				appId: APP_ID,
-				caseType: "patient",
-				caseTypeSchemas: buildSchemaMap(caseType),
-			}),
-		).rejects.toThrow(/compose into the same index name/);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildSchemaMap(caseType),
+		});
+		const names = (await readPropertyIndexes(dbHandle.pool, APP_ID, "patient"))
+			.map((i) => i.name)
+			.sort();
+		expect(names).toEqual(
+			[
+				idxName(APP_ID, "patient", "external-id", "fuzzy"),
+				idxName(APP_ID, "patient", "external_id", "fuzzy"),
+			].sort(),
+		);
 	});
 
 	it("drops the index for a removed property on subsequent call", async () => {
@@ -911,10 +918,11 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 
 	it("identifier-shape errors surface BEFORE Phase A's transaction opens", async () => {
 		// `computeDesiredIndexSet` runs synchronously at the top of
-		// `applySchemaChange`, before any I/O. A property name that
-		// would compose into an over-long Postgres identifier
-		// throws during pre-flight; `case_type_schemas` is never
-		// written.
+		// `applySchemaChange`, before any I/O. A property name with
+		// characters outside the identifier vocabulary throws during
+		// pre-flight (`assertSafeIdentifierFragment` inside `indexName`);
+		// `case_type_schemas` is never written. (Name length no longer
+		// matters — both name segments are fixed-width hashes.)
 		const store = makeStore(OWNER_A);
 		// Seed the schema row with no properties so the failure
 		// path can compare against a known-good baseline.
@@ -924,12 +932,11 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			caseTypeSchemas: buildSchemaMap({ name: "patient", properties: [] }),
 		});
 
-		// Property name long enough that
-		// `cases_patient_<name>_fuzzy` exceeds 63 bytes.
-		const longPropertyName = "x".repeat(60);
+		// A property name with a space violates `CASE_PROPERTY_PATTERN`.
+		const badPropertyName = "has a space";
 		const caseType: CaseType = {
 			name: "patient",
-			properties: [{ name: longPropertyName, label: "X", data_type: "text" }],
+			properties: [{ name: badPropertyName, label: "X", data_type: "text" }],
 		};
 		await expect(
 			store.applySchemaChange({
@@ -937,11 +944,11 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 				caseType: "patient",
 				caseTypeSchemas: buildSchemaMap(caseType),
 			}),
-		).rejects.toThrow(/63-byte identifier cap/);
+		).rejects.toThrow(/characters other than/);
 
 		// `case_type_schemas` carries the pre-call shape (empty
-		// properties), NOT the over-long property. Pre-flight
-		// caught the error before Phase A's UPSERT ran.
+		// properties), NOT the bad property. Pre-flight caught the
+		// error before Phase A's UPSERT ran.
 		const schemaRow = await dbHandle.pool.query<{ schema: unknown }>(
 			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
 			[APP_ID, "patient"],
@@ -949,7 +956,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const schema = schemaRow.rows[0]?.schema as {
 			properties: Record<string, unknown>;
 		};
-		expect(Object.keys(schema.properties)).not.toContain(longPropertyName);
+		expect(Object.keys(schema.properties)).not.toContain(badPropertyName);
 		expect(Object.keys(schema.properties)).toEqual([]);
 
 		// No indexes were created either — the identifier check
