@@ -11,7 +11,6 @@
  */
 
 import { isValidIP, normalizeIP } from "@better-auth/core/utils/ip";
-import { FieldValue } from "@google-cloud/firestore";
 import * as Sentry from "@sentry/nextjs";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -19,8 +18,8 @@ import { connection } from "next/server";
 import { cache } from "react";
 import { ApiError } from "./apiError";
 import { getAuth, type Session } from "./auth";
+import { getAuthDb } from "./auth/db";
 import { isUserActive } from "./db/api-keys";
-import { getDb } from "./db/firestore";
 import { log } from "./logger";
 
 /**
@@ -209,15 +208,20 @@ export async function requireSession(req: Request): Promise<Session> {
 }
 
 /**
- * Read the caller's admin status from `auth_users` directly, bypassing
+ * Read the caller's admin status from `auth_user` directly, bypassing
  * Better Auth's session-cookie cache (up to 5 minutes). Both the API gate
  * (`requireAdmin`) and the RSC gate (`requireAdminAccess`) authorize on
  * this fresh read so an admin demotion takes effect on the next request,
  * not after the cache window elapses.
  */
 async function readsFreshAsAdmin(userId: string): Promise<boolean> {
-	const snap = await getDb().collection("auth_users").doc(userId).get();
-	return snap.data()?.role === "admin";
+	const db = await getAuthDb();
+	const row = await db
+		.selectFrom("auth_user")
+		.select("role")
+		.where("id", "=", userId)
+		.executeTakeFirst();
+	return row?.role === "admin";
 }
 
 /**
@@ -359,14 +363,20 @@ export async function requireAdminAccess(): Promise<Session> {
 // ── Activity Tracking ──────────────────────────────────────────────
 
 /**
- * Bump `lastActiveAt` on `auth_users`. Fire-and-forget merge-set on
- * every authenticated request — direct Firestore write, consistent
- * with `requireAdminAccess()` which also reads `auth_users` directly.
+ * Bump `lastActiveAt` on `auth_user`. Fire-and-forget on every authenticated
+ * request — a failure must never block the request, consistent with
+ * `requireAdminAccess()` which also reads `auth_user` directly.
  */
 function touchUser(userId: string): void {
-	getDb()
-		.collection("auth_users")
-		.doc(userId)
-		.set({ lastActiveAt: FieldValue.serverTimestamp() }, { merge: true })
-		.catch((err) => log.error("[touchUser] Firestore write failed", err));
+	void getAuthDb()
+		.then((db) =>
+			db
+				.updateTable("auth_user")
+				.set({ lastActiveAt: new Date() })
+				.where("id", "=", userId)
+				.execute(),
+		)
+		.catch((err) =>
+			log.error("[touchUser] auth_user lastActiveAt write failed", err),
+		);
 }
