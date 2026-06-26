@@ -73,6 +73,26 @@ interface AuthOAuthRefreshTokenTable {
 	expiresAt: Timestamp;
 }
 
+interface AuthApikeyTable {
+	id: string;
+	/** The key's owner — Better Auth's `references: "user"` foreign key. */
+	referenceId: string;
+	name: string | null;
+	/** Prefix-plus-first-six-chars, stamped for masked display. */
+	start: string | null;
+	prefix: string | null;
+	/**
+	 * `text` column the api-key plugin JSON-stringifies on write (its schema type
+	 * is `"string"`, NOT `"string[]"`, so the adapter's auto-stringify never
+	 * fires) — so this is a JSON string, decoded by `decodePermissions`, NOT a
+	 * jsonb array like the oauth `scopes` column.
+	 */
+	permissions: string | null;
+	createdAt: Timestamp;
+	expiresAt: Timestamp | null;
+	lastRequest: Timestamp | null;
+}
+
 /**
  * Nova-owned per-(user, client) JWT revocation watermark. NOT a Better Auth
  * model — created by our migration (`lib/auth/migrations`). `revokedAt` is the
@@ -86,6 +106,7 @@ interface AuthOAuthGrantRevocationTable {
 
 export interface AuthDatabase {
 	auth_user: AuthUserTable;
+	auth_apikey: AuthApikeyTable;
 	auth_oauth_client: AuthOAuthClientTable;
 	auth_oauth_consent: AuthOAuthConsentTable;
 	auth_oauth_refresh_token: AuthOAuthRefreshTokenTable;

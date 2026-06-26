@@ -1,32 +1,29 @@
 /**
- * App-owned reads against `@better-auth/api-key`'s Firestore table.
+ * App-owned reads against `@better-auth/api-key`'s `auth_apikey` table.
  *
  * Exists for the same reason `lib/db/oauth-consents.ts` exists for the
  * oauth-provider plugin: the settings page needs a list view, and the
  * mint Server Action needs a pre-flight count for the per-user limit
- * check. Both are direct-Firestore reads against the plugin-owned
- * `apikey` collection — going through the plugin's typed `auth.api.*`
- * surface for these would require either a session-on-the-server
- * impersonation dance or duplicate Zod schemas.
+ * check. Both read the plugin-owned table directly via the shared
+ * `Kysely<AuthDatabase>` — going through the plugin's typed `auth.api.*`
+ * surface for these would require a session-on-the-server impersonation
+ * dance.
  *
  * The api-key plugin manually JSON-stringifies the `permissions` field
  * on write (schema type is `"string"`, not `"string[]"`, so the adapter
  * factory's auto-stringify path does NOT fire). Plugin reads via
  * `ctx.context.adapter.findOne(...)` get the field decoded by the
- * plugin's own `safeJSONParse` wrapper. Direct Firestore reads see the
- * raw JSON string. Hence the local `decodePermissions` helper — same
- * shape as `decodeScopes` in `oauth-consents.ts`, different rationale
- * (manual stringify by plugin vs auto-stringify by adapter framework).
+ * plugin's own `safeJSONParse` wrapper. Our direct reads see the raw
+ * JSON string — hence the local `decodePermissions` helper. Note this
+ * differs from the oauth `scopes` column, which is a jsonb array Kysely
+ * returns already decoded (see `oauth-consents.ts`).
  *
- * Collection name is `apikey` — the api-key plugin's `API_KEY_TABLE_NAME`
- * constant. `better-auth-firestore` uses `modelName` as-is for plugin
- * tables, no `auth_` prefix (same convention as `oauthConsent` /
- * `oauthRefreshToken`).
+ * Table name is `auth_apikey` — the api-key plugin's `apikey` model,
+ * `auth_`-prefixed via `modelName` in `lib/auth.ts`.
  */
 
-import { Timestamp } from "@google-cloud/firestore";
 import { log } from "@/lib/logger";
-import { getDb } from "./firestore";
+import { getAuthDb } from "../auth/db";
 
 // ── Public types ────────────────────────────────────────────────────
 
@@ -59,35 +56,7 @@ export interface ApiKeySummary {
 	lastUsedAt: string | null;
 }
 
-// ── Raw doc shape (Firestore-side) ──────────────────────────────────
-
-/**
- * Subset of the `apikey` doc we read. The plugin's full schema has
- * many more fields (rate limiting, refill, request count) that the
- * settings UI doesn't need to surface yet; widening this interface is
- * how new fields opt in.
- *
- * `permissions` is typed `unknown` because the plugin manually
- * JSON-stringifies it on write — see `decodePermissions`.
- */
-interface ApiKeyDoc {
-	name?: string | null;
-	start?: string | null;
-	prefix?: string | null;
-	referenceId: string;
-	createdAt: Timestamp | Date;
-	expiresAt?: Timestamp | Date | null;
-	lastRequest?: Timestamp | Date | null;
-	permissions?: unknown;
-}
-
-// ── Collection names + helpers ──────────────────────────────────────
-
-/** Plugin-defined Firestore collection. Source of truth: `@better-auth/api-key`'s `API_KEY_TABLE_NAME`. */
-const COLLECTION_API_KEY = "apikey";
-
-/** Better Auth's user collection — used by `isUserActive` to verify the key's owner is still in good standing. */
-const COLLECTION_AUTH_USERS = "auth_users";
+// ── Constants + helpers ─────────────────────────────────────────────
 
 /**
  * Hard cap on active keys per user. The mint Server Action enforces
@@ -98,9 +67,9 @@ const COLLECTION_AUTH_USERS = "auth_users";
 export const PER_USER_KEY_LIMIT = 10;
 
 /**
- * Safety bound on `listUserApiKeys`'s Firestore read. Sized well above
+ * Safety bound on `listUserApiKeys`'s read. Sized well above
  * `PER_USER_KEY_LIMIT` so any pre-existing over-limit state — left by
- * an admin tool, partial migration, or compensating-delete failure
+ * an admin tool, a partial migration, or a compensating-delete failure
  * after a concurrent mint race — stays visible in the UI and the user
  * can revoke down to the limit from the kebab menu. Also caps the
  * blast radius of a runaway state so the settings page doesn't
@@ -109,26 +78,18 @@ export const PER_USER_KEY_LIMIT = 10;
 const LIST_KEYS_READ_CAP = 50;
 
 /**
- * Convert a Firestore-shaped date value to an ISO string. Firestore
- * returns `Timestamp` on read, accepts `Date` on write; the api-key
- * plugin's `auth.api.createApiKey` return path may surface either
- * shape depending on how the adapter trip-routes the row, so any code
- * that reads the plugin's response should run through this helper
- * rather than constructing `new Date(...).toISOString()` directly —
- * `new Date(<Timestamp>)` produces "Invalid Date" since `Timestamp`
- * isn't a valid `Date` constructor input. Exported so the Server
- * Actions can use it on the create-endpoint response.
+ * Convert a date column to an ISO string. The Better Auth Kysely
+ * adapter returns `timestamptz` columns as `Date`, so this is a thin
+ * wrapper — kept because it's exported and used by the Server Actions
+ * on `auth.api.createApiKey`'s response (whose date fields are also
+ * `Date`), so producers and consumers share one conversion point.
  */
-export function toISOString(val: Timestamp | Date): string {
-	if (val instanceof Timestamp) return val.toDate().toISOString();
+export function toISOString(val: Date): string {
 	return val.toISOString();
 }
 
-export function toISOStringOrNull(
-	val: Timestamp | Date | null | undefined,
-): string | null {
-	if (!val) return null;
-	return toISOString(val);
+export function toISOStringOrNull(val: Date | null | undefined): string | null {
+	return val ? val.toISOString() : null;
 }
 
 /**
@@ -186,8 +147,8 @@ function extractScopes(permissions: Record<string, string[]>): string[] {
  * user. Mirrors `listAuthorizedClients` in `oauth-consents.ts`.
  *
  * Sort happens client-side because at this size (≤`PER_USER_KEY_LIMIT`
- * keys per user) the cost is negligible and the Firestore composite
- * index isn't worth carrying.
+ * keys per user) the cost is negligible and a sort index isn't worth
+ * carrying.
  *
  * Read is capped at `LIST_KEYS_READ_CAP`, which sits well above
  * `PER_USER_KEY_LIMIT`, so a temporarily over-limit state (race
@@ -199,20 +160,29 @@ function extractScopes(permissions: Record<string, string[]>): string[] {
 export async function listUserApiKeys(
 	userId: string,
 ): Promise<ApiKeySummary[]> {
-	const snap = await getDb()
-		.collection(COLLECTION_API_KEY)
-		.where("referenceId", "==", userId)
+	const db = await getAuthDb();
+	const records = await db
+		.selectFrom("auth_apikey")
+		.select([
+			"id",
+			"name",
+			"start",
+			"permissions",
+			"createdAt",
+			"expiresAt",
+			"lastRequest",
+		])
+		.where("referenceId", "=", userId)
 		.limit(LIST_KEYS_READ_CAP)
-		.get();
+		.execute();
 
-	if (snap.empty) return [];
+	if (records.length === 0) return [];
 
-	const rows: ApiKeySummary[] = snap.docs.map((doc) => {
-		const data = doc.data() as ApiKeyDoc;
+	const rows: ApiKeySummary[] = records.map((row) => {
 		/* `start` is the prefix-plus-first-six-chars portion the plugin
 		 * stamps at create time per `startingCharactersConfig.shouldStore`
 		 * (see `lib/auth.ts`'s api-key mount). It identifies the row in
-		 * the masked list view. The bare wire prefix `data.prefix`
+		 * the masked list view. The bare wire prefix `prefix`
 		 * (`sk-nova-v1-`) is never used as a fallback — it would render
 		 * every row identically and hide a real schema regression
 		 * behind a misleading display. An empty string falls through
@@ -220,19 +190,19 @@ export async function listUserApiKeys(
 		 * chip. The `log.warn` makes the regression visible in Cloud
 		 * Logging since under our config `start` should always be
 		 * present. */
-		if (!data.start) {
+		if (!row.start) {
 			log.warn("[lib/db/api-keys] apikey row missing `start` field", {
-				keyId: doc.id,
+				keyId: row.id,
 			});
 		}
 		return {
-			keyId: doc.id,
-			name: data.name ?? "",
-			displayPrefix: data.start ?? "",
-			scopes: extractScopes(decodePermissions(data.permissions)),
-			createdAt: toISOString(data.createdAt),
-			expiresAt: toISOStringOrNull(data.expiresAt),
-			lastUsedAt: toISOStringOrNull(data.lastRequest),
+			keyId: row.id,
+			name: row.name ?? "",
+			displayPrefix: row.start ?? "",
+			scopes: extractScopes(decodePermissions(row.permissions)),
+			createdAt: toISOString(row.createdAt),
+			expiresAt: toISOStringOrNull(row.expiresAt),
+			lastUsedAt: toISOStringOrNull(row.lastRequest),
 		};
 	});
 
@@ -241,8 +211,8 @@ export async function listUserApiKeys(
 		 * create → recount-and-delete-if-over compensating action
 		 * keeps the row count at or below the limit. An over-limit
 		 * state here means something bypassed it (a compensating-
-		 * delete failure during a mint race, admin tooling, partial
-		 * migration, manual Firestore edit). Surface it in logs so a
+		 * delete failure during a mint race, admin tooling, a partial
+		 * migration, a manual row edit). Surface it in logs so a
 		 * persistent over-limit doesn't go quietly unnoticed; rows
 		 * stay visible in the UI so the user can revoke down. */
 		log.warn("[lib/db/api-keys] user is over the per-user key limit", {
@@ -271,18 +241,20 @@ export async function listUserApiKeys(
  * fires.
  */
 export async function countUserApiKeys(userId: string): Promise<number> {
-	const snap = await getDb()
-		.collection(COLLECTION_API_KEY)
-		.where("referenceId", "==", userId)
-		.count()
-		.get();
-	return snap.data().count;
+	const db = await getAuthDb();
+	const { count } = await db
+		.selectFrom("auth_apikey")
+		.select((eb) => eb.fn.countAll<string>().as("count"))
+		.where("referenceId", "=", userId)
+		.executeTakeFirstOrThrow();
+	// Postgres `count(*)` comes back as a string (bigint); parse to a number.
+	return Number(count);
 }
 
 /**
  * Predicate the MCP route uses to enforce live revocation of API
  * keys for banned or deleted users. The api-key plugin's
- * `validateApiKey` does NOT cross-reference `auth_users` — it only
+ * `validateApiKey` does NOT cross-reference `auth_user` — it only
  * checks the apikey row's own state — so a banned user's pre-minted
  * keys would otherwise authenticate forever. The JWT path is
  * implicitly bounded by the access-token TTL plus consent-revocation
@@ -302,7 +274,7 @@ export async function countUserApiKeys(userId: string): Promise<number> {
  * null`) keep returning false, matching the admin hook's fall-
  * through behavior.
  *
- * Throws on Firestore failure — the local catch in `handleApiKeyMcp`
+ * Throws on a database failure — the local catch in `handleApiKeyMcp`
  * translates the throw into a 401 (the same `"api key verify failed"`
  * reason as a verifier outage), so the wire posture is fail-closed: a
  * transient outage rejects rather than authenticates a possibly-banned
@@ -311,23 +283,18 @@ export async function countUserApiKeys(userId: string): Promise<number> {
  * for the same reason.
  */
 export async function isUserActive(userId: string): Promise<boolean> {
-	const snap = await getDb()
-		.collection(COLLECTION_AUTH_USERS)
-		.doc(userId)
-		.get();
-	if (!snap.exists) return false;
-	const data = snap.data() as
-		| { banned?: boolean; banExpires?: Timestamp | Date | null }
-		| undefined;
-	if (data?.banned !== true) return true;
-	const expires = data.banExpires;
-	if (!expires) return false;
-	const expiresMs =
-		expires instanceof Timestamp
-			? expires.toMillis()
-			: expires instanceof Date
-				? expires.getTime()
-				: null;
-	if (expiresMs === null) return false;
-	return expiresMs < Date.now();
+	const db = await getAuthDb();
+	const row = await db
+		.selectFrom("auth_user")
+		.select(["banned", "banExpires"])
+		.where("id", "=", userId)
+		.executeTakeFirst();
+	if (!row) return false;
+	if (row.banned !== true) return true;
+	/* Banned: a temp ban whose window has elapsed reads as not-banned —
+	 * mirroring the admin plugin's session-create hook, the only place the
+	 * framework lazily clears expired bans. A permanent ban (`banExpires`
+	 * null) stays banned. */
+	if (!row.banExpires) return false;
+	return row.banExpires.getTime() < Date.now();
 }
