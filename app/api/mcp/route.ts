@@ -6,7 +6,7 @@
  * auth + dispatch logic lives behind Better Auth's `auth.handler` so
  * the route is protected by the framework's `onRequestRateLimit`
  * middleware (configured via `customRules` in `lib/auth.ts`). Without
- * this layer the route would be a public Firestore-read sink for
+ * this layer the route would be a public database-read sink for
  * anyone spamming `Bearer sk-nova-v1-*` garbage.
  *
  * ## Why a synthesized request

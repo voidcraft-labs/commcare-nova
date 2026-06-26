@@ -304,4 +304,23 @@ describe("api-key integration", () => {
 		await auth.api.createApiKey({ body: { name: "k2", userId: TEST_USER_ID } });
 		expect(await countUserApiKeys(TEST_USER_ID)).toBe(2);
 	});
+
+	it("listUserApiKeys renders an empty displayPrefix when `start` is missing", async () => {
+		// No misleading bare-prefix fallback: a row without `start` (a schema
+		// regression) surfaces as "" so the UI's `displayPrefix &&` guard hides it.
+		await seedUser(auth);
+		const created = await auth.api.createApiKey({
+			body: { name: "no-start", userId: TEST_USER_ID },
+		});
+		await authDb
+			.updateTable("auth_apikey")
+			.set({ start: null })
+			.where("id", "=", created.id)
+			.execute();
+
+		const { listUserApiKeys } = await import("../api-keys");
+		const rows = await listUserApiKeys(TEST_USER_ID);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.displayPrefix).toBe("");
+	});
 });

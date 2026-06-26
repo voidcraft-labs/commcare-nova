@@ -20,12 +20,19 @@
 //   2. consent / refresh-token / account / api-key rows FK `auth_oauth_client`
 //      and `auth_user`; Firestore tolerated rows whose client/user doc was gone.
 //      Rows whose required FK target wasn't copied are SKIPPED (counted), and a
-//      client whose owner is gone keeps the row with a nulled `userId`.
-//   3. The copy still runs as ONE transaction, so a genuinely malformed row (a
-//      missing NOT NULL the filters above don't cover) aborts the whole copy and
-//      fails the Job by design — that should halt + alert an operator, never
-//      silently drop a user. The structural cases that WOULD reliably fire
-//      (1 + 2) are handled, so the abort path is reserved for real anomalies.
+//      client whose owner is gone keeps the row with a nulled `userId`. Required
+//      columns with no DB default that legacy rows may lack are coalesced to a
+//      safe value (api-key `configId` → "default" — the plugin's own default;
+//      client `redirectUris` → []).
+//   3. The copy still runs as ONE transaction, so anything the reconciliations
+//      above don't cover — a UNIQUE collision (e.g. two users sharing an email,
+//      which the community adapter never enforced) or a genuinely malformed row
+//      missing a NOT NULL — aborts the whole copy and fails the Job by design.
+//      Those have no safe automatic resolution (auto-dedup could drop the wrong
+//      user and orphan their apps), so they halt + alert: an operator fixes the
+//      source row and redeploys, and because `auth_user` is still empty the copy
+//      retries cleanly. The cases that WOULD reliably fire (1 + 2) are handled,
+//      so the abort path is reserved for genuine anomalies.
 //
 // Source Firestore collections: the `auth_*` trio is prefixed, the plugin tables
 // use Better Auth's core default model names; targets are the `auth_`-prefixed
@@ -327,7 +334,9 @@ export async function copyAuthDataFromFirestore(
 			softwareId: strOf(c.data.softwareId),
 			softwareVersion: strOf(c.data.softwareVersion),
 			softwareStatement: strOf(c.data.softwareStatement),
-			redirectUris: jsonText(c.data.redirectUris),
+			// Required jsonb with no DB default; coalesce a missing value to an
+			// empty array so a degenerate legacy client copies instead of aborting.
+			redirectUris: jsonText(c.data.redirectUris) ?? "[]",
 			postLogoutRedirectUris: jsonText(c.data.postLogoutRedirectUris),
 			tokenEndpointAuthMethod: strOf(c.data.tokenEndpointAuthMethod),
 			grantTypes: jsonText(c.data.grantTypes),
@@ -361,7 +370,11 @@ export async function copyAuthDataFromFirestore(
 			.filter((k) => inUsers(k.data.referenceId))
 			.map((k) => ({
 				id: k.id,
-				configId: strOf(k.data.configId),
+				// Required column with no DB default; legacy keys minted before the
+				// field existed lack it. "default" is the plugin's own default value
+				// (createApiKey: `configId: opts.configId ?? "default"`), and verify
+				// only matches configId when one is passed (Nova never does).
+				configId: strOf(k.data.configId) ?? "default",
 				name: strOf(k.data.name),
 				start: strOf(k.data.start),
 				referenceId: strOf(k.data.referenceId),

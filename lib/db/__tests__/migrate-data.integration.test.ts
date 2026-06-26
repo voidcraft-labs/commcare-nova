@@ -223,6 +223,68 @@ describe.skipIf(!emulatorAvailable)(
 			expect(grants).toEqual([{ userId: "u1", clientId: "client-1" }]);
 		});
 
+		it("coalesces required columns missing on legacy rows (configId, redirectUris)", async () => {
+			const now = Timestamp.now();
+			await fs.collection("auth_users").doc("u1").set({
+				email: "a@dimagi.com",
+				name: "A",
+				emailVerified: true,
+				createdAt: now,
+				updatedAt: now,
+			});
+			// Client with NO redirectUris (required jsonb) + key with NO configId
+			// (required text) — both would abort the copy if not coalesced.
+			await fs.collection("oauthClient").doc("c1").set({
+				clientId: "client-1",
+				name: "C1",
+				createdAt: now,
+				updatedAt: now,
+			});
+			await fs.collection("apikey").doc("k1").set({
+				referenceId: "u1",
+				key: "key-hash",
+				name: "K1",
+				createdAt: now,
+				updatedAt: now,
+			});
+
+			// Copy succeeds (the coalesce prevents the NOT NULL abort) and both rows
+			// land — a non-coalesced NULL would have rolled the whole copy back.
+			const result = await copyAuthDataFromFirestore(dbHandle.pool);
+			expect(result.skipped).toBe(false);
+			const clients = await authDb
+				.selectFrom("auth_oauth_client")
+				.select("id")
+				.execute();
+			expect(clients.map((c) => c.id)).toEqual(["c1"]);
+			const keys = await authDb
+				.selectFrom("auth_apikey")
+				.select("id")
+				.execute();
+			expect(keys.map((k) => k.id)).toEqual(["k1"]);
+		});
+
+		it("aborts and rolls back on a UNIQUE collision (duplicate user email)", async () => {
+			const now = Timestamp.now();
+			for (const id of ["u1", "u2"]) {
+				await fs.collection("auth_users").doc(id).set({
+					// Same email on two users — the community adapter never enforced
+					// uniqueness; the migrator's UNIQUE(email) makes this abort.
+					email: "dup@dimagi.com",
+					name: id,
+					emailVerified: true,
+					createdAt: now,
+					updatedAt: now,
+				});
+			}
+
+			await expect(copyAuthDataFromFirestore(dbHandle.pool)).rejects.toThrow();
+			// Transaction rolled back → auth_user stays empty → a redeploy retries
+			// cleanly once the operator de-duplicates the source.
+			const ids = await authDb.selectFrom("auth_user").select("id").execute();
+			expect(ids).toHaveLength(0);
+		});
+
 		it("is a no-op when auth_user is already populated (the one-shot guard)", async () => {
 			const ctx = await betterAuth(authMigrateOptions(dbHandle.pool)).$context;
 			await ctx.adapter.create({

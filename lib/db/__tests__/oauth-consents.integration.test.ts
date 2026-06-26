@@ -240,6 +240,57 @@ describe("oauth-consents integration", () => {
 		expect(await hasActiveConsent("user-test-1", created.client_id)).toBe(true);
 	});
 
+	it("honors the revocation watermark by token iat (the LEFT JOIN path)", async () => {
+		const created = await auth.api.registerOAuthClient({
+			body: {
+				redirect_uris: ["http://localhost:9999/cb"],
+				client_name: "Claude Code",
+				token_endpoint_auth_method: "none",
+			},
+		});
+		const ctx = await auth.$context;
+		await ctx.adapter.create({
+			model: "oauthConsent",
+			data: {
+				clientId: created.client_id,
+				userId: "user-test-1",
+				scopes: ["nova.read"],
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			},
+		});
+
+		const { hasActiveConsent, recordOAuthGrantRevocation } = await import(
+			"../oauth-consents"
+		);
+		await recordOAuthGrantRevocation("user-test-1", created.client_id);
+
+		const watermark = await authDb
+			.selectFrom("auth_oauth_grant_revocation")
+			.select("revokedAt")
+			.where("userId", "=", "user-test-1")
+			.where("clientId", "=", created.client_id)
+			.executeTakeFirstOrThrow();
+		const watermarkSec = Math.floor(watermark.revokedAt.getTime() / 1000);
+
+		// A token issued before the watermark is revoked; one issued a clear
+		// second later is active (consent still exists; only the watermark gates).
+		expect(
+			await hasActiveConsent(
+				"user-test-1",
+				created.client_id,
+				watermarkSec - 60,
+			),
+		).toBe(false);
+		expect(
+			await hasActiveConsent(
+				"user-test-1",
+				created.client_id,
+				watermarkSec + 60,
+			),
+		).toBe(true);
+	});
+
 	// ── revokeAuthorizedClient ─────────────────────────────────────
 
 	it("deletes the consent and revokes refresh tokens atomically", async () => {

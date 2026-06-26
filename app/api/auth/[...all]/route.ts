@@ -54,7 +54,7 @@ const handler = async (req: Request) => {
 		 * logger bridge (`lib/auth-logger.ts`) into Sentry. An error thrown
 		 * OUTSIDE that try/catch — a transport-level fault like the Google-auth
 		 * token fetch's `ERR_STREAM_PREMATURE_CLOSE` surfacing through the
-		 * per-request rate-limiter's Firestore call — escapes to here, where
+		 * per-request rate-limiter's database call — escapes to here, where
 		 * Next would otherwise return an empty 500 that never reaches Sentry.
 		 * That was the blind spot behind the prod-login outage: the whole
 		 * `/api/auth/*` surface 500'd with nothing logged anywhere. Mirror it to
@@ -70,8 +70,8 @@ const handler = async (req: Request) => {
 		/* Cleanup is opportunistic housekeeping — not load-bearing for any
 		 * security check, and never load-bearing for the registering
 		 * client. Awaiting it here would couple register-response latency
-		 * to a Firestore scan over up to 50 public-client docs (each
-		 * followed by two consent + refresh-token reads). Fire-and-forget
+		 * to a scan over up to 50 public-client rows (each followed by two
+		 * consent + refresh-token lookups). Fire-and-forget
 		 * keeps the register endpoint fast; the catch surfaces failures to
 		 * Cloud Logging without blocking the response. */
 		void cleanupStalePublicOAuthClients().catch((err) =>

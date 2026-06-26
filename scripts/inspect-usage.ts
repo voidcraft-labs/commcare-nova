@@ -5,6 +5,8 @@
  * Never writes to Firestore. Run with `--help` for flags.
  */
 import { Command } from "commander";
+import { getAuthDb } from "@/lib/auth/db";
+import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { db } from "./lib/firestore";
 import { printHeader, printSection, tok, tsToISO, usd } from "./lib/format";
 import { requireArg, runMain } from "./lib/main";
@@ -82,15 +84,29 @@ async function main() {
 		return;
 	}
 
-	/* Also fetch user record for context. */
-	const userSnap = await db.collection("auth_users").doc(userId).get();
-	if (userSnap.exists) {
-		// biome-ignore lint/style/noNonNullAssertion: guarded by userSnap.exists check
-		const u = userSnap.data()!;
-		console.log(`  Name:    ${u.name ?? "(none)"}`);
-		console.log(`  Email:   ${u.email ?? "(none)"}`);
-		console.log(`  Role:    ${u.role ?? "user"}`);
-		console.log();
+	/* Also fetch the user record for context — auth identity lives in Postgres
+	 * (`auth_user`), so this needs DB access (NOVA_DB_LOCAL_URL locally / the
+	 * connector). Best-effort: a missing DB just drops the context block, never
+	 * fails the usage report. */
+	try {
+		const authDb = await getAuthDb();
+		const u = await authDb
+			.selectFrom("auth_user")
+			.select(["name", "email", "role"])
+			.where("id", "=", userId)
+			.executeTakeFirst();
+		if (u) {
+			console.log(`  Name:    ${u.name ?? "(none)"}`);
+			console.log(`  Email:   ${u.email ?? "(none)"}`);
+			console.log(`  Role:    ${u.role ?? "user"}`);
+			console.log();
+		}
+	} catch (err) {
+		console.log(
+			`  (user record unavailable: ${err instanceof Error ? err.message : String(err)})\n`,
+		);
+	} finally {
+		await closeCaseStoreDatabase();
 	}
 
 	/* List their apps for reference. */

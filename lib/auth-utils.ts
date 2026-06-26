@@ -366,6 +366,11 @@ export async function requireAdminAccess(): Promise<Session> {
  * Bump `lastActiveAt` on `auth_user`. Fire-and-forget on every authenticated
  * request — a failure must never block the request, consistent with
  * `requireAdminAccess()` which also reads `auth_user` directly.
+ *
+ * Logs at WARN (Cloud-Logging-only, NOT mirrored to Sentry) for the same reason
+ * `sessionUserIsActive` does: this runs on EVERY authenticated request, so a
+ * Postgres slowdown / pool-saturation window would otherwise emit one Sentry
+ * event per request and bury real errors. A lost activity timestamp is benign.
  */
 function touchUser(userId: string): void {
 	void getAuthDb()
@@ -377,6 +382,6 @@ function touchUser(userId: string): void {
 				.execute(),
 		)
 		.catch((err) =>
-			log.error("[touchUser] auth_user lastActiveAt write failed", err),
+			log.warn("[touchUser] auth_user lastActiveAt write failed", err),
 		);
 }
