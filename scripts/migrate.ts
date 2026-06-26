@@ -24,6 +24,7 @@
 
 import { getMigrations } from "better-auth/db/migration";
 import type { Kysely } from "kysely";
+import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import {
@@ -48,6 +49,11 @@ async function main(): Promise<void> {
 	const { runMigrations } = await getMigrations(authMigrateOptions(pool));
 	await runMigrations();
 	console.log("[migrate] auth migrations applied");
+
+	// Nova-owned auth tables Better Auth's migrator doesn't manage (the OAuth
+	// grant-revocation watermark). Own ledger; same shared handle.
+	await runAuthAppMigrations(db as unknown as Kysely<unknown>);
+	console.log("[migrate] auth-app migrations applied");
 }
 
 /** Cap on best-effort teardown; the OS reclaims the socket on exit anyway. */
