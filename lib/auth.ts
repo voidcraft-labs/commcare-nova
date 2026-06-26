@@ -546,12 +546,15 @@ async function createAuth() {
 				 * own guidance ("Upon completion, clear with
 				 * silenceWarnings.oauthAuthServerConfig"). */
 				silenceWarnings: { oauthAuthServerConfig: true },
-				// `auth_`-prefix the three oauth-provider tables. The app-owned
-				// reads in `lib/db/oauth-consents.ts` query these same names.
+				// `auth_`-prefix EVERY oauth-provider table — including
+				// `oauthAccessToken`, which (like the old `verification` wart) lands
+				// unprefixed if omitted. The app-owned reads in
+				// `lib/db/oauth-consents.ts` query the client/consent/refresh names.
 				schema: {
 					oauthClient: { modelName: "auth_oauth_client" },
 					oauthConsent: { modelName: "auth_oauth_consent" },
 					oauthRefreshToken: { modelName: "auth_oauth_refresh_token" },
+					oauthAccessToken: { modelName: "auth_oauth_access_token" },
 				},
 			}),
 
