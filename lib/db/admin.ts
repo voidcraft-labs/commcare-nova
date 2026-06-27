@@ -1,10 +1,12 @@
 /**
  * Admin data queries — shared between API routes and RSC pages.
  *
- * Reads `auth_users` directly via Firestore SDK rather than Better Auth's
- * admin API (`listUsers`/`getUser`) because those return `UserWithRole`
- * which doesn't include `additionalFields` in its TypeScript types.
- * Our `lastActiveAt` field is there at runtime but invisible to TS.
+ * Reads the user list from `auth_user` via Kysely (the shared `getAuthDb`)
+ * rather than Better Auth's admin API (`listUsers`/`getUser`) because those
+ * return `UserWithRole`, which doesn't include `additionalFields` (our
+ * `lastActiveAt`) in its TypeScript types. The per-user usage / credits /
+ * apps figures stay in Firestore — this is a fan-out, NOT a SQL join (those
+ * collections live in the `lib/db` domain).
  */
 
 import { Timestamp } from "@google-cloud/firestore";
@@ -16,27 +18,19 @@ import type {
 	CreditGrantAudit,
 	UsagePeriod,
 } from "@/lib/admin/types";
+import { getAuthDb } from "../auth/db";
 import { type AppSummary, listApps } from "./apps";
 import { type CreditSummary, getCreditSummary } from "./credits";
-import { collections, getDb } from "./firestore";
+import { collections } from "./firestore";
 import { getCurrentPeriod } from "./period";
 
-// ── Auth User Data ───────────────────────────────────────────────────
+// ── Date helper ──────────────────────────────────────────────────────
 
 /**
- * Fields we read from `auth_users` documents. Typed as potentially
- * undefined because raw Firestore reads bypass Better Auth's validation.
+ * To an ISO string. The auth-user reads come back from Kysely as `Date`;
+ * the credit-grant audit path reads Firestore (`Timestamp`) — handle both
+ * shapes.
  */
-interface AuthUserData {
-	email: string | undefined;
-	name: string | undefined;
-	image: string | null | undefined;
-	role: "admin" | "user" | undefined;
-	createdAt: Timestamp | Date;
-	lastActiveAt: Timestamp | Date | undefined;
-}
-
-/** Raw Firestore reads return Timestamps, not Dates — handle both. */
 function toISOString(val: Timestamp | Date): string {
 	if (val instanceof Timestamp) return val.toDate().toISOString();
 	return val.toISOString();
@@ -49,7 +43,7 @@ function toISOString(val: Timestamp | Date): string {
  * and app counts.
  *
  * Reads from three sources per user, fanned out via Promise.all:
- * - `auth_users` — profile, role, activity timestamps (direct Firestore read)
+ * - `auth_user` — profile, role, activity timestamps (Kysely read)
  * - `credits/{userId}/months` + `usage/{userId}/months` — full subcollection
  *   reads per user for credit figures and lifetime/current cost. We read the
  *   ENTIRE usage subcollection (not just the current-period doc) because the
@@ -62,11 +56,19 @@ function toISOString(val: Timestamp | Date): string {
  * the existing per-user app-count Promise.all this function already ran.
  */
 export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
-	const authUsersSnap = await getDb().collection("auth_users").get();
-	const allUsers = authUsersSnap.docs.map((doc) => ({
-		id: doc.id,
-		...(doc.data() as AuthUserData),
-	}));
+	const db = await getAuthDb();
+	const allUsers = await db
+		.selectFrom("auth_user")
+		.select([
+			"id",
+			"email",
+			"name",
+			"image",
+			"role",
+			"createdAt",
+			"lastActiveAt",
+		])
+		.execute();
 	const period = getCurrentPeriod();
 
 	/* Fan out one inner Promise.all per user: credit summary, all usage months,
@@ -139,15 +141,19 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 /**
  * Fetch a single user's profile — returns null if user doesn't exist.
  *
- * Reads directly from `auth_users` — one document read, no merge needed.
- * Separated so the profile card can stream independently via Suspense.
+ * Reads `auth_user` via Kysely — one row, no merge needed. Separated so
+ * the profile card can stream independently via Suspense.
  */
 export async function getAdminUserProfile(
 	userId: string,
 ): Promise<AdminUserDetailResponse["user"] | null> {
-	const snap = await getDb().collection("auth_users").doc(userId).get();
-	if (!snap.exists) return null;
-	const data = snap.data() as AuthUserData;
+	const db = await getAuthDb();
+	const data = await db
+		.selectFrom("auth_user")
+		.select(["email", "name", "image", "role", "createdAt", "lastActiveAt"])
+		.where("id", "=", userId)
+		.executeTakeFirst();
+	if (!data) return null;
 
 	return {
 		id: userId,

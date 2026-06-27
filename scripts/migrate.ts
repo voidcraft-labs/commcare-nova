@@ -8,8 +8,10 @@
 //
 // Bundled into a single self-contained CJS file by esbuild during the Docker
 // build (the Next.js standalone runner has no full node_modules, so the
-// migrator's deps — kysely, pg, the Cloud SQL connector — are bundled in). The
-// Job runs it with `node migrate.cjs`.
+// migrator's deps — kysely, pg, the Cloud SQL connector, and Better Auth's
+// migrator — are bundled in). To keep the bundle lean it imports
+// `authMigrateOptions` (MCP-free), NOT `lib/auth.ts` (whose `novaMcpPlugin`
+// pulls the whole MCP graph). The Job runs it with `node migrate.cjs`.
 //
 // Reuses `getCaseStoreDatabase()` so the migrate Job talks to Cloud SQL through
 // the exact same `@google-cloud/cloud-sql-connector` + IAM path the runtime
@@ -20,11 +22,16 @@
 // budget even while the old revision is still serving during the pre-traffic
 // window.
 
+import { getMigrations } from "better-auth/db/migration";
 import type { Kysely } from "kysely";
+import { runAuthAppMigrations } from "@/lib/auth/migrate";
+import { copyAuthDataFromFirestore } from "@/lib/auth/migrate-data";
+import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import {
 	closeCaseStoreDatabase,
 	getCaseStoreDatabase,
+	getCaseStorePool,
 } from "@/lib/case-store/postgres/connection";
 
 async function main(): Promise<void> {
@@ -33,6 +40,49 @@ async function main(): Promise<void> {
 	// schema-agnostic `Kysely<unknown>` (it only issues raw `sql` + DDL).
 	await runCaseStoreMigrations(db as unknown as Kysely<unknown>);
 	console.log("[migrate] case-store migrations applied");
+
+	// Better Auth's own migrator creates / updates the `auth_*` tables. It is
+	// introspection-based and idempotent (creates missing tables, adds missing
+	// columns; never drops), so it is safe to run on every deploy. Reuses the
+	// SAME shared pool; `authMigrateOptions` is the MCP-free schema config so
+	// this stays out of the heavy MCP graph in the bundle.
+	const pool = await getCaseStorePool();
+	const { runMigrations } = await getMigrations(authMigrateOptions(pool));
+	await runMigrations();
+	console.log("[migrate] auth migrations applied");
+
+	// Nova-owned auth tables Better Auth's migrator doesn't manage (the OAuth
+	// grant-revocation watermark). Own ledger; same shared handle.
+	await runAuthAppMigrations(db as unknown as Kysely<unknown>);
+	console.log("[migrate] auth-app migrations applied");
+
+	// One-shot, guarded copy of durable auth state Firestore → Postgres. No-op
+	// once auth_user has rows, so it runs only on the first deploy after the
+	// tables land; all-or-nothing (a failure rolls back and fails the Job, so a
+	// retry redeploy re-copies cleanly).
+	//
+	// Restricted to the prod connector path: `NOVA_DB_LOCAL_URL` is set ONLY by
+	// local dev / smoke / tests (prod uses the Cloud SQL connector), and those
+	// must never pull the real Firestore auth collections into a local or
+	// testcontainer Postgres. The empty-auth_user guard inside the copy is the
+	// second line.
+	if (process.env.NOVA_DB_LOCAL_URL) {
+		console.log("[migrate] auth data copy skipped (local DB — prod-only step)");
+	} else {
+		const copy = await copyAuthDataFromFirestore(pool);
+		if (copy.skipped) {
+			console.log(
+				"[migrate] auth data copy skipped (auth_user already populated)",
+			);
+		} else {
+			console.log(
+				"[migrate] auth data copied:",
+				copy.perTable
+					.map((t) => `${t.table}=${t.inserted}/${t.read}`)
+					.join(" "),
+			);
+		}
+	}
 }
 
 /** Cap on best-effort teardown; the OS reclaims the socket on exit anyway. */

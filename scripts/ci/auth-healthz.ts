@@ -1,6 +1,6 @@
 /**
- * CI auth-boundary healthz — the faithful pre-merge gate for the dependency /
- * runtime regressions that have taken prod login down (#143 undici, #145
+ * CI Google-auth outbound healthz — the faithful pre-merge gate for the
+ * dependency / runtime regressions that have taken prod down (#143 undici, #145
  * firebase-admin node-fetch v2).
  *
  * Why this exists separately from the Playwright smoke: the smoke points the app
@@ -11,16 +11,23 @@
  * the real outbound HTTP stack, on the exact Node patch prod ships.
  *
  * It reproduces the broken primitive — the firebase-admin Firestore client
- * built with the SAME options as `lib/auth.ts::getAuthDb` (via the shared
- * `firestoreClientOptions`, so a future change to that construction is exercised
- * here too) — doing create → read → delete. Two outbound surfaces get
- * exercised, both of which the regressions broke:
- *   • credential acquisition (google-auth-library / gaxios → undici): in CI
- *     this is the WIF token exchange + SA impersonation; on Cloud Run it was
- *     the metadata server + oauth2.googleapis.com — the same stack.
- *   • the Firestore data call (google-gax / node-fetch).
- * If either regresses, the round-trip throws (classically
- * ERR_STREAM_PREMATURE_CLOSE) and this exits non-zero, turning the PR red.
+ * built with the SAME options as the app's Firestore client (`lib/db/firestore`,
+ * via the shared `firestoreClientOptions`, so a future change to that
+ * construction is exercised here too) — doing create → read → delete. The
+ * load-bearing surface is credential acquisition (google-auth-library / gaxios →
+ * undici): in CI the WIF token exchange + SA impersonation; on Cloud Run the
+ * metadata server + oauth2.googleapis.com. That credential stack is SHARED with
+ * the auth path: after the Postgres cutover, login goes through the Cloud SQL
+ * connector (`@google-cloud/cloud-sql-connector`), whose ephemeral-cert fetch
+ * uses the same google-auth-library outbound stack — so a regression in that
+ * shared layer (the #143/#145 class) still turns this gate red. The Firestore
+ * data call (google-gax / node-fetch) is also exercised, guarding the app-data
+ * path (apps / threads / credits stay on Firestore).
+ *
+ * NOT covered (follow-up): a regression SPECIFIC to pg or the Cloud SQL
+ * connector's TLS/socket path — not shared with Firestore — would break Postgres
+ * login undetected here. Closing that gap needs a Cloud SQL instance in the CI
+ * project for a real connector round-trip.
  *
  * Run by the `auth-healthz` CI job against the isolated `commcare-nova-ci`
  * project (its own empty Firestore — no real data anywhere) via keyless WIF.

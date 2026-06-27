@@ -56,7 +56,7 @@ function parseScopes(raw: string | string[] | undefined): string[] {
  * broken." The UI still degrades gracefully; the signal just isn't eaten.
  */
 async function fetchClientPublicInfo(
-	auth: ReturnType<typeof getAuth>,
+	auth: Awaited<ReturnType<typeof getAuth>>,
 	clientId: string,
 	hdrs: Headers,
 ): Promise<{ clientName?: string; clientUri?: string } | undefined> {
@@ -94,7 +94,7 @@ async function fetchClientPublicInfo(
 
 export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	const sp = await searchParams;
-	const auth = getAuth();
+	const auth = await getAuth();
 	const hdrs = await headers();
 
 	/* Nova's sign-in surface lives at `/` (the landing page's Google OAuth

@@ -18,9 +18,9 @@
  * `user.additionalFields`). The two are structurally compatible at runtime
  * — the plugin only calls methods it declares — so the widening is safe.
  *
- * Lazy-constructed behind `getServerClient()` for the same reason
- * `getAuth()` is lazy: Next imports server modules during `next build`'s
- * page collection, and eager construction would force Firestore + env
+ * Lazy-constructed behind `getServerClient()` (async) for the same reason
+ * `getAuth()` is lazy + async: Next imports server modules during `next build`'s
+ * page collection, and eager construction would force the Postgres pool + env
  * reads before they're available.
  */
 
@@ -29,17 +29,28 @@ import { createAuthClient } from "better-auth/client";
 import type { Auth } from "better-auth/types";
 import { getAuth } from "@/lib/auth";
 
-type ServerClient = ReturnType<typeof createServerClient>;
+type ServerClient = Awaited<ReturnType<typeof createServerClient>>;
 
-function createServerClient() {
+async function createServerClient() {
+	const auth = await getAuth();
 	return createAuthClient({
-		plugins: [oauthProviderResourceClient(getAuth() as unknown as Auth)],
+		plugins: [oauthProviderResourceClient(auth as unknown as Auth)],
 	});
 }
 
 let cached: ServerClient | null = null;
+let inFlight: Promise<ServerClient> | null = null;
 
-export function getServerClient(): ServerClient {
-	if (!cached) cached = createServerClient();
-	return cached;
+export async function getServerClient(): Promise<ServerClient> {
+	if (cached) return cached;
+	if (inFlight === null) {
+		inFlight = createServerClient();
+		try {
+			cached = await inFlight;
+		} finally {
+			inFlight = null;
+		}
+		return cached;
+	}
+	return inFlight;
 }

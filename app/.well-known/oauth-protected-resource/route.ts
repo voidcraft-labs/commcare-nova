@@ -28,7 +28,8 @@ import { AS_ORIGIN, MCP_RESOURCE_URL } from "@/lib/hostnames";
 import { getServerClient } from "@/lib/server-client";
 
 export const GET = async (): Promise<Response> => {
-	const metadata = await getServerClient().getProtectedResourceMetadata({
+	const serverClient = await getServerClient();
+	const metadata = await serverClient.getProtectedResourceMetadata({
 		resource: MCP_RESOURCE_URL,
 		authorization_servers: [AS_ORIGIN],
 	});

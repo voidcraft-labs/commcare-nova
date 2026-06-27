@@ -6,7 +6,7 @@
  * auth + dispatch logic lives behind Better Auth's `auth.handler` so
  * the route is protected by the framework's `onRequestRateLimit`
  * middleware (configured via `customRules` in `lib/auth.ts`). Without
- * this layer the route would be a public Firestore-read sink for
+ * this layer the route would be a public database-read sink for
  * anyone spamming `Bearer sk-nova-v1-*` garbage.
  *
  * ## Why a synthesized request
@@ -89,7 +89,8 @@ const dispatch = async (req: Request): Promise<Response> => {
 		log.error("[mcp] failed to synthesize auth-router request", err);
 		return new Response(null, { status: 503 });
 	}
-	return getAuth().handler(authReq);
+	const auth = await getAuth();
+	return auth.handler(authReq);
 };
 
 /**

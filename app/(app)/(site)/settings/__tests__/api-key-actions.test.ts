@@ -25,26 +25,41 @@ const mocks = vi.hoisted(() => {
 	const revalidatePath = vi.fn();
 	const headers = vi.fn(async () => new Headers());
 
-	/** Stand-in for the Firestore admin client `getDb()` returns. The
-	 *  default is "no rows for this user" — race-compensation tests
-	 *  override `apikeyQuerySnapshot` to surface specific position
-	 *  orderings. The doc-delete branch records every targeted id so
-	 *  a test can assert which row was pruned. */
-	type FakeDoc = { id: string; data: () => unknown };
-	const apikeyQuerySnapshot = { docs: [] as FakeDoc[] };
-	const apikeyDocDelete = vi.fn(async () => {});
+	/** Stand-in for the `auth_apikey` rows `getAuthDb()` reads during race
+	 *  compensation. The default is "no rows for this user" —
+	 *  race-compensation tests set `apikeySnapshot.rows` to surface specific
+	 *  position orderings. The delete branch records every targeted id (the
+	 *  `where("id", "=", …)` value) so a test can assert which row was pruned. */
+	const apikeySnapshot = {
+		rows: [] as Array<{ id: string; createdAt: Date }>,
+	};
+	const apikeyDeletes = vi.fn(async (_id: unknown) => {});
 
-	function fakeDb() {
+	function fakeAuthDb() {
+		const onlyApikey = (table: string) => {
+			if (table !== "auth_apikey") {
+				throw new Error(`unexpected table: ${table}`);
+			}
+		};
 		return {
-			collection: (name: string) => {
-				if (name !== "apikey") {
-					throw new Error(`unexpected collection: ${name}`);
-				}
+			selectFrom: (table: string) => {
+				onlyApikey(table);
 				return {
-					where: (_field: string, _op: string, _value: unknown) => ({
-						get: async () => apikeyQuerySnapshot,
+					select: (_columns: readonly string[]) => ({
+						where: (_col: string, _op: string, _value: unknown) => ({
+							execute: async () => apikeySnapshot.rows,
+						}),
 					}),
-					doc: (_id: string) => ({ delete: apikeyDocDelete }),
+				};
+			},
+			deleteFrom: (table: string) => {
+				onlyApikey(table);
+				return {
+					where: (_col: string, _op: string, id: unknown) => ({
+						execute: async () => {
+							await apikeyDeletes(id);
+						},
+					}),
 				};
 			},
 		};
@@ -62,9 +77,9 @@ const mocks = vi.hoisted(() => {
 		revalidatePath.mockReset();
 		headers.mockReset();
 		headers.mockImplementation(async () => new Headers());
-		apikeyQuerySnapshot.docs = [];
-		apikeyDocDelete.mockReset();
-		apikeyDocDelete.mockImplementation(async () => {});
+		apikeySnapshot.rows = [];
+		apikeyDeletes.mockReset();
+		apikeyDeletes.mockImplementation(async () => {});
 	}
 
 	return {
@@ -76,9 +91,9 @@ const mocks = vi.hoisted(() => {
 		updateApiKey,
 		revalidatePath,
 		headers,
-		fakeDb,
-		apikeyQuerySnapshot,
-		apikeyDocDelete,
+		fakeAuthDb,
+		apikeySnapshot,
+		apikeyDeletes,
 		reset,
 	};
 });
@@ -151,12 +166,12 @@ vi.mock("next/headers", () => ({
 	headers: mocks.headers,
 }));
 
-/* `getDb` is the only `lib/db/firestore` surface the action reaches —
- * the race-compensation path reads sibling rows for position
- * resolution and may delete the just-minted row. The fake collection
- * record set is configured per-test via `mocks.apikeyQuerySnapshot`. */
-vi.mock("@/lib/db/firestore", () => ({
-	getDb: () => mocks.fakeDb(),
+/* `getAuthDb` is the auth-table surface the action's race-compensation path
+ * reaches — it reads sibling `auth_apikey` rows for position resolution and may
+ * delete the just-minted row. The fake row set is configured per-test via
+ * `mocks.apikeySnapshot`. */
+vi.mock("@/lib/auth/db", () => ({
+	getAuthDb: async () => mocks.fakeAuthDb(),
 }));
 
 /**
@@ -310,28 +325,19 @@ describe("mintApiKey", () => {
 		 * the just-minted (`KEY_ID_MINE`) is the LATER of the two
 		 * race winners, putting it at position 10 — the loser slot. */
 		const baseTime = new Date("2026-04-22T11:00:00.000Z").getTime();
-		mocks.apikeyQuerySnapshot.docs = Array.from({ length: 9 }, (_, i) => ({
-			id: `0000000000000000000000000000000${i.toString().padStart(2, "0")}`.slice(
-				-32,
-			),
-			data: () => ({ createdAt: new Date(baseTime + i * 1000) }),
-		}))
-			.concat([
-				{
-					id: "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
-					data: () => ({
-						createdAt: new Date("2026-04-22T12:00:00.499Z"),
-					}),
-				},
-			])
-			.concat([
-				{
-					id: KEY_ID_MINE,
-					data: () => ({
-						createdAt: new Date("2026-04-22T12:00:00.500Z"),
-					}),
-				},
-			]);
+		mocks.apikeySnapshot.rows = [
+			...Array.from({ length: 9 }, (_, i) => ({
+				id: `0000000000000000000000000000000${i.toString().padStart(2, "0")}`.slice(
+					-32,
+				),
+				createdAt: new Date(baseTime + i * 1000),
+			})),
+			{
+				id: "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+				createdAt: new Date("2026-04-22T12:00:00.499Z"),
+			},
+			{ id: KEY_ID_MINE, createdAt: new Date("2026-04-22T12:00:00.500Z") },
+		];
 
 		const { mintApiKey } = await import("../api-key-actions");
 		const result = await mintApiKey({
@@ -344,7 +350,9 @@ describe("mintApiKey", () => {
 			success: false,
 			error: expect.stringContaining("10 keys"),
 		});
-		expect(mocks.apikeyDocDelete).toHaveBeenCalledTimes(1);
+		// The loser deletes its OWN row (KEY_ID_MINE), keyed by id in the DELETE.
+		expect(mocks.apikeyDeletes).toHaveBeenCalledTimes(1);
+		expect(mocks.apikeyDeletes).toHaveBeenCalledWith(KEY_ID_MINE);
 		expect(mocks.revalidatePath).not.toHaveBeenCalled();
 	});
 
@@ -368,26 +376,19 @@ describe("mintApiKey", () => {
 			expiresAt: winnerExpiresAt,
 		});
 		const baseTime = new Date("2026-04-22T11:00:00.000Z").getTime();
-		mocks.apikeyQuerySnapshot.docs = Array.from({ length: 9 }, (_, i) => ({
-			id: `0000000000000000000000000000000${i.toString().padStart(2, "0")}`.slice(
-				-32,
-			),
-			data: () => ({ createdAt: new Date(baseTime + i * 1000) }),
-		}))
-			.concat([
-				{
-					id: KEY_ID_MINE,
-					data: () => ({ createdAt: winnerCreatedAt }),
-				},
-			])
-			.concat([
-				{
-					id: "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
-					data: () => ({
-						createdAt: new Date("2026-04-22T12:00:00.500Z"),
-					}),
-				},
-			]);
+		mocks.apikeySnapshot.rows = [
+			...Array.from({ length: 9 }, (_, i) => ({
+				id: `0000000000000000000000000000000${i.toString().padStart(2, "0")}`.slice(
+					-32,
+				),
+				createdAt: new Date(baseTime + i * 1000),
+			})),
+			{ id: KEY_ID_MINE, createdAt: winnerCreatedAt },
+			{
+				id: "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+				createdAt: new Date("2026-04-22T12:00:00.500Z"),
+			},
+		];
 
 		const { mintApiKey } = await import("../api-key-actions");
 		const result = await mintApiKey({
@@ -404,7 +405,7 @@ describe("mintApiKey", () => {
 			createdAt: winnerCreatedAt.toISOString(),
 			expiresAt: winnerExpiresAt.toISOString(),
 		});
-		expect(mocks.apikeyDocDelete).not.toHaveBeenCalled();
+		expect(mocks.apikeyDeletes).not.toHaveBeenCalled();
 		expect(mocks.revalidatePath).toHaveBeenCalledWith("/settings");
 	});
 
