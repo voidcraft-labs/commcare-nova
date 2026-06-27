@@ -3,8 +3,8 @@ import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import Link from "next/link";
 import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { getSession } from "@/lib/auth-utils";
-import { userHasApps } from "@/lib/db/apps";
+import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
+import { projectHasApps } from "@/lib/db/apps";
 import { AppList } from "./app-list";
 import { Landing } from "./landing";
 
@@ -30,8 +30,8 @@ interface HomePageProps {
  *    fetch — it's a UI filter, not a routable state, so it stays out
  *    of the URL.
  *
- * The `userHasApps` existence check (`limit(1)`) runs before the
- * Suspense boundary so new users never see the app-list skeleton.
+ * The `projectHasApps` existence check (`limit(1)`) runs before the
+ * Suspense boundary so a Project with no apps never shows the skeleton.
  */
 export default async function HomePage({ searchParams }: HomePageProps) {
 	const session = await getSession();
@@ -42,7 +42,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		return <Landing signInError={errorParam} />;
 	}
 
-	const hasApps = await userHasApps(session.user.id);
+	const activeProjectId = await resolveActiveProjectId(session);
+	const hasApps = await projectHasApps(activeProjectId);
 
 	if (!hasApps) {
 		return (
@@ -57,7 +58,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 	return (
 		<main className="max-w-4xl mx-auto px-6 py-12">
 			<Suspense fallback={<AppListFallback />}>
-				<AppList userId={session.user.id} isAdmin={isAdmin} />
+				<AppList projectId={activeProjectId} isAdmin={isAdmin} />
 			</Suspense>
 		</main>
 	);

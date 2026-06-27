@@ -32,6 +32,12 @@ vi.mock("@/lib/db/apps", () => ({
 	searchApps: vi.fn(),
 }));
 
+/* The tool resolves the caller's personal Project before searching; stub it so
+ * the unit test never touches the auth DB. */
+vi.mock("@/lib/auth/provisionProject", () => ({
+	ensurePersonalProject: vi.fn(async () => "proj-test"),
+}));
+
 /* --- Helpers --------------------------------------------------------- */
 
 function makeSummary(overrides: Partial<AppSummary>): AppSummary {
@@ -124,7 +130,7 @@ describe("registerSearchApps — happy path", () => {
 			status: "complete",
 		});
 
-		expect(searchApps).toHaveBeenCalledWith("u1", {
+		expect(searchApps).toHaveBeenCalledWith("proj-test", {
 			query: "tracker",
 			limit: 25,
 			cursor: "opaque-cursor",

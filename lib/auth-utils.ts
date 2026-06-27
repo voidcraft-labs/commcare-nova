@@ -19,6 +19,7 @@ import { cache } from "react";
 import { ApiError } from "./apiError";
 import { getAuth, type Session } from "./auth";
 import { getAuthDb } from "./auth/db";
+import { ensurePersonalProject } from "./auth/provisionProject";
 import { isUserActive } from "./db/api-keys";
 import { log } from "./logger";
 
@@ -314,6 +315,23 @@ export const getSession = cache(async (): Promise<Session | null> => {
 		return null;
 	}
 });
+
+/**
+ * The caller's active Project id for tenancy-scoped reads (the app list, etc.).
+ *
+ * Prefers the session's stamped `activeOrganizationId` (set at session create),
+ * falling back to the user's personal Project — self-healing for sessions
+ * minted before Projects shipped, which never got the stamp. The fallback is a
+ * cheap indexed get-or-create, so it's safe to call per request.
+ */
+export async function resolveActiveProjectId(
+	session: Session,
+): Promise<string> {
+	return (
+		session.session.activeOrganizationId ??
+		(await ensurePersonalProject(session.user.id))
+	);
+}
 
 /**
  * Require an authenticated session in a Server Component.

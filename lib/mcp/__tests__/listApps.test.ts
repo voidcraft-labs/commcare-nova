@@ -39,6 +39,12 @@ vi.mock("@/lib/db/apps", () => ({
 	listApps: vi.fn(),
 }));
 
+/* The tool resolves the caller's personal Project before listing; stub it so
+ * the unit test never touches the auth DB. */
+vi.mock("@/lib/auth/provisionProject", () => ({
+	ensurePersonalProject: vi.fn(async () => "proj-test"),
+}));
+
 /* --- Helpers --------------------------------------------------------- */
 
 /** Build an `AppSummary` with ergonomic defaults for every test row. */
@@ -151,7 +157,7 @@ describe("registerListApps — happy path", () => {
 			sort: "name_asc",
 		});
 
-		expect(listApps).toHaveBeenCalledWith("u1", {
+		expect(listApps).toHaveBeenCalledWith("proj-test", {
 			limit: 25,
 			cursor: "opaque-cursor",
 			status: "complete",

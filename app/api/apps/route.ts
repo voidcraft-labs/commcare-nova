@@ -6,7 +6,7 @@
  */
 
 import { ApiError, handleApiError } from "@/lib/apiError";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import { listApps } from "@/lib/db/apps";
 
 /**
@@ -22,7 +22,8 @@ const JSON_LIST_PAGE_SIZE = 50;
 export async function GET(req: Request) {
 	try {
 		const session = await requireSession(req);
-		const { apps } = await listApps(session.user.id, {
+		const projectId = await resolveActiveProjectId(session);
+		const { apps } = await listApps(projectId, {
 			limit: JSON_LIST_PAGE_SIZE,
 			sort: "updated_desc",
 		});

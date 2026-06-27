@@ -20,6 +20,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { searchApps } from "@/lib/db/apps";
 import {
 	type McpToolErrorResult,
@@ -87,7 +88,10 @@ export function registerSearchApps(server: McpServer, ctx: ToolContext): void {
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				const { apps, nextCursor } = await searchApps(ctx.userId, {
+				/* MCP enumerates the caller's personal Project (the only Project
+				 * reachable over the user-scoped key today). */
+				const projectId = await ensurePersonalProject(ctx.userId);
+				const { apps, nextCursor } = await searchApps(projectId, {
 					query: args.query,
 					limit: args.limit,
 					status: args.status,

@@ -343,20 +343,20 @@ export async function hasActiveGeneration(
 // ── Existence Check ───────────────────────────────────────────────
 
 /**
- * Lightweight existence check — does the user own at least one live
+ * Lightweight existence check — does the Project have at least one live
  * (non-soft-deleted) app?
  *
  * Uses `limit(1)` with no field projection so it's as cheap as a
  * Firestore read can be. Called by the root page before the Suspense
  * boundary to choose between the get-started state and the app list.
  *
- * The soft-delete filter mirrors `listApps`: a user who deleted every
- * app should land on get-started, not an empty list page.
+ * The soft-delete filter mirrors `listApps`: a Project whose every app
+ * was deleted should land on get-started, not an empty list page.
  */
-export async function userHasApps(owner: string): Promise<boolean> {
+export async function projectHasApps(projectId: string): Promise<boolean> {
 	const snap = await getDb()
 		.collection("apps")
-		.where("owner", "==", owner)
+		.where("project_id", "==", projectId)
 		.where("deleted_at", "==", null)
 		.limit(1)
 		.get();
@@ -1341,7 +1341,7 @@ function projectAppSummary(
  * user has).
  */
 export async function listApps(
-	owner: string,
+	projectId: string,
 	options: ListAppsOptions,
 ): Promise<ListAppsResult> {
 	const { limit, sort, status, cursor } = options;
@@ -1352,7 +1352,7 @@ export async function listApps(
 	 * on the way out. */
 	let query: FirebaseFirestore.Query = getDb()
 		.collection("apps")
-		.where("owner", "==", owner)
+		.where("project_id", "==", projectId)
 		/* `createApp` writes `deleted_at: null` on every new doc, so this
 		 * equality filter matches every live app — no missing-field rows
 		 * to leak. See the function docblock for the rationale. */
@@ -1471,12 +1471,12 @@ export async function listApps(
  * The tool schema + cursor contract on the outside remains the same.
  */
 export async function searchApps(
-	owner: string,
+	projectId: string,
 	options: SearchAppsOptions,
 ): Promise<SearchAppsResult> {
 	const { query, limit, status, cursor } = options;
 
-	const page = await listApps(owner, {
+	const page = await listApps(projectId, {
 		limit: limit + SEARCH_FETCH_BUFFER,
 		sort: "updated_desc",
 		status,
@@ -1578,7 +1578,7 @@ export interface ListDeletedAppsResult {
  * See `firestore.indexes.json`.
  */
 export async function listDeletedApps(
-	owner: string,
+	projectId: string,
 	options: ListDeletedAppsOptions,
 ): Promise<ListDeletedAppsResult> {
 	/* Untyped collection ref for the same reason `listApps` uses one —
@@ -1586,7 +1586,7 @@ export async function listDeletedApps(
 	 * converter's full-schema validation. */
 	const snap = await getDb()
 		.collection("apps")
-		.where("owner", "==", owner)
+		.where("project_id", "==", projectId)
 		.where("deleted_at", "!=", null)
 		.orderBy("deleted_at", "desc")
 		.orderBy("__name__", "asc")
