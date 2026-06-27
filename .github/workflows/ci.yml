@@ -180,11 +180,12 @@ jobs:
 
   auth-healthz:
     # The faithful gate for the auth-dependency outages (#143 undici, #145
-    # node-fetch): a REAL firebase-admin → REAL Firestore round-trip over the
-    # real outbound HTTP stack, on the prod-pinned Node. The emulator-backed
-    # smoke can't catch this class because the emulator replaces that exact
-    # network layer. See scripts/ci/auth-healthz.ts.
-    name: Auth Firestore healthz
+    # node-fetch, the Node base-tag bump). Login runs through the Cloud SQL
+    # connector, which mints its cert + IAM token via google-auth-library →
+    # gaxios → node-fetch — the same outbound stack every prior outage lived in.
+    # This exercises that stack directly: a real WIF token mint, no database. The
+    # emulator-backed smoke can't catch this class. See scripts/ci/auth-healthz.ts.
+    name: Auth credential healthz
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # WIF needs to mint an OIDC token; everything else stays read-only. Job-level
@@ -210,10 +211,38 @@ jobs:
           project_id: ${{ vars.CI_GCP_PROJECT }}
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
-      # Mint WIF creds + run the real Firestore round-trip. A regression in the
-      # outbound stack (undici / gaxios / node-fetch) throws here and reds the PR.
-      - name: Auth → Firestore round-trip on the prod Node
+      # Mint a token over the prod outbound credential stack. A regression in
+      # that stack (undici / gaxios / node-fetch keep-alive) throws or hangs here
+      # and reds the PR.
+      - name: Mint a token over the prod outbound credential stack
         run: npx tsx scripts/ci/auth-healthz.ts
+
+  firestore-healthz:
+    # The app-data outbound gate: apps / threads / runs / credits / usage / media
+    # all stay on Firestore after the auth cutover. A REAL firebase-admin →
+    # Firestore round-trip over the real outbound HTTP stack, on the prod-pinned
+    # Node — the emulator-backed smoke stubs this network layer out. See
+    # scripts/ci/firestore-healthz.ts.
+    name: Firestore app-data healthz
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.CI_GCP_PROJECT }}
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+      - name: Firebase-admin → Firestore round-trip on the prod Node
+        run: npx tsx scripts/ci/firestore-healthz.ts
         env:
           # Set explicitly rather than relying on google-github-actions/auth to
           # export it — the script requires GOOGLE_CLOUD_PROJECT.
