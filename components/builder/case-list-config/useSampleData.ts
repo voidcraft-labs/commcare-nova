@@ -14,8 +14,7 @@ import {
 	describePopulateError,
 	type SampleDataStatus,
 } from "@/components/preview/shared/sampleData";
-import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
-import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingClient";
+import type { CaseType } from "@/lib/domain";
 import {
 	usePopulateSampleCases,
 	useResetSampleCases,
@@ -33,18 +32,18 @@ export interface SampleDataAction {
  */
 export function useSampleData(args: {
 	appId: string;
-	caseType: string | undefined;
+	/** The live `CaseType` definition — passed straight to the action, which
+	 *  reads its property declarations to generate rows. */
+	caseType: CaseType | undefined;
 	/** Refresh the caller's live view. Awaited before the running state
 	 *  clears, so return a promise that settles once the fresh rows are on
 	 *  screen (the `reload` from `useCases` / `useCaseListPreview` does). */
 	onDone: () => void | Promise<void>;
 }): { generate: SampleDataAction; reset: SampleDataAction } {
 	const { appId, caseType, onDone } = args;
-	const docApi = useBlueprintDocApi();
-	const blueprint = pickBlueprintDoc(docApi.getState());
 
-	const populate = usePopulateSampleCases({ appId, caseType, blueprint });
-	const resetCases = useResetSampleCases({ appId, caseType, blueprint });
+	const populate = usePopulateSampleCases({ appId, caseType });
+	const resetCases = useResetSampleCases({ appId, caseType });
 
 	const [generateStatus, setGenerateStatus] = useState<SampleDataStatus>({
 		kind: "idle",

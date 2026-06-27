@@ -148,7 +148,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	});
 	const { generate: autoGenerate } = useSampleData({
 		appId: appId ?? "",
-		caseType: mod?.caseType,
+		caseType: caseTypes.find((ct) => ct.name === mod?.caseType),
 		onDone: autoCases.reload,
 	});
 	const autoRow =
