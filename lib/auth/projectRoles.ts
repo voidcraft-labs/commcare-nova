@@ -41,16 +41,24 @@ export const viewer = ac.newRole({ app: ["view"] });
 export const editor = ac.newRole({ app: ["view", "edit"] });
 /** Edit + delete apps, and manage members/invitations. */
 export const admin = ac.newRole({
-	app: ["view", "edit", "delete"],
+	app: [...statement.app],
 	...adminAc.statements,
 });
 /** Everything an admin can do, plus update/delete the Project itself. */
 export const owner = ac.newRole({
-	app: ["view", "edit", "delete"],
+	app: [...statement.app],
 	...ownerAc.statements,
 });
+/**
+ * Safety net for Better Auth's defaults: the `member` table's `role` column
+ * defaults to "member", and the plugin's built-in `member` role grants ZERO
+ * permissions on our custom `app` resource — a row left at that default would
+ * be locked out of even viewing shared apps. Alias `member` to read-only so the
+ * default is safe; the UI only ever offers viewer/editor/admin/owner.
+ */
+export const member = ac.newRole({ app: ["view"] });
 
-export const PROJECT_ROLES = { viewer, editor, admin, owner } as const;
+export const PROJECT_ROLES = { member, viewer, editor, admin, owner } as const;
 export type ProjectRole = keyof typeof PROJECT_ROLES;
 
 /** App-level capabilities gated by the `app` resource. */

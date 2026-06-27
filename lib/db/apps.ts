@@ -404,6 +404,7 @@ export interface CreateAppOptions {
  */
 export async function createApp(
 	owner: string,
+	projectId: string,
 	runId: string,
 	opts?: CreateAppOptions,
 ): Promise<string> {
@@ -424,6 +425,7 @@ export async function createApp(
 	const persistable = toPersistableDoc(emptyDoc);
 	await ref.set({
 		owner,
+		project_id: projectId,
 		...denormalize(emptyDoc),
 		blueprint: persistable,
 		status: opts?.status ?? "generating",

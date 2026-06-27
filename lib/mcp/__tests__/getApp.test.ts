@@ -111,6 +111,7 @@ function mockAppDoc(
 ): AppDoc {
 	return {
 		owner: "u1",
+		project_id: null,
 		app_name: blueprint.appName,
 		blueprint: blueprint as unknown as BlueprintDoc,
 		connect_type: null,

@@ -17,7 +17,7 @@ import { oauthProvider } from "@better-auth/oauth-provider";
 import type { BetterAuthOptions } from "better-auth";
 import { admin, jwt, organization } from "better-auth/plugins";
 import type { Pool } from "pg";
-import { AUTH_TABLE_NAMES } from "./auth-schema-shared";
+import { AUTH_TABLE_NAMES, ORGANIZATION_SCHEMA } from "./auth-schema-shared";
 
 export function authMigrateOptions(database: Pool): BetterAuthOptions {
 	return {
@@ -63,11 +63,7 @@ export function authMigrateOptions(database: Pool): BetterAuthOptions {
 			// are omitted here. MUST stay in sync with lib/auth.ts's plugin set.
 			organization({
 				teams: { enabled: false },
-				schema: {
-					organization: { modelName: AUTH_TABLE_NAMES.organization },
-					member: { modelName: AUTH_TABLE_NAMES.member },
-					invitation: { modelName: AUTH_TABLE_NAMES.invitation },
-				},
+				schema: ORGANIZATION_SCHEMA,
 				sendInvitationEmail: async () => {},
 			}),
 		],

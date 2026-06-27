@@ -16,6 +16,7 @@ import {
 	resolveAttachments,
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
+import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { resolveAnthropicKey } from "@/lib/auth-utils";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
@@ -239,7 +240,11 @@ export async function POST(req: Request) {
 	let clearPauseFlagAfterGates = false;
 	if (!appId) {
 		try {
-			appId = await createApp(userId, effectiveRunId);
+			/* New builds land in the user's personal Project — the only Project a
+			 * user has until the Projects UI ships. Switch to the session's active
+			 * Project here once project switching lands. */
+			const projectId = await ensurePersonalProject(userId);
+			appId = await createApp(userId, projectId, effectiveRunId);
 			appCreated = true;
 		} catch (err) {
 			log.error("[chat] app creation failed", err);

@@ -164,6 +164,7 @@ function latestFlushSpy(): ReturnType<typeof vi.fn> {
 function buildLoadedApp(overrides: Partial<AppDoc> = {}): AppDoc {
 	return {
 		owner: "u1",
+		project_id: null,
 		app_name: "Test",
 		blueprint: mockBlueprint() as unknown as BlueprintDoc,
 		connect_type: null,
@@ -512,6 +513,7 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 		const { blueprint } = mockBlueprintWithForm();
 		vi.mocked(loadApp).mockResolvedValueOnce({
 			owner: "u1",
+			project_id: null,
 			app_name: blueprint.appName,
 			blueprint: blueprint as unknown as BlueprintDoc,
 			connect_type: null,
@@ -638,6 +640,7 @@ describe("registerSharedTool — IDOR byte-parity regression lock", () => {
 		 * `toMcpErrorResult` collapses to `"not_found"` on the wire. */
 		vi.mocked(loadApp).mockResolvedValueOnce({
 			owner: "someone-else",
+			project_id: null,
 			app_name: "Test",
 			blueprint: mockBlueprint() as unknown as BlueprintDoc,
 			connect_type: null,

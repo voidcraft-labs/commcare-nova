@@ -31,12 +31,13 @@ import { admin, jwt, organization } from "better-auth/plugins";
 import { novaMcpPlugin } from "@/app/api/mcp/auth-plugin";
 // Custom "Projects" roles + access control, shared with the client config.
 import { ac, MEMBERSHIP_LIMIT, PROJECT_ROLES } from "./auth/projectRoles";
+import { ensurePersonalProject } from "./auth/provisionProject";
 import { SIGN_IN_ERROR } from "./auth-errors";
 import { forwardBetterAuthLog } from "./auth-logger";
 import { NOVA_API_KEY_PREFIX, NOVA_API_KEY_SCOPES } from "./auth-public";
 // Shared `auth_`-prefixed table names — single-sourced so the runtime config
 // here and the migrator (`lib/auth-migrate-options.ts`) can't diverge.
-import { AUTH_TABLE_NAMES } from "./auth-schema-shared";
+import { AUTH_TABLE_NAMES, ORGANIZATION_SCHEMA } from "./auth-schema-shared";
 // The shared Cloud SQL pool. Better Auth runs its own Kysely on this ONE pool
 // (not a second) so the per-instance connection budget holds — see
 // `lib/case-store/postgres/connection.ts::enforceConnectionBudget`.
@@ -431,6 +432,35 @@ async function createAuth() {
 					},
 				},
 			},
+			/**
+			 * Stamp the user's active Project on every new session.
+			 *
+			 * Provisions the personal Project on first sign-in (idempotent) and
+			 * sets `activeOrganizationId` so the very first session already has a
+			 * tenancy scope. Wrapped so a provisioning failure NEVER blocks
+			 * sign-in — throwing here would abort session creation and lock the
+			 * user out; on failure we log and leave the session unstamped, and the
+			 * read-path fallback self-heals on a later request.
+			 */
+			session: {
+				create: {
+					before: async (session) => {
+						try {
+							const activeOrganizationId = await ensurePersonalProject(
+								session.userId,
+							);
+							return { data: { ...session, activeOrganizationId } };
+						} catch (err) {
+							log.error(
+								"[auth] personal-Project provisioning failed at session create",
+								err,
+								{ userId: session.userId },
+							);
+							return;
+						}
+					},
+				},
+			},
 		},
 
 		/**
@@ -714,9 +744,8 @@ async function createAuth() {
 			 * `auth_invitation` and add `auth_session.activeOrganizationId` — keep
 			 * the two plugin registrations in sync.
 			 *
-			 * `sendInvitationEmail` is log-only for now; the invitation UI and the
-			 * domain-restriction hook land with the Projects surface, so no
-			 * invitation is created yet — this satisfies the option contract.
+			 * `sendInvitationEmail` logs the invitation metadata; no email
+			 * transport is wired (invitations are not created from any UI).
 			 */
 			organization({
 				ac,
@@ -725,11 +754,7 @@ async function createAuth() {
 				allowUserToCreateOrganization: true,
 				membershipLimit: MEMBERSHIP_LIMIT,
 				teams: { enabled: false },
-				schema: {
-					organization: { modelName: AUTH_TABLE_NAMES.organization },
-					member: { modelName: AUTH_TABLE_NAMES.member },
-					invitation: { modelName: AUTH_TABLE_NAMES.invitation },
-				},
+				schema: ORGANIZATION_SCHEMA,
 				sendInvitationEmail: async (data) => {
 					log.info("[auth] organization invitation created", {
 						organizationId: data.organization.id,

@@ -26,6 +26,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { betterAuth } from "better-auth";
+import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import {
 	closeCaseStoreDatabase,
@@ -113,16 +114,21 @@ async function main(): Promise<void> {
 		},
 	});
 
+	// Personal Project for the seeded user — apps are tenant-scoped by it and the
+	// listing reads (P2) query by project_id, so the seeded apps must carry the
+	// same Project the user's session resolves to.
+	const seedProjectId = await ensurePersonalProject(SEED.userId);
+
 	// App state → Firestore (emulator), via the real no-LLM create path (status
 	// `complete`), one throwaway "delete me" app per possible Playwright attempt.
-	const openAppId = await createApp(SEED.userId, randomUUID(), {
+	const openAppId = await createApp(SEED.userId, seedProjectId, randomUUID(), {
 		appName: SEED.openAppName,
 		status: "complete",
 	});
 	const deleteAppIds: string[] = [];
 	for (let i = 0; i < DELETE_APP_COUNT; i++) {
 		deleteAppIds.push(
-			await createApp(SEED.userId, randomUUID(), {
+			await createApp(SEED.userId, seedProjectId, randomUUID(), {
 				appName: SEED.deleteAppName,
 				status: "complete",
 			}),

@@ -103,6 +103,7 @@ function fixtureBlueprint(): BlueprintDoc {
 function fixtureAppDoc(overrides?: Partial<AppDoc>): AppDoc {
 	return {
 		owner: "u1",
+		project_id: null,
 		app_name: "Vaccine Tracker",
 		blueprint: fixtureBlueprint(),
 		connect_type: null,

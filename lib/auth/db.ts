@@ -105,9 +105,9 @@ interface AuthOAuthGrantRevocationTable {
 }
 
 // Organization plugin tables — Nova's "Projects" tenancy. Better Auth manages
-// their creation + CRUD; Nova reads them directly here for the membership
-// resolver (`auth_member`), personal-project provisioning (`auth_organization`),
-// and member/invitation listing. Columns mirror the plugin's generated schema.
+// their creation + CRUD; Nova reads/writes them directly here for personal-
+// Project provisioning (lib/auth/provisionProject.ts). Columns mirror the
+// plugin's generated schema.
 interface AuthOrganizationTable {
 	id: string;
 	name: string;
@@ -135,7 +135,7 @@ interface AuthInvitationTable {
 	status: string;
 	inviterId: string;
 	expiresAt: Timestamp;
-	createdAt: Timestamp | null;
+	createdAt: Timestamp;
 }
 
 export interface AuthDatabase {
