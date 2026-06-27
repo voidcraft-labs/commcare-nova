@@ -455,7 +455,9 @@ const BOB_ROW = makeRow("22222222-2222-2222-2222-222222222222", {
 function filterByNameInputValue(
 	args: Parameters<typeof loadCasesAction>[0],
 ): ReturnType<typeof loadCasesAction> {
-	const typed = args.inputValues?.get("name");
+	// `inputValues` crosses the wire as a plain object bag (not a `Map`)
+	// so the Server Action call stays plain JSON rather than multipart.
+	const typed = args.inputValues?.name;
 	if (typed === undefined || typed === "") {
 		return Promise.resolve({ kind: "rows", rows: [ALICE_ROW, BOB_ROW] });
 	}

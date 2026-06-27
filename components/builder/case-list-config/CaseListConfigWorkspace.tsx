@@ -162,7 +162,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 	 * user's case store, then reloads the live canvases. */
 	const sampleData = useSampleData({
 		appId,
-		caseType,
+		caseType: caseTypes.find((ct) => ct.name === caseType),
 		onDone: reloadPreview,
 	});
 

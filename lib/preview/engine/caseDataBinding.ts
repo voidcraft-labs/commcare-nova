@@ -14,13 +14,9 @@
 "use server";
 
 import { getSession } from "@/lib/auth-utils";
-import {
-	buildCaseTypeMap,
-	CaseTypeNotInBlueprintError,
-	withOwnerContext,
-} from "@/lib/case-store";
+import { buildCaseTypeMap, withOwnerContext } from "@/lib/case-store";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
+import type { BlueprintDoc, CaseListConfig, CaseType } from "@/lib/domain";
 import { caseListConfigSchema } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
@@ -53,7 +49,10 @@ import type {
 	SubmissionMutation,
 	SubmissionResult,
 } from "./caseDataBindingTypes";
-import type { SearchInputValues } from "./runtimeBindings";
+import {
+	type SearchInputValuesWire,
+	searchInputValuesFromWire,
+} from "./runtimeBindings";
 
 // Errors thrown by the case-store layer are caught and mapped to
 // the `{ kind: "error" }` arm so an unhandled throw never tears
@@ -94,36 +93,53 @@ function stripDerivedFieldParent(blueprint: unknown): unknown {
  * lookup returns `undefined`.
  *
  * `inputValues` carries the running-app search form's per-input
- * value bag — `composeRuntimeFilter` translates it into the
- * input-driven predicate contribution, which AND-composes with the
- * unified `caseListConfig.filter` slot inside `readCases`. Callers
- * not mounting a search form leave it undefined; the helper then
- * skips the runtime-bindings composition entirely.
+ * value bag as a plain object ({@link SearchInputValuesWire}, not a
+ * `Map`) — `composeRuntimeFilter` translates it into the input-driven
+ * predicate contribution, which AND-composes with the unified
+ * `caseListConfig.filter` slot inside `readCases`. Callers not
+ * mounting a search form leave it undefined; the helper then skips
+ * the runtime-bindings composition entirely.
+ *
+ * `caseTypes` is the LIVE case-type catalog — the only blueprint slice
+ * the SQL compiler reads (property data types for casts, relation
+ * paths to other types). The client sends just this catalog, not the
+ * whole `BlueprintDoc`: the modules/forms/fields trees are dead weight
+ * here, and the bag stays plain JSON (no `Map`, no outsized body) so
+ * the Server Action call never takes a wire shape the edge WAF flags.
+ * Sending the live catalog rather than reading the persisted one keeps
+ * the schemas consistent with the live `caseListConfig` the client
+ * sends in the same call — a property rename/retype reaches both
+ * together, so a calc/sort/filter never compiles against a stale type.
+ * Callers reading raw rows (case-loading-form lookups) leave it
+ * undefined; `readCases` only needs it when a predicate/sort/calc
+ * references a typed property.
  */
 export async function loadCasesAction(args: {
 	appId: string;
 	caseType: string;
-	blueprint?: BlueprintDoc;
 	caseListConfig?: CaseListConfig;
-	inputValues?: SearchInputValues;
+	inputValues?: SearchInputValuesWire;
+	caseTypes?: readonly CaseType[];
 }): Promise<LoadCasesResult> {
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
+		const caseTypeSchemas =
+			args.caseTypes && args.caseTypes.length > 0
+				? new Map(args.caseTypes.map((ct) => [ct.name, ct]))
+				: undefined;
 		const store = schemaHealingCaseStore(
 			await withOwnerContext(session.user.id),
 			{ appId: args.appId, userId: session.user.id },
 		);
-		// Convert `BlueprintDoc → ReadonlyMap<string, CaseType>` at the
-		// request edge — `readCases` accepts the case-store's actual
-		// schema-resolution dependency directly, so the helper stays
-		// decoupled from the full blueprint shape.
 		return await readCases(store, {
 			appId: args.appId,
 			caseType: args.caseType,
-			caseTypeSchemas: buildCaseTypeMap(args.blueprint),
+			caseTypeSchemas,
 			caseListConfig: args.caseListConfig,
-			inputValues: args.inputValues,
+			inputValues: args.inputValues
+				? searchInputValuesFromWire(args.inputValues)
+				: undefined,
 		});
 	} catch (err) {
 		reportUnexpectedActionError("loadCases", err, {
@@ -161,29 +177,22 @@ export async function loadCaseDataAction(
 
 export async function populateSampleCasesAction(
 	appId: string,
-	caseType: string,
-	blueprint: BlueprintDoc,
+	caseType: CaseType,
 ): Promise<PopulateSampleCasesResult> {
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
-		// Resolve the `CaseType` definition out of the blueprint at the
-		// request edge — the case-store's `generateSampleData` reads
-		// property declarations + `parent_type` off the definition, so
-		// the helper accepts the narrow value directly. A blueprint
-		// missing the requested case type throws
-		// `CaseTypeNotInBlueprintError` here; the catch block delegates
-		// to `mapPopulateSampleCasesError` which surfaces the typed
-		// `missing-case-type` arm.
-		const found = blueprint.caseTypes?.find((c) => c.name === caseType);
-		if (!found) {
-			throw new CaseTypeNotInBlueprintError(appId, caseType);
-		}
+		// The LIVE `CaseType` definition comes straight from the client —
+		// the generator reads only its property declarations + `parent_type`,
+		// so the one catalog entry is all this needs (never the whole
+		// blueprint). The bound store is tenant-scoped by
+		// `withOwnerContext(session.user.id)`, so a row only ever lands in
+		// the caller's own case store regardless of the `appId` passed.
 		const store = schemaHealingCaseStore(
 			await withOwnerContext(session.user.id),
 			{ appId, userId: session.user.id },
 		);
-		return await seedSampleCases(store, { appId, caseType: found });
+		return await seedSampleCases(store, { appId, caseType });
 	} catch (err) {
 		// Sample-data generation: a `CasePropertiesValidationError`
 		// here means the GENERATOR produced data its own schema
@@ -193,7 +202,7 @@ export async function populateSampleCasesAction(
 			err,
 			{
 				appId,
-				caseType,
+				caseType: caseType.name,
 			},
 			{ treatValidationAsBug: true },
 		);
@@ -204,8 +213,8 @@ export async function populateSampleCasesAction(
 /**
  * Drop every existing case row for `(appId, caseType)` and regenerate
  * a fresh sample population. Structural mirror of
- * `populateSampleCasesAction` — same session resolution, same
- * blueprint-edge `CaseType` lookup, same typed-error mapping through
+ * `populateSampleCasesAction` — same session resolution, same LIVE
+ * client-supplied `CaseType`, same typed-error mapping through
  * `mapPopulateSampleCasesError`. Delegates to `resetSampleCases`
  * which wraps the case-store's atomic `resetSampleData` (delete +
  * regenerate in one transaction).
@@ -218,21 +227,16 @@ export async function populateSampleCasesAction(
  */
 export async function resetSampleCasesAction(
 	appId: string,
-	caseType: string,
-	blueprint: BlueprintDoc,
+	caseType: CaseType,
 ): Promise<PopulateSampleCasesResult> {
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
-		const found = blueprint.caseTypes?.find((c) => c.name === caseType);
-		if (!found) {
-			throw new CaseTypeNotInBlueprintError(appId, caseType);
-		}
 		const store = schemaHealingCaseStore(
 			await withOwnerContext(session.user.id),
 			{ appId, userId: session.user.id },
 		);
-		return await resetSampleCases(store, { appId, caseType: found });
+		return await resetSampleCases(store, { appId, caseType });
 	} catch (err) {
 		// See `populateSampleCasesAction` — a validation failure on
 		// generated rows is a generator bug, so it alerts too.
@@ -241,7 +245,7 @@ export async function resetSampleCasesAction(
 			err,
 			{
 				appId,
-				caseType,
+				caseType: caseType.name,
 			},
 			{ treatValidationAsBug: true },
 		);

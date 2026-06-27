@@ -59,12 +59,27 @@ have compute security-policies describe nova-armor \
   || gcloud compute security-policies create nova-armor \
        --description="Edge rate limiting for Nova public endpoints"
 
-# ── WAF: OWASP CRS preconfigured rules (deny 403) at low sensitivity ────────
-# Defense-in-depth against rce / lfi / protocol-attack / known-CVE signatures.
-# Sensitivity 1 keeps false positives low: normal JSON API traffic — XPath
-# predicates, blueprint docs, NL chat — does NOT trip these (verified against
-# live traffic). The Sentry tunnel is the one structural exception, carved out
-# immediately below.
+# ── OWASP CRS WAF rulesets in PREVIEW (log-only) mode ───────────────────────
+# All four preconfigured rulesets run with `--preview`: they evaluate every
+# request and LOG what they WOULD deny (jsonPayload.previewSecurityPolicy) but
+# take no action. rce (100) and protocolattack (120) are kept off enforcement
+# because they DO false-positive on this app's own traffic — Next.js Server
+# Actions with a non-plain-JSON arg encode as multipart/form-data, whose
+# `Content-Disposition` part-headers read as header injection (CRS 921150), and
+# the MCP / chat / blueprint surfaces carry XPath that reads as Unix command
+# injection (CRS 932xxx). lfi (110) and cve (130) have shown ZERO matches on
+# live traffic, but stay in preview too: this deploy has one solo operator not
+# watching the WAF logs, so a silent false-positive 403 is worse than the
+# marginal edge defense — preview is the fail-open default. Enforce any rule
+# only after its previewed matches confirm zero false positives over time (build
+# an `opt_out_rule_ids` exclusion for any offending sub-rule first, then drop
+# `--preview`). Real defense today is the app's valid-by-construction model +
+# input validation + auth; the throttles below are the DDoS/flood backstop.
+#
+# NOTE: this guard only CREATES missing rules — it cannot transition an existing
+# rule's preview/enforce state on re-run. The LIVE policy is authoritative;
+# change a rule's state with `gcloud compute security-policies rules update
+# <prio> --preview` (or `--no-preview`), never by editing-and-re-running this.
 for pair in "100:rce-v33-stable" "110:lfi-v33-stable" \
             "120:protocolattack-v33-stable" "130:cve-canary"; do
   prio="${pair%%:*}"; ruleset="${pair#*:}"
@@ -72,18 +87,14 @@ for pair in "100:rce-v33-stable" "110:lfi-v33-stable" \
     || gcloud compute security-policies rules create "$prio" \
          --security-policy=nova-armor \
          --expression="evaluatePreconfiguredWaf('${ruleset}', {'sensitivity': 1})" \
-         --action=deny-403
+         --action=deny-403 --preview
 done
 
-# ── Sentry tunnel carve-out — priority 90, a LOWER number than the WAF above ─
-# `/api/monitoring` relays the browser SDK's error envelope, which is
-# newline-DELIMITED text/plain; those literal CR/LF bytes trip CRS 921150
-# (header-injection-via-payload) → a 403 on EVERY error report. The endpoint is
-# a pure passthrough to Sentry ingest (no backend exec / SQL / file access), so
-# bypass the WAF for it while keeping a per-IP throttle. Throttle is terminal
-# under the limit, so the envelope skips the WAF; exact-path `==` (NOT
-# `.matches`, which is an unanchored substring) so it can't slip other paths
-# past the WAF.
+# ── Per-IP throttle on the Sentry browser-error relay — priority 90 ──────────
+# `/api/monitoring` relays the browser SDK's error envelope and can burst, so
+# cap it per-IP at 1200 req / 60s (the same ceiling as the site-wide rule below
+# — NOT the tighter 60/60s on /api/log/error). Exact-path `==` (NOT `.matches`,
+# an unanchored substring) keeps the rule scoped to this one path.
 gcloud compute security-policies rules describe 90 --security-policy=nova-armor >/dev/null 2>&1 \
   || gcloud compute security-policies rules create 90 \
        --security-policy=nova-armor \
