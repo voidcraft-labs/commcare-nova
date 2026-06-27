@@ -17,16 +17,16 @@
  * discovery URL without duplicating logic — the helper generates the correct
  * document regardless of which path it lives at.
  *
- * Lazy-bind rationale: the handler is wrapped in a request-time closure so
- * `getAuth()` runs on first request, not at module-load. `next build` imports
- * this route during page collection, and the auth singleton pulls Firestore
- * credentials and OAuth secrets from env at construction time — eager
- * evaluation would fail the build on any machine without a full runtime env
- * (CI, Docker build, local clones). Mirrors `app/api/auth/[...all]/route.ts`.
+ * Lazy-bind rationale: the handler awaits `getAuth()` on first request, not at
+ * module-load. `next build` imports this route during page collection, and the
+ * auth singleton opens the Postgres pool and reads OAuth secrets from env at
+ * construction time — eager evaluation would fail the build on any machine
+ * without a full runtime env (CI, Docker build, local clones). Mirrors
+ * `app/api/auth/[...all]/route.ts`.
  */
 
 import { oauthProviderAuthServerMetadata } from "@better-auth/oauth-provider";
 import { getAuth } from "@/lib/auth";
 
-export const GET = (req: Request) =>
-	oauthProviderAuthServerMetadata(getAuth())(req);
+export const GET = async (req: Request) =>
+	oauthProviderAuthServerMetadata(await getAuth())(req);

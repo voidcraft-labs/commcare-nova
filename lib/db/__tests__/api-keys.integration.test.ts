@@ -1,81 +1,67 @@
 /**
- * Integration tests for the api-key auth path against a real Firestore
- * emulator. The unit suite mocks `auth.api.{createApiKey, verifyApiKey,
- * deleteApiKey, updateApiKey}` at the boundary; the test author
- * controls both sides of those mocks, so a schema-boundary bug (a
- * field rename in the plugin, a Zod-validation rule we forgot, the
- * `SERVER_ONLY_PROPERTY` rejection of `permissions` when headers are
- * passed) can't fail it. This file runs the actual
- * `@better-auth/api-key` plugin and reads back through our helpers,
- * so plugin-API drift fails loudly here instead of silently in
- * production.
+ * Integration tests for the api-key auth path against a real Postgres (the
+ * testcontainer). The unit suite mocks `auth.api.{createApiKey, verifyApiKey,
+ * deleteApiKey, updateApiKey}` at the boundary; the test author controls both
+ * sides of those mocks, so a schema-boundary bug (a field rename in the plugin,
+ * a Zod-validation rule we forgot, the `SERVER_ONLY_PROPERTY` rejection of
+ * `permissions` when headers are passed) can't fail it. This file runs the
+ * actual `@better-auth/api-key` plugin and reads back through our helpers, so
+ * plugin-API drift fails loudly here instead of silently in production.
  *
  * What this proves that the unit tests can't:
- *   - The full mint → verify → revoke round-trip works end-to-end
- *     against the plugin's actual schema. A future plugin version
- *     that renames `userId` to `principalId` or adds a required
- *     field would trip mint here.
- *   - `permissions` is accepted in server-only mode (no `headers` arg
- *     to `auth.api.createApiKey`) — the regression risk this defends
- *     against is a future Server Action refactor that adds back the
- *     `headers` arg and silently fails with `SERVER_ONLY_PROPERTY`.
- *   - The `verifyApiKey` response shape carries `referenceId` and
- *     decoded `permissions.scope` exactly as the route's
- *     `handleApiKeyMcp` consumes them.
- *   - `lib/db/api-keys.ts::listUserApiKeys` reads what the plugin
- *     writes — pins the plugin's storage field names (`referenceId`,
- *     `permissions` as JSON-stringified, `start`) against our direct-
- *     Firestore decoder.
+ *   - The full mint → verify → revoke round-trip works end-to-end against the
+ *     plugin's actual schema. A plugin version that renames `userId` to
+ *     `principalId` or adds a required field would trip mint here.
+ *   - `permissions` is accepted in server-only mode (no `headers` arg to
+ *     `auth.api.createApiKey`) — the regression risk this defends against is a
+ *     Server Action refactor that adds back the `headers` arg and silently
+ *     fails with `SERVER_ONLY_PROPERTY`.
+ *   - The `verifyApiKey` response shape carries `referenceId` and decoded
+ *     `permissions.scope` exactly as the route's `handleApiKeyMcp` consumes them.
+ *   - `lib/db/api-keys.ts::listUserApiKeys` reads what the plugin writes — pins
+ *     the plugin's storage column names (`referenceId`, `permissions` as a JSON
+ *     string, `start`) against our decoder.
  *
- * Auto-skipped when `FIRESTORE_EMULATOR_HOST` is unset — run via
- * `npm run test:integration`.
+ * Runs on the per-test-database harness booted by the case-store testcontainer
+ * `globalSetup`. The module functions reach the DB through the `getAuthDb`
+ * singleton, pointed at the per-test pool via the `__setAuthDbForTests` seam.
  */
 
 import { apiKey } from "@better-auth/api-key";
 import { betterAuth } from "better-auth";
-import { jwt } from "better-auth/plugins";
-import { firestoreAdapter } from "better-auth-firestore";
-import { deleteApp, getApps, initializeApp } from "firebase-admin/app";
-import { Firestore } from "firebase-admin/firestore";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { getMigrations } from "better-auth/db/migration";
+import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
+import { Pool } from "pg";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { __setAuthDbForTests, type AuthDatabase } from "@/lib/auth/db";
+import { runAuthAppMigrations } from "@/lib/auth/migrate";
+import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { NOVA_API_KEY_PREFIX } from "@/lib/auth-public";
+import { AUTH_TABLE_NAMES } from "@/lib/auth-schema-shared";
+import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
+import { log } from "@/lib/logger";
 
-const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
-
-const TEST_PROJECT_ID = "demo-test";
+const TEST_SECRET = "x".repeat(32);
 const TEST_USER_ID = "user-integration-test";
 
-/** Collections this test populates and clears between cases. */
-const COLLECTIONS_TO_CLEAR = ["apikey", "auth_users"] as const;
-
-async function clearCollections(db: Firestore): Promise<void> {
-	for (const name of COLLECTIONS_TO_CLEAR) {
-		const snap = await db.collection(name).get();
-		await Promise.all(snap.docs.map((d) => d.ref.delete()));
-	}
-}
+const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "auth_apikey_" });
 
 /**
- * Mirrors the api-key plugin config in `lib/auth.ts`. Factored out
- * (rather than declared inline in `beforeAll`) so the inferred return
- * type carries plugin augmentations like `auth.api.createApiKey` —
- * inline declaration would widen back to default `BetterAuthOptions`.
+ * Mirrors the api-key plugin config in `lib/auth.ts` (the production-shape mount
+ * the route actually exercises), plus the shared table-name map so the plugin
+ * writes to the migrated `auth_apikey` table. Factored out so the inferred
+ * return type carries the `auth.api.createApiKey` augmentation.
  */
-function createTestAuth(db: Firestore) {
+function createTestAuth(pool: typeof dbHandle.pool) {
 	return betterAuth({
-		secret: "x".repeat(32),
+		secret: TEST_SECRET,
 		baseURL: "http://localhost:3000",
-		database: firestoreAdapter({
-			firestore: db,
-			collections: {
-				users: "auth_users",
-				sessions: "auth_sessions",
-				accounts: "auth_accounts",
-				verificationTokens: "auth_verifications",
-			},
-		}),
+		database: pool,
+		user: { modelName: AUTH_TABLE_NAMES.user },
+		session: { modelName: AUTH_TABLE_NAMES.session },
+		account: { modelName: AUTH_TABLE_NAMES.account },
+		verification: { modelName: AUTH_TABLE_NAMES.verification },
 		plugins: [
-			jwt({ disableSettingJwtHeader: true }),
 			apiKey({
 				defaultPrefix: NOVA_API_KEY_PREFIX,
 				defaultKeyLength: 32,
@@ -87,13 +73,6 @@ function createTestAuth(db: Firestore) {
 				enableMetadata: false,
 				enableSessionForAPIKeys: false,
 				storage: "database",
-				/* Mirror production: per-key rate limiting disabled. The
-				 * plugin's `isRateLimited` algorithm is fixed-window-since-
-				 * last-request, which doesn't deliver a meaningful per-hour
-				 * cap, so the production mount sets `enabled: false`. The
-				 * integration test must run against the production-shape
-				 * config to detect plugin regressions on the path Nova
-				 * actually exercises. */
 				rateLimit: { enabled: false },
 				keyExpiration: {
 					defaultExpiresIn: 365 * 24 * 60 * 60,
@@ -101,56 +80,61 @@ function createTestAuth(db: Firestore) {
 					maxExpiresIn: 36500,
 				},
 				references: "user",
+				schema: { apikey: { modelName: AUTH_TABLE_NAMES.apikey } },
 			}),
 		],
 	});
 }
 
-describe.skipIf(!emulatorAvailable)("api-key integration", () => {
-	let auth: ReturnType<typeof createTestAuth>;
-	let db: Firestore;
-
-	beforeAll(() => {
-		initializeApp({ projectId: TEST_PROJECT_ID });
-		db = new Firestore({ projectId: TEST_PROJECT_ID, preferRest: true });
-		auth = createTestAuth(db);
-	});
-
-	afterAll(async () => {
-		for (const app of getApps()) {
-			await deleteApp(app);
-		}
-	});
-
-	beforeEach(async () => {
-		await clearCollections(db);
-		/* Seed the auth user the keys reference so `isUserActive` reads
-		 * a real row. Without this, every key would resolve as
-		 * "user disabled" when the route verifies. */
-		await db.collection("auth_users").doc(TEST_USER_ID).set({
+/** Seed the key owner via Better Auth's own adapter (honoring the id). */
+async function seedUser(
+	auth: ReturnType<typeof createTestAuth>,
+	banned = false,
+): Promise<void> {
+	const ctx = await auth.$context;
+	await ctx.adapter.create({
+		model: "user",
+		forceAllowId: true,
+		data: {
 			id: TEST_USER_ID,
+			name: "Integration test user",
 			email: "user@dimagi.com",
 			emailVerified: true,
-			name: "Integration test user",
-			banned: false,
+			banned,
 			createdAt: new Date(),
 			updatedAt: new Date(),
+		},
+	});
+}
+
+describe("api-key integration", () => {
+	let auth: ReturnType<typeof createTestAuth>;
+	let authDb: Kysely<AuthDatabase>;
+
+	beforeEach(async () => {
+		const { runMigrations } = await getMigrations(
+			authMigrateOptions(dbHandle.pool),
+		);
+		await runMigrations();
+		await runAuthAppMigrations(dbHandle.db);
+		authDb = new Kysely<AuthDatabase>({
+			dialect: new PostgresDialect({
+				pool: dbHandle.pool as unknown as PostgresPool,
+			}),
 		});
+		__setAuthDbForTests(authDb);
+		auth = createTestAuth(dbHandle.pool);
+	});
+
+	afterEach(() => {
+		__setAuthDbForTests(null);
 	});
 
 	it("mint + verify round-trip works against the real plugin (server-only mode)", async () => {
-		/* Mint in server-only mode (no headers, explicit userId) — the
-		 * exact shape `mintApiKey` Server Action uses. If the plugin
-		 * ever rejects this combination, the test fails loudly here
-		 * instead of silently in production.
-		 *
-		 * Delete is exercised separately at the adapter layer rather
-		 * than via `auth.api.deleteApiKey` — that endpoint mounts
-		 * `sessionMiddleware`, which expects a real cookie-bearing
-		 * request. Production routes through that middleware via
-		 * forwarded headers; the integration test has no session to
-		 * forward, so we sidestep with the adapter and assert the
-		 * effect (row gone). */
+		await seedUser(auth);
+
+		/* Mint in server-only mode (no headers, explicit userId) — the exact
+		 * shape `mintApiKey` Server Action uses. */
 		const created = await auth.api.createApiKey({
 			body: {
 				name: "integration test key",
@@ -163,24 +147,15 @@ describe.skipIf(!emulatorAvailable)("api-key integration", () => {
 		expect(created.id).toBeTruthy();
 		expect(created.key).toMatch(new RegExp(`^${NOVA_API_KEY_PREFIX}`));
 		expect(created.start).toMatch(new RegExp(`^${NOVA_API_KEY_PREFIX}`));
-
-		/* Pin the key-row id shape: Better Auth's adapter factory
-		 * injects `data.id = generateId()` (32-char alphanumeric) via
-		 * `transformInput` BEFORE the firestore adapter's `create`
-		 * runs, and `firestoreAdapter` honors the supplied id (its
-		 * `col.doc()` auto-id branch is the fallback that fires only
-		 * when no id is supplied). The Server Actions'
-		 * `BETTER_AUTH_ID_PATTERN = /^[a-zA-Z0-9]{32}$/` regex
-		 * accepts that exact shape, so revoke/edit on a real-minted
-		 * key must pass validation. If a future plugin/adapter
-		 * version emits a different id shape (Firestore auto-id, UUID,
-		 * etc.), this assertion fails loudly here, BEFORE the regex
-		 * starts rejecting real keys in production. */
+		/* The Server Actions' `BETTER_AUTH_ID_PATTERN = /^[a-zA-Z0-9]{32}$/`
+		 * regex accepts the adapter-generated id, so revoke/edit on a real key
+		 * must pass validation. A plugin/adapter version that emits a different
+		 * id shape trips here BEFORE the regex rejects real keys in production. */
 		expect(created.id).toMatch(/^[a-zA-Z0-9]{32}$/);
 
-		/* Permissions round-trip: what we sent should be what the
-		 * verify response surfaces (decoded back from the plugin's
-		 * manual JSON.stringify on write + safeJSONParse on read). */
+		/* Permissions round-trip: what we sent should be what the verify
+		 * response surfaces (decoded back from the plugin's manual JSON.stringify
+		 * on write + safeJSONParse on read). */
 		const verified = await auth.api.verifyApiKey({
 			body: { key: created.key },
 		});
@@ -191,10 +166,8 @@ describe.skipIf(!emulatorAvailable)("api-key integration", () => {
 			scope: ["nova.read", "nova.write"],
 		});
 
-		/* Direct-Firestore read via the public helper — pins our decoder
-		 * against the plugin's actual storage shape. A regression in
-		 * `decodePermissions` (or in the plugin's stringify path)
-		 * surfaces here. */
+		/* Read via the public helper — pins our decoder against the plugin's
+		 * actual storage shape. */
 		const { listUserApiKeys } = await import("../api-keys");
 		const rows = await listUserApiKeys(TEST_USER_ID);
 		expect(rows).toHaveLength(1);
@@ -205,16 +178,15 @@ describe.skipIf(!emulatorAvailable)("api-key integration", () => {
 		});
 		expect(rows[0]?.displayPrefix).toBe(created.start);
 
-		/* Direct adapter delete (sidestepping `sessionMiddleware`),
-		 * then re-verify to confirm the row is gone. The plugin emits
-		 * `INVALID_API_KEY` (not `KEY_NOT_FOUND`) for "no row matches
-		 * the hashed bearer" — `KEY_NOT_FOUND` is reserved for paths
-		 * where a row was located but downstream checks (permissions,
-		 * org membership) failed. The route's `mapApiKeyErrorCode`
-		 * collapses both into `"api key invalid"`, so the wire response
-		 * is the same; this test pins the plugin-side semantics so a
-		 * future code rename trips here. */
-		await db.collection("apikey").doc(created.id).delete();
+		/* Delete the row directly (sidestepping `auth.api.deleteApiKey`'s
+		 * `sessionMiddleware`, which expects a cookie-bearing request) then
+		 * re-verify to confirm it's gone. The plugin emits `INVALID_API_KEY`
+		 * (not `KEY_NOT_FOUND`) for "no row matches the hashed bearer"; the
+		 * route's `mapApiKeyErrorCode` collapses both into "api key invalid". */
+		await authDb
+			.deleteFrom("auth_apikey")
+			.where("id", "=", created.id)
+			.execute();
 		const afterDelete = await auth.api.verifyApiKey({
 			body: { key: created.key },
 		});
@@ -223,20 +195,11 @@ describe.skipIf(!emulatorAvailable)("api-key integration", () => {
 	});
 
 	it("mintApiKey rejects `permissions` with SERVER_ONLY_PROPERTY when `headers` is passed", async () => {
-		/* This is the regression test for the bug the unit suite can't
-		 * catch: passing both `headers` and `permissions` makes the
-		 * plugin's `isClientRequest` check fire and reject `permissions`
-		 * as a server-only property. If the plugin ever softens this
-		 * rule (or our config inadvertently disables it), the production
-		 * Server Action's "no headers, explicit userId" pattern needs
-		 * to be re-evaluated.
-		 *
-		 * Pin the specific error code (`SERVER_ONLY_PROPERTY`) so the
-		 * test fails informatively if the plugin's check ordering
-		 * shifts to a different rejection path (e.g.
-		 * `UNAUTHORIZED_SESSION` from the headers + body.userId
-		 * combination). The wire shape we depend on is specifically
-		 * the property-level rejection, not the userId-level one. */
+		await seedUser(auth);
+		/* Passing both `headers` and `permissions` makes the plugin's
+		 * `isClientRequest` check fire and reject `permissions` as a server-only
+		 * property. If the plugin softens this rule (or our config disables it),
+		 * the production "no headers, explicit userId" pattern needs re-eval. */
 		await expect(
 			auth.api.createApiKey({
 				body: {
@@ -247,9 +210,7 @@ describe.skipIf(!emulatorAvailable)("api-key integration", () => {
 				},
 				headers: new Headers(),
 			}),
-		).rejects.toMatchObject({
-			body: { code: "SERVER_ONLY_PROPERTY" },
-		});
+		).rejects.toMatchObject({ body: { code: "SERVER_ONLY_PROPERTY" } });
 	});
 
 	it("verifyApiKey returns `valid: false` for a stale / non-existent key", async () => {
@@ -259,32 +220,144 @@ describe.skipIf(!emulatorAvailable)("api-key integration", () => {
 
 		expect(result.valid).toBe(false);
 		expect(result.key).toBeNull();
-		/* The plugin emits `INVALID_API_KEY` for "no row hashed matches
-		 * the bearer." `KEY_NOT_FOUND` is reserved for downstream
-		 * checks against a located row (permissions, org membership).
-		 * Pin the actual emitted code here so a plugin-version bump
-		 * that renames it surfaces in tests. The route's
-		 * `mapApiKeyErrorCode` collapses both into "api key invalid"
-		 * on the wire. */
 		expect(result.error?.code).toBe("INVALID_API_KEY");
 	});
 
 	it("isUserActive returns true for an existing non-banned user, false for a banned user", async () => {
+		await seedUser(auth);
 		const { isUserActive } = await import("../api-keys");
 
 		expect(await isUserActive(TEST_USER_ID)).toBe(true);
 
-		await db
-			.collection("auth_users")
-			.doc(TEST_USER_ID)
-			.set({ banned: true }, { merge: true });
-
+		await authDb
+			.updateTable("auth_user")
+			.set({ banned: true })
+			.where("id", "=", TEST_USER_ID)
+			.execute();
 		expect(await isUserActive(TEST_USER_ID)).toBe(false);
 	});
 
 	it("isUserActive returns false for a missing user (deleted-account case)", async () => {
 		const { isUserActive } = await import("../api-keys");
-
 		expect(await isUserActive("user-that-was-deleted")).toBe(false);
+	});
+
+	it("isUserActive propagates a database error (the fail-closed contract)", async () => {
+		// handleApiKeyMcp's local catch turns a throw into a 401 — so a backing-store
+		// failure must REJECT, never resolve true. Point getAuthDb at a dead pool so
+		// the read errors; a future change that swallowed it (returning true) would
+		// fail-open a banned user's keys and trip here.
+		const deadPool = new Pool({ connectionString: dbHandle.uri, max: 1 });
+		await deadPool.end();
+		__setAuthDbForTests(
+			new Kysely<AuthDatabase>({
+				dialect: new PostgresDialect({
+					pool: deadPool as unknown as PostgresPool,
+				}),
+			}),
+		);
+		const { isUserActive } = await import("../api-keys");
+		await expect(isUserActive(TEST_USER_ID)).rejects.toThrow();
+	});
+
+	it("isUserActive treats an expired temp ban as active and a future ban as inactive", async () => {
+		await seedUser(auth);
+		const { isUserActive } = await import("../api-keys");
+
+		await authDb
+			.updateTable("auth_user")
+			.set({ banned: true, banExpires: new Date(Date.now() - 3_600_000) })
+			.where("id", "=", TEST_USER_ID)
+			.execute();
+		expect(await isUserActive(TEST_USER_ID)).toBe(true);
+
+		await authDb
+			.updateTable("auth_user")
+			.set({ banExpires: new Date(Date.now() + 3_600_000) })
+			.where("id", "=", TEST_USER_ID)
+			.execute();
+		expect(await isUserActive(TEST_USER_ID)).toBe(false);
+	});
+
+	it("listUserApiKeys falls back to empty scopes on malformed permissions", async () => {
+		await seedUser(auth);
+		const created = await auth.api.createApiKey({
+			body: { name: "malformed", userId: TEST_USER_ID },
+		});
+		await authDb
+			.updateTable("auth_apikey")
+			.set({ permissions: "not-json" })
+			.where("id", "=", created.id)
+			.execute();
+
+		const { listUserApiKeys } = await import("../api-keys");
+		const rows = await listUserApiKeys(TEST_USER_ID);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.scopes).toEqual([]);
+	});
+
+	it("countUserApiKeys counts all of a user's keys", async () => {
+		await seedUser(auth);
+		const { countUserApiKeys } = await import("../api-keys");
+		expect(await countUserApiKeys(TEST_USER_ID)).toBe(0);
+
+		await auth.api.createApiKey({ body: { name: "k1", userId: TEST_USER_ID } });
+		await auth.api.createApiKey({ body: { name: "k2", userId: TEST_USER_ID } });
+		expect(await countUserApiKeys(TEST_USER_ID)).toBe(2);
+	});
+
+	it("listUserApiKeys renders an empty displayPrefix + warns when `start` is missing", async () => {
+		// No misleading bare-prefix fallback: a row without `start` (a schema
+		// regression) surfaces as "" so the UI's `displayPrefix &&` guard hides it,
+		// and a log.warn tripwire fires.
+		await seedUser(auth);
+		const created = await auth.api.createApiKey({
+			body: { name: "no-start", userId: TEST_USER_ID },
+		});
+		await authDb
+			.updateTable("auth_apikey")
+			.set({ start: null })
+			.where("id", "=", created.id)
+			.execute();
+		const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+
+		try {
+			const { listUserApiKeys } = await import("../api-keys");
+			const rows = await listUserApiKeys(TEST_USER_ID);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.displayPrefix).toBe("");
+			expect(warn).toHaveBeenCalledWith(
+				expect.stringContaining("missing `start`"),
+				expect.objectContaining({ keyId: created.id }),
+			);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	it("listUserApiKeys returns keys newest-first", async () => {
+		await seedUser(auth);
+		const older = await auth.api.createApiKey({
+			body: { name: "older", userId: TEST_USER_ID },
+		});
+		const newer = await auth.api.createApiKey({
+			body: { name: "newer", userId: TEST_USER_ID },
+		});
+		// Pin distinct createdAt so the sort is deterministic regardless of how
+		// close the two mints landed.
+		await authDb
+			.updateTable("auth_apikey")
+			.set({ createdAt: new Date("2026-01-01T00:00:00.000Z") })
+			.where("id", "=", older.id)
+			.execute();
+		await authDb
+			.updateTable("auth_apikey")
+			.set({ createdAt: new Date("2026-02-01T00:00:00.000Z") })
+			.where("id", "=", newer.id)
+			.execute();
+
+		const { listUserApiKeys } = await import("../api-keys");
+		const rows = await listUserApiKeys(TEST_USER_ID);
+		expect(rows.map((r) => r.name)).toEqual(["newer", "older"]);
 	});
 });

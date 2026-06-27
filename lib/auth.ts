@@ -1,18 +1,20 @@
 /**
  * Better Auth — server-side authentication singleton.
  *
- * Initialized lazily via `getAuth()` so the Firestore adapter and env var
- * reads happen on the first real request, not at import time. This matters
- * because `next build` imports server modules during page collection —
- * module-level initialization would try to connect to Firestore and read
- * secrets that don't exist in the build environment.
+ * Initialized lazily via `getAuth()` (async) so the Postgres pool and env var
+ * reads happen on the first real request, not at import time. `getAuth()` is
+ * async because the shared Cloud SQL pool is resolved asynchronously (the
+ * connector's `getOptions`); this also keeps `next build` page collection from
+ * opening a database connection or reading secrets that don't exist at build.
  *
- * `auth_users` is the single source of truth for user identity. The app
- * extends it with `lastActiveAt` via `additionalFields` — no separate
- * user collection. Auth state lives in `auth_users`, `auth_sessions`,
- * `auth_accounts`, and `verification` (only the first three carry the
- * `auth_` prefix — see the `authCollections` note below for why the
- * verification rows land in an unprefixed collection).
+ * `auth_user` is the single source of truth for user identity. The app extends
+ * it with `lastActiveAt` via `additionalFields` — no separate user table. Auth
+ * state lives in Postgres, every table `auth_`-prefixed via per-model
+ * `modelName` (see the model + plugin config below): `auth_user`,
+ * `auth_session`, `auth_account`, `auth_verification`, `auth_rate_limit`,
+ * `auth_apikey`, `auth_jwks`, and the `auth_oauth_{client,consent,refresh_token}`
+ * trio. Better Auth runs its own Kysely on the case-store's shared `pg.Pool`
+ * (`getCaseStorePool`) so the connection budget stays at one pool per instance.
  *
  * Required env vars (at runtime, not build time):
  *   BETTER_AUTH_SECRET   — cookie signing secret (generate with `openssl rand -base64 32`)
@@ -26,14 +28,17 @@ import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { admin, jwt } from "better-auth/plugins";
-import { firestoreAdapter } from "better-auth-firestore";
-import { Firestore as AdminFirestore } from "firebase-admin/firestore";
 import { novaMcpPlugin } from "@/app/api/mcp/auth-plugin";
 import { SIGN_IN_ERROR } from "./auth-errors";
-import { withCompleteFirestoreAdapter } from "./auth-firestore-adapter";
 import { forwardBetterAuthLog } from "./auth-logger";
 import { NOVA_API_KEY_PREFIX, NOVA_API_KEY_SCOPES } from "./auth-public";
-import { firestoreClientOptions } from "./db/firestoreClientOptions";
+// Shared `auth_`-prefixed table names — single-sourced so the runtime config
+// here and the migrator (`lib/auth-migrate-options.ts`) can't diverge.
+import { AUTH_TABLE_NAMES } from "./auth-schema-shared";
+// The shared Cloud SQL pool. Better Auth runs its own Kysely on this ONE pool
+// (not a second) so the per-instance connection budget holds — see
+// `lib/case-store/postgres/connection.ts::enforceConnectionBudget`.
+import { getCaseStorePool } from "./case-store/postgres/connection";
 import { MCP_RESOURCE_URL } from "./hostnames";
 import { log } from "./logger";
 
@@ -120,44 +125,18 @@ const ALLOWED_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
 	"dimagi-ai.com",
 ]);
 
-let _authDb: AdminFirestore | null = null;
-
-function getAuthDb(): AdminFirestore {
-	if (!_authDb) {
-		_authDb = new AdminFirestore({
-			projectId: process.env.GOOGLE_CLOUD_PROJECT,
-			...firestoreClientOptions(),
-		});
-	}
-	return _authDb;
-}
-
 /**
- * Creates the Better Auth instance. Extracted as a named function so
- * `typeof createAuth` captures the full config-specific return type —
- * needed by the client's `inferAdditionalFields` plugin to pick up
- * plugin-added fields (admin plugin's `role` on user, etc.).
+ * Creates the Better Auth instance. Async because it acquires the shared
+ * Cloud SQL pool. Named (not inlined) so `Awaited<ReturnType<typeof createAuth>>`
+ * (the exported `Auth` type) captures the full config-specific instance type —
+ * needed by the client's `inferAdditionalFields` plugin to pick up plugin-added
+ * fields (admin plugin's `role` on user, etc.).
  */
-function createAuth() {
-	/* Shared with `withCompleteFirestoreAdapter` below so the adapter and its
-	 * shims resolve the same Firestore handle + collections. */
-	const authFirestore = getAuthDb();
-	const authCollections = {
-		users: "auth_users",
-		sessions: "auth_sessions",
-		accounts: "auth_accounts",
-		/* Only `users` / `sessions` / `accounts` actually take effect. The
-		 * Firestore adapter special-cases exactly those three model names when
-		 * resolving a collection; it maps this `verificationTokens` override to
-		 * the `verificationToken` model name, but Better Auth core's model is
-		 * `verification`, which the adapter leaves unmapped. Verification rows
-		 * therefore land in the default unprefixed `verification` collection,
-		 * not `auth_verifications` — the override here is inert, kept to document
-		 * the intended namespacing. Routing verification rows under `auth_`
-		 * would require the adapter itself to special-case the `verification`
-		 * model. */
-		verificationTokens: "auth_verifications",
-	};
+async function createAuth() {
+	// Better Auth runs its own Kysely on the case-store's shared `pg.Pool`; one
+	// pool per instance keeps the connection budget intact. Passing a `pg.Pool`
+	// lets Better Auth detect the Postgres dialect itself.
+	const pool = await getCaseStorePool();
 
 	return betterAuth({
 		secret: process.env.BETTER_AUTH_SECRET,
@@ -231,6 +210,7 @@ function createAuth() {
 		 * `required: false` because pre-migration users lack this field.
 		 */
 		user: {
+			modelName: AUTH_TABLE_NAMES.user,
 			additionalFields: {
 				lastActiveAt: {
 					type: "date",
@@ -242,32 +222,20 @@ function createAuth() {
 		},
 
 		/**
-		 * Firestore database for auth state (users, sessions, accounts).
+		 * Postgres for all auth state via Better Auth's built-in Kysely adapter.
+		 * Better Auth runs its OWN Kysely on the case-store's shared `pg.Pool`
+		 * (passing a `pg.Pool` lets it detect the Postgres dialect itself); one
+		 * pool per instance keeps the connection budget intact. The atomic
+		 * rate-limiter counter (`incrementOne`) and OAuth single-use token
+		 * consumption (`consumeOne`) are native to this adapter.
 		 *
-		 * Uses the Firebase Admin Firestore export because
-		 * `better-auth-firestore` imports its `Timestamp` class from the same
-		 * module. Passing the app's `@google-cloud/firestore` singleton can
-		 * produce a different runtime `Timestamp` class when npm installs
-		 * separate Firestore versions, causing adapter date conversion to miss.
-		 * Collections are still in the same project/database and are prefixed
-		 * with `auth_` to namespace them away from application data.
-		 *
-		 * Wrapped in `withCompleteFirestoreAdapter` to satisfy Better Auth core's
-		 * full adapter contract — both the atomic `incrementOne` the rate limiter
-		 * needs and the transaction-scoped method set the OAuth token exchange
-		 * needs (`findMany` / `consumeOne` / `deleteMany`). Without it those calls
-		 * throw `r.<method> is not a function` and 500 the request — the rate
-		 * limiter on every repeat request in a window, and `/oauth2/token` on
-		 * every MCP sign-in. See `lib/auth-firestore-adapter.ts`.
+		 * Every model's table is `auth_`-prefixed via per-model `modelName` (here
+		 * for the core models + each plugin's `schema` below), so the whole schema
+		 * is namespaced.
 		 */
-		database: withCompleteFirestoreAdapter(
-			firestoreAdapter({
-				firestore: authFirestore,
-				collections: authCollections,
-			}),
-			authFirestore,
-			authCollections,
-		),
+		database: pool,
+
+		verification: { modelName: AUTH_TABLE_NAMES.verification },
 
 		/**
 		 * Trusted origins for CSRF validation.
@@ -290,11 +258,12 @@ function createAuth() {
 		 *
 		 * Default "memory" storage resets on restart and is per-instance, making
 		 * it effectively useless on Cloud Run. "database" stores counters in
-		 * Firestore so all instances share the same rate limit state. Custom
+		 * Postgres so all instances share the same rate limit state. Custom
 		 * rules tighten sensitive auth endpoints beyond the 100 req/10s default.
 		 */
 		rateLimit: {
 			storage: "database",
+			modelName: AUTH_TABLE_NAMES.rateLimit,
 			customRules: {
 				"/api/auth/callback/:path": { window: 60, max: 10 },
 				/* Per-IP cap on the MCP route. The rule key is the path
@@ -305,7 +274,7 @@ function createAuth() {
 				 *
 				 * Picked to absorb realistic agent-driven traffic without
 				 * letting an unauthenticated attacker hammer the
-				 * Firestore-backed `verifyApiKey` lookup or the JWT
+				 * Postgres-backed `verifyApiKey` lookup or the JWT
 				 * verifier. 120 req/min ≈ 2 per second, comfortably
 				 * above tool-call cadence even from concurrent worktrees
 				 * (each worktree gets its own per-IP counter).
@@ -317,7 +286,7 @@ function createAuth() {
 				 * up to Cloud Run's per-instance request concurrency
 				 * (default 80) before any response-side increment
 				 * lands. Each burst request still hits `verifyApiKey`
-				 * and the Firestore lookup. The rate limiter starts
+				 * and the Postgres lookup. The rate limiter starts
 				 * blocking on the next sustained window, so over time
 				 * the cap holds — but it does not protect against
 				 * single-burst abuse. Edge-level rate limiting (Cloud
@@ -330,6 +299,7 @@ function createAuth() {
 		},
 
 		session: {
+			modelName: AUTH_TABLE_NAMES.session,
 			expiresIn: 60 * 60 * 24 * 2, // 2 days max lifetime
 			updateAge: 60 * 60 * 12, // refresh every 12h of activity
 
@@ -339,8 +309,8 @@ function createAuth() {
 			 *
 			 * Compact strategy (Base64url + HMAC) has the smallest cookie payload.
 			 * 5-minute maxAge means the cached session payload is re-fetched from
-			 * Firestore at most every 5 minutes. Admin checks (`requireAdminAccess`)
-			 * bypass the cache entirely — they read `auth_users` directly — so
+			 * Postgres at most every 5 minutes. Admin checks (`requireAdminAccess`)
+			 * bypass the cache entirely — they read `auth_user` directly — so
 			 * cached role staleness is a display-only concern, not a security one.
 			 *
 			 * Account REVOCATION (ban / delete) does NOT ride this cache: the two
@@ -348,7 +318,7 @@ function createAuth() {
 			 * run a live `isUserActive` read on every authenticated request, so a
 			 * banned or deleted user is denied within the window rather than after
 			 * it. The cache still spares the session-row read; the live check is a
-			 * separate `auth_users` read.
+			 * separate `auth_user` read.
 			 */
 			cookieCache: {
 				enabled: true,
@@ -389,17 +359,17 @@ function createAuth() {
 		 *
 		 * Better Auth's `databaseHooks.user.create.before` fires inside
 		 * the OAuth callback handler — after Google's tokens have been
-		 * verified and userinfo fetched, but BEFORE the `auth_users` row
-		 * is written, the `auth_accounts` link is created, or any session
+		 * verified and userinfo fetched, but BEFORE the `auth_user` row
+		 * is written, the `auth_account` link is created, or any session
 		 * is established. Throwing `APIError` aborts the entire callback
-		 * chain, so a rejected user leaves no Firestore trace and never
+		 * chain, so a rejected user leaves no database trace and never
 		 * receives a session cookie. There is no in-between window where
 		 * a non-allowlisted user is partially signed in.
 		 *
 		 * The hook only fires on user creation, not on subsequent
 		 * sign-ins of an existing account. That is deliberate: the
 		 * allowlist polices who can be ADMITTED. Once an account
-		 * exists in `auth_users`, ban/role-based revocation is the
+		 * exists in `auth_user`, ban/role-based revocation is the
 		 * mechanism for removing access (handled by the admin plugin).
 		 *
 		 * Domain extraction takes the substring after the LAST `@`,
@@ -482,11 +452,11 @@ function createAuth() {
 			 * Admin plugin — adds `role` to the auth user schema, plus
 			 * banning, impersonation, and user management APIs.
 			 *
-			 * `role` lives on `auth_users` (Better Auth's user table) and is
+			 * `role` lives on `auth_user` (Better Auth's user table) and is
 			 * available as `session.user.role`. No custom session field needed.
 			 *
 			 * `adminUserIds` bootstraps admin access from an env var so the
-			 * first admin doesn't need to manually edit Firestore. Users in
+			 * first admin doesn't need to manually edit the database. Users in
 			 * this list are always treated as admin regardless of their
 			 * `role` field.
 			 */
@@ -507,7 +477,11 @@ function createAuth() {
 			 * Better Auth response, which conflicts with the session-cookie
 			 * flow that the rest of Nova still uses for first-party login.
 			 */
-			jwt({ disableSettingJwtHeader: true }),
+			jwt({
+				disableSettingJwtHeader: true,
+				// `auth_`-prefix the JWKS table, like every other auth model.
+				schema: { jwks: { modelName: AUTH_TABLE_NAMES.jwks } },
+			}),
 
 			/**
 			 * OAuth 2.1 authorization server (`@better-auth/oauth-provider`).
@@ -537,7 +511,7 @@ function createAuth() {
 			 * per-endpoint limiter (distinct from Better Auth's global
 			 * `rateLimit` above) with sensible production defaults. We
 			 * override `register` specifically because it's the one public,
-			 * unauthenticated endpoint that persists a Firestore doc on
+			 * unauthenticated endpoint that persists a row on
 			 * success — tightening it to 5 req/min per IP caps storage
 			 * abuse without impacting legitimate clients (which register
 			 * once per install). Other endpoints stay on plugin defaults.
@@ -571,6 +545,18 @@ function createAuth() {
 				 * own guidance ("Upon completion, clear with
 				 * silenceWarnings.oauthAuthServerConfig"). */
 				silenceWarnings: { oauthAuthServerConfig: true },
+				// `auth_`-prefix EVERY oauth-provider table — including
+				// `oauthAccessToken`, which (like the old `verification` wart) lands
+				// unprefixed if omitted. The app-owned reads in
+				// `lib/db/oauth-consents.ts` query the client/consent/refresh names.
+				schema: {
+					oauthClient: { modelName: AUTH_TABLE_NAMES.oauthClient },
+					oauthConsent: { modelName: AUTH_TABLE_NAMES.oauthConsent },
+					oauthRefreshToken: {
+						modelName: AUTH_TABLE_NAMES.oauthRefreshToken,
+					},
+					oauthAccessToken: { modelName: AUTH_TABLE_NAMES.oauthAccessToken },
+				},
 			}),
 
 			/**
@@ -674,24 +660,19 @@ function createAuth() {
 				 * suggest a second bound that doesn't behave like
 				 * "requests per window". */
 				rateLimit: { enabled: false },
-				/* Move the plugin's per-verify `lastRequest` write off
-				 * the auth hot path. Without this, every successful
-				 * `verifyApiKey` awaits a Firestore write to the same
-				 * `apikey/{id}` doc — exactly the document-hotspot shape
-				 * Firestore's scaling guidance flags (sustained writes to
-				 * one doc above ~1/sec cause contention). The risk is
-				 * concentrated for the shared-service-key case the
-				 * feature explicitly targets (one key, many concurrent
-				 * worktrees). With `deferUpdates: true` the write fires
-				 * via `runInBackground` after the verify response is
-				 * built — auth doesn't wait, the "Last used" timestamp
-				 * still updates, and the steady-state write rate to the
-				 * single doc no longer gates request throughput. The
-				 * tradeoff: a Firestore outage that breaks the deferred
-				 * write fails silently to logs without blocking the
-				 * request, which is the right shape — losing an audit
-				 * timestamp is preferable to denying authenticated
-				 * service-account traffic. */
+				/* Move the plugin's per-verify `lastRequest` write off the
+				 * auth hot path. Without this, every successful `verifyApiKey`
+				 * awaits an UPDATE to the key's `auth_apikey` row before
+				 * returning, so verify latency includes a write round-trip —
+				 * concentrated on the shared-service-key case the feature
+				 * targets (one key, many concurrent worktrees), where the same
+				 * row is updated on every call. With `deferUpdates: true` the
+				 * write fires via `runInBackground` after the verify response is
+				 * built — auth doesn't wait and the "Last used" timestamp still
+				 * updates. The tradeoff: a write failure degrades silently to
+				 * logs without blocking the request, which is the right shape —
+				 * losing an audit timestamp is preferable to denying
+				 * authenticated service-account traffic. */
 				deferUpdates: true,
 				keyExpiration: {
 					/* `defaultExpiresIn` is in SECONDS despite the plugin type
@@ -710,6 +691,8 @@ function createAuth() {
 					maxExpiresIn: 36500,
 				},
 				references: "user",
+				// `auth_`-prefix the api-key table.
+				schema: { apikey: { modelName: AUTH_TABLE_NAMES.apikey } },
 			}),
 			novaMcpPlugin(),
 		],
@@ -719,10 +702,10 @@ function createAuth() {
 		 *
 		 * Even though we only use Google OAuth for sign-in (not API access on
 		 * behalf of users), encrypting stored tokens is defense-in-depth — if
-		 * the Firestore `auth_accounts` collection is ever exposed, raw tokens
-		 * can't be reused.
+		 * the `auth_account` table is ever exposed, raw tokens can't be reused.
 		 */
 		account: {
+			modelName: AUTH_TABLE_NAMES.account,
 			encryptOAuthTokens: true,
 		},
 
@@ -755,23 +738,40 @@ function createAuth() {
 	});
 }
 
-/** Full auth instance type — used by the client's `inferAdditionalFields` plugin. */
-export type Auth = ReturnType<typeof createAuth>;
+/**
+ * Full auth instance type — used by the client's `inferAdditionalFields`
+ * plugin. `createAuth` is async (it awaits the shared pool), so unwrap the
+ * promise to recover the instance type.
+ */
+export type Auth = Awaited<ReturnType<typeof createAuth>>;
 
-/** Cached singleton — populated on first `getAuth()` call. */
+/** Cached singleton — populated on first successful `getAuth()` call. */
 let _auth: Auth | null = null;
+/** Concurrent first-callers share one init rather than racing. */
+let _authInFlight: Promise<Auth> | null = null;
 
 /**
  * Returns the Better Auth singleton, initializing it on first call.
  *
- * Every call site that needs auth (route handlers, RSC auth checks) goes
- * through this function. The initialization is deferred so `next build`
- * can import this module without triggering Firestore connections or
- * missing-secret warnings.
+ * Async because the shared Cloud SQL pool is resolved asynchronously. Every
+ * call site that needs auth (route handlers, RSC auth checks) awaits this. The
+ * initialization is deferred so `next build` can import this module without
+ * opening a database connection or hitting missing-secret warnings. Mirrors the
+ * case-store's `getCaseStoreDatabase` lazy-async-singleton shape: the in-flight
+ * slot is cleared on failure so a transient init error doesn't latch.
  */
-export function getAuth(): Auth {
-	if (!_auth) _auth = createAuth();
-	return _auth;
+export async function getAuth(): Promise<Auth> {
+	if (_auth) return _auth;
+	if (_authInFlight === null) {
+		_authInFlight = createAuth();
+		try {
+			_auth = await _authInFlight;
+		} finally {
+			_authInFlight = null;
+		}
+		return _auth;
+	}
+	return _authInFlight;
 }
 
 /** Type-safe session type derived from the auth config. */

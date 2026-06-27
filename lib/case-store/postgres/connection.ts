@@ -82,6 +82,17 @@ export const CLOUD_RUN_MAX_INSTANCES = 5;
 export const POOL_MAX_PER_INSTANCE = 4;
 
 /**
+ * Cap on how long a query waits to ACQUIRE a pooled connection before erroring.
+ * Without it `pg.Pool` queues indefinitely; since the auth migration funnels a
+ * per-request `isUserActive` read onto this 4-connection pool (which also serves
+ * case-store/preview queries), a saturated pool could otherwise hang requests to
+ * the route's 300s ceiling. A bounded timeout fails fast instead — the auth read
+ * is fail-open on error (`sessionUserIsActive` allows the request), and
+ * case-store queries surface a clear error rather than stalling.
+ */
+export const POOL_CONNECTION_TIMEOUT_MS = 10_000;
+
+/**
  * Connection-budget invariant. Throws when the four constants drift
  * into a configuration that would let Cloud Run instances overrun
  * Cloud SQL's cap. Fires once per process on the first
@@ -221,6 +232,7 @@ export function buildPoolConfig(
 		user: env.NOVA_DB_USER,
 		database: env.NOVA_DB_NAME,
 		max: POOL_MAX_PER_INSTANCE,
+		connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
 	};
 }
 
@@ -234,6 +246,14 @@ interface CaseStoreHandles {
 	 */
 	connector: Connector | null;
 	db: Kysely<Database>;
+	/**
+	 * The underlying `pg.Pool`. Exposed via `getCaseStorePool()` so Better Auth
+	 * shares this ONE pool rather than opening a second — the connection budget
+	 * (`enforceConnectionBudget`) is sized for a single pool per instance.
+	 * Kysely owns its lifecycle (`db.destroy()` ends it on teardown); Better
+	 * Auth, having not created it, never closes it.
+	 */
+	pool: Pool;
 }
 
 let handles: CaseStoreHandles | null = null;
@@ -263,11 +283,12 @@ async function initialize(): Promise<CaseStoreHandles> {
 		const pool = new Pool({
 			connectionString: localUrl,
 			max: POOL_MAX_PER_INSTANCE,
+			connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
 		});
 		const dialect = new PostgresDialect({
 			pool: pool as unknown as PostgresPool,
 		});
-		return { connector: null, db: new Kysely<Database>({ dialect }) };
+		return { connector: null, db: new Kysely<Database>({ dialect }), pool };
 	}
 
 	const env = readCaseStoreEnvConfig();
@@ -285,18 +306,18 @@ async function initialize(): Promise<CaseStoreHandles> {
 	});
 	const config: KyselyConfig = { dialect };
 	const db = new Kysely<Database>(config);
-	return { connector, db };
+	return { connector, db, pool };
 }
 
 /**
- * Get the singleton `Kysely<Database>` instance. First call
- * constructs the connector + pool + Kysely chain; subsequent calls
- * return the cached instance. Async because `Connector.getOptions`
- * resolves the instance via the SQL Admin API on first call.
+ * Get the singleton handles. First call constructs the connector + pool +
+ * Kysely chain; subsequent calls return the cached set. Async because
+ * `Connector.getOptions` resolves the instance via the SQL Admin API on first
+ * call. Concurrent first-callers share one init via `initInFlight`.
  */
-export async function getCaseStoreDatabase(): Promise<Kysely<Database>> {
+async function getHandles(): Promise<CaseStoreHandles> {
 	if (handles !== null) {
-		return handles.db;
+		return handles;
 	}
 	if (initInFlight === null) {
 		initInFlight = initialize();
@@ -307,11 +328,27 @@ export async function getCaseStoreDatabase(): Promise<Kysely<Database>> {
 			// a rejected promise — the next call retries.
 			initInFlight = null;
 		}
-		return handles.db;
+		return handles;
 	}
 	// Another caller is mid-init; await the same promise.
-	const ready = await initInFlight;
-	return ready.db;
+	return await initInFlight;
+}
+
+/**
+ * Get the singleton `Kysely<Database>` instance — the case-store query handle.
+ */
+export async function getCaseStoreDatabase(): Promise<Kysely<Database>> {
+	return (await getHandles()).db;
+}
+
+/**
+ * Get the singleton `pg.Pool` backing the case store, so Better Auth can run
+ * its own Kysely on the SAME pool (one pool per instance keeps the connection
+ * budget intact — see `enforceConnectionBudget`). Kysely owns the pool's
+ * lifecycle; do NOT call `pool.end()` on the returned handle.
+ */
+export async function getCaseStorePool(): Promise<Pool> {
+	return (await getHandles()).pool;
 }
 
 /**

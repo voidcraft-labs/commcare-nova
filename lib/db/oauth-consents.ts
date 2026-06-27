@@ -1,27 +1,24 @@
 /**
  * App-owned reads and revocations against `@better-auth/oauth-provider`'s
- * Firestore tables. Exists because the plugin's own
- * `deleteOAuthConsent` endpoint deletes the consent row but does NOT
- * revoke the (user, client)'s refresh tokens — real revocation needs
- * both atomically. The per-request consent lookup the MCP route uses
- * lives here too, colocated with the revoke that depends on it.
+ * tables. Exists because the plugin's own `deleteOAuthConsent` endpoint
+ * deletes the consent row but does NOT revoke the (user, client)'s refresh
+ * tokens — real revocation needs both atomically. The per-request consent
+ * lookup the MCP route uses lives here too, colocated with the revoke that
+ * depends on it.
  *
- * Direct `getDb()` reads (rather than typed `collections` helpers)
- * mirror the pattern in `lib/db/admin.ts` for `auth_users` — the
- * plugin owns these schemas, duplicating Zod converters would split
- * the source of truth.
- *
- * Collection names are `oauthConsent`, `oauthClient`,
- * `oauthRefreshToken` — `better-auth-firestore` uses the modelName
- * as-is for plugin tables. Field names are camelCase under
- * `namingStrategy: "default"`.
+ * Reads/writes run on the shared `Kysely<AuthDatabase>` (`getAuthDb`) rather
+ * than through the plugin's typed surface — the plugin owns these schemas and
+ * duplicating its CRUD would split the source of truth. Table names are
+ * `auth_oauth_{consent,client,refresh_token}` (the plugin's models,
+ * `auth_`-prefixed via `modelName` in `lib/auth.ts`) plus the Nova-owned
+ * `auth_oauth_grant_revocation`. Column names are the plugin's storage names
+ * (camelCase), NOT the RFC 7591 wire names (`client_id` / `client_name`).
  */
 
 import { createHash } from "node:crypto";
-import { FieldValue, Timestamp } from "@google-cloud/firestore";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { AS_ISSUER, AS_ORIGIN, MCP_RESOURCE_URL } from "@/lib/hostnames";
-import { getDb } from "./firestore";
+import { getAuthDb } from "../auth/db";
 
 /**
  * JWKS for verifying OAuth-minted access tokens. `createRemoteJWKSet`
@@ -44,102 +41,29 @@ const AS_JWKS = createRemoteJWKSet(new URL(`${AS_ORIGIN}/api/auth/jwks`));
  * client has no name set, matching the `/consent` page.
  */
 export interface AuthorizedClient {
-	/** `oauthConsent` document id — opaque to the UI; passed back on revoke. */
+	/** `auth_oauth_consent` row id — opaque to the UI; passed back on revoke. */
 	consentId: string;
 	clientId: string;
 	clientName: string;
-	/** ISO string from `oauthConsent.createdAt`. */
+	/** ISO string from `auth_oauth_consent.createdAt`. */
 	authorizedAt: string;
 	scopes: string[];
 }
 
-// ── Raw doc shapes (Firestore-side) ─────────────────────────────────
-
-/**
- * Subset of the `oauthConsent` doc we actually read. `scopes` is
- * typed `unknown` because Better Auth's adapter framework JSON-
- * stringifies `string[]` fields on write — see `decodeScopes`.
- */
-interface OAuthConsentDoc {
-	clientId: string;
-	userId: string;
-	scopes: unknown;
-	createdAt: Timestamp | Date;
-	updatedAt?: Timestamp | Date;
-	referenceId?: string;
-}
-
-/**
- * Raw `oauthClient` document fields. Only the two we need for display.
- *
- * Field names here are the *storage* names defined by the plugin's
- * schema (`oauthClient.fields` in `@better-auth/oauth-provider`'s
- * exported schema declaration). They are NOT the RFC 7591 wire names
- * (`client_id` / `client_name`) that the plugin's API endpoints
- * surface — those are translations. Raw Firestore reads see the
- * storage names, so we use them here.
- */
-interface OAuthClientDoc {
-	clientId: string;
-	/** Human-readable client name. Stored as `name`; surfaced as `client_name` over the wire. */
-	name?: string;
-	/** Public clients are unauthenticated DCR clients (`token_endpoint_auth_method: none`). */
-	public?: boolean;
-	/** Present only for clients registered by an authenticated user. */
-	userId?: string;
-	createdAt?: Timestamp | Date;
-}
-
-/**
- * Raw `oauthRefreshToken` document — fields touched during revoke.
- * `revoked` is the plugin's own per-token revocation flag (a Date set
- * at revoke time, undefined while live).
- */
-interface OAuthRefreshTokenDoc {
-	userId: string;
-	clientId: string;
-	revoked?: Timestamp | Date;
-}
-
-/** Per-(user, client) revocation watermark used to invalidate JWT access tokens. */
-interface OAuthGrantRevocationDoc {
-	userId: string;
-	clientId: string;
-	revokedAt?: Timestamp | Date;
-}
-
-// ── Collection names ────────────────────────────────────────────────
-
-const COLLECTION_CONSENT = "oauthConsent";
-const COLLECTION_CLIENT = "oauthClient";
-const COLLECTION_REFRESH_TOKEN = "oauthRefreshToken";
-const COLLECTION_GRANT_REVOCATION = "oauthGrantRevocation";
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
 // ── Helpers ─────────────────────────────────────────────────────────
 
-/** Firestore returns `Timestamp` on read, accepts `Date` on write. */
-function toISOString(val: Timestamp | Date): string {
-	if (val instanceof Timestamp) return val.toDate().toISOString();
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** The Kysely adapter returns `timestamptz` columns as `Date`. */
+function toISOString(val: Date): string {
 	return val.toISOString();
 }
 
-/** Firestore timestamp-ish value to epoch millis. Invalid/missing means fail closed. */
-function toMillis(val: Timestamp | Date | undefined): number | null {
+/** Date to epoch millis. Invalid/missing means fail closed. */
+function toMillis(val: Date | null | undefined): number | null {
 	if (!val) return null;
-	const date = val instanceof Timestamp ? val.toDate() : val;
-	const ms = date.getTime();
+	const ms = val.getTime();
 	return Number.isFinite(ms) ? ms : null;
-}
-
-/** Deterministic doc id without exposing raw user/client ids in the path. */
-function grantRevocationDocId(userId: string, clientId: string): string {
-	const digest = createHash("sha256")
-		.update(userId)
-		.update("\0")
-		.update(clientId)
-		.digest("base64url");
-	return `grant-rev-${digest}`;
 }
 
 function hashStoredOAuthToken(token: string): string {
@@ -147,15 +71,13 @@ function hashStoredOAuthToken(token: string): string {
 }
 
 /**
- * Decode a Firestore-stored `scopes` field back to `string[]`.
+ * Normalize a stored `scopes` value to `string[]`.
  *
- * Better Auth's adapter framework JSON-stringifies `string[]` fields
- * on write when the underlying adapter doesn't declare
- * `supportsArrays: true` — `better-auth-firestore` doesn't, so what
- * lands on disk is `'["nova.read",...]'` rather than a Firestore array.
- * The plugin's own reads invert this via the adapter; we read direct,
- * so we invert it here. Falls through to `[]` for any other shape,
- * which keeps a future schema change from crashing the UI.
+ * Postgres stores `scopes` as `jsonb`, so Kysely returns it already
+ * decoded as an array — unlike the api-key `permissions` column, which is
+ * a JSON string. This helper is defensive: it filters non-string entries
+ * and also tolerates a JSON-string shape, falling through to `[]` so a
+ * stray shape never crashes the settings UI.
  */
 function decodeScopes(raw: unknown): string[] {
 	if (Array.isArray(raw)) {
@@ -178,40 +100,36 @@ function decodeScopes(raw: unknown): string[] {
 
 /**
  * List the user's authorized OAuth clients, newest first. Reads
- * `oauthConsent` rows for the user, then joins on `oauthClient` for
- * display names.
+ * `auth_oauth_consent` rows for the user, then joins on
+ * `auth_oauth_client` for display names.
  */
 export async function listAuthorizedClients(
 	userId: string,
 ): Promise<AuthorizedClient[]> {
-	const consentsSnap = await getDb()
-		.collection(COLLECTION_CONSENT)
-		.where("userId", "==", userId)
-		.get();
+	const db = await getAuthDb();
+	const consents = await db
+		.selectFrom("auth_oauth_consent")
+		.select(["id", "clientId", "scopes", "createdAt"])
+		.where("userId", "=", userId)
+		.execute();
 
-	if (consentsSnap.empty) return [];
+	if (consents.length === 0) return [];
 
-	const consents = consentsSnap.docs.map((doc) => ({
-		id: doc.id,
-		data: doc.data() as OAuthConsentDoc,
-	}));
-
-	/* A user can have multiple consent rows for the same client when
-	 * `referenceId` differs (the plugin keys consent uniqueness on
-	 * `(userId, clientId, referenceId)`). Dedupe before the `in`-query. */
+	/* A user can have multiple consent rows for the same client when the
+	 * plugin's find-then-create flow produces duplicates. Dedupe before the
+	 * `in`-query that fetches display names. */
 	const distinctClientIds = Array.from(
-		new Set(consents.map((c) => c.data.clientId)),
+		new Set(consents.map((c) => c.clientId)),
 	);
 
-	const clientsByIdEntries = await fetchClientNames(distinctClientIds);
-	const clientsById = new Map(clientsByIdEntries);
+	const clientsById = new Map(await fetchClientNames(distinctClientIds));
 
 	const rows: AuthorizedClient[] = consents.map((c) => ({
 		consentId: c.id,
-		clientId: c.data.clientId,
-		clientName: clientsById.get(c.data.clientId) ?? "An application",
-		authorizedAt: toISOString(c.data.createdAt),
-		scopes: decodeScopes(c.data.scopes),
+		clientId: c.clientId,
+		clientName: clientsById.get(c.clientId) ?? "An application",
+		authorizedAt: toISOString(c.createdAt),
+		scopes: decodeScopes(c.scopes),
 	}));
 
 	rows.sort((a, b) => b.authorizedAt.localeCompare(a.authorizedAt));
@@ -220,10 +138,11 @@ export async function listAuthorizedClients(
 
 /**
  * Revoke a (user, client) authorization atomically: delete the consent
- * row + mark every refresh token for that pair revoked. Both are
- * needed — the consent check (`hasActiveConsent`) stops in-flight
- * JWTs immediately, the refresh-token revoke prevents a stolen
- * refresh token minting a fresh JWT.
+ * row(s) + mark every refresh token for that pair revoked + bump the JWT
+ * revocation watermark. All three are needed — the consent check
+ * (`hasActiveConsent`) stops in-flight JWTs immediately, the refresh-token
+ * revoke prevents a stolen refresh token minting a fresh JWT, and the
+ * watermark invalidates already-minted JWTs by issue time.
  *
  * Idempotent on already-revoked consent. Throws on userId mismatch —
  * defense in depth against arbitrary `consentId` strings reaching this
@@ -233,63 +152,48 @@ export async function revokeAuthorizedClient(
 	userId: string,
 	consentId: string,
 ): Promise<void> {
-	const db = getDb();
-	const consentRef = db.collection(COLLECTION_CONSENT).doc(consentId);
+	const db = await getAuthDb();
 
-	await db.runTransaction(async (tx) => {
-		const consentSnap = await tx.get(consentRef);
-		if (!consentSnap.exists) return; // idempotent — already revoked
-
-		const consent = consentSnap.data() as OAuthConsentDoc;
+	await db.transaction().execute(async (trx) => {
+		const consent = await trx
+			.selectFrom("auth_oauth_consent")
+			.select(["clientId", "userId"])
+			.where("id", "=", consentId)
+			.executeTakeFirst();
+		if (!consent) return; // idempotent — already revoked
 		if (consent.userId !== userId) {
 			throw new Error("Consent does not belong to this user");
 		}
+		const { clientId } = consent;
+		/* One app-server timestamp for the whole transaction, so the
+		 * revoked tokens and the watermark share an instant. */
+		const revokedAt = new Date();
 
-		/* Delete every consent row for the same pair. The plugin's
-		 * find-then-create flow plus Firestore's lack of uniqueness can
-		 * produce duplicates; leaving any one row behind would keep the
-		 * MCP route's active-grant check alive. */
-		const consentsSnap = await tx.get(
-			db
-				.collection(COLLECTION_CONSENT)
-				.where("userId", "==", userId)
-				.where("clientId", "==", consent.clientId),
-		);
+		/* Delete every consent row for the same pair — leaving any one behind
+		 * would keep the MCP route's active-grant check alive. */
+		await trx
+			.deleteFrom("auth_oauth_consent")
+			.where("userId", "=", userId)
+			.where("clientId", "=", clientId)
+			.execute();
 
-		/* Read tokens inside the txn so the bulk update commits atomically
-		 * with consent deletion and the JWT revocation watermark. */
-		const tokensSnap = await tx.get(
-			db
-				.collection(COLLECTION_REFRESH_TOKEN)
-				.where("userId", "==", userId)
-				.where("clientId", "==", consent.clientId),
-		);
+		/* Revoke every not-yet-revoked refresh token for the pair. */
+		await trx
+			.updateTable("auth_oauth_refresh_token")
+			.set({ revoked: revokedAt })
+			.where("userId", "=", userId)
+			.where("clientId", "=", clientId)
+			.where("revoked", "is", null)
+			.execute();
 
-		for (const consentDoc of consentsSnap.docs) {
-			tx.delete(consentDoc.ref);
-		}
-
-		/* `serverTimestamp()` resolves on commit so every revoked
-		 * token and the watermark get the same server-side timestamp. */
-		const revokedAt = FieldValue.serverTimestamp();
-		for (const tokenDoc of tokensSnap.docs) {
-			const data = tokenDoc.data() as OAuthRefreshTokenDoc;
-			if (data.revoked) continue;
-			tx.update(tokenDoc.ref, { revoked: revokedAt });
-		}
-
-		tx.set(
-			db
-				.collection(COLLECTION_GRANT_REVOCATION)
-				.doc(grantRevocationDocId(userId, consent.clientId)),
-			{
-				userId,
-				clientId: consent.clientId,
-				revokedAt,
-				updatedAt: revokedAt,
-			},
-			{ merge: true },
-		);
+		/* Upsert the JWT revocation watermark, keyed on (userId, clientId). */
+		await trx
+			.insertInto("auth_oauth_grant_revocation")
+			.values({ userId, clientId, revokedAt })
+			.onConflict((oc) =>
+				oc.columns(["userId", "clientId"]).doUpdateSet({ revokedAt }),
+			)
+			.execute();
 	});
 }
 
@@ -298,19 +202,15 @@ export async function recordOAuthGrantRevocation(
 	userId: string,
 	clientId: string,
 ): Promise<void> {
-	const revokedAt = FieldValue.serverTimestamp();
-	await getDb()
-		.collection(COLLECTION_GRANT_REVOCATION)
-		.doc(grantRevocationDocId(userId, clientId))
-		.set(
-			{
-				userId,
-				clientId,
-				revokedAt,
-				updatedAt: revokedAt,
-			},
-			{ merge: true },
-		);
+	const db = await getAuthDb();
+	const revokedAt = new Date();
+	await db
+		.insertInto("auth_oauth_grant_revocation")
+		.values({ userId, clientId, revokedAt })
+		.onConflict((oc) =>
+			oc.columns(["userId", "clientId"]).doUpdateSet({ revokedAt }),
+		)
+		.execute();
 }
 
 /**
@@ -326,8 +226,8 @@ export async function recordOAuthGrantRevocation(
  * here closes that channel.
  *
  * Refresh tokens are opaque strings (not JWTs); they fall through to a
- * hashed-storage lookup against `oauthRefreshToken`, which is safe by
- * construction — only tokens the AS itself minted can hit a row.
+ * hashed-storage lookup against `auth_oauth_refresh_token`, which is safe
+ * by construction — only tokens the AS itself minted can hit a row.
  */
 export async function recordOAuthGrantRevocationForToken(
 	token: string,
@@ -350,14 +250,13 @@ export async function recordOAuthGrantRevocationForToken(
 		 * the AS minted appear in the table. */
 	}
 
-	const snap = await getDb()
-		.collection(COLLECTION_REFRESH_TOKEN)
-		.where("token", "==", hashStoredOAuthToken(token))
+	const db = await getAuthDb();
+	const refresh = await db
+		.selectFrom("auth_oauth_refresh_token")
+		.select(["userId", "clientId"])
+		.where("token", "=", hashStoredOAuthToken(token))
 		.limit(1)
-		.get();
-	if (snap.empty) return false;
-
-	const refresh = snap.docs[0]?.data() as OAuthRefreshTokenDoc | undefined;
+		.executeTakeFirst();
 	if (!refresh?.userId || !refresh.clientId) return false;
 	await recordOAuthGrantRevocation(refresh.userId, refresh.clientId);
 	return true;
@@ -373,13 +272,21 @@ export async function hasActiveConsent(
 	clientId: string,
 	tokenIssuedAt?: number,
 ): Promise<boolean> {
-	const snap = await getDb()
-		.collection(COLLECTION_CONSENT)
-		.where("userId", "==", userId)
-		.where("clientId", "==", clientId)
+	const db = await getAuthDb();
+	// One round-trip on the per-request MCP path: the consent existence test
+	// LEFT JOINed to the (user, client) revocation watermark. `revokedAt` is null
+	// when no consent matches (row absent) OR no watermark exists.
+	const row = await db
+		.selectFrom("auth_oauth_consent as c")
+		.leftJoin("auth_oauth_grant_revocation as r", (join) =>
+			join.on("r.userId", "=", userId).on("r.clientId", "=", clientId),
+		)
+		.select(["c.id as consentId", "r.revokedAt as revokedAt"])
+		.where("c.userId", "=", userId)
+		.where("c.clientId", "=", clientId)
 		.limit(1)
-		.get();
-	if (snap.empty) return false;
+		.executeTakeFirst();
+	if (!row) return false;
 
 	if (tokenIssuedAt === undefined) return true;
 
@@ -388,19 +295,14 @@ export async function hasActiveConsent(
 		: null;
 	if (issuedAtMs === null) return false;
 
-	const revocationSnap = await getDb()
-		.collection(COLLECTION_GRANT_REVOCATION)
-		.where("userId", "==", userId)
-		.where("clientId", "==", clientId)
-		.limit(1)
-		.get();
-	if (revocationSnap.empty) return true;
-
-	const revocation = revocationSnap.docs[0]?.data() as
-		| OAuthGrantRevocationDoc
-		| undefined;
-	const revokedAtMs = toMillis(revocation?.revokedAt);
+	if (row.revokedAt == null) return true;
+	const revokedAtMs = toMillis(row.revokedAt);
 	if (revokedAtMs === null) return false;
+	/* Fail-closed at the JWT `iat`'s second granularity: `issuedAtMs` is floored
+	 * to a whole second, so a token issued in the SAME wall-clock second as a
+	 * revocation is treated as revoked (a brief, self-healing denial). The
+	 * inequality never fails OPEN — a token from a later second always reads as
+	 * active. */
 	return revokedAtMs < issuedAtMs;
 }
 
@@ -419,33 +321,39 @@ export async function cleanupStalePublicOAuthClients({
 	olderThanDays?: number;
 	limit?: number;
 } = {}): Promise<number> {
+	const db = await getAuthDb();
 	const cutoff = new Date(now.getTime() - olderThanDays * MS_PER_DAY);
-	const snap = await getDb()
-		.collection(COLLECTION_CLIENT)
+	const clients = await db
+		.selectFrom("auth_oauth_client")
+		.select(["id", "clientId", "public", "userId"])
 		.where("createdAt", "<", cutoff)
 		.limit(limit)
-		.get();
+		.execute();
 
 	let deleted = 0;
-	for (const doc of snap.docs) {
-		const client = doc.data() as OAuthClientDoc;
+	for (const client of clients) {
 		if (!client.public || client.userId || !client.clientId) continue;
 
-		const [consents, refreshTokens] = await Promise.all([
-			getDb()
-				.collection(COLLECTION_CONSENT)
-				.where("clientId", "==", client.clientId)
+		const [consent, refreshToken] = await Promise.all([
+			db
+				.selectFrom("auth_oauth_consent")
+				.select("id")
+				.where("clientId", "=", client.clientId)
 				.limit(1)
-				.get(),
-			getDb()
-				.collection(COLLECTION_REFRESH_TOKEN)
-				.where("clientId", "==", client.clientId)
+				.executeTakeFirst(),
+			db
+				.selectFrom("auth_oauth_refresh_token")
+				.select("id")
+				.where("clientId", "=", client.clientId)
 				.limit(1)
-				.get(),
+				.executeTakeFirst(),
 		]);
-		if (!consents.empty || !refreshTokens.empty) continue;
+		if (consent || refreshToken) continue;
 
-		await doc.ref.delete();
+		await db
+			.deleteFrom("auth_oauth_client")
+			.where("id", "=", client.id)
+			.execute();
 		deleted += 1;
 	}
 	return deleted;
@@ -455,29 +363,24 @@ export async function cleanupStalePublicOAuthClients({
 
 /**
  * Fetch display names for a deduped list of client ids. Returns
- * `[clientId, name]` entries; clients with no `name` are skipped and
- * the caller applies the "An application" fallback. Caller must
- * dedupe — Firestore caps `in` queries at 30 values.
+ * `[clientId, name]` entries; clients with no `name` are skipped and the
+ * caller applies the "An application" fallback. Caller dedupes the ids.
  */
 async function fetchClientNames(
 	clientIds: string[],
 ): Promise<Array<[string, string]>> {
 	if (clientIds.length === 0) return [];
 
-	/* Firestore caps `in` queries at 30 values; effectively unreachable
-	 * per user (would mean 30+ distinct DCR clients authorized by one
-	 * user), but the cap is the reason the caller dedupes. */
-	const snap = await getDb()
-		.collection(COLLECTION_CLIENT)
+	const db = await getAuthDb();
+	const clients = await db
+		.selectFrom("auth_oauth_client")
+		.select(["clientId", "name"])
 		.where("clientId", "in", clientIds)
-		.get();
+		.execute();
 
 	const entries: Array<[string, string]> = [];
-	for (const doc of snap.docs) {
-		const data = doc.data() as OAuthClientDoc;
-		if (data.name) {
-			entries.push([data.clientId, data.name]);
-		}
+	for (const c of clients) {
+		if (c.name) entries.push([c.clientId, c.name]);
 	}
 	return entries;
 }

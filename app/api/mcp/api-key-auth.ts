@@ -152,7 +152,7 @@ export async function handleApiKeyMcp(
 	req: Request,
 	key: string,
 ): Promise<Response> {
-	const auth = getAuth();
+	const auth = await getAuth();
 
 	let result: Awaited<ReturnType<typeof auth.api.verifyApiKey>>;
 	try {
@@ -186,8 +186,8 @@ export async function handleApiKeyMcp(
 	 * field to a string, but we still defend against an empty value
 	 * because a regression in the verify endpoint that returned a
 	 * blank reference would otherwise hand tools a userId-shaped empty
-	 * string (Firestore would happily run queries against `where userId
-	 * == ""` and leak nothing — but the cleaner failure is a 401). */
+	 * string (a `WHERE userId = ''` lookup would just match nothing and
+	 * leak nothing — but the cleaner failure is a 401). */
 	const userId = verifiedKey.referenceId;
 	if (typeof userId !== "string" || !userId) {
 		log.error("[mcp/api-key] verified key has no referenceId", {
@@ -217,14 +217,13 @@ export async function handleApiKeyMcp(
 	}
 
 	/* Live revocation lock — the api-key plugin's `validateApiKey`
-	 * does not cross-reference `auth_users`, so a banned or deleted
+	 * does not cross-reference `auth_user`, so a banned or deleted
 	 * user's pre-minted keys would otherwise authenticate forever.
 	 * The JWT path runs this SAME `isUserActive` gate (alongside its
 	 * access-token TTL + `hasActiveConsent`), so revocation is universal
 	 * across both MCP bearers; this read is its equivalent. The local catch
-	 * translates
-	 * a Firestore outage into 401, matching the verifier-throw branch
-	 * — fail-closed posture: a transient outage rejects rather than
+	 * translates a database outage into 401, matching the verifier-throw
+	 * branch — fail-closed posture: a transient outage rejects rather than
 	 * authenticates a possibly-banned user. */
 	let active: boolean;
 	try {

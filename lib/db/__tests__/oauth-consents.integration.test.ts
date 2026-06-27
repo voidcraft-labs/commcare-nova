@@ -1,72 +1,55 @@
 /**
- * Integration tests for `lib/db/oauth-consents.ts` against a real
- * Firestore emulator. The unit suite mocks the SDK; the test author
- * controls both sides of the comparison there, so a schema-boundary
- * bug (e.g. querying the wrong field name) can't fail it. This file
- * runs the actual `@better-auth/oauth-provider` plugin and reads back
- * through our helpers, so field-name drift between the plugin's
- * Firestore schema and our queries fails loudly.
+ * Integration tests for `lib/db/oauth-consents.ts` against a real Postgres (the
+ * testcontainer). The unit suite mocks the SDK; the test author controls both
+ * sides of the comparison there, so a schema-boundary bug (e.g. querying the
+ * wrong column name) can't fail it. This file runs the actual
+ * `@better-auth/oauth-provider` plugin — writing through its OWN adapter + DCR
+ * endpoint — and reads back through our Kysely helpers, so column-name / type
+ * drift between the plugin's generated schema and our queries fails loudly.
  *
- * Auto-skipped when `FIRESTORE_EMULATOR_HOST` is unset — run via
- * `npm run test:integration`.
+ * Runs on the per-test-database harness (a fresh Postgres database per test, the
+ * `db.transaction()`-safe path `revokeAuthorizedClient` needs) booted by the
+ * case-store testcontainer `globalSetup`. The module functions reach the DB
+ * through the `getAuthDb` singleton, pointed at the per-test pool via the
+ * `__setAuthDbForTests` seam.
  */
 
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
+import { getMigrations } from "better-auth/db/migration";
 import { jwt } from "better-auth/plugins";
-import { firestoreAdapter } from "better-auth-firestore";
-import { deleteApp, getApps, initializeApp } from "firebase-admin/app";
-import { Firestore } from "firebase-admin/firestore";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { __setAuthDbForTests, type AuthDatabase } from "@/lib/auth/db";
+import { runAuthAppMigrations } from "@/lib/auth/migrate";
+import { authMigrateOptions } from "@/lib/auth-migrate-options";
+import { AUTH_TABLE_NAMES } from "@/lib/auth-schema-shared";
+import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 
-const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
+const TEST_SECRET = "x".repeat(32);
 
-/**
- * `demo-` prefix tells the Firebase tools to skip credential
- * resolution — without it the SDK would try to authenticate against
- * real GCP.
- */
-const TEST_PROJECT_ID = "demo-test";
-
-/** Collections this test populates and clears between cases. */
-const PLUGIN_COLLECTIONS = [
-	"oauthClient",
-	"oauthConsent",
-	"oauthRefreshToken",
-] as const;
-
-/** Wipe plugin collections between tests to keep cases independent. */
-async function clearPluginCollections(db: Firestore): Promise<void> {
-	for (const name of PLUGIN_COLLECTIONS) {
-		const snap = await db.collection(name).get();
-		await Promise.all(snap.docs.map((d) => d.ref.delete()));
-	}
-}
+const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "auth_oauth_" });
 
 /**
- * Factored out (rather than declared inline in `beforeAll`) so the
- * inferred return type carries plugin augmentations like
- * `auth.api.registerOAuthClient` — inline declaration would widen back
- * to default `BetterAuthOptions`. Mirrors `lib/auth.ts` so the schema
- * the plugin writes here is the schema production also writes.
+ * Mirror of `lib/auth.ts`'s oauth stack — same table names (so writes land in
+ * the auth tables) and DCR enabled (so `registerOAuthClient` works). Built here
+ * rather than from `authMigrateOptions` because that config is schema-only (no
+ * DCR flags); the table names come from the shared `AUTH_TABLE_NAMES`.
  */
-function createTestAuth(db: Firestore) {
+function createTestAuth(pool: typeof dbHandle.pool) {
 	return betterAuth({
-		secret: "x".repeat(32),
+		secret: TEST_SECRET,
 		baseURL: "http://localhost:3000",
-		database: firestoreAdapter({
-			firestore: db,
-			collections: {
-				users: "auth_users",
-				sessions: "auth_sessions",
-				accounts: "auth_accounts",
-				verificationTokens: "auth_verifications",
-			},
-		}),
+		database: pool,
+		user: { modelName: AUTH_TABLE_NAMES.user },
+		session: { modelName: AUTH_TABLE_NAMES.session },
+		account: { modelName: AUTH_TABLE_NAMES.account },
+		verification: { modelName: AUTH_TABLE_NAMES.verification },
 		plugins: [
-			/* `jwt` is a hard dependency of `oauthProvider` — provides
-			 * the JWKS the AS signs access tokens with. */
-			jwt({ disableSettingJwtHeader: true }),
+			jwt({
+				disableSettingJwtHeader: true,
+				schema: { jwks: { modelName: AUTH_TABLE_NAMES.jwks } },
+			}),
 			oauthProvider({
 				loginPage: "/",
 				consentPage: "/consent",
@@ -75,42 +58,63 @@ function createTestAuth(db: Firestore) {
 				allowDynamicClientRegistration: true,
 				allowUnauthenticatedClientRegistration: true,
 				clientRegistrationDefaultScopes: ["nova.read", "nova.write"],
+				schema: {
+					oauthClient: { modelName: AUTH_TABLE_NAMES.oauthClient },
+					oauthConsent: { modelName: AUTH_TABLE_NAMES.oauthConsent },
+					oauthRefreshToken: {
+						modelName: AUTH_TABLE_NAMES.oauthRefreshToken,
+					},
+					oauthAccessToken: { modelName: AUTH_TABLE_NAMES.oauthAccessToken },
+				},
 			}),
 		],
 	});
 }
 
-// ── Suite ───────────────────────────────────────────────────────────
-
-describe.skipIf(!emulatorAvailable)("oauth-consents integration", () => {
+describe("oauth-consents integration", () => {
 	let auth: ReturnType<typeof createTestAuth>;
-	let db: Firestore;
+	let authDb: Kysely<AuthDatabase>;
 
-	beforeAll(() => {
-		initializeApp({ projectId: TEST_PROJECT_ID });
-		db = new Firestore({ projectId: TEST_PROJECT_ID, preferRest: true });
-		auth = createTestAuth(db);
-	});
-
-	afterAll(async () => {
-		/* Avoid `[DEFAULT]` app accumulation across test files. */
-		for (const app of getApps()) {
-			await deleteApp(app);
+	beforeEach(async () => {
+		const { runMigrations } = await getMigrations(
+			authMigrateOptions(dbHandle.pool),
+		);
+		await runMigrations();
+		await runAuthAppMigrations(dbHandle.db);
+		auth = createTestAuth(dbHandle.pool);
+		authDb = new Kysely<AuthDatabase>({
+			dialect: new PostgresDialect({
+				pool: dbHandle.pool as unknown as PostgresPool,
+			}),
+		});
+		// Point the module's getAuthDb at this test's Postgres.
+		__setAuthDbForTests(authDb);
+		// Consent + refresh-token rows FK to auth_user, so seed the users the
+		// tests reference via Better Auth's adapter (honoring the id).
+		const ctx = await auth.$context;
+		for (const userId of ["user-test-1", "user-other"]) {
+			await ctx.adapter.create({
+				model: "user",
+				forceAllowId: true,
+				data: {
+					id: userId,
+					name: userId,
+					email: `${userId}@dimagi.com`,
+					emailVerified: true,
+					createdAt: new Date(),
+					updatedAt: new Date(),
+				},
+			});
 		}
 	});
 
-	beforeEach(async () => {
-		await clearPluginCollections(db);
+	afterEach(() => {
+		__setAuthDbForTests(null);
 	});
 
 	// ── listAuthorizedClients ──────────────────────────────────────
 
 	it("returns the real client_name written by the plugin (the bug-catching test)", async () => {
-		/* Register a client via the plugin's actual DCR endpoint. This
-		 * is the test's whole point — the plugin writes `oauthClient`
-		 * docs with whatever field names its schema declares, and the
-		 * unit suite cannot verify those names because the unit mocks
-		 * are author-controlled. Here the plugin is the author. */
 		const created = await auth.api.registerOAuthClient({
 			body: {
 				redirect_uris: ["http://localhost:9999/cb"],
@@ -118,12 +122,9 @@ describe.skipIf(!emulatorAvailable)("oauth-consents integration", () => {
 				token_endpoint_auth_method: "none",
 			},
 		});
-
 		expect(created.client_id).toBeTruthy();
 		const clientId = created.client_id;
 
-		/* Insert through the plugin's own adapter so the write lands in
-		 * the same on-disk shape a real /authorize consent would. */
 		const ctx = await auth.$context;
 		await ctx.adapter.create({
 			model: "oauthConsent",
@@ -142,9 +143,8 @@ describe.skipIf(!emulatorAvailable)("oauth-consents integration", () => {
 		expect(rows).toHaveLength(1);
 		const [row] = rows;
 		expect(row.clientId).toBe(clientId);
-		/* Pins the plugin's storage field names (`clientId`, `name`)
-		 * against our reads. A regression to the RFC 7591 wire names
-		 * (`client_id`, `client_name`) trips here, not in production. */
+		/* Pins the plugin's storage column names (`clientId`, `name`) +
+		 * jsonb `scopes` decode against our reads. */
 		expect(row.clientName).toBe("Claude Code");
 		expect(row.scopes).toEqual(["nova.read", "nova.write"]);
 		expect(row.authorizedAt).toBe("2026-04-20T12:00:00.000Z");
@@ -154,8 +154,6 @@ describe.skipIf(!emulatorAvailable)("oauth-consents integration", () => {
 		const created = await auth.api.registerOAuthClient({
 			body: {
 				redirect_uris: ["http://localhost:9999/cb"],
-				/* No client_name — the registration succeeds and the
-				 * plugin writes a client doc with no `name` field. */
 				token_endpoint_auth_method: "none",
 			},
 		});
@@ -189,27 +187,18 @@ describe.skipIf(!emulatorAvailable)("oauth-consents integration", () => {
 		});
 
 		const ctx = await auth.$context;
-		/* Two consents — one for our user, one for a different user. */
-		await ctx.adapter.create({
-			model: "oauthConsent",
-			data: {
-				clientId: created.client_id,
-				userId: "user-test-1",
-				scopes: ["nova.read"],
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			},
-		});
-		await ctx.adapter.create({
-			model: "oauthConsent",
-			data: {
-				clientId: created.client_id,
-				userId: "user-other",
-				scopes: ["nova.read"],
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			},
-		});
+		for (const userId of ["user-test-1", "user-other"]) {
+			await ctx.adapter.create({
+				model: "oauthConsent",
+				data: {
+					clientId: created.client_id,
+					userId,
+					scopes: ["nova.read"],
+					createdAt: new Date(),
+					updatedAt: new Date(),
+				},
+			});
+		}
 
 		const { listAuthorizedClients } = await import("../oauth-consents");
 		const rows = await listAuthorizedClients("user-test-1");
@@ -221,8 +210,9 @@ describe.skipIf(!emulatorAvailable)("oauth-consents integration", () => {
 
 	it("returns false when no consent exists", async () => {
 		const { hasActiveConsent } = await import("../oauth-consents");
-		const result = await hasActiveConsent("user-test-1", "client-not-here");
-		expect(result).toBe(false);
+		expect(await hasActiveConsent("user-test-1", "client-not-here")).toBe(
+			false,
+		);
 	});
 
 	it("returns true when (userId, clientId) matches", async () => {
@@ -247,9 +237,58 @@ describe.skipIf(!emulatorAvailable)("oauth-consents integration", () => {
 		});
 
 		const { hasActiveConsent } = await import("../oauth-consents");
-		const result = await hasActiveConsent("user-test-1", created.client_id);
+		expect(await hasActiveConsent("user-test-1", created.client_id)).toBe(true);
+	});
 
-		expect(result).toBe(true);
+	it("honors the revocation watermark by token iat (the LEFT JOIN path)", async () => {
+		const created = await auth.api.registerOAuthClient({
+			body: {
+				redirect_uris: ["http://localhost:9999/cb"],
+				client_name: "Claude Code",
+				token_endpoint_auth_method: "none",
+			},
+		});
+		const ctx = await auth.$context;
+		await ctx.adapter.create({
+			model: "oauthConsent",
+			data: {
+				clientId: created.client_id,
+				userId: "user-test-1",
+				scopes: ["nova.read"],
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			},
+		});
+
+		const { hasActiveConsent, recordOAuthGrantRevocation } = await import(
+			"../oauth-consents"
+		);
+		await recordOAuthGrantRevocation("user-test-1", created.client_id);
+
+		const watermark = await authDb
+			.selectFrom("auth_oauth_grant_revocation")
+			.select("revokedAt")
+			.where("userId", "=", "user-test-1")
+			.where("clientId", "=", created.client_id)
+			.executeTakeFirstOrThrow();
+		const watermarkSec = Math.floor(watermark.revokedAt.getTime() / 1000);
+
+		// A token issued before the watermark is revoked; one issued a clear
+		// second later is active (consent still exists; only the watermark gates).
+		expect(
+			await hasActiveConsent(
+				"user-test-1",
+				created.client_id,
+				watermarkSec - 60,
+			),
+		).toBe(false);
+		expect(
+			await hasActiveConsent(
+				"user-test-1",
+				created.client_id,
+				watermarkSec + 60,
+			),
+		).toBe(true);
 	});
 
 	// ── revokeAuthorizedClient ─────────────────────────────────────
@@ -264,7 +303,6 @@ describe.skipIf(!emulatorAvailable)("oauth-consents integration", () => {
 		});
 
 		const ctx = await auth.$context;
-
 		const consent = (await ctx.adapter.create({
 			model: "oauthConsent",
 			data: {
@@ -276,14 +314,13 @@ describe.skipIf(!emulatorAvailable)("oauth-consents integration", () => {
 			},
 		})) as { id: string };
 
-		/* Two refresh tokens: a live one (should be marked revoked) and
-		 * one already revoked (should be left alone, no redundant write). */
+		/* Two refresh tokens: a live one (should be marked revoked) and one
+		 * already revoked (should be left alone, no redundant write). */
 		await ctx.adapter.create({
 			model: "oauthRefreshToken",
 			data: {
 				token: "live-token",
 				clientId: created.client_id,
-				sessionId: "sess-1",
 				userId: "user-test-1",
 				expiresAt: new Date(Date.now() + 86400_000),
 				createdAt: new Date(),
@@ -296,7 +333,6 @@ describe.skipIf(!emulatorAvailable)("oauth-consents integration", () => {
 			data: {
 				token: "stale-token",
 				clientId: created.client_id,
-				sessionId: "sess-2",
 				userId: "user-test-1",
 				expiresAt: new Date(Date.now() + 86400_000),
 				createdAt: new Date(),
@@ -308,43 +344,44 @@ describe.skipIf(!emulatorAvailable)("oauth-consents integration", () => {
 		const { revokeAuthorizedClient } = await import("../oauth-consents");
 		await revokeAuthorizedClient("user-test-1", consent.id);
 
-		/* Consent doc gone. */
-		const consentSnap = await db
-			.collection("oauthConsent")
-			.doc(consent.id)
-			.get();
-		expect(consentSnap.exists).toBe(false);
+		/* Consent row gone. */
+		const consentRow = await authDb
+			.selectFrom("auth_oauth_consent")
+			.select("id")
+			.where("id", "=", consent.id)
+			.executeTakeFirst();
+		expect(consentRow).toBeUndefined();
 
-		const tokensSnap = await db
-			.collection("oauthRefreshToken")
-			.where("userId", "==", "user-test-1")
-			.where("clientId", "==", created.client_id)
-			.get();
+		const tokens = await authDb
+			.selectFrom("auth_oauth_refresh_token")
+			.select(["token", "revoked"])
+			.where("userId", "=", "user-test-1")
+			.where("clientId", "=", created.client_id)
+			.execute();
+		const byName = new Map(tokens.map((r) => [r.token, r.revoked]));
 
-		const tokensByName = new Map<string, FirebaseFirestore.DocumentData>();
-		for (const d of tokensSnap.docs) {
-			tokensByName.set(d.data().token as string, d.data());
-		}
-
-		expect(tokensByName.get("live-token")?.revoked).toBeDefined();
-
-		/* Already-revoked stays at its original timestamp — a rewrite
-		 * would replace it with a `serverTimestamp()` sentinel. */
-		const stale = tokensByName.get("stale-token");
-		expect(stale?.revoked).toBeDefined();
-		const staleRevoked =
-			stale?.revoked instanceof Date
-				? stale.revoked
-				: (stale?.revoked as { toDate: () => Date }).toDate();
-		expect(staleRevoked.getTime()).toBe(alreadyRevokedAt.getTime());
+		expect(byName.get("live-token")).not.toBeNull();
+		/* Already-revoked stays at its original timestamp — a rewrite would
+		 * replace it with a fresh revoke instant. */
+		const stale = byName.get("stale-token");
+		expect(stale).toBeInstanceOf(Date);
+		expect((stale as Date).getTime()).toBe(alreadyRevokedAt.getTime());
 	});
 
 	it("rejects when the consent belongs to a different user", async () => {
+		const created = await auth.api.registerOAuthClient({
+			body: {
+				redirect_uris: ["http://localhost:9999/cb"],
+				client_name: "Claude Code",
+				token_endpoint_auth_method: "none",
+			},
+		});
+
 		const ctx = await auth.$context;
 		const consent = (await ctx.adapter.create({
 			model: "oauthConsent",
 			data: {
-				clientId: "client-A",
+				clientId: created.client_id,
 				userId: "user-other",
 				scopes: ["nova.read"],
 				createdAt: new Date(),
@@ -356,5 +393,61 @@ describe.skipIf(!emulatorAvailable)("oauth-consents integration", () => {
 		await expect(
 			revokeAuthorizedClient("user-test-1", consent.id),
 		).rejects.toThrow(/does not belong to this user/);
+	});
+
+	it("is idempotent for an already-revoked (missing) consent", async () => {
+		const { revokeAuthorizedClient } = await import("../oauth-consents");
+		await expect(
+			revokeAuthorizedClient("user-test-1", "no-such-consent-id"),
+		).resolves.toBeUndefined();
+	});
+
+	// ── cleanupStalePublicOAuthClients ─────────────────────────────
+
+	it("deletes stale public clients with no grants, keeps those with a consent", async () => {
+		const orphan = await auth.api.registerOAuthClient({
+			body: {
+				redirect_uris: ["http://localhost:9999/cb"],
+				client_name: "Orphan",
+				token_endpoint_auth_method: "none",
+			},
+		});
+		const inUse = await auth.api.registerOAuthClient({
+			body: {
+				redirect_uris: ["http://localhost:9999/cb"],
+				client_name: "In use",
+				token_endpoint_auth_method: "none",
+			},
+		});
+		const ctx = await auth.$context;
+		await ctx.adapter.create({
+			model: "oauthConsent",
+			data: {
+				clientId: inUse.client_id,
+				userId: "user-test-1",
+				scopes: ["nova.read"],
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			},
+		});
+
+		const { cleanupStalePublicOAuthClients } = await import(
+			"../oauth-consents"
+		);
+		/* `now` far in the future makes the just-registered clients older than the
+		 * cutoff without manipulating their `createdAt`. */
+		const deleted = await cleanupStalePublicOAuthClients({
+			now: new Date(Date.now() + 100 * 24 * 60 * 60 * 1000),
+			olderThanDays: 30,
+		});
+
+		expect(deleted).toBe(1);
+		const remaining = await authDb
+			.selectFrom("auth_oauth_client")
+			.select("clientId")
+			.execute();
+		const ids = remaining.map((r) => r.clientId);
+		expect(ids).toContain(inUse.client_id);
+		expect(ids).not.toContain(orphan.client_id);
 	});
 });

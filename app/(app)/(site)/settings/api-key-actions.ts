@@ -28,11 +28,11 @@
 
 "use server";
 
-import { Timestamp } from "@google-cloud/firestore";
 import { APIError } from "better-auth/api";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { getAuth } from "@/lib/auth";
+import { getAuthDb } from "@/lib/auth/db";
 import { NOVA_API_KEY_SCOPES, NOVA_MCP_FLOOR_SCOPES } from "@/lib/auth-public";
 import { callerIpFromHeaders, getSession } from "@/lib/auth-utils";
 import {
@@ -42,7 +42,6 @@ import {
 	toISOString,
 	toISOStringOrNull,
 } from "@/lib/db/api-keys";
-import { getDb } from "@/lib/db/firestore";
 import { log } from "@/lib/logger";
 
 // ── Constants ───────────────────────────────────────────────────────
@@ -91,8 +90,8 @@ export type MintApiKeyResult =
 			/**
 			 * ISO string from the plugin's response. Server-clock
 			 * timestamp, used by the optimistic UI so the freshly-minted
-			 * row sorts identically to its eventual Firestore-derived
-			 * shape after `revalidatePath`. Synthesizing `new Date()`
+			 * row sorts identically to its eventual canonical shape after
+			 * `revalidatePath`. Synthesizing `new Date()`
 			 * client-side would create a sort-order skew between the
 			 * optimistic insert and the canonical post-revalidation row.
 			 */
@@ -229,13 +228,13 @@ async function callerIp(): Promise<string> {
  * emits 32-char alphanumeric ids that are random with respect to
  * order, but lexically comparable; the secondary sort by id resolves
  * the rare case where two creates land in the same millisecond.
- * Concurrent callers see the same Firestore-committed snapshot, so
- * they agree on the ordering — exactly the loser rows are pruned.
+ * Concurrent callers each read the full committed row set (READ
+ * COMMITTED), so they agree on the ordering — exactly the loser rows
+ * are pruned.
  *
- * If the caller's row isn't in the snapshot at all (eventual-
- * consistency stall, or a regression that mismatched the
- * `referenceId`), this function returns `false` and lets the caller
- * keep its row. The over-limit state is then logged when
+ * If the caller's row isn't in the set at all (a regression that
+ * mismatched the `referenceId`), this function returns `false` and lets
+ * the caller keep its row. The over-limit state is then logged when
  * `listUserApiKeys` next runs and the user can revoke from the UI;
  * deleting on a "row not found" verdict would risk destroying a
  * valid mint.
@@ -244,12 +243,14 @@ async function isOverLimitMintLoser(
 	userId: string,
 	createdId: string,
 ): Promise<boolean> {
-	let snap: FirebaseFirestore.QuerySnapshot;
+	let rows: Array<{ id: string; createdAt: Date }>;
 	try {
-		snap = await getDb()
-			.collection("apikey")
-			.where("referenceId", "==", userId)
-			.get();
+		const db = await getAuthDb();
+		rows = await db
+			.selectFrom("auth_apikey")
+			.select(["id", "createdAt"])
+			.where("referenceId", "=", userId)
+			.execute();
 	} catch (err) {
 		/* Read failure during compensating action — fail-open on
 		 * delete (don't destroy the just-minted row). The over-
@@ -258,17 +259,8 @@ async function isOverLimitMintLoser(
 		log.error("[settings/api-keys] mint race position read failed", err);
 		return false;
 	}
-	const ordered = snap.docs
-		.map((d) => {
-			const raw = (d.data() as { createdAt?: unknown }).createdAt;
-			const createdAtMs =
-				raw instanceof Timestamp
-					? raw.toMillis()
-					: raw instanceof Date
-						? raw.getTime()
-						: Number.NaN;
-			return { id: d.id, createdAtMs };
-		})
+	const ordered = rows
+		.map((r) => ({ id: r.id, createdAtMs: r.createdAt.getTime() }))
 		.sort((a, b) => {
 			if (a.createdAtMs !== b.createdAtMs) {
 				return a.createdAtMs - b.createdAtMs;
@@ -286,10 +278,10 @@ async function isOverLimitMintLoser(
  * `maxAge` configured at `lib/auth.ts::session.cookieCache`) means
  * `getSession()` can return a still-valid-looking session payload
  * for up to that window after `admin.banUser` deleted the underlying
- * `auth_sessions` row — a banned user with a stale cookie would
+ * `auth_session` row — a banned user with a stale cookie would
  * otherwise authenticate every Server Action in the gap. Mirrors
- * `requireAdminAccess`'s direct-Firestore bypass of the same cache
- * for `role` reads.
+ * `requireAdminAccess`'s direct database read that bypasses the same
+ * cache for `role`.
  *
  * Returns the same not-signed-in shape on a banned/deleted account
  * so the wire response doesn't disclose "you used to have an
@@ -307,7 +299,7 @@ async function isAuthorizedSession(
 		active = await isUserActive(userId);
 	} catch (err) {
 		log.error("[settings/api-keys] user-status lookup failed", err);
-		/* Fail closed — a Firestore outage rejects rather than
+		/* Fail closed — a database outage rejects rather than
 		 * authenticates a possibly-banned user. The action returns the
 		 * "sign in" message; the user retries when the outage clears. */
 		return false;
@@ -413,7 +405,7 @@ export async function mintApiKey(
 			};
 		}
 
-		const auth = getAuth();
+		const auth = await getAuth();
 		/* Server-only mode: passing `headers` to `auth.api.createApiKey`
 		 * makes the plugin's `isClientRequest` flag truthy, which then
 		 * rejects every server-only field (including `permissions`) with
@@ -452,10 +444,10 @@ export async function mintApiKey(
 		 * row's index, and only deletes when that index falls beyond
 		 * the limit. The earliest `PER_USER_KEY_LIMIT` rows are
 		 * kept; later rows are pruned as losers. Concurrent callers
-		 * agree on the ordering because Firestore returns the same
-		 * snapshot of committed writes to each.
+		 * agree on the ordering because each reads the same committed
+		 * row set (READ COMMITTED).
 		 *
-		 * Direct-Firestore delete sidesteps `auth.api.deleteApiKey`
+		 * The direct Kysely delete sidesteps `auth.api.deleteApiKey`
 		 * (which mounts `sessionMiddleware` and expects a cookie-
 		 * bearing request that this server-only mode doesn't carry).
 		 * Read failure or delete failure is logged but does NOT
@@ -464,31 +456,51 @@ export async function mintApiKey(
 		 * can revoke it from the UI. The plaintext return below
 		 * happens only after this check passes, preserving the
 		 * plaintext-once contract for the failure branch. */
-		const postCreateCount = await countUserApiKeys(session.user.id);
-		if (postCreateCount > PER_USER_KEY_LIMIT) {
-			const isLoser = await isOverLimitMintLoser(session.user.id, created.id);
-			if (isLoser) {
-				try {
-					await getDb().collection("apikey").doc(created.id).delete();
-					log.warn(
-						"[settings/api-keys] mint race detected — over-limit row deleted",
-						{
-							userId: session.user.id,
-							keyId: created.id,
-							postCreateCount,
-						},
-					);
-				} catch (delErr) {
-					log.error("[settings/api-keys] mint race delete failed", delErr);
+		/* The whole over-limit compensation is fail-open: the key row is
+		 * already committed and its plaintext is unrecoverable, so a
+		 * backing-store blip during the recount (e.g. a pool-acquire timeout)
+		 * must NOT turn a successful mint into a false failure. On any error
+		 * here we keep the key; an over-budget state surfaces as the
+		 * over-limit warn in `listUserApiKeys` and the user can revoke. */
+		try {
+			const postCreateCount = await countUserApiKeys(session.user.id);
+			if (postCreateCount > PER_USER_KEY_LIMIT) {
+				const isLoser = await isOverLimitMintLoser(session.user.id, created.id);
+				if (isLoser) {
+					try {
+						const db = await getAuthDb();
+						await db
+							.deleteFrom("auth_apikey")
+							.where("id", "=", created.id)
+							.execute();
+						log.warn(
+							"[settings/api-keys] mint race detected — over-limit row deleted",
+							{
+								userId: session.user.id,
+								keyId: created.id,
+								postCreateCount,
+							},
+						);
+					} catch (delErr) {
+						log.error("[settings/api-keys] mint race delete failed", delErr);
+					}
+					return {
+						success: false,
+						error: `You already have ${PER_USER_KEY_LIMIT} keys, the per-account limit. Revoke one before minting another.`,
+					};
 				}
-				return {
-					success: false,
-					error: `You already have ${PER_USER_KEY_LIMIT} keys, the per-account limit. Revoke one before minting another.`,
-				};
+				/* Else: I'm a winner of the race — keep my row, fall
+				 * through to the success path below. The losers handle
+				 * their own deletes. */
 			}
-			/* Else: I'm a winner of the race — keep my row, fall
-			 * through to the success path below. The losers handle
-			 * their own deletes. */
+		} catch (recountErr) {
+			/* error() (not warn) — this is rare (mint is a deliberate action, not a
+			 * per-request path) and notable: the per-user cap went unenforced for
+			 * this mint, worth Sentry visibility. */
+			log.error(
+				"[settings/api-keys] mint post-create recount failed; keeping key",
+				recountErr,
+			);
 		}
 
 		/* Build the success result FIRST, before any side-effect that
@@ -496,7 +508,7 @@ export async function mintApiKey(
 		 * `toISOString` (if the plugin's response shape ever drifts to
 		 * an unexpected createdAt type) must not swallow a successful
 		 * mint into the catch block — the row already exists hashed in
-		 * Firestore, the plaintext is unrecoverable, and the user has
+		 * Postgres, the plaintext is unrecoverable, and the user has
 		 * burned a slot toward `PER_USER_KEY_LIMIT`. The two `toISOString`
 		 * calls are bracketed here as part of the success-shape
 		 * construction; the audit log and revalidate run in their own
@@ -518,10 +530,8 @@ export async function mintApiKey(
 			keyId: created.id,
 			displayPrefix: created.start ?? "",
 			/* `toISOString` / `toISOStringOrNull` from `lib/db/api-keys`
-			 * handle both `Date` and Firestore `Timestamp` — the plugin
-			 * may surface either depending on adapter round-trip path.
-			 * `new Date(timestamp)` would silently produce "Invalid
-			 * Date" and the subsequent `.toISOString()` would throw. */
+			 * normalize the Kysely adapter's `Date` columns to ISO strings —
+			 * shared with `listUserApiKeys` so mint + list agree. */
 			createdAt: toISOString(created.createdAt),
 			expiresAt: toISOStringOrNull(created.expiresAt),
 		};
@@ -596,7 +606,7 @@ export async function revokeApiKey(keyId: string): Promise<RevokeApiKeyResult> {
 	}
 
 	try {
-		const auth = getAuth();
+		const auth = await getAuth();
 		const reqHeaders = await headers();
 		await auth.api.deleteApiKey({
 			body: { keyId },
@@ -664,7 +674,7 @@ export async function editApiKeyScopes(
 	}
 
 	try {
-		const auth = getAuth();
+		const auth = await getAuth();
 		/* Server-only mode (same rationale as `mintApiKey`): omit
 		 * `headers` so the plugin's `authRequired` flag stays false and
 		 * the `permissions` field isn't rejected as a server-only

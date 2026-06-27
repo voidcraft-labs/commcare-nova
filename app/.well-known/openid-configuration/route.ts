@@ -23,5 +23,5 @@
 import { oauthProviderOpenIdConfigMetadata } from "@better-auth/oauth-provider";
 import { getAuth } from "@/lib/auth";
 
-export const GET = (req: Request) =>
-	oauthProviderOpenIdConfigMetadata(getAuth())(req);
+export const GET = async (req: Request) =>
+	oauthProviderOpenIdConfigMetadata(await getAuth())(req);
