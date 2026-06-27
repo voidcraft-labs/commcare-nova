@@ -76,18 +76,29 @@ have compute security-policies describe nova-armor \
 # `--preview`). Real defense today is the app's valid-by-construction model +
 # input validation + auth; the throttles below are the DDoS/flood backstop.
 #
-# NOTE: this guard only CREATES missing rules — it cannot transition an existing
-# rule's preview/enforce state on re-run. The LIVE policy is authoritative;
-# change a rule's state with `gcloud compute security-policies rules update
-# <prio> --preview` (or `--no-preview`), never by editing-and-re-running this.
+# This loop CONVERGES the four rules to preview on every run (unlike the
+# create-only guards elsewhere in this script): an existing rule is `update`d to
+# `--preview`, a missing one is `create`d in preview. So re-running the script is
+# itself what flips a previously-ENFORCED rule to log-only — the state lives in
+# the script, not only in an operator's memory. To RE-ENFORCE a rule once its
+# previewed matches come back clean, run, by hand:
+#   gcloud compute security-policies rules update <prio> \
+#     --security-policy=nova-armor --no-preview
+# (add any needed `opt_out_rule_ids` to its expression first), and flip its entry
+# here off `--preview` so the next apply doesn't converge it back to log-only.
 for pair in "100:rce-v33-stable" "110:lfi-v33-stable" \
             "120:protocolattack-v33-stable" "130:cve-canary"; do
   prio="${pair%%:*}"; ruleset="${pair#*:}"
-  gcloud compute security-policies rules describe "$prio" --security-policy=nova-armor >/dev/null 2>&1 \
-    || gcloud compute security-policies rules create "$prio" \
+  if gcloud compute security-policies rules describe "$prio" --security-policy=nova-armor >/dev/null 2>&1; then
+    # Exists — force it to log-only (converges any enforce→preview drift).
+    gcloud compute security-policies rules update "$prio" \
+         --security-policy=nova-armor --preview
+  else
+    gcloud compute security-policies rules create "$prio" \
          --security-policy=nova-armor \
          --expression="evaluatePreconfiguredWaf('${ruleset}', {'sensitivity': 1})" \
          --action=deny-403 --preview
+  fi
 done
 
 # ── Per-IP throttle on the Sentry browser-error relay — priority 90 ──────────
@@ -95,6 +106,12 @@ done
 # cap it per-IP at 1200 req / 60s (the same ceiling as the site-wide rule below
 # — NOT the tighter 60/60s on /api/log/error). Exact-path `==` (NOT `.matches`,
 # an unanchored substring) keeps the rule scoped to this one path.
+# LOAD-BEARING IF protocolattack (120) is ever re-enforced: the Sentry envelope
+# is newline-delimited text/plain, which trips CRS 921150 — this terminal-allow
+# throttle, at a LOWER priority than 120, is what lets the envelope skip the WAF.
+# While 120 stays in preview the bypass is moot, but do NOT remove/renumber/widen
+# rule 90 without first confirming 120 is still `--preview`, or every browser
+# error report begins 403ing (silently — Sentry can't report its own ingest 403).
 gcloud compute security-policies rules describe 90 --security-policy=nova-armor >/dev/null 2>&1 \
   || gcloud compute security-policies rules create 90 \
        --security-policy=nova-armor \

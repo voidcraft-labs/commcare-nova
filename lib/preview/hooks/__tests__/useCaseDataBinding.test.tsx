@@ -14,11 +14,10 @@
 //   2. Any undefined identifier short-circuits to the typed `error`
 //      arm with the verbatim user-actionable message. The Server
 //      Action is NOT called along that path.
-//   3. With the identifiers populated, the hook forwards
-//      `(appId, caseType)` verbatim to `resetSampleCasesAction` — the
-//      action resolves the case type's definition from the persisted
-//      app, so the hook never ships the blueprint — and returns the
-//      action's resolved result.
+//   3. With the args populated, the hook forwards `(appId, caseType)`
+//      verbatim to `resetSampleCasesAction` — `caseType` is the live
+//      `CaseType` definition the client passes through (never the whole
+//      blueprint) — and returns the action's resolved result.
 
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
