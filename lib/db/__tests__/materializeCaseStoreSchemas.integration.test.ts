@@ -36,7 +36,10 @@ import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaseStore } from "@/lib/case-store";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
-import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
+import {
+	indexScopeTag,
+	PostgresCaseStore,
+} from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
@@ -182,16 +185,14 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 			"visit",
 		]);
 
-		// Per-property expression indexes landed. The text-typed
-		// `name` property materializes `cases_patient_name_fuzzy`
-		// (text properties get a `gin_trgm_ops` partial GIN
-		// expression index for `match` / `compare` coverage); the
-		// text-typed `notes` property on `visit` materializes its
-		// own `cases_visit_notes_fuzzy`. Index names follow the
-		// `cases_<case_type>_<property>_<mode>` convention enforced
-		// by the case-store; one assertion per case type proves
-		// every iteration of the helper's loop ran the Phase B
-		// path, not just the first.
+		// Per-property expression indexes landed — one per case type
+		// (text properties get a `gin_trgm_ops` partial GIN expression
+		// index). Index names are fully app-scoped
+		// (`cases_<scopeTag>_<propertyTag>_<mode>`, both segments hashed),
+		// so each case type's index is enumerated by its OWN
+		// `indexScopeTag` prefix; asserting one per case type proves every
+		// iteration of the helper's loop ran the Phase B path, not just
+		// the first.
 		const indexes = await dbHandle.pool.query<{ indexname: string }>(
 			`SELECT indexname FROM pg_indexes
 			 WHERE tablename = 'cases'
@@ -199,8 +200,16 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 			 ORDER BY indexname`,
 		);
 		const indexNames = indexes.rows.map((r) => r.indexname);
-		expect(indexNames).toContain("cases_patient_name_fuzzy");
-		expect(indexNames).toContain("cases_visit_notes_fuzzy");
+		const patientIdx = indexNames.filter((n) =>
+			n.startsWith(`cases_${indexScopeTag(APP_ID, "patient")}_`),
+		);
+		const visitIdx = indexNames.filter((n) =>
+			n.startsWith(`cases_${indexScopeTag(APP_ID, "visit")}_`),
+		);
+		expect(patientIdx).toHaveLength(1);
+		expect(visitIdx).toHaveLength(1);
+		expect(patientIdx[0]?.endsWith("_fuzzy")).toBe(true);
+		expect(visitIdx[0]?.endsWith("_fuzzy")).toBe(true);
 	});
 });
 

@@ -43,6 +43,7 @@ import {
 	schemaHealingCaseStore,
 	seedSampleCases,
 } from "./caseDataBindingHelpers";
+import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
 import type {
 	LoadCaseDataResult,
 	LoadCaseListPreviewResult,
@@ -125,6 +126,10 @@ export async function loadCasesAction(args: {
 			inputValues: args.inputValues,
 		});
 	} catch (err) {
+		reportUnexpectedActionError("loadCases", err, {
+			appId: args.appId,
+			caseType: args.caseType,
+		});
 		return {
 			kind: "error",
 			message: err instanceof Error ? err.message : "Failed to load cases.",
@@ -146,6 +151,7 @@ export async function loadCaseDataAction(
 		);
 		return await readCaseData(store, { appId, caseType, caseId });
 	} catch (err) {
+		reportUnexpectedActionError("loadCaseData", err, { appId, caseType });
 		return {
 			kind: "error",
 			message: err instanceof Error ? err.message : "Failed to load case.",
@@ -179,6 +185,18 @@ export async function populateSampleCasesAction(
 		);
 		return await seedSampleCases(store, { appId, caseType: found });
 	} catch (err) {
+		// Sample-data generation: a `CasePropertiesValidationError`
+		// here means the GENERATOR produced data its own schema
+		// rejects (a bug), so it alerts alongside any raw DB error.
+		reportUnexpectedActionError(
+			"populateSampleCases",
+			err,
+			{
+				appId,
+				caseType,
+			},
+			{ treatValidationAsBug: true },
+		);
 		return mapPopulateSampleCasesError(err);
 	}
 }
@@ -216,6 +234,17 @@ export async function resetSampleCasesAction(
 		);
 		return await resetSampleCases(store, { appId, caseType: found });
 	} catch (err) {
+		// See `populateSampleCasesAction` — a validation failure on
+		// generated rows is a generator bug, so it alerts too.
+		reportUnexpectedActionError(
+			"resetSampleCases",
+			err,
+			{
+				appId,
+				caseType,
+			},
+			{ treatValidationAsBug: true },
+		);
 		return mapPopulateSampleCasesError(err);
 	}
 }
@@ -337,6 +366,10 @@ export async function loadCaseListPreviewAction(args: {
 			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
 		});
 	} catch (err) {
+		reportUnexpectedActionError("loadCaseListPreview", err, {
+			appId: args.appId,
+			caseType: args.caseType,
+		});
 		return mapCaseListPreviewError(err);
 	}
 }
@@ -424,6 +457,10 @@ export async function loadFilterPreviewAction(args: {
 			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
 		});
 	} catch (err) {
+		reportUnexpectedActionError("loadFilterPreview", err, {
+			appId: args.appId,
+			caseType: args.caseType,
+		});
 		return mapFilterPreviewError(err);
 	}
 }
@@ -501,6 +538,10 @@ export async function submitFormAction(
 			}
 		}
 	} catch (err) {
+		// Form submit: `CasePropertiesValidationError` is ordinary
+		// user error (the submitted values failed the schema), so it
+		// stays un-alerted — only raw DB / invariant failures report.
+		reportUnexpectedActionError("submitForm", err, { appId });
 		return mapSubmitFormError(err);
 	}
 }
