@@ -70,7 +70,6 @@
 		"ajv": "^8.20.0",
 		"ajv-formats": "^3.0.1",
 		"better-auth": "1.6.20",
-		"better-auth-firestore": "1.2.6",
 		"clsx": "^2.1.1",
 		"commander": "^15.0.0",
 		"date-fns": "^4.1.0",
