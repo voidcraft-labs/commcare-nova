@@ -52,12 +52,14 @@ vi.mock("@better-auth/oauth-provider", async () => {
 	};
 });
 
-/** Sentinel 200 — the test detects "got past the consent check" by status. */
+/** Sentinel 200 — the test detects "got past the consent check" by status.
+ * Null body (not "{}") so the unconsumed Response stream doesn't trip the
+ * async-leak detector — the assertions read status, never the body. */
 vi.mock("mcp-handler", () => ({
 	createMcpHandler:
 		() =>
 		(_req: Request): Response =>
-			new Response("{}", {
+			new Response(null, {
 				status: 200,
 				headers: { "content-type": "application/json" },
 			}),
@@ -128,13 +130,15 @@ function createTestAuth(pool: typeof dbHandle.pool) {
 }
 
 function mcpRequest(claims: Partial<JWTPayload>): Request {
+	// No body: the mocked mcpHandler reads only the x-test-jwt-claims header and
+	// the mocked createMcpHandler ignores the request, so a request body would
+	// just be an unconsumed stream the async-leak detector flags.
 	return new Request("http://localhost:3000/api/mcp", {
 		method: "POST",
 		headers: {
 			"x-test-jwt-claims": JSON.stringify(claims),
 			"content-type": "application/json",
 		},
-		body: JSON.stringify({ jsonrpc: "2.0", method: "initialize", id: 1 }),
 	});
 }
 
