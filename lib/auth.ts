@@ -27,8 +27,10 @@ import { apiKey } from "@better-auth/api-key";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
-import { admin, jwt } from "better-auth/plugins";
+import { admin, jwt, organization } from "better-auth/plugins";
 import { novaMcpPlugin } from "@/app/api/mcp/auth-plugin";
+// Custom "Projects" roles + access control, shared with the client config.
+import { ac, MEMBERSHIP_LIMIT, PROJECT_ROLES } from "./auth/projectRoles";
 import { SIGN_IN_ERROR } from "./auth-errors";
 import { forwardBetterAuthLog } from "./auth-logger";
 import { NOVA_API_KEY_PREFIX, NOVA_API_KEY_SCOPES } from "./auth-public";
@@ -693,6 +695,47 @@ async function createAuth() {
 				references: "user",
 				// `auth_`-prefix the api-key table.
 				schema: { apikey: { modelName: AUTH_TABLE_NAMES.apikey } },
+			}),
+
+			/**
+			 * Organization plugin — Nova's "Projects" tenancy (shared app spaces).
+			 *
+			 * Surfaced to users as "Projects"; the tables stay `auth_organization*`
+			 * (the persistence name is decoupled from the product noun — "project
+			 * space" already means a CommCare HQ domain elsewhere). Custom roles
+			 * (`viewer`/`editor`/`admin`/`owner` over an `app` resource) live in
+			 * `lib/auth/projectRoles.ts` and are mirrored on the client
+			 * (`lib/auth-client.ts`) so client-side permission checks match the
+			 * server. Teams and dynamic access control stay OFF — flat Projects
+			 * with static roles.
+			 *
+			 * The schema-only mirror in `lib/auth-migrate-options.ts` is what makes
+			 * the migrate Job create `auth_organization` / `auth_member` /
+			 * `auth_invitation` and add `auth_session.activeOrganizationId` — keep
+			 * the two plugin registrations in sync.
+			 *
+			 * `sendInvitationEmail` is log-only for now; the invitation UI and the
+			 * domain-restriction hook land with the Projects surface, so no
+			 * invitation is created yet — this satisfies the option contract.
+			 */
+			organization({
+				ac,
+				roles: PROJECT_ROLES,
+				creatorRole: "owner",
+				allowUserToCreateOrganization: true,
+				membershipLimit: MEMBERSHIP_LIMIT,
+				teams: { enabled: false },
+				schema: {
+					organization: { modelName: AUTH_TABLE_NAMES.organization },
+					member: { modelName: AUTH_TABLE_NAMES.member },
+					invitation: { modelName: AUTH_TABLE_NAMES.invitation },
+				},
+				sendInvitationEmail: async (data) => {
+					log.info("[auth] organization invitation created", {
+						organizationId: data.organization.id,
+						email: data.email,
+					});
+				},
 			}),
 			novaMcpPlugin(),
 		],
