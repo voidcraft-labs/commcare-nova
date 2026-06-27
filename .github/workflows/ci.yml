@@ -250,10 +250,10 @@ jobs:
 
   auth-contract:
     # Gates the session-cookie contract (a forged cookie ⇄ the real
-    # better-auth / better-call / firestore-adapter session path) on every PR.
-    # The standalone test is emulator-gated, so without a job that boots the
-    # emulator it would never run. Credential-free — it uses the shared
-    # firestoreClientOptions (gRPC against the emulator, no ADC).
+    # better-auth / better-call session read path) on every PR. The test seeds +
+    # asserts against Better Auth's Kysely/Postgres adapter on a per-test
+    # testcontainer database (booted by the case-store vitest globalSetup) — no
+    # emulator, no ADC. See lib/db/__tests__/sessionCookie.integration.test.ts.
     name: Auth session-cookie contract
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -263,21 +263,6 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      # JVM for the Firestore emulator.
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
       - run: npm ci
-      # Distinct cache key from the smoke job's so the two don't race to reserve
-      # the same key on a cold run ("Unable to reserve cache …").
-      - name: Cache Firestore emulator
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/firebase/emulators
-          key: firebase-emulators-contract-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: firebase-emulators-contract-${{ runner.os }}-
-      - name: Session-cookie contract (emulator)
-        run: |
-          node_modules/.bin/firebase emulators:exec --only firestore --project demo-test \
-            'GOOGLE_CLOUD_PROJECT=demo-test node_modules/.bin/vitest run sessionCookie.integration.test.ts'
+      - name: Session-cookie contract (Postgres testcontainer)
+        run: node_modules/.bin/vitest run sessionCookie.integration.test.ts

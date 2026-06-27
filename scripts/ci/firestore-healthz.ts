@@ -24,30 +24,13 @@
  * the whole point is the real network.
  */
 import { randomUUID } from "node:crypto";
-import { writeSync } from "node:fs";
 import { Firestore } from "firebase-admin/firestore";
 import { firestoreClientOptions } from "@/lib/db/firestoreClientOptions";
+import { runHealthz } from "./healthz-harness";
 
 const COLLECTION = "ci_healthz";
-const TIMEOUT_MS = 30_000;
 
-/**
- * Write the failure diagnostic to stderr SYNCHRONOUSLY. The whole point of this
- * gate is surfacing the regression signature (e.g. an ERR_STREAM_PREMATURE_CLOSE
- * stack); on CI's piped stderr a `console.error` + `process.exit()` can drop the
- * buffered write, so use `writeSync` which is flushed before control returns.
- */
-function logFailure(msg: string, err?: unknown): void {
-	writeSync(2, `[firestore-healthz] FAIL: ${msg}\n`);
-	if (err !== undefined) {
-		writeSync(
-			2,
-			`${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
-		);
-	}
-}
-
-async function main(): Promise<void> {
+runHealthz("firestore-healthz", async () => {
 	// Hard guard: this gate is meaningless against the emulator (which stubs out
 	// the outbound stack that broke prod). Refuse so a misconfigured run fails
 	// loud instead of testing nothing.
@@ -78,42 +61,9 @@ async function main(): Promise<void> {
 				`round-trip mismatch — wrote ${marker}, read back ${snap.get("marker") ?? "<missing>"}`,
 			);
 		}
-		console.log(
-			`[firestore-healthz] OK — firebase-admin ⇄ ${projectId} Firestore round-trip succeeded on Node ${process.version}.`,
-		);
+		return `firebase-admin ⇄ ${projectId} Firestore round-trip succeeded on Node ${process.version}.`;
 	} finally {
 		await ref.delete().catch(() => {});
 		await db.terminate().catch(() => {});
 	}
-}
-
-// Hard timeout: a broken keep-alive can hang rather than throw — don't let CI
-// sit. unref() so it never keeps the process alive on the happy path.
-const timer = setTimeout(() => {
-	logFailure(
-		`timed out after ${TIMEOUT_MS}ms — the outbound Firestore call hung (a keep-alive / undici regression signature).`,
-	);
-	process.exit(1);
-}, TIMEOUT_MS);
-timer.unref();
-
-main()
-	.then(() => {
-		clearTimeout(timer);
-		// Force-exit rather than relying on natural drain: this gate deliberately
-		// exercises the WIF/gaxios keep-alive HTTP stack, and a lingering keep-alive
-		// socket (the exact layer being tested) could keep the loop alive past
-		// main() with the watchdog already cleared — a hung process burning to the
-		// CI job timeout on a SUCCESSFUL round-trip. Matches e2e/seed.ts's exit.
-		process.exit(0);
-	})
-	.catch((err) => {
-		clearTimeout(timer);
-		// logFailure used writeSync (flushed synchronously), so process.exit(1)
-		// can't truncate the diagnostic.
-		logFailure(
-			"firebase-admin Firestore round-trip threw — the Firestore app-data outbound stack is broken.",
-			err,
-		);
-		process.exit(1);
-	});
+});

@@ -5,8 +5,8 @@
  * in one place. (The older emulator-gated integration tests still construct
  * their own clients; routing them through here too is a worthwhile follow-up.)
  *
- * A dependency-free leaf (only reads `process.env`) on purpose: lib/auth.ts and
- * the CI script can pull it without dragging in the Firestore converter graph.
+ * A dependency-free leaf (only reads `process.env`) on purpose: the CI Firestore
+ * healthz can pull it without dragging in the Firestore converter graph.
  *
  * `preferRest` is `true` against real Firestore for two reasons:
  *   1. Build safety — gRPC channel establishment hangs indefinitely when
