@@ -222,7 +222,10 @@ jobs:
       - name: Auth credential — token mint over the prod outbound stack
         run: npx tsx scripts/ci/auth-healthz.ts
       # Firestore app-data path: a real firebase-admin → Firestore round-trip.
+      # `!cancelled()` so it still runs (and reports) even when the auth probe
+      # above fails — both outbound paths get a verdict, not just the first to break.
       - name: Firestore app-data round-trip on the prod Node
+        if: ${{ !cancelled() }}
         run: npx tsx scripts/ci/firestore-healthz.ts
         env:
           # Set explicitly rather than relying on google-github-actions/auth to

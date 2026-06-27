@@ -45,7 +45,7 @@ before merge, before deploy. That's the faithful gate for the breakages we keep 
 
 CI has no `@dimagi.com` Workspace account and sign-in is domain-gated, so the suite
 does **not** drive real Google OAuth for the everyday gate. Instead `e2e/seed.ts`
-writes a session row straight into the Firestore emulator and `e2e/lib/session.ts`
+writes a session row straight into the local Postgres (auth state lives in Postgres now) and `e2e/lib/session.ts`
 forges the cookie Better Auth would have set — signed exactly like `better-call`'s
 `signCookieValue` (HMAC-SHA256 of the token, keyed by `BETTER_AUTH_SECRET`). The
 contract that this forgery stays valid is pinned by
@@ -93,8 +93,9 @@ OAuth callback — would need a Google Workspace test account, which we delibera
 
 That's a sound trade because every auth outage we've shipped was a **dependency-boundary
 500**, not a Google-side problem: the undici / node-fetch regressions made *every*
-`/api/auth/*` request 500 (they all touch Firestore through the same outbound-HTTP
-stack). `GET /api/auth/get-session` is one of those requests — so running the `public`
+`/api/auth/*` request 500 — they share the same outbound credential stack
+(`google-auth-library` → `gaxios`, used by the Cloud SQL connector that backs auth
+now, and by Firestore before the cutover). `GET /api/auth/get-session` is one of those requests — so running the `public`
 probe **against real prod after deploy** (`npm run test:smoke:url`) would have caught
 both outages with no account involved. A real-SSO test's token exchange uses that same
 stack, so it would catch nothing the prod `get-session` probe doesn't.
