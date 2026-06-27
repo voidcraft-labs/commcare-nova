@@ -159,9 +159,9 @@ function typeCheckCreateAppOptions(): void {
 	const neverRun = false;
 	if (neverRun) {
 		// @ts-expect-error — "error" is not a valid creation status
-		void createApp("u1", "rid", { status: "error" });
+		void createApp("u1", "proj", "rid", { status: "error" });
 		// @ts-expect-error — "deleted" is not a valid creation status
-		void createApp("u1", "rid", { status: "deleted" });
+		void createApp("u1", "proj", "rid", { status: "deleted" });
 	}
 }
 /* Reference the guard so lint doesn't flag it as unused — the

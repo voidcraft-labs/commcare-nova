@@ -240,10 +240,13 @@ export async function POST(req: Request) {
 	let clearPauseFlagAfterGates = false;
 	if (!appId) {
 		try {
-			/* New builds land in the user's personal Project — the only Project a
-			 * user has until the Projects UI ships. Switch to the session's active
-			 * Project here once project switching lands. */
-			const projectId = await ensurePersonalProject(userId);
+			/* New builds land in the caller's active Project. The session hook
+			 * stamps `activeOrganizationId`; fall back to provisioning only when a
+			 * pre-Projects session never got the stamp, so a healthy auth DB isn't a
+			 * hard dependency of every new build. */
+			const projectId =
+				keyResult.session.session.activeOrganizationId ??
+				(await ensurePersonalProject(userId));
 			appId = await createApp(userId, projectId, effectiveRunId);
 			appCreated = true;
 		} catch (err) {

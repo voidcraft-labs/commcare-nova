@@ -5,9 +5,12 @@
  * `backfill-apps-project-id.ts` (which maps each app to its owner's personal
  * Project).
  *
- * Dry-run by default (reports the count it would provision). Pass `--apply`.
+ * This script also serves as the SCAN: its dry run reports how many users lack
+ * a personal Project without writing anything.
  *
- *   npx tsx scripts/backfill-personal-projects.ts            # dry run
+ * Dry-run by default. Pass `--apply` to provision.
+ *
+ *   npx tsx scripts/backfill-personal-projects.ts            # dry run / scan
  *   npx tsx scripts/backfill-personal-projects.ts --apply
  */
 import { Command } from "commander";
@@ -22,6 +25,9 @@ import { runMain } from "./lib/main";
 interface Options {
 	apply?: boolean;
 }
+
+/** Provisions issued in parallel at once — bounds load on a large user base. */
+const CONCURRENCY = 10;
 
 const program = new Command();
 program
@@ -57,9 +63,12 @@ async function main() {
 		}
 
 		let provisioned = 0;
-		for (const u of missing) {
-			await ensurePersonalProject(u.id);
-			provisioned += 1;
+		// Every user in `missing` has an `auth_user` row (we read them from it), so
+		// the membership FK always resolves — no per-user error isolation needed.
+		for (let i = 0; i < missing.length; i += CONCURRENCY) {
+			const chunk = missing.slice(i, i + CONCURRENCY);
+			await Promise.all(chunk.map((u) => ensurePersonalProject(u.id)));
+			provisioned += chunk.length;
 		}
 		console.log(`provisioned: ${provisioned}`);
 	} finally {

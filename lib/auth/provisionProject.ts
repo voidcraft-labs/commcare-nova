@@ -7,12 +7,10 @@
 // Writes go DIRECTLY through `getAuthDb` (the shared Kysely handle), NOT through
 // `auth.api.createOrganization`: this runs inside `session.create.before`, so a
 // router round-trip would risk re-entrancy and the create-org endpoint's
-// active-organization side effects. A direct insert populates every NOT NULL
-// column the org plugin's schema requires (`id`/`name`/`slug`/`createdAt`) and a
-// per-user-unique `slug`, and is race-safe via `ON CONFLICT DO NOTHING` + a
-// re-select. The owner membership relies on the Nova-owned UNIQUE index on
-// `auth_member(organizationId, userId)` (see lib/auth/migrations) for the same
-// idempotency.
+// active-organization side effects. The org + owner membership are created in
+// ONE transaction so a partial failure can't leave an org with no membership
+// (which the fast path would then trust); the per-user-unique slug arbitrates
+// concurrent callers via the org table's unique constraint.
 
 import { randomUUID } from "node:crypto";
 import { getAuthDb } from "./db";
@@ -22,8 +20,8 @@ const PERSONAL_PROJECT_NAME = "Personal";
 
 /**
  * Deterministic, per-user-unique slug for the personal Project. `userId` is
- * unique, so the slug is too — which is what makes the `ON CONFLICT (slug)`
- * insert idempotent and lets a concurrent caller re-select the winner's row.
+ * unique, so the slug is too — which is what lets a concurrent caller detect
+ * the race (a unique-violation on insert) and re-select the winner's row.
  */
 export function personalProjectSlug(userId: string): string {
 	return `personal-${userId}`;
@@ -31,57 +29,65 @@ export function personalProjectSlug(userId: string): string {
 
 /**
  * Returns the id of the user's personal Project, creating it (and the owner
- * membership) if absent. Idempotent and safe under concurrent calls. Throws
- * only on an unexpected database failure — callers inside auth hooks MUST
- * wrap it so a provisioning hiccup never blocks sign-in.
+ * membership) if absent. Idempotent and safe under concurrent calls.
+ *
+ * Throws only on an unexpected database failure — including a foreign-key
+ * violation when `userId` has no `auth_user` row (a deleted/never-migrated
+ * user). Callers inside auth hooks MUST wrap it so a provisioning hiccup never
+ * blocks sign-in; the app backfill wraps it per-app so one ghost owner can't
+ * abort the run.
  */
 export async function ensurePersonalProject(userId: string): Promise<string> {
 	const db = await getAuthDb();
 	const slug = personalProjectSlug(userId);
 
+	// Fast path: already provisioned. The personal org's slug is unique to this
+	// user and its owner membership is created in the SAME transaction below, so
+	// "org exists" implies "membership exists" — no redundant member write here.
 	const existing = await db
 		.selectFrom("auth_organization")
 		.select("id")
 		.where("slug", "=", slug)
 		.executeTakeFirst();
+	if (existing !== undefined) return existing.id;
 
-	let organizationId = existing?.id;
-	if (organizationId === undefined) {
-		organizationId = randomUUID();
-		await db
-			.insertInto("auth_organization")
-			.values({
-				id: organizationId,
-				name: PERSONAL_PROJECT_NAME,
-				slug,
-				logo: null,
-				metadata: JSON.stringify({ personal: true }),
-				createdAt: new Date(),
-			})
-			// A concurrent caller may have inserted first; the re-select below
-			// recovers the winner's id either way.
-			.onConflict((oc) => oc.column("slug").doNothing())
-			.execute();
+	const organizationId = randomUUID();
+	try {
+		await db.transaction().execute(async (tx) => {
+			await tx
+				.insertInto("auth_organization")
+				.values({
+					id: organizationId,
+					name: PERSONAL_PROJECT_NAME,
+					slug,
+					logo: null,
+					metadata: JSON.stringify({ personal: true }),
+					createdAt: new Date(),
+				})
+				.execute();
+			await tx
+				.insertInto("auth_member")
+				.values({
+					id: randomUUID(),
+					organizationId,
+					userId,
+					role: "owner",
+					createdAt: new Date(),
+				})
+				.execute();
+		});
+		return organizationId;
+	} catch (err) {
+		// A concurrent caller may have won the unique-slug race — re-select and
+		// use the winner's org. If the org still isn't there, the failure was
+		// something else (e.g. a foreign-key violation because `userId` has no
+		// `auth_user` row), so surface it.
 		const row = await db
 			.selectFrom("auth_organization")
 			.select("id")
 			.where("slug", "=", slug)
-			.executeTakeFirstOrThrow();
-		organizationId = row.id;
+			.executeTakeFirst();
+		if (row !== undefined) return row.id;
+		throw err;
 	}
-
-	// Idempotent via the Nova-owned UNIQUE(organizationId, userId) index.
-	await db
-		.insertInto("auth_member")
-		.values({
-			id: randomUUID(),
-			organizationId,
-			userId,
-			role: "owner",
-			createdAt: new Date(),
-		})
-		.onConflict((oc) => oc.columns(["organizationId", "userId"]).doNothing())
-		.execute();
-
-	return organizationId;
 }

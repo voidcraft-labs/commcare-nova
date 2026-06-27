@@ -213,9 +213,8 @@ export const appDocSchema = z.object({
 	owner: z.string(),
 	/**
 	 * Owning Project (Better Auth organizationId) — the tenancy key for shared
-	 * apps. Nullable during the expand phase: `createApp` stamps it on every new
-	 * app and a backfill sets it on pre-existing apps; once the backfill is
-	 * complete the list/authorization reads move from `owner` to `project_id`.
+	 * apps; `createApp` stamps it on every new app. Nullable only for rows that
+	 * predate the field (a backfill sets it).
 	 */
 	project_id: z.string().nullable().default(null),
 	/** App name — denormalized from the doc for list display. */
