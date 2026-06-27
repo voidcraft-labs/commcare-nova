@@ -17,11 +17,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth-utils";
-import {
-	loadApp,
-	restoreApp as restoreAppDoc,
-	softDeleteApp,
-} from "@/lib/db/apps";
+import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
+import { restoreApp as restoreAppDoc, softDeleteApp } from "@/lib/db/apps";
 import { log } from "@/lib/logger";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -65,9 +62,16 @@ async function authorizeAppMutation(
 	if (typeof appId !== "string" || !appId.trim()) {
 		return { ok: false, error: "Missing app identifier." };
 	}
-	const app = await loadApp(appId);
-	if (!app || app.owner !== userId) {
-		return { ok: false, error: "App not found." };
+	/* Soft-delete / restore require the `delete` capability (admin/owner).
+	 * Every denial collapses to the same "App not found" so a cross-Project
+	 * probe can't tell a real app apart from a missing one. */
+	try {
+		await resolveAppScope(appId, userId, "delete");
+	} catch (err) {
+		if (err instanceof AppAccessError) {
+			return { ok: false, error: "App not found." };
+		}
+		throw err;
 	}
 	return { ok: true };
 }

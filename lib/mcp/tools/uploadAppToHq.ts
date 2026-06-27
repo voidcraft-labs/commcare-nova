@@ -203,7 +203,7 @@ export function registerUploadAppToHq(
 				 * `not_found` on the wire so a probing client cannot
 				 * surface settings-level failure reasons for an app the
 				 * caller doesn't own. */
-				const { doc, app } = await loadAppBlueprint(appId, ctx.userId);
+				const { doc, app } = await loadAppBlueprint(appId, ctx.userId, "edit");
 
 				/* Gate 2 — credentials + target-space resolution in one read.
 				 * The optional `domain` arg picks the target (required for a

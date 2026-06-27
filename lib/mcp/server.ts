@@ -78,6 +78,7 @@ import { searchBlueprintTool } from "@/lib/agent/tools/searchBlueprint";
 import { updateAppTool } from "@/lib/agent/tools/updateApp";
 import { updateFormTool } from "@/lib/agent/tools/updateForm";
 import { updateModuleTool } from "@/lib/agent/tools/updateModule";
+import type { AppCapability } from "@/lib/auth/projectRoles";
 import {
 	registerSharedTool,
 	type SharedToolModule,
@@ -115,43 +116,88 @@ import type { ToolContext } from "./types";
  * agent a dead-end question path (it has no client-side panel to render
  * the result).
  */
-const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
-	{ name: "add_fields", tool: addFieldsTool },
-	{ name: "create_form", tool: createFormTool },
-	{ name: "create_module", tool: createModuleTool },
-	{ name: "edit_field", tool: editFieldTool },
+const SHARED_TOOLS: ReadonlyArray<{
+	name: string;
+	tool: SharedToolModule;
+	/** Minimum app capability the caller's Project role must grant. */
+	requires: AppCapability;
+}> = [
+	{ name: "add_fields", tool: addFieldsTool, requires: "edit" },
+	{ name: "create_form", tool: createFormTool, requires: "edit" },
+	{ name: "create_module", tool: createModuleTool, requires: "edit" },
+	{ name: "edit_field", tool: editFieldTool, requires: "edit" },
 	/* The two pure planning tools — each records its plan in the
 	 * conversation (the tool input is the plan) and writes nothing.
 	 * Execution runs through create_module per planned module. */
-	{ name: "generate_schema", tool: generateSchemaTool },
-	{ name: "plan_app_design", tool: planAppDesignTool },
-	{ name: "get_field", tool: getFieldTool },
-	{ name: "get_form", tool: getFormTool },
-	{ name: "get_module", tool: getModuleTool },
-	{ name: "remove_field", tool: removeFieldTool },
-	{ name: "remove_form", tool: removeFormTool },
-	{ name: "remove_module", tool: removeModuleTool },
-	{ name: "search_blueprint", tool: searchBlueprintTool },
+	{ name: "generate_schema", tool: generateSchemaTool, requires: "edit" },
+	{ name: "plan_app_design", tool: planAppDesignTool, requires: "edit" },
+	{ name: "get_field", tool: getFieldTool, requires: "view" },
+	{ name: "get_form", tool: getFormTool, requires: "view" },
+	{ name: "get_module", tool: getModuleTool, requires: "view" },
+	{ name: "remove_field", tool: removeFieldTool, requires: "edit" },
+	{ name: "remove_form", tool: removeFormTool, requires: "edit" },
+	{ name: "remove_module", tool: removeModuleTool, requires: "edit" },
+	{ name: "search_blueprint", tool: searchBlueprintTool, requires: "view" },
 	/* Case-list-config mutations — atomic add / update / remove /
 	 * reorder ops on each of the two arrays (`columns`,
 	 * `searchInputs`), plus the wholesale `filter` setter.
 	 * Snake_case MCP wire names mirror the camelCase TypeScript
 	 * exports per the wire-name convention above. */
-	{ name: "add_case_list_columns", tool: addCaseListColumnsTool },
-	{ name: "add_search_inputs", tool: addSearchInputsTool },
-	{ name: "remove_case_list_column", tool: removeCaseListColumnTool },
-	{ name: "remove_search_input", tool: removeSearchInputTool },
-	{ name: "reorder_case_list_columns", tool: reorderCaseListColumnsTool },
-	{ name: "reorder_search_inputs", tool: reorderSearchInputsTool },
-	{ name: "set_case_list_filter", tool: setCaseListFilterTool },
-	{ name: "update_case_list_column", tool: updateCaseListColumnTool },
-	{ name: "update_search_input", tool: updateSearchInputTool },
+	{
+		name: "add_case_list_columns",
+		tool: addCaseListColumnsTool,
+		requires: "edit",
+	},
+	{ name: "add_search_inputs", tool: addSearchInputsTool, requires: "edit" },
+	{
+		name: "remove_case_list_column",
+		tool: removeCaseListColumnTool,
+		requires: "edit",
+	},
+	{
+		name: "remove_search_input",
+		tool: removeSearchInputTool,
+		requires: "edit",
+	},
+	{
+		name: "reorder_case_list_columns",
+		tool: reorderCaseListColumnsTool,
+		requires: "edit",
+	},
+	{
+		name: "reorder_search_inputs",
+		tool: reorderSearchInputsTool,
+		requires: "edit",
+	},
+	{
+		name: "set_case_list_filter",
+		tool: setCaseListFilterTool,
+		requires: "edit",
+	},
+	{
+		name: "update_case_list_column",
+		tool: updateCaseListColumnTool,
+		requires: "edit",
+	},
+	{
+		name: "update_search_input",
+		tool: updateSearchInputTool,
+		requires: "edit",
+	},
 	/* Case-search-config wholesale mutations — one tool per cluster.
 	 * Cross-binding contract: search inputs are NOT authored through
 	 * these tools (they live on `caseListConfig.searchInputs` and use
 	 * the case-list-config search-input quartet above). */
-	{ name: "set_case_search_advanced", tool: setCaseSearchAdvancedTool },
-	{ name: "set_case_search_display", tool: setCaseSearchDisplayTool },
+	{
+		name: "set_case_search_advanced",
+		tool: setCaseSearchAdvancedTool,
+		requires: "edit",
+	},
+	{
+		name: "set_case_search_display",
+		tool: setCaseSearchDisplayTool,
+		requires: "edit",
+	},
 	/* Media authoring — the dedicated surface for attaching asset ids to
 	 * carriers (the generic mutation tools omit every media slot). Five
 	 * doc-mutation tools (field/option/module/form/app-logo) plus two
@@ -159,16 +205,20 @@ const SHARED_TOOLS: ReadonlyArray<{ name: string; tool: SharedToolModule }> = [
 	 * with a reference guard). The MCP-only `upload_media_asset` is
 	 * hand-registered below — it neither targets a doc nor an app id, so
 	 * it can't ride the shared adapter. */
-	{ name: "attach_field_media", tool: attachFieldMediaTool },
-	{ name: "attach_option_media", tool: attachOptionMediaTool },
-	{ name: "set_module_media", tool: setModuleMediaTool },
-	{ name: "set_form_media", tool: setFormMediaTool },
-	{ name: "set_app_logo", tool: setAppLogoTool },
-	{ name: "list_media_assets", tool: listMediaAssetsTool },
-	{ name: "remove_media_asset", tool: removeMediaAssetTool },
-	{ name: "update_app", tool: updateAppTool },
-	{ name: "update_form", tool: updateFormTool },
-	{ name: "update_module", tool: updateModuleTool },
+	{ name: "attach_field_media", tool: attachFieldMediaTool, requires: "edit" },
+	{
+		name: "attach_option_media",
+		tool: attachOptionMediaTool,
+		requires: "edit",
+	},
+	{ name: "set_module_media", tool: setModuleMediaTool, requires: "edit" },
+	{ name: "set_form_media", tool: setFormMediaTool, requires: "edit" },
+	{ name: "set_app_logo", tool: setAppLogoTool, requires: "edit" },
+	{ name: "list_media_assets", tool: listMediaAssetsTool, requires: "view" },
+	{ name: "remove_media_asset", tool: removeMediaAssetTool, requires: "edit" },
+	{ name: "update_app", tool: updateAppTool, requires: "edit" },
+	{ name: "update_form", tool: updateFormTool, requires: "edit" },
+	{ name: "update_module", tool: updateModuleTool, requires: "edit" },
 ];
 
 /**
@@ -205,7 +255,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 
 	/* Shared SA tools — one manifest, one adapter, one source of truth
 	 * with the chat-side `solutionsArchitect` factory. */
-	for (const { name, tool } of SHARED_TOOLS) {
-		registerSharedTool(server, name, tool, ctx);
+	for (const { name, tool, requires } of SHARED_TOOLS) {
+		registerSharedTool(server, name, tool, ctx, requires);
 	}
 }

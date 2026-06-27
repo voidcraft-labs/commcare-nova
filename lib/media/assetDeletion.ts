@@ -19,7 +19,7 @@
 // so the refusal message and the upload-attach warning name a carrier the same
 // way — no wire vocabulary.
 
-import { listApps, loadApp } from "@/lib/db/apps";
+import { listAppsByOwner, loadApp } from "@/lib/db/apps";
 import {
 	deleteAsset as deleteAssetRow,
 	hasOtherAssetForGcsObjectKey,
@@ -139,7 +139,7 @@ async function scanAllAppsForReferences(
 	const references: string[] = [];
 	let cursor: string | undefined;
 	do {
-		const page = await listApps(ownerId, {
+		const page = await listAppsByOwner(ownerId, {
 			limit: APP_SCAN_PAGE_SIZE,
 			sort: "updated_desc",
 			cursor,

@@ -11,7 +11,8 @@
  * (`not_owner`) that admins alert on.
  */
 
-import { loadAppOwner } from "@/lib/db/apps";
+import type { AppCapability } from "@/lib/auth/projectRoles";
+import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 
 /**
  * Two-value union of INTERNAL ownership-gate rejection reasons. Kept
@@ -45,19 +46,26 @@ export class McpAccessError extends Error {
 }
 
 /**
- * Assert the authenticated user owns `appId` before running any
- * blueprint-touching work. Resolves cleanly on success; throws
- * `McpAccessError` with a precise `reason` on failure. Never returns
- * the owner userId — callers that need owner identity for something
- * other than the gate should call `loadAppOwner` directly.
+ * Assert the caller has the `required` capability on `appId`'s Project before
+ * running any blueprint-touching work — membership-based, replacing the old
+ * owner-equality check. Resolves cleanly on success; throws `McpAccessError`
+ * on failure, collapsing the resolver's three denial reasons onto the two-value
+ * MCP taxonomy (both surface as `not_found` on the wire). Defaults to `"view"`;
+ * mutating callers pass `"edit"` and destructive ones `"delete"`.
  */
 export async function requireOwnedApp(
 	userId: string,
 	appId: string,
+	required: AppCapability = "view",
 ): Promise<void> {
-	const owner = await loadAppOwner(appId);
-	// Empty string and null both count as "no owner" — a blank value would
-	// violate invariants even if Firestore permitted it.
-	if (!owner) throw new McpAccessError("not_found");
-	if (owner !== userId) throw new McpAccessError("not_owner");
+	try {
+		await resolveAppScope(appId, userId, required);
+	} catch (err) {
+		if (err instanceof AppAccessError) {
+			throw new McpAccessError(
+				err.reason === "not_found" ? "not_found" : "not_owner",
+			);
+		}
+		throw err;
+	}
 }

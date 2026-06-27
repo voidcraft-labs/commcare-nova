@@ -4,8 +4,9 @@
  * GET  /api/apps/{id} — load an app (full blueprint) for the builder
  * PUT  /api/apps/{id} — update an app after client-side edits (auto-save)
  *
- * Both endpoints require an authenticated session. Ownership is verified
- * explicitly — the app's `owner` field must match `session.user.id`.
+ * Both endpoints require an authenticated session and Project membership: the
+ * caller must hold the app's Project at the required capability (GET → view,
+ * PUT → edit), via `resolveAppAccess`.
  */
 
 import {
@@ -15,8 +16,10 @@ import {
 	readJsonBody,
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
+import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
-import { BlueprintBasisStaleError, loadApp } from "@/lib/db/apps";
+import { BlueprintBasisStaleError } from "@/lib/db/apps";
+import type { AppDoc } from "@/lib/db/types";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { log } from "@/lib/logger";
 
@@ -27,12 +30,16 @@ export async function GET(
 	try {
 		const session = await requireSession(req);
 		const { id } = await params;
-		const app = await loadApp(id);
-		if (!app) {
-			throw new ApiError("App not found", 404);
-		}
-		if (app.owner !== session.user.id) {
-			throw new ApiError("App not found", 404);
+		/* Project-membership gate (view). Collapses absent / non-member /
+		 * under-privileged all to 404 so a probing client can't tell another
+		 * Project's app apart from a nonexistent one. */
+		let app: AppDoc;
+		try {
+			app = (await resolveAppAccess(id, session.user.id, "view")).app;
+		} catch (err) {
+			if (err instanceof AppAccessError)
+				throw new ApiError("App not found", 404);
+			throw err;
 		}
 		/* Return only the fields the client needs for hydration. Firestore Timestamp
 		 * objects on created_at/updated_at don't JSON-serialize cleanly, and the client
@@ -60,15 +67,17 @@ export async function PUT(
 		const session = await requireSession(req);
 		const { id } = await params;
 
-		/* Single Firestore read up front — the loaded `AppDoc` carries
-		 * both the `owner` field (for the ownership gate) and the
-		 * `blueprint` (threaded into the saga as `priorBlueprint` so
-		 * the diff doesn't pay a second `loadApp` round trip). Returns
-		 * 404 (not 403) to avoid leaking the existence of other users'
-		 * apps. */
-		const app = await loadApp(id);
-		if (!app || app.owner !== session.user.id) {
-			throw new ApiError("App not found", 404);
+		/* Project-membership gate (edit). The resolver's single Firestore read
+		 * yields the `AppDoc` whose `blueprint` threads into the saga as
+		 * `priorBlueprint` (no second `loadApp`). Every denial collapses to 404
+		 * (not 403) to avoid leaking the existence of another Project's app. */
+		let app: AppDoc;
+		try {
+			app = (await resolveAppAccess(id, session.user.id, "edit")).app;
+		} catch (err) {
+			if (err instanceof AppAccessError)
+				throw new ApiError("App not found", 404);
+			throw err;
 		}
 
 		// Cap the body before materializing it. The blueprint is one

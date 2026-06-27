@@ -33,6 +33,8 @@
  * the internal distinction.
  */
 
+import type { AppCapability } from "@/lib/auth/projectRoles";
+import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
@@ -71,10 +73,23 @@ export interface LoadedApp {
 export async function loadAppBlueprint(
 	appId: string,
 	userId: string,
+	required: AppCapability = "view",
 ): Promise<LoadedApp> {
 	const loaded = await loadApp(appId);
 	if (!loaded) throw new McpAccessError("not_found");
-	if (loaded.owner !== userId) throw new McpAccessError("not_owner");
+	/* Membership gate, reusing the doc we just loaded (no second read). Map the
+	 * resolver's three denial reasons onto the two-value MCP taxonomy; both
+	 * collapse to `not_found` on the wire. */
+	try {
+		await resolveAppAccess(appId, userId, required, { app: loaded });
+	} catch (err) {
+		if (err instanceof AppAccessError) {
+			throw new McpAccessError(
+				err.reason === "not_found" ? "not_found" : "not_owner",
+			);
+		}
+		throw err;
+	}
 	/* Split the raw blueprint off the `AppDoc` envelope so the return
 	 * type can't accidentally leak a stale blueprint through `.app`.
 	 * `rebuildFieldParent` assigns into `doc.fieldParent`; spreading

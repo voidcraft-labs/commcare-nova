@@ -64,5 +64,24 @@ export type ProjectRole = keyof typeof PROJECT_ROLES;
 /** App-level capabilities gated by the `app` resource. */
 export type AppCapability = (typeof statement)["app"][number];
 
+/**
+ * Whether a member's stored role grants an app capability. The role string may
+ * be comma-joined (Better Auth allows multiple roles per member), so any
+ * granting role wins. Derives the answer from the AC role definitions — the
+ * single source of truth — rather than a parallel capability table.
+ */
+export function roleAllowsApp(
+	role: string,
+	capability: AppCapability,
+): boolean {
+	return role
+		.split(",")
+		.some(
+			(r) =>
+				PROJECT_ROLES[r as ProjectRole]?.authorize({ app: [capability] })
+					.success ?? false,
+		);
+}
+
 /** Max members per Project (Better Auth's own default is 100). */
 export const MEMBERSHIP_LIMIT = 200;

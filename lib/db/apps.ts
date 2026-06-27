@@ -1103,6 +1103,20 @@ export async function loadAppOwner(appId: string): Promise<string | null> {
 }
 
 /**
+ * Load just the owning Project id for an app document.
+ *
+ * The lightweight twin of `loadAppOwner` for the authorization resolver: reads
+ * only `project_id` via an untyped document reference, avoiding the full
+ * blueprint load + Zod validation. Returns null when the row is absent or the
+ * field is unset (a pre-backfill row).
+ */
+export async function loadAppProjectId(appId: string): Promise<string | null> {
+	const snap = await getDb().collection("apps").doc(appId).get();
+	if (!snap.exists) return null;
+	return (snap.data()?.project_id as string | undefined) ?? null;
+}
+
+/**
  * Denormalized fields fetched by `listApps`.
  *
  * Excludes `app_name_lower` — it is a sort key on the index side but
@@ -1340,8 +1354,9 @@ function projectAppSummary(
  * the web UI's fixed 50-row page — always reach every row a typical
  * user has).
  */
-export async function listApps(
-	projectId: string,
+async function queryAppsByScope(
+	scopeField: "owner" | "project_id",
+	scopeValue: string,
 	options: ListAppsOptions,
 ): Promise<ListAppsResult> {
 	const { limit, sort, status, cursor } = options;
@@ -1352,7 +1367,7 @@ export async function listApps(
 	 * on the way out. */
 	let query: FirebaseFirestore.Query = getDb()
 		.collection("apps")
-		.where("project_id", "==", projectId)
+		.where(scopeField, "==", scopeValue)
 		/* `createApp` writes `deleted_at: null` on every new doc, so this
 		 * equality filter matches every live app — no missing-field rows
 		 * to leak. See the function docblock for the rationale. */
@@ -1437,6 +1452,29 @@ export async function listApps(
 		snap.size === limit ? cursorFor(apps[apps.length - 1], sort) : undefined;
 
 	return { apps, nextCursor };
+}
+
+/**
+ * List a Project's live apps — the tenancy listing (home page, /api/apps, MCP).
+ * Thin wrapper over `queryAppsByScope`.
+ */
+export function listApps(
+	projectId: string,
+	options: ListAppsOptions,
+): Promise<ListAppsResult> {
+	return queryAppsByScope("project_id", projectId, options);
+}
+
+/**
+ * List a user's OWN (created) apps by the `owner` field — for admin inspection
+ * and the owner-keyed media-deletion reference scan, which are creator-scoped,
+ * NOT tenancy-scoped. (The `owner`-leading composite indexes serve this.)
+ */
+export function listAppsByOwner(
+	owner: string,
+	options: ListAppsOptions,
+): Promise<ListAppsResult> {
+	return queryAppsByScope("owner", owner, options);
 }
 
 /**

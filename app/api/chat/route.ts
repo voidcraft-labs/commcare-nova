@@ -16,12 +16,12 @@ import {
 	resolveAttachments,
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
-import { ensurePersonalProject } from "@/lib/auth/provisionProject";
-import { resolveAnthropicKey } from "@/lib/auth-utils";
+import { resolveActiveProjectId, resolveAnthropicKey } from "@/lib/auth-utils";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
+import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import {
 	BuildRunConflictError,
 	type ClaimedBuildRun,
@@ -30,7 +30,6 @@ import {
 	createApp,
 	failApp,
 	hasActiveGeneration,
-	loadAppOwner,
 	setAwaitingInput,
 } from "@/lib/db/apps";
 import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
@@ -240,13 +239,10 @@ export async function POST(req: Request) {
 	let clearPauseFlagAfterGates = false;
 	if (!appId) {
 		try {
-			/* New builds land in the caller's active Project. The session hook
-			 * stamps `activeOrganizationId`; fall back to provisioning only when a
-			 * pre-Projects session never got the stamp, so a healthy auth DB isn't a
-			 * hard dependency of every new build. */
-			const projectId =
-				keyResult.session.session.activeOrganizationId ??
-				(await ensurePersonalProject(userId));
+			/* New builds land in the caller's active Project (shared resolver: the
+			 * session's stamped activeOrganizationId, self-healing to the personal
+			 * Project for pre-Projects sessions). */
+			const projectId = await resolveActiveProjectId(keyResult.session);
 			appId = await createApp(userId, projectId, effectiveRunId);
 			appCreated = true;
 		} catch (err) {
@@ -260,15 +256,19 @@ export async function POST(req: Request) {
 			);
 		}
 	} else {
-		/* Verify ownership — apps are a root-level collection, so the path no
-		 * longer scopes writes to the authenticated user. Without this check,
-		 * a crafted request with another user's appId would overwrite their app. */
-		const owner = await loadAppOwner(appId);
-		if (owner !== userId) {
-			return Response.json(
-				{ error: "App not found", type: "not_found" },
-				{ status: 404 },
-			);
+		/* Project-membership gate (edit) — apps are a root-level collection, so
+		 * the path doesn't scope writes; without this a crafted request with
+		 * another Project's appId could drive a build against it. */
+		try {
+			await resolveAppScope(appId, userId, "edit");
+		} catch (err) {
+			if (err instanceof AppAccessError) {
+				return Response.json(
+					{ error: "App not found", type: "not_found" },
+					{ status: 404 },
+				);
+			}
+			throw err;
 		}
 		if (!parsed.data.appReady && chargeable) {
 			/* EVERY chargeable BUILD-mode POST against an existing app claims
