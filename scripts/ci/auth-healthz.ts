@@ -15,11 +15,12 @@
  * — before it can merge. The emulator-backed Playwright smoke can't catch this
  * class: it replaces that exact network layer.
  *
- * `google-auth-library` is declared as a devDependency pinned to the connector's
- * own range (`^10.6.2`), so npm resolves it to the SINGLE shared copy the
- * connector + firebase-admin already use — the test exercises the exact library
- * the connector depends on, and can neither bump that prod-resolved copy nor
- * drift from it. The Firestore app-data path keeps its own gate in
+ * `google-auth-library` is declared as a devDependency at the connector's own
+ * range (`^10.6.2`), so npm dedupes it to the SINGLE shared copy the connector +
+ * firebase-admin already use — the test exercises the exact library the connector
+ * depends on. Keep this range in lockstep with the connector's: nothing enforces
+ * it automatically, and a divergent range would split off a second copy this test
+ * no longer shares. The Firestore app-data path keeps its own gate in
  * `scripts/ci/firestore-healthz.ts`.
  *
  * What it deliberately does NOT cover: the connector's OWN code — the Cloud SQL
