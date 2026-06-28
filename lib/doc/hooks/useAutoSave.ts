@@ -384,7 +384,19 @@ export function useAutoSave(): SaveState {
 				/* A run owns the doc (it streams + persists its own mutations).
 				 * Keep the diff base synced to the latest streamed doc and never
 				 * auto-save over a run, so the first user edit afterward diffs
-				 * against the run's result, not the pre-run snapshot. */
+				 * against the run's result, not the pre-run snapshot — and so
+				 * the run's own streamed mutations are never re-sent as a user
+				 * delta (which would re-apply on a fresh doc that already has
+				 * them).
+				 *
+				 * KNOWN LIMITATION — a HUMAN edit made DURING an agent edit-run
+				 * is folded into this base and not separately persisted until
+				 * the next standalone edit, because the run gate can't tell the
+				 * agent's streamed mutations from a concurrent human edit
+				 * (separating them needs per-write origin tracking — the
+				 * concurrent-editing machinery this project's multiplayer goal
+				 * will add). The dominant sequential flow (edit, then ask the
+				 * agent, or vice versa) is unaffected. */
 				if (sessionState.events.length > 0) {
 					lastSavedDocRef.current = toPersistableDoc(docStore.getState());
 					return;
