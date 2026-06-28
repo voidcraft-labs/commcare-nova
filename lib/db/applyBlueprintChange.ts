@@ -101,11 +101,12 @@ import type { AppDoc } from "./types";
 /**
  * Arguments for `applyBlueprintChange`.
  *
- * `runId` discriminates the two persisted-write helpers: present
- * routes through `updateAppForRun` (writes `run_id` alongside the
- * blueprint, used by MCP tool calls inside their sliding-window
- * run); absent routes through `updateApp` (auto-save's plain
- * blueprint write).
+ * `runId` distinguishes a run-scoped write from a standalone one. With a
+ * `guard` it picks the guarded transactional writer (run-scoped
+ * `updateAppForRunTransactional` when present — MCP tool calls inside
+ * their sliding-window run — else the tokenless `updateAppGuardedMutating`
+ * for auto-save); without a `guard` it picks the whole-doc writer
+ * (`updateAppForRun` when present — chat build — else `updateApp`).
  *
  * `hint` carries optional explicit per-row migration intent —
  * rename / retype / narrow-options. The classifier emits the
@@ -161,19 +162,20 @@ export interface ApplyBlueprintChangeArgs {
 
 /**
  * Result of `applyBlueprintChange`. `basisToken` is present only on the
- * basis-guarded path — the freshly rotated token the client echoes on
- * its next save.
+ * tokenless guarded-mutation (auto-save) path — the freshly rotated
+ * `blueprint_token` the client tracks as the latest server version.
  */
 export interface ApplyBlueprintChangeResult {
 	readonly basisToken?: string;
 }
 
 /**
- * Thrown by the guarded commit when the validity verdict — re-run inside
- * the Firestore transaction against the freshly read blueprint — rejects
- * the batch. Carries the person-to-person findings as its message; the
- * MCP tool's catch returns it in the standard `{ error }` envelope, the
- * same shape an optimistic gate rejection produces.
+ * Thrown by the guarded commit when, against the freshly read blueprint, a
+ * mutation targets a concurrently-removed entity ({@link batchTargetsMissing})
+ * or the re-run validity verdict rejects the batch. Carries the
+ * person-to-person findings as its message. The MCP tool's catch returns it
+ * in the standard `{ error }` envelope; the auto-save PUT maps it to a 409
+ * the builder recovers from by reloading.
  */
 export class BlueprintCommitRejectedError extends Error {
 	constructor(message: string) {
