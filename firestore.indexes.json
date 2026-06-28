@@ -823,6 +823,24 @@
 				}
 			],
 			"density": "SPARSE_ALL"
+		},
+		{
+			"collectionGroup": "apps",
+			"queryScope": "COLLECTION",
+			"fields": [
+				{
+					"fieldPath": "reservation.userId",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "deleted_at",
+					"order": "ASCENDING"
+				},
+				{
+					"fieldPath": "status",
+					"order": "ASCENDING"
+				}
+			]
 		}
 	],
 	"fieldOverrides": [

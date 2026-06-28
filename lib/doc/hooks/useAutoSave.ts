@@ -257,6 +257,17 @@ export function useAutoSave(): SaveState {
 		 * built on a snapshot another writer has since replaced, so the
 		 * server's version is the one source of truth worth keeping — the
 		 * user's most recent local change is the cost, and the toast says so.
+		 *
+		 * This is the deliberate, SAFE conflict resolution. A non-destructive
+		 * REBASE (replay the local edits onto the server's fresh doc instead
+		 * of discarding them) is the multiplayer-GA follow-up — it requires a
+		 * client mutation op-log replayed through the commit gate, because the
+		 * auto-save PUT does no whole-doc validation (validity is gated
+		 * per-mutation), so a merged doc must be re-verdicted client-side or
+		 * it could persist an invalid blueprint. The only consumer of a
+		 * human-vs-human rebase is concurrent editing, which `PROJECTS_ENABLED`
+		 * gates off; the reachable conflict today (an MCP agent vs. this tab)
+		 * is correctly handled by this reload.
 		 */
 		async function reloadAfterStaleBasis(
 			appId: string,

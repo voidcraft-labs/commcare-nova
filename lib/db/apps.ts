@@ -285,27 +285,36 @@ async function syncMediaReferences(
 // ── Concurrency Guard ─────────────────────────────────────────────
 
 /**
- * Check whether the user has an active generation in progress.
+ * Check whether the ACTOR has an active generation in progress.
  *
- * Queries for any app owned by `owner` with `status: 'generating'` whose
- * last Firestore write was within the staleness window. Returns `true` if
- * an active generation exists that isn't the given `excludeAppId` — so
- * retries on the same build are allowed, but concurrent new builds are blocked.
+ * Keyed on `reservation.userId` (the user a run's credits were debited
+ * from — the ACTOR), NOT `owner`: under shared Projects a co-member can
+ * run a build on an app someone else owns, and the per-user concurrency
+ * cap must follow whoever is actually running it. Keying on `owner` would
+ * both miss a co-member's concurrent runs on others' apps AND falsely
+ * block an owner whose app a co-member is building.
  *
- * Soft-deleted rows are excluded server-side via `deleted_at == null`:
- * a deleted-mid-generation row is effectively abandoned and must not
- * keep blocking new builds.
+ * Queries for any non-deleted app the actor is generating whose last
+ * write is within the staleness window. Returns `true` if a live one
+ * exists that isn't `excludeAppId` — so retries on the same build pass,
+ * but concurrent new builds are blocked.
+ *
+ * Best-effort (the chat route treats it fail-open): a build in the brief
+ * claim→`reserveCredits` window carries no marker yet, so a simultaneous
+ * sibling can slip past — the reservation's atomic debit is the true
+ * no-overshoot guard; this is the one-build-at-a-time UX nicety. Free
+ * edit continuations never flip to `generating`, so they never count.
  *
  * Single Firestore query with `limit(5)` — enough to find a live one
  * even if the first few results are stale or the excluded app.
  */
 export async function hasActiveGeneration(
-	owner: string,
+	actorUserId: string,
 	excludeAppId?: string,
 ): Promise<boolean> {
 	const snap = await collections
 		.apps()
-		.where("owner", "==", owner)
+		.where("reservation.userId", "==", actorUserId)
 		.where("deleted_at", "==", null)
 		.where("status", "==", "generating")
 		.limit(5)
