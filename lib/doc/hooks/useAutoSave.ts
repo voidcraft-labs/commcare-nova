@@ -118,11 +118,16 @@ export function useAutoSave(): SaveState {
 	 * retry, so a transient 404 / re-promotion auto-recovers. On recovery the
 	 * captured `warn404ToastIdRef` toast is DISMISSED (persistent toasts never
 	 * auto-expire, so leaving it would contradict the restored "Saved" state).
-	 * `reported404Ref` keeps the Sentry signal to once per app (no flap spam).
-	 * All three reset on app change. */
+	 * Both reset on app change. The Sentry signal is deduped by
+	 * `reportClientError`'s own message Set (the message carries the app id), so
+	 * no separate once-flag is needed. */
 	const warned404Ref = useRef(false);
 	const warn404ToastIdRef = useRef<string | undefined>(undefined);
-	const reported404Ref = useRef(false);
+	/* True while the last save attempt errored (404 / generic / network). Gates
+	 * the "Saving…" flash so a SUSTAINED error episode doesn't bounce the
+	 * indicator error→saving→error on every edit and re-announce the alert
+	 * region. Cleared on any successful save / reload; reset on app change. */
+	const lastErroredRef = useRef(false);
 
 	/* The diff base: the blueprint as the server last persisted it (a
 	 * `toPersistableDoc` snapshot — no live references). Each save sends the
@@ -136,8 +141,8 @@ export function useAutoSave(): SaveState {
 	/* Clear the 404 warning + dismiss its persistent toast. Called wherever the
 	 * "can't save" state ends — a successful save, a 409 reload, an app change,
 	 * unmount — so the pinned toast never outlives the condition it describes.
-	 * Leaves `reported404Ref` alone (Sentry stays once-per-app; the app-change
-	 * site resets it separately). */
+	 * The error-churn flag (`lastErroredRef`) is managed separately by each
+	 * branch, since a failed 409-reload ends the 404 warning but stays errored. */
 	const dismiss404Warning = useCallback(() => {
 		warned404Ref.current = false;
 		if (warn404ToastIdRef.current) {
@@ -159,10 +164,10 @@ export function useAutoSave(): SaveState {
 			cooldownTimerRef.current = undefined;
 		}
 		pendingTrailingRef.current = false;
-		/* A different app starts fresh — drop the previous app's 404 warning
-		 * (and its Sentry once-flag) so neither haunts the new app. */
+		/* A different app starts fresh — drop the previous app's 404 warning +
+		 * error-churn state so neither haunts the new app. */
 		dismiss404Warning();
-		reported404Ref.current = false;
+		lastErroredRef.current = false;
 		/* Drop the old app's diff base — the subscription re-seeds it from
 		 * the freshly loaded doc before the first edit can save. */
 		lastSavedDocRef.current = null;
@@ -245,11 +250,12 @@ export function useAutoSave(): SaveState {
 			if (mutations.length === 0) return;
 
 			inFlightRef.current = true;
-			/* During a known 404 episode (every edit retries, hoping for
-			 * recovery) skip the "saving" flash — it would bounce status
-			 * error→saving→error on each edit and re-announce the alert. The
-			 * retry still fires; a SUCCESS clears the warning and sets "saved". */
-			if (!unmountedRef.current && !warned404Ref.current) {
+			/* During a sustained error episode (every edit retries, hoping for
+			 * recovery) skip the "Saving…" flash — it would bounce status
+			 * error→saving→error on each edit and re-announce the alert region.
+			 * The retry still fires; a SUCCESS clears `lastErroredRef` and sets
+			 * "saved". Applies to ALL error kinds (404 / generic / network). */
+			if (!unmountedRef.current && !lastErroredRef.current) {
 				setState((prev) => ({ ...prev, status: "saving" }));
 			}
 
@@ -285,10 +291,11 @@ export function useAutoSave(): SaveState {
 						/* body unreadable — the version marker is advisory; the
 						 * next save still diffs against the advanced base. */
 					}
-					/* A save landed — recovery. Dismiss the 404 warning + its pinned
-					 * toast (it would otherwise contradict the restored "Saved"),
-					 * so a later loss of access warns afresh. `reported404Ref` stays
-					 * set — one Sentry signal per app, no flap spam. */
+					/* A save landed — recovery. Clear the error-churn flag and dismiss
+					 * the 404 warning + its pinned toast (it would otherwise
+					 * contradict the restored "Saved"), so a later loss of access
+					 * warns afresh. */
+					lastErroredRef.current = false;
 					dismiss404Warning();
 					setState({ status: "saved", savedAt: Date.now() });
 				} else if (res.status === 409) {
@@ -312,6 +319,7 @@ export function useAutoSave(): SaveState {
 					 * role change. Guarded by `stillCurrent()` — a 404 for an app the
 					 * user already navigated away from must not warn on the new app. */
 					if (stillCurrent()) {
+						lastErroredRef.current = true;
 						if (!warned404Ref.current) {
 							warned404Ref.current = true;
 							warn404ToastIdRef.current = showToast(
@@ -320,20 +328,19 @@ export function useAutoSave(): SaveState {
 								"This app can't be saved from here right now — your edit access may have been removed, or the app was deleted. If this persists, reload to see the current version.",
 								{ persistent: true },
 							);
-						}
-						/* Sentry once per app — a flapping 404↔200 connection mustn't
-						 * re-report every episode. */
-						if (!reported404Ref.current) {
-							reported404Ref.current = true;
+							/* Report inside the once-per-episode gate; the app id in the
+							 * message lets `reportClientError`'s own message-dedup keep
+							 * this to once per app per page-load (no flap spam). */
 							reportClientError({
-								message: "Auto-save failed — HTTP 404 (app not writable)",
+								message: `Auto-save failed — HTTP 404 (app ${appIdAtStart} not writable)`,
 								source: "manual",
 								url: window.location.href,
 							});
 						}
 						/* Don't churn the alert region on every retry — only transition
 						 * INTO error (a no-op `set` returning `prev` skips the re-render
-						 * and the screen-reader re-announce). */
+						 * and the screen-reader re-announce; the saving-flash skip above
+						 * keeps the label constant). */
 						setState((prev) =>
 							prev.status === "error" ? prev : { ...prev, status: "error" },
 						);
@@ -353,7 +360,10 @@ export function useAutoSave(): SaveState {
 						url: window.location.href,
 					});
 					if (stillCurrent()) {
-						setState((prev) => ({ ...prev, status: "error" }));
+						lastErroredRef.current = true;
+						setState((prev) =>
+							prev.status === "error" ? prev : { ...prev, status: "error" },
+						);
 					}
 				}
 			} catch (err) {
@@ -367,7 +377,10 @@ export function useAutoSave(): SaveState {
 						},
 						err,
 					);
-					setState((prev) => ({ ...prev, status: "error" }));
+					lastErroredRef.current = true;
+					setState((prev) =>
+						prev.status === "error" ? prev : { ...prev, status: "error" },
+					);
 				}
 			} finally {
 				inFlightRef.current = false;
@@ -407,9 +420,11 @@ export function useAutoSave(): SaveState {
 				lastSavedDocRef.current = data.blueprint;
 				session.getState().setSaveBasis(data.basis_token ?? null);
 				/* Reaching a 409 means the server accepted the write attempt — edit
-				 * access exists, so any prior 404 "can't save" warning is stale.
-				 * Dismiss it before the reload toast, or the two contradict. */
+				 * access exists, so any prior 404 "can't save" warning is stale,
+				 * and the conflict is now resolved (fresh doc loaded). Clear both
+				 * the warning and the error-churn flag before the reload toast. */
 				dismiss404Warning();
+				lastErroredRef.current = false;
 				setState(IDLE_STATE);
 				showToast(
 					"warning",
@@ -419,7 +434,9 @@ export function useAutoSave(): SaveState {
 			} catch (err) {
 				/* The reload itself failed — surface as a save error so the
 				 * indicator shows something is wrong; the next mutation retries
-				 * the whole save → 409 → reload sequence. */
+				 * the whole save → 409 → reload sequence. The 409 already proved
+				 * edit access, so a prior 404 warning is stale even though the
+				 * reload failed — dismiss it so it can't contradict the true state. */
 				reportClientError(
 					{
 						message: `Auto-save conflict reload failed: ${
@@ -431,7 +448,11 @@ export function useAutoSave(): SaveState {
 					err,
 				);
 				if (stillCurrent()) {
-					setState((prev) => ({ ...prev, status: "error" }));
+					dismiss404Warning();
+					lastErroredRef.current = true;
+					setState((prev) =>
+						prev.status === "error" ? prev : { ...prev, status: "error" },
+					);
 				}
 			}
 		}
