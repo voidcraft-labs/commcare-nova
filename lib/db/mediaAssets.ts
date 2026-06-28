@@ -369,24 +369,6 @@ export async function loadAssetForOwner(
 	return { ...data, id: asAssetId(snap.id) };
 }
 
-/**
- * Load one asset by id WITHOUT an owner filter — for the read path, which
- * authorizes the caller against the asset's referencing apps rather than by
- * sole ownership (media on a shared app must be readable by that app's Project
- * members). Returns `null` for a missing row. The CALLER must authorize via
- * `canReadReferencedAsset` (owner OR a referencing app they can access) before
- * serving bytes — this loader is intentionally un-gated, so it is private to
- * the media surfaces that do that check.
- */
-export async function loadAssetById(
-	assetId: AssetId,
-): Promise<MediaAssetRecord | null> {
-	const snap = await docs.mediaAsset(assetId).get();
-	const data = snap.data();
-	if (!data) return null;
-	return { ...data, id: asAssetId(snap.id) };
-}
-
 /** Firestore caps a `documentId() in [...]` query at 30 values, so the
  *  bulk loader chunks the id list into batches of this size. */
 const ID_BATCH_SIZE = 30;

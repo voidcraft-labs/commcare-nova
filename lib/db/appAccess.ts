@@ -143,37 +143,3 @@ export async function resolveProjectAccess(
 	assertCapability(role, required);
 	return { projectId, role, actorUserId: userId };
 }
-
-/**
- * Whether `userId` may READ a media asset they don't own — i.e. whether the
- * asset is referenced by an app the user can access. Media bytes live in the
- * uploader's namespace, but an asset attached to a shared app must be visible
- * to that app's Project members (otherwise media on a shared app renders broken
- * for co-editors). The asset's `referencingAppIds` reverse index names the apps
- * whose blueprint references it; the caller may read it if they hold `view` on
- * any one of them.
- *
- * The index is trusted (not re-walked) for this READ check: a stale entry only
- * over-grants read to a former co-viewer of an app that once referenced the
- * asset — bounded and low-risk for a read. The DELETE guard
- * (`findAppReferencesToAsset`) still re-walks to CONFIRM a live reference.
- * A legacy asset with no index (`referencingAppIds` absent) stays owner-only
- * until `backfill-media-reference-index` populates it.
- */
-export async function canReadReferencedAsset(
-	userId: string,
-	ownerId: string,
-	referencingAppIds: readonly string[] | undefined,
-): Promise<boolean> {
-	if (ownerId === userId) return true;
-	if (!referencingAppIds || referencingAppIds.length === 0) return false;
-	for (const appId of referencingAppIds) {
-		try {
-			await resolveAppScope(appId, userId, "view");
-			return true;
-		} catch (err) {
-			if (!(err instanceof AppAccessError)) throw err;
-		}
-	}
-	return false;
-}

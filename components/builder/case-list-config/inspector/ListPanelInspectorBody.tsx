@@ -28,6 +28,7 @@ import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
 import type { Uuid } from "@/lib/doc/types";
 import { asAssetId, type CaseListConfig, type Column } from "@/lib/domain";
+import { useCanEdit } from "@/lib/session/hooks";
 import { SortPriorityStack } from "../SortPriorityStack";
 import type { SampleDataAction } from "../useSampleData";
 
@@ -127,6 +128,11 @@ function SampleDataControls({
 }) {
 	const { generate, reset } = sampleData;
 	const [confirmingReset, setConfirmingReset] = useState(false);
+	/* Generate + Reset both WRITE case rows (edit-gated server actions), so a
+	 * view-only member gets no sample-data controls at all — not just the
+	 * Generate button (`GenerateSampleDataButton`) but the Reset sibling too. */
+	const canEdit = useCanEdit();
+	if (!canEdit) return null;
 
 	const buttonCls =
 		"inline-flex items-center justify-center gap-1.5 px-3 min-h-11 text-xs rounded-lg border transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed";

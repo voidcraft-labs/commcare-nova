@@ -24,26 +24,25 @@ export default async function SettingsPage() {
 	const session = await getSession();
 	if (!session) return null;
 
-	/* The active-Project resolution doesn't gate the four user-id-scoped reads,
-	 * so run it alongside them rather than ahead of them. `cache()` on
-	 * `resolveActiveProjectId` + `listUserProjects` makes the layout's parallel
-	 * calls free. The two Project-scoped reads (members, invitations) depend on
-	 * the resolved id, so they follow. */
+	/* Resolve the active Project FIRST: it get-or-creates the user's personal
+	 * Project (a WRITE to `auth_member`), so it must commit before
+	 * `listUserProjects` READS that table — otherwise a legacy user's freshly
+	 * provisioned Project can be missing from the switcher list. `cache()` makes
+	 * the layout's own call free. The remaining reads are independent. */
+	const activeProjectId = await resolveActiveProjectId(session);
+
 	const [
 		initialSettings,
 		initialAuthorizedClients,
 		initialApiKeys,
 		projects,
-		activeProjectId,
+		members,
+		invitations,
 	] = await Promise.all([
 		getCommCareSettings(session.user.id),
 		listAuthorizedClients(session.user.id),
 		listUserApiKeys(session.user.id),
 		listUserProjects(session.user.id),
-		resolveActiveProjectId(session),
-	]);
-
-	const [members, invitations] = await Promise.all([
 		listProjectMembers(activeProjectId),
 		listPendingInvitations(activeProjectId),
 	]);

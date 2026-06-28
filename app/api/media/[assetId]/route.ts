@@ -20,9 +20,7 @@ import { Readable } from "node:stream";
 import type { NextRequest } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { canReadReferencedAsset } from "@/lib/db/appAccess";
 import {
-	loadAssetById,
 	loadAssetForOwner,
 	MediaAssetOwnershipError,
 } from "@/lib/db/mediaAssets";
@@ -43,23 +41,13 @@ export async function GET(
 		const { assetId: rawAssetId } = await params;
 		const assetId = asAssetId(rawAssetId);
 
-		/* Media on a shared app must be readable by that app's Project members
-		 * (else it renders broken for co-editors), but ONLY for the apps they
-		 * can actually access — authorize by owner OR a referencing app the
-		 * caller holds `view` on (`canReadReferencedAsset`), never by merely
-		 * sharing some Project with the owner. A caller with neither reads 404,
-		 * so ids stay non-enumerable. */
-		const asset = await loadAssetById(assetId);
+		const asset = await loadAssetForOwner(session.user.id, assetId).catch(
+			(err: unknown) => {
+				if (err instanceof MediaAssetOwnershipError) return null;
+				throw err;
+			},
+		);
 		if (asset?.status !== "ready") {
-			throw new ApiError("Media asset not found.", 404);
-		}
-		if (
-			!(await canReadReferencedAsset(
-				session.user.id,
-				asset.owner,
-				asset.referencingAppIds,
-			))
-		) {
 			throw new ApiError("Media asset not found.", 404);
 		}
 

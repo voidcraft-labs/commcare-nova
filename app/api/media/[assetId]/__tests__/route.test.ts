@@ -28,8 +28,6 @@ import { DELETE, GET } from "../route";
 const {
 	requireSessionMock,
 	loadAssetForOwnerMock,
-	loadAssetByIdMock,
-	canReadReferencedAssetMock,
 	findAppReferencesToAssetMock,
 	purgeAssetStorageMock,
 	streamAssetMock,
@@ -37,10 +35,6 @@ const {
 } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
 	loadAssetForOwnerMock: vi.fn(),
-	loadAssetByIdMock: vi.fn(),
-	// Default: the read is authorized (owner-self or a referencing app the
-	// caller can access). Individual tests override to the denied case.
-	canReadReferencedAssetMock: vi.fn(() => Promise.resolve(true)),
 	findAppReferencesToAssetMock: vi.fn(() => Promise.resolve([] as string[])),
 	purgeAssetStorageMock: vi.fn(() => Promise.resolve()),
 	streamAssetMock: vi.fn(),
@@ -48,12 +42,8 @@ const {
 }));
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: requireSessionMock }));
-vi.mock("@/lib/db/appAccess", () => ({
-	canReadReferencedAsset: canReadReferencedAssetMock,
-}));
 vi.mock("@/lib/db/mediaAssets", () => ({
 	loadAssetForOwner: loadAssetForOwnerMock,
-	loadAssetById: loadAssetByIdMock,
 	MediaAssetOwnershipError: class extends Error {},
 }));
 vi.mock("@/lib/media/assetDeletion", () => ({
@@ -111,7 +101,7 @@ const getReq = () =>
 
 describe("GET media asset", () => {
 	it("streams the bytes with Content-Length from the stored object, not the row", async () => {
-		loadAssetByIdMock.mockResolvedValue(docAsset({ sizeBytes: 999 }));
+		loadAssetForOwnerMock.mockResolvedValue(docAsset({ sizeBytes: 999 }));
 		getStoredObjectSizeMock.mockResolvedValue(5);
 
 		const res = await GET(getReq(), ctx());
@@ -122,7 +112,7 @@ describe("GET media asset", () => {
 	});
 
 	it("404s a ready row whose object is missing from storage — before any byte streams", async () => {
-		loadAssetByIdMock.mockResolvedValue(docAsset());
+		loadAssetForOwnerMock.mockResolvedValue(docAsset());
 		getStoredObjectSizeMock.mockResolvedValue(null);
 
 		const res = await GET(getReq(), ctx());
@@ -134,7 +124,7 @@ describe("GET media asset", () => {
 	});
 
 	it("404s a missing row without touching storage", async () => {
-		loadAssetByIdMock.mockResolvedValue(null);
+		loadAssetForOwnerMock.mockResolvedValue(null);
 
 		const res = await GET(getReq(), ctx());
 		expect(res.status).toBe(404);
@@ -144,40 +134,11 @@ describe("GET media asset", () => {
 	});
 
 	it("500s a metadata lookup failure before any byte streams", async () => {
-		loadAssetByIdMock.mockResolvedValue(docAsset());
+		loadAssetForOwnerMock.mockResolvedValue(docAsset());
 		getStoredObjectSizeMock.mockRejectedValue(new Error("GCS unavailable"));
 
 		const res = await GET(getReq(), ctx());
 		expect(res.status).toBe(500);
-		expect(streamAssetMock).not.toHaveBeenCalled();
-		await drainBody(res);
-	});
-
-	it("serves a co-member's asset referenced by an app the caller can access", async () => {
-		// Media on a shared app is visible to its Project members: the row is
-		// owned by user-2, but it's referenced by an app user-1 holds `view` on.
-		loadAssetByIdMock.mockResolvedValue(
-			docAsset({ owner: "user-2", referencingAppIds: ["app-x"] }),
-		);
-		canReadReferencedAssetMock.mockResolvedValue(true);
-		getStoredObjectSizeMock.mockResolvedValue(5);
-
-		const res = await GET(getReq(), ctx());
-		expect(res.status).toBe(200);
-		expect(canReadReferencedAssetMock).toHaveBeenCalledWith(
-			"user-1",
-			"user-2",
-			["app-x"],
-		);
-		await drainBody(res);
-	});
-
-	it("404s a foreign asset the caller can't reach through any app so ids stay non-enumerable", async () => {
-		loadAssetByIdMock.mockResolvedValue(docAsset({ owner: "user-2" }));
-		canReadReferencedAssetMock.mockResolvedValue(false);
-
-		const res = await GET(getReq(), ctx());
-		expect(res.status).toBe(404);
 		expect(streamAssetMock).not.toHaveBeenCalled();
 		await drainBody(res);
 	});

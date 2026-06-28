@@ -113,6 +113,10 @@ export function useAutoSave(): SaveState {
 	);
 	const pendingTrailingRef = useRef(false);
 	const unmountedRef = useRef(false);
+	/* Latches when a PUT 404s — the app can no longer be saved from here (edit
+	 * access revoked mid-session, or the app was deleted). Stops every later
+	 * save from re-firing the doomed PUT and re-stacking the warning toast. */
+	const saveDisabledRef = useRef(false);
 
 	/* The diff base: the blueprint as the server last persisted it (a
 	 * `toPersistableDoc` snapshot — no live references). Each save sends the
@@ -136,6 +140,9 @@ export function useAutoSave(): SaveState {
 			cooldownTimerRef.current = undefined;
 		}
 		pendingTrailingRef.current = false;
+		/* A different app starts with a clean save-disabled latch — the 404 that
+		 * set it was about the previous app. */
+		saveDisabledRef.current = false;
 		/* Drop the old app's diff base — the subscription re-seeds it from
 		 * the freshly loaded doc before the first edit can save. */
 		lastSavedDocRef.current = null;
@@ -180,6 +187,10 @@ export function useAutoSave(): SaveState {
 			 * change degrades to local-only rather than a failed request; the
 			 * read-only UI keeps those changes from happening in the first place. */
 			if (!session.getState().canEdit) return;
+			/* A prior PUT 404'd (edit access revoked mid-session, or the app was
+			 * deleted) — further PUTs are doomed and would re-stack the warning.
+			 * Stay latched off until the app changes (which resets the latch). */
+			if (saveDisabledRef.current) return;
 			const appIdAtStart = session.getState().appId;
 			const doc = docStore.getState();
 			if (!appIdAtStart || doc.moduleOrder.length === 0) return;
@@ -263,18 +274,28 @@ export function useAutoSave(): SaveState {
 					 * and tell the user. */
 					await reloadAfterConflict(appIdAtStart, stillCurrent);
 				} else if (res.status === 404) {
-					/* The write path can no longer resolve this app at `edit` for
-					 * the caller — almost always edit access revoked mid-session (a
-					 * shared-Project demotion to viewer; the gate collapses that to a
-					 * not-found 404). `canEdit` was captured at mount, so the
-					 * read-only UI gates never engaged and the user kept editing.
-					 * Warn explicitly and persistently so those un-saveable changes
-					 * aren't lost silently behind an ambiguous error indicator. */
+					/* The write path can no longer PUT this app: the gate collapses
+					 * both "edit access revoked mid-session" (a shared-Project
+					 * demotion — `canEdit` was captured at mount, so the read-only
+					 * gates never engaged and the user kept editing) AND "the app was
+					 * deleted by another admin" to a 404. Either way every later save
+					 * is doomed, so latch off (no re-fired PUTs, no re-stacked
+					 * toasts), warn once, and keep the Sentry signal so a routing
+					 * regression that 404s isn't masked as a benign role change.
+					 * All guarded by `stillCurrent()` — a 404 for an app the user
+					 * already navigated away from must not latch the new app's saves
+					 * (the app-change reset already cleared the latch). */
 					if (stillCurrent()) {
+						saveDisabledRef.current = true;
+						reportClientError({
+							message: "Auto-save failed — HTTP 404 (app not writable)",
+							source: "manual",
+							url: window.location.href,
+						});
 						showToast(
 							"warning",
 							"Your changes aren't being saved",
-							"You no longer have edit access to this app — a Project admin may have changed your role. Reload to see the current version; recent edits here won't be saved.",
+							"This app can no longer be saved from here — your edit access may have been removed, or the app was deleted. Reload to see the current version; recent edits here won't be saved.",
 							{ persistent: true },
 						);
 						setState((prev) => ({ ...prev, status: "error" }));

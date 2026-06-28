@@ -28,15 +28,17 @@ export default async function SiteLayout({
 		? { userName: session.user.name, userEmail: session.user.email }
 		: null;
 
-	/* The Projects the header switcher offers + which one is active. Resolved
-	 * server-side (same `resolveActiveProjectId` the app list scopes on) so the
-	 * switcher renders the right selection with no client fetch flicker. */
-	const [projects, activeProjectId] = session
-		? await Promise.all([
-				listUserProjects(session.user.id),
-				resolveActiveProjectId(session),
-			])
-		: [[], null];
+	/* The Projects the header switcher offers + which one is active. Resolve the
+	 * active Project FIRST — it get-or-creates the personal Project (a WRITE),
+	 * which must commit before `listUserProjects` READS membership, or a
+	 * just-provisioned Project is missing from the switcher. `cache()` dedupes
+	 * both calls with the page's. */
+	let projects: Awaited<ReturnType<typeof listUserProjects>> = [];
+	let activeProjectId: string | null = null;
+	if (session) {
+		activeProjectId = await resolveActiveProjectId(session);
+		projects = await listUserProjects(session.user.id);
+	}
 
 	return (
 		<>
