@@ -630,23 +630,41 @@ export function diffDocsToMutations(
 		...orders,
 	];
 
-	// (6) Case-type catalog LAST — pinned ONLY when replaying the structural
-	// mutations does NOT already reproduce `next.caseTypes`. The field reducers
-	// mutate the catalog as a side effect (`ensureCatalogProperty`), and on the
-	// guarded re-apply they re-run against the FRESH doc, so a catalog change
-	// driven purely by field edits is re-derived ON the fresh catalog (merging
-	// a co-member's concurrent catalog add). A wholesale `setCaseTypes` would
-	// instead OVERWRITE the fresh catalog — so it's emitted only for a catalog
-	// change the side effects can't reproduce (a direct declaration/retirement,
-	// or an add-then-clear whose net the replay diverges from). Replaying on
-	// `prev` here is the same simulation the round-trip oracle checks, so the
-	// pin fires exactly when correctness needs it and never merely because a
-	// structural edit happened. (A genuinely concurrent edit to the SAME
-	// catalog stays last-writer-wins — the documented multiplayer-GA limit.)
-	const replayedCaseTypes = produce(prev, (draft) => {
-		applyMutations(draft, structural);
-	}).caseTypes;
-	if (!deepEqual(replayedCaseTypes, next.caseTypes)) {
+	// (6) Case-type catalog LAST — a wholesale `setCaseTypes` OVERWRITES the
+	// catalog, so on the guarded re-apply it would clobber a co-member's
+	// concurrent catalog add. It is emitted only when the catalog genuinely
+	// can't be reached otherwise:
+	//
+	//   - ONLY the FIELD reducers mutate the catalog as a side effect
+	//     (`ensureCatalogProperty`); module/form/order/app edits never do. So
+	//     when a field add/convert/update is present, SIMULATE the structural
+	//     replay and pin only if its catalog diverges from `next.caseTypes` —
+	//     a change the side effects reproduce on the FRESH doc needs no pin
+	//     (they re-derive it, merging a concurrent add); one they can't (a
+	//     direct declaration/retirement, or an add-then-clear net) gets the
+	//     pin. Replaying on `prev` is the same simulation the round-trip oracle
+	//     checks.
+	//   - With NO field edit, a catalog difference is a direct
+	//     declaration/retirement (pin it) and no difference means no pin —
+	//     both decided cheaply, skipping the O(doc) replay.
+	//
+	// (A genuinely concurrent edit to the SAME catalog stays last-writer-wins —
+	// the documented multiplayer-GA limit.)
+	const fieldCatalogTouched =
+		fieldStructure.length > 0 || converts.length > 0 || updates.length > 0;
+	let pinCatalog: boolean;
+	if (fieldCatalogTouched) {
+		// `structuredClone` the batch for the simulation: `applyMutations` aliases
+		// payload objects into the immer draft, and immer's auto-freeze would
+		// otherwise deep-freeze the very objects this function RETURNS.
+		const replayedCaseTypes = produce(prev, (draft) => {
+			applyMutations(draft, structuredClone(structural));
+		}).caseTypes;
+		pinCatalog = !deepEqual(replayedCaseTypes, next.caseTypes);
+	} else {
+		pinCatalog = !deepEqual(prev.caseTypes, next.caseTypes);
+	}
+	if (pinCatalog) {
 		structural.push({
 			kind: "setCaseTypes",
 			caseTypes: next.caseTypes === null ? null : cloneEntity(next.caseTypes),

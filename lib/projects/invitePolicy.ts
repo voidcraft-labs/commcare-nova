@@ -9,7 +9,10 @@
 // The single source for the dimagi-domain allowlist: `lib/auth.ts` derives
 // the sign-in `ALLOWED_EMAIL_DOMAINS` set from this, so the invite gate and
 // the sign-in gate can't drift. Lowercase (the matchers lowercase the input).
-export const INVITE_ALLOWED_DOMAINS = ["dimagi.com", "dimagi-ai.com"];
+export const INVITE_ALLOWED_DOMAINS: readonly string[] = Object.freeze([
+	"dimagi.com",
+	"dimagi-ai.com",
+]);
 
 /**
  * Whether `email`'s domain is invitable. Case-insensitive, exact match
