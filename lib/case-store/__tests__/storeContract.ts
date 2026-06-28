@@ -73,11 +73,24 @@ import { buildSimpleBlueprint } from "./fixtures/simpleBlueprint";
 // ---------------------------------------------------------------
 
 /**
+ * A tenant binding for the contract factory: the Project the store
+ * scopes reads/writes to (`projectId`), plus the actor stamped as each
+ * new row's `owner_id` (`actorUserId` — the CommCare case-owner, a
+ * separate axis from the Project tenant). The common single-member case
+ * passes a matching pair; the Project-sharing tests vary them
+ * independently.
+ */
+export interface ContractTenant {
+	projectId: string;
+	actorUserId: string;
+}
+
+/**
  * Configuration for a contract-test run.
  *
  * `factory` constructs a `CaseStore` bound to the supplied
- * `ownerId`. The harness invokes the factory once per test (or
- * twice in the tenant-isolation test) — every call binds against
+ * {@link ContractTenant}. The harness invokes the factory once per test
+ * (or several times in the isolation tests) — every call binds against
  * the same per-test database the caller's setup hook provisioned.
  *
  * `describeName` lets the caller name the describe block (e.g. the
@@ -86,12 +99,12 @@ import { buildSimpleBlueprint } from "./fixtures/simpleBlueprint";
  */
 export interface RunStoreContractOptions {
 	/**
-	 * Construct a `CaseStore` for the supplied owner id. The harness
-	 * calls this inside test bodies — the caller must ensure the
+	 * Construct a `CaseStore` for the supplied tenant binding. The
+	 * harness calls this inside test bodies — the caller must ensure the
 	 * factory closes over the per-test database handle their setup
 	 * hook provisions.
 	 */
-	factory: (ownerId: string) => Promise<CaseStore>;
+	factory: (tenant: ContractTenant) => Promise<CaseStore>;
 	/**
 	 * Optional describe-block label. The caller usually passes the
 	 * implementation name (e.g. `"PostgresCaseStore"`); defaults to
@@ -111,8 +124,13 @@ export interface RunStoreContractOptions {
 // keep failing-test traces readable.
 
 const APP_ID = "app-contract";
-const OWNER_A = "owner-a";
-const OWNER_B = "owner-b";
+const PROJECT_A = "project-a";
+const PROJECT_B = "project-b";
+const USER_A = "user-a";
+const USER_B = "user-b";
+// The common single-member binding: one user, scoped to their own Project.
+const TENANT_A: ContractTenant = { projectId: PROJECT_A, actorUserId: USER_A };
+const TENANT_B: ContractTenant = { projectId: PROJECT_B, actorUserId: USER_B };
 
 const PATIENT_ALICE_ID = "30000000-0000-0000-0000-000000000001";
 const PATIENT_BOB_ID = "30000000-0000-0000-0000-000000000002";
@@ -243,7 +261,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// -----------------------------------------------------------
 
 		it("inserts a row and reads it back via query", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 
@@ -267,7 +285,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const row = rows[0];
 			expect(row?.case_id).toBe(PATIENT_ALICE_ID);
 			expect(row?.case_type).toBe("patient");
-			expect(row?.owner_id).toBe(OWNER_A);
+			expect(row?.owner_id).toBe(USER_A);
 			expect(row?.properties).toEqual({ name: "Alice", age: 30 });
 		});
 
@@ -280,7 +298,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// inputs. pg's parameter binder coerces non-string values
 			// to text via `String(value)` for JSONB columns, so the
 			// stringification cannot be skipped on the object arm.
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 
@@ -309,7 +327,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// -----------------------------------------------------------
 
 		it("filters rows via a property-read predicate", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 
@@ -354,7 +372,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// -----------------------------------------------------------
 
 		it("merges patches into JSONB properties and bumps modified_on", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 
@@ -396,7 +414,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// -----------------------------------------------------------
 
 		it("close marks closed_on without deleting the row", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 
@@ -435,7 +453,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// idempotent-on-row-state contract: a duplicate close from
 			// a retry path or a re-issued submission doesn't advance
 			// either timestamp.
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 
@@ -494,7 +512,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// -----------------------------------------------------------
 
 		it("insertWithChildren materializes the primary + every child + their case_indices edges atomically", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([
 				HOUSEHOLD_CASE_TYPE,
 				PATIENT_WITH_PARENT_CASE_TYPE,
@@ -570,7 +588,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Atomicity contract: a validation failure on any child
 			// rolls back the primary too. Zero rows visible after
 			// the throw, regardless of which row failed.
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([
 				HOUSEHOLD_CASE_TYPE,
 				PATIENT_WITH_PARENT_CASE_TYPE,
@@ -630,7 +648,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				parent_type: "household",
 				properties: [{ name: "outcome", label: "Outcome", data_type: "text" }],
 			};
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([
 				HOUSEHOLD_CASE_TYPE,
 				PATIENT_WITH_PARENT_CASE_TYPE,
@@ -724,7 +742,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		it("insertWithChildren behaves like insert when children is empty", async () => {
 			// The empty-children arm short-circuits the bulk path
 			// and lands just the primary inside one transaction.
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 
@@ -754,7 +772,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// -----------------------------------------------------------
 
 		it("traverse walks subcase relations via case_indices", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([
 				PATIENT_WITH_PARENT_CASE_TYPE,
 				HOUSEHOLD_CASE_TYPE,
@@ -832,7 +850,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// -----------------------------------------------------------
 
 		it("applySchemaChange (additive) upserts the JSON Schema row", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			const report = await store.applySchemaChange({
 				appId: APP_ID,
@@ -870,7 +888,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// -----------------------------------------------------------
 
 		it("applySchemaChange (rename) atomically renames a property in every row", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const initialBlueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, initialBlueprint, "patient");
 
@@ -959,7 +977,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// -----------------------------------------------------------
 
 		it("applySchemaChange (retype) quarantines rows that fail the cast", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			// Initial schema: `age` is text. AJV will accept either
 			// numeric-looking and non-numeric strings on insert.
 			const initialCaseType: CaseType = {
@@ -1036,7 +1054,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// -----------------------------------------------------------
 
 		it("applySchemaChange (narrow-options) quarantines rows with removed values", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const initialCaseType: CaseType = {
 				name: "patient",
 				properties: [
@@ -1127,7 +1145,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// shape — the cross-module instanceof check is what the
 			// `readonly name` field initializer defends against under
 			// minified bundles.
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			await expect(
 				store.applySchemaChange({
 					appId: APP_ID,
@@ -1146,7 +1164,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// row + the trgm GIN index for the `text`-typed `name`
 			// property (text properties get a `gin_trgm_ops` partial
 			// expression index for `match` / `compare` coverage).
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			await seedSchema(store, buildBlueprint([PATIENT_CASE_TYPE]), "patient");
 
 			// Sanity: an insert against the seeded schema lands.
@@ -1192,7 +1210,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		it("dropSchema is idempotent — calling against an absent case type is a no-op", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			// No `applySchemaChange` first — the schema row genuinely
 			// doesn't exist. The contract is "drop is safe to call
 			// after a partial-failure recovery flow", so this absence
@@ -1208,12 +1226,15 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		// -----------------------------------------------------------
-		// Tenant isolation — owner_id filter is structural
+		// Tenant isolation — the `project_id` filter is structural. The
+		// Project is the tenant; `owner_id` (the CommCare case-owner) is a
+		// SEPARATE axis, so two members of ONE Project share rows while two
+		// Projects stay isolated.
 		// -----------------------------------------------------------
 
-		it("query is scoped to the bound owner — owner-B cannot see owner-A's row", async () => {
-			const storeA = await options.factory(OWNER_A);
-			const storeB = await options.factory(OWNER_B);
+		it("query is scoped to the bound Project — Project B cannot see Project A's row", async () => {
+			const storeA = await options.factory(TENANT_A);
+			const storeB = await options.factory(TENANT_B);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			// Schema is per-app, not per-owner, so seeding through
 			// either store works — pick one.
@@ -1243,9 +1264,48 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(seenByB).toHaveLength(0);
 		});
 
-		it("update from another owner cannot mutate the row", async () => {
-			const storeA = await options.factory(OWNER_A);
-			const storeB = await options.factory(OWNER_B);
+		it("query is shared within a Project — a co-member sees another member's row", async () => {
+			// One Project, two different actors (case-owners). The NEW
+			// Project-sharing behavior: same `projectId` ⇒ both see the row
+			// regardless of who created it. (Pre-rescope this isolated by
+			// owner; now the Project is the tenant and `owner_id` is a
+			// separate, non-tenant axis.)
+			const memberOne = await options.factory({
+				projectId: PROJECT_A,
+				actorUserId: USER_A,
+			});
+			const memberTwo = await options.factory({
+				projectId: PROJECT_A,
+				actorUserId: USER_B,
+			});
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(memberOne, blueprint, "patient");
+
+			const { caseId } = await memberOne.insert({
+				appId: APP_ID,
+				row: {
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 25 }),
+				},
+			});
+
+			// memberTwo (same Project, different actor) sees memberOne's row…
+			const seenByTwo = await memberTwo.query({
+				appId: APP_ID,
+				caseType: "patient",
+			});
+			expect(seenByTwo).toHaveLength(1);
+			// …and the row's `owner_id` records the ACTUAL creator (USER_A),
+			// not the reader — attribution is preserved across the share.
+			expect(seenByTwo[0]?.owner_id).toBe(USER_A);
+			expect(seenByTwo[0]?.case_id).toBe(caseId);
+		});
+
+		it("update from another Project cannot mutate the row", async () => {
+			const storeA = await options.factory(TENANT_A);
+			const storeB = await options.factory(TENANT_B);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(storeA, blueprint, "patient");
 
@@ -1288,8 +1348,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		it("close from another owner cannot close the row", async () => {
-			const storeA = await options.factory(OWNER_A);
-			const storeB = await options.factory(OWNER_B);
+			const storeA = await options.factory(TENANT_A);
+			const storeB = await options.factory(TENANT_B);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(storeA, blueprint, "patient");
 
@@ -1323,8 +1383,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		it("traverse from another owner cannot reach the row", async () => {
-			const storeA = await options.factory(OWNER_A);
-			const storeB = await options.factory(OWNER_B);
+			const storeA = await options.factory(TENANT_A);
+			const storeB = await options.factory(TENANT_B);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(storeA, blueprint, "patient");
 
@@ -1356,8 +1416,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// queries, the row is invisible. Implicit before; explicit
 			// here so a regression that admits caller-supplied
 			// `owner_id` overrides surfaces immediately.
-			const storeA = await options.factory(OWNER_A);
-			const storeB = await options.factory(OWNER_B);
+			const storeA = await options.factory(TENANT_A);
+			const storeB = await options.factory(TENANT_B);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(storeA, blueprint, "patient");
 
@@ -1389,8 +1449,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// targeting the same `(appId, caseType)`; owner-B's
 			// writes pass AJV validation against the shared row
 			// without owner-B running its own `applySchemaChange`.
-			const storeA = await options.factory(OWNER_A);
-			const storeB = await options.factory(OWNER_B);
+			const storeA = await options.factory(TENANT_A);
+			const storeB = await options.factory(TENANT_B);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 
 			// Owner A's additive `applySchemaChange` writes the
@@ -1436,8 +1496,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		it("generateSampleData lands rows in the calling owner's tenant scope only", async () => {
 			// Pin the per-row tenant contract for the sample-data
 			// path: A generates, A sees the rows, B sees nothing.
-			const storeA = await options.factory(OWNER_A);
-			const storeB = await options.factory(OWNER_B);
+			const storeA = await options.factory(TENANT_A);
+			const storeB = await options.factory(TENANT_B);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(storeA, blueprint, "patient");
 
@@ -1466,8 +1526,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// + regenerated; B's rows are UNTOUCHED. Pins the tenant-
 			// scoped DELETE inside `resetSampleData`'s atomic
 			// transaction.
-			const storeA = await options.factory(OWNER_A);
-			const storeB = await options.factory(OWNER_B);
+			const storeA = await options.factory(TENANT_A);
+			const storeB = await options.factory(TENANT_B);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(storeA, blueprint, "patient");
 
@@ -1522,7 +1582,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// -----------------------------------------------------------
 
 		it("generateSampleData inserts the requested count of rows for the case-type", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 
@@ -1543,7 +1603,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// case-type — pins that the generator's output flows
 			// through `insert`'s tenant-scoping path.
 			for (const row of rows) {
-				expect(row.owner_id).toBe(OWNER_A);
+				expect(row.owner_id).toBe(USER_A);
 				expect(row.case_type).toBe("patient");
 			}
 		});
@@ -1553,8 +1613,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// land in distinct tenant scopes; both calls use the same
 			// seed and the produced `properties` documents should
 			// match by-row.
-			const storeA = await options.factory(OWNER_A);
-			const storeB = await options.factory(OWNER_B);
+			const storeA = await options.factory(TENANT_A);
+			const storeB = await options.factory(TENANT_B);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(storeA, blueprint, "patient");
 			await seedSchema(storeB, blueprint, "patient");
@@ -1599,7 +1659,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		it("resetSampleData deletes existing rows and regenerates", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 			const patientType = findCaseTypeOrFail(blueprint, "patient");
@@ -1651,7 +1711,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// `insert` derives `case_indices` from `parent_case_id`;
 			// `traverse` walks the index. The flow exercises every
 			// seam from generator → insert → case_indices → traverse.
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([
 				PATIENT_WITH_PARENT_CASE_TYPE,
 				HOUSEHOLD_CASE_TYPE,
@@ -1736,7 +1796,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		//      live preview threads).
 
 		it("projects calculated columns onto the result row's `calculated` map", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 			await store.insert({
@@ -1787,7 +1847,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// "key always present" invariant to distinguish "column
 			// absent from request" (key absent) from "evaluated to null"
 			// (key present, value null).
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 			await store.insert({
@@ -1819,7 +1879,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		it("emits an empty calculated map when no calculated columns are supplied", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 			await store.insert({
@@ -1852,7 +1912,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Sort by age desc; the matched row's calculated value
 			// surfaces correctly. Pins the cross-feature composition
 			// the live-preview path relies on.
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 			await store.insert({
@@ -1923,7 +1983,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// the calculated column emits `age + 1` (so Alice = 26,
 			// Bob = 41). Sort ascending by the same expression; expect
 			// Alice first, Bob second.
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 			await store.insert({
@@ -1990,7 +2050,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// the strip, a sort/filter callback could read the aliased
 			// value off the row root rather than the canonical
 			// `calculated` map and the two paths would silently drift.
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 			await store.insert({
@@ -2031,7 +2091,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		it("emits an empty rows array when the case-type has no cases", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 
@@ -2055,7 +2115,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// contract test, a future emitter change to a string-shaped
 			// date would surface as a silent renderer regression that
 			// no test catches.
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 			await store.insert({
@@ -2130,7 +2190,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 		for (const collisionName of RESERVED_COLLISION_UUIDS) {
 			it(`preserves the row's \`${collisionName}\` column when a calculated uuid collides`, async () => {
-				const store = await options.factory(OWNER_A);
+				const store = await options.factory(TENANT_A);
 				const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 				await seedSchema(store, blueprint, "patient");
 				await store.insert({
@@ -2183,7 +2243,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 						expect(row.case_type).toBe("patient");
 						break;
 					case "owner_id":
-						expect(row.owner_id).toBe(OWNER_A);
+						expect(row.owner_id).toBe(USER_A);
 						break;
 					case "status":
 						expect(row.status).toBe("open");
@@ -2222,7 +2282,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// uuid. The store rejects it with the canonical compiler-
 			// bug message shape rather than letting Postgres reject an
 			// empty SELECT alias and leak its parser error.
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 
@@ -2252,7 +2312,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Mirrors the empty-uuid rejection test above and the
 			// `indexName` defense pattern at the bottom of
 			// `lib/case-store/postgres/store.ts`.
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 			const overlongUuid = asUuid("x".repeat(60));
@@ -2295,7 +2355,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// shared compiler-stack regression surfaces in both blocks.
 
 		it("count returns the total row population when predicate is undefined", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 			await store.insert({
@@ -2327,7 +2387,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		it("count narrows to the predicate-matching subset", async () => {
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 			await store.insert({
@@ -2381,7 +2441,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		it("count respects the bound owner — cross-tenant rows are invisible", async () => {
-			const storeA = await options.factory(OWNER_A);
+			const storeA = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(storeA, blueprint, "patient");
 			await storeA.insert({
@@ -2398,7 +2458,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Owner B sees zero — the structural tenant filter on
 			// every method is the same one `query` applies. Mirrors
 			// the tenant-isolation tests above.
-			const storeB = await options.factory(OWNER_B);
+			const storeB = await options.factory(TENANT_B);
 			const otherCount = await storeB.count({
 				appId: APP_ID,
 				caseType: "patient",
@@ -2424,7 +2484,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// schema-threading contract by asserting the typed-int
 			// comparison returns the expected count when the schema
 			// map resolves the property's `int` shape.
-			const store = await options.factory(OWNER_A);
+			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 			await store.insert({

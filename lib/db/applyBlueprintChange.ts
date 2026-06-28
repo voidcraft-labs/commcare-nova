@@ -62,8 +62,8 @@
  * path costs the saga's internal load.
  */
 
-import type { CaseStore } from "@/lib/case-store";
-import { buildCaseTypeMap, withOwnerContext } from "@/lib/case-store";
+import type { SchemaCaseStore } from "@/lib/case-store";
+import { buildCaseTypeMap, withSchemaContext } from "@/lib/case-store";
 import {
 	describeIntroducedErrors,
 	mutationCommitVerdict,
@@ -229,7 +229,11 @@ export async function applyBlueprintChange(
 		return await persistBlueprint(args);
 	}
 
-	const store = await withOwnerContext(args.userId);
+	// Tenant-free schema store: the saga only ever calls
+	// `applySchemaChange` / `dropSchema`, both app-scoped, so it binds no
+	// Project. (`args.userId` stays — the media-expectation re-check
+	// inside the Firestore transaction below uses it for its verdict.)
+	const store = await withSchemaContext();
 
 	// Build the case-type schema map once at the boundary; the
 	// case-store's `applySchemaChange` reads from it directly. Each
@@ -415,7 +419,7 @@ async function persistBlueprint(
  */
 async function compensate(
 	appId: string,
-	store: CaseStore,
+	store: SchemaCaseStore,
 	applied: readonly CaseTypeChangeEntry[],
 	priorBlueprint: BlueprintDoc,
 ): Promise<void> {

@@ -8,7 +8,7 @@ Every `ValueExpression` operand slot routes through one shared helper that forks
 
 ## Relation walks
 
-- Every JOIN-ed `cases` row inside `compileRelationPath`'s subquery applies the `(app_id, owner_id)` tenant filter — a missing filter on any intermediate hop would let a walk reach another tenant's row.
+- Every JOIN-ed `cases` row inside `compileRelationPath`'s subquery applies the `(app_id, project_id)` tenant filter — a missing filter on any intermediate hop would let a walk reach another Project's row. (`owner_id`, the CommCare case-owner, is a separate axis and is NOT a relation-walk filter.)
 - **Leaf-alias depth thread.** Hop aliases are isolated by SQL subquery scoping, but the leaf alias is NOT for inner→outer correlation: an inner subquery reusing `rp_leaf` shadows the outer leaf and the correlation collapses into self-equality on the inner row. `relationPathDepth` increments on every recursion into a walk's inner predicate, and `leafAliasForDepth` derives `rp_leaf` / `rp_leaf_<N>` so inner blocks never shadow outer ones. `compileTerm`'s non-self via reads inherit the same depth.
 
 ## Zero raw-SQL emission
@@ -27,7 +27,7 @@ A new arm needing an off-surface Postgres feature follows the same shape: find t
 
 ## Tenant-scope contract
 
-No dispatch entry point emits the outer-query `(app_id, owner_id)` filter — the caller that emits the outer `selectFrom('cases')` owns it (`PostgresCaseStore`). The compiler stack owns only the JOIN-side filter inside relation walks. The two halves together make cross-tenant reads structurally impossible.
+No dispatch entry point emits the outer-query `(app_id, project_id)` filter — the caller that emits the outer `selectFrom('cases')` owns it (`PostgresCaseStore`). The compiler stack owns only the JOIN-side `project_id` filter inside relation walks. The two halves together make cross-Project reads structurally impossible.
 
 ## Barrel-only surface
 

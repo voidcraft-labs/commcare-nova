@@ -334,7 +334,8 @@ function buildFixtureDoc(): BlueprintDoc {
  */
 function buildStore(): CaseStore {
 	return new PostgresCaseStore({
-		ownerId: OWNER_ID,
+		projectId: OWNER_ID,
+		actorUserId: OWNER_ID,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});

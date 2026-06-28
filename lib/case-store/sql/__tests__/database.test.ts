@@ -171,6 +171,7 @@ describe("Database.cases", () => {
 				case_id: "case-uuid",
 				app_id: "app-uuid",
 				case_type: "patient",
+				project_id: "project-uuid",
 				owner_id: "owner-uuid",
 				status: "open",
 				opened_on: new Date("2026-05-02T00:00:00Z"),
@@ -184,11 +185,11 @@ describe("Database.cases", () => {
 
 		expect(compiled.sql).toContain('insert into "cases"');
 		expect(compiled.sql).toContain('"properties"');
-		// 11 columns, 11 placeholders. `case_name` is a top-level
-		// scalar column alongside the ten reserved-scalar columns;
-		// see `lib/case-store/sql/database.ts` for the full per-
-		// column rationale.
-		expect(compiled.parameters).toHaveLength(11);
+		// 12 columns, 12 placeholders. `case_name` is a top-level scalar
+		// column alongside the reserved-scalar columns, and `project_id`
+		// is the tenant key; see `lib/case-store/sql/database.ts` for the
+		// full per-column rationale.
+		expect(compiled.parameters).toHaveLength(12);
 	});
 
 	it("exposes the schema column shape via Selectable<CasesTable>", () => {
@@ -201,6 +202,7 @@ describe("Database.cases", () => {
 			case_id: "case-uuid",
 			app_id: "app-uuid",
 			case_type: "patient",
+			project_id: "project-uuid",
 			owner_id: "owner-uuid",
 			status: "open",
 			opened_on: new Date(),

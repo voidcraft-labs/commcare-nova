@@ -958,7 +958,6 @@ export async function POST(req: Request) {
 							await ctx.drainIntermediateSaves();
 							await materializeCaseStoreSchemas({
 								appId,
-								userId,
 								blueprint: toPersistableDoc(editDoc),
 							});
 						} catch (error) {
@@ -1002,7 +1001,6 @@ export async function POST(req: Request) {
 						if (finalDoc) {
 							await materializeCaseStoreSchemas({
 								appId,
-								userId,
 								blueprint: toPersistableDoc(finalDoc),
 							});
 						}

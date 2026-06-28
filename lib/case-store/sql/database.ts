@@ -7,12 +7,23 @@
 // lockstep; the compile-only `database.test.ts` and the harness smoke
 // tests catch drift between them.
 //
-// ## Multi-tenancy
+// ## Multi-tenancy — two orthogonal axes
 //
-// Tenant isolation is the column pair `(app_id, owner_id)`. No
-// row-level security, no per-tenant schema, no per-tenant
-// database. The application funnels access through a `CaseStore`
-// instance bound to the request's owner id.
+// Tenant isolation is the column pair `(app_id, project_id)` — case
+// data is shared at Project scope, so every member of a Project sees
+// its rows. That is the ONLY structural filter today.
+//
+// `owner_id` is the SECOND axis: the CommCare case-owner, Nova's
+// reserved axis for future location-/group-based access carving. It is
+// a first-class column (defaulted to the creating user), NOT a tenant
+// boundary and NOT disposable — nothing filters on it yet because
+// locations are unimplemented, but when they land, location-based
+// access control filters on it BENEATH the Project tenant filter.
+//
+// No row-level security, no per-tenant schema, no per-tenant database.
+// The application funnels reads/writes through a `CaseStore` bound to
+// the request's Project id (`withProjectContext`); schema-change
+// operations are app-scoped and bind no tenant (`withSchemaContext`).
 //
 // ## JSONB column types do NOT narrow per case type
 //
@@ -59,13 +70,35 @@ export interface CasesTable {
 	 */
 	case_id: ColumnType<string, string | undefined, string>;
 
-	/** First half of `(app_id, owner_id)`. TEXT (not UUID) — apps are root-level Firestore docs. */
+	/** First half of `(app_id, project_id)`. TEXT (not UUID) — apps are root-level Firestore docs. */
 	app_id: string;
 
 	/** Matches the blueprint's `CaseType.id`. */
 	case_type: string;
 
-	/** Second half of `(app_id, owner_id)`. Nullable — HQ-imported cases pre-assignment carry null. */
+	/**
+	 * Second half of `(app_id, project_id)` — the structural tenant
+	 * filter (case data is shared at Project scope). Required on insert
+	 * (`withProjectContext` binds it); non-null on read in the
+	 * read-switch steady state. Added NULLABLE by the expand migration
+	 * (`20260627000000_add_cases_project_id`); the backfill stamps
+	 * existing rows and a later migration sets `NOT NULL`. The type
+	 * treats it as non-null (read-switch steady state) — the
+	 * staged deploy (backfill before read-switch) guarantees no live
+	 * read observes a null.
+	 */
+	project_id: string;
+
+	/**
+	 * The CommCare case-owner — Nova's reserved axis for future
+	 * location-/group-based access carving, NOT the tenant boundary
+	 * (that is `project_id`). Defaults to the creating user; nothing
+	 * filters on it today (locations unimplemented), but it is a
+	 * first-class field reserved for that access-control axis, never to
+	 * be repurposed or dropped. Nullable — HQ-imported cases
+	 * pre-assignment carry null. Stays a queryable reserved scalar
+	 * column (`RESERVED_SCALAR_COLUMNS`).
+	 */
 	owner_id: string | null;
 
 	/**
