@@ -44,29 +44,6 @@ import { AUTH_TABLE_NAMES, ORGANIZATION_SCHEMA } from "./auth-schema-shared";
 import { getCaseStorePool } from "./case-store/postgres/connection";
 import { MCP_RESOURCE_URL } from "./hostnames";
 import { log } from "./logger";
-import { PROJECTS_ENABLED } from "./projects/flag";
-
-/**
- * Better-Auth organization (Projects) management endpoints. Disabled
- * wholesale while {@link PROJECTS_ENABLED} is OFF — see the
- * `disabledPaths` note. Listed once here so the gate is a single spread.
- */
-const ORG_MANAGEMENT_PATHS = [
-	"/organization/create",
-	"/organization/update",
-	"/organization/delete",
-	"/organization/set-active",
-	"/organization/leave",
-	"/organization/invite-member",
-	"/organization/accept-invitation",
-	"/organization/reject-invitation",
-	"/organization/cancel-invitation",
-	"/organization/remove-member",
-	"/organization/update-member-role",
-	"/organization/create-role",
-	"/organization/update-role",
-	"/organization/delete-role",
-];
 
 /**
  * OAuth scopes Nova's authorization server can grant.
@@ -226,20 +203,9 @@ async function createAuth() {
 			"/api-key/update",
 			"/api-key/list",
 			"/api-key/get",
-			/* Organization (Projects) management endpoints — gated on
-			 * `PROJECTS_ENABLED`. While the flag is OFF the SHARING surface
-			 * (invite / add-member / set-active / role mutation) must stay
-			 * unreachable: there is no UI to drive it and the role-aware
-			 * read-only builder only renders under the flag, so a live endpoint
-			 * would let a shared- or viewer-membership scenario form that the
-			 * app can't yet present. Personal-Project provisioning bypasses
-			 * these (direct insert in lib/auth/provisionProject.ts) and Nova
-			 * reads membership straight from `auth_member`, so disabling them
-			 * costs the dark deployment nothing; the flag flip lights up the P6
-			 * UI and these endpoints together. The `auth.api.*` typed calls stay
-			 * available regardless (the Server Actions use them with their own
-			 * role + invite-domain gates). */
-			...(PROJECTS_ENABLED ? [] : ORG_MANAGEMENT_PATHS),
+			/* Organization endpoints are permission-gated by the access-control
+			 * roles (`lib/auth/projectRoles.ts`); invitations are additionally
+			 * domain-gated by the `beforeCreateInvitation` hook. */
 		],
 
 		/**

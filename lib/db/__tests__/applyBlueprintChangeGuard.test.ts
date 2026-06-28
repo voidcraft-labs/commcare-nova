@@ -34,13 +34,13 @@ const {
 	updateAppMock,
 	updateAppForRunMock,
 	updateAppForRunTransactionalMock,
-	updateAppGuardedByBasisMock,
+	updateAppGuardedMutatingMock,
 } = vi.hoisted(() => ({
 	loadAppMock: vi.fn(),
 	updateAppMock: vi.fn(),
 	updateAppForRunMock: vi.fn(),
 	updateAppForRunTransactionalMock: vi.fn(),
-	updateAppGuardedByBasisMock: vi.fn(),
+	updateAppGuardedMutatingMock: vi.fn(),
 }));
 
 const { applySchemaChangeMock, withSchemaContextMock } = vi.hoisted(() => ({
@@ -57,8 +57,7 @@ vi.mock("@/lib/db/apps", () => ({
 	updateApp: updateAppMock,
 	updateAppForRun: updateAppForRunMock,
 	updateAppForRunTransactional: updateAppForRunTransactionalMock,
-	updateAppGuardedByBasis: updateAppGuardedByBasisMock,
-	BlueprintBasisStaleError: class BlueprintBasisStaleError extends Error {},
+	updateAppGuardedMutating: updateAppGuardedMutatingMock,
 }));
 
 vi.mock("@/lib/db/mediaAssets", () => ({
@@ -143,6 +142,23 @@ function armTransactionalWith(fresh: BlueprintDoc) {
 				tx: unknown,
 			) => PersistableDoc | Promise<PersistableDoc>,
 		) => body(freshAppDoc(fresh), {}),
+	);
+}
+
+/** Drive the tokenless guarded mutating commit (auto-save): the body runs
+ *  against `fresh` and the mock returns a rotated basis token. */
+function armMutatingWith(fresh: BlueprintDoc) {
+	updateAppGuardedMutatingMock.mockImplementation(
+		async (
+			_appId: string,
+			body: (
+				doc: AppDoc,
+				tx: unknown,
+			) => PersistableDoc | Promise<PersistableDoc>,
+		) => {
+			await body(freshAppDoc(fresh), {});
+			return "token-next";
+		},
 	);
 }
 
@@ -348,43 +364,44 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 	});
 });
 
-describe("applyBlueprintChange — basis-guarded auto-save commit", () => {
-	it("routes a basis-bearing save through the basis writer and returns the rotated token", async () => {
-		const prior = minDoc();
-		updateAppGuardedByBasisMock.mockResolvedValue("token-next");
+describe("applyBlueprintChange — guarded auto-save mutation commit", () => {
+	it("re-applies the delta on the FRESH doc (no runId) and returns the rotated token", async () => {
+		const fresh = minDoc();
+		armMutatingWith(fresh);
 
 		const result = await applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
-			prospective: toPersistableDoc(prior),
-			priorBlueprint: toPersistableDoc(prior),
-			basis: { token: "token-prev" },
+			priorBlueprint: toPersistableDoc(fresh),
+			guard: {
+				mutations: [{ kind: "setAppName", name: "Renamed" } as Mutation],
+			},
 		});
 
-		expect(updateAppGuardedByBasisMock).toHaveBeenCalledTimes(1);
-		const [appId, , basisToken] = updateAppGuardedByBasisMock.mock.calls[0];
-		expect(appId).toBe("app-1");
-		expect(basisToken).toBe("token-prev");
+		expect(updateAppGuardedMutatingMock).toHaveBeenCalledTimes(1);
+		expect(updateAppGuardedMutatingMock.mock.calls[0]?.[0]).toBe("app-1");
 		expect(result.basisToken).toBe("token-next");
-		// The blind writers never ran — the basis compare is the commit path.
+		// The blind writers + the run-scoped writer never ran — the tokenless
+		// guarded writer is the auto-save commit path.
 		expect(updateAppMock).not.toHaveBeenCalled();
 		expect(updateAppForRunMock).not.toHaveBeenCalled();
+		expect(updateAppForRunTransactionalMock).not.toHaveBeenCalled();
 	});
 
-	it("propagates a stale-basis rejection without falling back to a blind write", async () => {
-		const prior = minDoc();
-		const stale = new Error("stale basis");
-		updateAppGuardedByBasisMock.mockRejectedValue(stale);
+	it("propagates a commit rejection without falling back to a blind write", async () => {
+		const rejection = new Error("commit rejected");
+		updateAppGuardedMutatingMock.mockRejectedValue(rejection);
 
 		await expect(
 			applyBlueprintChange({
 				appId: "app-1",
 				userId: "user-1",
-				prospective: toPersistableDoc(prior),
-				priorBlueprint: toPersistableDoc(prior),
-				basis: { token: null },
+				priorBlueprint: toPersistableDoc(minDoc()),
+				guard: {
+					mutations: [{ kind: "setAppName", name: "Renamed" } as Mutation],
+				},
 			}),
-		).rejects.toBe(stale);
+		).rejects.toBe(rejection);
 
 		expect(updateAppMock).not.toHaveBeenCalled();
 		expect(updateAppForRunMock).not.toHaveBeenCalled();

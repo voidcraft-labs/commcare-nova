@@ -595,54 +595,46 @@ export async function updateAppForRunTransactional(
 }
 
 /**
- * Thrown by `updateAppGuardedByBasis` when the stored `blueprint_token`
- * no longer matches the basis the client's snapshot was built on — the
- * server doc advanced under the client (another tab's save, an MCP
- * commit), so the whole-doc overwrite would erase that writer's work.
- * The auto-save route maps this to a 409; the builder reloads.
+ * Tokenless guarded mutation commit — the auto-save twin of
+ * `updateAppForRunTransactional`. One Firestore transaction: read the
+ * FRESH stored app doc, run `body` (the caller re-applies the client's
+ * `Mutation[]` onto the fresh blueprint and re-runs the validity verdict),
+ * write the result under a freshly rotated `blueprint_token`, and
+ * `syncMediaReferences` post-commit. Returns the rotated token so the
+ * client advances its save basis.
+ *
+ * Re-applying on the fresh doc is what makes concurrent edits MERGE: a
+ * mutation built against a stale client snapshot lands on whatever the
+ * stored doc is now. There is no token precondition — the only failure is
+ * the body throwing `BlueprintCommitRejectedError` when the batch would
+ * introduce a finding against fresh state (the caller surfaces it). Writes
+ * no `run_id`: auto-save is not a run.
  */
-export class BlueprintBasisStaleError extends Error {
-	constructor() {
-		super(
-			"This app changed outside this window since it was loaded — saving now would overwrite those changes.",
-		);
-		this.name = "BlueprintBasisStaleError";
-	}
-}
-
-/**
- * Basis-guarded whole-doc blueprint write — the auto-save PUT's
- * read-compare-write. Inside one Firestore transaction: read the fresh
- * app doc, compare its `blueprint_token` to the basis the client echoed
- * (both `null` for a never-PUT app — first saves need no backfill), and
- * either commit the overwrite under a freshly rotated token or throw
- * `BlueprintBasisStaleError` with nothing written. Returns the new token
- * so the client advances its basis for the next save.
- */
-export async function updateAppGuardedByBasis(
+export async function updateAppGuardedMutating(
 	appId: string,
-	doc: PersistedBlueprint,
-	basisToken: string | null,
+	body: (
+		fresh: AppDoc,
+		tx: Transaction,
+	) => PersistedBlueprint | Promise<PersistedBlueprint>,
 ): Promise<string> {
-	const nextToken = crypto.randomUUID();
-	await getDb().runTransaction(async (tx) => {
+	const basisToken = crypto.randomUUID();
+	const committed = await getDb().runTransaction(async (tx) => {
 		const snap = await tx.get(docs.app(appId));
 		const fresh = snap.exists ? (snap.data() ?? null) : null;
 		if (!fresh) {
 			throw new Error(
-				`[updateAppGuardedByBasis] app document missing for appId=${appId}`,
+				`[updateAppGuardedMutating] app document missing for appId=${appId}`,
 			);
 		}
-		if ((fresh.blueprint_token ?? null) !== basisToken) {
-			throw new BlueprintBasisStaleError();
-		}
+		const next = await body(fresh, tx);
 		tx.update(
 			docs.appRaw(appId),
-			blueprintSnapshotFields(doc, { basisToken: nextToken }),
+			blueprintSnapshotFields(next, { basisToken }),
 		);
+		return next;
 	});
-	await syncMediaReferences(appId, doc);
-	return nextToken;
+	await syncMediaReferences(appId, committed);
+	return basisToken;
 }
 
 /**

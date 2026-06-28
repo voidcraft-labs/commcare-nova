@@ -25,6 +25,7 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
 import { reportClientError } from "@/lib/clientErrorReporter";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { docHasData } from "@/lib/doc/predicates";
 import { BlueprintDocContext } from "@/lib/doc/provider";
@@ -113,6 +114,15 @@ export function useAutoSave(): SaveState {
 	const pendingTrailingRef = useRef(false);
 	const unmountedRef = useRef(false);
 
+	/* The diff base: the blueprint as the server last persisted it (a
+	 * `toPersistableDoc` snapshot — no live references). Each save sends the
+	 * `diffDocsToMutations(lastSaved, current)` delta, never the whole doc;
+	 * on success the base advances to the doc that was sent. Seeded to the
+	 * loaded doc when the subscription mounts (before any edit) and re-synced
+	 * during agent runs (the run streams + persists its own mutations).
+	 * Null only until that first seed. */
+	const lastSavedDocRef = useRef<PersistableDoc | null>(null);
+
 	/* Reset state when the app changes — new app means a fresh save state
 	 * and no pending/in-flight state from the old app. Uses React's "derive
 	 * state from props" pattern. */
@@ -126,6 +136,9 @@ export function useAutoSave(): SaveState {
 			cooldownTimerRef.current = undefined;
 		}
 		pendingTrailingRef.current = false;
+		/* Drop the old app's diff base — the subscription re-seeds it from
+		 * the freshly loaded doc before the first edit can save. */
+		lastSavedDocRef.current = null;
 		setState(IDLE_STATE);
 	}
 
@@ -139,6 +152,15 @@ export function useAutoSave(): SaveState {
 		 * the guard narrowing inside closures). */
 		const session = sessionApi;
 		unmountedRef.current = false;
+
+		/* Seed the diff base from the loaded doc, before any edit can fire a
+		 * save. The provider loads `initialDoc` synchronously at store
+		 * creation, so the doc here is the persisted blueprint (or the empty
+		 * doc for a brand-new build — the run then streams into it and keeps
+		 * the base synced via the run gate below). */
+		if (lastSavedDocRef.current === null) {
+			lastSavedDocRef.current = toPersistableDoc(docStore.getState());
+		}
 
 		/**
 		 * Fire the actual Firestore PUT and transition status honestly:
@@ -157,10 +179,38 @@ export function useAutoSave(): SaveState {
 			const doc = docStore.getState();
 			if (!appIdAtStart || doc.moduleOrder.length === 0) return;
 
-			/* Strip the derived state (fieldParent + the reference index)
-			 * before sending — the server rebuilds both on load and the
-			 * strict persistable schema rejects unknown keys. */
-			const persistable = toPersistableDoc(doc);
+			/* A run owns the doc — it streams its mutations in and persists them
+			 * server-side. Never auto-save over a run; keep the diff base synced
+			 * to the run's streamed/reconciled doc so the first user edit
+			 * afterward diffs against the run's result. Defensive twin of the
+			 * subscription's run gate, for a cooldown that fires after a run
+			 * has begun. */
+			if (session.getState().events.length > 0) {
+				lastSavedDocRef.current = toPersistableDoc(doc);
+				return;
+			}
+
+			/* The diff base must exist — the subscription seeds it before the
+			 * first save can fire. If it somehow doesn't (an in-place app swap
+			 * before the re-seed lands), establish it now and skip: the doc on
+			 * disk equals what we just loaded, so there is nothing to send. */
+			const base = lastSavedDocRef.current;
+			if (base === null) {
+				lastSavedDocRef.current = toPersistableDoc(doc);
+				return;
+			}
+
+			/* Send the DELTA, never the whole doc. The snapshot is taken once
+			 * here (stripped of the derived fieldParent + reference index) so
+			 * it is both the diff target and the new base on success — the doc
+			 * can't move under us mid-build. An empty delta (e.g. edit then
+			 * undo back to the saved state) needs no request. */
+			const snapshot = toPersistableDoc(doc);
+			const mutations = diffDocsToMutations(
+				base as BlueprintDoc,
+				snapshot as BlueprintDoc,
+			);
+			if (mutations.length === 0) return;
 
 			inFlightRef.current = true;
 			if (!unmountedRef.current) {
@@ -177,39 +227,36 @@ export function useAutoSave(): SaveState {
 				const res = await fetch(`/api/apps/${appIdAtStart}`, {
 					method: "PUT",
 					headers: { "Content-Type": "application/json" },
-					// Send under the `blueprint` key so the API route's body parsing
-					// stays consistent. The value is a normalized BlueprintDoc
-					// (minus fieldParent — rebuilt on load). `basisToken` is the
-					// optimistic-save basis — the server `blueprint_token` this
-					// client last observed; the server compares it transactionally
-					// and rejects with 409 when the doc advanced under us.
-					body: JSON.stringify({
-						blueprint: persistable,
-						basisToken: session.getState().saveBasis,
-					}),
+					/* The mutation delta — plain JSON arrays, never the whole
+					 * doc. The server replays them onto the FRESH stored
+					 * blueprint and re-runs the validity verdict, so concurrent
+					 * edits MERGE and an invalid batch is refused (409). No basis
+					 * precondition rides along — the merge, not a token compare,
+					 * is what makes a concurrent save safe. */
+					body: JSON.stringify({ mutations }),
 				});
 				if (!stillCurrent()) return;
 				if (res.ok) {
-					/* Advance the basis to the freshly rotated token so the next
-					 * save's precondition compares against the doc THIS save just
-					 * wrote. */
+					/* The delta landed — advance the diff base to exactly what
+					 * we sent so the next save diffs against it. */
+					lastSavedDocRef.current = snapshot;
 					try {
 						const body = await res.json();
 						if (typeof body?.basisToken === "string") {
 							session.getState().setSaveBasis(body.basisToken);
 						}
 					} catch {
-						/* body unreadable — the next save's stale basis will 409 and
-						 * recover via the reload path below. */
+						/* body unreadable — the version marker is advisory; the
+						 * next save still diffs against the advanced base. */
 					}
 					setState({ status: "saved", savedAt: Date.now() });
 				} else if (res.status === 409) {
-					/* Stale basis: a writer this window never saw advanced the doc
-					 * (another tab's save, an agent working over MCP). Saving would
-					 * have erased that work, so the server refused. Recover by
-					 * reloading the server's version and telling the user what
-					 * happened — their last local change here is discarded. */
-					await reloadAfterStaleBasis(appIdAtStart, stillCurrent);
+					/* The delta is invalid against the FRESH server doc — a
+					 * genuine concurrent conflict (this edit targets an entity
+					 * another writer changed out from under it). Re-sending
+					 * replays the rejection, so resync to the server's version
+					 * and tell the user. */
+					await reloadAfterConflict(appIdAtStart, stillCurrent);
 				} else {
 					let detail = `HTTP ${res.status}`;
 					try {
@@ -251,25 +298,14 @@ export function useAutoSave(): SaveState {
 		}
 
 		/**
-		 * Recover from a 409 stale-basis rejection: fetch the server's
-		 * current doc, replace the local one with it, re-sync the basis, and
-		 * tell the user in plain language what happened. The local doc was
-		 * built on a snapshot another writer has since replaced, so the
-		 * server's version is the one source of truth worth keeping — the
-		 * user's most recent local change is the cost, and the toast says so.
-		 *
-		 * This is the deliberate, SAFE conflict resolution. A non-destructive
-		 * REBASE (replay the local edits onto the server's fresh doc instead
-		 * of discarding them) is the multiplayer-GA follow-up — it requires a
-		 * client mutation op-log replayed through the commit gate, because the
-		 * auto-save PUT does no whole-doc validation (validity is gated
-		 * per-mutation), so a merged doc must be re-verdicted client-side or
-		 * it could persist an invalid blueprint. The only consumer of a
-		 * human-vs-human rebase is concurrent editing, which `PROJECTS_ENABLED`
-		 * gates off; the reachable conflict today (an MCP agent vs. this tab)
-		 * is correctly handled by this reload.
+		 * Recover from a 409 conflict rejection: the mutation delta could not
+		 * apply to the server's current doc (another writer changed the same
+		 * entity), so fetch the server's version, replace the local doc with
+		 * it, re-sync the diff base + version marker, and tell the user. The
+		 * common case — non-overlapping concurrent edits — never reaches here:
+		 * the server merges those by replaying the delta on the fresh doc.
 		 */
-		async function reloadAfterStaleBasis(
+		async function reloadAfterConflict(
 			appId: string,
 			stillCurrent: () => boolean,
 		): Promise<void> {
@@ -287,12 +323,13 @@ export function useAutoSave(): SaveState {
 				 * next edit is undoable again. */
 				docStore.getState().load(data.blueprint);
 				docStore.temporal.getState().resume();
+				lastSavedDocRef.current = data.blueprint;
 				session.getState().setSaveBasis(data.basis_token ?? null);
 				setState(IDLE_STATE);
 				showToast(
 					"warning",
 					"App reloaded",
-					"This app was changed outside this window — by an agent connection or another tab. We loaded the latest version so nothing gets overwritten; your last change here wasn't saved, so redo it if you still want it.",
+					"This app changed in a way that conflicts with your last edit — by an agent connection or another collaborator. We loaded the latest version; redo that change if you still want it.",
 				);
 			} catch (err) {
 				/* The reload itself failed — surface as a save error so the
@@ -300,7 +337,7 @@ export function useAutoSave(): SaveState {
 				 * the whole save → 409 → reload sequence. */
 				reportClientError(
 					{
-						message: `Auto-save stale-basis reload failed: ${
+						message: `Auto-save conflict reload failed: ${
 							err instanceof Error ? err.message : String(err)
 						}`,
 						source: "manual",
@@ -344,6 +381,14 @@ export function useAutoSave(): SaveState {
 				 * derives to Ready (see `derivePhase`), so the phase gate
 				 * alone would let scrub writes through. */
 				if (sessionState.replay !== undefined) return;
+				/* A run owns the doc (it streams + persists its own mutations).
+				 * Keep the diff base synced to the latest streamed doc and never
+				 * auto-save over a run, so the first user edit afterward diffs
+				 * against the run's result, not the pre-run snapshot. */
+				if (sessionState.events.length > 0) {
+					lastSavedDocRef.current = toPersistableDoc(docStore.getState());
+					return;
+				}
 				/* Gate on lifecycle phase and app existence. Derive the builder
 				 * phase from session state + doc presence — only save when the
 				 * builder is in Ready or Completed (i.e. the user has a usable
