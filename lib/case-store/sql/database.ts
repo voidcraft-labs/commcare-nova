@@ -78,14 +78,11 @@ export interface CasesTable {
 
 	/**
 	 * Second half of `(app_id, project_id)` — the structural tenant
-	 * filter (case data is shared at Project scope). Required on insert
-	 * (`withProjectContext` binds it); non-null on read in the
-	 * read-switch steady state. Added NULLABLE by the expand migration
-	 * (`20260627000000_add_cases_project_id`); the backfill stamps
-	 * existing rows and a later migration sets `NOT NULL`. The type
-	 * treats it as non-null (read-switch steady state) — the
-	 * staged deploy (backfill before read-switch) guarantees no live
-	 * read observes a null.
+	 * filter; case data is shared at Project scope. Required on insert
+	 * (`withProjectContext` binds it) and non-null on read. (The DB
+	 * column is nullable; the `add_cases_project_id` migration module
+	 * owns the expand→backfill rollout that keeps the non-null read
+	 * contract safe.)
 	 */
 	project_id: string;
 

@@ -29,9 +29,9 @@
 // per-test database lifecycle (creating + dropping a fresh
 // database each test).
 //
-// The factory is async because production's `withOwnerContext`
+// The factory is async because production's `withProjectContext`
 // resolves the singleton `Kysely<Database>` via Cloud SQL's
-// connector; tests bypass `withOwnerContext` and construct
+// connector; tests bypass `withProjectContext` and construct
 // `PostgresCaseStore` directly with an isolated per-test handle,
 // but the async signature keeps the harness implementation-
 // agnostic.
@@ -1409,8 +1409,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(reached).toHaveLength(0);
 		});
 
-		it("insert binds the calling owner — owner-B cannot see owner-A's freshly inserted row", async () => {
-			// `insert` forces `owner_id = bound owner` at the write
+		it("insert lands in the bound Project — Project B cannot see Project A's freshly inserted row", async () => {
+			// `insert` stamps `project_id = bound Project` (tenant) and
+			// `owner_id = bound actor` (case-owner) at the write
 			// boundary (see `PostgresCaseStore.insert`'s row
 			// composition). Pin the contract: owner-A inserts, owner-B
 			// queries, the row is invisible. Implicit before; explicit
@@ -1599,7 +1600,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseType: "patient",
 			});
 			expect(rows).toHaveLength(5);
-			// Every row carries the bound owner + the requested
+			// Every row carries the bound actor (`owner_id`) + the requested
 			// case-type — pins that the generator's output flows
 			// through `insert`'s tenant-scoping path.
 			for (const row of rows) {
@@ -2440,7 +2441,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(totalCount).toBe(3);
 		});
 
-		it("count respects the bound owner — cross-tenant rows are invisible", async () => {
+		it("count respects the bound Project — cross-Project rows are invisible", async () => {
 			const storeA = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(storeA, blueprint, "patient");

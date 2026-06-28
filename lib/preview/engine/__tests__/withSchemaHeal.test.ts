@@ -9,9 +9,11 @@
  *     through untouched (no Firestore read);
  *   - a heal re-materializes from the app's PERSISTED blueprint (not a
  *     caller-supplied copy) and retries the call exactly once;
- *   - a foreign-owned or missing app, or a failing materialize, rethrows
- *     the ORIGINAL error so the typed `schema-not-synced` /
- *     `validation-failure` arm stays the honest backstop;
+ *   - a missing app, or a failing materialize, rethrows the ORIGINAL
+ *     error so the typed `schema-not-synced` / `validation-failure` arm
+ *     stays the honest backstop (Project membership is gated upstream at
+ *     the Server Action, so the heal itself does no owner/membership
+ *     re-check — the re-materialize is app-scoped schema sync);
  *   - a retry that fails again surfaces its own error — never a loop, and
  *     never a masked genuine validation failure.
  *
@@ -44,7 +46,7 @@ import {
 	withSchemaHeal,
 } from "../caseDataBindingHelpers";
 
-const ARGS = { appId: "app-1", userId: "user-1" };
+const ARGS = { appId: "app-1" };
 const BLUEPRINT = { caseTypes: [{ name: "patient", properties: [] }] };
 const notSynced = () => new SchemaNotSyncedError("app-1", "patient");
 // A STALE-row DRIFT failure: the row exists but its older catalog lacks a
@@ -97,15 +99,14 @@ describe("withSchemaHeal", () => {
 		await expect(withSchemaHeal(ARGS, run)).resolves.toBe("rows");
 		expect(materializeMock).toHaveBeenCalledWith({
 			appId: "app-1",
-			userId: "user-1",
 			blueprint: BLUEPRINT,
 		});
 		expect(run).toHaveBeenCalledTimes(2);
 	});
 
-	it("rethrows the ORIGINAL error when the app is missing or foreign-owned", async () => {
+	it("rethrows the ORIGINAL error when the app is missing", async () => {
 		const original = notSynced();
-		loadAppMock.mockResolvedValue({ owner: "someone-else", blueprint: {} });
+		loadAppMock.mockResolvedValue(null);
 		const run = vi.fn().mockRejectedValue(original);
 
 		await expect(withSchemaHeal(ARGS, run)).rejects.toBe(original);
@@ -158,7 +159,6 @@ describe("withSchemaHeal — stale schema row (CasePropertiesValidationError)", 
 		await expect(withSchemaHeal(ARGS, run)).resolves.toBe("rows");
 		expect(materializeMock).toHaveBeenCalledWith({
 			appId: "app-1",
-			userId: "user-1",
 			blueprint: BLUEPRINT,
 		});
 		expect(run).toHaveBeenCalledTimes(2);
@@ -197,9 +197,9 @@ describe("withSchemaHeal — stale schema row (CasePropertiesValidationError)", 
 		expect(materializeMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("rethrows the ORIGINAL validation error when the app is foreign-owned", async () => {
+	it("rethrows the ORIGINAL validation error when the app is missing", async () => {
 		const original = staleDrift();
-		loadAppMock.mockResolvedValue({ owner: "someone-else", blueprint: {} });
+		loadAppMock.mockResolvedValue(null);
 		const run = vi.fn().mockRejectedValue(original);
 
 		await expect(withSchemaHeal(ARGS, run)).rejects.toBe(original);

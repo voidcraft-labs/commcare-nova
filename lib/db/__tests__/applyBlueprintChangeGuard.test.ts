@@ -43,9 +43,9 @@ const {
 	updateAppGuardedByBasisMock: vi.fn(),
 }));
 
-const { applySchemaChangeMock, withOwnerContextMock } = vi.hoisted(() => ({
+const { applySchemaChangeMock, withSchemaContextMock } = vi.hoisted(() => ({
 	applySchemaChangeMock: vi.fn(),
-	withOwnerContextMock: vi.fn(),
+	withSchemaContextMock: vi.fn(),
 }));
 
 const { getAssetsInTransactionMock } = vi.hoisted(() => ({
@@ -73,7 +73,7 @@ vi.mock("@/lib/case-store", async () => {
 	>;
 	return {
 		...actual,
-		withOwnerContext: withOwnerContextMock,
+		withSchemaContext: withSchemaContextMock,
 	};
 });
 
@@ -150,7 +150,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	loadAppMock.mockImplementation(async () => null);
 	getAssetsInTransactionMock.mockResolvedValue(new Map());
-	withOwnerContextMock.mockResolvedValue({
+	withSchemaContextMock.mockResolvedValue({
 		applySchemaChange: applySchemaChangeMock,
 		dropSchema: vi.fn(),
 	});
@@ -265,7 +265,7 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 
 		const dropSchemaMock = vi.fn();
-		withOwnerContextMock.mockResolvedValue({
+		withSchemaContextMock.mockResolvedValue({
 			applySchemaChange: applySchemaChangeMock,
 			dropSchema: dropSchemaMock,
 		});

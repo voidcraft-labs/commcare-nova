@@ -50,7 +50,7 @@ no tenant.
 
 ## Typed error contract
 
-User-domain errors (`./errors.ts`) carry `instanceof` discrimination so routes map them to typed result arms. Non-obvious rules: `CaseNotFoundError`'s message deliberately does NOT distinguish "outside the bound owner's tenant" from "never existed" — tenant boundaries stay structural, never message-leaked. `CasePropertiesValidationError`'s structured `failures` surface in the response body, but the `(appId, caseType)` pair stays server-log-only. All classes use `readonly name = "<ClassName>"` initializers so the literal name survives bundler transforms. Every other throw in the package is an internal-invariant violation using the formatters at `lib/domain/predicate/errors.ts`.
+User-domain errors (`./errors.ts`) carry `instanceof` discrimination so routes map them to typed result arms. Non-obvious rules: `CaseNotFoundError`'s message deliberately does NOT distinguish "outside the bound Project" from "never existed" — tenant boundaries stay structural, never message-leaked. `CasePropertiesValidationError`'s structured `failures` surface in the response body, but the `(appId, caseType)` pair stays server-log-only. All classes use `readonly name = "<ClassName>"` initializers so the literal name survives bundler transforms. Every other throw in the package is an internal-invariant violation using the formatters at `lib/domain/predicate/errors.ts`.
 
 ## TypeScript validates writes — there is no in-database trigger
 

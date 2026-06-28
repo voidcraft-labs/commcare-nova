@@ -431,7 +431,7 @@ export interface CaseStore extends SchemaCaseStore {
 	/**
 	 * Predicate-driven `COUNT(*)`. Returns the row population the
 	 * `(appId, caseType, predicate?)` triple resolves to, scoped to
-	 * the bound owner. The case-list authoring surface's Filters
+	 * the bound Project. The case-list authoring surface's Filters
 	 * section uses this to render a "N cases pass this filter"
 	 * counter without paying for a full `query` round-trip — the
 	 * predicate compiles through the same `compilePredicate` stack
@@ -478,7 +478,7 @@ export interface CaseStore extends SchemaCaseStore {
 	 * Update a case row. JSONB-merges the patch into `properties`,
 	 * re-validates against the schema, stamps `modified_on = now()`,
 	 * re-derives `case_indices` if `parent_case_id` changed. Throws
-	 * `CaseNotFoundError` when the bound owner cannot see the row.
+	 * `CaseNotFoundError` when the bound Project cannot see the row.
 	 */
 	update(args: {
 		appId: string;

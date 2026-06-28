@@ -2234,6 +2234,32 @@ describe("loadCasesAction", () => {
 			PATIENT_CASE_TYPE,
 		);
 	});
+
+	it("collapses a Project-membership denial to the not-found arm without binding a store", async () => {
+		// The IDOR gate: a non-member / absent / under-privileged request
+		// rejects with `AppAccessError` (here from a non-member), which the
+		// action maps to the not-found `error` arm. Asserting the exact "App
+		// not found." message proves the dedicated short-circuit ran, NOT the
+		// generic catch (which would surface the raw error message). And
+		// `withProjectContext` is never reached, so no store ever binds to
+		// another Project's case data — the gate is the IDOR boundary that
+		// replaced owner-scoping making the client-supplied `appId` safe.
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		const { AppAccessError } = await import("@/lib/db/appAccess");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_B },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		resolveAppScopeMock.mockRejectedValueOnce(new AppAccessError("not_member"));
+
+		const { loadCasesAction } = await import("../caseDataBinding");
+		const result = await loadCasesAction({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		expect(result).toEqual({ kind: "error", message: "App not found." });
+		expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
+	});
 });
 
 // ---------------------------------------------------------------

@@ -418,6 +418,11 @@ export class PostgresCaseStore implements CaseStore {
 			for (const { alias } of calcAliases) {
 				delete cleaned[alias];
 			}
+			// `selectAll("c")` also materialized the tenant key `project_id`
+			// onto the row; it is the bound-tenant scoping column, NOT part of
+			// the `CaseRow` contract (which `Omit`s it) and must never reach a
+			// consumer / the wire. Strip it so the runtime row matches the type.
+			delete cleaned.project_id;
 			return {
 				...(cleaned as unknown as CaseRow),
 				calculated: calculatedMap,

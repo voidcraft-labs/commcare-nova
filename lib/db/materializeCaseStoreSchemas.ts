@@ -210,7 +210,7 @@ async function withTransientRetry(
  * in one pass rather than one heal per stale type.
  *
  * No-op when `caseTypes` is null (survey-only build) or empty. The early
- * return skips the `withOwnerContext` allocation so a survey-only
+ * return skips the `withSchemaContext` allocation so a survey-only
  * completion never pays the connection-pool lookup cost.
  */
 export async function materializeCaseStoreSchemas(
