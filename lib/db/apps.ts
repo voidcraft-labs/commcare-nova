@@ -811,7 +811,14 @@ export async function claimBuildRun(appId: string): Promise<ClaimedBuildRun> {
 			 * likewise — the marker still settles below so nothing revisits). */
 			const marker = fresh.reservation;
 			if (marker && !marker.settled) {
-				const creditRef = docs.creditMonthRaw(fresh.owner, marker.period);
+				// Refund the user who was CHARGED — the actor recorded on the
+				// marker, mirroring `refundReservation`. `fresh.owner` diverges
+				// from the actor once a Project co-member ran the displaced
+				// build; legacy markers without `userId` fall back to `owner`.
+				const creditRef = docs.creditMonthRaw(
+					marker.userId ?? fresh.owner,
+					marker.period,
+				);
 				const creditSnap = await tx.get(creditRef);
 				if (creditSnap.exists) {
 					const consumed =

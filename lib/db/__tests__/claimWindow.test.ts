@@ -265,4 +265,39 @@ describe("claim window — kept charges survive a hard kill; live holds still re
 			settled: true,
 		});
 	});
+
+	it("a stale displacement refunds the CHARGED ACTOR, not the owner (owner ≠ actor)", async () => {
+		// A Project co-member (NOT the owner) ran a build on a shared app, was
+		// charged 100, then hard-killed. The retry's stale-displacement refund
+		// must un-book the ACTOR's hold (`marker.userId`), NOT `app.owner` — the
+		// per-actor billing contract, on `claimBuildRun`'s duplicated inline
+		// refund. Without this an owner≠actor regression ships green and the
+		// member silently loses the credits while the owner is over-credited.
+		const { claimBuildRun } = await import("../apps");
+		const ACTOR_CREDITS = `credits/member-2/months/${PERIOD}`;
+		const OWNER_CREDITS = `credits/owner-1/months/${PERIOD}`;
+
+		seedDoc(APP, {
+			owner: "owner-1",
+			status: "generating",
+			error_type: null,
+			updated_at: Timestamp.fromDate(new Date(Date.now() - 11 * 60_000)),
+			reservation: {
+				period: PERIOD,
+				reserved: 100,
+				settled: false,
+				userId: "member-2",
+			},
+		});
+		seedDoc(OWNER_CREDITS, { allowance: 2000, consumed: 0, bonus: 0 });
+		seedDoc(ACTOR_CREDITS, { allowance: 2000, consumed: 100, bonus: 0 });
+
+		await claimBuildRun("app-1");
+
+		// The actor's hold is handed back…
+		expect(readDoc(ACTOR_CREDITS)).toMatchObject({ consumed: 0 });
+		// …and the owner's ledger is untouched (no phantom credit).
+		expect(readDoc(OWNER_CREDITS)).toMatchObject({ consumed: 0 });
+		expect(readDoc(APP)?.reservation).toMatchObject({ settled: true });
+	});
 });
