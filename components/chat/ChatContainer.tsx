@@ -25,7 +25,6 @@ import {
 } from "@/lib/chat/attachmentRefs";
 import { extractThread } from "@/lib/chat/threadUtils";
 import { saveThread } from "@/lib/db/threads";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
@@ -88,11 +87,9 @@ function createChatInstance(
 				if (!session) return {};
 				const sessionState = session.getState();
 				const hasData = (doc?.moduleOrder.length ?? 0) > 0;
-				/* Send the normalized doc directly — the route converts to the
-				 * SA's wire format server-side. The derived state (fieldParent
-				 * + the reference index) is omitted from the wire payload
-				 * (matches Firestore's persistence contract). */
-				const wireDoc = doc && hasData ? toPersistableDoc(doc) : undefined;
+				/* The blueprint is NEVER sent — the route loads the persisted doc
+				 * server-side off the authorization read. We send only the `appId`;
+				 * `hasData` still feeds the `appReady` phase derivation below. */
 				/* `appReady` gates whether the server strips generation tools
 				 * (editing mode) vs exposes them (build mode). We use the
 				 * derived phase as the single source of truth — Ready or
@@ -115,7 +112,6 @@ function createChatInstance(
 				const appReady =
 					phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
 				return {
-					doc: wireDoc,
 					runId: runIdRef.current,
 					appId: sessionState.appId,
 					lastResponseAt: lastResponseAtRef.current,

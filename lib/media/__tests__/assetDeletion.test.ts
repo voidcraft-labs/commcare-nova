@@ -25,14 +25,14 @@ import {
 } from "@/lib/media/assetDeletion";
 
 const {
-	listApps,
+	listAppsByOwner,
 	loadApp,
 	deleteAssetRow,
 	hasOtherAssetForGcsObjectKey,
 	deleteGcsObject,
 	walkAssetRefs,
 } = vi.hoisted(() => ({
-	listApps: vi.fn<() => Promise<ListAppsResult>>(() =>
+	listAppsByOwner: vi.fn<() => Promise<ListAppsResult>>(() =>
 		Promise.resolve({ apps: [] }),
 	),
 	loadApp: vi.fn(),
@@ -42,7 +42,7 @@ const {
 	walkAssetRefs: vi.fn(() => []),
 }));
 
-vi.mock("@/lib/db/apps", () => ({ listApps, loadApp }));
+vi.mock("@/lib/db/apps", () => ({ listAppsByOwner, loadApp }));
 vi.mock("@/lib/db/mediaAssets", () => ({
 	deleteAsset: deleteAssetRow,
 	hasOtherAssetForGcsObjectKey,
@@ -102,7 +102,7 @@ beforeEach(() => {
 	// mock's default impl here so each test starts from the same baseline
 	// regardless of order.
 	vi.clearAllMocks();
-	listApps.mockResolvedValue({ apps: [] });
+	listAppsByOwner.mockResolvedValue({ apps: [] });
 	loadApp.mockResolvedValue(null);
 	hasOtherAssetForGcsObjectKey.mockResolvedValue(false);
 	walkAssetRefs.mockReturnValue([]);
@@ -167,7 +167,7 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 		expect(refs[0]).toContain("the app logo");
 		// The index path must not page the owner's apps — that's the slow scan it
 		// replaces.
-		expect(listApps).not.toHaveBeenCalled();
+		expect(listAppsByOwner).not.toHaveBeenCalled();
 		expect(loadApp).toHaveBeenCalledTimes(1);
 		expect(loadApp).toHaveBeenCalledWith("app-1");
 	});
@@ -183,7 +183,7 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 	it("returns empty for an empty candidate set without touching Firestore", async () => {
 		expect(await findAppReferencesToAsset("user-1", "asset-1", [])).toEqual([]);
 		expect(loadApp).not.toHaveBeenCalled();
-		expect(listApps).not.toHaveBeenCalled();
+		expect(listAppsByOwner).not.toHaveBeenCalled();
 	});
 
 	it("skips the candidate named by skipAppId (without loading it)", async () => {
@@ -211,18 +211,22 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 
 describe("findAppReferencesToAsset — full-scan fallback (candidates undefined)", () => {
 	it("pages the owner's apps when the asset row was never backfilled", async () => {
-		listApps.mockResolvedValue({ apps: [appSummary("app-1", "App One")] });
+		listAppsByOwner.mockResolvedValue({
+			apps: [appSummary("app-1", "App One")],
+		});
 		loadApp.mockResolvedValue(appDoc());
 		walkAssetRefs.mockReturnValue(logoRef);
 		const refs = await findAppReferencesToAsset("user-1", "asset-1", undefined);
-		expect(listApps).toHaveBeenCalled();
+		expect(listAppsByOwner).toHaveBeenCalled();
 		expect(refs).toHaveLength(1);
 		expect(refs[0]).toContain("App One");
 		expect(refs[0]).toContain("the app logo");
 	});
 
 	it("returns empty when no app in the scan references the asset", async () => {
-		listApps.mockResolvedValue({ apps: [appSummary("app-1", "App One")] });
+		listAppsByOwner.mockResolvedValue({
+			apps: [appSummary("app-1", "App One")],
+		});
 		loadApp.mockResolvedValue(appDoc());
 		walkAssetRefs.mockReturnValue([]);
 		expect(
@@ -233,8 +237,10 @@ describe("findAppReferencesToAsset — full-scan fallback (candidates undefined)
 	it("skips the current app named by skipAppId during the scan", async () => {
 		// The SA tool checks its in-hand working doc separately, then scans every
 		// OTHER app — so a fallback scan must skip the current app even though
-		// listApps returns it.
-		listApps.mockResolvedValue({ apps: [appSummary("current", "Current")] });
+		// listAppsByOwner returns it.
+		listAppsByOwner.mockResolvedValue({
+			apps: [appSummary("current", "Current")],
+		});
 		loadApp.mockResolvedValue(appDoc({ app_name: "Current" }));
 		walkAssetRefs.mockReturnValue(logoRef);
 		const refs = await findAppReferencesToAsset(

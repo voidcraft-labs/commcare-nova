@@ -21,7 +21,7 @@ import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
-import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
+import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import {
 	BuildRunConflictError,
 	type ClaimedBuildRun,
@@ -44,7 +44,7 @@ import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchema
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
 import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { SA_MODEL } from "@/lib/models";
@@ -206,7 +206,7 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const { doc, runId, lastResponseAt, appReady } = parsed.data;
+	const { runId, lastResponseAt, appReady } = parsed.data;
 
 	/* Stable per-request run identifier. Every event envelope (mutation or
 	 * conversation) carries this value; the client echoes it back on follow-up
@@ -226,6 +226,13 @@ export async function POST(req: Request) {
 	 */
 	let appId = parsed.data.appId;
 	let appCreated = false;
+	/* The persisted app doc for an EXISTING-app request — captured off the
+	 * authorization read below so the SA's working doc seeds from the saved
+	 * blueprint with no extra Firestore fetch. Undefined for a new build (no
+	 * app exists yet); the seed falls back to the empty doc there. */
+	let loadedApp:
+		| Awaited<ReturnType<typeof resolveAppAccess>>["app"]
+		| undefined;
 	/* Set when this POST claimed an existing app's build-run window
 	 * (`claimBuildRun` flipped it to `generating`). Carries the shape the
 	 * claim moved the app out of, so the pre-stream rejection arms below
@@ -258,9 +265,11 @@ export async function POST(req: Request) {
 	} else {
 		/* Project-membership gate (edit) — apps are a root-level collection, so
 		 * the path doesn't scope writes; without this a crafted request with
-		 * another Project's appId could drive a build against it. */
+		 * another Project's appId could drive a build against it. The same
+		 * authorization read yields the persisted app doc, so the SA's working
+		 * doc seeds from `loadedApp.blueprint` below without a second fetch. */
 		try {
-			await resolveAppScope(appId, userId, "edit");
+			loadedApp = (await resolveAppAccess(appId, userId, "edit")).app;
 		} catch (err) {
 			if (err instanceof AppAccessError) {
 				return Response.json(
@@ -527,14 +536,28 @@ export async function POST(req: Request) {
 				});
 			}
 
-			/* Build the SA's working doc. The client ships the persistable
-			 * slice (no `fieldParent`) on wire; we deep-clone so in-flight
-			 * mutations never leak back into the request body, then rebuild
-			 * the reverse-parent index the SA's mutation helpers rely on.
+			/* Build the SA's working doc. For an existing app the seed is the
+			 * SAVED blueprint (`loadedApp.blueprint`, the persistable slice with
+			 * no `fieldParent`), loaded off the authorization read above — never
+			 * shipped per-turn from the client. We deep-clone so in-flight
+			 * mutations never touch the loaded doc, then rebuild the
+			 * reverse-parent index the SA's mutation helpers rely on.
+			 *
+			 * Freshness: the saved blueprint is current at send time without any
+			 * flush primitive. The mutation-only auto-save persists builder edits
+			 * within ~1.3s of the edit settling, and a chat send follows
+			 * message-typing (longer than that), so a typed send always reads a
+			 * settled doc. A code path that fires a chat turn programmatically
+			 * IMMEDIATELY after an edit (with no typing in between) would be the
+			 * one case that could outrun the auto-save and need a flush.
+			 *
 			 * Brand-new builds get the empty doc stamped with the Firestore
 			 * `appId` that `createApp` just minted. */
-			const sessionDoc: BlueprintDoc = doc
-				? structuredClone({ ...doc, fieldParent: {} })
+			const sessionDoc: BlueprintDoc = loadedApp
+				? structuredClone({
+						...(loadedApp.blueprint as PersistableDoc as BlueprintDoc),
+						fieldParent: {},
+					})
 				: {
 						appId,
 						appName: "",
