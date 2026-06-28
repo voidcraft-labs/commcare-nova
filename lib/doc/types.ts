@@ -56,8 +56,55 @@ export const FIELD_MEDIA_SLOTS = [
 // stray key (e.g. `{ label }` against a hidden field) a compile error
 // at every call site rather than a silently-dropped key at runtime.
 
-const moduleUpdatePatchSchema = moduleSchema.omit({ uuid: true }).partial();
-const formUpdatePatchSchema = formSchema.omit({ uuid: true }).partial();
+/**
+ * Build the `updateModule` / `updateForm` patch schema: every mutable slot
+ * optional, and every CLEARABLE slot additionally `null`-accepting.
+ *
+ * A clear must survive the persistence wire. The browser diffs its working
+ * doc into a `Mutation[]` and ships it as JSON to `PUT /api/apps/[id]`;
+ * `JSON.stringify` DROPS `undefined`-valued keys, so a cleared optional
+ * slot (e.g. switching a form's conditional close back to "always close" by
+ * blanking `closeCondition`) can only cross the wire as an explicit `null`.
+ * For that `null`-clear to parse, the patch schema must admit `null` on the
+ * clearable slots — a plain `.partial()` makes them optional, not nullable.
+ *
+ * Nullability is scoped to slots the SOURCE schema already declares
+ * `.optional()`: those are the clearable ones (a slot's absence is a legal
+ * doc state). A genuinely-required slot (`id` / `name` / `type`) stays
+ * non-nullable, so a stray `null` for it is still a parse error — the
+ * `updateModule` / `updateForm` reducers delete-on-`null` without a final
+ * whole-entity re-parse, so a required slot must never reach them as `null`.
+ * Optionality is detected by whether the slot accepts `undefined`.
+ */
+function clearablePartialPatch<
+	S extends { uuid: z.ZodTypeAny } & z.ZodRawShape,
+>(
+	schema: z.ZodObject<S>,
+): z.ZodObject<{
+	[K in Exclude<keyof S, "uuid">]: z.ZodOptional<z.ZodNullable<S[K]>>;
+}> {
+	// `S extends { uuid }` guarantees the slot exists; Zod's `omit()`
+	// parameter type demands every key of `S` in the mask, which the generic
+	// can't satisfy structurally — the runtime call is sound, so cast the
+	// mask through `unknown` (mirrors `partialOf` in `lib/domain/fields`).
+	const omitted = schema.omit({
+		uuid: true,
+	} as unknown as Parameters<typeof schema.omit>[0]);
+	const shape: Record<string, z.ZodTypeAny> = {};
+	for (const [key, value] of Object.entries(omitted.shape)) {
+		const slot = value as z.ZodTypeAny;
+		shape[key] = slot.safeParse(undefined).success ? slot.nullable() : slot;
+	}
+	// Required slots stay non-nullable at RUNTIME (a `null` for them is a
+	// parse error), but the inferred type marks every key nullable-optional —
+	// a uniform partial-patch shape consumers build typed patches against.
+	return z.object(shape).partial() as unknown as z.ZodObject<{
+		[K in Exclude<keyof S, "uuid">]: z.ZodOptional<z.ZodNullable<S[K]>>;
+	}>;
+}
+
+const moduleUpdatePatchSchema = clearablePartialPatch(moduleSchema);
+const formUpdatePatchSchema = clearablePartialPatch(formSchema);
 
 /**
  * Per-`targetKind` arms for the `updateField` mutation. Each arm
@@ -140,9 +187,13 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("updateModule"),
 		uuid: uuidSchema,
-		// Defaults to `{}` on read for the same reason as `updateField`'s
-		// `patch` — a clear-only module edit serializes to an empty (omitted)
-		// map under `ignoreUndefinedProperties`. See `updateFieldArms`.
+		// A clear carries an explicit `null` (the clearable slots are
+		// nullable — see `clearablePartialPatch`), so a clear-only edit is a
+		// NON-empty patch that round-trips intact. The `{}` default exists for
+		// a genuinely-empty patch: a degenerate no-property update, or a legacy
+		// event written before clears carried `null` (then a clear lowered to
+		// an all-`undefined` patch that `ignoreUndefinedProperties` stripped to
+		// an empty, document-omitted map). See `updateFieldArms`.
 		patch: moduleUpdatePatchSchema.default(() => ({})),
 	}),
 	// Form
@@ -168,9 +219,13 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("updateForm"),
 		uuid: uuidSchema,
-		// Defaults to `{}` on read for the same reason as `updateField`'s
-		// `patch` — a clear-only form edit serializes to an empty (omitted)
-		// map under `ignoreUndefinedProperties`. See `updateFieldArms`.
+		// A clear carries an explicit `null` (the clearable slots are
+		// nullable — see `clearablePartialPatch`), so a clear-only edit is a
+		// NON-empty patch that round-trips intact. The `{}` default exists for
+		// a genuinely-empty patch: a degenerate no-property update, or a legacy
+		// event written before clears carried `null` (then a clear lowered to
+		// an all-`undefined` patch that `ignoreUndefinedProperties` stripped to
+		// an empty, document-omitted map). See `updateFieldArms`.
 		patch: formUpdatePatchSchema.default(() => ({})),
 	}),
 	// Field
@@ -229,20 +284,19 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	}),
 	// ─── Media slots — dedicated clear-safe kinds ────────────────────────
 	//
-	// Media slots can't ride the generic `updateField` / `updateModule` /
-	// `updateForm` patch reducers for a CLEAR. A clear is `{ key: undefined }`,
-	// and the SA streams mutations to the client as JSON — `JSON.stringify`
-	// DROPS keys whose value is `undefined`, so a clear patch arrives at
-	// `applyMany` as `{}` and the reducer's `Object.assign` no-ops, leaving
-	// the stale asset ref in the client doc (which then auto-saves back over
-	// the SA's correct clear). These kinds carry an explicit on-wire `null`
-	// (which survives JSON) and map it to `undefined` INSIDE the reducer, so
-	// both set and clear cross the wire intact. Mirrors `setAppLogo`.
+	// Media slots are deliberately OFF the generic field-edit surface
+	// (`toolSchemaGenerator.ts` drops `media`), so they ride their own kinds
+	// rather than an `updateField` / `updateModule` / `updateForm` patch.
+	// Each carries an explicit on-wire `null` and maps it to `undefined`
+	// INSIDE the reducer, so both set and clear cross the wire intact (a
+	// generic patch's clear travels as `null` too — `JSON.stringify` DROPS
+	// `undefined`-valued keys, so a clear can only ever be `null` on the
+	// wire). Mirrors `setAppLogo`.
 	//
-	// They are NOT folded into the generic reducers with a "null-means-clear"
-	// rule: `setConnectType`'s slot is genuinely `.nullable()` and stores
-	// `null` as a real value, so a generic null-as-clear rule would corrupt
-	// it. The clear-safe behavior stays scoped to these media-only kinds.
+	// The generic `update*` reducers DO treat `null` as delete on their
+	// clearable slots — `setConnectType` is the lone exception: its slot is
+	// genuinely `.nullable()` and stores `null` as a real value, so it is NOT
+	// a patch reducer and never gets the null-as-delete treatment.
 	z.object({
 		kind: z.literal("setFieldMedia"),
 		fieldUuid: uuidSchema,

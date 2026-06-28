@@ -183,6 +183,88 @@ export class BlueprintCommitRejectedError extends Error {
 }
 
 /**
+ * Whether any mutation in `mutations` targets an entity that no longer
+ * exists on `doc` (accounting for entities the batch itself adds/removes
+ * along the way).
+ *
+ * The guarded commit re-applies a batch onto the FRESH stored doc, and the
+ * reducers are TOTAL — a mutation whose target a concurrent writer deleted
+ * silently NO-OPS (the reducer returns early), introduces no validator
+ * finding, and the verdict passes. That is invisible data loss: the user's
+ * edit to the deleted entity never lands and they get no conflict signal.
+ * Running this BEFORE the verdict turns that into a
+ * {@link BlueprintCommitRejectedError} (→ 409 → the builder reloads), the
+ * documented conflict path. A batch that adds an entity then edits it is
+ * fine: the simulated live set tracks intra-batch adds.
+ */
+function batchTargetsMissing(
+	doc: BlueprintDoc,
+	mutations: Mutation[],
+): boolean {
+	const modules = new Set(Object.keys(doc.modules));
+	const forms = new Set(Object.keys(doc.forms));
+	const fields = new Set(Object.keys(doc.fields));
+	// A field's parent is a form or a group/repeat field — either may hold it.
+	const container = (uuid: string) => forms.has(uuid) || fields.has(uuid);
+	for (const m of mutations) {
+		switch (m.kind) {
+			case "addModule":
+				modules.add(m.module.uuid);
+				break;
+			case "removeModule":
+				if (!modules.has(m.uuid)) return true;
+				modules.delete(m.uuid);
+				break;
+			case "moveModule":
+			case "renameModule":
+			case "updateModule":
+			case "setModuleMedia":
+				if (!modules.has(m.uuid)) return true;
+				break;
+			case "addForm":
+				if (!modules.has(m.moduleUuid)) return true;
+				forms.add(m.form.uuid);
+				break;
+			case "removeForm":
+				if (!forms.has(m.uuid)) return true;
+				forms.delete(m.uuid);
+				break;
+			case "moveForm":
+				if (!forms.has(m.uuid) || !modules.has(m.toModuleUuid)) return true;
+				break;
+			case "renameForm":
+			case "updateForm":
+			case "setFormMedia":
+				if (!forms.has(m.uuid)) return true;
+				break;
+			case "addField":
+				if (!container(m.parentUuid)) return true;
+				fields.add(m.field.uuid);
+				break;
+			case "removeField":
+				if (!fields.has(m.uuid)) return true;
+				fields.delete(m.uuid);
+				break;
+			case "moveField":
+				if (!fields.has(m.uuid) || !container(m.toParentUuid)) return true;
+				break;
+			case "renameField":
+			case "duplicateField":
+			case "updateField":
+			case "convertField":
+				if (!fields.has(m.uuid)) return true;
+				break;
+			case "setFieldMedia":
+				if (!fields.has(m.fieldUuid)) return true;
+				break;
+			// App-level kinds (setAppName / setConnectType / setCaseTypes /
+			// setAppLogo) carry no entity target.
+		}
+	}
+	return false;
+}
+
+/**
  * Run the cross-store saga and persist the prospective blueprint.
  *
  * Throws on any unrecoverable failure (Postgres schema sync
@@ -345,6 +427,17 @@ async function persistBlueprint(
 				fieldParent: {},
 			} as BlueprintDoc;
 			rebuildFieldParent(freshDoc);
+			/* A mutation targeting an entity a concurrent writer deleted would
+			 * silently no-op (the reducers are total) and pass the verdict —
+			 * invisible data loss. Reject it as a conflict instead, so the
+			 * builder reloads and the user redoes the change. */
+			if (batchTargetsMissing(freshDoc, mutations)) {
+				throw new BlueprintCommitRejectedError(
+					"This app changed while you were editing — something your change " +
+						"targeted was removed by someone else. Reload to get the latest " +
+						"version, then redo that change.",
+				);
+			}
 			const verdict = mutationCommitVerdict(freshDoc, mutations);
 			if (!verdict.ok) {
 				throw new BlueprintCommitRejectedError(

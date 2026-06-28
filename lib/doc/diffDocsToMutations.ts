@@ -75,8 +75,8 @@ import type { AssetId, Form, Media, Module } from "@/lib/domain";
 /**
  * Deep-copy an entity / patch / media value before it enters a mutation
  * payload. The reducer stores some payloads BY REFERENCE — `addModule` /
- * `addForm` keep the passed entity, `updateModule` / `updateForm`
- * `Object.assign` patch values onto the draft, and `setFieldMedia` writes
+ * `addForm` keep the passed entity, `updateModule` / `updateForm` assign
+ * patch values onto the draft per key, and `setFieldMedia` writes
  * the media object directly. A later cascade (a case-property rename
  * rewriting a module config it shares structure with) then mutates that
  * object in place; if the object came verbatim from `next` — which is
@@ -169,9 +169,13 @@ function setDelta(
 //
 // Compare two entity records key-by-key, skipping uuid / kind / the
 // caller-named excluded keys (media, and the order-bearing slots a parent
-// owns). A key present in `prev` but absent in `next` clears with `null`
-// (the reducer deletes the key on `null` or `undefined`); a changed value
-// sets; an unchanged value is omitted.
+// owns). A key present in `prev` but absent in `next` — OR present-but-
+// `undefined` in `next` — clears with `null` (the reducer deletes the key
+// on `null` or `undefined`); a changed value sets; an unchanged value is
+// omitted. The clear must carry `null`, never `undefined`: the patch is
+// JSON-serialized onto the persistence wire (`PUT /api/apps/[id]`), and
+// `JSON.stringify` DROPS `undefined`-valued keys, so an `undefined` clear
+// arrives as an absent key — a no-op that silently leaves the stale value.
 
 function propertyPatch(
 	prev: Record<string, unknown>,
@@ -181,7 +185,9 @@ function propertyPatch(
 	const patch: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(next)) {
 		if (key === "uuid" || key === "kind" || skip.has(key)) continue;
-		if (!deepEqual(value, prev[key])) patch[key] = cloneEntity(value);
+		if (!deepEqual(value, prev[key])) {
+			patch[key] = value === undefined ? null : cloneEntity(value);
+		}
 	}
 	for (const key of Object.keys(prev)) {
 		if (key === "uuid" || key === "kind" || skip.has(key)) continue;
@@ -624,7 +630,10 @@ function fieldPatchForConvertedField(
 	const patch: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(next)) {
 		if (key === "uuid" || key === "kind" || skip.has(key)) continue;
-		patch[key] = cloneEntity(value);
+		// A present-but-`undefined` slot clears with `null`, not `undefined`:
+		// the patch is JSON-serialized onto the persistence wire and
+		// `JSON.stringify` drops `undefined`-valued keys.
+		patch[key] = value === undefined ? null : cloneEntity(value);
 	}
 	for (const key of Object.keys(prev)) {
 		if (key === "uuid" || key === "kind" || skip.has(key)) continue;

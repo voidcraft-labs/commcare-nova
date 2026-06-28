@@ -31,10 +31,11 @@ import {
 } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
+import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import { blueprintDocSchema } from "@/lib/domain";
+import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { assetWirePaths, resolveMediaManifest } from "@/lib/media/manifest";
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
 		const body = (await readJsonBody(req, BLUEPRINT_REQUEST_MAX_BYTES)) as {
 			domain?: string;
 			appName?: string;
-			doc?: unknown;
+			appId?: string;
 		} | null;
 
 		if (!body) {
@@ -66,23 +67,23 @@ export async function POST(req: NextRequest) {
 		if (!body.appName?.trim()) {
 			throw new ApiError("App name is required", 400);
 		}
-		if (!body.doc) {
+		if (typeof body.appId !== "string") {
 			throw new ApiError("App data is required", 400);
 		}
 
-		const parsedDoc = blueprintDocSchema.safeParse(body.doc);
-		if (!parsedDoc.success) {
-			throw new ApiError(
-				"Invalid app data",
-				400,
-				parsedDoc.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
-			);
-		}
-
-		// `fieldParent` is derived on load and not persisted; rebuild it
-		// so the expander sees a fully populated reverse index.
-		const docWithParent = { ...parsedDoc.data, fieldParent: {} };
+		/* Membership gate (view) + load the blueprint server-side — no whole
+		 * doc crosses the wire. An `AppAccessError` maps to 404. `fieldParent`
+		 * is derived on load; rebuild it so the expander sees a full reverse
+		 * index. Media resolves at the app OWNER's scope (where the assets
+		 * live) so a Project co-member can upload a shared app. */
+		const app = (await resolveAppAccess(body.appId, session.user.id, "view"))
+			.app;
+		const docWithParent: BlueprintDoc = {
+			...(app.blueprint as PersistableDoc as BlueprintDoc),
+			fieldParent: {},
+		};
 		rebuildFieldParent(docWithParent);
+		const ownerId = app.owner;
 
 		/* ── Resolve credentials + authorize the requested space ──────── */
 		const requested = body.domain.trim();
@@ -117,10 +118,7 @@ export async function POST(req: NextRequest) {
 		// message and the carrier location. This also covers the media-ON
 		// expand's failure mode — a stale media reference would make
 		// `expandDoc` throw `requireAssetRef` → opaque 500.
-		const violations = await collectBoundaryViolations(
-			docWithParent,
-			session.user.id,
-		);
+		const violations = await collectBoundaryViolations(docWithParent, ownerId);
 		if (violations.length > 0) {
 			throw new ApiError(
 				"This app isn't ready to upload — fix the issues below, then try again.",
@@ -136,13 +134,9 @@ export async function POST(req: NextRequest) {
 		// bytes feeds BOTH the expander (references + multimedia_map) and
 		// the byte upload, so the references emitted and the files sent
 		// come from the same source and cannot drift.
-		const manifest = await resolveMediaManifest(
-			docWithParent,
-			session.user.id,
-			{
-				withBytes: true,
-			},
-		);
+		const manifest = await resolveMediaManifest(docWithParent, ownerId, {
+			withBytes: true,
+		});
 
 		/* ── Expand domain doc to HQ JSON (media-ON) ─────────────────── */
 		const hqJson = expandDoc(docWithParent, { assets: manifest });

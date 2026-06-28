@@ -287,52 +287,74 @@ async function syncMediaReferences(
 /**
  * Check whether the ACTOR has an active generation in progress.
  *
- * Keyed on `reservation.userId` (the user a run's credits were debited
- * from — the ACTOR), NOT `owner`: under shared Projects a co-member can
- * run a build on an app someone else owns, and the per-user concurrency
- * cap must follow whoever is actually running it. Keying on `owner` would
- * both miss a co-member's concurrent runs on others' apps AND falsely
- * block an owner whose app a co-member is building.
+ * Unions two queries, deduped by app id, because the run's ACTOR is
+ * recorded in two different places across a build's life:
+ *  - `owner == actor` — a brand-new build, BEFORE `reserveCredits` stamps
+ *    a `reservation` marker. `createApp` writes the app (`owner = creator
+ *    = actor`, `status: generating`) before the route's concurrency check,
+ *    so this query is the createApp-as-lock that stops two simultaneous new
+ *    builds from both slipping past (a single `reservation.userId` query
+ *    misses them — the marker doesn't exist yet — and both would charge).
+ *  - `reservation.userId == actor` — a run the actor drives on an app
+ *    someone else OWNS (a shared Project co-member building another's app),
+ *    where `owner != actor`.
  *
- * Queries for any non-deleted app the actor is generating whose last
- * write is within the staleness window. Returns `true` if a live one
- * exists that isn't `excludeAppId` — so retries on the same build pass,
- * but concurrent new builds are blocked.
+ * An owner-matched app whose `reservation.userId` is a DIFFERENT user is a
+ * co-member's run on this user's app — that is the CO-MEMBER's concurrency,
+ * not this user's, so it's skipped (it must not falsely block the owner's
+ * own build). A marker-less owner match (the new-build window) is kept.
  *
- * Best-effort (the chat route treats it fail-open): a build in the brief
- * claim→`reserveCredits` window carries no marker yet, so a simultaneous
- * sibling can slip past — the reservation's atomic debit is the true
- * no-overshoot guard; this is the one-build-at-a-time UX nicety. Free
- * edit continuations never flip to `generating`, so they never count.
+ * Returns `true` if a live generation exists that isn't `excludeAppId` —
+ * retries on the same build pass; concurrent new builds are blocked.
  *
- * Single Firestore query with `limit(5)` — enough to find a live one
- * even if the first few results are stale or the excluded app.
+ * Best-effort (the chat route treats it fail-open). The reservation's
+ * atomic debit remains the true no-overshoot guard; free edit
+ * continuations never flip to `generating`, so they never count.
  */
 export async function hasActiveGeneration(
 	actorUserId: string,
 	excludeAppId?: string,
 ): Promise<boolean> {
-	const snap = await collections
-		.apps()
-		.where("reservation.userId", "==", actorUserId)
-		.where("deleted_at", "==", null)
-		.where("status", "==", "generating")
-		.limit(5)
-		.get();
+	const [byOwner, byActor] = await Promise.all([
+		collections
+			.apps()
+			.where("owner", "==", actorUserId)
+			.where("deleted_at", "==", null)
+			.where("status", "==", "generating")
+			.limit(5)
+			.get(),
+		collections
+			.apps()
+			.where("reservation.userId", "==", actorUserId)
+			.where("deleted_at", "==", null)
+			.where("status", "==", "generating")
+			.limit(5)
+			.get(),
+	]);
 
-	if (snap.empty) return false;
+	const byId = new Map<string, (typeof byOwner.docs)[number]>();
+	for (const doc of byOwner.docs) byId.set(doc.id, doc);
+	for (const doc of byActor.docs) byId.set(doc.id, doc);
+	if (byId.size === 0) return false;
 
 	const now = Date.now();
 	const maxAgeMs = MAX_GENERATION_MINUTES * 60_000;
 
-	for (const doc of snap.docs) {
+	for (const doc of byId.values()) {
 		if (doc.id === excludeAppId) continue;
+		const data = doc.data();
+		/* A co-member's run on THIS user's owned app (owner match but the run
+		 * actor is someone else) is the co-member's concurrency, not this
+		 * user's — don't let it block the owner's own build. A marker-less
+		 * owner match (the new-build window) has no run actor yet and is kept. */
+		const runActor = data.reservation?.userId;
+		if (runActor !== undefined && runActor !== actorUserId) continue;
 		/* A build paused on an `askQuestions` round is alive but process-less (it
 		 * resumes on a later POST). It must NOT be reaped (its hold is live) and must
 		 * NOT block a new build — an abandoned-at-questions build would otherwise lock
 		 * the user out of generating forever. Skip it on both counts. */
-		if (doc.data().awaiting_input) continue;
-		const updatedAt = (doc.data().updated_at as Timestamp)?.toDate();
+		if (data.awaiting_input) continue;
+		const updatedAt = (data.updated_at as Timestamp)?.toDate();
 		if (!updatedAt) {
 			/* No updated_at means a corrupt or very old doc — definitively dead. */
 			void reapStaleGenerating(doc.id);

@@ -5,9 +5,10 @@ import {
 	readJsonBody,
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
+import { resolveAppAccess } from "@/lib/db/appAccess";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 
@@ -48,30 +49,34 @@ export async function prepareCompileRequest(
 	{ boundaryErrorVerb }: { boundaryErrorVerb: "compile" | "export" },
 ): Promise<PreparedCompileRequest> {
 	const session = await requireSession(req);
-	// Cap the body before materializing it — a blueprint is one ~1 MiB-bounded
-	// Firestore doc, so 2 MB rejects only the pathological without ever
-	// touching a real export.
+	// The client sends only the app id — the blueprint loads server-side, so no
+	// whole doc crosses the wire. (The auto-save persists edits within ~1s, and
+	// an export is an on-demand action well after the last edit, so the loaded
+	// doc is the current one.)
 	const body = await readJsonBody(req, BLUEPRINT_REQUEST_MAX_BYTES);
-	const doc = (body as { doc?: unknown } | null)?.doc;
-
-	if (!doc) {
-		throw new ApiError("doc is required", 400);
+	const appId = (body as { appId?: unknown } | null)?.appId;
+	if (typeof appId !== "string") {
+		throw new ApiError("appId is required", 400);
 	}
 
-	const parsedDoc = blueprintDocSchema.safeParse(doc);
-	if (!parsedDoc.success) {
-		throw new ApiError(
-			"Invalid doc",
-			400,
-			parsedDoc.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
-		);
-	}
+	// Membership gate (view) + load the persisted blueprint in one read. An
+	// `AppAccessError` (absent / non-member) maps to 404 — the IDOR-safe
+	// not-found posture.
+	const app = (await resolveAppAccess(appId, session.user.id, "view")).app;
 
 	// `fieldParent` is derived, not persisted; rebuild it from
 	// `moduleOrder`/`formOrder`/`fieldOrder` before any expand/compile walk
 	// can traverse the doc.
-	const docWithParent: BlueprintDoc = { ...parsedDoc.data, fieldParent: {} };
+	const docWithParent: BlueprintDoc = {
+		...(app.blueprint as PersistableDoc as BlueprintDoc),
+		fieldParent: {},
+	};
 	rebuildFieldParent(docWithParent);
+
+	// Media resolves at the app OWNER's scope — the assets live with the owner,
+	// so a Project co-member exporting a shared app still gets them (an owner
+	// exporting their own app is the same id).
+	const ownerId = app.owner;
 
 	// The transaction-boundary gate — zero tolerance, before any expensive
 	// work. Every finding (soundness, completeness, media-state) rejects the
@@ -79,10 +84,7 @@ export async function prepareCompileRequest(
 	// never leave for a device or CommCare HQ, and a stale media reference
 	// would otherwise make the media-ON `expandDoc` throw `requireAssetRef`
 	// → opaque 500.
-	const violations = await collectBoundaryViolations(
-		docWithParent,
-		session.user.id,
-	);
+	const violations = await collectBoundaryViolations(docWithParent, ownerId);
 	if (violations.length > 0) {
 		// The concise builder copy on the detail lines — this is a
 		// user-facing failure. (The SA's compile path reads the verbose
@@ -94,9 +96,9 @@ export async function prepareCompileRequest(
 		);
 	}
 
-	// Resolve the manifest (rows + bytes) for this owner. A media-free doc
-	// resolves to an empty manifest at no byte cost.
-	const assets = await resolveMediaManifest(docWithParent, session.user.id, {
+	// Resolve the manifest (rows + bytes) at the owner's scope. A media-free
+	// doc resolves to an empty manifest at no byte cost.
+	const assets = await resolveMediaManifest(docWithParent, ownerId, {
 		withBytes: true,
 	});
 
