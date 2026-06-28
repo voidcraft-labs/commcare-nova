@@ -172,6 +172,7 @@ describe("claim window — kept charges survive a hard kill; live holds still re
 			period: PERIOD,
 			reserved: 100,
 			settled: false,
+			userId: "user-1",
 		});
 
 		/* The run fails — the failure funnel refunds off the marker. */
@@ -182,6 +183,9 @@ describe("claim window — kept charges survive a hard kill; live holds still re
 			period: PERIOD,
 			reserved: 100,
 			settled: true,
+			// `refundReservation` preserves the charged actor through the
+			// settle (it spreads the marker), so `userId` survives.
+			userId: "user-1",
 		});
 	});
 

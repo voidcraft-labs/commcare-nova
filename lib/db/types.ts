@@ -358,6 +358,16 @@ export const appDocSchema = z.object({
 			period: z.string(),
 			reserved: z.number(),
 			settled: z.boolean(),
+			/**
+			 * The user whose credits the reservation debited — the run's
+			 * ACTOR, NOT necessarily `owner` (a Project co-member can run a
+			 * build/edit against a shared app, and per-user billing charges the
+			 * one who ran it). `refundReservation` hands the hold back to THIS
+			 * user. Optional: markers written before per-actor billing carry
+			 * none and fall back to `owner` (the actor in the single-member
+			 * world those markers were written in).
+			 */
+			userId: z.string().optional(),
 		})
 		.optional(),
 	/** First save timestamp. Set once via FieldValue.serverTimestamp(). */
