@@ -121,16 +121,17 @@ export { NOVA_API_KEY_PREFIX, NOVA_API_KEY_SCOPES };
  * would be a security failure; and adding or removing a domain is a
  * deliberate decision that warrants a code review, not an ops tweak.
  *
- * The set is kept lowercase so the comparison in `databaseHooks` below
- * can lowercase the incoming email and use a single straight `Set.has`
- * check — Google emails are case-preserving but case-insensitive for
- * matching, so a user signing in as `User@Dimagi.com` must hit the
- * same allowlist entry as `user@dimagi.com`.
+ * SINGLE-SOURCED from `INVITE_ALLOWED_DOMAINS` (`lib/projects/invitePolicy`):
+ * sign-in and Project invitations gate on the SAME dimagi domains — an
+ * invitee who couldn't sign in would be a dead invite — so the two security
+ * allowlists can't drift. The values are lowercase so the comparison in
+ * `databaseHooks` below can lowercase the incoming email and use a single
+ * straight `Set.has` check (Google emails are case-preserving but
+ * case-insensitive for matching).
  */
-const ALLOWED_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
-	"dimagi.com",
-	"dimagi-ai.com",
-]);
+const ALLOWED_EMAIL_DOMAINS: ReadonlySet<string> = new Set(
+	INVITE_ALLOWED_DOMAINS,
+);
 
 /**
  * Creates the Better Auth instance. Async because it acquires the shared

@@ -57,10 +57,12 @@
  *      `setModuleMedia` / `setFormMedia`), excluded from every generic
  *      update patch.
  *   9. Module order reconciliation (`moveModule`).
- *  10. `setCaseTypes` LAST. The field reducers mutate `doc.caseTypes` as a
- *      catalog side effect (`ensureCatalogProperty`), so pinning the catalog
- *      to `next.caseTypes` must follow every structural mutation or the side
- *      effects would clobber it.
+ *  10. `setCaseTypes` LAST, and ONLY when the catalog actually changed. The
+ *      field reducers mutate `doc.caseTypes` as a catalog side effect
+ *      (`ensureCatalogProperty`), so a pin must follow them when it's emitted;
+ *      but it is emitted only on a real `caseTypes` difference, so a structural
+ *      edit that left the catalog alone never re-pins it (which would clobber a
+ *      co-member's concurrent catalog add on the guarded re-apply).
  *
  * `renameField` and `duplicateField` are never emitted: the former for its
  * cascade (id rides `updateField`), the latter because it mints a fresh
@@ -72,6 +74,8 @@
  * individual mutation may make the reducer throw.
  */
 
+import { produce } from "immer";
+import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
 	FIELD_MEDIA_SLOTS,
@@ -608,31 +612,12 @@ export function diffDocsToMutations(
 	evacuations.push(...formStructure.evacuations, ...fieldTree.evacuations);
 	fieldStructure.push(...formStructure.rest, ...fieldTree.rest);
 
-	// (6) Case-type catalog LAST — overwrites any catalog side effects the
-	// field reducers produced, pinning it to `next.caseTypes` exactly.
-	const tail: Mutation[] = [];
-	const structuralTouched =
-		evacuations.length > 0 ||
-		fieldStructure.length > 0 ||
-		orders.length > 0 ||
-		adds.length > 0 ||
-		renames.length > 0 ||
-		converts.length > 0 ||
-		updates.length > 0 ||
-		removes.length > 0;
-	if (!deepEqual(prev.caseTypes, next.caseTypes) || structuralTouched) {
-		tail.push({
-			kind: "setCaseTypes",
-			caseTypes: next.caseTypes === null ? null : cloneEntity(next.caseTypes),
-		});
-	}
-
 	// Phase order (see the function header):
 	//   app scalars → module/form adds → evacuations (survivors out of
 	//   removed parents) → removes → field/form structural (rest: adds,
 	//   moves, reorders) → module/form renames → converts → field updates
-	//   (incl. id) → media → module order reconcile → setCaseTypes.
-	return [
+	//   (incl. id) → media → module order reconcile.
+	const structural: Mutation[] = [
 		...appLevel,
 		...adds,
 		...evacuations,
@@ -643,8 +628,32 @@ export function diffDocsToMutations(
 		...updates,
 		...media,
 		...orders,
-		...tail,
 	];
+
+	// (6) Case-type catalog LAST — pinned ONLY when replaying the structural
+	// mutations does NOT already reproduce `next.caseTypes`. The field reducers
+	// mutate the catalog as a side effect (`ensureCatalogProperty`), and on the
+	// guarded re-apply they re-run against the FRESH doc, so a catalog change
+	// driven purely by field edits is re-derived ON the fresh catalog (merging
+	// a co-member's concurrent catalog add). A wholesale `setCaseTypes` would
+	// instead OVERWRITE the fresh catalog — so it's emitted only for a catalog
+	// change the side effects can't reproduce (a direct declaration/retirement,
+	// or an add-then-clear whose net the replay diverges from). Replaying on
+	// `prev` here is the same simulation the round-trip oracle checks, so the
+	// pin fires exactly when correctness needs it and never merely because a
+	// structural edit happened. (A genuinely concurrent edit to the SAME
+	// catalog stays last-writer-wins — the documented multiplayer-GA limit.)
+	const replayedCaseTypes = produce(prev, (draft) => {
+		applyMutations(draft, structural);
+	}).caseTypes;
+	if (!deepEqual(replayedCaseTypes, next.caseTypes)) {
+		structural.push({
+			kind: "setCaseTypes",
+			caseTypes: next.caseTypes === null ? null : cloneEntity(next.caseTypes),
+		});
+	}
+
+	return structural;
 }
 
 // ── Field-patch helpers ──────────────────────────────────────────────

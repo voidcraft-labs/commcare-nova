@@ -825,6 +825,66 @@ describe("diffDocsToMutations — explicit cases", () => {
 		assertRoundTrip(prev, next);
 	});
 
+	it("a non-catalog structural edit emits no setCaseTypes (no concurrent-catalog clobber)", () => {
+		// A doc WITH a catalog; reorder its fields (a purely structural edit
+		// that doesn't touch the catalog). The diff must NOT re-pin the whole
+		// catalog — a wholesale setCaseTypes would overwrite a co-member's
+		// concurrent catalog add on the guarded re-apply. (The old
+		// `structuralTouched` heuristic emitted setCaseTypes on any structural
+		// edit, which is the bug this guards.)
+		const prev = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "age", label: "Age" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "M",
+					caseType: "patient",
+					forms: [
+						{
+							name: "F",
+							type: "registration",
+							fields: [
+								{
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								},
+								{
+									kind: "int",
+									id: "age",
+									label: "Age",
+									case_property_on: "patient",
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+		expect(prev.caseTypes).not.toBeNull();
+		const formUuid = prev.moduleOrder
+			.flatMap((m) => prev.formOrder[m] ?? [])
+			.at(0);
+		const next = produce(prev, (draft) => {
+			if (formUuid)
+				draft.fieldOrder[formUuid] = [
+					...(draft.fieldOrder[formUuid] ?? []),
+				].reverse();
+		});
+		const diff = diffDocsToMutations(prev, next);
+		expect(diff.some((m) => m.kind === "moveField")).toBe(true);
+		expect(diff.some((m) => m.kind === "setCaseTypes")).toBe(false);
+		assertRoundTrip(prev, next);
+	});
+
 	it("field kind convert (text → secret) reconciles remaining slots", () => {
 		const prev = buildDoc({
 			modules: [

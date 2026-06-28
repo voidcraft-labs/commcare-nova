@@ -6,6 +6,9 @@
 // front keeps the members UI honest and the audit clean. Enforced
 // server-side by the org plugin's `beforeCreateInvitation` hook.
 
+// The single source for the dimagi-domain allowlist: `lib/auth.ts` derives
+// the sign-in `ALLOWED_EMAIL_DOMAINS` set from this, so the invite gate and
+// the sign-in gate can't drift. Lowercase (the matchers lowercase the input).
 export const INVITE_ALLOWED_DOMAINS = ["dimagi.com", "dimagi-ai.com"];
 
 /**
