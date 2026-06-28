@@ -22,7 +22,7 @@
  * No mutationCount needed.
  */
 "use client";
-import { useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
 import { reportClientError } from "@/lib/clientErrorReporter";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
@@ -133,6 +133,19 @@ export function useAutoSave(): SaveState {
 	 * Null only until that first seed. */
 	const lastSavedDocRef = useRef<PersistableDoc | null>(null);
 
+	/* Clear the 404 warning + dismiss its persistent toast. Called wherever the
+	 * "can't save" state ends — a successful save, a 409 reload, an app change,
+	 * unmount — so the pinned toast never outlives the condition it describes.
+	 * Leaves `reported404Ref` alone (Sentry stays once-per-app; the app-change
+	 * site resets it separately). */
+	const dismiss404Warning = useCallback(() => {
+		warned404Ref.current = false;
+		if (warn404ToastIdRef.current) {
+			toastStore.dismiss(warn404ToastIdRef.current);
+			warn404ToastIdRef.current = undefined;
+		}
+	}, []);
+
 	/* Reset state when the app changes — new app means a fresh save state
 	 * and no pending/in-flight state from the old app. Uses React's "derive
 	 * state from props" pattern. */
@@ -146,14 +159,10 @@ export function useAutoSave(): SaveState {
 			cooldownTimerRef.current = undefined;
 		}
 		pendingTrailingRef.current = false;
-		/* A different app starts un-warned — the 404 state was about the previous
-		 * app; dismiss its lingering toast too so it can't haunt the new app. */
-		warned404Ref.current = false;
+		/* A different app starts fresh — drop the previous app's 404 warning
+		 * (and its Sentry once-flag) so neither haunts the new app. */
+		dismiss404Warning();
 		reported404Ref.current = false;
-		if (warn404ToastIdRef.current) {
-			toastStore.dismiss(warn404ToastIdRef.current);
-			warn404ToastIdRef.current = undefined;
-		}
 		/* Drop the old app's diff base — the subscription re-seeds it from
 		 * the freshly loaded doc before the first edit can save. */
 		lastSavedDocRef.current = null;
@@ -236,7 +245,11 @@ export function useAutoSave(): SaveState {
 			if (mutations.length === 0) return;
 
 			inFlightRef.current = true;
-			if (!unmountedRef.current) {
+			/* During a known 404 episode (every edit retries, hoping for
+			 * recovery) skip the "saving" flash — it would bounce status
+			 * error→saving→error on each edit and re-announce the alert. The
+			 * retry still fires; a SUCCESS clears the warning and sets "saved". */
+			if (!unmountedRef.current && !warned404Ref.current) {
 				setState((prev) => ({ ...prev, status: "saving" }));
 			}
 
@@ -272,18 +285,11 @@ export function useAutoSave(): SaveState {
 						/* body unreadable — the version marker is advisory; the
 						 * next save still diffs against the advanced base. */
 					}
-					/* A save landed — recovery. Clear the 404 warning AND dismiss its
-					 * persistent toast (it would otherwise stay pinned, contradicting
-					 * the restored "Saved" state), so a later loss of access warns
-					 * afresh. Keep `reported404Ref` set: one Sentry signal per app is
-					 * enough; clearing it would re-report on a flapping connection. */
-					if (warned404Ref.current) {
-						warned404Ref.current = false;
-						if (warn404ToastIdRef.current) {
-							toastStore.dismiss(warn404ToastIdRef.current);
-							warn404ToastIdRef.current = undefined;
-						}
-					}
+					/* A save landed — recovery. Dismiss the 404 warning + its pinned
+					 * toast (it would otherwise contradict the restored "Saved"),
+					 * so a later loss of access warns afresh. `reported404Ref` stays
+					 * set — one Sentry signal per app, no flap spam. */
+					dismiss404Warning();
 					setState({ status: "saved", savedAt: Date.now() });
 				} else if (res.status === 409) {
 					/* The delta is invalid against the FRESH server doc — a
@@ -400,6 +406,10 @@ export function useAutoSave(): SaveState {
 				docStore.temporal.getState().resume();
 				lastSavedDocRef.current = data.blueprint;
 				session.getState().setSaveBasis(data.basis_token ?? null);
+				/* Reaching a 409 means the server accepted the write attempt — edit
+				 * access exists, so any prior 404 "can't save" warning is stale.
+				 * Dismiss it before the reload toast, or the two contradict. */
+				dismiss404Warning();
 				setState(IDLE_STATE);
 				showToast(
 					"warning",
@@ -525,12 +535,9 @@ export function useAutoSave(): SaveState {
 			pendingTrailingRef.current = false;
 			/* Leaving the builder must not strand the persistent 404 toast on
 			 * whatever screen the user lands on next. */
-			if (warn404ToastIdRef.current) {
-				toastStore.dismiss(warn404ToastIdRef.current);
-				warn404ToastIdRef.current = undefined;
-			}
+			dismiss404Warning();
 		};
-	}, [sessionApi, docStore]);
+	}, [sessionApi, docStore, dismiss404Warning]);
 
 	return state;
 }
