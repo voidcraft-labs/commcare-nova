@@ -113,10 +113,12 @@ export function useAutoSave(): SaveState {
 	);
 	const pendingTrailingRef = useRef(false);
 	const unmountedRef = useRef(false);
-	/* Latches when a PUT 404s — the app can no longer be saved from here (edit
-	 * access revoked mid-session, or the app was deleted). Stops every later
-	 * save from re-firing the doomed PUT and re-stacking the warning toast. */
-	const saveDisabledRef = useRef(false);
+	/* True once a PUT has 404'd (edit access revoked mid-session, or the app
+	 * deleted) and we've warned the user — so the persistent toast shows ONCE,
+	 * not on every subsequent edit. It does NOT disable saving: later edits
+	 * still retry the PUT, so a transient 404 or a re-promotion auto-recovers
+	 * (the next successful save clears this). Reset on app change. */
+	const warned404Ref = useRef(false);
 
 	/* The diff base: the blueprint as the server last persisted it (a
 	 * `toPersistableDoc` snapshot — no live references). Each save sends the
@@ -140,9 +142,9 @@ export function useAutoSave(): SaveState {
 			cooldownTimerRef.current = undefined;
 		}
 		pendingTrailingRef.current = false;
-		/* A different app starts with a clean save-disabled latch — the 404 that
-		 * set it was about the previous app. */
-		saveDisabledRef.current = false;
+		/* A different app starts un-warned — the 404 that set it was about the
+		 * previous app. */
+		warned404Ref.current = false;
 		/* Drop the old app's diff base — the subscription re-seeds it from
 		 * the freshly loaded doc before the first edit can save. */
 		lastSavedDocRef.current = null;
@@ -187,10 +189,6 @@ export function useAutoSave(): SaveState {
 			 * change degrades to local-only rather than a failed request; the
 			 * read-only UI keeps those changes from happening in the first place. */
 			if (!session.getState().canEdit) return;
-			/* A prior PUT 404'd (edit access revoked mid-session, or the app was
-			 * deleted) — further PUTs are doomed and would re-stack the warning.
-			 * Stay latched off until the app changes (which resets the latch). */
-			if (saveDisabledRef.current) return;
 			const appIdAtStart = session.getState().appId;
 			const doc = docStore.getState();
 			if (!appIdAtStart || doc.moduleOrder.length === 0) return;
@@ -265,6 +263,10 @@ export function useAutoSave(): SaveState {
 						/* body unreadable — the version marker is advisory; the
 						 * next save still diffs against the advanced base. */
 					}
+					/* A save landed — clear any prior 404 warning so a later loss of
+					 * access warns afresh (and edits made after a transient 404 /
+					 * re-promotion are confirmed saved). */
+					warned404Ref.current = false;
 					setState({ status: "saved", savedAt: Date.now() });
 				} else if (res.status === 409) {
 					/* The delta is invalid against the FRESH server doc — a
@@ -278,26 +280,29 @@ export function useAutoSave(): SaveState {
 					 * both "edit access revoked mid-session" (a shared-Project
 					 * demotion — `canEdit` was captured at mount, so the read-only
 					 * gates never engaged and the user kept editing) AND "the app was
-					 * deleted by another admin" to a 404. Either way every later save
-					 * is doomed, so latch off (no re-fired PUTs, no re-stacked
-					 * toasts), warn once, and keep the Sentry signal so a routing
-					 * regression that 404s isn't masked as a benign role change.
-					 * All guarded by `stillCurrent()` — a 404 for an app the user
-					 * already navigated away from must not latch the new app's saves
-					 * (the app-change reset already cleared the latch). */
+					 * deleted by another admin" to a 404. WARN ONCE (the persistent
+					 * toast would otherwise re-stack on every later edit) but DON'T
+					 * disable saving — later edits keep retrying the PUT, so a
+					 * re-promotion or a transient/spurious 404 auto-recovers on the
+					 * next successful save (which clears `warned404Ref`). Keep the
+					 * Sentry signal so a routing regression isn't masked as a benign
+					 * role change. Guarded by `stillCurrent()` — a 404 for an app the
+					 * user already navigated away from must not warn on the new app. */
 					if (stillCurrent()) {
-						saveDisabledRef.current = true;
-						reportClientError({
-							message: "Auto-save failed — HTTP 404 (app not writable)",
-							source: "manual",
-							url: window.location.href,
-						});
-						showToast(
-							"warning",
-							"Your changes aren't being saved",
-							"This app can no longer be saved from here — your edit access may have been removed, or the app was deleted. Reload to see the current version; recent edits here won't be saved.",
-							{ persistent: true },
-						);
+						if (!warned404Ref.current) {
+							warned404Ref.current = true;
+							reportClientError({
+								message: "Auto-save failed — HTTP 404 (app not writable)",
+								source: "manual",
+								url: window.location.href,
+							});
+							showToast(
+								"warning",
+								"Your changes aren't being saved",
+								"This app can't be saved from here right now — your edit access may have been removed, or the app was deleted. If this persists, reload to see the current version.",
+								{ persistent: true },
+							);
+						}
 						setState((prev) => ({ ...prev, status: "error" }));
 					}
 				} else {

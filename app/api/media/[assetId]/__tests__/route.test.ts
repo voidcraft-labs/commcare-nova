@@ -142,6 +142,22 @@ describe("GET media asset", () => {
 		expect(streamAssetMock).not.toHaveBeenCalled();
 		await drainBody(res);
 	});
+
+	it("404s a foreign-owned asset so ids stay non-enumerable (no bytes served)", async () => {
+		// The owner gate (`loadAssetForOwner`) rejects a foreign row with
+		// `MediaAssetOwnershipError`; the route collapses it to the same 404 as a
+		// missing row, never touching storage — the byte-serving twin of the
+		// DELETE enumeration-hardening test below.
+		loadAssetForOwnerMock.mockRejectedValue(
+			new MediaAssetOwnershipError(asAssetId("asset-1"), "user-2", "user-1"),
+		);
+
+		const res = await GET(getReq(), ctx());
+		expect(res.status).toBe(404);
+		expect(getStoredObjectSizeMock).not.toHaveBeenCalled();
+		expect(streamAssetMock).not.toHaveBeenCalled();
+		await drainBody(res);
+	});
 });
 
 describe("DELETE media asset", () => {

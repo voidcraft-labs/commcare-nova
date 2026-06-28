@@ -57,6 +57,12 @@ export function ListPanelInspectorBody({
 	caseListOnly,
 	sampleData,
 }: ListPanelInspectorBodyProps) {
+	/* Sample data (Generate + Reset) writes case rows via edit-gated server
+	 * actions, so a view-only member gets no Sample-data section AT ALL — gate
+	 * the whole `InspectorSection` here, not just its controls, or the section's
+	 * header + divider would paint empty above a null body. */
+	const canEdit = useCanEdit();
+
 	const setColumns = (next: readonly Column[]) => {
 		onChange({ ...config, columns: [...next] });
 	};
@@ -77,9 +83,11 @@ export function ListPanelInspectorBody({
 				<SortPriorityStack value={config.columns} onChange={setColumns} />
 			</InspectorSection>
 
-			<InspectorSection label="Sample data">
-				<SampleDataControls sampleData={sampleData} />
-			</InspectorSection>
+			{canEdit && (
+				<InspectorSection label="Sample data">
+					<SampleDataControls sampleData={sampleData} />
+				</InspectorSection>
+			)}
 
 			{caseListOnly && (
 				<InspectorSection label="Menu link appearance">
@@ -128,11 +136,6 @@ function SampleDataControls({
 }) {
 	const { generate, reset } = sampleData;
 	const [confirmingReset, setConfirmingReset] = useState(false);
-	/* Generate + Reset both WRITE case rows (edit-gated server actions), so a
-	 * view-only member gets no sample-data controls at all — not just the
-	 * Generate button (`GenerateSampleDataButton`) but the Reset sibling too. */
-	const canEdit = useCanEdit();
-	if (!canEdit) return null;
 
 	const buttonCls =
 		"inline-flex items-center justify-center gap-1.5 px-3 min-h-11 text-xs rounded-lg border transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed";
