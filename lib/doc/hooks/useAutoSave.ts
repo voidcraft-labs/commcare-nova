@@ -34,7 +34,7 @@ import type { PersistableDoc } from "@/lib/domain";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import { derivePhase } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
-import { showToast } from "@/lib/ui/toastStore";
+import { showToast, toastStore } from "@/lib/ui/toastStore";
 
 /** Post-save cooldown before the trailing edge can fire (ms). */
 const COOLDOWN_MS = 1000;
@@ -113,12 +113,16 @@ export function useAutoSave(): SaveState {
 	);
 	const pendingTrailingRef = useRef(false);
 	const unmountedRef = useRef(false);
-	/* True once a PUT has 404'd (edit access revoked mid-session, or the app
-	 * deleted) and we've warned the user — so the persistent toast shows ONCE,
-	 * not on every subsequent edit. It does NOT disable saving: later edits
-	 * still retry the PUT, so a transient 404 or a re-promotion auto-recovers
-	 * (the next successful save clears this). Reset on app change. */
+	/* 404 warning state. `warned404Ref` gates the persistent toast to ONCE per
+	 * failure episode (not every edit); it does NOT disable saving — later edits
+	 * retry, so a transient 404 / re-promotion auto-recovers. On recovery the
+	 * captured `warn404ToastIdRef` toast is DISMISSED (persistent toasts never
+	 * auto-expire, so leaving it would contradict the restored "Saved" state).
+	 * `reported404Ref` keeps the Sentry signal to once per app (no flap spam).
+	 * All three reset on app change. */
 	const warned404Ref = useRef(false);
+	const warn404ToastIdRef = useRef<string | undefined>(undefined);
+	const reported404Ref = useRef(false);
 
 	/* The diff base: the blueprint as the server last persisted it (a
 	 * `toPersistableDoc` snapshot — no live references). Each save sends the
@@ -142,9 +146,14 @@ export function useAutoSave(): SaveState {
 			cooldownTimerRef.current = undefined;
 		}
 		pendingTrailingRef.current = false;
-		/* A different app starts un-warned — the 404 that set it was about the
-		 * previous app. */
+		/* A different app starts un-warned — the 404 state was about the previous
+		 * app; dismiss its lingering toast too so it can't haunt the new app. */
 		warned404Ref.current = false;
+		reported404Ref.current = false;
+		if (warn404ToastIdRef.current) {
+			toastStore.dismiss(warn404ToastIdRef.current);
+			warn404ToastIdRef.current = undefined;
+		}
 		/* Drop the old app's diff base — the subscription re-seeds it from
 		 * the freshly loaded doc before the first edit can save. */
 		lastSavedDocRef.current = null;
@@ -263,10 +272,18 @@ export function useAutoSave(): SaveState {
 						/* body unreadable — the version marker is advisory; the
 						 * next save still diffs against the advanced base. */
 					}
-					/* A save landed — clear any prior 404 warning so a later loss of
-					 * access warns afresh (and edits made after a transient 404 /
-					 * re-promotion are confirmed saved). */
-					warned404Ref.current = false;
+					/* A save landed — recovery. Clear the 404 warning AND dismiss its
+					 * persistent toast (it would otherwise stay pinned, contradicting
+					 * the restored "Saved" state), so a later loss of access warns
+					 * afresh. Keep `reported404Ref` set: one Sentry signal per app is
+					 * enough; clearing it would re-report on a flapping connection. */
+					if (warned404Ref.current) {
+						warned404Ref.current = false;
+						if (warn404ToastIdRef.current) {
+							toastStore.dismiss(warn404ToastIdRef.current);
+							warn404ToastIdRef.current = undefined;
+						}
+					}
 					setState({ status: "saved", savedAt: Date.now() });
 				} else if (res.status === 409) {
 					/* The delta is invalid against the FRESH server doc — a
@@ -291,19 +308,29 @@ export function useAutoSave(): SaveState {
 					if (stillCurrent()) {
 						if (!warned404Ref.current) {
 							warned404Ref.current = true;
-							reportClientError({
-								message: "Auto-save failed — HTTP 404 (app not writable)",
-								source: "manual",
-								url: window.location.href,
-							});
-							showToast(
+							warn404ToastIdRef.current = showToast(
 								"warning",
 								"Your changes aren't being saved",
 								"This app can't be saved from here right now — your edit access may have been removed, or the app was deleted. If this persists, reload to see the current version.",
 								{ persistent: true },
 							);
 						}
-						setState((prev) => ({ ...prev, status: "error" }));
+						/* Sentry once per app — a flapping 404↔200 connection mustn't
+						 * re-report every episode. */
+						if (!reported404Ref.current) {
+							reported404Ref.current = true;
+							reportClientError({
+								message: "Auto-save failed — HTTP 404 (app not writable)",
+								source: "manual",
+								url: window.location.href,
+							});
+						}
+						/* Don't churn the alert region on every retry — only transition
+						 * INTO error (a no-op `set` returning `prev` skips the re-render
+						 * and the screen-reader re-announce). */
+						setState((prev) =>
+							prev.status === "error" ? prev : { ...prev, status: "error" },
+						);
 					}
 				} else {
 					let detail = `HTTP ${res.status}`;
@@ -496,6 +523,12 @@ export function useAutoSave(): SaveState {
 				cooldownTimerRef.current = undefined;
 			}
 			pendingTrailingRef.current = false;
+			/* Leaving the builder must not strand the persistent 404 toast on
+			 * whatever screen the user lands on next. */
+			if (warn404ToastIdRef.current) {
+				toastStore.dismiss(warn404ToastIdRef.current);
+				warn404ToastIdRef.current = undefined;
+			}
 		};
 	}, [sessionApi, docStore]);
 
