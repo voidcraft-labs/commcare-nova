@@ -21,7 +21,11 @@ import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
-import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
+import {
+	AppAccessError,
+	resolveAppAccess,
+	resolveProjectAccess,
+} from "@/lib/db/appAccess";
 import {
 	BuildRunConflictError,
 	type ClaimedBuildRun,
@@ -245,11 +249,37 @@ export async function POST(req: Request) {
 	 * pre-stream bail-out gate has passed — see the branch that sets it. */
 	let clearPauseFlagAfterGates = false;
 	if (!appId) {
+		/* New builds land in the caller's active Project (shared resolver: the
+		 * session's stamped activeOrganizationId, self-healing to the personal
+		 * Project for pre-Projects sessions). Creating an app is a WRITE, so the
+		 * caller must hold the active Project at EDIT — a viewer in a shared
+		 * Project must not create apps there (resolveActiveProjectId only proves
+		 * membership). An AppAccessError is a permission denial (403), not a save
+		 * failure. */
+		let projectId: string;
 		try {
-			/* New builds land in the caller's active Project (shared resolver: the
-			 * session's stamped activeOrganizationId, self-healing to the personal
-			 * Project for pre-Projects sessions). */
-			const projectId = await resolveActiveProjectId(keyResult.session);
+			projectId = await resolveActiveProjectId(keyResult.session);
+			await resolveProjectAccess(userId, projectId, "edit");
+		} catch (err) {
+			if (err instanceof AppAccessError) {
+				return Response.json(
+					{
+						error: "You don't have permission to create apps in this Project.",
+						type: "forbidden",
+					},
+					{ status: 403 },
+				);
+			}
+			log.error("[chat] active-Project resolution failed", err);
+			return Response.json(
+				{
+					error: "Unable to save app. Please try again shortly.",
+					type: "internal",
+				},
+				{ status: 503 },
+			);
+		}
+		try {
 			appId = await createApp(userId, projectId, effectiveRunId);
 			appCreated = true;
 		} catch (err) {

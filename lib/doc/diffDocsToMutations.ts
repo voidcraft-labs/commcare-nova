@@ -7,6 +7,21 @@
  * globally minimal — and every emitted mutation is one the reducer applies
  * without throwing.
  *
+ * MERGE SEMANTICS under concurrent edits (replay on a doc a co-member has
+ * advanced): entity edits are IDENTITY-keyed (module/form/field by uuid), so
+ * a co-member's edit to a DIFFERENT entity survives the replay untouched —
+ * the non-destructive merge. Two slices are NOT identity-keyed and stay
+ * last-writer-wins under genuinely concurrent edits to the SAME slice:
+ * `setCaseTypes` carries the WHOLE catalog (so a co-member's concurrent
+ * case-type/property add is overwritten), and `moveModule`/`moveForm`/
+ * `moveField` carry a positional `toIndex` (so a concurrent reorder can land
+ * a move at a stale position). Both are rare (concurrent edits to one app's
+ * catalog/order) and bounded to those slices; granular catalog mutations +
+ * identity-anchored moves are the multiplayer-GA upgrade. A concurrent
+ * DELETE of an entity this diff targets is caught separately — the guarded
+ * commit's `batchTargetsMissing` rejects it as a 409 rather than letting it
+ * silently no-op.
+ *
  * The emission order is dictated by the reducer's semantics, not by the
  * mutation union's declaration order:
  *

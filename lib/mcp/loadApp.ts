@@ -2,10 +2,10 @@
  * Shared MCP helper — ownership-gate and load one app's blueprint in a
  * single Firestore read.
  *
- * Combines the ownership check + the blueprint load that every MCP
+ * Combines the membership check + the blueprint load that every MCP
  * tool surface needs. Folding both into one read avoids a redundant
- * full-doc fetch (a separate `loadAppOwner` would re-read the same
- * row). The cost matters because every shared-tool dispatch + every
+ * full-doc fetch (a separate id-only ownership probe would re-read the
+ * same row). The cost matters because every shared-tool dispatch + every
  * blueprint-touching MCP tool runs through this path.
  *
  * Firestore persists the `PersistableDoc` shape (see `toPersistableDoc`)

@@ -7,7 +7,7 @@
  *     + `recoverable_until`.
  *   - Ownership failure: the wire collapses `"not_owner"` to
  *     `"not_found"` (IDOR hardening). `softDeleteApp` must not run.
- *   - App not found: `loadAppOwner` returns null — a probe for an
+ *   - App not found: the app load returns null — a probe for an
  *     arbitrary id must not leave soft-delete state behind.
  *   - `softDeleteApp` throws: the Firestore write rejection surfaces
  *     as an `isError: true` MCP envelope classified through the shared

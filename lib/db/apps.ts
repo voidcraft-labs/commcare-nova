@@ -1119,25 +1119,10 @@ export async function loadApp(appId: string): Promise<AppDoc | null> {
 }
 
 /**
- * Load just the owner userId for an app document.
- *
- * Reads only the `owner` field via an untyped document reference — avoids
- * pulling the full blueprint or running Zod validation. Used by API routes
- * that need to verify ownership before writing.
- */
-export async function loadAppOwner(appId: string): Promise<string | null> {
-	/* Direct untyped read — `select()` is only available on queries, not
-	 * document references, so we read the raw doc and extract the one field. */
-	const snap = await getDb().collection("apps").doc(appId).get();
-	if (!snap.exists) return null;
-	return (snap.data()?.owner as string) ?? null;
-}
-
-/**
  * Load just the owning Project id for an app document.
  *
- * The lightweight twin of `loadAppOwner` for the authorization resolver: reads
- * only `project_id` via an untyped document reference, avoiding the full
+ * The lightweight projected read the authorization resolver uses: reads only
+ * `project_id` via a `documentId()` + `.select()` query, avoiding the full
  * blueprint load + Zod validation. Returns null when the row is absent or the
  * field is unset (a pre-backfill row).
  */

@@ -71,12 +71,14 @@ export async function POST(req: NextRequest) {
 			throw new ApiError("App data is required", 400);
 		}
 
-		/* Membership gate (view) + load the blueprint server-side — no whole
-		 * doc crosses the wire. An `AppAccessError` maps to 404. `fieldParent`
-		 * is derived on load; rebuild it so the expander sees a full reverse
-		 * index. Media resolves at the app OWNER's scope (where the assets
-		 * live) so a Project co-member can upload a shared app. */
-		const app = (await resolveAppAccess(body.appId, session.user.id, "view"))
+		/* Membership gate (edit) + load the blueprint server-side — no whole
+		 * doc crosses the wire. Uploading to CommCare HQ PUBLISHES the app, so
+		 * it requires edit, not just view (matching the MCP upload tool); a
+		 * viewer can't push a shared app to HQ. An `AppAccessError` maps to 404.
+		 * `fieldParent` is derived on load; rebuild it so the expander sees a
+		 * full reverse index. Media resolves at the app OWNER's scope (where the
+		 * assets live) so a Project co-member can upload a shared app. */
+		const app = (await resolveAppAccess(body.appId, session.user.id, "edit"))
 			.app;
 		const docWithParent: BlueprintDoc = {
 			...(app.blueprint as PersistableDoc as BlueprintDoc),
