@@ -255,6 +255,38 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 		expect(updateAppMock).not.toHaveBeenCalled();
 	});
 
+	it("rejects (as a conflict) a mutation whose target a concurrent writer removed", async () => {
+		const fresh = minDoc();
+		armTransactionalWith(fresh);
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(fresh) });
+		// A field uuid absent from the fresh doc — a peer deleted the field this
+		// edit targets. The reducer is total, so WITHOUT the targets-present
+		// guard this would silently no-op and the verdict would PASS (invisible
+		// data loss); the guard turns it into a surfaced conflict instead.
+		const mutations: Mutation[] = [
+			{
+				kind: "updateField",
+				uuid: "deleted-by-a-peer",
+				targetKind: "text",
+				patch: { label: "New label" },
+			} as Mutation,
+		];
+
+		const err = await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			prospective: toPersistableDoc(fresh),
+			runId: "run-1",
+			guard: { mutations },
+		}).catch((e) => e);
+
+		expect(err).toBeInstanceOf(BlueprintCommitRejectedError);
+		// The conflict message, not a generic verdict finding.
+		expect((err as Error).message).toContain("removed by someone else");
+		expect(updateAppForRunMock).not.toHaveBeenCalled();
+		expect(updateAppMock).not.toHaveBeenCalled();
+	});
+
 	it("compensates the Postgres phase when the guarded commit rejects after schema work", async () => {
 		const prior = minDoc();
 		armTransactionalWith(prior);
