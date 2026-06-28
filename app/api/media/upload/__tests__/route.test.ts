@@ -8,10 +8,10 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import {
 	createPendingAsset,
-	findReadyAssetByOwnerAndHash,
+	findReadyAssetByProjectAndHash,
 	type MediaAssetRecord,
 } from "@/lib/db/mediaAssets";
 import { asAssetId } from "@/lib/domain";
@@ -22,20 +22,33 @@ const HASH = "a".repeat(64);
 
 const {
 	requireSessionMock,
+	resolveActiveProjectIdMock,
+	resolveAppScopeMock,
+	resolveProjectAccessMock,
 	createPendingAssetMock,
-	findReadyAssetByOwnerAndHashMock,
+	findReadyAssetByProjectAndHashMock,
 	createSignedUploadUrlMock,
 } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
+	resolveActiveProjectIdMock: vi.fn(),
+	resolveAppScopeMock: vi.fn(),
+	resolveProjectAccessMock: vi.fn(),
 	createPendingAssetMock: vi.fn(),
-	findReadyAssetByOwnerAndHashMock: vi.fn(),
+	findReadyAssetByProjectAndHashMock: vi.fn(),
 	createSignedUploadUrlMock: vi.fn(),
 }));
 
-vi.mock("@/lib/auth-utils", () => ({ requireSession: requireSessionMock }));
+vi.mock("@/lib/auth-utils", () => ({
+	requireSession: requireSessionMock,
+	resolveActiveProjectId: resolveActiveProjectIdMock,
+}));
+vi.mock("@/lib/db/appAccess", () => ({
+	resolveAppScope: resolveAppScopeMock,
+	resolveProjectAccess: resolveProjectAccessMock,
+}));
 vi.mock("@/lib/db/mediaAssets", () => ({
 	createPendingAsset: createPendingAssetMock,
-	findReadyAssetByOwnerAndHash: findReadyAssetByOwnerAndHashMock,
+	findReadyAssetByProjectAndHash: findReadyAssetByProjectAndHashMock,
 	toWireMediaAsset: vi.fn((asset: MediaAssetRecord) => asset),
 }));
 vi.mock("@/lib/storage/media", () => ({
@@ -58,10 +71,13 @@ beforeEach(() => {
 	vi.mocked(requireSession).mockResolvedValue({
 		user: { id: "user-1" },
 	} as never);
-	vi.mocked(findReadyAssetByOwnerAndHash).mockResolvedValue(null);
+	vi.mocked(resolveActiveProjectId).mockResolvedValue("project-1");
+	// The personal-upload branch gates the active Project at `edit`; resolve it.
+	resolveProjectAccessMock.mockResolvedValue(undefined);
+	vi.mocked(findReadyAssetByProjectAndHash).mockResolvedValue(null);
 	vi.mocked(createPendingAsset).mockResolvedValue({
 		assetId: asAssetId("asset-1"),
-		gcsObjectKey: "pending/user-1/asset-1.png",
+		gcsObjectKey: "pending/project-1/asset-1.png",
 	});
 	vi.mocked(createSignedUploadUrl).mockResolvedValue({
 		url: "https://storage.example/signed",
@@ -99,15 +115,39 @@ describe("POST /api/media/upload", () => {
 		const pendingArgs = vi.mocked(createPendingAsset).mock.calls[0]?.[0];
 		expect(pendingArgs).toMatchObject({
 			owner: "user-1",
+			project_id: "project-1",
 			contentHash: HASH,
 			extension: ".png",
 		});
 		expect(pendingArgs).not.toHaveProperty("gcsObjectKey");
 		expect(createSignedUploadUrl).toHaveBeenCalledWith({
-			gcsObjectKey: "pending/user-1/asset-1.png",
+			gcsObjectKey: "pending/project-1/asset-1.png",
 			contentType: "image/png",
 			// The per-kind byte cap is bound onto the signed PUT.
 			maxBytes: expect.any(Number),
 		});
+	});
+
+	it("refuses a personal upload when the caller can't EDIT the active Project (a viewer)", async () => {
+		// Uploading is a write — a read-only member of a shared active Project must
+		// not seed pending rows/objects there. resolveProjectAccess throws
+		// AppAccessError, which handleApiError collapses to a 404, and nothing is
+		// written.
+		const denied = new Error("not an editor");
+		denied.name = "AppAccessError";
+		resolveProjectAccessMock.mockRejectedValue(denied);
+
+		const res = await POST(
+			reqWith({
+				filename: "logo.png",
+				mimeType: "image/png",
+				sizeBytes: 100,
+				contentHash: HASH,
+			}),
+		);
+
+		expect(res.status).toBe(404);
+		expect(createPendingAsset).not.toHaveBeenCalled();
+		expect(createSignedUploadUrl).not.toHaveBeenCalled();
 	});
 });

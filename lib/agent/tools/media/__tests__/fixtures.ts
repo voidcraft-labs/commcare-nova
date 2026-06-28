@@ -41,7 +41,7 @@ import {
 /** The row fields the attach verdict reads, plus the id. */
 export interface TestAssetRow {
 	id: string;
-	owner: string;
+	project_id: string;
 	status: MediaAssetStatus;
 	kind: AssetKind;
 	sizeBytes: number;
@@ -49,7 +49,7 @@ export interface TestAssetRow {
 
 const testAssetRows = new Map<string, TestAssetRow>();
 
-/** The ready, owner-matched rows every happy-path attach test relies on. */
+/** The ready, in-Project rows every happy-path attach test relies on. */
 const CANONICAL_ASSETS: ReadonlyArray<[string, AssetKind]> = [
 	["asset-img-1", "image"],
 	["asset-aud-1", "audio"],
@@ -58,8 +58,8 @@ const CANONICAL_ASSETS: ReadonlyArray<[string, AssetKind]> = [
 	["asset-logo", "image"],
 ];
 
-/** Seed (or overwrite) one asset row. Defaults: owner "user-1" (the test
- *  contexts' user), ready, 1 KiB. */
+/** Seed (or overwrite) one asset row. Defaults: project "project-1" (the test
+ *  app's Project), ready, 1 KiB. */
 export function seedTestAsset(
 	id: string,
 	kind: AssetKind,
@@ -68,7 +68,7 @@ export function seedTestAsset(
 	testAssetRows.set(id, {
 		id,
 		kind,
-		owner: overrides.owner ?? "user-1",
+		project_id: overrides.project_id ?? "project-1",
 		status: overrides.status ?? "ready",
 		sizeBytes: overrides.sizeBytes ?? 1024,
 	});
@@ -81,16 +81,16 @@ export function resetTestAssets(): void {
 }
 resetTestAssets();
 
-/** Mock implementation of `loadAssetsByIds` — owner-filtered like the
- *  real one (a foreign row reads as missing). */
+/** Mock implementation of `loadAssetsByIds` — Project-filtered like the
+ *  real one (a foreign-Project row reads as missing). */
 export async function loadAssetsByIdsMock(
-	owner: string,
 	ids: readonly string[],
+	projectId: string,
 ): Promise<TestAssetRow[]> {
 	return [...new Set(ids)]
 		.map((id) => testAssetRows.get(id))
 		.filter((row): row is TestAssetRow => row !== undefined)
-		.filter((row) => row.owner === owner);
+		.filter((row) => row.project_id === projectId);
 }
 
 /* Stable uuids the per-tool tests reference against the post-mutation

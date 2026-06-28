@@ -237,6 +237,11 @@ export async function POST(req: Request) {
 	let loadedApp:
 		| Awaited<ReturnType<typeof resolveAppAccess>>["app"]
 		| undefined;
+	/* The app's Project — the media tenant. Set in BOTH branches below (the
+	 * active Project for a new build, the app's Project for an existing one) and
+	 * used to scope chat-attachment resolution (`resolveAttachments`) to the
+	 * Project the documents live in. */
+	let projectId: string | undefined;
 	/* Set when this POST claimed an existing app's build-run window
 	 * (`claimBuildRun` flipped it to `generating`). Carries the shape the
 	 * claim moved the app out of, so the pre-stream rejection arms below
@@ -256,7 +261,6 @@ export async function POST(req: Request) {
 		 * Project must not create apps there (resolveActiveProjectId only proves
 		 * membership). An AppAccessError is a permission denial (403), not a save
 		 * failure. */
-		let projectId: string;
 		try {
 			projectId = await resolveActiveProjectId(keyResult.session);
 			await resolveProjectAccess(userId, projectId, "edit");
@@ -299,7 +303,9 @@ export async function POST(req: Request) {
 		 * authorization read yields the persisted app doc, so the SA's working
 		 * doc seeds from `loadedApp.blueprint` below without a second fetch. */
 		try {
-			loadedApp = (await resolveAppAccess(appId, userId, "edit")).app;
+			const access = await resolveAppAccess(appId, userId, "edit");
+			loadedApp = access.app;
+			projectId = access.projectId;
 		} catch (err) {
 			if (err instanceof AppAccessError) {
 				return Response.json(
@@ -826,7 +832,11 @@ export async function POST(req: Request) {
 				}
 				const preparedMessages = await resolveAttachments(
 					messagesToSend,
-					userId,
+					// The app's Project scopes attachment resolution — a chat document
+					// lives in the Project it was uploaded under (the composer stamps
+					// it). Set in both the new-build + existing-app branches above;
+					// `loadedApp.project_id` is the existing-app fallback.
+					projectId ?? loadedApp?.project_id ?? "",
 					ctx,
 					// Pulse the signal grid with real read progress while a
 					// not-yet-extracted document is read here. `transient` keeps these

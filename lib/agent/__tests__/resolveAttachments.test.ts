@@ -29,7 +29,7 @@ vi.mock("mammoth", () => ({
 
 const {
 	loadAssetsByIdsMock,
-	loadAssetForOwnerMock,
+	loadAssetByIdMock,
 	setAssetExtractStatusMock,
 	claimExtractionIfIdleMock,
 	downloadAssetBytesMock,
@@ -37,7 +37,7 @@ const {
 	writeTextObjectMock,
 } = vi.hoisted(() => ({
 	loadAssetsByIdsMock: vi.fn(),
-	loadAssetForOwnerMock: vi.fn(),
+	loadAssetByIdMock: vi.fn(),
 	setAssetExtractStatusMock: vi.fn(),
 	claimExtractionIfIdleMock: vi.fn(),
 	downloadAssetBytesMock: vi.fn(),
@@ -45,16 +45,15 @@ const {
 	writeTextObjectMock: vi.fn(),
 }));
 
-// `loadAssetForOwner`, `claimExtractionIfIdle`, + `MediaAssetOwnershipError` are
-// pulled in transitively via the shared extract store (the backstop delegates to
-// it); on a GCS miss the store re-reads status fresh, then atomically claims via
-// `claimExtractionIfIdle` before running the model.
+// `loadAssetById` + `claimExtractionIfIdle` are pulled in transitively via the
+// shared extract store (the backstop delegates to it); on a GCS miss the store
+// re-reads status fresh by id, then atomically claims via `claimExtractionIfIdle`
+// before running the model.
 vi.mock("@/lib/db/mediaAssets", () => ({
 	loadAssetsByIds: loadAssetsByIdsMock,
-	loadAssetForOwner: loadAssetForOwnerMock,
+	loadAssetById: loadAssetByIdMock,
 	setAssetExtractStatus: setAssetExtractStatusMock,
 	claimExtractionIfIdle: claimExtractionIfIdleMock,
-	MediaAssetOwnershipError: class MediaAssetOwnershipError extends Error {},
 }));
 vi.mock("@/lib/storage/media", () => ({
 	downloadAssetBytes: downloadAssetBytesMock,
@@ -78,12 +77,13 @@ function asset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	return {
 		id: "doc-1",
 		owner: "user-1",
+		project_id: "project-1",
 		contentHash: "a".repeat(64),
 		mimeType: "text/markdown",
 		extension: ".md",
 		sizeBytes: 100,
 		kind: "text",
-		gcsObjectKey: "users/user-1/aaaa.md",
+		gcsObjectKey: "projects/project-1/aaaa.md",
 		originalFilename: "spec.md",
 		status: "ready",
 		// biome-ignore lint/suspicious/noExplicitAny: Timestamp irrelevant to these tests
@@ -117,7 +117,7 @@ beforeEach(() => {
 	writeTextObjectMock.mockResolvedValue(undefined);
 	// Default fresh status read: an asset with no extract record yet, so the
 	// store's miss path decides "extract now" (no in-flight job to wait on).
-	loadAssetForOwnerMock.mockResolvedValue(asset());
+	loadAssetByIdMock.mockResolvedValue(asset());
 });
 
 describe("resolveAttachments", () => {
@@ -263,7 +263,7 @@ describe("resolveAttachments", () => {
 		}
 		// One batch load (unique ids) + one extract read (deduped by assetId).
 		expect(loadAssetsByIds).toHaveBeenCalledOnce();
-		expect(loadAssetsByIds).toHaveBeenCalledWith("user-1", ["doc-1"]);
+		expect(loadAssetsByIds).toHaveBeenCalledWith(["doc-1"], "user-1");
 		expect(readTextObject).toHaveBeenCalledOnce();
 	});
 

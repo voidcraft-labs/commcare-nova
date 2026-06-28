@@ -22,7 +22,7 @@
  *     tab; 404 when no current-version extract exists yet (the client reads the
  *     `extracting`/`failed` status off the asset itself).
  *
- * Owner-gated on every path (a foreign asset reads as 404, never enumerable).
+ * Project-gated on every path (a non-member reads as 404, never enumerable).
  * Not on a chat run, so it passes the standalone Gemini condenser rather than a
  * `GenerationContext` — the Flash call's cost isn't folded into a run's usage
  * accumulator. It IS gated by the same monthly actual-cost backstop as the chat
@@ -39,11 +39,9 @@ import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
 import { normalizeExtractText } from "@/lib/agent/extractNormalization";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
+import { userInProject } from "@/lib/db/appAccess";
 import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
-import {
-	loadAssetForOwner,
-	MediaAssetOwnershipError,
-} from "@/lib/db/mediaAssets";
+import { loadAssetById } from "@/lib/db/mediaAssets";
 import { getMonthlyUsage } from "@/lib/db/usage";
 import {
 	asAssetId,
@@ -61,21 +59,21 @@ import { readTextObject } from "@/lib/storage/media";
 export const maxDuration = 300;
 
 /**
- * Load the asset, owner-gated, rejecting anything that can't be extracted: a
- * missing/foreign row (404), a non-document kind (400), or a not-yet-validated
- * upload (409 — the bytes must be `ready` before there's anything to extract).
+ * Load the asset, Project-gated, rejecting anything that can't be extracted: a
+ * missing row or non-member (404), a non-document kind (400), or a
+ * not-yet-validated upload (409 — the bytes must be `ready` before there's
+ * anything to extract).
  */
 async function loadExtractableDocument(req: NextRequest, rawAssetId: string) {
 	const session = await requireSession(req);
 	const assetId = asAssetId(rawAssetId);
-	const asset = await loadAssetForOwner(session.user.id, assetId).catch(
-		(err: unknown) => {
-			// Foreign owner reads as not-found so asset ids can't be enumerated.
-			if (err instanceof MediaAssetOwnershipError) return null;
-			throw err;
-		},
-	);
-	if (!asset) {
+	const asset = await loadAssetById(assetId);
+	// A missing row OR a non-member both read as not-found so asset ids can't be
+	// enumerated.
+	if (
+		!asset ||
+		!(await userInProject(session.user.id, asset.project_id, "view"))
+	) {
 		throw new ApiError(
 			"We couldn't find that file — it may have been deleted, or it isn't yours.",
 			404,
@@ -175,10 +173,7 @@ export async function POST(
 					if (result.status === "ready") {
 						// Re-read for the persisted title/summary so the caller can refresh
 						// its staged snapshot the instant extraction finishes (no re-fetch).
-						const fresh = await loadAssetForOwner(
-							session.user.id,
-							asset.id,
-						).catch(() => null);
+						const fresh = await loadAssetById(asset.id).catch(() => null);
 						write({
 							type: "done",
 							extract: {
@@ -285,7 +280,11 @@ export async function GET(
 			);
 		}
 		const text = await readTextObject(
-			extractGcsObjectKeyFor(asset.owner, asset.contentHash, EXTRACTOR_VERSION),
+			extractGcsObjectKeyFor(
+				asset.project_id,
+				asset.contentHash,
+				EXTRACTOR_VERSION,
+			),
 			EXTRACT_MAX_BYTES,
 		);
 		if (text === null) {

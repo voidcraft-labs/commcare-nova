@@ -138,6 +138,9 @@ export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
  */
 export async function createPendingAsset(args: {
 	owner: string;
+	/** The Project the asset belongs to (the tenant) — the app's Project for an
+	 *  app upload, else the uploader's active Project. Gates every later read. */
+	project_id: string;
 	contentHash: string;
 	mimeType: AssetMimeType;
 	kind: AssetKind;
@@ -149,9 +152,10 @@ export async function createPendingAsset(args: {
 	const assetId = asAssetId(randomUUID());
 	const gcsObjectKey =
 		args.gcsObjectKey ??
-		pendingGcsObjectKeyFor(args.owner, assetId, args.extension);
+		pendingGcsObjectKeyFor(args.project_id, assetId, args.extension);
 	await docs.mediaAsset(assetId).create({
 		owner: args.owner,
+		project_id: args.project_id,
 		contentHash: args.contentHash,
 		mimeType: args.mimeType,
 		kind: args.kind,
@@ -306,13 +310,11 @@ export async function claimExtractionIfIdle(
  * conservative choice the default.
  */
 export async function hasOtherAssetForGcsObjectKey(
-	owner: string,
 	gcsObjectKey: string,
 	excludeAssetId: AssetId,
 ): Promise<boolean> {
 	const snap = await collections
 		.mediaAssets()
-		.where("owner", "==", owner)
 		.where("gcsObjectKey", "==", gcsObjectKey)
 		.limit(2)
 		.get();
@@ -320,24 +322,22 @@ export async function hasOtherAssetForGcsObjectKey(
 }
 
 /**
- * Owner-and-hash dedup probe. Used at upload-initiate: if the
- * caller's claimed hash already exists for this owner AND the
- * row is `ready`, the route returns the existing assetId and
- * tells the browser to skip the bytes-PUT step entirely.
+ * Project-and-hash dedup probe. Used at upload-initiate: if the asset's claimed
+ * hash already exists in this Project AND the row is `ready`, the route returns
+ * the existing assetId and tells the browser to skip the bytes-PUT step.
  *
- * Returns the matching record, or `null` if no row matches.
- * A `pending` row of the same (owner, hash) is treated as no match — the
- * caller goes ahead and creates a fresh pending row with its own
- * per-attempt object. Confirm collapses to an existing ready sibling when
- * one appears.
+ * Returns the matching record, or `null` if no row matches. A `pending` row of
+ * the same (project, hash) is treated as no match — the caller creates a fresh
+ * pending row with its own per-attempt object; confirm collapses to an existing
+ * ready sibling when one appears.
  */
-export async function findReadyAssetByOwnerAndHash(
-	owner: string,
+export async function findReadyAssetByProjectAndHash(
+	projectId: string,
 	contentHash: string,
 ): Promise<MediaAssetRecord | null> {
 	const snap = await collections
 		.mediaAssets()
-		.where("owner", "==", owner)
+		.where("project_id", "==", projectId)
 		.where("contentHash", "==", contentHash)
 		.where("status", "==", "ready")
 		.limit(1)
@@ -348,24 +348,17 @@ export async function findReadyAssetByOwnerAndHash(
 }
 
 /**
- * Load one asset, enforcing ownership. Returns `null` if the row
- * doesn't exist; throws `MediaAssetOwnershipError` if the row
- * exists but belongs to someone else. Every current caller (the
- * proxy GET route, the confirm route) catches that error and maps
- * it to a 404 — the same status as "not found" — so a foreign
- * caller can't distinguish "doesn't exist" from "exists but isn't
- * yours" and therefore can't enumerate other users' asset ids.
+ * Load one asset by id, WITHOUT authorizing. The caller MUST gate on the
+ * returned `project_id` (`userInProject`) before serving bytes or metadata —
+ * every read site does, collapsing a non-member to the same 404 as a missing
+ * row so ids stay non-enumerable. Returns `null` for a missing row.
  */
-export async function loadAssetForOwner(
-	owner: string,
+export async function loadAssetById(
 	assetId: AssetId,
 ): Promise<MediaAssetRecord | null> {
 	const snap = await docs.mediaAsset(assetId).get();
 	const data = snap.data();
 	if (!data) return null;
-	if (data.owner !== owner) {
-		throw new MediaAssetOwnershipError(assetId, owner, data.owner);
-	}
 	return { ...data, id: asAssetId(snap.id) };
 }
 
@@ -374,26 +367,23 @@ export async function loadAssetForOwner(
 const ID_BATCH_SIZE = 30;
 
 /**
- * Bulk-load the owner's assets among a set of ids — the
- * compile / upload manifest loader's primary call. Used to resolve
- * every `AssetId` a blueprint references (from
- * `lib/domain/mediaRefs::collectAssetRefs`) into rows in one pass.
+ * Bulk-load a Project's assets among a set of ids — the compile / upload
+ * manifest loader's primary call. Resolves every `AssetId` a blueprint
+ * references (from `lib/domain/mediaRefs::collectAssetRefs`) into rows in one
+ * pass.
  *
- * Owner filtering is done in memory after a `documentId() in` query
- * (which needs no composite index): an id that belongs to another
- * owner OR doesn't exist is silently omitted — never leaked, so a
- * malicious doc can't enumerate other users' assets through validator
- * errors. `pending` rows are included: the validator's
- * `mediaAssetReady` rule reports them with an actionable "still
- * uploading" message keyed off the manifest hit. A foreign-owned
- * reference reads as a manifest miss and surfaces as
- * `mediaAssetExists`'s `MEDIA_ASSET_NOT_FOUND` — the same message
- * the user sees for a deleted asset, which is the right UX (privacy
- * keeps the foreign-owner distinction below the surface).
+ * `project_id` filtering is done in memory after a `documentId() in` query
+ * (which needs no composite index): an id in ANOTHER Project OR not existing is
+ * silently omitted — never leaked, so a doc that references a foreign-Project
+ * asset can't pull its bytes into a compile. `pending` rows are included: the
+ * validator's `mediaAssetReady` rule reports them with an actionable "still
+ * uploading" message. A foreign-Project reference reads as a manifest miss and
+ * surfaces as `mediaAssetExists`'s `MEDIA_ASSET_NOT_FOUND` — the same message a
+ * deleted asset produces, keeping the cross-tenant distinction below the surface.
  */
 export async function loadAssetsByIds(
-	owner: string,
 	ids: readonly string[],
+	projectId: string,
 ): Promise<MediaAssetRecord[]> {
 	const unique = [...new Set(ids)];
 	const out: MediaAssetRecord[] = [];
@@ -405,7 +395,7 @@ export async function loadAssetsByIds(
 			.get();
 		for (const d of snap.docs) {
 			const data = d.data();
-			if (data.owner === owner) {
+			if (data.project_id === projectId) {
 				out.push({ ...data, id: asAssetId(d.id) });
 			}
 		}
@@ -446,7 +436,7 @@ export async function getAssetsInTransaction(
 const LIBRARY_PAGE_SIZE = 50;
 
 /**
- * Cursor-paginated list of an owner's `ready` assets, newest
+ * Cursor-paginated list of a Project's `ready` assets, newest
  * first. Optionally filtered to a SET of `kinds` via a server-side
  * query (backed by a composite index) — not an in-memory page
  * filter, so every returned page is full up to the page size
@@ -457,7 +447,7 @@ const LIBRARY_PAGE_SIZE = 50;
  * kinds from burying the few attachable ones behind "Load more".
  *
  * A single kind uses an equality (`==`); several use a disjunction
- * (`in`, ≤30 values). Both reuse the `(owner, status, kind,
+ * (`in`, ≤30 values). Both reuse the `(project_id, status, kind,
  * created_at, documentId)` composite index; the `in` is executed as
  * a merge of per-kind streams, and the cursor pushes into each, so
  * pagination stays skip/dupe-free (verified against real Firestore).
@@ -468,13 +458,13 @@ const LIBRARY_PAGE_SIZE = 50;
  * cursor is an opaque base64 token; callers round-trip it without
  * interpreting it.
  */
-export async function listReadyAssetsForOwner(
-	owner: string,
+export async function listReadyAssetsForProject(
+	projectId: string,
 	options: { kinds?: readonly AssetKind[]; cursor?: string } = {},
 ): Promise<{ assets: MediaAssetRecord[]; nextCursor: string | null }> {
 	let query = collections
 		.mediaAssets()
-		.where("owner", "==", owner)
+		.where("project_id", "==", projectId)
 		.where("status", "==", "ready");
 	// An empty `kinds` array means "no kind filter" — never `in []`, which
 	// Firestore rejects. One kind narrows with an equality; several with a
@@ -632,26 +622,4 @@ export async function addReferencingApp(
  */
 export async function deleteAsset(assetId: AssetId): Promise<void> {
 	await docs.mediaAsset(assetId).delete();
-}
-
-/**
- * Surfaced when the caller asked for an asset they don't own.
- * Every route that can hit it (proxy GET, confirm) maps it to a
- * 404 — the same response as "not found" — so a foreign caller
- * can't tell "doesn't exist" from "exists but isn't yours" and
- * therefore can't enumerate other users' asset ids.
- */
-export class MediaAssetOwnershipError extends Error {
-	readonly assetId: AssetId;
-	readonly requestedBy: string;
-	readonly actualOwner: string;
-	constructor(assetId: AssetId, requestedBy: string, actualOwner: string) {
-		super(
-			`MediaAsset ${assetId} is owned by a different user — the request can't proceed.`,
-		);
-		this.name = "MediaAssetOwnershipError";
-		this.assetId = assetId;
-		this.requestedBy = requestedBy;
-		this.actualOwner = actualOwner;
-	}
 }

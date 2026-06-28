@@ -1,17 +1,17 @@
 /**
- * SA tool: `list_media_assets` — list the calling user's media assets.
+ * SA tool: `list_media_assets` — list the app's Project media library.
  *
  * Load-bearing: this is how the SA discovers the asset ids the `attach*` /
  * `set*` media tools need. Without it, the SA has no way to learn which
- * assets the user has uploaded, so every media attachment would be a
+ * assets the Project has uploaded, so every media attachment would be a
  * blind guess at an id.
  *
  * Reuses the same library read the web library route uses
- * (`listReadyAssetsForOwner`) — `ready` assets only, newest first,
- * owner-scoped. The tool projects each row to the same client-facing wire
- * shape (`toWireMediaAsset`) so the SA sees the identical fields the
- * browser library does: id, kind, filename / display name, MIME type,
- * status, size, plus dimensions / duration.
+ * (`listReadyAssetsForProject`) — `ready` assets only, newest first,
+ * scoped to the app's Project. The tool projects each row to the same
+ * client-facing wire shape (`toWireMediaAsset`) so the SA sees the
+ * identical fields the browser library does: id, kind, filename / display
+ * name, MIME type, status, size, plus dimensions / duration.
  *
  * One page per call (the library page size). The library is cursor-
  * paginated; the tool surfaces `nextCursor` so a follow-up call can
@@ -25,7 +25,7 @@
 
 import { z } from "zod";
 import {
-	listReadyAssetsForOwner,
+	listReadyAssetsForProject,
 	toWireMediaAsset,
 	type WireMediaAsset,
 } from "@/lib/db/mediaAssets";
@@ -33,6 +33,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { MEDIA_KINDS } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import type { ReadToolResult } from "../common";
+import { requireToolProjectId } from "./shared";
 
 export const listMediaAssetsInputSchema = z
 	.object({
@@ -54,7 +55,7 @@ export const listMediaAssetsInputSchema = z
 export type ListMediaAssetsInput = z.infer<typeof listMediaAssetsInputSchema>;
 
 /**
- * One page of the user's library plus the next-page cursor. `assets`
+ * One page of the Project's library plus the next-page cursor. `assets`
  * carries the same wire shape the browser library renders; `nextCursor`
  * is `null` on the last page.
  */
@@ -65,14 +66,15 @@ export interface ListMediaAssetsResult {
 
 export const listMediaAssetsTool = {
 	description:
-		"List the user's uploaded media assets (ready ones, newest first). This is how you discover the asset ids the attach/set media tools need. Each asset carries its id, kind, filename, MIME type, and size. Optionally filter by kind; paginate with the returned cursor.",
+		"List the uploaded media assets in the app's library (ready ones, newest first). This is how you discover the asset ids the attach/set media tools need. Each asset carries its id, kind, filename, MIME type, and size. Optionally filter by kind; paginate with the returned cursor.",
 	inputSchema: listMediaAssetsInputSchema,
 	async execute(
 		input: ListMediaAssetsInput,
 		ctx: ToolExecutionContext,
 		_doc: BlueprintDoc,
 	): Promise<ReadToolResult<ListMediaAssetsResult>> {
-		const { assets, nextCursor } = await listReadyAssetsForOwner(ctx.userId, {
+		const projectId = await requireToolProjectId(ctx.appId);
+		const { assets, nextCursor } = await listReadyAssetsForProject(projectId, {
 			// The tool filters by a single kind; the DB layer takes a set, so wrap it.
 			...(input.kind !== undefined && { kinds: [input.kind] }),
 			...(input.cursor !== undefined && { cursor: input.cursor }),

@@ -76,16 +76,19 @@ export async function POST(req: NextRequest) {
 		 * it requires edit, not just view (matching the MCP upload tool); a
 		 * viewer can't push a shared app to HQ. An `AppAccessError` maps to 404.
 		 * `fieldParent` is derived on load; rebuild it so the expander sees a
-		 * full reverse index. Media resolves at the app OWNER's scope (where the
-		 * assets live) so a Project co-member can upload a shared app. */
-		const app = (await resolveAppAccess(body.appId, session.user.id, "edit"))
-			.app;
+		 * full reverse index. Media resolves at the app's PROJECT scope (the
+		 * sharing boundary the assets live in) so a Project co-member can upload
+		 * a shared app. */
+		const { app, projectId } = await resolveAppAccess(
+			body.appId,
+			session.user.id,
+			"edit",
+		);
 		const docWithParent: BlueprintDoc = {
 			...(app.blueprint as PersistableDoc as BlueprintDoc),
 			fieldParent: {},
 		};
 		rebuildFieldParent(docWithParent);
-		const ownerId = app.owner;
 
 		/* ── Resolve credentials + authorize the requested space ──────── */
 		const requested = body.domain.trim();
@@ -120,7 +123,10 @@ export async function POST(req: NextRequest) {
 		// message and the carrier location. This also covers the media-ON
 		// expand's failure mode — a stale media reference would make
 		// `expandDoc` throw `requireAssetRef` → opaque 500.
-		const violations = await collectBoundaryViolations(docWithParent, ownerId);
+		const violations = await collectBoundaryViolations(
+			docWithParent,
+			projectId,
+		);
 		if (violations.length > 0) {
 			throw new ApiError(
 				"This app isn't ready to upload — fix the issues below, then try again.",
@@ -136,7 +142,7 @@ export async function POST(req: NextRequest) {
 		// bytes feeds BOTH the expander (references + multimedia_map) and
 		// the byte upload, so the references emitted and the files sent
 		// come from the same source and cannot drift.
-		const manifest = await resolveMediaManifest(docWithParent, ownerId, {
+		const manifest = await resolveMediaManifest(docWithParent, projectId, {
 			withBytes: true,
 		});
 

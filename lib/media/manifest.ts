@@ -53,9 +53,15 @@ export interface ResolveManifestOptions {
 
 /**
  * Build the `AssetManifest` for a blueprint: walk every media reference,
- * load the owner's matching rows in one batch, keep only the `ready`
+ * load the project's matching rows in one batch, keep only the `ready`
  * ones, derive each asset's content-hash wire path, and (when
  * `withBytes`) stream its bytes from GCS.
+ *
+ * The scope is the doc's referenced ids filtered to `projectId` — a
+ * reference to a foreign-PROJECT asset is filtered out (it never lands
+ * in the manifest), which surfaces at emission as `MEDIA_ASSET_NOT_FOUND`.
+ * That filter is the cross-tenant defense: media is shared at the Project
+ * boundary, so an export resolves only the assets of its own Project.
  *
  * Returns an empty manifest when the doc references no media — the
  * emitters treat an empty manifest the same as media-off, so a
@@ -71,13 +77,13 @@ export interface ResolveManifestOptions {
  * `expandDoc` invoked directly from tests).
  *
  * A doc reference whose asset doesn't make it into the manifest
- * (foreign-owned, deleted, or filtered pending here) surfaces at
+ * (foreign-project, deleted, or filtered pending here) surfaces at
  * emission as a `requireAssetRef` throw — the floor when the
  * validator path was skipped.
  */
 export async function resolveMediaManifest(
 	doc: BlueprintDoc,
-	owner: string,
+	projectId: string,
 	options: ResolveManifestOptions,
 ): Promise<AssetManifest> {
 	const ids = [...collectAssetRefs(doc)];
@@ -101,7 +107,7 @@ export async function resolveMediaManifest(
 	const rows =
 		realIds.length === 0
 			? []
-			: (await loadAssetsByIds(owner, realIds)).filter(
+			: (await loadAssetsByIds(realIds, projectId)).filter(
 					(row): row is MediaAssetRecord & { kind: MediaKind } =>
 						row.status === "ready" && isMediaKind(row.kind),
 				);

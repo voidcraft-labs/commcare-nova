@@ -33,12 +33,13 @@ function record(
 ): MediaAssetRecord {
 	return {
 		owner: OWNER,
+		project_id: OWNER,
 		contentHash: "a".repeat(64),
 		mimeType: "image/png",
 		kind: "image",
 		extension: ".png",
 		sizeBytes: 100,
-		gcsObjectKey: `users/${OWNER}/${"a".repeat(64)}.png`,
+		gcsObjectKey: `projects/${OWNER}/${"a".repeat(64)}.png`,
 		originalFilename: `${id}.png`,
 		displayName: id,
 		status: "ready",

@@ -7,7 +7,7 @@
 // a Firestore status row), so no doc commit fires when it changes — which
 // makes the attach the LAST commit that can see the asset's state. The
 // verdict holds the line there: a committed media reference always points
-// at an asset that exists, belongs to the app's owner, is `ready`, and
+// at an asset that exists, belongs to the app's Project, is `ready`, and
 // matches its slot's kind — and the attach never pushes the app's
 // referenced-media aggregate past the export ceiling.
 //
@@ -25,8 +25,8 @@
 //     `lib/db/mediaAssets.ts::confirmAssetReady` (flips to `ready`);
 //     nothing writes a status after that — a failed validation DELETES
 //     the row instead of recording a state (see `MEDIA_ASSET_STATUSES`).
-//   - `owner` is immutable: written once in `createPendingAsset`; no
-//     update path carries it.
+//   - `project_id` is immutable: written once in `createPendingAsset` as
+//     the asset's tenant; no update path carries it.
 //   - `kind` is immutable: written once in `createPendingAsset`;
 //     `confirmAssetReady` refines `mimeType`/`extension` but never
 //     `kind`.
@@ -88,7 +88,7 @@ export type MediaAttachVerdict = { ok: true } | { ok: false; error: string };
  *  pre-commit verdict consume the same shape. */
 export type MediaExpectationRow = Pick<
 	MediaAssetRecord,
-	"owner" | "status" | "kind"
+	"project_id" | "status" | "kind"
 >;
 
 /** "an image" / "an audio file" / "a video" / "a pdf document" — the
@@ -112,20 +112,20 @@ function kindPhrase(kind: AssetKind): string {
  * what "good" means. Returns `null` when every expectation holds, or the
  * combined person-to-person failure message (one line per failure).
  *
- * A row owned by someone else reads as "not in your library" — the same
+ * A row in another Project reads as "not in your library" — the same
  * message as a deleted asset — so a guessed id can't probe whether
- * another user's asset exists (mirrors `loadAssetsByIds`'s silent
- * owner filter).
+ * another Project's asset exists (mirrors `loadAssetsByIds`'s silent
+ * project filter).
  */
 export function describeMediaExpectationFailures(
 	expectations: readonly MediaAttachExpectation[],
 	rows: ReadonlyMap<string, MediaExpectationRow>,
-	owner: string,
+	projectId: string,
 ): string | null {
 	const failures: string[] = [];
 	for (const expectation of expectations) {
 		const row = rows.get(expectation.assetId);
-		if (!row || row.owner !== owner) {
+		if (!row || row.project_id !== projectId) {
 			failures.push(
 				`Tried to attach asset "${expectation.assetId}" as ${expectation.slot}, but no asset with that id is in your library — it may have been deleted, or the id may be mistyped. Run list_media_assets to see what's available, or upload the file first.`,
 			);
@@ -149,7 +149,7 @@ export function describeMediaExpectationFailures(
 /**
  * The full pre-commit verdict: load the rows for everything the doc
  * would reference after the attach (current refs ∪ the expectations'
- * ids) in one owner-filtered batch, run the per-asset judgment over the
+ * ids) in one Project-filtered batch, run the per-asset judgment over the
  * expectations, then hold the post-attach aggregate of referenced READY
  * media inside the export ceiling — the same `MAX_MEDIA_EXPORT_ASSETS` /
  * `MAX_MEDIA_EXPORT_BYTES` budget `boundaryValidation.ts` enforces at
@@ -165,11 +165,11 @@ export function describeMediaExpectationFailures(
  * slot the call SETS (clears carry no expectation and need no verdict).
  */
 export async function mediaAttachVerdict(args: {
-	owner: string;
+	projectId: string;
 	doc: BlueprintDoc;
 	expectations: readonly MediaAttachExpectation[];
 }): Promise<MediaAttachVerdict> {
-	const { owner, doc, expectations } = args;
+	const { projectId, doc, expectations } = args;
 	if (expectations.length === 0) return { ok: true };
 
 	const ids = [
@@ -178,7 +178,7 @@ export async function mediaAttachVerdict(args: {
 			...expectations.map((e) => e.assetId),
 		]),
 	];
-	const rows = await loadAssetsByIds(owner, ids);
+	const rows = await loadAssetsByIds(ids, projectId);
 	const rowsById = new Map<string, MediaAssetRecord>(
 		rows.map((row) => [row.id as string, row]),
 	);
@@ -186,7 +186,7 @@ export async function mediaAttachVerdict(args: {
 	const failure = describeMediaExpectationFailures(
 		expectations,
 		rowsById,
-		owner,
+		projectId,
 	);
 	if (failure) return { ok: false, error: failure };
 

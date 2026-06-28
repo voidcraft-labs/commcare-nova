@@ -99,7 +99,7 @@ export async function sha256HexOfBytes(bytes: BufferSource): Promise<string> {
 /**
  * SHA-256 (lowercase hex) of a file's bytes, computed in the browser
  * via SubtleCrypto. Sent at upload-initiate so the server can
- * dedup-skip the bytes push when the owner already holds this exact
+ * dedup-skip the bytes push when the Project already holds this exact
  * content — and matched against the server's own hash at confirm.
  * A thin `Blob` adapter over `sha256HexOfBytes`.
  */
@@ -133,6 +133,10 @@ export interface UploadMediaOptions {
 	 *  the PUT through `XMLHttpRequest` — fetch exposes no upload-progress
 	 *  events. The dedup fast path never PUTs, so it reports nothing. */
 	onProgress?: (fraction: number) => void;
+	/** The app this upload belongs to, so the server resolves the app's
+	 *  Project as the asset's tenant. Omitted in non-app (personal) contexts,
+	 *  where the server falls back to the caller's active Project. */
+	appId?: string;
 }
 
 /**
@@ -150,7 +154,7 @@ export async function uploadMediaAsset(
 	file: File,
 	options: UploadMediaOptions = {},
 ): Promise<MediaAssetView> {
-	const { signal, onProgress } = options;
+	const { signal, onProgress, appId } = options;
 	const contentHash = await sha256Hex(file);
 	signal?.throwIfAborted();
 	const initiate = await postJson<InitiateResponse>(
@@ -164,6 +168,7 @@ export async function uploadMediaAsset(
 			mimeType: resolveUploadMimeType(file.type, file.name),
 			sizeBytes: file.size,
 			contentHash,
+			...(appId ? { appId } : {}),
 		},
 		signal,
 	);
@@ -399,25 +404,32 @@ export async function triggerAssetExtraction(
 	}
 }
 
-/** A page of the owner's media library. */
+/** A page of the Project's media library. */
 export interface MediaLibraryPage {
 	assets: MediaAssetView[];
 	nextCursor: string | null;
 }
 
 /**
- * Fetch one page of the owner's `ready` assets, newest first.
+ * Fetch one page of the Project's `ready` assets, newest first.
  * Optionally filtered to a SET of `kinds` (repeated `?kind=` on the
  * wire) — a picker passes its carrier's allowed kinds so the server
  * returns only attachable assets; `cursor` resumes from a prior
  * page's `nextCursor`. An empty/omitted `kinds` fetches every kind.
+ * `appId` (when set) resolves the app's Project as the tenant; absent,
+ * the server falls back to the caller's active Project.
  */
 export async function fetchMediaLibrary(
-	options: { kinds?: readonly AssetKind[]; cursor?: string } = {},
+	options: {
+		kinds?: readonly AssetKind[];
+		cursor?: string;
+		appId?: string;
+	} = {},
 ): Promise<MediaLibraryPage> {
 	const params = new URLSearchParams();
 	for (const kind of options.kinds ?? []) params.append("kind", kind);
 	if (options.cursor) params.set("cursor", options.cursor);
+	if (options.appId) params.set("appId", options.appId);
 	const res = await fetch(`/api/media/library?${params.toString()}`);
 	if (!res.ok) {
 		throw await errorFromResponse(res, "Couldn't load your media library.");
@@ -431,14 +443,16 @@ const RESOLVE_IDS_CHUNK = 50;
 
 /**
  * Resolve specific asset ids to their wire rows — the library route's
- * resolve mode (repeated `?id=`). Owner-filtered server-side: a missing
- * or foreign id is simply absent from the result, never an error. The
- * attach budget check uses this to learn the byte sizes of referenced
- * assets this session hasn't otherwise loaded. Chunked so a
- * reference-heavy doc can't overflow a request URL.
+ * resolve mode (repeated `?id=`). Project-scoped server-side (the app's
+ * Project via `appId`, else the active Project): a missing or foreign id
+ * is simply absent from the result, never an error. The attach budget
+ * check uses this to learn the byte sizes of referenced assets this
+ * session hasn't otherwise loaded. Chunked so a reference-heavy doc
+ * can't overflow a request URL.
  */
 export async function fetchAssetsByIds(
 	ids: readonly string[],
+	appId?: string,
 ): Promise<MediaAssetView[]> {
 	const unique = [...new Set(ids)];
 	const out: MediaAssetView[] = [];
@@ -447,6 +461,7 @@ export async function fetchAssetsByIds(
 		for (const id of unique.slice(i, i + RESOLVE_IDS_CHUNK)) {
 			params.append("id", id);
 		}
+		if (appId) params.set("appId", appId);
 		const res = await fetch(`/api/media/library?${params.toString()}`);
 		if (!res.ok) {
 			throw await errorFromResponse(

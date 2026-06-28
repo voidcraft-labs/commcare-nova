@@ -5,29 +5,45 @@
  * chat file manager (document kinds), so the repeated `kind` query param must
  * accept any `AssetKind` — including `pdf`/`text`/`docx`/`xlsx` — and collect
  * SEVERAL into a kind set (`?kind=image&kind=pdf`) for a picker's "All" view.
- * This pins that the kinds reach the owner-scoped query as a set, that no
+ * This pins that the kinds reach the Project-scoped query as a set, that no
  * `kind` param means "every kind" (an empty set, never an `in []`), and that a
  * kind outside the accepted set is rejected as a 400 client error rather than
  * collapsing to a 500.
  *
- * Resolve mode: repeated `?id=` routes to the owner-filtered id lookup
+ * Resolve mode: repeated `?id=` routes to the Project-filtered id lookup
  * (backing the browser attach budget check) and never touches the lister.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listReadyAssetsForOwner, loadAssetsByIds } from "@/lib/db/mediaAssets";
+import {
+	listReadyAssetsForProject,
+	loadAssetsByIds,
+} from "@/lib/db/mediaAssets";
 import { GET } from "../route";
 
-const { requireSessionMock, listReadyAssetsForOwnerMock, loadAssetsByIdsMock } =
-	vi.hoisted(() => ({
-		requireSessionMock: vi.fn(),
-		listReadyAssetsForOwnerMock: vi.fn(),
-		loadAssetsByIdsMock: vi.fn(),
-	}));
+const {
+	requireSessionMock,
+	resolveActiveProjectIdMock,
+	resolveAppAccessMock,
+	listReadyAssetsForProjectMock,
+	loadAssetsByIdsMock,
+} = vi.hoisted(() => ({
+	requireSessionMock: vi.fn(),
+	resolveActiveProjectIdMock: vi.fn(),
+	resolveAppAccessMock: vi.fn(),
+	listReadyAssetsForProjectMock: vi.fn(),
+	loadAssetsByIdsMock: vi.fn(),
+}));
 
-vi.mock("@/lib/auth-utils", () => ({ requireSession: requireSessionMock }));
+vi.mock("@/lib/auth-utils", () => ({
+	requireSession: requireSessionMock,
+	resolveActiveProjectId: resolveActiveProjectIdMock,
+}));
+vi.mock("@/lib/db/appAccess", () => ({
+	resolveAppAccess: resolveAppAccessMock,
+}));
 vi.mock("@/lib/db/mediaAssets", () => ({
-	listReadyAssetsForOwner: listReadyAssetsForOwnerMock,
+	listReadyAssetsForProject: listReadyAssetsForProjectMock,
 	loadAssetsByIds: loadAssetsByIdsMock,
 	// The route catches this specific class and maps it to a 400; a plain
 	// stand-in is enough for the happy/invalid paths exercised here.
@@ -50,7 +66,8 @@ const drainBody = (res: Response): Promise<string> => res.text();
 beforeEach(() => {
 	vi.clearAllMocks();
 	requireSessionMock.mockResolvedValue({ user: { id: "user-1" } });
-	listReadyAssetsForOwnerMock.mockResolvedValue({
+	resolveActiveProjectIdMock.mockResolvedValue("project-1");
+	listReadyAssetsForProjectMock.mockResolvedValue({
 		assets: [],
 		nextCursor: null,
 	});
@@ -60,7 +77,7 @@ describe("GET /api/media/library kind filter", () => {
 	it("accepts a single document kind and passes it as a one-element set", async () => {
 		const res = await GET(reqWith("?kind=pdf"));
 		expect(res.status).toBe(200);
-		expect(listReadyAssetsForOwner).toHaveBeenCalledWith("user-1", {
+		expect(listReadyAssetsForProject).toHaveBeenCalledWith("project-1", {
 			kinds: ["pdf"],
 			cursor: undefined,
 		});
@@ -71,13 +88,14 @@ describe("GET /api/media/library kind filter", () => {
 		for (const kind of ["text", "docx", "xlsx"] as const) {
 			vi.clearAllMocks();
 			requireSessionMock.mockResolvedValue({ user: { id: "user-1" } });
-			listReadyAssetsForOwnerMock.mockResolvedValue({
+			resolveActiveProjectIdMock.mockResolvedValue("project-1");
+			listReadyAssetsForProjectMock.mockResolvedValue({
 				assets: [],
 				nextCursor: null,
 			});
 			const res = await GET(reqWith(`?kind=${kind}`));
 			expect(res.status).toBe(200);
-			expect(listReadyAssetsForOwner).toHaveBeenCalledWith("user-1", {
+			expect(listReadyAssetsForProject).toHaveBeenCalledWith("project-1", {
 				kinds: [kind],
 				cursor: undefined,
 			});
@@ -88,7 +106,7 @@ describe("GET /api/media/library kind filter", () => {
 	it("collects several repeated kinds into a set (the picker's 'All' view)", async () => {
 		const res = await GET(reqWith("?kind=image&kind=pdf&kind=docx"));
 		expect(res.status).toBe(200);
-		expect(listReadyAssetsForOwner).toHaveBeenCalledWith("user-1", {
+		expect(listReadyAssetsForProject).toHaveBeenCalledWith("project-1", {
 			kinds: ["image", "pdf", "docx"],
 			cursor: undefined,
 		});
@@ -100,7 +118,7 @@ describe("GET /api/media/library kind filter", () => {
 		// never as `in []` (which Firestore rejects).
 		const res = await GET(reqWith(""));
 		expect(res.status).toBe(200);
-		expect(listReadyAssetsForOwner).toHaveBeenCalledWith("user-1", {
+		expect(listReadyAssetsForProject).toHaveBeenCalledWith("project-1", {
 			kinds: [],
 			cursor: undefined,
 		});
@@ -110,25 +128,25 @@ describe("GET /api/media/library kind filter", () => {
 	it("rejects a kind outside the accepted set as a 400", async () => {
 		const res = await GET(reqWith("?kind=exe"));
 		expect(res.status).toBe(400);
-		expect(listReadyAssetsForOwner).not.toHaveBeenCalled();
+		expect(listReadyAssetsForProject).not.toHaveBeenCalled();
 		await drainBody(res);
 	});
 
 	it("rejects when ANY repeated kind is invalid", async () => {
 		const res = await GET(reqWith("?kind=image&kind=exe"));
 		expect(res.status).toBe(400);
-		expect(listReadyAssetsForOwner).not.toHaveBeenCalled();
+		expect(listReadyAssetsForProject).not.toHaveBeenCalled();
 		await drainBody(res);
 	});
 });
 
 describe("GET /api/media/library resolve mode", () => {
-	it("routes repeated ?id= to the owner-filtered id lookup, never the lister", async () => {
+	it("routes repeated ?id= to the Project-filtered id lookup, never the lister", async () => {
 		loadAssetsByIdsMock.mockResolvedValue([{ id: "a" }, { id: "b" }]);
 		const res = await GET(reqWith("?id=a&id=b"));
 		expect(res.status).toBe(200);
-		expect(loadAssetsByIds).toHaveBeenCalledWith("user-1", ["a", "b"]);
-		expect(listReadyAssetsForOwner).not.toHaveBeenCalled();
+		expect(loadAssetsByIds).toHaveBeenCalledWith(["a", "b"], "project-1");
+		expect(listReadyAssetsForProject).not.toHaveBeenCalled();
 		const body = JSON.parse(await drainBody(res));
 		expect(body.assets).toHaveLength(2);
 		expect(body.nextCursor).toBeNull();

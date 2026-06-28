@@ -40,12 +40,13 @@ export function makeAssetRecord(
 	const status: MediaAssetStatus = overrides.status ?? "ready";
 	return {
 		owner: APP_OWNER,
+		project_id: APP_OWNER,
 		contentHash: "a".repeat(64),
 		mimeType,
 		kind: overrides.kind ?? "image",
 		extension: ".png",
 		sizeBytes: 100,
-		gcsObjectKey: `users/${APP_OWNER}/${"a".repeat(64)}.png`,
+		gcsObjectKey: `projects/${APP_OWNER}/${"a".repeat(64)}.png`,
 		originalFilename: `${id}.png`,
 		displayName: id,
 		status,

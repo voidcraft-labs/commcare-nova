@@ -9,8 +9,8 @@
 //     at the asset, so a delete can refuse (and name the slots) rather than
 //     orphaning a live reference the export boundary gate would later reject far
 //     from where it could be fixed. It re-walks the asset's `referencingAppIds`
-//     reverse index (the 0–2 candidate apps), NOT the owner's whole app list;
-//     the owner-wide scan survives only as the fallback for un-indexed rows.
+//     reverse index (the 0–2 candidate apps), NOT the Project's whole app list;
+//     the Project-wide scan survives only as the fallback for un-indexed rows.
 //   - `purgeAssetStorage` — drop the Firestore row, then the GCS bytes (and any
 //     content-addressed siblings, e.g. a document's extract) only when no other
 //     asset row shares the bytes.
@@ -19,7 +19,7 @@
 // so the refusal message and the upload-attach warning name a carrier the same
 // way — no wire vocabulary.
 
-import { listAppsByOwner, loadApp } from "@/lib/db/apps";
+import { listApps, loadApp } from "@/lib/db/apps";
 import {
 	deleteAsset as deleteAssetRow,
 	hasOtherAssetForGcsObjectKey,
@@ -64,30 +64,34 @@ export function carriersForAsset(doc: BlueprintDoc, assetId: string): string[] {
 /**
  * Resolve the carriers in ONE app's persisted doc that still reference the
  * asset, as a human-readable refusal phrase — or `null` when the app is
- * gone/foreign/deleted or no longer references it (a stale index candidate).
+ * gone/out-of-Project/deleted or no longer references it (a stale index
+ * candidate).
  */
 async function describeAppReference(
 	appId: string,
-	ownerId: string,
+	projectId: string,
 	assetId: string,
 ): Promise<string | null> {
 	const app = await loadApp(appId);
-	// Guard against a deleted app or a list/load ownership skew — only a live,
-	// owner-held app's references should block a delete.
-	if (!app || app.owner !== ownerId || app.deleted_at !== null) return null;
+	// Guard against a deleted app or a list/load Project skew — only a live app in
+	// the asset's Project should block a delete (owner is irrelevant: every member
+	// of the Project shares the asset, so any in-Project app's reference counts).
+	if (!app || app.project_id !== projectId || app.deleted_at !== null) {
+		return null;
+	}
 	const carriers = carriersForAsset(asWalkableDoc(app.blueprint), assetId);
 	if (carriers.length === 0) return null;
 	return `"${app.app_name}" (${appId}) on ${carriers.join("; ")}`;
 }
 
 /**
- * Find which of the owner's live apps still reference the asset, returning a
+ * Find which of the Project's live apps still reference the asset, returning a
  * human-readable description per referencing app (capped at `APP_REF_LIMIT`). An
  * empty array means no persisted app uses it — the asset is safe to delete.
  *
  * `candidateAppIds` is the asset's reverse index (`referencingAppIds`): the only
  * apps whose persisted blueprint has EVER referenced it. Passing it turns the
- * guard from "load every app the owner has" (measured 8s on an 83-app account)
+ * guard from "load every app the Project has" (measured 8s on an 83-app account)
  * into "load only the 0–2 apps that might reference it". The index is
  * append-only, so a candidate may be STALE — this re-walks each candidate's live
  * doc to confirm a real reference and name the carrier, so a stale entry simply
@@ -95,7 +99,7 @@ async function describeAppReference(
  *
  * `undefined` candidates means the asset row predates the index and was never
  * backfilled — there's no candidate set to trust, so this falls back to the full
- * owner-wide scan (correct, just slow). After the backfill migration no live row
+ * Project-wide scan (correct, just slow). After the backfill migration no live row
  * is `undefined`, so the fallback is transitional.
  *
  * `skipAppId` omits one app the caller checks separately — the SA tool checks
@@ -103,22 +107,22 @@ async function describeAppReference(
  * lacks) and passes its app id here so the same app isn't double-counted.
  */
 export async function findAppReferencesToAsset(
-	ownerId: string,
+	projectId: string,
 	assetId: string,
 	candidateAppIds: readonly string[] | undefined,
 	opts: { skipAppId?: string } = {},
 ): Promise<string[]> {
 	if (candidateAppIds === undefined) {
-		return scanAllAppsForReferences(ownerId, assetId, opts);
+		return scanAllAppsForReferences(projectId, assetId, opts);
 	}
 	const candidates = [...new Set(candidateAppIds)].filter(
 		(id) => id !== opts.skipAppId,
 	);
 	// The candidate set is tiny (sparse media references), so load them together
-	// and confirm each. Drop the nulls (gone / foreign / stale), cap to the few
-	// the refusal needs to be actionable.
+	// and confirm each. Drop the nulls (gone / out-of-Project / stale), cap to the
+	// few the refusal needs to be actionable.
 	const descriptions = await Promise.all(
-		candidates.map((id) => describeAppReference(id, ownerId, assetId)),
+		candidates.map((id) => describeAppReference(id, projectId, assetId)),
 	);
 	return descriptions
 		.filter((d): d is string => d !== null)
@@ -126,20 +130,20 @@ export async function findAppReferencesToAsset(
 }
 
 /**
- * Full owner-wide scan: page every live app, load its doc, walk its refs. The
- * pre-index behavior, kept ONLY as the fallback for an un-backfilled asset row
- * (`referencingAppIds` absent). Slow by construction — it loads every app's
- * blueprint — which is exactly why the index path above exists.
+ * Full Project-wide scan: page every live app in the Project, load its doc, walk
+ * its refs. The pre-index behavior, kept ONLY as the fallback for an
+ * un-backfilled asset row (`referencingAppIds` absent). Slow by construction — it
+ * loads every app's blueprint — which is exactly why the index path above exists.
  */
 async function scanAllAppsForReferences(
-	ownerId: string,
+	projectId: string,
 	assetId: string,
 	opts: { skipAppId?: string },
 ): Promise<string[]> {
 	const references: string[] = [];
 	let cursor: string | undefined;
 	do {
-		const page = await listAppsByOwner(ownerId, {
+		const page = await listApps(projectId, {
 			limit: APP_SCAN_PAGE_SIZE,
 			sort: "updated_desc",
 			cursor,
@@ -148,7 +152,7 @@ async function scanAllAppsForReferences(
 			if (summary.id === opts.skipAppId) continue;
 			const description = await describeAppReference(
 				summary.id,
-				ownerId,
+				projectId,
 				assetId,
 			);
 			if (description === null) continue;
@@ -180,7 +184,6 @@ export async function purgeAssetStorage(
 	opts: { alsoDelete?: ReadonlyArray<string | null> } = {},
 ): Promise<void> {
 	const sharedObject = await hasOtherAssetForGcsObjectKey(
-		asset.owner,
 		asset.gcsObjectKey,
 		asset.id,
 	).catch((err: unknown) => {

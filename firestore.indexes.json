@@ -495,7 +495,7 @@
 			"queryScope": "COLLECTION",
 			"fields": [
 				{
-					"fieldPath": "owner",
+					"fieldPath": "project_id",
 					"order": "ASCENDING"
 				},
 				{
@@ -518,26 +518,7 @@
 			"queryScope": "COLLECTION",
 			"fields": [
 				{
-					"fieldPath": "owner",
-					"order": "ASCENDING"
-				},
-				{
-					"fieldPath": "gcsObjectKey",
-					"order": "ASCENDING"
-				},
-				{
-					"fieldPath": "__name__",
-					"order": "ASCENDING"
-				}
-			],
-			"density": "SPARSE_ALL"
-		},
-		{
-			"collectionGroup": "mediaAssets",
-			"queryScope": "COLLECTION",
-			"fields": [
-				{
-					"fieldPath": "owner",
+					"fieldPath": "project_id",
 					"order": "ASCENDING"
 				},
 				{
@@ -560,7 +541,7 @@
 			"queryScope": "COLLECTION",
 			"fields": [
 				{
-					"fieldPath": "owner",
+					"fieldPath": "project_id",
 					"order": "ASCENDING"
 				},
 				{

@@ -64,6 +64,9 @@ export function useStagedSlotUpload(
 			});
 			uploadMediaAsset(file, {
 				signal: controller.signal,
+				// The staged slot upload always runs inside the builder, so it lands
+				// in the current app's Project (the server resolves it from `appId`).
+				appId: session.getState().appId,
 				onProgress: (fraction) =>
 					session.getState().setStagedUploadProgress(slotKey, fraction),
 			}).then(

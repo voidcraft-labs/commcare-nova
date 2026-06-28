@@ -125,6 +125,7 @@ function freshAppDoc(blueprint: BlueprintDoc): AppDoc {
 	return {
 		blueprint: toPersistableDoc(blueprint),
 		owner: "user-1",
+		project_id: "project-1",
 		status: "complete",
 	} as unknown as AppDoc;
 }
@@ -373,7 +374,10 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 		getAssetsInTransactionMock.mockResolvedValue(
 			new Map([
-				["asset-live", { owner: "user-1", status: "ready", kind: "image" }],
+				[
+					"asset-live",
+					{ project_id: "project-1", status: "ready", kind: "image" },
+				],
 			]),
 		);
 

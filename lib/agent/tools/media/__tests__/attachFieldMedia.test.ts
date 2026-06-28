@@ -29,6 +29,7 @@ vi.mock("@/lib/db/apps", () => ({
 	updateApp: vi.fn(() => Promise.resolve()),
 	updateAppForRun: vi.fn(() => Promise.resolve()),
 	completeApp: vi.fn(() => Promise.resolve()),
+	loadAppProjectId: vi.fn(() => Promise.resolve("project-1")),
 }));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
 	applyBlueprintChange: vi.fn(() => Promise.resolve()),
@@ -229,8 +230,8 @@ describe("attachFieldMedia", () => {
 		).toBeUndefined();
 	});
 
-	it("refuses a foreign-owned asset with the same message as a missing one", async () => {
-		seedTestAsset("asset-foreign", "image", { owner: "someone-else" });
+	it("refuses a foreign-Project asset with the same message as a missing one", async () => {
+		seedTestAsset("asset-foreign", "image", { project_id: "project-2" });
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
 			{
@@ -247,7 +248,7 @@ describe("attachFieldMedia", () => {
 			throw new Error("expected error result");
 		}
 		expect(result.result.error).toContain("library");
-		expect(result.result.error).not.toContain("someone-else");
+		expect(result.result.error).not.toContain("project-2");
 	});
 
 	it("refuses an asset whose upload hasn't confirmed", async () => {
@@ -309,7 +310,7 @@ describe("attachFieldMedia", () => {
 		// Even with EVERY row gone, the clear commits — a clear carries no
 		// expectations, so the asset table is never consulted.
 		resetTestAssets();
-		seedTestAsset("asset-img-1", "image", { owner: "someone-else" });
+		seedTestAsset("asset-img-1", "image", { project_id: "project-2" });
 		const cleared = await attachFieldMediaTool.execute(
 			{
 				moduleIndex: 0,

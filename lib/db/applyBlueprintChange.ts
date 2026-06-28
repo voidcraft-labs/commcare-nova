@@ -313,8 +313,8 @@ export async function applyBlueprintChange(
 
 	// Tenant-free schema store: the saga only ever calls
 	// `applySchemaChange` / `dropSchema`, both app-scoped, so it binds no
-	// Project. (`args.userId` stays — the media-expectation re-check
-	// inside the Firestore transaction below uses it for its verdict.)
+	// Project. (The media-expectation re-check inside the Firestore
+	// transaction below scopes to the fresh app doc's `project_id`.)
 	const store = await withSchemaContext();
 
 	// Build the case-type schema map once at the boundary; the
@@ -411,6 +411,14 @@ async function persistBlueprint(
 			tx: Transaction,
 		): Promise<PersistedBlueprint> => {
 			if (mediaExpectations !== undefined && mediaExpectations.length > 0) {
+				// Media is Project-scoped, so the re-check verdict runs against the
+				// app's Project (every asset attached here must live in it) — read
+				// off the FRESH stored doc, not the acting user.
+				if (!fresh.project_id) {
+					throw new BlueprintCommitRejectedError(
+						"This app has no Project, so its media can't be verified. Reload and try again.",
+					);
+				}
 				const rows = await getAssetsInTransaction(
 					tx,
 					mediaExpectations.map((e) => e.assetId),
@@ -418,7 +426,7 @@ async function persistBlueprint(
 				const failure = describeMediaExpectationFailures(
 					mediaExpectations,
 					rows,
-					args.userId,
+					fresh.project_id,
 				);
 				if (failure !== null) {
 					throw new BlueprintCommitRejectedError(failure);

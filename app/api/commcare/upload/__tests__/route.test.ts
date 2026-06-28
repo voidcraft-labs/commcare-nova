@@ -149,10 +149,11 @@ function reqWith(body: unknown) {
 	} as unknown as Parameters<typeof POST>[0];
 }
 
-/** Mock `resolveAppAccess` to load `doc` for app owner `u1`. */
+/** Mock `resolveAppAccess` to load `doc` for app owner `u1` in `project-1`. */
 function loadsDoc(doc: ReturnType<typeof validDoc>) {
 	vi.mocked(resolveAppAccess).mockResolvedValue({
 		app: { blueprint: doc, owner: "u1" },
+		projectId: "project-1",
 	} as never);
 }
 
@@ -243,7 +244,7 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		expect(resolveAppAccess).toHaveBeenCalledWith("a1", "u1", "edit");
 		expect(collectBoundaryViolations).toHaveBeenCalledWith(
 			expect.objectContaining({ appName: "Vaccine Tracker" }),
-			"u1",
+			"project-1",
 		);
 		expect(importApp).toHaveBeenCalledTimes(1);
 		expect(uploadAppMediaBundle).toHaveBeenCalledTimes(1);

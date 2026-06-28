@@ -4,9 +4,9 @@
 // browser DELETE route go through:
 //   - `findAppReferencesToAsset` — the reference guard. Given the asset's
 //     `referencingAppIds` index it re-walks ONLY those candidate apps (names the
-//     app + carrier; skips a given app; ignores deleted/foreign; drops stale
-//     candidates); given `undefined` (un-backfilled row) it falls back to the
-//     full owner-wide scan.
+//     app + carrier; skips a given app; ignores deleted/foreign-Project; drops
+//     stale candidates); given `undefined` (un-backfilled row) it falls back to
+//     the full Project-wide scan (`listApps`).
 //   - `purgeAssetStorage` — drop the row always, delete bytes + sibling keys
 //     only when the bytes are unshared, fail closed on a probe error.
 //
@@ -25,14 +25,14 @@ import {
 } from "@/lib/media/assetDeletion";
 
 const {
-	listAppsByOwner,
+	listApps,
 	loadApp,
 	deleteAssetRow,
 	hasOtherAssetForGcsObjectKey,
 	deleteGcsObject,
 	walkAssetRefs,
 } = vi.hoisted(() => ({
-	listAppsByOwner: vi.fn<() => Promise<ListAppsResult>>(() =>
+	listApps: vi.fn<() => Promise<ListAppsResult>>(() =>
 		Promise.resolve({ apps: [] }),
 	),
 	loadApp: vi.fn(),
@@ -42,7 +42,7 @@ const {
 	walkAssetRefs: vi.fn(() => []),
 }));
 
-vi.mock("@/lib/db/apps", () => ({ listAppsByOwner, loadApp }));
+vi.mock("@/lib/db/apps", () => ({ listApps, loadApp }));
 vi.mock("@/lib/db/mediaAssets", () => ({
 	deleteAsset: deleteAssetRow,
 	hasOtherAssetForGcsObjectKey,
@@ -58,12 +58,15 @@ vi.mock("@/lib/domain/mediaRefs", async (importOriginal) => ({
 	asWalkableDoc: (doc: unknown) => doc,
 }));
 
+const PROJECT = "project-1";
+
 /** A ready document asset row, overridable per test. */
 function asset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	return {
 		id: "asset-1",
 		owner: "user-1",
-		gcsObjectKey: "users/user-1/asset-1.pdf",
+		project_id: PROJECT,
+		gcsObjectKey: "projects/project-1/asset-1.pdf",
 		originalFilename: "spec.pdf",
 		contentHash: "abc",
 		mimeType: "application/pdf",
@@ -102,7 +105,7 @@ beforeEach(() => {
 	// mock's default impl here so each test starts from the same baseline
 	// regardless of order.
 	vi.clearAllMocks();
-	listAppsByOwner.mockResolvedValue({ apps: [] });
+	listApps.mockResolvedValue({ apps: [] });
 	loadApp.mockResolvedValue(null);
 	hasOtherAssetForGcsObjectKey.mockResolvedValue(false);
 	walkAssetRefs.mockReturnValue([]);
@@ -112,6 +115,7 @@ beforeEach(() => {
 function appDoc(over: Record<string, unknown> = {}) {
 	return {
 		owner: "user-1",
+		project_id: PROJECT,
 		app_name: "App One",
 		deleted_at: null,
 		blueprint: {},
@@ -158,16 +162,16 @@ describe("carriersForAsset", () => {
 });
 
 describe("findAppReferencesToAsset — index path (candidates given)", () => {
-	it("loads ONLY the candidate apps, never the owner's whole list", async () => {
+	it("loads ONLY the candidate apps, never the Project's whole list", async () => {
 		loadApp.mockResolvedValue(appDoc());
 		walkAssetRefs.mockReturnValue(logoRef);
-		const refs = await findAppReferencesToAsset("user-1", "asset-1", ["app-1"]);
+		const refs = await findAppReferencesToAsset(PROJECT, "asset-1", ["app-1"]);
 		expect(refs).toHaveLength(1);
 		expect(refs[0]).toContain("App One");
 		expect(refs[0]).toContain("the app logo");
-		// The index path must not page the owner's apps — that's the slow scan it
+		// The index path must not page the Project's apps — that's the slow scan it
 		// replaces.
-		expect(listAppsByOwner).not.toHaveBeenCalled();
+		expect(listApps).not.toHaveBeenCalled();
 		expect(loadApp).toHaveBeenCalledTimes(1);
 		expect(loadApp).toHaveBeenCalledWith("app-1");
 	});
@@ -176,20 +180,20 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 		loadApp.mockResolvedValue(appDoc());
 		walkAssetRefs.mockReturnValue([]); // app loaded, but no carrier points at it
 		expect(
-			await findAppReferencesToAsset("user-1", "asset-1", ["app-1"]),
+			await findAppReferencesToAsset(PROJECT, "asset-1", ["app-1"]),
 		).toEqual([]);
 	});
 
 	it("returns empty for an empty candidate set without touching Firestore", async () => {
-		expect(await findAppReferencesToAsset("user-1", "asset-1", [])).toEqual([]);
+		expect(await findAppReferencesToAsset(PROJECT, "asset-1", [])).toEqual([]);
 		expect(loadApp).not.toHaveBeenCalled();
-		expect(listAppsByOwner).not.toHaveBeenCalled();
+		expect(listApps).not.toHaveBeenCalled();
 	});
 
 	it("skips the candidate named by skipAppId (without loading it)", async () => {
 		walkAssetRefs.mockReturnValue(logoRef);
 		const refs = await findAppReferencesToAsset(
-			"user-1",
+			PROJECT,
 			"asset-1",
 			["current"],
 			{
@@ -200,57 +204,46 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 		expect(loadApp).not.toHaveBeenCalled();
 	});
 
-	it("ignores a foreign-owned or deleted candidate", async () => {
-		loadApp.mockResolvedValue(appDoc({ owner: "user-2" })); // not the caller
+	it("ignores a deleted or foreign-Project candidate", async () => {
+		loadApp.mockResolvedValue(appDoc({ project_id: "project-2" })); // another Project
 		walkAssetRefs.mockReturnValue(logoRef);
 		expect(
-			await findAppReferencesToAsset("user-1", "asset-1", ["app-1"]),
+			await findAppReferencesToAsset(PROJECT, "asset-1", ["app-1"]),
 		).toEqual([]);
 	});
 });
 
 describe("findAppReferencesToAsset — full-scan fallback (candidates undefined)", () => {
-	it("pages the owner's apps when the asset row was never backfilled", async () => {
-		listAppsByOwner.mockResolvedValue({
-			apps: [appSummary("app-1", "App One")],
-		});
+	it("pages the Project's apps when the asset row was never backfilled", async () => {
+		listApps.mockResolvedValue({ apps: [appSummary("app-1", "App One")] });
 		loadApp.mockResolvedValue(appDoc());
 		walkAssetRefs.mockReturnValue(logoRef);
-		const refs = await findAppReferencesToAsset("user-1", "asset-1", undefined);
-		expect(listAppsByOwner).toHaveBeenCalled();
+		const refs = await findAppReferencesToAsset(PROJECT, "asset-1", undefined);
+		expect(listApps).toHaveBeenCalled();
 		expect(refs).toHaveLength(1);
 		expect(refs[0]).toContain("App One");
 		expect(refs[0]).toContain("the app logo");
 	});
 
 	it("returns empty when no app in the scan references the asset", async () => {
-		listAppsByOwner.mockResolvedValue({
-			apps: [appSummary("app-1", "App One")],
-		});
+		listApps.mockResolvedValue({ apps: [appSummary("app-1", "App One")] });
 		loadApp.mockResolvedValue(appDoc());
 		walkAssetRefs.mockReturnValue([]);
 		expect(
-			await findAppReferencesToAsset("user-1", "asset-1", undefined),
+			await findAppReferencesToAsset(PROJECT, "asset-1", undefined),
 		).toEqual([]);
 	});
 
 	it("skips the current app named by skipAppId during the scan", async () => {
 		// The SA tool checks its in-hand working doc separately, then scans every
 		// OTHER app — so a fallback scan must skip the current app even though
-		// listAppsByOwner returns it.
-		listAppsByOwner.mockResolvedValue({
-			apps: [appSummary("current", "Current")],
-		});
+		// listApps returns it.
+		listApps.mockResolvedValue({ apps: [appSummary("current", "Current")] });
 		loadApp.mockResolvedValue(appDoc({ app_name: "Current" }));
 		walkAssetRefs.mockReturnValue(logoRef);
-		const refs = await findAppReferencesToAsset(
-			"user-1",
-			"asset-1",
-			undefined,
-			{
-				skipAppId: "current",
-			},
-		);
+		const refs = await findAppReferencesToAsset(PROJECT, "asset-1", undefined, {
+			skipAppId: "current",
+		});
 		expect(refs).toEqual([]);
 		expect(loadApp).not.toHaveBeenCalled();
 	});
@@ -259,12 +252,14 @@ describe("findAppReferencesToAsset — full-scan fallback (candidates undefined)
 describe("purgeAssetStorage", () => {
 	it("deletes the row, the bytes, and the sibling keys when unshared", async () => {
 		await purgeAssetStorage(asset(), {
-			alsoDelete: ["users/user-1/asset-1.extract.v1.md"],
+			alsoDelete: ["projects/project-1/asset-1.extract.v1.md"],
 		});
 		expect(deleteAssetRow).toHaveBeenCalledWith("asset-1");
-		expect(deleteGcsObject).toHaveBeenCalledWith("users/user-1/asset-1.pdf");
 		expect(deleteGcsObject).toHaveBeenCalledWith(
-			"users/user-1/asset-1.extract.v1.md",
+			"projects/project-1/asset-1.pdf",
+		);
+		expect(deleteGcsObject).toHaveBeenCalledWith(
+			"projects/project-1/asset-1.extract.v1.md",
 		);
 	});
 
@@ -285,6 +280,8 @@ describe("purgeAssetStorage", () => {
 	it("skips null sibling keys (a non-document has no extract)", async () => {
 		await purgeAssetStorage(asset(), { alsoDelete: [null] });
 		expect(deleteGcsObject).toHaveBeenCalledTimes(1);
-		expect(deleteGcsObject).toHaveBeenCalledWith("users/user-1/asset-1.pdf");
+		expect(deleteGcsObject).toHaveBeenCalledWith(
+			"projects/project-1/asset-1.pdf",
+		);
 	});
 });

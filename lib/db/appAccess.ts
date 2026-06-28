@@ -143,3 +143,23 @@ export async function resolveProjectAccess(
 	assertCapability(role, required);
 	return { projectId, role, actorUserId: userId };
 }
+
+/**
+ * Boolean form of {@link resolveProjectAccess} — does `userId` hold `required`
+ * in `projectId`? For the media read/list sites, which authorize an asset by
+ * its `project_id` (Project membership) and want a 404-vs-serve decision, not a
+ * throw. Only an `AppAccessError` reads as "no"; any other error propagates.
+ */
+export async function userInProject(
+	userId: string,
+	projectId: string,
+	required: AppCapability,
+): Promise<boolean> {
+	try {
+		await resolveProjectAccess(userId, projectId, required);
+		return true;
+	} catch (err) {
+		if (err instanceof AppAccessError) return false;
+		throw err;
+	}
+}
