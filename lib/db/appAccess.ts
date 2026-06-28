@@ -62,6 +62,27 @@ async function projectRoleFor(
 	return row?.role ?? null;
 }
 
+/**
+ * Every Project id the user is a member of — the full reachability set that
+ * {@link resolveAppScope} authorizes app-by-app, materialized as a list for
+ * enumeration. The headless MCP surface lists across all of these (it has no
+ * "active Project" UI context), so an app the user can open by id is never
+ * invisible to `list_apps` / `search_apps`.
+ *
+ * The `(organizationId, userId)` unique index on `auth_member` makes one row
+ * per Project, so the result needs no dedupe. A user with no memberships (a
+ * not-yet-provisioned account) returns `[]`; callers treat that as "no apps".
+ */
+export async function listUserProjectIds(userId: string): Promise<string[]> {
+	const db = await getAuthDb();
+	const rows = await db
+		.selectFrom("auth_member")
+		.select("organizationId")
+		.where("userId", "=", userId)
+		.execute();
+	return rows.map((r) => r.organizationId);
+}
+
 /** Throws unless `userId` holds `required` on `projectId`. */
 function assertCapability(
 	role: string | null,

@@ -11,24 +11,26 @@
  * browse / paginate / filter-by-status / sort use this one.
  *
  * Returns id + name + status + updated_at per app plus an opaque
- * `next_cursor` when more pages exist. The user id from the verified
- * JWT is the owner filter — no ownership check and no `app_id` input,
- * both of which would be cross-tenant escape hatches.
+ * `next_cursor` when more pages exist. The verified-JWT user id resolves
+ * to the caller's enumeration scope — EVERY Project they're a member of
+ * (`enumerableProjectIds`), the same reachability the ownership gate
+ * grants `get_app` / the editing tools / `delete_app` — so an app the
+ * caller can open by id is never invisible here. There is no `app_id`
+ * input, which would be a cross-tenant escape hatch.
  *
  * Read-only; no event log or progress emitter needed. Soft-deleted
- * rows (`deleted_at != null`) are dropped by `listApps` at the
- * persistence boundary.
+ * rows (`deleted_at != null`) are dropped by the persistence boundary.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ensurePersonalProject } from "@/lib/auth/provisionProject";
-import { type AppSummary, listApps } from "@/lib/db/apps";
+import { type AppSummary, listAppsAcrossProjects } from "@/lib/db/apps";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
+import { enumerableProjectIds } from "../ownership";
 import type { ToolContext } from "../types";
 
 /**
@@ -104,11 +106,12 @@ export const listAppsInputSchema = {
 /**
  * Register the `list_apps` tool on an `McpServer`.
  *
- * The handler is a thin adapter: it trusts the JWT for ownership,
- * delegates the Firestore query to `listApps`, projects each row via
- * `toEntry`, and passes `nextCursor` through unchanged. Any error is
- * classified through the shared `toMcpErrorResult` surface so callers
- * see a uniform error envelope across every Nova tool.
+ * The handler is a thin adapter: it resolves the caller's enumeration
+ * scope (every Project they're a member of), delegates the Firestore
+ * query to `listAppsAcrossProjects`, projects each row via `toEntry`,
+ * and passes `nextCursor` through unchanged. Any error is classified
+ * through the shared `toMcpErrorResult` surface so callers see a uniform
+ * error envelope across every Nova tool.
  */
 export function registerListApps(server: McpServer, ctx: ToolContext): void {
 	server.registerTool(
@@ -120,10 +123,11 @@ export function registerListApps(server: McpServer, ctx: ToolContext): void {
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				/* MCP enumerates the caller's personal Project (the only Project
-				 * reachable over the user-scoped key today). */
-				const projectId = await ensurePersonalProject(ctx.userId);
-				const { apps, nextCursor } = await listApps(projectId, {
+				/* Enumerate across every Project the caller is a member of — the
+				 * same reachability the ownership gate grants the by-id tools, so
+				 * a shared-Project app is never invisible to enumeration. */
+				const projectIds = await enumerableProjectIds(ctx.userId);
+				const { apps, nextCursor } = await listAppsAcrossProjects(projectIds, {
 					limit: args.limit,
 					sort: args.sort,
 					status: args.status,

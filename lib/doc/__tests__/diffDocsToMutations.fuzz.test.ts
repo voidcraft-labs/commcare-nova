@@ -8,12 +8,24 @@
  *   stripDerived(produce(prev, d => applyMutations(d, diff(prev, next))))
  *     ≡ stripDerived(next)
  *
+ * The replay goes through the REAL persistence wire, not an in-memory
+ * shortcut: every emitted mutation is serialized via
+ * `JSON.parse(JSON.stringify({ mutations }))` (the `PUT /api/apps/[id]`
+ * body — which DROPS `undefined`-valued keys, the exact shape a clear must
+ * survive), re-parsed through `mutationSchema`, and the RE-PARSED mutations
+ * are what get applied. So the oracle proves not just "the diff replays"
+ * but "the diff replays after a JSON + schema round-trip" — the blind spot
+ * that let the null-vs-undefined clear bug slip past an in-memory replay.
+ *
  * `prev` is one random valid mutation batch off a seed doc; `next` is
  * ANOTHER random batch off `prev`. The two batches independently exercise
  * every diffable shape — add/remove/rename/convert/update/move at module,
  * form, and field level, plus app-name / connect / logo / case-types /
- * media. Both batches go through the SAME reducer the oracle replays the
- * diff with, so any state the reducer can produce is fair game (including
+ * media — and deliberately SET-then-CLEAR optional slots
+ * (`relevant`, a form's `purpose`, a module's `caseType`, every media
+ * slot, the logo) so the clear path is exercised, not just the set path.
+ * Both batches go through the SAME reducer the oracle replays the diff
+ * with, so any state the reducer can produce is fair game (including
  * shapes the commit gate would reject — the diff backs persistence, not
  * the gate).
  *
@@ -34,7 +46,7 @@ import {
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
-import type { Mutation } from "@/lib/doc/types";
+import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
 
@@ -222,13 +234,20 @@ type FuzzOp =
 			fieldPick: number;
 			relevantPick: number;
 			labelPick: number;
+			clearRelevant: boolean;
 	  }
 	| { kind: "setFieldMedia"; fieldPick: number; clear: boolean }
 	| { kind: "addForm"; modulePick: number; ftype: number }
 	| { kind: "removeForm"; formPick: number }
 	| { kind: "moveForm"; formPick: number; modulePick: number; index: number }
 	| { kind: "renameForm"; formPick: number; namePick: number }
-	| { kind: "updateForm"; formPick: number; purposePick: number }
+	| {
+			kind: "updateForm";
+			formPick: number;
+			purposePick: number;
+			clearPurpose: boolean;
+			closeConditionMode: number;
+	  }
 	| { kind: "setFormMedia"; formPick: number; clear: boolean }
 	| { kind: "addModule"; caseTypePick: number; namePick: number }
 	| { kind: "removeModule"; modulePick: number }
@@ -293,6 +312,7 @@ const opArb: fc.Arbitrary<FuzzOp> = fc.oneof(
 				fieldPick: fc.nat({ max: 40 }),
 				relevantPick: fc.nat({ max: XPATH_POOL.length - 1 }),
 				labelPick: fc.nat({ max: LABEL_POOL.length - 1 }),
+				clearRelevant: fc.boolean(),
 			})
 			.map((r) => ({ kind: "updateField" as const, ...r })),
 	},
@@ -333,7 +353,12 @@ const opArb: fc.Arbitrary<FuzzOp> = fc.oneof(
 	{
 		weight: 2,
 		arbitrary: fc
-			.record({ formPick: fc.nat({ max: 8 }), purposePick: fc.nat({ max: 3 }) })
+			.record({
+				formPick: fc.nat({ max: 8 }),
+				purposePick: fc.nat({ max: 3 }),
+				clearPurpose: fc.boolean(),
+				closeConditionMode: fc.nat({ max: 2 }),
+			})
 			.map((r) => ({ kind: "updateForm" as const, ...r })),
 	},
 	{
@@ -516,17 +541,19 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			if (!uuid) return [];
 			const kind = doc.fields[uuid]?.kind;
 			if (kind !== "text") return [];
+			// `clearRelevant` drops a previously-set `relevant` (the clearable
+			// optional slot) via an explicit `null`, the wire shape of a clear —
+			// so a later batch that re-sets it (or this batch clearing what an
+			// earlier op set) exercises the diff's set→clear path, not just set.
 			return [
 				{
 					kind: "updateField",
 					uuid,
 					targetKind: "text",
 					patch: {
-						relevant: parseXPathForField(
-							doc,
-							uuid,
-							XPATH_POOL[op.relevantPick],
-						),
+						relevant: op.clearRelevant
+							? null
+							: parseXPathForField(doc, uuid, XPATH_POOL[op.relevantPick]),
 						label: LABEL_POOL[op.labelPick],
 					},
 				} as Mutation,
@@ -579,14 +606,25 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 		case "updateForm": {
 			const uuid = pickForm(doc, op.formPick);
 			if (!uuid) return [];
+			// Two clearable optional slots driven together so set→clear is
+			// exercised across batches: `purpose` (set, or `null`-cleared) and
+			// `closeCondition` (set to a condition over a field the form holds,
+			// `null`-cleared, or left alone). The `null` is the wire shape of a
+			// clear — `JSON.stringify` drops `undefined`, so only `null`
+			// survives the persistence wire the oracle replays.
+			const patch: Record<string, unknown> = {};
 			const purpose = PURPOSE_POOL[op.purposePick];
-			return [
-				{
-					kind: "updateForm",
-					uuid,
-					patch: purpose === "" ? {} : { purpose },
-				},
-			];
+			if (op.clearPurpose) patch.purpose = null;
+			else if (purpose !== "") patch.purpose = purpose;
+			if (op.closeConditionMode === 1) {
+				patch.closeCondition = null;
+			} else if (op.closeConditionMode === 2) {
+				const fieldUuid = (doc.fieldOrder[uuid] ?? [])[0];
+				if (fieldUuid !== undefined) {
+					patch.closeCondition = { field: fieldUuid, answer: "yes" };
+				}
+			}
+			return [{ kind: "updateForm", uuid, patch: patch as never }];
 		}
 		case "setFormMedia": {
 			const uuid = pickForm(doc, op.formPick);
@@ -688,11 +726,32 @@ function applyOps(doc: BlueprintDoc, ops: FuzzOp[]): BlueprintDoc {
 	return cur;
 }
 
-/** The diff replayed on `prev` must equal `next` on the persistable shape. */
+/**
+ * The diff replayed on `prev` must equal `next` on the persistable shape —
+ * replayed through the REAL wire, not in memory. Each emitted mutation is
+ * serialized via `JSON.parse(JSON.stringify({ mutations }))` (the `PUT`
+ * body, which drops `undefined`-valued keys) and re-parsed through
+ * `mutationSchema` (asserting every one parses); the RE-PARSED mutations
+ * are what get applied. This catches a clear that lowers to
+ * `{ key: undefined }` — gone after JSON, a no-op that silently keeps the
+ * stale value — and any payload the schema rejects.
+ */
 function assertRoundTrip(prev: BlueprintDoc, next: BlueprintDoc): void {
 	const diff = diffDocsToMutations(prev, next);
+	const onWire = JSON.parse(JSON.stringify({ mutations: diff })) as {
+		mutations: unknown[];
+	};
+	const reparsed = onWire.mutations.map((m) => {
+		const result = mutationSchema.safeParse(m);
+		if (!result.success) {
+			throw new Error(
+				`emitted mutation failed mutationSchema: ${result.error.message}\n${JSON.stringify(m)}`,
+			);
+		}
+		return result.data;
+	});
 	const replayed = produce(prev, (draft) => {
-		applyMutations(draft, diff);
+		applyMutations(draft, reparsed as Mutation[]);
 	});
 	expect(toPersistableDoc(replayed)).toEqual(toPersistableDoc(next));
 }

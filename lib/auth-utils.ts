@@ -339,6 +339,16 @@ export async function resolveActiveProjectId(
 			return active;
 		} catch (err) {
 			if (!(err instanceof AppAccessError)) throw err;
+			// The stamped active Project is no longer accessible — membership
+			// was revoked since the session was minted. Fall through to the
+			// personal Project (secure: correctly scoped), but LOG it:
+			// otherwise the user's shared apps silently vanish from their list
+			// with no trace. The stale stamp clears on the next session
+			// re-mint; the Project switcher reflects the active Project.
+			log.warn(
+				"[auth] active Project no longer accessible — falling back to personal",
+				{ userId: session.user.id, staleProjectId: active },
+			);
 		}
 	}
 	return ensurePersonalProject(session.user.id);

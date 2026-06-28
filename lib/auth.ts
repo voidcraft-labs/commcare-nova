@@ -44,6 +44,10 @@ import { AUTH_TABLE_NAMES, ORGANIZATION_SCHEMA } from "./auth-schema-shared";
 import { getCaseStorePool } from "./case-store/postgres/connection";
 import { MCP_RESOURCE_URL } from "./hostnames";
 import { log } from "./logger";
+import {
+	INVITE_ALLOWED_DOMAINS,
+	isInvitableEmail,
+} from "./projects/invitePolicy";
 
 /**
  * OAuth scopes Nova's authorization server can grant.
@@ -758,6 +762,21 @@ async function createAuth() {
 				membershipLimit: MEMBERSHIP_LIMIT,
 				teams: { enabled: false },
 				schema: ORGANIZATION_SCHEMA,
+				organizationHooks: {
+					/* Domain-gate every invitation at creation: a Project may only
+					 * invite dimagi addresses. This is the enforced control behind
+					 * `isInvitableEmail` — belt-and-suspenders over the sign-in
+					 * allowlist (a non-allowlisted invitee could never accept, but
+					 * rejecting up front keeps the members UI + audit honest).
+					 * Throwing an `APIError` aborts the create with a 400. */
+					beforeCreateInvitation: async ({ invitation }) => {
+						if (!isInvitableEmail(invitation.email)) {
+							throw new APIError("BAD_REQUEST", {
+								message: `Invitations are limited to ${INVITE_ALLOWED_DOMAINS.join(" and ")} email addresses.`,
+							});
+						}
+					},
+				},
 				sendInvitationEmail: async (data) => {
 					log.info("[auth] organization invitation created", {
 						organizationId: data.organization.id,

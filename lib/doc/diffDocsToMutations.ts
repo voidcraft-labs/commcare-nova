@@ -278,6 +278,24 @@ function reconcileOrder(
 	return out;
 }
 
+// ── Parent reverse index ─────────────────────────────────────────────
+//
+// `BlueprintDoc.fieldParent` materializes child → parent, but the diff's
+// inputs are `toPersistableDoc` snapshots that strip it, so it's rebuilt
+// here from `fieldOrder`. Built ONCE per diff per doc and threaded to the
+// ancestor / evacuation helpers — a per-call scan of `fieldOrder` would be
+// O(fields) on every lookup, O(fields²) over a field-heavy doc.
+
+function buildParentMap(doc: BlueprintDoc): Map<Uuid, Uuid> {
+	const parentByChild = new Map<Uuid, Uuid>();
+	for (const [parentUuid, order] of Object.entries(doc.fieldOrder)) {
+		for (const childUuid of order) {
+			parentByChild.set(childUuid as Uuid, parentUuid as Uuid);
+		}
+	}
+	return parentByChild;
+}
+
 // ── Field tree walk (parent-before-child) ────────────────────────────
 //
 // Pre-order over `next`'s field tree under a given parent uuid, yielding
@@ -341,11 +359,17 @@ export function diffDocsToMutations(
 	const removedModuleSet = new Set(moduleDelta.removed);
 	const removedFormSet = new Set(formDelta.removed);
 
+	// Child → parent reverse indexes, built once and threaded to the
+	// ancestor / evacuation helpers (the inputs are persistable snapshots
+	// with no derived `fieldParent`).
+	const prevParentMap = buildParentMap(prev);
+	const nextParentMap = buildParentMap(next);
+
 	// Field structural reconciliation (adds + moves) — computed up front so
 	// the field-update loop can force-pin the `id` of every cross-parent-
 	// moved field (undoing any `moveField` sibling-id dedup). Its mutations
 	// are emitted later, in the phase order.
-	const fieldTree = reconcileFieldTree(prev, next, fieldDelta);
+	const fieldTree = reconcileFieldTree(prev, next, fieldDelta, nextParentMap);
 
 	// (2) Removes — top survivors only.
 	//
@@ -365,7 +389,7 @@ export function diffDocsToMutations(
 		removes.push({ kind: "removeForm", uuid });
 	}
 	for (const uuid of fieldDelta.removed) {
-		if (fieldRemovedByAncestor(prev, uuid, next)) continue;
+		if (fieldRemovedByAncestor(uuid, next, prevParentMap)) continue;
 		removes.push({ kind: "removeField", uuid });
 	}
 
@@ -673,23 +697,15 @@ function ownerModuleOfForm(
  * evacuated survivor) is in `next`.
  */
 function fieldRemovedByAncestor(
-	doc: BlueprintDoc,
 	fieldUuid: Uuid,
 	next: BlueprintDoc,
+	prevParentMap: ReadonlyMap<Uuid, Uuid>,
 ): boolean {
-	const parent = parentOf(doc, fieldUuid);
+	const parent = prevParentMap.get(fieldUuid);
 	if (parent === undefined) return false;
 	// Cascaded iff the parent does NOT survive — a removed form/container
 	// parent owns the cascade; a surviving parent does not.
 	return next.forms[parent] === undefined && next.fields[parent] === undefined;
-}
-
-/** The parent uuid (form or container field) of `childUuid` in `doc`. */
-function parentOf(doc: BlueprintDoc, childUuid: Uuid): Uuid | undefined {
-	for (const [parentUuid, order] of Object.entries(doc.fieldOrder)) {
-		if (order.includes(childUuid)) return parentUuid as Uuid;
-	}
-	return undefined;
 }
 
 // ── Order reconciliation per module / parent ─────────────────────────
@@ -858,6 +874,7 @@ function reconcileFieldTree(
 	prev: BlueprintDoc,
 	next: BlueprintDoc,
 	fieldDelta: SetDelta,
+	nextParentMap: ReadonlyMap<Uuid, Uuid>,
 ): {
 	evacuations: Mutation[];
 	rest: Mutation[];
@@ -900,7 +917,7 @@ function reconcileFieldTree(
 		if (!isDoomedParent(parentUuid)) continue;
 		for (const fieldUuid of order) {
 			if (removedFieldSet.has(fieldUuid)) continue; // genuinely removed
-			const dest = nextParentOf(next, fieldUuid);
+			const dest = nextParentMap.get(fieldUuid);
 			if (dest === undefined) continue; // not reachable in next (shouldn't happen for a survivor)
 			const destArr = ensureArray(working, dest);
 			evacuations.push({
@@ -974,14 +991,6 @@ function findFieldParentInWorking(
 	fieldUuid: Uuid,
 ): Uuid | undefined {
 	for (const [parentUuid, order] of Object.entries(working)) {
-		if (order.includes(fieldUuid)) return parentUuid as Uuid;
-	}
-	return undefined;
-}
-
-/** The parent uuid (form or container) of `fieldUuid` in `next`. */
-function nextParentOf(next: BlueprintDoc, fieldUuid: Uuid): Uuid | undefined {
-	for (const [parentUuid, order] of Object.entries(next.fieldOrder)) {
 		if (order.includes(fieldUuid)) return parentUuid as Uuid;
 	}
 	return undefined;

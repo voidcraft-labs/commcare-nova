@@ -12,7 +12,11 @@
  */
 
 import type { AppCapability } from "@/lib/auth/projectRoles";
-import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
+import {
+	AppAccessError,
+	listUserProjectIds,
+	resolveAppScope,
+} from "@/lib/db/appAccess";
 
 /**
  * Two-value union of INTERNAL ownership-gate rejection reasons. Kept
@@ -78,4 +82,28 @@ export function rethrowAsMcpAccess(err: unknown): never {
 		);
 	}
 	throw err;
+}
+
+/**
+ * Firestore's `in` disjunction caps at 30 values, so a cross-Project
+ * enumeration scan spans at most this many Projects. A single user belonging to
+ * more than 30 Projects is far outside Nova's small-team shape; the bound never
+ * bites in practice and keeps `list_apps` / `search_apps` to one Firestore query
+ * with the full cursor contract intact.
+ */
+const MAX_ENUMERATED_PROJECTS = 30;
+
+/**
+ * Resolve the headless MCP caller's enumeration scope: every Project they're a
+ * member of, bounded to {@link MAX_ENUMERATED_PROJECTS}. This is exactly the
+ * reachability {@link requireOwnedApp} authorizes app-by-app, so `list_apps` /
+ * `search_apps` enumerate precisely what `get_app` / the editing tools /
+ * `delete_app` can open — an app the user can reach by id is never invisible.
+ *
+ * An MCP key is headless (no "active Project" UI context), so "everything you
+ * can access" is the correct scope rather than any single Project.
+ */
+export async function enumerableProjectIds(userId: string): Promise<string[]> {
+	const projectIds = await listUserProjectIds(userId);
+	return projectIds.slice(0, MAX_ENUMERATED_PROJECTS);
 }

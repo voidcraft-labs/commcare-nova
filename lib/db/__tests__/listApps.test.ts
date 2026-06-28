@@ -282,3 +282,52 @@ describe("listApps", () => {
 		).rejects.toThrow(/Cursor was minted/);
 	});
 });
+
+describe("listAppsAcrossProjects", () => {
+	beforeEach(() => {
+		selectMock.mockClear();
+		getMock.mockReset();
+		(queryMock.where as ReturnType<typeof vi.fn>).mockClear();
+		(queryMock.orderBy as ReturnType<typeof vi.fn>).mockClear();
+		(queryMock.limit as ReturnType<typeof vi.fn>).mockClear();
+		(queryMock.startAfter as ReturnType<typeof vi.fn>).mockClear();
+	});
+
+	it("scopes the scan to the membership set via where('project_id', 'in', ids) — the cross-Project MCP enumeration", async () => {
+		/* The headless MCP enumeration spans every Project the caller is a
+		 * member of. A list scope is an `in` disjunction (not `==`), so the one
+		 * query covers them all while Firestore applies the global orderBy +
+		 * limit + cursor over the merged result. The soft-delete filter still
+		 * binds at the query layer, identical to the single-Project path. */
+		getMock.mockResolvedValueOnce({ docs: [], size: 0 });
+
+		const { listAppsAcrossProjects } = await import("../apps");
+		await listAppsAcrossProjects(["proj-a", "proj-b"], {
+			limit: 50,
+			sort: "updated_desc",
+		});
+
+		const whereCalls = (queryMock.where as ReturnType<typeof vi.fn>).mock.calls;
+		expect(whereCalls).toContainEqual([
+			"project_id",
+			"in",
+			["proj-a", "proj-b"],
+		]);
+		expect(whereCalls).toContainEqual(["deleted_at", "==", null]);
+	});
+
+	it("returns an empty page WITHOUT querying when the caller belongs to no Projects", async () => {
+		/* An empty membership set can't be an `in` filter (Firestore rejects
+		 * `in []`), and there's nothing to scan anyway — short-circuit to an
+		 * empty page so a not-yet-provisioned account reads as "no apps" rather
+		 * than throwing. No Firestore call must be issued. */
+		const { listAppsAcrossProjects } = await import("../apps");
+		const result = await listAppsAcrossProjects([], {
+			limit: 50,
+			sort: "updated_desc",
+		});
+
+		expect(result).toEqual({ apps: [] });
+		expect(getMock).not.toHaveBeenCalled();
+	});
+});

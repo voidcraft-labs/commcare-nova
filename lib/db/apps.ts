@@ -1397,7 +1397,7 @@ function projectAppSummary(
  */
 async function queryAppsByScope(
 	scopeField: "owner" | "project_id",
-	scopeValue: string,
+	scopeValue: string | readonly string[],
 	options: ListAppsOptions,
 ): Promise<ListAppsResult> {
 	const { limit, sort, status, cursor } = options;
@@ -1408,7 +1408,12 @@ async function queryAppsByScope(
 	 * on the way out. */
 	let query: FirebaseFirestore.Query = getDb()
 		.collection("apps")
-		.where(scopeField, "==", scopeValue)
+		/* A single scope value is an equality match; a list (the multi-Project
+		 * MCP enumeration) is an `in` disjunction. Firestore serves both off the
+		 * same `(scope, deleted_at, sort_field, __name__)` composite index and
+		 * applies the global orderBy + limit + startAfter cursor across the merged
+		 * result, so the pagination contract is identical either way. */
+		.where(scopeField, Array.isArray(scopeValue) ? "in" : "==", scopeValue)
 		/* `createApp` writes `deleted_at: null` on every new doc, so this
 		 * equality filter matches every live app — no missing-field rows
 		 * to leak. See the function docblock for the rationale. */
@@ -1519,77 +1524,121 @@ export function listAppsByOwner(
 }
 
 /**
- * Search a user's apps by name with fuzzy matching.
+ * List apps across SEVERAL Projects in one scan — the headless MCP enumeration
+ * scope, where `projectIds` is every Project the caller is a member of (the same
+ * reachability {@link resolveAppScope} grants app-by-app, so nothing the user
+ * can open by id is invisible to enumeration). An empty list returns an empty
+ * page without a query.
  *
- * Composes on top of `listApps` rather than running its own Firestore
- * query: `listApps` is the single canonical surface that owns soft-
- * delete stripping, stale-`generating` reaping, index usage, and
- * partial-field projection. Mirroring any of that here would be a
- * drift risk. Fuse.js runs over the `listApps` page in memory, ranking
- * results by relevance (edit-distance-based scoring via the Bitap
- * algorithm) — which is also why `searchApps` has no `sort` option:
- * relevance IS the ordering.
- *
- * Pagination semantics: one `listApps` call per `searchApps` call (no
- * internal looping). `searchApps` over-fetches by `SEARCH_FETCH_BUFFER`
- * rows so a typical query produces a full page in one round trip. When
- * Fuse returns fewer than `limit` matches and `listApps` still has
- * more to scan, the underlying `listApps.nextCursor` is passed through —
- * the caller re-calls with it to search the next batch. Total matches
- * across multiple calls are bounded by what the user actually has.
- *
- * The scan uses `sort: "updated_desc"` internally — searching the
- * newest apps first gives the best average-case latency for "find my
- * recent X" queries, which is the dominant search intent. A user who
- * wants to find an old app by name will traverse more pages; they may,
- * because the cursor works.
- *
- * When Nova's per-user app count grows beyond the buffer's reach, this
- * function is the single site to swap the in-memory Fuse filter for a
- * search index (Algolia / Typesense / trigram-denormalized storage).
- * The tool schema + cursor contract on the outside remains the same.
+ * Runs ONE `in`-scoped `queryAppsByScope`, so the sort, limit, and cursor
+ * contract are identical to the single-Project `listApps`. Firestore caps the
+ * `in` disjunction at 30 values; callers pass at most that many (see the MCP
+ * tools), a bound that does not bite for Nova's small-team Project sizes.
  */
-export async function searchApps(
+export function listAppsAcrossProjects(
+	projectIds: readonly string[],
+	options: ListAppsOptions,
+): Promise<ListAppsResult> {
+	if (projectIds.length === 0) return Promise.resolve({ apps: [] });
+	return queryAppsByScope("project_id", projectIds, options);
+}
+
+/**
+ * Search a single Project's apps by name with fuzzy matching — the tenancy
+ * search (web UI). Composes over `listApps` through the shared
+ * {@link rankSearchOverPage} core, which owns the over-fetch buffer, Fuse
+ * relevance ranking, and cursor passthrough.
+ */
+export function searchApps(
 	projectId: string,
 	options: SearchAppsOptions,
 ): Promise<SearchAppsResult> {
-	const { query, limit, status, cursor } = options;
+	return rankSearchOverPage((scan) => listApps(projectId, scan), options);
+}
 
-	const page = await listApps(projectId, {
+/**
+ * Fuzzy-search across EVERY Project the caller is a member of — the headless MCP
+ * search scope, the search twin of {@link listAppsAcrossProjects}. Same
+ * reachability set as `get_app` / the editing tools, so a remembered-by-name app
+ * in a shared Project is findable here. Shares the Fuse ranking + cursor-
+ * passthrough with `searchApps`; only the underlying scan differs.
+ */
+export function searchAppsAcrossProjects(
+	projectIds: readonly string[],
+	options: SearchAppsOptions,
+): Promise<SearchAppsResult> {
+	return rankSearchOverPage(
+		(scan) => listAppsAcrossProjects(projectIds, scan),
+		options,
+	);
+}
+
+/**
+ * The shared search core: over-fetch one scan page, rank it with Fuse, take the
+ * caller's `limit`, and pass the scan's cursor through. `scanPage` abstracts
+ * which list scan backs the search (single Project or the cross-Project `in`
+ * scan) so `searchApps` and `searchAppsAcrossProjects` differ only in that
+ * backing call — the relevance ordering, over-fetch buffer, and cursor semantics
+ * are defined once here.
+ *
+ * Composing over a list scan (rather than a bespoke query) means the scan owns
+ * soft-delete stripping, stale-`generating` reaping, index usage, and partial-
+ * field projection — mirroring any of that here would be a drift risk. Fuse runs
+ * in memory and ranks by relevance (Bitap edit-distance scoring), which is why
+ * the search surfaces expose no `sort`: relevance IS the ordering.
+ *
+ * Pagination: ONE scan per call (no internal looping), over-fetching by
+ * `SEARCH_FETCH_BUFFER` so a typical query fills a page in one round trip. When
+ * Fuse returns fewer than `limit` matches and the scan still has more rows, the
+ * scan's `nextCursor` passes through and the caller re-calls to search the next
+ * batch. The scan sorts `updated_desc` — searching newest-first gives the best
+ * average-case latency for the dominant "find my recent X" intent; an old app is
+ * still reachable across more pages because the cursor works.
+ *
+ * When per-Project app counts grow beyond the buffer's reach, this is the single
+ * site to swap the in-memory Fuse filter for a search index (Algolia / Typesense
+ * / trigram-denormalized storage); the tool schema + cursor contract stay put.
+ */
+function rankSearchOverPage(
+	scanPage: (scan: ListAppsOptions) => Promise<ListAppsResult>,
+	options: SearchAppsOptions,
+): Promise<SearchAppsResult> {
+	const { query, limit, status, cursor } = options;
+	return scanPage({
 		limit: limit + SEARCH_FETCH_BUFFER,
 		sort: "updated_desc",
 		status,
 		cursor,
+	}).then((page) => {
+		/* Fuse configured for anywhere-in-string fuzzy substring matching.
+		 * `ignoreLocation` disables the default preference for matches near
+		 * the start of the string — users search for "vaccine" expecting to
+		 * find "COVID Vaccine Tracker". `includeScore` is on so we could
+		 * threshold further if needed; `threshold` already does most of that
+		 * work up front. */
+		const fuse = new Fuse(page.apps, {
+			keys: ["app_name"],
+			threshold: FUSE_THRESHOLD,
+			ignoreLocation: true,
+			includeScore: true,
+		});
+
+		/* Fuse returns results sorted best-first by its relevance score.
+		 * Take the first `limit` — extras (beyond `limit`) are effectively
+		 * discarded for this call; the caller can follow the cursor to get
+		 * more matches from the next scan page. */
+		const matches = fuse
+			.search(query)
+			.slice(0, limit)
+			.map((result) => result.item);
+
+		/* Cursor pass-through. A search call's "more available" signal is
+		 * identical to the underlying scan page's — if Firestore had more to
+		 * enumerate, there may be more matches to find; if not, the user has no
+		 * more apps to search. Passing the cursor through preserves that 1:1
+		 * semantic. */
+		return { apps: matches, nextCursor: page.nextCursor };
 	});
-
-	/* Fuse configured for anywhere-in-string fuzzy substring matching.
-	 * `ignoreLocation` disables the default preference for matches near
-	 * the start of the string — users search for "vaccine" expecting to
-	 * find "COVID Vaccine Tracker". `includeScore` is on so we could
-	 * threshold further if needed; `threshold` already does most of that
-	 * work up front. */
-	const fuse = new Fuse(page.apps, {
-		keys: ["app_name"],
-		threshold: FUSE_THRESHOLD,
-		ignoreLocation: true,
-		includeScore: true,
-	});
-
-	/* Fuse returns results sorted best-first by its relevance score.
-	 * Take the first `limit` — extras (beyond `limit`) are effectively
-	 * discarded for this call; the caller can follow the cursor to get
-	 * more matches from the next `listApps` page. */
-	const matches = fuse
-		.search(query)
-		.slice(0, limit)
-		.map((result) => result.item);
-
-	/* Cursor pass-through. A search call's "more available" signal is
-	 * identical to the underlying `listApps` page's — if Firestore had
-	 * more to enumerate, there may be more matches to find; if not, the
-	 * user has no more apps to search. Passing the cursor through
-	 * preserves that 1:1 semantic. */
-	return { apps: matches, nextCursor: page.nextCursor };
 }
 
 // ── Trash query ────────────────────────────────────────────────────

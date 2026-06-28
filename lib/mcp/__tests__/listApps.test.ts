@@ -6,20 +6,22 @@
  *     shape (`{ app_id, name, status, updated_at }` per entry).
  *   - Empty-list projection — `apps: []` rather than a null or missing
  *     key, so MCP clients can branch on `apps.length` unconditionally.
- *   - Pagination cursor pass-through — when `listApps` returns a
+ *   - Pagination cursor pass-through — when the scan returns a
  *     `nextCursor`, the wire response surfaces it as `next_cursor`;
  *     when it does not, the field is omitted (never null) so clients
  *     branch on key existence.
- *   - Input forwarding — the tool's decoded args are passed verbatim
- *     to the DB layer, so schema changes on either side surface as a
- *     typed compile error plus a red test rather than silent drift.
- *   - Error classification — a `listApps` throw surfaces as an MCP
+ *   - Scope + input forwarding — the tool enumerates EVERY Project the
+ *     caller is a member of (the membership read's result) and passes
+ *     the decoded args verbatim to the DB layer, so a shared-Project
+ *     app the by-id tools can open is never invisible to enumeration
+ *     and schema drift surfaces as a typed compile error plus a red test.
+ *   - Error classification — a scan throw surfaces as an MCP
  *     `isError: true` envelope with a populated `error_type`, never as
  *     an unhandled rejection.
  *
- * Soft-delete filtering lives at the persistence boundary (`listApps`
- * in `lib/db/apps.ts`), not here — this tool is a pure projection over
- * the already-filtered list.
+ * Soft-delete filtering lives at the persistence boundary
+ * (`listAppsAcrossProjects` in `lib/db/apps.ts`), not here — this tool
+ * is a pure projection over the already-filtered list.
  *
  * The MCP SDK is mocked at the boundary through the shared `fakeServer`
  * helper that captures the handler callback. Tests drive the adapter
@@ -27,22 +29,28 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { type AppSummary, type ListAppsResult, listApps } from "@/lib/db/apps";
+import { listUserProjectIds } from "@/lib/db/appAccess";
+import {
+	type AppSummary,
+	type ListAppsResult,
+	listAppsAcrossProjects,
+} from "@/lib/db/apps";
 import { registerListApps } from "../tools/listApps";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
 
 /* `vi.mock` is hoisted above imports so the mock installs before
- * `../tools/listApps` resolves `@/lib/db/apps`. Only `listApps` is
- * replaced — the rest of the module is untouched. */
+ * `../tools/listApps` resolves `@/lib/db/apps`. Only the multi-Project
+ * enumeration scan is replaced — the rest of the module is untouched. */
 vi.mock("@/lib/db/apps", () => ({
-	listApps: vi.fn(),
+	listAppsAcrossProjects: vi.fn(),
 }));
 
-/* The tool resolves the caller's personal Project before listing; stub it so
- * the unit test never touches the auth DB. */
-vi.mock("@/lib/auth/provisionProject", () => ({
-	ensurePersonalProject: vi.fn(async () => "proj-test"),
+/* The tool enumerates across every Project the caller is a member of; stub the
+ * membership read so the unit test never touches the auth DB. Two memberships
+ * exercise the cross-Project scope (a personal + a shared Project). */
+vi.mock("@/lib/db/appAccess", () => ({
+	listUserProjectIds: vi.fn(async () => ["proj-personal", "proj-shared"]),
 }));
 
 /* --- Helpers --------------------------------------------------------- */
@@ -73,7 +81,7 @@ function makeResult(apps: AppSummary[], nextCursor?: string): ListAppsResult {
 const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 
 beforeEach(() => {
-	vi.mocked(listApps).mockReset();
+	vi.mocked(listAppsAcrossProjects).mockReset();
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -104,7 +112,7 @@ describe("registerListApps — happy path", () => {
 				updated_at: "2026-04-18T00:00:00.000Z",
 			}),
 		];
-		vi.mocked(listApps).mockResolvedValueOnce(makeResult(rows));
+		vi.mocked(listAppsAcrossProjects).mockResolvedValueOnce(makeResult(rows));
 
 		const { server, capture } = makeFakeServer();
 		registerListApps(server, toolCtx);
@@ -144,8 +152,8 @@ describe("registerListApps — happy path", () => {
 		expect(parsed.next_cursor).toBeUndefined();
 	});
 
-	it("forwards decoded args to listApps so schema + DB stay in sync", async () => {
-		vi.mocked(listApps).mockResolvedValueOnce(makeResult([]));
+	it("enumerates the caller's full membership set and forwards decoded args", async () => {
+		vi.mocked(listAppsAcrossProjects).mockResolvedValueOnce(makeResult([]));
 
 		const { server, capture } = makeFakeServer();
 		registerListApps(server, toolCtx);
@@ -157,18 +165,26 @@ describe("registerListApps — happy path", () => {
 			sort: "name_asc",
 		});
 
-		expect(listApps).toHaveBeenCalledWith("proj-test", {
-			limit: 25,
-			cursor: "opaque-cursor",
-			status: "complete",
-			sort: "name_asc",
-		});
+		/* The scope is EVERY Project the caller is a member of — the membership
+		 * read's result, passed straight through — so a shared-Project app the
+		 * by-id tools can open is never invisible to enumeration. The decoded
+		 * args ride along verbatim so schema + DB stay in sync. */
+		expect(listUserProjectIds).toHaveBeenCalledWith("u1");
+		expect(listAppsAcrossProjects).toHaveBeenCalledWith(
+			["proj-personal", "proj-shared"],
+			{
+				limit: 25,
+				cursor: "opaque-cursor",
+				status: "complete",
+				sort: "name_asc",
+			},
+		);
 	});
 });
 
 describe("registerListApps — empty + pagination", () => {
 	it("returns an empty array rather than null or a missing key", async () => {
-		vi.mocked(listApps).mockResolvedValueOnce(makeResult([]));
+		vi.mocked(listAppsAcrossProjects).mockResolvedValueOnce(makeResult([]));
 
 		const { server, capture } = makeFakeServer();
 		registerListApps(server, toolCtx);
@@ -187,7 +203,7 @@ describe("registerListApps — empty + pagination", () => {
 				updated_at: "2026-04-20T00:00:00.000Z",
 			}),
 		];
-		vi.mocked(listApps).mockResolvedValueOnce(
+		vi.mocked(listAppsAcrossProjects).mockResolvedValueOnce(
 			makeResult(rows, "encoded-cursor-v1"),
 		);
 
@@ -205,12 +221,14 @@ describe("registerListApps — empty + pagination", () => {
 	});
 });
 
-describe("registerListApps — listApps throws", () => {
+describe("registerListApps — the scan throws", () => {
 	it("surfaces as an MCP error envelope with a populated error_type", async () => {
 		/* A Firestore outage or a timing anomaly in the query surfaces
 		 * via the shared error classifier. The envelope must carry
 		 * `isError: true` and a non-empty `error_type`. */
-		vi.mocked(listApps).mockRejectedValueOnce(new Error("firestore down"));
+		vi.mocked(listAppsAcrossProjects).mockRejectedValueOnce(
+			new Error("firestore down"),
+		);
 
 		const { server, capture } = makeFakeServer();
 		registerListApps(server, toolCtx);

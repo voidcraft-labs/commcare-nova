@@ -4,13 +4,15 @@
  * Verifies the load-bearing behaviors of the MCP search tool:
  *   - Happy-path projection — each `AppSummary` match becomes a
  *     `{ app_id, name, status, updated_at }` wire entry, in the
- *     relevance order `searchApps` returned.
+ *     relevance order the scan returned.
  *   - Empty result — `apps: []` rather than a null or missing key.
  *   - Pagination cursor pass-through — `nextCursor` → `next_cursor`;
  *     absent when the DB layer returns none.
- *   - Input forwarding — the tool's decoded args are passed verbatim
- *     to `searchApps`, so schema + DB stay in lockstep.
- *   - Error classification — a `searchApps` throw surfaces as an MCP
+ *   - Scope + input forwarding — the tool searches EVERY Project the
+ *     caller is a member of (the membership read's result) and passes
+ *     the decoded args verbatim to `searchAppsAcrossProjects`, so a
+ *     shared-Project app is findable and schema + DB stay in lockstep.
+ *   - Error classification — a scan throw surfaces as an MCP
  *     `isError: true` envelope with a populated `error_type`.
  *
  * Does NOT test fuzzy-match semantics here — that's behavior inside
@@ -19,23 +21,25 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { listUserProjectIds } from "@/lib/db/appAccess";
 import {
 	type AppSummary,
 	type SearchAppsResult,
-	searchApps,
+	searchAppsAcrossProjects,
 } from "@/lib/db/apps";
 import { registerSearchApps } from "../tools/searchApps";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
 
 vi.mock("@/lib/db/apps", () => ({
-	searchApps: vi.fn(),
+	searchAppsAcrossProjects: vi.fn(),
 }));
 
-/* The tool resolves the caller's personal Project before searching; stub it so
- * the unit test never touches the auth DB. */
-vi.mock("@/lib/auth/provisionProject", () => ({
-	ensurePersonalProject: vi.fn(async () => "proj-test"),
+/* The tool searches across every Project the caller is a member of; stub the
+ * membership read so the unit test never touches the auth DB. Two memberships
+ * exercise the cross-Project scope (a personal + a shared Project). */
+vi.mock("@/lib/db/appAccess", () => ({
+	listUserProjectIds: vi.fn(async () => ["proj-personal", "proj-shared"]),
 }));
 
 /* --- Helpers --------------------------------------------------------- */
@@ -63,7 +67,7 @@ function makeResult(apps: AppSummary[], nextCursor?: string): SearchAppsResult {
 const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 
 beforeEach(() => {
-	vi.mocked(searchApps).mockReset();
+	vi.mocked(searchAppsAcrossProjects).mockReset();
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -87,7 +91,7 @@ describe("registerSearchApps — happy path", () => {
 				updated_at: "2026-04-10T00:00:00.000Z",
 			}),
 		];
-		vi.mocked(searchApps).mockResolvedValueOnce(makeResult(rows));
+		vi.mocked(searchAppsAcrossProjects).mockResolvedValueOnce(makeResult(rows));
 
 		const { server, capture } = makeFakeServer();
 		registerSearchApps(server, toolCtx);
@@ -117,8 +121,8 @@ describe("registerSearchApps — happy path", () => {
 		expect(parsed.next_cursor).toBeUndefined();
 	});
 
-	it("forwards decoded args to searchApps so schema + DB stay in sync", async () => {
-		vi.mocked(searchApps).mockResolvedValueOnce(makeResult([]));
+	it("searches the caller's full membership set and forwards decoded args", async () => {
+		vi.mocked(searchAppsAcrossProjects).mockResolvedValueOnce(makeResult([]));
 
 		const { server, capture } = makeFakeServer();
 		registerSearchApps(server, toolCtx);
@@ -130,18 +134,25 @@ describe("registerSearchApps — happy path", () => {
 			status: "complete",
 		});
 
-		expect(searchApps).toHaveBeenCalledWith("proj-test", {
-			query: "tracker",
-			limit: 25,
-			cursor: "opaque-cursor",
-			status: "complete",
-		});
+		/* Scope mirrors `list_apps` — EVERY Project the caller is a member of —
+		 * so a shared-Project app the caller remembers by name is findable. The
+		 * decoded args ride along verbatim so schema + DB stay in lockstep. */
+		expect(listUserProjectIds).toHaveBeenCalledWith("u1");
+		expect(searchAppsAcrossProjects).toHaveBeenCalledWith(
+			["proj-personal", "proj-shared"],
+			{
+				query: "tracker",
+				limit: 25,
+				cursor: "opaque-cursor",
+				status: "complete",
+			},
+		);
 	});
 });
 
 describe("registerSearchApps — empty + pagination", () => {
 	it("returns an empty array rather than null or a missing key", async () => {
-		vi.mocked(searchApps).mockResolvedValueOnce(makeResult([]));
+		vi.mocked(searchAppsAcrossProjects).mockResolvedValueOnce(makeResult([]));
 
 		const { server, capture } = makeFakeServer();
 		registerSearchApps(server, toolCtx);
@@ -160,7 +171,7 @@ describe("registerSearchApps — empty + pagination", () => {
 				updated_at: "2026-04-20T00:00:00.000Z",
 			}),
 		];
-		vi.mocked(searchApps).mockResolvedValueOnce(
+		vi.mocked(searchAppsAcrossProjects).mockResolvedValueOnce(
 			makeResult(rows, "encoded-cursor-v1"),
 		);
 
@@ -178,9 +189,11 @@ describe("registerSearchApps — empty + pagination", () => {
 	});
 });
 
-describe("registerSearchApps — searchApps throws", () => {
+describe("registerSearchApps — the scan throws", () => {
 	it("surfaces as an MCP error envelope with a populated error_type", async () => {
-		vi.mocked(searchApps).mockRejectedValueOnce(new Error("firestore down"));
+		vi.mocked(searchAppsAcrossProjects).mockRejectedValueOnce(
+			new Error("firestore down"),
+		);
 
 		const { server, capture } = makeFakeServer();
 		registerSearchApps(server, toolCtx);
