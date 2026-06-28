@@ -9,7 +9,8 @@
  * group keeps the suppression structural — no pathname checks.
  */
 import { AppHeader } from "@/components/ui/AppHeader";
-import { getSession } from "@/lib/auth-utils";
+import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
+import { listUserProjects } from "@/lib/projects/membership";
 
 export default async function SiteLayout({
 	children,
@@ -27,12 +28,24 @@ export default async function SiteLayout({
 		? { userName: session.user.name, userEmail: session.user.email }
 		: null;
 
+	/* The Projects the header switcher offers + which one is active. Resolved
+	 * server-side (same `resolveActiveProjectId` the app list scopes on) so the
+	 * switcher renders the right selection with no client fetch flicker. */
+	const [projects, activeProjectId] = session
+		? await Promise.all([
+				listUserProjects(session.user.id),
+				resolveActiveProjectId(session),
+			])
+		: [[], null];
+
 	return (
 		<>
 			<AppHeader
 				isAdmin={isAdmin}
 				isAuthenticated={!!session}
 				impersonating={impersonating}
+				projects={projects}
+				activeProjectId={activeProjectId}
 			/>
 			<div id="main-content" className="flex-1 overflow-auto">
 				{children}

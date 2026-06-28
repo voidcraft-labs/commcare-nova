@@ -18,6 +18,8 @@ import { AccountMenu } from "@/components/ui/AccountMenu";
 import { HeaderNavLinks } from "@/components/ui/HeaderNav";
 import { ImpersonationBanner } from "@/components/ui/ImpersonationBanner";
 import { Logo } from "@/components/ui/Logo";
+import { ProjectSwitcher } from "@/components/ui/ProjectSwitcher";
+import type { ProjectSummary } from "@/lib/projects/membership";
 
 const FEEDBACK_FORM_URL =
 	"https://docs.google.com/forms/d/e/1FAIpQLSdUHQuE9kYhG-py9pojdCDc5ChSrl2LnhLofY4kDlOQi6ghGw/viewform";
@@ -49,12 +51,18 @@ interface AppHeaderProps {
 	isAuthenticated: boolean;
 	/** Active impersonation info, or null when viewing as yourself. */
 	impersonating: ImpersonationState | null;
+	/** Every Project the user belongs to — backs the switcher. */
+	projects: ProjectSummary[];
+	/** The active Project id (the tenancy scope), or null when unauthenticated. */
+	activeProjectId: string | null;
 }
 
 export function AppHeader({
 	isAdmin,
 	isAuthenticated,
 	impersonating,
+	projects,
+	activeProjectId,
 }: AppHeaderProps) {
 	/* Landing page (unauthenticated) — no header. */
 	if (!isAuthenticated) return null;
@@ -81,6 +89,10 @@ export function AppHeader({
 			) : null}
 
 			<div className="ml-auto flex items-center gap-2">
+				<ProjectSwitcher
+					projects={projects}
+					activeProjectId={activeProjectId}
+				/>
 				<a
 					{...DOCS_LINK_PROPS}
 					className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none"

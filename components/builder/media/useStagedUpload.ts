@@ -66,6 +66,9 @@ export function useStagedSlotUpload(
 				signal: controller.signal,
 				onProgress: (fraction) =>
 					session.getState().setStagedUploadProgress(slotKey, fraction),
+				// Land the asset in the app owner's shared namespace so every
+				// Project member draws from one pool (and compile resolves it).
+				appId: actions.appId,
 			}).then(
 				async (asset) => {
 					/* Confirm flipped the row to ready. Budget BEFORE dispatch:

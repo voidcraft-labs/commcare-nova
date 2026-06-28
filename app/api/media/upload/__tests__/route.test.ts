@@ -25,14 +25,24 @@ const {
 	createPendingAssetMock,
 	findReadyAssetByOwnerAndHashMock,
 	createSignedUploadUrlMock,
+	resolveMediaOwnerMock,
 } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
 	createPendingAssetMock: vi.fn(),
 	findReadyAssetByOwnerAndHashMock: vi.fn(),
 	createSignedUploadUrlMock: vi.fn(),
+	// Mirror the real `resolveMediaOwner`: an app upload scopes to the app
+	// owner's namespace; a personal upload (no appId) to the caller.
+	resolveMediaOwnerMock: vi.fn((appId?: string, userId?: string) =>
+		Promise.resolve(appId ? "owner-A" : userId),
+	),
 }));
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: requireSessionMock }));
+vi.mock("@/lib/db/appAccess", () => ({
+	resolveMediaOwner: resolveMediaOwnerMock,
+	AppAccessError: class extends Error {},
+}));
 vi.mock("@/lib/db/mediaAssets", () => ({
 	createPendingAsset: createPendingAssetMock,
 	findReadyAssetByOwnerAndHash: findReadyAssetByOwnerAndHashMock,
@@ -108,6 +118,34 @@ describe("POST /api/media/upload", () => {
 			contentType: "image/png",
 			// The per-kind byte cap is bound onto the signed PUT.
 			maxBytes: expect.any(Number),
+		});
+	});
+
+	it("scopes an app upload to the app owner's namespace, not the caller", async () => {
+		// An upload carrying `appId` lands in the app OWNER's media pool so every
+		// Project member shares it (and compile resolves it). The caller (user-1)
+		// is a co-member; `resolveMediaOwner` resolves the owner.
+		const res = await POST(
+			reqWith({
+				filename: "logo.png",
+				mimeType: "image/png",
+				sizeBytes: 100,
+				contentHash: HASH,
+				appId: "app-1",
+			}),
+		);
+		await res.json();
+
+		expect(res.status).toBe(200);
+		expect(resolveMediaOwnerMock).toHaveBeenCalledWith(
+			"app-1",
+			"user-1",
+			"edit",
+		);
+		// Dedup probe + the reserved row both key on the app owner, not the caller.
+		expect(findReadyAssetByOwnerAndHash).toHaveBeenCalledWith("owner-A", HASH);
+		expect(vi.mocked(createPendingAsset).mock.calls[0]?.[0]).toMatchObject({
+			owner: "owner-A",
 		});
 	});
 });

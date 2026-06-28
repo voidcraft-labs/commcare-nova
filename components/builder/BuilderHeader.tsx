@@ -30,7 +30,7 @@ import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useCanRedo, useCanUndo } from "@/lib/doc/hooks/useUndoRedo";
 import { shortcutLabel } from "@/lib/platform";
 import { useUndoRedo } from "@/lib/routing/builderActions";
-import { useBuilderIsReady } from "@/lib/session/hooks";
+import { useBuilderIsReady, useCanEdit } from "@/lib/session/hooks";
 
 interface BuilderHeaderProps {
 	/** Whether CommCare HQ credentials are configured. */
@@ -53,6 +53,7 @@ export function BuilderHeader({
 }: BuilderHeaderProps) {
 	const hasData = useDocHasData();
 	const isReady = useBuilderIsReady();
+	const canEdit = useCanEdit();
 
 	/* Undo/redo from doc temporal. Availability folds into stable
 	 * booleans so the header only re-renders when it actually flips. */
@@ -84,30 +85,43 @@ export function BuilderHeader({
 			<div className="flex items-center gap-1 justify-self-end">
 				{showToolbar && (
 					<>
-						<SaveIndicator />
-						<AppSettingsButton />
-						<Tooltip content={`Undo (${shortcutLabel("mod", "Z")})`}>
-							<button
-								type="button"
-								onClick={undo}
-								disabled={!canUndo}
-								className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-40 disabled:cursor-default"
-								aria-label="Undo"
-							>
-								<Icon icon={tablerArrowBackUp} width="18" height="18" />
-							</button>
-						</Tooltip>
-						<Tooltip content={`Redo (${shortcutLabel("mod", "shift", "Z")})`}>
-							<button
-								type="button"
-								onClick={redo}
-								disabled={!canRedo}
-								className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-40 disabled:cursor-default"
-								aria-label="Redo"
-							>
-								<Icon icon={tablerArrowForwardUp} width="18" height="18" />
-							</button>
-						</Tooltip>
+						{/* Edit affordances — hidden for a view-only member. Preview +
+						 *  Export stay (a viewer may preview and download the app);
+						 *  HQ upload inside Export stays gated server-side. */}
+						{canEdit ? (
+							<>
+								<SaveIndicator />
+								<AppSettingsButton />
+								<Tooltip content={`Undo (${shortcutLabel("mod", "Z")})`}>
+									<button
+										type="button"
+										onClick={undo}
+										disabled={!canUndo}
+										className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-40 disabled:cursor-default"
+										aria-label="Undo"
+									>
+										<Icon icon={tablerArrowBackUp} width="18" height="18" />
+									</button>
+								</Tooltip>
+								<Tooltip
+									content={`Redo (${shortcutLabel("mod", "shift", "Z")})`}
+								>
+									<button
+										type="button"
+										onClick={redo}
+										disabled={!canRedo}
+										className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-40 disabled:cursor-default"
+										aria-label="Redo"
+									>
+										<Icon icon={tablerArrowForwardUp} width="18" height="18" />
+									</button>
+								</Tooltip>
+							</>
+						) : (
+							<span className="mr-1 inline-flex items-center rounded-md border border-nova-border px-2 py-1 text-xs font-medium text-nova-text-muted">
+								View only
+							</span>
+						)}
 						<ExportPanel
 							commcareConfigured={commcareConfigured}
 							commcareAvailableDomains={commcareAvailableDomains}

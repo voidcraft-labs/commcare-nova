@@ -8,6 +8,14 @@ The builder's state is split across three stores, each with a distinct lifecycle
 - **The doc store** (`lib/doc`) owns the blueprint and undo/redo. Every UI edit dispatches through `useBlueprintMutations`, which runs the commit gate — a rejected edit never reaches the store and its findings surface inline or via a toast.
 - **The session store** (`lib/session`) owns ephemeral run/UI lifecycle (preview mode, sidebars, the active run's event buffer, staged uploads). None of it is undoable or persisted, and every lifecycle signal is *derived* from a few base fields — never add a shadow flag.
 
+## View-only members (read-only builder)
+
+A Project **viewer** (the `view`-only role) opens the builder read-only. The build page resolves the role (`resolveAppAccess`) and passes `canEdit` down; the session store holds it (`useCanEdit()`), and the doc provider mirrors it into `BlueprintEditableContext`. Three layers make it airtight without per-control paranoia:
+
+1. **Data backstop (the choke point).** `useBlueprintMutations` reads `BlueprintEditableContext` — when `false`, every gated dispatch no-ops with a "view-only access" message, so no canvas affordance can mutate the doc even if its control wasn't hidden. `useAutoSave` also refuses to PUT when `!canEdit`, so a stray local change degrades to local-only (the server would 404 the under-privileged write anyway).
+2. **Affordances hide.** The chat composer (the SA is the edit mechanism) hides like replay; `BuilderHeader` swaps the edit cluster (save indicator, app settings, undo/redo) for a "View only" badge; the app-tree "+" insertion strips, `TreeRowDelete`, inline `EditableTitle`/`TextEditable`, form-row drag, and the field-inspector destructive controls all gate on `useCanEdit()`. Preview + Export stay (a viewer may preview and download).
+3. **Server enforcement is the authority.** Every write path (`PUT /api/apps/[id]`, `/api/chat`, MCP) independently re-gates at `edit`, so the UI flag is a UX nicety, never the security boundary.
+
 ## Edit vs preview mode
 
 Edit is a frozen, stateless view: inputs empty, validation suppressed, submit bar hidden, and ALL fields render regardless of relevant conditions (hidden ones as compact cards) so the full structure stays editable. Preview is a persistent sandbox: values survive round-trips through edit; validation resets on exit; blueprint mutations recreate the engine but restore only user-touched values, so edited defaults show immediately.

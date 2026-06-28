@@ -109,7 +109,12 @@ function kindsFromKey(key: string): AssetKind[] | undefined {
  * setState-after-unmount with a per-run `cancelled` flag so a fetch resolving
  * after the picker closes doesn't leak a state update (or trip the leak gate).
  */
-export function useMediaLibrary(kinds?: readonly AssetKind[]): UseMediaLibrary {
+export function useMediaLibrary(
+	kinds?: readonly AssetKind[],
+	/** Scope the listing to this app's owner pool (the shared namespace every
+	 *  Project member draws from). Omitted by the personal file manager. */
+	appId?: string,
+): UseMediaLibrary {
 	const kindsKey = kinds && kinds.length > 0 ? [...kinds].sort().join(",") : "";
 
 	const [assets, setAssets] = useState<MediaAssetView[]>([]);
@@ -139,6 +144,7 @@ export function useMediaLibrary(kinds?: readonly AssetKind[]): UseMediaLibrary {
 		fetchMediaLibrary({
 			kinds: kindsFromKey(request.kindsKey),
 			cursor: request.cursor,
+			appId,
 		})
 			.then((page) => {
 				if (cancelled) return;
@@ -161,7 +167,7 @@ export function useMediaLibrary(kinds?: readonly AssetKind[]): UseMediaLibrary {
 		return () => {
 			cancelled = true;
 		};
-	}, [request]);
+	}, [request, appId]);
 
 	const loadMore = useCallback(() => {
 		if (isLoading || !nextCursor) return;

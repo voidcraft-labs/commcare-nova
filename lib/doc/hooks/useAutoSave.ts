@@ -175,6 +175,11 @@ export function useAutoSave(): SaveState {
 		 */
 		async function executeSave() {
 			if (!docStore) return;
+			/* A viewer can't persist — the server would reject the write as a
+			 * 404 (no `edit` capability). Bail before the PUT so a stray local
+			 * change degrades to local-only rather than a failed request; the
+			 * read-only UI keeps those changes from happening in the first place. */
+			if (!session.getState().canEdit) return;
 			const appIdAtStart = session.getState().appId;
 			const doc = docStore.getState();
 			if (!appIdAtStart || doc.moduleOrder.length === 0) return;
@@ -373,6 +378,12 @@ export function useAutoSave(): SaveState {
 			projectSaveSlice,
 			() => {
 				const sessionState = session.getState();
+				/* A viewer holds no `edit` capability — never persist their
+				 * session. The read-only builder suppresses edit affordances, but
+				 * this is the airtight backstop: no PUT is ever attempted, so a
+				 * missed affordance can only ever change the local doc, never the
+				 * server's. */
+				if (!sessionState.canEdit) return;
 				/* Never save during replay. The doc is being rebuilt from a
 				 * historical event log; any mutation it receives is a scrub
 				 * reconstruction, not a user edit. Persisting those writes

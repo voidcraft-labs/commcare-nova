@@ -83,5 +83,16 @@ export function roleAllowsApp(
 		);
 }
 
+/**
+ * Whether a member's role may manage the Project's membership — invite, change
+ * roles, remove members, cancel invitations. Admin and owner only; the plugin
+ * enforces the same via the built-in `member`/`invitation` statements those two
+ * roles carry, so this is the UI's matching gate (the wire stays the authority).
+ */
+export function roleCanManageProject(role: string): boolean {
+	const parts = role.split(",");
+	return parts.includes("admin") || parts.includes("owner");
+}
+
 /** Max members per Project (Better Auth's own default is 100). */
 export const MEMBERSHIP_LIMIT = 200;

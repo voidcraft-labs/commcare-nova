@@ -16,6 +16,7 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
 import { useState } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { useCanEdit } from "@/lib/session/hooks";
 
 export function TreeRowDelete({
 	label,
@@ -30,6 +31,10 @@ export function TreeRowDelete({
 	readonly onDelete: () => boolean;
 }) {
 	const [armed, setArmed] = useState(false);
+	const canEdit = useCanEdit();
+
+	// A view-only Project member can't delete rows — render nothing.
+	if (!canEdit) return null;
 
 	if (armed) {
 		return (

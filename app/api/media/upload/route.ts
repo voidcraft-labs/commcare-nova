@@ -28,6 +28,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ApiError, handleApiError, readJsonBody } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
+import { AppAccessError, resolveMediaOwner } from "@/lib/db/appAccess";
 import {
 	createPendingAsset,
 	findReadyAssetByOwnerAndHash,
@@ -53,6 +54,11 @@ const requestBodySchema = z
 		mimeType: z.string().min(1),
 		sizeBytes: z.number().int().positive(),
 		contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+		// Present when uploading FOR a specific app — the asset then lands in
+		// that app's OWNER namespace so every Project member shares one media
+		// pool (and compile resolves it). Absent for the personal file manager
+		// / chat documents, which stay in the uploader's own namespace.
+		appId: z.string().min(1).optional(),
 	})
 	.strict();
 
@@ -77,7 +83,21 @@ export async function POST(req: NextRequest) {
 				parsed.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
 			);
 		}
-		const { filename, sizeBytes, contentHash } = parsed.data;
+		const { filename, sizeBytes, contentHash, appId } = parsed.data;
+
+		/* The namespace this upload belongs to. For an app upload that's the
+		 * app OWNER (authorized: the caller must hold `edit` on the app's
+		 * Project); for a personal upload it's the caller. A denied app collapses
+		 * to 404 so it can't be probed. */
+		let owner: string;
+		try {
+			owner = await resolveMediaOwner(appId, session.user.id, "edit");
+		} catch (err) {
+			if (err instanceof AppAccessError) {
+				throw new ApiError("Media asset not found.", 404);
+			}
+			throw err;
+		}
 
 		// Normalize the claimed MIME to its canonical accepted form
 		// (handles browser alias spellings); reject if it isn't an
@@ -115,10 +135,7 @@ export async function POST(req: NextRequest) {
 		// The browser sees `deduplicated: true` and attaches the
 		// returned asset to its target carrier without a second round
 		// trip — so the full wire asset is included, not just the id.
-		const existing = await findReadyAssetByOwnerAndHash(
-			session.user.id,
-			contentHash,
-		);
+		const existing = await findReadyAssetByOwnerAndHash(owner, contentHash);
 		if (existing) {
 			return NextResponse.json({
 				assetId: existing.id,
@@ -134,7 +151,7 @@ export async function POST(req: NextRequest) {
 		// only overwrite this attempt's pending object.
 		const extension = EXTENSION_FOR_MIME_TYPE[mimeType];
 		const pending = await createPendingAsset({
-			owner: session.user.id,
+			owner,
 			contentHash,
 			mimeType,
 			kind,

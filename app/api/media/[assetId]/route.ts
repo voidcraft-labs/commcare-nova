@@ -21,6 +21,7 @@ import type { NextRequest } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import {
+	loadAssetById,
 	loadAssetForOwner,
 	MediaAssetOwnershipError,
 } from "@/lib/db/mediaAssets";
@@ -30,6 +31,7 @@ import {
 	findAppReferencesToAsset,
 	purgeAssetStorage,
 } from "@/lib/media/assetDeletion";
+import { usersShareAnyProject } from "@/lib/projects/membership";
 import { getStoredObjectSize, streamAsset } from "@/lib/storage/media";
 
 export async function GET(
@@ -41,13 +43,18 @@ export async function GET(
 		const { assetId: rawAssetId } = await params;
 		const assetId = asAssetId(rawAssetId);
 
-		const asset = await loadAssetForOwner(session.user.id, assetId).catch(
-			(err: unknown) => {
-				if (err instanceof MediaAssetOwnershipError) return null;
-				throw err;
-			},
-		);
+		/* Media is shared at Project scope: a member may read an asset in any
+		 * namespace they co-own through a shared Project (the bytes back the
+		 * shared app they co-edit). Authorize by owner OR Project-membership with
+		 * the owner; a non-member reads as 404 so ids stay non-enumerable. */
+		const asset = await loadAssetById(assetId);
 		if (asset?.status !== "ready") {
+			throw new ApiError("Media asset not found.", 404);
+		}
+		if (
+			asset.owner !== session.user.id &&
+			!(await usersShareAnyProject(session.user.id, asset.owner))
+		) {
 			throw new ApiError("Media asset not found.", 404);
 		}
 

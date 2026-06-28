@@ -22,6 +22,7 @@ import {
 } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { useNavigate } from "@/lib/routing/hooks";
+import { useCanEdit } from "@/lib/session/hooks";
 import {
 	MENU_ITEM_CLS,
 	MENU_ITEM_DISABLED_CLS,
@@ -62,6 +63,7 @@ export function AddFormMenu({
 	const { createForm } = useBlueprintMutations();
 	const { openForm } = useNavigate();
 	const { revealed, ref, hoverProps } = useTreeInsertionHover(open);
+	const canEdit = useCanEdit();
 
 	const handleSelect = (type: FormType) => {
 		const outcome = createForm(moduleUuid, type, atIndex);
@@ -69,6 +71,9 @@ export function AddFormMenu({
 		// success (there's no form to open otherwise).
 		if (outcome.ok) openForm(moduleUuid, outcome.uuid);
 	};
+
+	// A view-only Project member can't add forms — drop the "+" strip.
+	if (!canEdit) return null;
 
 	return (
 		<Menu.Root open={open} onOpenChange={setOpen}>

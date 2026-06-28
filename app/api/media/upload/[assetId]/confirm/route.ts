@@ -27,8 +27,7 @@ import {
 	deleteAsset as deleteAssetRow,
 	findReadyAssetByOwnerAndHash,
 	hasOtherAssetForGcsObjectKey,
-	loadAssetForOwner,
-	MediaAssetOwnershipError,
+	loadAssetById,
 	type MediaAssetRecord,
 	toWireMediaAsset,
 } from "@/lib/db/mediaAssets";
@@ -39,6 +38,7 @@ import {
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import { validateMediaBytes } from "@/lib/media/validate";
+import { usersShareAnyProject } from "@/lib/projects/membership";
 import {
 	copyAssetObject,
 	deleteAsset as deleteGcsObject,
@@ -55,20 +55,30 @@ export async function POST(
 		const { assetId: rawAssetId } = await params;
 		const assetId = asAssetId(rawAssetId);
 
-		const asset = await loadAssetForOwner(session.user.id, assetId).catch(
-			(err: unknown) => {
-				if (err instanceof MediaAssetOwnershipError) {
-					return null;
-				}
-				throw err;
-			},
-		);
+		/* Scope by the asset's OWN namespace, not the caller's: an app upload was
+		 * created under the app owner's namespace (`resolveMediaOwner`), so a
+		 * member confirming a shared-app upload isn't the owner. Authorize by
+		 * owner OR a shared Project with the owner — the same rule the read path
+		 * uses — and carry `owner` through every namespace-scoped step below so
+		 * the final object lands where compile/export resolve it. */
+		const asset = await loadAssetById(assetId);
+		if (
+			asset &&
+			asset.owner !== session.user.id &&
+			!(await usersShareAnyProject(session.user.id, asset.owner))
+		) {
+			throw new ApiError(
+				"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
+				404,
+			);
+		}
 		if (!asset) {
 			throw new ApiError(
 				"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
 				404,
 			);
 		}
+		const owner = asset.owner;
 		if (asset.status === "ready") {
 			// Idempotent: a duplicate confirm for an already-ready
 			// asset returns the row as-is rather than re-validating.
@@ -92,7 +102,7 @@ export async function POST(
 		}
 		const cap = ASSET_SIZE_CAPS_BYTES[asset.kind];
 		if (storedSize > cap) {
-			await deleteRejectedUpload(session.user.id, asset);
+			await deleteRejectedUpload(owner, asset);
 			const capMb = (cap / 1024 / 1024).toFixed(0);
 			const actualMb = (storedSize / 1024 / 1024).toFixed(2);
 			throw new ApiError(
@@ -120,7 +130,7 @@ export async function POST(
 			// Drop this attempt's bytes + row so the upload pathway
 			// returns to a clean state. The object delete is guarded
 			// against legacy/shared rows before touching GCS.
-			await deleteRejectedUpload(session.user.id, asset);
+			await deleteRejectedUpload(owner, asset);
 			throw new ApiError(result.message, 400);
 		}
 
@@ -132,11 +142,11 @@ export async function POST(
 		// still leave two ready rows, but both point at identical final
 		// bytes and the deletion path checks for shared object keys.
 		const sibling = await findReadyAssetByOwnerAndHash(
-			session.user.id,
+			owner,
 			asset.contentHash,
 		);
 		if (sibling && sibling.id !== assetId) {
-			await deleteRejectedUpload(session.user.id, asset);
+			await deleteRejectedUpload(owner, asset);
 			return NextResponse.json({ ok: true, asset: toWireMediaAsset(sibling) });
 		}
 
@@ -147,7 +157,7 @@ export async function POST(
 		// the filename. The validated extension is authoritative for the key
 		// (and the row below), so the stored object isn't mis-suffixed.
 		const finalGcsObjectKey = gcsObjectKeyFor(
-			session.user.id,
+			owner,
 			result.validated.contentHash,
 			result.validated.extension,
 		);

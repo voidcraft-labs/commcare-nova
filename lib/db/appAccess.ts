@@ -143,3 +143,22 @@ export async function resolveProjectAccess(
 	assertCapability(role, required);
 	return { projectId, role, actorUserId: userId };
 }
+
+/**
+ * The owner namespace a media operation scopes to. An app's media lives in the
+ * app OWNER's namespace (where compile/export resolve it), so a member working
+ * on a shared app uploads/lists/attaches there too — keyed by `app.owner`, not
+ * the acting member. With `appId`, authorize the caller on that app at
+ * `required` and return its owner; without one (the personal file manager, chat
+ * documents), the scope is the caller's own namespace. Throws
+ * {@link AppAccessError} on a denied app — the media routes collapse it to 404.
+ */
+export async function resolveMediaOwner(
+	appId: string | undefined,
+	userId: string,
+	required: AppCapability,
+): Promise<string> {
+	if (!appId) return userId;
+	const { app } = await resolveAppAccess(appId, userId, required);
+	return app.owner;
+}

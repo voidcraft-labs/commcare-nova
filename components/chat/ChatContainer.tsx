@@ -33,6 +33,7 @@ import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	derivePhase,
+	useCanEdit,
 	useInReplayMode,
 	useReplayMessages,
 } from "@/lib/session/hooks";
@@ -187,6 +188,10 @@ export function ChatContainer({
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
 	const inReplayMode = useInReplayMode();
+	/* Viewers (view-only Project members) get a read-only conversation — the
+	 * SA is the edit mechanism, so the composer hides exactly as it does in
+	 * replay. The write paths reject their edits server-side regardless. */
+	const canEdit = useCanEdit();
 	/** Replay messages — derived on read from the session store's event
 	 *  log + cursor. ReplayController writes the cursor; this hook
 	 *  projects the events into `UIMessage[]`. */
@@ -375,7 +380,12 @@ export function ChatContainer({
 			status={inReplayMode ? "ready" : status}
 			onSend={handleSend}
 			addToolOutput={addToolOutput}
-			readOnly={inReplayMode}
+			readOnly={inReplayMode || !canEdit}
+			readOnlyNotice={
+				!canEdit && !inReplayMode
+					? "You have view-only access to this app. Ask a Project admin for edit access to make changes."
+					: undefined
+			}
 			isExistingApp={isExistingApp}
 		>
 			{!inReplayMode && children}
