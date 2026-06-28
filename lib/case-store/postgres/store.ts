@@ -414,15 +414,13 @@ export class PostgresCaseStore implements CaseStore {
 			// because the prefix puts the calculated slots in a
 			// disjoint keyspace — the strip touches ONLY the prefixed
 			// aliases, never a `cases` column.
-			const cleaned = { ...row } as Record<string, unknown>;
+			// `stripTenantKey` removes the bound-tenant `project_id` that
+			// `selectAll("c")` materialized (not part of the `CaseRow`
+			// contract); the loop then strips the dynamic calc aliases.
+			const cleaned = stripTenantKey(row) as Record<string, unknown>;
 			for (const { alias } of calcAliases) {
 				delete cleaned[alias];
 			}
-			// `selectAll("c")` also materialized the tenant key `project_id`
-			// onto the row; it is the bound-tenant scoping column, NOT part of
-			// the `CaseRow` contract (which `Omit`s it) and must never reach a
-			// consumer / the wire. Strip it so the runtime row matches the type.
-			delete cleaned.project_id;
 			return {
 				...(cleaned as unknown as CaseRow),
 				calculated: calculatedMap,
@@ -888,13 +886,16 @@ export class PostgresCaseStore implements CaseStore {
 		// Self-paths return the anchor row directly; synthesizing a
 		// join-on-self would just duplicate the read.
 		if (args.via.kind === "self") {
-			return await this.db
+			const rows = await this.db
 				.selectFrom("cases as c")
 				.selectAll("c")
 				.where("c.app_id", "=", args.appId)
 				.where("c.case_id", "=", args.caseId)
 				.where("c.project_id", "=", this.requireProjectId())
 				.execute();
+			// Strip the bound-tenant key off the `selectAll` rows — the
+			// non-self arms below already omit it via explicit projection.
+			return rows.map(stripTenantKey);
 		}
 
 		// Non-self path: compile the relation-walk subquery, join it
@@ -1675,6 +1676,22 @@ export class PostgresCaseStore implements CaseStore {
 			await trx.insertInto("case_indices").values(edge).execute();
 		}
 	}
+}
+
+/**
+ * Strip the bound-tenant `project_id` off a raw `cases` row. It is the
+ * tenant scoping key the store filters on, NOT part of the `CaseRow`
+ * contract (`Omit<Selectable<CasesTable>, "project_id">`), and must
+ * never reach a consumer or cross the wire. Destructured (not deleted
+ * after a spread) so the result keeps a fast V8 hidden class. EVERY
+ * `selectAll("c")` read path routes its rows through this — `query` and
+ * `traverse`'s self arm; the explicit-projection paths (`traverse`'s
+ * relation-walk arms, `compileRelationPath`'s leaf builders) already omit
+ * `project_id` by listing columns.
+ */
+function stripTenantKey<T extends object>(row: T): Omit<T, "project_id"> {
+	const { project_id: _omit, ...rest } = row as T & { project_id?: unknown };
+	return rest as Omit<T, "project_id">;
 }
 
 /**

@@ -1,7 +1,7 @@
 // lib/case-store/__tests__/storeContract.ts
 //
 // Pure interface-compliance harness for `CaseStore`. The harness
-// is a function that takes a factory `(ownerId) => Promise<CaseStore>`
+// is a function that takes a factory `(tenant) => Promise<CaseStore>`
 // plus a `describeContract` callback the caller invokes from inside
 // a `describe(...)` block — the harness owns the test definitions
 // and the caller owns the per-test database lifecycle.
@@ -14,8 +14,9 @@
 // harness exercises (predicate-filtered reads, JSONB merge on
 // update, relation-path traversal, schema-sync atomicity, tenant
 // isolation) is part of the architectural contract — the
-// AST→Kysely compilers, the `(app_id, owner_id)` tenant model,
-// the JSONB validator. A future implementation that diverges from
+// AST→Kysely compilers, the `(app_id, project_id)` tenant model
+// (`owner_id` is a separate case-owner axis, never the tenant
+// filter), the JSONB validator. A future implementation that diverges from
 // this contract is a regression, not a feature; the harness pins
 // the contract independently from any one implementation's source.
 //
@@ -1301,6 +1302,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// not the reader — attribution is preserved across the share.
 			expect(seenByTwo[0]?.owner_id).toBe(USER_A);
 			expect(seenByTwo[0]?.case_id).toBe(caseId);
+			// The internal tenant key never surfaces on a `query` row either
+			// (CaseRow Omit) — guards `query`'s `selectAll` strip.
+			expect(seenByTwo[0]).not.toHaveProperty("project_id");
 		});
 
 		it("update from another Project cannot mutate the row", async () => {
@@ -1382,7 +1386,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(rows[0]?.status).toBe("open");
 		});
 
-		it("traverse from another owner cannot reach the row", async () => {
+		it("traverse from another Project cannot reach the row", async () => {
 			const storeA = await options.factory(TENANT_A);
 			const storeB = await options.factory(TENANT_B);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
@@ -1399,14 +1403,57 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				},
 			});
 
-			// `self` traverse against owner B's view returns empty
-			// because the case's `owner_id` doesn't match owner B.
+			// `self` traverse against Project B's store returns empty
+			// because the case's `project_id` doesn't match Project B.
 			const reached = await storeB.traverse({
 				appId: APP_ID,
 				caseId: PATIENT_ALICE_ID,
 				via: { kind: "self" },
 			});
 			expect(reached).toHaveLength(0);
+		});
+
+		it("traverse is shared within a Project — a co-member reaches the row, and the row omits the tenant key", async () => {
+			// Same Project, two actors. The new sharing semantics: memberTwo
+			// reaches memberOne's row via a `self` traverse — project-scoped,
+			// NOT owner-scoped (a regression to `owner_id` would return empty
+			// for the co-member, the exact ambiguity the cross-Project test
+			// alone can't catch). Also pins the `CaseRow` Omit contract: the
+			// returned row must NOT carry the internal `project_id` tenant key
+			// (traverse's self arm uses `selectAll`, so this guards the strip).
+			const memberOne = await options.factory({
+				projectId: PROJECT_A,
+				actorUserId: USER_A,
+			});
+			const memberTwo = await options.factory({
+				projectId: PROJECT_A,
+				actorUserId: USER_B,
+			});
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(memberOne, blueprint, "patient");
+
+			await memberOne.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: DEFAULT_CASE_NAME,
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 25 }),
+				},
+			});
+
+			const reached = await memberTwo.traverse({
+				appId: APP_ID,
+				caseId: PATIENT_ALICE_ID,
+				via: { kind: "self" },
+			});
+			expect(reached).toHaveLength(1);
+			expect(reached[0]?.case_id).toBe(PATIENT_ALICE_ID);
+			// The tenant key never surfaces on a returned row (CaseRow Omit).
+			expect(reached[0]).not.toHaveProperty("project_id");
+			// …but the case-owner attribution does (USER_A created it).
+			expect(reached[0]?.owner_id).toBe(USER_A);
 		});
 
 		it("insert lands in the bound Project — Project B cannot see Project A's freshly inserted row", async () => {
