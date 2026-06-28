@@ -10,6 +10,7 @@
  * so list queries never need to deserialize full blueprints.
  */
 import {
+	FieldPath,
 	FieldValue,
 	Timestamp,
 	type Transaction,
@@ -1111,9 +1112,19 @@ export async function loadAppOwner(appId: string): Promise<string | null> {
  * field is unset (a pre-backfill row).
  */
 export async function loadAppProjectId(appId: string): Promise<string | null> {
-	const snap = await getDb().collection("apps").doc(appId).get();
-	if (!snap.exists) return null;
-	return (snap.data()?.project_id as string | undefined) ?? null;
+	/* Projected read — `DocumentReference.get()` has no field mask, so this uses a
+	 * `documentId()` query with `.select()` to transfer ONLY `project_id` rather
+	 * than pulling the full (multi-hundred-KB) blueprint over the wire on every
+	 * authorization gate. */
+	const snap = await getDb()
+		.collection("apps")
+		.where(FieldPath.documentId(), "==", appId)
+		.select("project_id")
+		.limit(1)
+		.get();
+	const doc = snap.docs[0];
+	if (!doc) return null;
+	return (doc.get("project_id") as string | undefined) ?? null;
 }
 
 /**

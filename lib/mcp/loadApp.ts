@@ -34,13 +34,13 @@
  */
 
 import type { AppCapability } from "@/lib/auth/projectRoles";
-import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
+import { resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc } from "@/lib/domain";
-import { McpAccessError } from "./ownership";
+import { McpAccessError, rethrowAsMcpAccess } from "./ownership";
 
 /**
  * Result of a successful `loadAppBlueprint` call. The `fieldParent`-
@@ -83,12 +83,7 @@ export async function loadAppBlueprint(
 	try {
 		await resolveAppAccess(appId, userId, required, { app: loaded });
 	} catch (err) {
-		if (err instanceof AppAccessError) {
-			throw new McpAccessError(
-				err.reason === "not_found" ? "not_found" : "not_owner",
-			);
-		}
-		throw err;
+		rethrowAsMcpAccess(err);
 	}
 	/* Split the raw blueprint off the `AppDoc` envelope so the return
 	 * type can't accidentally leak a stale blueprint through `.app`.

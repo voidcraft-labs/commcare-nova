@@ -61,11 +61,21 @@ export async function requireOwnedApp(
 	try {
 		await resolveAppScope(appId, userId, required);
 	} catch (err) {
-		if (err instanceof AppAccessError) {
-			throw new McpAccessError(
-				err.reason === "not_found" ? "not_found" : "not_owner",
-			);
-		}
-		throw err;
+		rethrowAsMcpAccess(err);
 	}
+}
+
+/**
+ * Map a `lib/db/appAccess` `AppAccessError` onto the two-value MCP taxonomy and
+ * throw it (re-throwing anything else unchanged). Shared by `requireOwnedApp`
+ * and `loadAppBlueprint` so the collapse rule lives in exactly one place — both
+ * `not_owner` and `not_found` then surface as `not_found` on the wire.
+ */
+export function rethrowAsMcpAccess(err: unknown): never {
+	if (err instanceof AppAccessError) {
+		throw new McpAccessError(
+			err.reason === "not_found" ? "not_found" : "not_owner",
+		);
+	}
+	throw err;
 }

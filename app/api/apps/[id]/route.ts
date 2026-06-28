@@ -16,10 +16,9 @@ import {
 	readJsonBody,
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
+import { resolveAppAccess } from "@/lib/db/appAccess";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { BlueprintBasisStaleError } from "@/lib/db/apps";
-import type { AppDoc } from "@/lib/db/types";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { log } from "@/lib/logger";
 
@@ -30,17 +29,10 @@ export async function GET(
 	try {
 		const session = await requireSession(req);
 		const { id } = await params;
-		/* Project-membership gate (view). Collapses absent / non-member /
-		 * under-privileged all to 404 so a probing client can't tell another
-		 * Project's app apart from a nonexistent one. */
-		let app: AppDoc;
-		try {
-			app = (await resolveAppAccess(id, session.user.id, "view")).app;
-		} catch (err) {
-			if (err instanceof AppAccessError)
-				throw new ApiError("App not found", 404);
-			throw err;
-		}
+		/* Project-membership gate (view). An `AppAccessError` (absent / non-member
+		 * / under-privileged) maps to a 404 in `handleApiError` — the shared
+		 * IDOR-safe not-found posture. */
+		const app = (await resolveAppAccess(id, session.user.id, "view")).app;
 		/* Return only the fields the client needs for hydration. Firestore Timestamp
 		 * objects on created_at/updated_at don't JSON-serialize cleanly, and the client
 		 * only needs the blueprint to hydrate the builder. `basis_token` is the
@@ -69,16 +61,9 @@ export async function PUT(
 
 		/* Project-membership gate (edit). The resolver's single Firestore read
 		 * yields the `AppDoc` whose `blueprint` threads into the saga as
-		 * `priorBlueprint` (no second `loadApp`). Every denial collapses to 404
-		 * (not 403) to avoid leaking the existence of another Project's app. */
-		let app: AppDoc;
-		try {
-			app = (await resolveAppAccess(id, session.user.id, "edit")).app;
-		} catch (err) {
-			if (err instanceof AppAccessError)
-				throw new ApiError("App not found", 404);
-			throw err;
-		}
+		 * `priorBlueprint` (no second `loadApp`). An `AppAccessError` maps to 404
+		 * in `handleApiError` — the shared IDOR-safe not-found posture. */
+		const app = (await resolveAppAccess(id, session.user.id, "edit")).app;
 
 		// Cap the body before materializing it. The blueprint is one
 		// ~1 MiB-bounded Firestore doc, so 2 MB rejects only the pathological;

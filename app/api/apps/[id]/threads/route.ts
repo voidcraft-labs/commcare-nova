@@ -9,7 +9,7 @@
 
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
+import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadThreads } from "@/lib/db/threads";
 
 export async function GET(
@@ -21,15 +21,9 @@ export async function GET(
 		const { id } = await params;
 
 		/* Project-membership gate (view) — threads are a subcollection of the app
-		 * but the path alone doesn't scope access; without this a crafted request
-		 * could read another Project's conversation history. */
-		try {
-			await resolveAppScope(id, session.user.id, "view");
-		} catch (err) {
-			if (err instanceof AppAccessError)
-				throw new ApiError("App not found", 404);
-			throw err;
-		}
+		 * but the path alone doesn't scope access. An `AppAccessError` maps to 404
+		 * in `handleApiError` (shared IDOR-safe not-found posture). */
+		await resolveAppScope(id, session.user.id, "view");
 
 		const threads = await loadThreads(id);
 		return Response.json({ threads });

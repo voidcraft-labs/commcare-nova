@@ -21,6 +21,7 @@ import { getAuth, type Session } from "./auth";
 import { getAuthDb } from "./auth/db";
 import { ensurePersonalProject } from "./auth/provisionProject";
 import { isUserActive } from "./db/api-keys";
+import { AppAccessError, resolveProjectAccess } from "./db/appAccess";
 import { log } from "./logger";
 
 /**
@@ -327,10 +328,20 @@ export const getSession = cache(async (): Promise<Session | null> => {
 export async function resolveActiveProjectId(
 	session: Session,
 ): Promise<string> {
-	return (
-		session.session.activeOrganizationId ??
-		(await ensurePersonalProject(session.user.id))
-	);
+	const active = session.session.activeOrganizationId;
+	if (active) {
+		/* Re-check membership: `organization.setActive` lets a user stamp a shared
+		 * Project active, and a later removal leaves that stale stamp on their
+		 * session until it's re-minted. Don't let it grant list/create access to a
+		 * Project they've left — fall through to their personal one. */
+		try {
+			await resolveProjectAccess(session.user.id, active, "view");
+			return active;
+		} catch (err) {
+			if (!(err instanceof AppAccessError)) throw err;
+		}
+	}
+	return ensurePersonalProject(session.user.id);
 }
 
 /**
