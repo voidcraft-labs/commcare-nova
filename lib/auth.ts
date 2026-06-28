@@ -203,6 +203,31 @@ async function createAuth() {
 			"/api-key/update",
 			"/api-key/list",
 			"/api-key/get",
+			/* Organization (Projects) management endpoints — kept OFF until the
+			 * Projects UI + role-aware guards ship (P6). Registering the plugin
+			 * mounts these immediately, but the read-only-builder mode, the
+			 * create-requires-edit gate, and the invitation domain hook aren't in
+			 * place yet — so a live invite / add-member / set-active surface would
+			 * let a shared- or viewer-membership scenario form that the rest of the
+			 * app can't yet handle safely. Personal-Project provisioning bypasses
+			 * these (direct insert in lib/auth/provisionProject.ts) and Nova reads
+			 * membership straight from `auth_member`, so disabling the HTTP surface
+			 * costs P0–P5 nothing; the `auth.api.*` typed calls stay available for
+			 * when the UI lands. */
+			"/organization/create",
+			"/organization/update",
+			"/organization/delete",
+			"/organization/set-active",
+			"/organization/leave",
+			"/organization/invite-member",
+			"/organization/accept-invitation",
+			"/organization/reject-invitation",
+			"/organization/cancel-invitation",
+			"/organization/remove-member",
+			"/organization/update-member-role",
+			"/organization/create-role",
+			"/organization/update-role",
+			"/organization/delete-role",
 		],
 
 		/**

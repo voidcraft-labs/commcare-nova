@@ -14,7 +14,6 @@
 
 import { getAuthDb } from "@/lib/auth/db";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
-import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { loadApp, loadAppProjectId } from "./apps";
 import type { AppDoc } from "./types";
 
@@ -86,28 +85,10 @@ export async function resolveAppAccess(
 	opts?: { app?: AppDoc },
 ): Promise<AppAccess> {
 	const app = opts?.app ?? (await loadApp(appId));
-	if (!app) throw new AppAccessError("not_found");
-	if (!app.project_id) return legacyOwnerFallback(app, userId);
+	if (!app?.project_id) throw new AppAccessError("not_found");
 	const role = await projectRoleFor(userId, app.project_id);
 	assertCapability(role, required);
 	return { app, projectId: app.project_id, role, actorUserId: userId };
-}
-
-/**
- * TRANSITION fallback — remove in the post-backfill contract step. An app that
- * predates the `project_id` backfill carries no tenancy key yet, so authorize it
- * by the legacy owner-equality rule: this keeps every existing app reachable by
- * its creator the instant the membership read-switch deploys, BEFORE the backfill
- * runs (merge-to-main auto-deploys, so there is no manual gap). The creator maps
- * to owner capability; the Project is their personal one — the backfill target.
- */
-async function legacyOwnerFallback(
-	app: AppDoc,
-	userId: string,
-): Promise<AppAccess> {
-	if (app.owner !== userId) throw new AppAccessError("not_member");
-	const projectId = await ensurePersonalProject(app.owner);
-	return { app, projectId, role: "owner", actorUserId: userId };
 }
 
 /**
@@ -121,28 +102,10 @@ export async function resolveAppScope(
 	required: AppCapability = "view",
 ): Promise<ProjectAccess> {
 	const projectId = await loadAppProjectId(appId);
-	if (projectId !== null) {
-		const role = await projectRoleFor(userId, projectId);
-		assertCapability(role, required);
-		return { projectId, role, actorUserId: userId };
-	}
-	/* Null project_id means the app is absent OR predates the backfill. Load the
-	 * full doc to tell them apart, then apply the same legacy owner-equality
-	 * fallback as `resolveAppAccess`. Only the transitional path pays the full
-	 * read; once backfilled, the light path above always wins. */
-	const app = await loadApp(appId);
-	if (!app) throw new AppAccessError("not_found");
-	if (app.project_id) {
-		const role = await projectRoleFor(userId, app.project_id);
-		assertCapability(role, required);
-		return { projectId: app.project_id, role, actorUserId: userId };
-	}
-	const fallback = await legacyOwnerFallback(app, userId);
-	return {
-		projectId: fallback.projectId,
-		role: fallback.role,
-		actorUserId: userId,
-	};
+	if (projectId === null) throw new AppAccessError("not_found");
+	const role = await projectRoleFor(userId, projectId);
+	assertCapability(role, required);
+	return { projectId, role, actorUserId: userId };
 }
 
 /**
