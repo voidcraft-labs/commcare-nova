@@ -371,11 +371,12 @@ export async function loadAssetForOwner(
 
 /**
  * Load one asset by id WITHOUT an owner filter — for the read path, which
- * authorizes the caller by Project membership with the asset's owner rather
- * than by sole ownership (media is shared at Project scope). Returns `null`
- * for a missing row. The CALLER must authorize against the returned `owner`
- * (`usersShareAnyProject`) before serving bytes — this loader is intentionally
- * un-gated, so it is private to the media surfaces that do that check.
+ * authorizes the caller against the asset's referencing apps rather than by
+ * sole ownership (media on a shared app must be readable by that app's Project
+ * members). Returns `null` for a missing row. The CALLER must authorize via
+ * `canReadReferencedAsset` (owner OR a referencing app they can access) before
+ * serving bytes — this loader is intentionally un-gated, so it is private to
+ * the media surfaces that do that check.
  */
 export async function loadAssetById(
 	assetId: AssetId,

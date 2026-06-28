@@ -15,7 +15,7 @@ import {
 	deleteAsset as deleteAssetRow,
 	findReadyAssetByOwnerAndHash,
 	hasOtherAssetForGcsObjectKey,
-	loadAssetById,
+	loadAssetForOwner,
 	type MediaAssetRecord,
 } from "@/lib/db/mediaAssets";
 import { validateMediaBytes } from "@/lib/media/validate";
@@ -35,8 +35,7 @@ const {
 	deleteAssetRowMock,
 	findReadyAssetByOwnerAndHashMock,
 	hasOtherAssetForGcsObjectKeyMock,
-	loadAssetByIdMock,
-	usersShareAnyProjectMock,
+	loadAssetForOwnerMock,
 	copyAssetObjectMock,
 	deleteGcsObjectMock,
 	downloadAssetBytesMock,
@@ -48,8 +47,7 @@ const {
 	deleteAssetRowMock: vi.fn(() => Promise.resolve()),
 	findReadyAssetByOwnerAndHashMock: vi.fn(),
 	hasOtherAssetForGcsObjectKeyMock: vi.fn(),
-	loadAssetByIdMock: vi.fn(),
-	usersShareAnyProjectMock: vi.fn(() => Promise.resolve(false)),
+	loadAssetForOwnerMock: vi.fn(),
 	copyAssetObjectMock: vi.fn(() => Promise.resolve()),
 	deleteGcsObjectMock: vi.fn(() => Promise.resolve()),
 	downloadAssetBytesMock: vi.fn(),
@@ -58,9 +56,6 @@ const {
 }));
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: requireSessionMock }));
-vi.mock("@/lib/projects/membership", () => ({
-	usersShareAnyProject: usersShareAnyProjectMock,
-}));
 vi.mock("@/lib/db/mediaAssets", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/db/mediaAssets")>();
 	return {
@@ -69,7 +64,7 @@ vi.mock("@/lib/db/mediaAssets", async (importOriginal) => {
 		deleteAsset: deleteAssetRowMock,
 		findReadyAssetByOwnerAndHash: findReadyAssetByOwnerAndHashMock,
 		hasOtherAssetForGcsObjectKey: hasOtherAssetForGcsObjectKeyMock,
-		loadAssetById: loadAssetByIdMock,
+		loadAssetForOwner: loadAssetForOwnerMock,
 		toWireMediaAsset: vi.fn((asset: MediaAssetRecord) => ({
 			id: asset.id,
 			status: asset.status,
@@ -117,7 +112,7 @@ beforeEach(() => {
 	vi.mocked(requireSession).mockResolvedValue({
 		user: { id: "user-1" },
 	} as never);
-	vi.mocked(loadAssetById).mockResolvedValue(pendingAsset());
+	vi.mocked(loadAssetForOwner).mockResolvedValue(pendingAsset());
 	vi.mocked(getStoredObjectSize).mockResolvedValue(10);
 	vi.mocked(downloadAssetBytes).mockResolvedValue(Buffer.from("bytes"));
 	vi.mocked(findReadyAssetByOwnerAndHash).mockResolvedValue(null);
@@ -161,7 +156,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 	});
 
 	it("does not delete a validation-failed object when another row shares it", async () => {
-		vi.mocked(loadAssetById).mockResolvedValue(
+		vi.mocked(loadAssetForOwner).mockResolvedValue(
 			pendingAsset({ gcsObjectKey: `users/user-1/${HASH}.png` }),
 		);
 		vi.mocked(hasOtherAssetForGcsObjectKey).mockResolvedValue(true);

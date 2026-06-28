@@ -1,11 +1,13 @@
 // Project-membership READS for the Projects UI — the switcher, the members
-// settings section, and the accept-invitation surface. Mutations go through
-// Better Auth's typed `auth.api.*` (the Server Actions in
-// `app/(app)/(site)/settings/project-members-actions.ts`); these are the
-// app-domain reads that back the rendering, queried directly off the shared
-// `auth_*` tables through `getAuthDb` — the same cross-store pattern
+// settings section, and the accept-invitation surface. Mutations run on the
+// CLIENT through Better Auth's organization client (`authClient.organization.*`
+// in `settings/project-members.tsx` and the switcher) — the org HTTP endpoints
+// are live and authorized server-side by the role access-control rules. These
+// are the app-domain reads that back the rendering, queried directly off the
+// shared `auth_*` tables through `getAuthDb` — the same cross-store pattern
 // `lib/db/appAccess.ts` already uses.
 
+import { cache } from "react";
 import { getAuthDb } from "@/lib/auth/db";
 
 /** One Project the user belongs to — drives the header switcher. */
@@ -47,30 +49,6 @@ export interface IncomingInvitationRow {
 	expiresAt: Date;
 }
 
-/**
- * Whether two users share at least one Project — the authorization primitive
- * for media reads. Media bytes live in their owner's namespace; a Project
- * co-member may read them because they co-edit the owner's shared apps and
- * data. One self-joined existence check on the indexed `auth_member`; the
- * common same-user case is the caller's short-circuit, not a query.
- */
-export async function usersShareAnyProject(
-	userA: string,
-	userB: string,
-): Promise<boolean> {
-	if (userA === userB) return true;
-	const db = await getAuthDb();
-	const row = await db
-		.selectFrom("auth_member as a")
-		.innerJoin("auth_member as b", "a.organizationId", "b.organizationId")
-		.select("a.organizationId")
-		.where("a.userId", "=", userA)
-		.where("b.userId", "=", userB)
-		.limit(1)
-		.executeTakeFirst();
-	return row !== undefined;
-}
-
 /** Whether a Project's stored metadata marks it the user's personal Project. */
 function isPersonalMetadata(metadata: string | null): boolean {
 	if (!metadata) return false;
@@ -87,7 +65,7 @@ function isPersonalMetadata(metadata: string | null): boolean {
  * by name, so the default scope leads. One indexed join on the
  * `(organizationId, userId)`-unique `auth_member`, so one row per Project.
  */
-export async function listUserProjects(
+export const listUserProjects = cache(async function listUserProjects(
 	userId: string,
 ): Promise<ProjectSummary[]> {
 	const db = await getAuthDb();
@@ -121,7 +99,7 @@ export async function listUserProjects(
 			if (a.personal !== b.personal) return a.personal ? -1 : 1;
 			return a.name.localeCompare(b.name);
 		});
-}
+});
 
 /**
  * Members of a Project, each joined to its user identity, newest first — the

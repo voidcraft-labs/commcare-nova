@@ -26,7 +26,6 @@ import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { AppAccessError, resolveMediaOwner } from "@/lib/db/appAccess";
 import {
 	listReadyAssetsForOwner,
 	loadAssetsByIds,
@@ -46,10 +45,6 @@ const querySchema = z
 		// a larger request is malformed, and the cap bounds the Firestore
 		// batch-read fan-out the same way the boundary's pre-load cap does.
 		ids: z.array(z.string().min(1)).max(MAX_MEDIA_EXPORT_ASSETS),
-		// When listing/resolving FOR an app, scope to the app OWNER's media pool
-		// (the shared namespace every Project member draws from), authorized by
-		// the caller's `view` on that app. Absent for the personal file manager.
-		appId: z.string().min(1).optional(),
 	})
 	.strict();
 
@@ -61,7 +56,6 @@ export async function GET(req: NextRequest) {
 			kinds: url.searchParams.getAll("kind"),
 			cursor: url.searchParams.get("cursor") ?? undefined,
 			ids: url.searchParams.getAll("id"),
-			appId: url.searchParams.get("appId") ?? undefined,
 		});
 		if (!parsed.success) {
 			throw new ApiError(
@@ -71,33 +65,19 @@ export async function GET(req: NextRequest) {
 			);
 		}
 
-		const { ids, kinds, cursor, appId } = parsed.data;
-
-		/* The namespace to read from — the app owner's pool for an app context
-		 * (caller authorized at `view`), else the caller's own. A denied app
-		 * collapses to 404 so it can't be probed. */
-		let owner: string;
-		try {
-			owner = await resolveMediaOwner(appId, session.user.id, "view");
-		} catch (err) {
-			if (err instanceof AppAccessError) {
-				throw new ApiError("App not found.", 404);
-			}
-			throw err;
-		}
-
+		const { ids, kinds, cursor } = parsed.data;
 		if (ids.length > 0) {
-			const rows = await loadAssetsByIds(owner, ids);
+			const rows = await loadAssetsByIds(session.user.id, ids);
 			return NextResponse.json({
 				assets: rows.map(toWireMediaAsset),
 				nextCursor: null,
 			});
 		}
 
-		const { assets, nextCursor } = await listReadyAssetsForOwner(owner, {
-			kinds,
-			cursor,
-		}).catch((err: unknown) => {
+		const { assets, nextCursor } = await listReadyAssetsForOwner(
+			session.user.id,
+			{ kinds, cursor },
+		).catch((err: unknown) => {
 			// A bad cursor is a client error — surface its helpful
 			// message as a 400 rather than collapsing to a 500.
 			if (err instanceof MalformedCursorError) {

@@ -78,14 +78,7 @@ export function useAttachBudgetGuard(): (
 			);
 			if (missing.length > 0) {
 				try {
-					/* Resolve referenced ids in the app owner's namespace (the shared
-					 * pool) so a member's budget check finds a co-member-uploaded
-					 * asset's bytes rather than reading it as a gap. */
-					session
-						.getState()
-						.recordAssetMeta(
-							await fetchAssetsByIds(missing, session.getState().appId),
-						);
+					session.getState().recordAssetMeta(await fetchAssetsByIds(missing));
 				} catch {
 					// Fail OPEN: an unresolvable ref can only make this courtesy
 					// check miss, and the export boundary is the authority —

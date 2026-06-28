@@ -133,10 +133,6 @@ export interface UploadMediaOptions {
 	 *  the PUT through `XMLHttpRequest` — fetch exposes no upload-progress
 	 *  events. The dedup fast path never PUTs, so it reports nothing. */
 	onProgress?: (fraction: number) => void;
-	/** The app this upload is for. Lands the asset in that app's OWNER media
-	 *  namespace so every Project member shares one pool (and compile resolves
-	 *  it). Omitted for the personal file manager / chat documents. */
-	appId?: string;
 }
 
 /**
@@ -154,7 +150,7 @@ export async function uploadMediaAsset(
 	file: File,
 	options: UploadMediaOptions = {},
 ): Promise<MediaAssetView> {
-	const { signal, onProgress, appId } = options;
+	const { signal, onProgress } = options;
 	const contentHash = await sha256Hex(file);
 	signal?.throwIfAborted();
 	const initiate = await postJson<InitiateResponse>(
@@ -168,9 +164,6 @@ export async function uploadMediaAsset(
 			mimeType: resolveUploadMimeType(file.type, file.name),
 			sizeBytes: file.size,
 			contentHash,
-			// Scopes the asset to the app owner's namespace server-side; omitted
-			// for non-app uploads (the personal file manager / chat documents).
-			...(appId ? { appId } : {}),
 		},
 		signal,
 	);
@@ -420,18 +413,11 @@ export interface MediaLibraryPage {
  * page's `nextCursor`. An empty/omitted `kinds` fetches every kind.
  */
 export async function fetchMediaLibrary(
-	options: {
-		kinds?: readonly AssetKind[];
-		cursor?: string;
-		/** Scope to this app's owner pool (the shared namespace); omit for the
-		 *  personal file manager. */
-		appId?: string;
-	} = {},
+	options: { kinds?: readonly AssetKind[]; cursor?: string } = {},
 ): Promise<MediaLibraryPage> {
 	const params = new URLSearchParams();
 	for (const kind of options.kinds ?? []) params.append("kind", kind);
 	if (options.cursor) params.set("cursor", options.cursor);
-	if (options.appId) params.set("appId", options.appId);
 	const res = await fetch(`/api/media/library?${params.toString()}`);
 	if (!res.ok) {
 		throw await errorFromResponse(res, "Couldn't load your media library.");
@@ -453,7 +439,6 @@ const RESOLVE_IDS_CHUNK = 50;
  */
 export async function fetchAssetsByIds(
 	ids: readonly string[],
-	appId?: string,
 ): Promise<MediaAssetView[]> {
 	const unique = [...new Set(ids)];
 	const out: MediaAssetView[] = [];
@@ -462,7 +447,6 @@ export async function fetchAssetsByIds(
 		for (const id of unique.slice(i, i + RESOLVE_IDS_CHUNK)) {
 			params.append("id", id);
 		}
-		if (appId) params.set("appId", appId);
 		const res = await fetch(`/api/media/library?${params.toString()}`);
 		if (!res.ok) {
 			throw await errorFromResponse(

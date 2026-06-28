@@ -244,11 +244,7 @@ export function registerUploadAppToHq(
 				 * otherwise surface as `expandDoc`'s opaque `requireAssetRef`
 				 * throw. Thrown before run-id derivation + `initMcpCall` so
 				 * an invalid doc never allocates a LogWriter. */
-				/* Media lives in the app OWNER's namespace (shared at Project
-				 * scope) — validate/resolve against `app.owner`, not the acting
-				 * member, so a co-member uploading a shared app sends the owner's
-				 * attached media. */
-				const violations = await collectBoundaryViolations(doc, app.owner);
+				const violations = await collectBoundaryViolations(doc, ctx.userId);
 				if (violations.length > 0) {
 					throw new McpInvalidInputError(
 						`This app isn't ready to upload — fix these first: ${violations
@@ -295,7 +291,7 @@ export function registerUploadAppToHq(
 					 * references emitted and the files sent come from the
 					 * same source. An empty manifest (media-free app) makes
 					 * the upload step a no-op. */
-					const manifest = await resolveMediaManifest(doc, app.owner, {
+					const manifest = await resolveMediaManifest(doc, ctx.userId, {
 						withBytes: true,
 					});
 

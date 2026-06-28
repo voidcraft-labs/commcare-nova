@@ -133,13 +133,6 @@ export interface MediaPickerDialogProps {
 	 * reserved `nova-icon:<slug>` ref, resolved to shared bytes at emit.
 	 */
 	iconLibrary?: IconSlotKind | "all";
-	/**
-	 * The app whose media pool this picker browses. Scopes the Library tab to
-	 * that app's OWNER namespace so every Project member sees one shared pool.
-	 * Passed by the builder carrier slots; omitted by the personal file manager
-	 * and the chat composer (which browse the user's own library).
-	 */
-	appId?: string;
 }
 
 export function MediaPickerDialog({
@@ -152,7 +145,6 @@ export function MediaPickerDialog({
 	attachedAssetIds,
 	onAssetDeleted,
 	iconLibrary,
-	appId,
 }: MediaPickerDialogProps) {
 	// No `onPick` → this is the standalone file manager (see the prop doc): no
 	// carrier to pick into, so library clicks preview and Upload just lands files.
@@ -191,7 +183,6 @@ export function MediaPickerDialog({
 						attachedAssetIds={attachedAssetIds}
 						onAssetDeleted={onAssetDeleted}
 						iconLibrary={iconLibrary}
-						appId={appId}
 					/>
 				</Dialog.Popup>
 			</Dialog.Portal>
@@ -210,7 +201,6 @@ function PickerBody({
 	attachedAssetIds,
 	onAssetDeleted,
 	iconLibrary,
-	appId,
 }: {
 	manage: boolean;
 	kinds: readonly AssetKind[];
@@ -220,7 +210,6 @@ function PickerBody({
 	attachedAssetIds?: readonly string[];
 	onAssetDeleted?: (assetId: string) => void;
 	iconLibrary?: IconSlotKind | "all";
-	appId?: string;
 }) {
 	// The built-in icons offered: a slot's family (`module`/`form`) for a picker,
 	// the whole set (`all`) for the file manager. Empty → no Icon Library tab.
@@ -274,7 +263,7 @@ function PickerBody({
 		addUploaded,
 		removeAsset,
 		updateAsset,
-	} = useMediaLibrary(libraryKinds, appId);
+	} = useMediaLibrary(libraryKinds);
 
 	// Surface each loaded page to the caller (the builder slots record the
 	// rows for the attach budget check). The consumer's merge is

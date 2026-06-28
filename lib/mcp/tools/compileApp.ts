@@ -86,11 +86,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * message, so an invalid app never compiles into an artifact —
 				 * and a stale media reference never reaches `expandDoc`'s
 				 * `requireAssetRef` throw (an opaque `internal` error). */
-				/* Media lives in the app OWNER's namespace (shared at Project
-				 * scope), so resolve/validate against `app.owner`, not the
-				 * acting member — a Project co-member compiling a shared app must
-				 * see the same media the owner attached. */
-				const violations = await collectBoundaryViolations(doc, app.owner);
+				const violations = await collectBoundaryViolations(doc, ctx.userId);
 				if (violations.length > 0) {
 					throw new McpInvalidInputError(
 						`This app isn't ready to compile — fix these first: ${violations
@@ -103,7 +99,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * expander's media references and — for a media-bearing app —
 				 * the byte bundle. A media-free app resolves to an empty
 				 * manifest at no byte cost. */
-				const assets = await resolveMediaManifest(doc, app.owner, {
+				const assets = await resolveMediaManifest(doc, ctx.userId, {
 					withBytes: true,
 				});
 				const hasMedia = assets.size > 0;

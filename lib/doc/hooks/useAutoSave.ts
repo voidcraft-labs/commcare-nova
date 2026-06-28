@@ -262,6 +262,23 @@ export function useAutoSave(): SaveState {
 					 * replays the rejection, so resync to the server's version
 					 * and tell the user. */
 					await reloadAfterConflict(appIdAtStart, stillCurrent);
+				} else if (res.status === 404) {
+					/* The write path can no longer resolve this app at `edit` for
+					 * the caller — almost always edit access revoked mid-session (a
+					 * shared-Project demotion to viewer; the gate collapses that to a
+					 * not-found 404). `canEdit` was captured at mount, so the
+					 * read-only UI gates never engaged and the user kept editing.
+					 * Warn explicitly and persistently so those un-saveable changes
+					 * aren't lost silently behind an ambiguous error indicator. */
+					if (stillCurrent()) {
+						showToast(
+							"warning",
+							"Your changes aren't being saved",
+							"You no longer have edit access to this app — a Project admin may have changed your role. Reload to see the current version; recent edits here won't be saved.",
+							{ persistent: true },
+						);
+						setState((prev) => ({ ...prev, status: "error" }));
+					}
 				} else {
 					let detail = `HTTP ${res.status}`;
 					try {

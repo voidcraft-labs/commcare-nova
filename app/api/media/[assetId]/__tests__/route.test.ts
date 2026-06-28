@@ -29,7 +29,7 @@ const {
 	requireSessionMock,
 	loadAssetForOwnerMock,
 	loadAssetByIdMock,
-	usersShareAnyProjectMock,
+	canReadReferencedAssetMock,
 	findAppReferencesToAssetMock,
 	purgeAssetStorageMock,
 	streamAssetMock,
@@ -38,7 +38,9 @@ const {
 	requireSessionMock: vi.fn(),
 	loadAssetForOwnerMock: vi.fn(),
 	loadAssetByIdMock: vi.fn(),
-	usersShareAnyProjectMock: vi.fn(() => Promise.resolve(false)),
+	// Default: the read is authorized (owner-self or a referencing app the
+	// caller can access). Individual tests override to the denied case.
+	canReadReferencedAssetMock: vi.fn(() => Promise.resolve(true)),
 	findAppReferencesToAssetMock: vi.fn(() => Promise.resolve([] as string[])),
 	purgeAssetStorageMock: vi.fn(() => Promise.resolve()),
 	streamAssetMock: vi.fn(),
@@ -46,8 +48,8 @@ const {
 }));
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: requireSessionMock }));
-vi.mock("@/lib/projects/membership", () => ({
-	usersShareAnyProject: usersShareAnyProjectMock,
+vi.mock("@/lib/db/appAccess", () => ({
+	canReadReferencedAsset: canReadReferencedAssetMock,
 }));
 vi.mock("@/lib/db/mediaAssets", () => ({
 	loadAssetForOwner: loadAssetForOwnerMock,
@@ -151,22 +153,28 @@ describe("GET media asset", () => {
 		await drainBody(res);
 	});
 
-	it("serves a co-member's asset when the caller shares a Project with the owner", async () => {
-		// Media is shared at Project scope: the row is owned by user-2, but the
-		// caller (user-1) co-owns a Project with them, so the bytes serve.
-		loadAssetByIdMock.mockResolvedValue(docAsset({ owner: "user-2" }));
-		usersShareAnyProjectMock.mockResolvedValue(true);
+	it("serves a co-member's asset referenced by an app the caller can access", async () => {
+		// Media on a shared app is visible to its Project members: the row is
+		// owned by user-2, but it's referenced by an app user-1 holds `view` on.
+		loadAssetByIdMock.mockResolvedValue(
+			docAsset({ owner: "user-2", referencingAppIds: ["app-x"] }),
+		);
+		canReadReferencedAssetMock.mockResolvedValue(true);
 		getStoredObjectSizeMock.mockResolvedValue(5);
 
 		const res = await GET(getReq(), ctx());
 		expect(res.status).toBe(200);
-		expect(usersShareAnyProjectMock).toHaveBeenCalledWith("user-1", "user-2");
+		expect(canReadReferencedAssetMock).toHaveBeenCalledWith(
+			"user-1",
+			"user-2",
+			["app-x"],
+		);
 		await drainBody(res);
 	});
 
-	it("404s a foreign asset with no shared Project so ids stay non-enumerable", async () => {
+	it("404s a foreign asset the caller can't reach through any app so ids stay non-enumerable", async () => {
 		loadAssetByIdMock.mockResolvedValue(docAsset({ owner: "user-2" }));
-		usersShareAnyProjectMock.mockResolvedValue(false);
+		canReadReferencedAssetMock.mockResolvedValue(false);
 
 		const res = await GET(getReq(), ctx());
 		expect(res.status).toBe(404);

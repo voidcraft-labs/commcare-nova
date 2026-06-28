@@ -324,35 +324,39 @@ export const getSession = cache(async (): Promise<Session | null> => {
  * falling back to the user's personal Project — self-healing for sessions
  * minted before Projects shipped, which never got the stamp. The fallback is a
  * cheap indexed get-or-create, so it's safe to call per request.
+ *
+ * `cache()`-wrapped (like `getSession`) so the layout + page both calling it in
+ * one render pass share a single resolution — keyed on the `session` object,
+ * which `getSession`'s own cache keeps stable within a request.
  */
-export async function resolveActiveProjectId(
-	session: Session,
-): Promise<string> {
-	const active = session.session.activeOrganizationId;
-	if (active) {
-		/* Re-check membership: `organization.setActive` lets a user stamp a shared
-		 * Project active, and a later removal leaves that stale stamp on their
-		 * session until it's re-minted. Don't let it grant list/create access to a
-		 * Project they've left — fall through to their personal one. */
-		try {
-			await resolveProjectAccess(session.user.id, active, "view");
-			return active;
-		} catch (err) {
-			if (!(err instanceof AppAccessError)) throw err;
-			// The stamped active Project is no longer accessible — membership
-			// was revoked since the session was minted. Fall through to the
-			// personal Project (secure: correctly scoped), but LOG it:
-			// otherwise the user's shared apps silently vanish from their list
-			// with no trace. The stale stamp clears on the next session
-			// re-mint; the Project switcher reflects the active Project.
-			log.warn(
-				"[auth] active Project no longer accessible — falling back to personal",
-				{ userId: session.user.id, staleProjectId: active },
-			);
+export const resolveActiveProjectId = cache(
+	async function resolveActiveProjectId(session: Session): Promise<string> {
+		const active = session.session.activeOrganizationId;
+		if (active) {
+			/* Re-check membership: `organization.setActive` lets a user stamp a shared
+			 * Project active, and a later removal leaves that stale stamp on their
+			 * session until it's re-minted. Don't let it grant list/create access to a
+			 * Project they've left — fall through to their personal one. */
+			try {
+				await resolveProjectAccess(session.user.id, active, "view");
+				return active;
+			} catch (err) {
+				if (!(err instanceof AppAccessError)) throw err;
+				// The stamped active Project is no longer accessible — membership
+				// was revoked since the session was minted. Fall through to the
+				// personal Project (secure: correctly scoped), but LOG it:
+				// otherwise the user's shared apps silently vanish from their list
+				// with no trace. The stale stamp clears on the next session
+				// re-mint; the Project switcher reflects the active Project.
+				log.warn(
+					"[auth] active Project no longer accessible — falling back to personal",
+					{ userId: session.user.id, staleProjectId: active },
+				);
+			}
 		}
-	}
-	return ensurePersonalProject(session.user.id);
-}
+		return ensurePersonalProject(session.user.id);
+	},
+);
 
 /**
  * Require an authenticated session in a Server Component.

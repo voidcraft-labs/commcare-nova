@@ -145,20 +145,35 @@ export async function resolveProjectAccess(
 }
 
 /**
- * The owner namespace a media operation scopes to. An app's media lives in the
- * app OWNER's namespace (where compile/export resolve it), so a member working
- * on a shared app uploads/lists/attaches there too — keyed by `app.owner`, not
- * the acting member. With `appId`, authorize the caller on that app at
- * `required` and return its owner; without one (the personal file manager, chat
- * documents), the scope is the caller's own namespace. Throws
- * {@link AppAccessError} on a denied app — the media routes collapse it to 404.
+ * Whether `userId` may READ a media asset they don't own — i.e. whether the
+ * asset is referenced by an app the user can access. Media bytes live in the
+ * uploader's namespace, but an asset attached to a shared app must be visible
+ * to that app's Project members (otherwise media on a shared app renders broken
+ * for co-editors). The asset's `referencingAppIds` reverse index names the apps
+ * whose blueprint references it; the caller may read it if they hold `view` on
+ * any one of them.
+ *
+ * The index is trusted (not re-walked) for this READ check: a stale entry only
+ * over-grants read to a former co-viewer of an app that once referenced the
+ * asset — bounded and low-risk for a read. The DELETE guard
+ * (`findAppReferencesToAsset`) still re-walks to CONFIRM a live reference.
+ * A legacy asset with no index (`referencingAppIds` absent) stays owner-only
+ * until `backfill-media-reference-index` populates it.
  */
-export async function resolveMediaOwner(
-	appId: string | undefined,
+export async function canReadReferencedAsset(
 	userId: string,
-	required: AppCapability,
-): Promise<string> {
-	if (!appId) return userId;
-	const { app } = await resolveAppAccess(appId, userId, required);
-	return app.owner;
+	ownerId: string,
+	referencingAppIds: readonly string[] | undefined,
+): Promise<boolean> {
+	if (ownerId === userId) return true;
+	if (!referencingAppIds || referencingAppIds.length === 0) return false;
+	for (const appId of referencingAppIds) {
+		try {
+			await resolveAppScope(appId, userId, "view");
+			return true;
+		} catch (err) {
+			if (!(err instanceof AppAccessError)) throw err;
+		}
+	}
+	return false;
 }
