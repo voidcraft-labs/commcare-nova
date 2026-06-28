@@ -238,6 +238,9 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		expect(body.appId).toBe("hq-1");
 		// Default bundle result is a clean match → no warnings.
 		expect(body.warnings).toEqual([]);
+		// Uploading PUBLISHES the app, so the membership gate is EDIT, not view
+		// (a viewer can't push a shared app to HQ).
+		expect(resolveAppAccess).toHaveBeenCalledWith("a1", "u1", "edit");
 		expect(collectBoundaryViolations).toHaveBeenCalledWith(
 			expect.objectContaining({ appName: "Vaccine Tracker" }),
 			"u1",
