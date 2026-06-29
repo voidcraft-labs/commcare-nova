@@ -149,5 +149,8 @@ describe("POST /api/media/upload", () => {
 		expect(res.status).toBe(404);
 		expect(createPendingAsset).not.toHaveBeenCalled();
 		expect(createSignedUploadUrl).not.toHaveBeenCalled();
+		// Drain the error response body so its promise settles (the async-leak
+		// gate flags an unread `NextResponse.json` body).
+		await res.json();
 	});
 });
