@@ -22,6 +22,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerPlus from "@iconify-icons/tabler/plus";
+import tablerSettings from "@iconify-icons/tabler/settings";
 import tablerUsers from "@iconify-icons/tabler/users";
 import Link from "next/link";
 import { useState } from "react";
@@ -244,17 +245,17 @@ export function ProjectSwitcher({
 							)}
 
 							<Link
-								href="/settings#members"
+								href="/project"
 								onClick={() => setOpen(false)}
 								className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer rounded-b-xl"
 							>
 								<Icon
-									icon={tablerUsers}
+									icon={tablerSettings}
 									width="16"
 									height="16"
 									className="text-nova-text-muted"
 								/>
-								Manage members
+								Project settings
 							</Link>
 						</div>
 					</Popover.Popup>
