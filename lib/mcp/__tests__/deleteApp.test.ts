@@ -7,7 +7,7 @@
  *     + `recoverable_until`.
  *   - Ownership failure: the wire collapses `"not_owner"` to
  *     `"not_found"` (IDOR hardening). `softDeleteApp` must not run.
- *   - App not found: `loadAppOwner` returns null — a probe for an
+ *   - App not found: the app load returns null — a probe for an
  *     arbitrary id must not leave soft-delete state behind.
  *   - `softDeleteApp` throws: the Firestore write rejection surfaces
  *     as an `isError: true` MCP envelope classified through the shared
@@ -18,7 +18,8 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadAppOwner, softDeleteApp } from "@/lib/db/apps";
+import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
+import { softDeleteApp } from "@/lib/db/apps";
 import { registerDeleteApp } from "../tools/deleteApp";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
@@ -27,8 +28,15 @@ import { makeFakeServer } from "./fakeServer";
  * `@/lib/db/apps`. Only the two functions the tool touches (one for
  * the ownership gate, one for the write) are replaced. */
 vi.mock("@/lib/db/apps", () => ({
-	loadAppOwner: vi.fn(),
 	softDeleteApp: vi.fn(),
+}));
+
+/* The ownership gate now runs through the membership resolver `resolveAppScope`
+ * (inside `requireOwnedApp`). Mock it — keeping the real `AppAccessError` for the
+ * instanceof mapping — so the tool's gate is driven without an auth DB. */
+vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
+	resolveAppScope: vi.fn(),
 }));
 
 /* --- Helpers --------------------------------------------------------- */
@@ -41,7 +49,7 @@ const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 const FIXED_RECOVERABLE_UNTIL = "2026-05-23T12:00:00.000Z";
 
 beforeEach(() => {
-	vi.mocked(loadAppOwner).mockReset();
+	vi.mocked(resolveAppScope).mockReset();
 	vi.mocked(softDeleteApp).mockReset();
 });
 
@@ -49,7 +57,11 @@ beforeEach(() => {
 
 describe("registerDeleteApp — happy path", () => {
 	it("soft-deletes an owned app and surfaces the recovery deadline", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
+		vi.mocked(resolveAppScope).mockResolvedValueOnce({
+			projectId: "p1",
+			role: "owner",
+			actorUserId: "u1",
+		});
 		vi.mocked(softDeleteApp).mockResolvedValueOnce(FIXED_RECOVERABLE_UNTIL);
 
 		const { server, capture } = makeFakeServer();
@@ -76,7 +88,9 @@ describe("registerDeleteApp — ownership failure", () => {
 		 * watching for a `"not_owner"` signal. The wire collapses to
 		 * `"not_found"` with the same text a genuinely missing id
 		 * would produce. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		vi.mocked(resolveAppScope).mockRejectedValueOnce(
+			new AppAccessError("not_member"),
+		);
 
 		const { server, capture } = makeFakeServer();
 		registerDeleteApp(server, toolCtx);
@@ -102,7 +116,9 @@ describe("registerDeleteApp — ownership failure", () => {
 
 describe("registerDeleteApp — not found", () => {
 	it("maps ownership-null to error_type = 'not_found' and never writes", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+		vi.mocked(resolveAppScope).mockRejectedValueOnce(
+			new AppAccessError("not_found"),
+		);
 
 		const { server, capture } = makeFakeServer();
 		registerDeleteApp(server, toolCtx);
@@ -131,12 +147,16 @@ describe("registerDeleteApp — wire parity (IDOR regression lock)", () => {
 		/* Regression lock for the IDOR hardening: both access-failure
 		 * shapes must be byte-identical so a probing client has no
 		 * signal to distinguish them. */
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("someone-else");
+		vi.mocked(resolveAppScope).mockRejectedValueOnce(
+			new AppAccessError("not_member"),
+		);
 		const { server: sA, capture: capA } = makeFakeServer();
 		registerDeleteApp(sA, toolCtx);
 		const ownerMismatch = await capA()({ app_id: "probe-id" }, {});
 
-		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+		vi.mocked(resolveAppScope).mockRejectedValueOnce(
+			new AppAccessError("not_found"),
+		);
 		const { server: sB, capture: capB } = makeFakeServer();
 		registerDeleteApp(sB, toolCtx);
 		const notFound = await capB()({ app_id: "probe-id" }, {});
@@ -151,7 +171,11 @@ describe("registerDeleteApp — wire parity (IDOR regression lock)", () => {
 
 describe("registerDeleteApp — softDeleteApp throws", () => {
 	it("surfaces firestore write rejection through the shared taxonomy", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
+		vi.mocked(resolveAppScope).mockResolvedValueOnce({
+			projectId: "p1",
+			role: "owner",
+			actorUserId: "u1",
+		});
 		vi.mocked(softDeleteApp).mockRejectedValueOnce(
 			new Error("firestore write failed"),
 		);

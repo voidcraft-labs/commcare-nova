@@ -25,7 +25,6 @@ import {
 } from "@/lib/chat/attachmentRefs";
 import { extractThread } from "@/lib/chat/threadUtils";
 import { saveThread } from "@/lib/db/threads";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
@@ -34,6 +33,7 @@ import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	derivePhase,
+	useCanEdit,
 	useInReplayMode,
 	useReplayMessages,
 } from "@/lib/session/hooks";
@@ -88,11 +88,9 @@ function createChatInstance(
 				if (!session) return {};
 				const sessionState = session.getState();
 				const hasData = (doc?.moduleOrder.length ?? 0) > 0;
-				/* Send the normalized doc directly — the route converts to the
-				 * SA's wire format server-side. The derived state (fieldParent
-				 * + the reference index) is omitted from the wire payload
-				 * (matches Firestore's persistence contract). */
-				const wireDoc = doc && hasData ? toPersistableDoc(doc) : undefined;
+				/* The blueprint is NEVER sent — the route loads the persisted doc
+				 * server-side off the authorization read. We send only the `appId`;
+				 * `hasData` still feeds the `appReady` phase derivation below. */
 				/* `appReady` gates whether the server strips generation tools
 				 * (editing mode) vs exposes them (build mode). We use the
 				 * derived phase as the single source of truth — Ready or
@@ -115,7 +113,6 @@ function createChatInstance(
 				const appReady =
 					phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
 				return {
-					doc: wireDoc,
 					runId: runIdRef.current,
 					appId: sessionState.appId,
 					lastResponseAt: lastResponseAtRef.current,
@@ -191,6 +188,10 @@ export function ChatContainer({
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
 	const inReplayMode = useInReplayMode();
+	/* Viewers (view-only Project members) get a read-only conversation — the
+	 * SA is the edit mechanism, so the composer hides exactly as it does in
+	 * replay. The write paths reject their edits server-side regardless. */
+	const canEdit = useCanEdit();
 	/** Replay messages — derived on read from the session store's event
 	 *  log + cursor. ReplayController writes the cursor; this hook
 	 *  projects the events into `UIMessage[]`. */
@@ -379,7 +380,12 @@ export function ChatContainer({
 			status={inReplayMode ? "ready" : status}
 			onSend={handleSend}
 			addToolOutput={addToolOutput}
-			readOnly={inReplayMode}
+			readOnly={inReplayMode || !canEdit}
+			readOnlyNotice={
+				!canEdit && !inReplayMode
+					? "You have view-only access to this app. Ask a Project admin for edit access to make changes."
+					: undefined
+			}
 			isExistingApp={isExistingApp}
 		>
 			{!inReplayMode && children}

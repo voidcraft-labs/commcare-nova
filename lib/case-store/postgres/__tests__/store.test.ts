@@ -133,10 +133,10 @@ beforeEach(async () => {
 // ---------------------------------------------------------------
 //
 // The harness consumes a factory that constructs a `CaseStore`
-// for a supplied owner id. Bypassing `withOwnerContext` lets
-// tests bind against the per-test handle rather than the
-// production singleton — the factory is production-only by
-// design.
+// for a supplied tenant binding (Project + actor). Bypassing
+// `withProjectContext` lets tests bind against the per-test handle
+// rather than the production singleton — the factory is
+// production-only by design.
 //
 // `dbHandle.db` is `Kysely<unknown>`; the store constructor
 // wants `Kysely<Database>`. The cast is type-only — the runtime
@@ -144,9 +144,10 @@ beforeEach(async () => {
 
 runStoreContract({
 	describeName: "PostgresCaseStore",
-	factory: async (ownerId: string) => {
+	factory: async (tenant) => {
 		return new PostgresCaseStore({
-			ownerId,
+			projectId: tenant.projectId,
+			actorUserId: tenant.actorUserId,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
@@ -217,14 +218,20 @@ function buildSchemaMap(caseType: CaseType): ReadonlyMap<string, CaseType> {
 }
 
 /**
- * Construct a `PostgresCaseStore` for the supplied owner against
- * the per-test database. Keeping this in one helper keeps every
+ * Construct a `PostgresCaseStore` for the supplied Project against the
+ * per-test database. `actorUserId` (the `owner_id` stamped on inserts)
+ * defaults to the Project id — these index-DDL tests are app-scoped and
+ * don't exercise the actor axis. Keeping this in one helper keeps every
  * test below to a single line of setup before the meaningful
  * assertions.
  */
-function makeStore(ownerId: string): PostgresCaseStore {
+function makeStore(
+	projectId: string,
+	actorUserId: string = projectId,
+): PostgresCaseStore {
 	return new PostgresCaseStore({
-		ownerId,
+		projectId,
+		actorUserId,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
@@ -1706,7 +1713,8 @@ describe("PostgresCaseStore — bulk-insert rollback semantics", () => {
 		};
 
 		const store = new PostgresCaseStore({
-			ownerId: OWNER_A,
+			projectId: OWNER_A,
+			actorUserId: OWNER_A,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: stubGenerator,
 		});
@@ -1769,7 +1777,8 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 		const caseTypeSchemas = buildSchemaMap(caseType);
 
 		const seedingStore = new PostgresCaseStore({
-			ownerId: OWNER_A,
+			projectId: OWNER_A,
+			actorUserId: OWNER_A,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
@@ -1818,7 +1827,8 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 			],
 		};
 		const failingStore = new PostgresCaseStore({
-			ownerId: OWNER_A,
+			projectId: OWNER_A,
+			actorUserId: OWNER_A,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: failingSampleGenerator,
 		});

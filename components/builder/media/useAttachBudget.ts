@@ -78,7 +78,13 @@ export function useAttachBudgetGuard(): (
 			);
 			if (missing.length > 0) {
 				try {
-					session.getState().recordAssetMeta(await fetchAssetsByIds(missing));
+					// Resolve the gaps against the current app's Project (the server
+					// reads `appId`), the same tenant the refs were attached under.
+					session
+						.getState()
+						.recordAssetMeta(
+							await fetchAssetsByIds(missing, session.getState().appId),
+						);
 				} catch {
 					// Fail OPEN: an unresolvable ref can only make this courtesy
 					// check miss, and the export boundary is the authority —

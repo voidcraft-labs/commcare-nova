@@ -19,7 +19,7 @@ import type {
 	UsagePeriod,
 } from "@/lib/admin/types";
 import { getAuthDb } from "../auth/db";
-import { type AppSummary, listApps } from "./apps";
+import { type AppSummary, listAppsByOwner } from "./apps";
 import { type CreditSummary, getCreditSummary } from "./credits";
 import { collections } from "./firestore";
 import { getCurrentPeriod } from "./period";
@@ -280,7 +280,7 @@ const ADMIN_LIST_PAGE_SIZE = 50;
  * exposes apps as a plain array.
  */
 export async function getAdminUserApps(userId: string): Promise<AppSummary[]> {
-	const { apps } = await listApps(userId, {
+	const { apps } = await listAppsByOwner(userId, {
 		limit: ADMIN_LIST_PAGE_SIZE,
 		sort: "updated_desc",
 	});

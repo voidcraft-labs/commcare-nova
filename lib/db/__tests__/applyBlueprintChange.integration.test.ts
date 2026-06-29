@@ -19,7 +19,7 @@
 //     `loadApp` / `updateApp` / `updateAppForRun` triple. The
 //     saga's `applyBlueprintChange` reads + writes via these.
 //   - A `vi.mock` of `@/lib/case-store` overriding
-//     `withOwnerContext` to construct a `PostgresCaseStore`
+//     `withSchemaContext` to construct a `PostgresCaseStore`
 //     against the per-test handle (production parity, just bypasses
 //     the production singleton's Cloud SQL connector).
 //
@@ -57,14 +57,14 @@ const { loadAppMock, updateAppMock, updateAppForRunMock } = vi.hoisted(() => {
 	};
 });
 
-// `withOwnerContextMock` is patched per-test once the per-test
+// `withSchemaContextMock` is patched per-test once the per-test
 // database handle is bound — the test body itself can't call
 // `vi.hoisted` (Vitest's hoist-time evaluation runs before test
 // state exists). We hoist the spy shell here and inject the
 // PostgresCaseStore-backed implementation in `beforeEach`.
 
-const { withOwnerContextMock } = vi.hoisted(() => ({
-	withOwnerContextMock: vi.fn(),
+const { withSchemaContextMock } = vi.hoisted(() => ({
+	withSchemaContextMock: vi.fn(),
 }));
 
 vi.mock("@/lib/db/apps", () => ({
@@ -76,7 +76,7 @@ vi.mock("@/lib/db/apps", () => ({
 vi.mock("@/lib/case-store", async () => {
 	// Re-export the rest of the barrel so error classes / type
 	// imports keep resolving — the per-test override only swaps
-	// `withOwnerContext`. Casting through `unknown` avoids the
+	// `withSchemaContext`. Casting through `unknown` avoids the
 	// type-only import signature mismatch for `vi.importActual`.
 	const actual = (await vi.importActual("@/lib/case-store")) as Record<
 		string,
@@ -84,7 +84,7 @@ vi.mock("@/lib/case-store", async () => {
 	>;
 	return {
 		...actual,
-		withOwnerContext: withOwnerContextMock,
+		withSchemaContext: withSchemaContextMock,
 	};
 });
 
@@ -106,13 +106,14 @@ beforeEach(() => {
 	loadAppMock.mockReset();
 	updateAppMock.mockReset();
 	updateAppForRunMock.mockReset();
-	withOwnerContextMock.mockReset();
-	// Default: route every `withOwnerContext` call to a
+	withSchemaContextMock.mockReset();
+	// Default: route every `withSchemaContext` call to a
 	// PostgresCaseStore bound to the per-test handle. Tests that
 	// need to inject a faulty store override this in their body.
-	withOwnerContextMock.mockImplementation(async (ownerId: string) => {
+	withSchemaContextMock.mockImplementation(async () => {
 		return new PostgresCaseStore({
-			ownerId,
+			projectId: null,
+			actorUserId: null,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
@@ -300,7 +301,7 @@ describe("applyBlueprintChange — additive mutations", () => {
 
 		// Firestore committed; case-store factory was never invoked.
 		expect(updateAppMock).toHaveBeenCalledTimes(1);
-		expect(withOwnerContextMock).not.toHaveBeenCalled();
+		expect(withSchemaContextMock).not.toHaveBeenCalled();
 	});
 });
 
@@ -316,7 +317,8 @@ describe("applyBlueprintChange — retype mutations", () => {
 		};
 		const initialBlueprint = makeBlueprint([initial]);
 		const initialStore = new PostgresCaseStore({
-			ownerId: OWNER_ID,
+			projectId: OWNER_ID,
+			actorUserId: OWNER_ID,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
@@ -410,7 +412,8 @@ describe("applyBlueprintChange — retype mutations", () => {
 		};
 		const initialBlueprint = makeBlueprint([initial]);
 		const seedStore = new PostgresCaseStore({
-			ownerId: OWNER_ID,
+			projectId: OWNER_ID,
+			actorUserId: OWNER_ID,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
@@ -537,7 +540,8 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 		};
 		const initialBlueprint = makeBlueprint([initial]);
 		const seedStore = new PostgresCaseStore({
-			ownerId: OWNER_ID,
+			projectId: OWNER_ID,
+			actorUserId: OWNER_ID,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});

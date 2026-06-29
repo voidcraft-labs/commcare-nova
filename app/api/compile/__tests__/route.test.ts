@@ -8,9 +8,8 @@
  * (no fall-through into expand/compile), and that a clean compile returns
  * the archive bytes inline (octet-stream) rather than a download URL.
  *
- * Boundaries mocked: `requireSession`, the boundary gate, manifest, expand,
- * and compile. The route runs the REAL `blueprintDocSchema` (fixture built
- * via `buildDoc`).
+ * Boundaries mocked: `requireSession`, `resolveAppAccess` (loads the
+ * blueprint server-side), the boundary gate, manifest, expand, and compile.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,11 +18,13 @@ import { requireSession } from "@/lib/auth-utils";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
+import { resolveAppAccess } from "@/lib/db/appAccess";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
+vi.mock("@/lib/db/appAccess", () => ({ resolveAppAccess: vi.fn() }));
 vi.mock("@/lib/media/boundaryValidation", () => ({
 	collectBoundaryViolations: vi.fn(),
 }));
@@ -34,9 +35,9 @@ vi.mock("@/lib/commcare/compiler", () => ({ compileCcz: vi.fn() }));
 const SESSION = { user: { id: "u1" } };
 
 /**
- * A schema-valid blueprint the route's `safeParse` accepts. The strict
- * persistable schema excludes `fieldParent` (the route rebuilds it), so
- * strip it off the in-memory `buildDoc` output before sending as body.
+ * The blueprint `resolveAppAccess` loads server-side. The persistable wire
+ * shape excludes the derived `fieldParent` (the route rebuilds it), so strip
+ * it off the in-memory `buildDoc` output.
  */
 function validDoc() {
 	const { fieldParent: _fieldParent, ...doc } = buildDoc({
@@ -77,14 +78,24 @@ function reqWith(body: unknown) {
 	} as unknown as Parameters<typeof POST>[0];
 }
 
+/** Mock `resolveAppAccess` to load `doc` for app owner `u1` in `project-1`. */
+function loadsDoc(doc: ReturnType<typeof validDoc>) {
+	vi.mocked(resolveAppAccess).mockResolvedValue({
+		app: { blueprint: doc, owner: "u1" },
+		projectId: "project-1",
+	} as never);
+}
+
 beforeEach(() => {
 	vi.mocked(requireSession).mockReset();
+	vi.mocked(resolveAppAccess).mockReset();
 	vi.mocked(collectBoundaryViolations).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
 	vi.mocked(expandDoc).mockReset();
 	vi.mocked(compileCcz).mockReset();
 
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
+	loadsDoc(validDoc());
 	vi.mocked(collectBoundaryViolations).mockResolvedValue([]);
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
 	vi.mocked(expandDoc).mockReturnValue({} as never);
@@ -102,7 +113,7 @@ describe("POST /api/compile — boundary gate", () => {
 			),
 		]);
 
-		const res = await POST(reqWith({ doc: validDoc() }));
+		const res = await POST(reqWith({ appId: "a1" }));
 		const body = (await res.json()) as { error: string; details?: string[] };
 
 		expect(res.status).toBe(422);
@@ -116,7 +127,7 @@ describe("POST /api/compile — boundary gate", () => {
 
 describe("POST /api/compile — inline archive return", () => {
 	it("returns the compiled .ccz bytes inline (octet-stream) when the boundary gate is clean", async () => {
-		const res = await POST(reqWith({ doc: validDoc() }));
+		const res = await POST(reqWith({ appId: "a1" }));
 
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toBe("application/octet-stream");
@@ -131,7 +142,7 @@ describe("POST /api/compile — inline archive return", () => {
 
 		expect(collectBoundaryViolations).toHaveBeenCalledWith(
 			expect.objectContaining({ appName: "Vaccine Tracker" }),
-			"u1",
+			"project-1",
 		);
 		expect(compileCcz).toHaveBeenCalledTimes(1);
 	});

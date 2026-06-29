@@ -52,7 +52,10 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
-import { BlueprintDocContext } from "@/lib/doc/provider";
+import {
+	BlueprintDocContext,
+	BlueprintEditableContext,
+} from "@/lib/doc/provider";
 import {
 	caseListModuleMutations,
 	caseTypeCatalogMutations,
@@ -462,6 +465,13 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 		);
 	}
 
+	/* The single read-only choke point. `false` for a view-only Project member
+	 * (the build page resolved their role); every gated dispatch then no-ops
+	 * with a view-only explanation, so no canvas affordance can mutate the doc
+	 * even if its control wasn't individually hidden. The agent-stream / replay
+	 * writers bypass this hook and stay unaffected — a viewer triggers neither. */
+	const canEdit = useContext(BlueprintEditableContext);
+
 	// Memoize against the store instance so the returned action object is
 	// reference-stable across re-renders. A consumer storing this in a
 	// useEffect dependency array sees it as unchanging for the lifetime of
@@ -495,6 +505,18 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 			):
 				| { ok: true; results: MutationResult[] }
 				| { ok: false; messages: string[] } => {
+				/* View-only access — no user edit reaches the store. The visible
+				 * affordances are already hidden for a viewer; this is the
+				 * airtight backstop for any that aren't, so a stray dispatch
+				 * explains itself instead of silently mutating a doc that can
+				 * never persist. */
+				if (!canEdit) {
+					const lines = [
+						"You have view-only access to this app. Ask a Project admin for edit access to make changes.",
+					];
+					if (announce) notifyRejectedCommit(lines);
+					return { ok: false, messages: lines };
+				}
 				const verdict = mutationCommitVerdict(get(), mutations);
 				if (!verdict.ok) {
 					// Render to the concise BUILDER copy once — both the toast
@@ -1081,5 +1103,5 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 		};
 
 		return { ...makeApi(true), inline: makeApi(false) };
-	}, [store]);
+	}, [store, canEdit]);
 }

@@ -14,12 +14,13 @@ import { mediaAssetDocSchema } from "../types";
 
 const baseDoc = {
 	owner: "user-1",
+	project_id: "project-1",
 	contentHash: "a".repeat(64),
 	mimeType: "image/png",
 	kind: "image" as const,
 	extension: ".png",
 	sizeBytes: 1024,
-	gcsObjectKey: "users/user-1/aaa.png",
+	gcsObjectKey: "projects/project-1/aaa.png",
 	originalFilename: "logo.png",
 	displayName: "logo.png",
 	status: "ready" as const,

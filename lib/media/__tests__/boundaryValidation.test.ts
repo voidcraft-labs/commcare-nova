@@ -27,7 +27,7 @@ import { builtinIconRef } from "@/lib/domain/builtinIcons";
 import { MAX_MEDIA_EXPORT_BYTES } from "@/lib/domain/multimedia";
 import { collectBoundaryViolations } from "../boundaryValidation";
 
-const OWNER = "owner-1";
+const PROJECT = "project-1";
 
 /* Only the Firestore read is mocked — the validator runs for real. */
 vi.mock("@/lib/db/mediaAssets", () => ({
@@ -97,19 +97,19 @@ describe("collectBoundaryViolations", () => {
 		]);
 		const errors = await collectBoundaryViolations(
 			validDoc("good-asset"),
-			OWNER,
+			PROJECT,
 		);
 		expect(errors).toHaveLength(0);
 	});
 
 	it("flags a deleted / foreign-owned asset as MEDIA_ASSET_NOT_FOUND", async () => {
-		// The loader returns no row (deleted, or owner-filtered out) — the
+		// The loader returns no row (deleted, or filtered out by project) — the
 		// reference can't resolve, so a media-ON expand would throw.
 		vi.mocked(loadAssetsByIds).mockResolvedValue([]);
 
 		const errors = await collectBoundaryViolations(
 			validDoc("ghost-asset"),
-			OWNER,
+			PROJECT,
 		);
 
 		expect(errors).toHaveLength(1);
@@ -127,7 +127,7 @@ describe("collectBoundaryViolations", () => {
 
 		const errors = await collectBoundaryViolations(
 			validDoc("pending-asset"),
-			OWNER,
+			PROJECT,
 		);
 
 		expect(errors).toHaveLength(1);
@@ -147,7 +147,7 @@ describe("collectBoundaryViolations", () => {
 
 		const errors = await collectBoundaryViolations(
 			validDoc("wrong-kind"),
-			OWNER,
+			PROJECT,
 		);
 
 		expect(errors).toHaveLength(1);
@@ -185,7 +185,7 @@ describe("collectBoundaryViolations", () => {
 			],
 		});
 
-		const errors = await collectBoundaryViolations(doc, OWNER);
+		const errors = await collectBoundaryViolations(doc, PROJECT);
 		const codes = errors.map((e) => e.code);
 		expect(codes).toContain("MEDIA_ASSET_NOT_FOUND");
 		expect(codes).toContain("EMPTY_FORM");
@@ -205,7 +205,7 @@ describe("collectBoundaryViolations", () => {
 
 		const errors = await collectBoundaryViolations(
 			validDoc("huge-asset"),
-			OWNER,
+			PROJECT,
 		);
 
 		// Only the budget error — the reference is otherwise valid, and the
@@ -215,7 +215,7 @@ describe("collectBoundaryViolations", () => {
 	});
 
 	it("returns no errors and skips the Firestore read for a valid media-free doc", async () => {
-		const errors = await collectBoundaryViolations(validDoc(), OWNER);
+		const errors = await collectBoundaryViolations(validDoc(), PROJECT);
 		expect(errors).toHaveLength(0);
 		// No media refs → no asset load (the early-skip in the helper).
 		expect(loadAssetsByIds).not.toHaveBeenCalled();
@@ -223,8 +223,8 @@ describe("collectBoundaryViolations", () => {
 
 	it("passes the owner through to the loader", async () => {
 		vi.mocked(loadAssetsByIds).mockResolvedValue([]);
-		await collectBoundaryViolations(validDoc("some-asset"), OWNER);
-		expect(loadAssetsByIds).toHaveBeenCalledWith(OWNER, ["some-asset"]);
+		await collectBoundaryViolations(validDoc("some-asset"), PROJECT);
+		expect(loadAssetsByIds).toHaveBeenCalledWith(["some-asset"], PROJECT);
 	});
 
 	it("resolves a built-in icon ref clean, with no Firestore read", async () => {
@@ -233,7 +233,7 @@ describe("collectBoundaryViolations", () => {
 		// the media rules pass and `loadAssetsByIds` is never called (no real ids).
 		const errors = await collectBoundaryViolations(
 			validDoc(builtinIconRef("household")),
-			OWNER,
+			PROJECT,
 		);
 		expect(errors).toHaveLength(0);
 		expect(loadAssetsByIds).not.toHaveBeenCalled();
@@ -287,10 +287,10 @@ describe("collectBoundaryViolations", () => {
 			],
 		});
 
-		const errors = await collectBoundaryViolations(doc, OWNER);
+		const errors = await collectBoundaryViolations(doc, PROJECT);
 		expect(errors).toHaveLength(0);
 		// Only the uploaded asset hit Firestore; the built-in resolved from the
 		// catalog without a read.
-		expect(loadAssetsByIds).toHaveBeenCalledWith(OWNER, ["real-asset"]);
+		expect(loadAssetsByIds).toHaveBeenCalledWith(["real-asset"], PROJECT);
 	});
 });

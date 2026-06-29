@@ -1,10 +1,12 @@
 import { Icon } from "@iconify/react/offline";
+import tablerMail from "@iconify-icons/tabler/mail";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import Link from "next/link";
 import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { getSession } from "@/lib/auth-utils";
-import { userHasApps } from "@/lib/db/apps";
+import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
+import { projectHasApps } from "@/lib/db/apps";
+import { listIncomingInvitations } from "@/lib/projects/membership";
 import { AppList } from "./app-list";
 import { Landing } from "./landing";
 
@@ -30,8 +32,8 @@ interface HomePageProps {
  *    fetch — it's a UI filter, not a routable state, so it stays out
  *    of the URL.
  *
- * The `userHasApps` existence check (`limit(1)`) runs before the
- * Suspense boundary so new users never see the app-list skeleton.
+ * The `projectHasApps` existence check (`limit(1)`) runs before the
+ * Suspense boundary so a Project with no apps never shows the skeleton.
  */
 export default async function HomePage({ searchParams }: HomePageProps) {
 	const session = await getSession();
@@ -42,11 +44,21 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		return <Landing signInError={errorParam} />;
 	}
 
-	const hasApps = await userHasApps(session.user.id);
+	const [activeProjectId, incoming] = await Promise.all([
+		resolveActiveProjectId(session),
+		listIncomingInvitations(session.user.email, new Date()),
+	]);
+	const hasApps = await projectHasApps(activeProjectId);
+	const inviteCount = incoming.length;
 
 	if (!hasApps) {
 		return (
-			<main className="min-h-full flex items-center justify-center px-6">
+			<main className="min-h-full flex flex-col items-center justify-center px-6">
+				{inviteCount > 0 && (
+					<div className="w-full max-w-md mb-8">
+						<InvitationsBanner count={inviteCount} />
+					</div>
+				)}
 				<GetStarted />
 			</main>
 		);
@@ -56,10 +68,40 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
 	return (
 		<main className="max-w-4xl mx-auto px-6 py-12">
+			{inviteCount > 0 && (
+				<div className="mb-8">
+					<InvitationsBanner count={inviteCount} />
+				</div>
+			)}
 			<Suspense fallback={<AppListFallback />}>
-				<AppList userId={session.user.id} isAdmin={isAdmin} />
+				<AppList projectId={activeProjectId} isAdmin={isAdmin} />
 			</Suspense>
 		</main>
+	);
+}
+
+// ── Pending-invitation discovery ──────────────────────────────────────
+
+/** Banner shown when the user has Project invitations awaiting a response —
+ *  the in-app discovery point (no invitation email is sent). */
+function InvitationsBanner({ count }: { count: number }) {
+	return (
+		<Link
+			href="/accept-invitation"
+			className="flex items-center gap-3 rounded-lg border border-nova-border bg-nova-surface px-4 py-3 text-sm transition-colors hover:bg-white/5"
+		>
+			<Icon
+				icon={tablerMail}
+				width="18"
+				height="18"
+				className="shrink-0 text-nova-violet-bright"
+			/>
+			<span className="flex-1 text-nova-text">
+				You have {count} pending Project{" "}
+				{count === 1 ? "invitation" : "invitations"}.
+			</span>
+			<span className="font-medium text-nova-violet-bright">Review</span>
+		</Link>
 	);
 }
 

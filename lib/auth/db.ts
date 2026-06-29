@@ -104,6 +104,40 @@ interface AuthOAuthGrantRevocationTable {
 	revokedAt: ColumnType<Date, Date | string, Date | string>;
 }
 
+// Organization plugin tables — Nova's "Projects" tenancy. Better Auth manages
+// their creation + CRUD; Nova reads/writes them directly here for personal-
+// Project provisioning (lib/auth/provisionProject.ts). Columns mirror the
+// plugin's generated schema.
+interface AuthOrganizationTable {
+	id: string;
+	name: string;
+	slug: string;
+	logo: string | null;
+	/** The plugin stores metadata as a JSON string (text column). */
+	metadata: string | null;
+	createdAt: Timestamp;
+}
+
+interface AuthMemberTable {
+	id: string;
+	organizationId: string;
+	userId: string;
+	/** Comma-joined role string (e.g. "owner") — see lib/auth/projectRoles.ts. */
+	role: string;
+	createdAt: Timestamp;
+}
+
+interface AuthInvitationTable {
+	id: string;
+	organizationId: string;
+	email: string;
+	role: string | null;
+	status: string;
+	inviterId: string;
+	expiresAt: Timestamp;
+	createdAt: Timestamp;
+}
+
 export interface AuthDatabase {
 	auth_user: AuthUserTable;
 	auth_apikey: AuthApikeyTable;
@@ -111,6 +145,9 @@ export interface AuthDatabase {
 	auth_oauth_consent: AuthOAuthConsentTable;
 	auth_oauth_refresh_token: AuthOAuthRefreshTokenTable;
 	auth_oauth_grant_revocation: AuthOAuthGrantRevocationTable;
+	auth_organization: AuthOrganizationTable;
+	auth_member: AuthMemberTable;
+	auth_invitation: AuthInvitationTable;
 }
 
 let injectedForTests: Kysely<AuthDatabase> | null = null;

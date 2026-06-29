@@ -58,6 +58,7 @@ import type {
 	MutatingToolResult,
 	ReadToolResult,
 } from "@/lib/agent/tools/common";
+import type { AppCapability } from "@/lib/auth/projectRoles";
 import type { BlueprintDoc } from "@/lib/domain";
 import { initMcpCall } from "../context";
 import {
@@ -124,6 +125,7 @@ export function registerSharedTool(
 	toolName: string,
 	tool: SharedToolModule,
 	ctx: ToolContext,
+	required: AppCapability,
 ): void {
 	/* Compose the MCP-surfaced schema from the tool's own shape plus
 	 * the boundary-layer `app_id` injection — shared tool modules
@@ -141,7 +143,7 @@ export function registerSharedTool(
 		app_id: z
 			.string()
 			.describe(
-				"Firestore app id to target. Must be an app the authenticated user owns.",
+				"Firestore app id to target. Must be an app the caller can access.",
 			),
 	};
 
@@ -172,7 +174,7 @@ export function registerSharedTool(
 				 * probe or vanished row, both of which the wire collapses
 				 * to `not_found`. The full `AppDoc` is returned alongside
 				 * `.doc` for tools that want denormalized columns. */
-				const loaded = await loadAppBlueprint(appId, ctx.userId);
+				const loaded = await loadAppBlueprint(appId, ctx.userId, required);
 
 				/* Derive the run id from the app's own state after loading
 				 * but before any event-log write or progress emission.

@@ -7,12 +7,17 @@
 //
 // Architectural contract:
 //
-//   - **Structural tenant scoping.** Every method internally adds
-//     `WHERE owner_id = <bound userId>` to the underlying query;
-//     the JOIN-side filter on every joined `cases` row inside
-//     relation walks lives at the compiler stack
-//     (`compileRelationPath`). Cross-tenant reads are
-//     structurally impossible.
+//   - **Structural tenant scoping.** Every tenant-bound read/write
+//     adds `WHERE project_id = <bound>` to the underlying query and
+//     stamps `owner_id = <actor>` (the CommCare case-owner, a separate
+//     axis — not the tenant filter) on every insert; the JOIN-side
+//     `project_id` filter on every joined `cases` row inside relation
+//     walks lives at the compiler stack (`compileRelationPath`).
+//     Cross-Project reads are structurally impossible. The per-row
+//     SCHEMA migrations are the deliberate exception — they are
+//     app-scoped (`(app_id, case_type)`, no tenant filter) so a schema
+//     change migrates every member's rows, and run on a tenant-free
+//     `withSchemaContext` store.
 //   - **API-trust-boundary validation.** Writes validate the
 //     candidate `properties` payload against the case-type's JSON
 //     Schema (the row in `case_type_schemas`) via `ajv` BEFORE the
@@ -98,12 +103,22 @@ import { ajvErrorToCaseFailure } from "./validationFailure";
 
 /**
  * Construction arguments. Production callers go through
- * `withOwnerContext(userId)`; tests construct directly with a
- * per-test isolated Kysely instance and either the heuristic
- * generator or a stub.
+ * `withProjectContext(projectId, actorUserId)` (tenant-bound) or
+ * `withSchemaContext()` (schema-only); tests construct directly with a
+ * per-test isolated Kysely instance and either the heuristic generator
+ * or a stub.
+ *
+ * `projectId` / `actorUserId` are `null` for a schema-only store
+ * (`withSchemaContext`): `applySchemaChange` / `dropSchema` are
+ * app-scoped and bind no tenant. Every tenant-bound read/write reads
+ * them through `requireProjectId()` / `requireActorUserId()`, which
+ * throw if reached on a schema-only store — unreachable in practice
+ * because `withSchemaContext` returns the narrow `SchemaCaseStore`
+ * type that exposes no such method.
  */
 export interface PostgresCaseStoreArgs {
-	ownerId: string;
+	projectId: string | null;
+	actorUserId: string | null;
 	db: Kysely<Database>;
 	sampleGenerator: SampleCaseGenerator;
 }
@@ -135,18 +150,75 @@ interface ValidatorCacheEntry {
 
 /** The Postgres-backed implementation of `CaseStore`. */
 export class PostgresCaseStore implements CaseStore {
-	private readonly ownerId: string;
+	/**
+	 * Bound Project (tenant) for every read/write, or `null` for a
+	 * schema-only store (`withSchemaContext`). `null` only on a store
+	 * whose typed surface is `SchemaCaseStore`, so a tenant-bound method
+	 * never observes it — `requireProjectId()` guards regardless.
+	 */
+	private readonly projectId: string | null;
+	/**
+	 * User id stamped as `owner_id` (the CommCare case-owner) on every
+	 * inserted case, or `null` on a schema-only store. Not a tenant
+	 * boundary — the reserved axis future location-based access carves
+	 * on. `requireActorUserId()` guards the insert paths.
+	 */
+	private readonly actorUserId: string | null;
 	private readonly db: Kysely<Database>;
 	private readonly ajv: Ajv2020;
 	private readonly validatorCache: Map<string, ValidatorCacheEntry>;
 	private readonly sampleGenerator: SampleCaseGenerator;
 
 	constructor(args: PostgresCaseStoreArgs) {
-		this.ownerId = args.ownerId;
+		this.projectId = args.projectId;
+		this.actorUserId = args.actorUserId;
 		this.db = args.db;
 		this.ajv = buildAjv();
 		this.validatorCache = new Map();
 		this.sampleGenerator = args.sampleGenerator;
+	}
+
+	/**
+	 * The bound Project id for a tenant-scoped read/write. Throws if
+	 * reached on a schema-only store (`withSchemaContext`, `projectId =
+	 * null`) — unreachable in practice because that factory returns the
+	 * narrow `SchemaCaseStore` type, which exposes no tenant-bound
+	 * method. The throw is the structural backstop a direct
+	 * `PostgresCaseStore` misuse (a test, a future call site) would hit.
+	 */
+	private requireProjectId(): string {
+		if (this.projectId === null) {
+			throw new Error(
+				compilerBugMessage({
+					where: "case-store.PostgresCaseStore.requireProjectId",
+					invariant:
+						"a tenant-scoped read/write ran on a schema-only store (no bound Project)",
+					detail:
+						"This store was built by `withSchemaContext()` for app-scoped schema operations and carries no Project. A tenant-bound method (query / count / insert / update / close / traverse / generate / reset) requires one. Hint: build the store with `withProjectContext(projectId, actorUserId)` for read/write work.",
+				}),
+			);
+		}
+		return this.projectId;
+	}
+
+	/**
+	 * The user id to stamp as a new case's `owner_id`. Throws on a
+	 * schema-only store — same structural backstop as
+	 * {@link requireProjectId}; the insert paths are tenant-bound.
+	 */
+	private requireActorUserId(): string {
+		if (this.actorUserId === null) {
+			throw new Error(
+				compilerBugMessage({
+					where: "case-store.PostgresCaseStore.requireActorUserId",
+					invariant:
+						"an insert ran on a schema-only store (no bound actor for `owner_id`)",
+					detail:
+						"This store was built by `withSchemaContext()` and carries no actor. An insert stamps `owner_id` (the CommCare case-owner) from the bound actor. Hint: build the store with `withProjectContext(projectId, actorUserId)`.",
+				}),
+			);
+		}
+		return this.actorUserId;
 	}
 
 	async query(args: QueryArgs): Promise<CaseRowWithCalculated[]> {
@@ -165,8 +237,8 @@ export class PostgresCaseStore implements CaseStore {
 		// `selectAll("c")` projection emits. Without the prefix, a
 		// caller supplying a uuid string that matches a reserved
 		// column name (`case_name`, `case_id`, `case_type`,
-		// `owner_id`, `status`, `app_id`, `opened_on`, `closed_on`,
-		// `modified_on`, `parent_case_id`, `properties`) would
+		// `owner_id`, `project_id`, `status`, `app_id`, `opened_on`,
+		// `closed_on`, `modified_on`, `parent_case_id`, `properties`) would
 		// silently corrupt the row's actual scalar value: Postgres
 		// allows duplicate output names; pg-driver's row-object
 		// deserializer keeps the LAST occurrence (the calculated
@@ -247,7 +319,7 @@ export class PostgresCaseStore implements CaseStore {
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
-			.where("c.owner_id", "=", this.ownerId);
+			.where("c.project_id", "=", this.requireProjectId());
 
 		// Project each calculated column under its prefixed alias.
 		for (const column of calculated) {
@@ -342,7 +414,10 @@ export class PostgresCaseStore implements CaseStore {
 			// because the prefix puts the calculated slots in a
 			// disjoint keyspace — the strip touches ONLY the prefixed
 			// aliases, never a `cases` column.
-			const cleaned = { ...row } as Record<string, unknown>;
+			// `stripTenantKey` removes the bound-tenant `project_id` that
+			// `selectAll("c")` materialized (not part of the `CaseRow`
+			// contract); the loop then strips the dynamic calc aliases.
+			const cleaned = stripTenantKey(row) as Record<string, unknown>;
 			for (const { alias } of calcAliases) {
 				delete cleaned[alias];
 			}
@@ -381,7 +456,7 @@ export class PostgresCaseStore implements CaseStore {
 			.select((eb) => eb.fn.countAll<string>().as("total"))
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
-			.where("c.owner_id", "=", this.ownerId);
+			.where("c.project_id", "=", this.requireProjectId());
 
 		if (args.predicate !== undefined) {
 			qb = qb.where(compilePredicate(args.predicate, ctx));
@@ -417,7 +492,8 @@ export class PostgresCaseStore implements CaseStore {
 		const insertRow: Insertable<CasesTable> = {
 			...args.row,
 			app_id: args.appId,
-			owner_id: this.ownerId,
+			project_id: this.requireProjectId(),
+			owner_id: this.requireActorUserId(),
 			properties: JSON.stringify(propertiesObject),
 		};
 
@@ -505,7 +581,8 @@ export class PostgresCaseStore implements CaseStore {
 				...args.primary,
 				case_id: primaryCaseId,
 				app_id: args.appId,
-				owner_id: this.ownerId,
+				project_id: this.requireProjectId(),
+				owner_id: this.requireActorUserId(),
 				properties: JSON.stringify(primaryProperties),
 			};
 			await trx.insertInto("cases").values(primaryRow).execute();
@@ -664,7 +741,8 @@ export class PostgresCaseStore implements CaseStore {
 				...row,
 				case_id: caseIds[index],
 				app_id: args.appId,
-				owner_id: this.ownerId,
+				project_id: this.requireProjectId(),
+				owner_id: this.requireActorUserId(),
 				properties: JSON.stringify(propertiesObject),
 			};
 		});
@@ -712,7 +790,7 @@ export class PostgresCaseStore implements CaseStore {
 				.select(["c.case_type", "c.parent_case_id", "c.properties"])
 				.where("c.app_id", "=", args.appId)
 				.where("c.case_id", "=", args.caseId)
-				.where("c.owner_id", "=", this.ownerId)
+				.where("c.project_id", "=", this.requireProjectId())
 				.executeTakeFirst();
 			if (existing === undefined) {
 				throw new CaseNotFoundError(args.caseId);
@@ -758,7 +836,7 @@ export class PostgresCaseStore implements CaseStore {
 				})
 				.where("c.app_id", "=", args.appId)
 				.where("c.case_id", "=", args.caseId)
-				.where("c.owner_id", "=", this.ownerId)
+				.where("c.project_id", "=", this.requireProjectId())
 				.execute();
 
 			// Re-derive `case_indices` only when the parent edge
@@ -795,7 +873,7 @@ export class PostgresCaseStore implements CaseStore {
 			})
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_id", "=", args.caseId)
-			.where("c.owner_id", "=", this.ownerId)
+			.where("c.project_id", "=", this.requireProjectId())
 			.where("c.closed_on", "is", null)
 			.execute();
 	}
@@ -808,23 +886,26 @@ export class PostgresCaseStore implements CaseStore {
 		// Self-paths return the anchor row directly; synthesizing a
 		// join-on-self would just duplicate the read.
 		if (args.via.kind === "self") {
-			return await this.db
+			const rows = await this.db
 				.selectFrom("cases as c")
 				.selectAll("c")
 				.where("c.app_id", "=", args.appId)
 				.where("c.case_id", "=", args.caseId)
-				.where("c.owner_id", "=", this.ownerId)
+				.where("c.project_id", "=", this.requireProjectId())
 				.execute();
+			// Strip the bound-tenant key off the `selectAll` rows — the
+			// non-self arms below already omit it via explicit projection.
+			return rows.map(stripTenantKey);
 		}
 
 		// Non-self path: compile the relation-walk subquery, join it
 		// against the anchor row. The compiler enforces tenant scope
 		// on every joined `cases` row inside its subquery; the outer
-		// scan adds the anchor's owner filter.
+		// scan adds the anchor's Project filter.
 		const compiled = compileRelationPath(args.via, {
 			db: this.db,
 			appId: args.appId,
-			ownerId: this.ownerId,
+			projectId: this.requireProjectId(),
 			anchorAlias: "c",
 		});
 		// `self` short-circuited above; the other three arms return
@@ -847,7 +928,7 @@ export class PostgresCaseStore implements CaseStore {
 			)
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_id", "=", args.caseId)
-			.where("c.owner_id", "=", this.ownerId)
+			.where("c.project_id", "=", this.requireProjectId())
 			.select([
 				`${leafAlias}.case_id as case_id`,
 				`${leafAlias}.app_id as app_id`,
@@ -1093,14 +1174,14 @@ export class PostgresCaseStore implements CaseStore {
 						.select("case_id")
 						.where("app_id", "=", args.appId)
 						.where("case_type", "=", caseTypeName)
-						.where("owner_id", "=", this.ownerId),
+						.where("project_id", "=", this.requireProjectId()),
 				)
 				.execute();
 			const deleteResult = await trx
 				.deleteFrom("cases")
 				.where("app_id", "=", args.appId)
 				.where("case_type", "=", caseTypeName)
-				.where("owner_id", "=", this.ownerId)
+				.where("project_id", "=", this.requireProjectId())
 				.executeTakeFirst();
 			const deleted = Number(deleteResult.numDeletedRows ?? 0);
 
@@ -1140,7 +1221,7 @@ export class PostgresCaseStore implements CaseStore {
 			.select("case_id")
 			.where("app_id", "=", args.appId)
 			.where("case_type", "=", parentType)
-			.where("owner_id", "=", this.ownerId)
+			.where("project_id", "=", this.requireProjectId())
 			.execute();
 		return new Map([[parentType, parents.map((p) => p.case_id)]]);
 	}
@@ -1209,12 +1290,18 @@ export class PostgresCaseStore implements CaseStore {
 		// UPDATE pairs with an accurate `skipped` count. Both queries
 		// share the caller's transaction so no concurrent inserter
 		// can land between them.
+		// App-scoped, NOT tenant-scoped: a schema change migrates EVERY
+		// member's rows of the app's case type (a property rename is an
+		// app-wide event, not a per-Project one), so every per-row
+		// migration below filters on `(app_id, case_type)` only — never
+		// `project_id` / `owner_id`. The store is typically a
+		// `withSchemaContext` instance with no bound tenant; binding one
+		// here would wrongly skip co-members' rows.
 		const totalRow = await trx
 			.selectFrom("cases as c")
 			.select((eb) => eb.fn.countAll<string>().as("total"))
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
-			.where("c.owner_id", "=", this.ownerId)
 			.executeTakeFirstOrThrow();
 		const totalCount = Number(totalRow.total);
 
@@ -1233,7 +1320,6 @@ export class PostgresCaseStore implements CaseStore {
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
 			.where(sql<boolean>`c.properties ? ${sql.lit(from)}`)
-			.where("c.owner_id", "=", this.ownerId)
 			.executeTakeFirst();
 
 		const migrated = Number(updated.numUpdatedRows ?? 0);
@@ -1270,7 +1356,6 @@ export class PostgresCaseStore implements CaseStore {
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
-			.where("c.owner_id", "=", this.ownerId)
 			.execute();
 
 		const migratedRows: { caseId: string; newProperties: JsonObject }[] = [];
@@ -1349,7 +1434,6 @@ export class PostgresCaseStore implements CaseStore {
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
-			.where("c.owner_id", "=", this.ownerId)
 			.execute();
 
 		const quarantinedRows: { row: CaseRow; reason: string }[] = [];
@@ -1414,7 +1498,6 @@ export class PostgresCaseStore implements CaseStore {
 			  FROM (VALUES ${sql.join(entries)}) AS data(case_id, new_props)
 			 WHERE cases.case_id = data.case_id
 			   AND cases.app_id = ${args.appId}
-			   AND cases.owner_id = ${this.ownerId}
 		`.execute(trx);
 	}
 
@@ -1456,13 +1539,15 @@ export class PostgresCaseStore implements CaseStore {
 			.where("case_indices.case_id", "in", caseIds)
 			.execute();
 
-		// The tenant-pair filter keeps the DELETE under the same
-		// scope the migration's outer SELECT used.
+		// App-scoped DELETE, matching the per-row migration's app-scoped
+		// SELECT: the explicit `case_id IN` list already pins the exact
+		// rows, and `app_id` keeps it within the app's partition. No
+		// tenant filter — a schema change quarantines every member's bad
+		// rows, not just the actor's.
 		await trx
 			.deleteFrom("cases as c")
 			.where("c.case_id", "in", caseIds)
 			.where("c.app_id", "=", appId)
-			.where("c.owner_id", "=", this.ownerId)
 			.execute();
 	}
 
@@ -1554,7 +1639,7 @@ export class PostgresCaseStore implements CaseStore {
 		return {
 			db: args.db,
 			appId: args.appId,
-			ownerId: this.ownerId,
+			projectId: this.requireProjectId(),
 			anchorAlias: "c",
 			caseTypeSchemas: args.schemas,
 			bindings: {},
@@ -1591,6 +1676,22 @@ export class PostgresCaseStore implements CaseStore {
 			await trx.insertInto("case_indices").values(edge).execute();
 		}
 	}
+}
+
+/**
+ * Strip the bound-tenant `project_id` off a raw `cases` row. It is the
+ * tenant scoping key the store filters on, NOT part of the `CaseRow`
+ * contract (`Omit<Selectable<CasesTable>, "project_id">`), and must
+ * never reach a consumer or cross the wire. Destructured (not deleted
+ * after a spread) so the result keeps a fast V8 hidden class. EVERY
+ * `selectAll("c")` read path routes its rows through this — `query` and
+ * `traverse`'s self arm; the explicit-projection paths (`traverse`'s
+ * relation-walk arms, `compileRelationPath`'s leaf builders) already omit
+ * `project_id` by listing columns.
+ */
+function stripTenantKey<T extends object>(row: T): Omit<T, "project_id"> {
+	const { project_id: _omit, ...rest } = row as T & { project_id?: unknown };
+	return rest as Omit<T, "project_id">;
 }
 
 /**

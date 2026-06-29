@@ -50,7 +50,7 @@ export function registerDeleteApp(server: McpServer, ctx: ToolContext): void {
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			const appId = args.app_id;
 			try {
-				await requireOwnedApp(ctx.userId, appId);
+				await requireOwnedApp(ctx.userId, appId, "delete");
 				const recoverableUntil = await softDeleteApp(appId);
 				return {
 					content: [

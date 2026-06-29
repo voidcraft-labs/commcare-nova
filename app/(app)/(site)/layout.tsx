@@ -9,7 +9,8 @@
  * group keeps the suppression structural — no pathname checks.
  */
 import { AppHeader } from "@/components/ui/AppHeader";
-import { getSession } from "@/lib/auth-utils";
+import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
+import { listUserProjects } from "@/lib/projects/membership";
 
 export default async function SiteLayout({
 	children,
@@ -27,12 +28,26 @@ export default async function SiteLayout({
 		? { userName: session.user.name, userEmail: session.user.email }
 		: null;
 
+	/* The Projects the header switcher offers + which one is active. Resolve the
+	 * active Project FIRST — it get-or-creates the personal Project (a WRITE),
+	 * which must commit before `listUserProjects` READS membership, or a
+	 * just-provisioned Project is missing from the switcher. `cache()` dedupes
+	 * both calls with the page's. */
+	let projects: Awaited<ReturnType<typeof listUserProjects>> = [];
+	let activeProjectId: string | null = null;
+	if (session) {
+		activeProjectId = await resolveActiveProjectId(session);
+		projects = await listUserProjects(session.user.id);
+	}
+
 	return (
 		<>
 			<AppHeader
 				isAdmin={isAdmin}
 				isAuthenticated={!!session}
 				impersonating={impersonating}
+				projects={projects}
+				activeProjectId={activeProjectId}
 			/>
 			<div id="main-content" className="flex-1 overflow-auto">
 				{children}

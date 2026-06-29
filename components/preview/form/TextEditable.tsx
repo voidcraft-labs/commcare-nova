@@ -16,7 +16,7 @@
 
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
-import { usePreviewing } from "@/lib/session/hooks";
+import { useCanEdit, usePreviewing } from "@/lib/session/hooks";
 
 import type { FieldType } from "./fieldStyles";
 import { InlineTextEditor } from "./InlineTextEditor";
@@ -39,6 +39,7 @@ export function TextEditable({
 	children,
 }: TextEditableProps) {
 	const previewing = usePreviewing();
+	const canEdit = useCanEdit();
 	const [editing, setEditing] = useState(false);
 	/** Viewport coordinates of the activation click — passed to the editor
 	 *  so it can place the cursor at the correct text position via posAtCoords. */
@@ -78,10 +79,10 @@ export function TextEditable({
 		}
 	}, []);
 
-	/* Previewing or no save handler — render children as-is.
-	 * Still wrap in a div with matching padding so content doesn't shift
-	 * when toggling preview (flipbook parity). */
-	if (previewing || !onSave) {
+	/* Previewing, no save handler, or a view-only Project member — render
+	 * children as-is (static, non-editable). Still wrap in a div with matching
+	 * padding so content doesn't shift when toggling preview (flipbook parity). */
+	if (previewing || !onSave || !canEdit) {
 		return <div className="px-[5px] py-[5px]">{children}</div>;
 	}
 

@@ -7,9 +7,11 @@
 
 import type { Migration, MigrationProvider } from "kysely/migration";
 import * as oauthGrantRevocation from "./20260626000000_oauth_grant_revocation";
+import * as authMemberUnique from "./20260627000000_auth_member_unique";
 
 export const authAppMigrations: Record<string, Migration> = {
 	"20260626000000_oauth_grant_revocation": oauthGrantRevocation,
+	"20260627000000_auth_member_unique": authMemberUnique,
 };
 
 export const authAppMigrationProvider: MigrationProvider = {

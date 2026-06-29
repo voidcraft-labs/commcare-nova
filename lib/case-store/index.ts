@@ -21,6 +21,7 @@ export {
 	CaseTypeNotInBlueprintError,
 	SchemaNotSyncedError,
 } from "./errors";
+export { withProjectContext, withSchemaContext } from "./projectContext";
 // JSONB value types — consumed by callers reading `CaseRow.properties`.
 export type {
 	JsonObject,
@@ -41,8 +42,8 @@ export type {
 	MigrationReport,
 	QueryArgs,
 	ResetSampleDataArgs,
+	SchemaCaseStore,
 	SchemaChangeKind,
 	SortKey,
 } from "./store";
 export { buildCaseTypeMap } from "./store";
-export { withOwnerContext } from "./withOwnerContext";

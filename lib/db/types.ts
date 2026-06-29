@@ -211,6 +211,12 @@ export type UserSettingsDoc = z.infer<typeof userSettingsDocSchema>;
 export const appDocSchema = z.object({
 	/** Owner userId (UUID) — the user who created this app. Used for list queries and authorization. */
 	owner: z.string(),
+	/**
+	 * Owning Project (Better Auth organizationId) — the tenancy key for shared
+	 * apps; `createApp` stamps it on every new app. Nullable only for rows that
+	 * predate the field (a backfill sets it).
+	 */
+	project_id: z.string().nullable().default(null),
 	/** App name — denormalized from the doc for list display. */
 	app_name: z.string(),
 	/**
@@ -352,6 +358,16 @@ export const appDocSchema = z.object({
 			period: z.string(),
 			reserved: z.number(),
 			settled: z.boolean(),
+			/**
+			 * The user whose credits the reservation debited — the run's
+			 * ACTOR, NOT necessarily `owner` (a Project co-member can run a
+			 * build/edit against a shared app, and per-user billing charges the
+			 * one who ran it). `refundReservation` hands the hold back to THIS
+			 * user. Optional: markers written before per-actor billing carry
+			 * none and fall back to `owner` (the actor in the single-member
+			 * world those markers were written in).
+			 */
+			userId: z.string().optional(),
 		})
 		.optional(),
 	/** First save timestamp. Set once via FieldValue.serverTimestamp(). */
@@ -435,38 +451,47 @@ export type ThreadDoc = z.infer<typeof threadDocSchema>;
 // ── Media Assets ───────────────────────────────────────────────────
 
 /**
- * Per-owner content-hash-deduped media. Lives at root collection
- * `mediaAssets/{assetId}` (the doc id is the asset's UUID; not
- * mirrored in the body). `owner` gates every read site.
+ * Project-scoped, content-hash-deduped media. Lives at root collection
+ * `mediaAssets/{assetId}` (the doc id is the asset's UUID; not mirrored in the
+ * body). `project_id` (Project membership) gates every read/list/compile/delete
+ * site — the same tenancy axis apps + case rows use; `owner` is the uploader,
+ * attribution only, no longer the access gate or the GCS-path namespace.
  *
- * Two reasons this is a root collection rather than a per-app
- * subcollection:
- *
- *  1. Dedup follows the owner, not the app — a logo reused across
- *     three apps is one row, not three. A subcollection scope
- *     would force per-app copies.
- *  2. The library picker shows all of a user's assets at once;
- *     querying across apps from a subcollection requires a
- *     collection-group query, which costs an additional index per
- *     filter clause.
+ * Root collection (not a per-app subcollection) because dedup + the library
+ * picker span a whole Project, and a subcollection scope would force per-app
+ * copies + a collection-group query per filter clause.
  *
  * Composite indexes (see `firestore.indexes.json`):
  *
- *   (owner ASC, contentHash ASC) — dedup probe at upload-initiate
- *   (owner ASC, gcsObjectKey ASC) — shared-byte guard before deletion
- *   (owner ASC, createdAt DESC)  — library pagination, newest first
+ *   (project_id ASC, contentHash ASC, status ASC)        — dedup probe at upload
+ *   (project_id ASC, status ASC, created_at DESC)        — library pagination
+ *   (project_id ASC, status ASC, kind ASC, created_at DESC) — library, kind-filtered
+ *
+ * The shared-byte deletion guard (`hasOtherAssetForGcsObjectKey`) queries
+ * `gcsObjectKey` alone — a single-field equality Firestore auto-indexes, so it
+ * needs no composite entry.
  */
 export const mediaAssetDocSchema = z.object({
 	/**
-	 * User id of the asset's owner. Every read site enforces
-	 * `asset.owner === session.user.id` before returning bytes
-	 * or metadata.
+	 * The Project (Better Auth organization) the asset belongs to — the tenant,
+	 * and the ONLY access gate. Set authoritatively at upload (the app's Project
+	 * for an app-context upload, else the uploader's active Project), NEVER
+	 * self-asserted — so referencing a foreign asset's id can't grant access:
+	 * every read / list / compile / delete site authorizes the caller's
+	 * membership in THIS project_id, and the manifest filters a doc's referenced
+	 * ids to it. The same tenancy axis apps + case rows use.
+	 */
+	project_id: z.string().min(1),
+	/**
+	 * User id of the uploader — provenance only (e.g. a future "uploaded by"
+	 * label). NOT an access gate (that's `project_id`) and NOT in the GCS path
+	 * (bytes live at `projects/<project_id>/…`). Recorded at upload.
 	 */
 	owner: z.string().min(1),
 	/**
 	 * SHA-256 of the validated bytes, lowercase hex. Computed at
 	 * the validation gate from the actual stored bytes, NOT
-	 * trusted from the client. Dedup key paired with `owner`.
+	 * trusted from the client. Dedup key paired with `project_id`.
 	 */
 	contentHash: z.string().regex(/^[a-f0-9]{64}$/),
 	/**

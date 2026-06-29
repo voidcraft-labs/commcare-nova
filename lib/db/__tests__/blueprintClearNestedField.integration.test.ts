@@ -30,6 +30,7 @@ import { getDb } from "../firestore";
 const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
 
 const TEST_OWNER = "user-blueprint-clear-test";
+const TEST_PROJECT = "project-blueprint-clear-test";
 
 /**
  * The slice of `Form` that carries clearable nullable fields. Every
@@ -225,7 +226,7 @@ describe.skipIf(!emulatorAvailable)(
 			runId: string;
 		}> {
 			const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-			const appId = await createApp(TEST_OWNER, runId);
+			const appId = await createApp(TEST_OWNER, TEST_PROJECT, runId);
 			createdAppIds.push(appId);
 			/* `createApp` mints the doc id but the brand-typed `Uuid`
 			 * shape isn't actually enforced at runtime — the schema

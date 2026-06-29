@@ -23,12 +23,14 @@ import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
-import { loadApp } from "@/lib/db/apps";
+import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import {
 	type CommCareSettingsPublic,
 	getCommCareSettings,
 } from "@/lib/db/settings";
+import type { AppDoc } from "@/lib/db/types";
 import { ThreadHistory } from "./thread-history";
 
 export default async function BuilderPage({
@@ -64,18 +66,35 @@ export default async function BuilderPage({
 
 	if (!session) redirect("/");
 
-	const app = await loadApp(id);
-	if (!app || app.owner !== session.user.id) notFound();
+	/* Project-membership gate (view) — any member may open the builder; edit
+	 * is enforced at the write paths (PUT / chat / MCP). Denials collapse to
+	 * notFound() to avoid leaking another Project's app. */
+	let app: AppDoc;
+	let role: string;
+	try {
+		const access = await resolveAppAccess(id, session.user.id, "view");
+		app = access.app;
+		role = access.role;
+	} catch (err) {
+		if (err instanceof AppAccessError) notFound();
+		throw err;
+	}
 	/* `complete` apps open normally. `generating` / `error` builds
 	 * redirect: their lifecycle lives in the chat flow, not a direct page
 	 * load. */
 	if (app.status !== "complete") redirect("/");
+
+	/* Viewers (view-only members) get the read-only builder — every edit
+	 * affordance hides and auto-save is suppressed. Editors/admins/owners
+	 * edit normally. The write paths enforce this server-side regardless. */
+	const canEdit = roleAllowsApp(role, "edit");
 
 	return (
 		<BuilderProvider
 			buildId={id}
 			initialDoc={app.blueprint}
 			initialSaveBasis={app.blueprint_token ?? null}
+			canEdit={canEdit}
 		>
 			<BuilderLayout
 				isExistingApp

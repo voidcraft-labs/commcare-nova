@@ -6,7 +6,7 @@
  * pushing bytes. The server:
  *
  *   - validates session + the declared metadata
- *   - checks for a (owner, hash) match in the asset library — on
+ *   - checks for a (project, hash) match in the asset library — on
  *     hit, returns the existing assetId and tells the browser to
  *     skip the bytes-PUT entirely (dedup-skip-the-upload)
  *   - on miss, creates a `pending` Firestore row and a signed PUT
@@ -27,10 +27,11 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ApiError, handleApiError, readJsonBody } from "@/lib/apiError";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSession, resolveActiveProjectId } from "@/lib/auth-utils";
+import { resolveAppScope, resolveProjectAccess } from "@/lib/db/appAccess";
 import {
 	createPendingAsset,
-	findReadyAssetByOwnerAndHash,
+	findReadyAssetByProjectAndHash,
 	toWireMediaAsset,
 } from "@/lib/db/mediaAssets";
 import {
@@ -53,6 +54,10 @@ const requestBodySchema = z
 		mimeType: z.string().min(1),
 		sizeBytes: z.number().int().positive(),
 		contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+		// Present when the upload belongs to an app (the builder media pickers):
+		// scopes the asset to the app's Project. Absent for a personal upload
+		// (the chat file manager), which scopes to the caller's active Project.
+		appId: z.string().min(1).optional(),
 	})
 	.strict();
 
@@ -77,7 +82,7 @@ export async function POST(req: NextRequest) {
 				parsed.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
 			);
 		}
-		const { filename, sizeBytes, contentHash } = parsed.data;
+		const { filename, sizeBytes, contentHash, appId } = parsed.data;
 
 		// Normalize the claimed MIME to its canonical accepted form
 		// (handles browser alias spellings); reject if it isn't an
@@ -110,15 +115,28 @@ export async function POST(req: NextRequest) {
 			);
 		}
 
-		// Dedup probe — if the owner already has this exact content
+		// Resolve the Project the upload belongs to — the tenant + the only
+		// access gate. Uploading is a WRITE, so BOTH branches gate at `edit`: an
+		// app upload scopes to the app's Project, a personal upload to the
+		// caller's active Project — a viewer in a shared Project can't seed
+		// pending rows/objects there (resolveActiveProjectId only proves
+		// membership). A denied gate throws AppAccessError, which the catch maps
+		// to a 404 (app) / 403 (project).
+		let project: string;
+		if (appId) {
+			project = (await resolveAppScope(appId, session.user.id, "edit"))
+				.projectId;
+		} else {
+			project = await resolveActiveProjectId(session);
+			await resolveProjectAccess(session.user.id, project, "edit");
+		}
+
+		// Dedup probe — if this Project already has this exact content
 		// hash as a `ready` asset, return it and skip the bytes push.
 		// The browser sees `deduplicated: true` and attaches the
 		// returned asset to its target carrier without a second round
 		// trip — so the full wire asset is included, not just the id.
-		const existing = await findReadyAssetByOwnerAndHash(
-			session.user.id,
-			contentHash,
-		);
+		const existing = await findReadyAssetByProjectAndHash(project, contentHash);
 		if (existing) {
 			return NextResponse.json({
 				assetId: existing.id,
@@ -135,6 +153,7 @@ export async function POST(req: NextRequest) {
 		const extension = EXTENSION_FOR_MIME_TYPE[mimeType];
 		const pending = await createPendingAsset({
 			owner: session.user.id,
+			project_id: project,
 			contentHash,
 			mimeType,
 			kind,

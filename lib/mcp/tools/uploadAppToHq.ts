@@ -203,7 +203,7 @@ export function registerUploadAppToHq(
 				 * `not_found` on the wire so a probing client cannot
 				 * surface settings-level failure reasons for an app the
 				 * caller doesn't own. */
-				const { doc, app } = await loadAppBlueprint(appId, ctx.userId);
+				const { doc, app } = await loadAppBlueprint(appId, ctx.userId, "edit");
 
 				/* Gate 2 — credentials + target-space resolution in one read.
 				 * The optional `domain` arg picks the target (required for a
@@ -244,7 +244,16 @@ export function registerUploadAppToHq(
 				 * otherwise surface as `expandDoc`'s opaque `requireAssetRef`
 				 * throw. Thrown before run-id derivation + `initMcpCall` so
 				 * an invalid doc never allocates a LogWriter. */
-				const violations = await collectBoundaryViolations(doc, ctx.userId);
+				/* Resolve/validate media against the app's PROJECT (the sharing
+				 * boundary an app's media lives in), matching the web HQ-upload
+				 * path. A Project co-member uploads the project's media the same
+				 * way through MCP as through the browser. */
+				if (!app.project_id) {
+					throw new McpInvalidInputError(
+						"This app isn't ready to upload — it has no Project.",
+					);
+				}
+				const violations = await collectBoundaryViolations(doc, app.project_id);
 				if (violations.length > 0) {
 					throw new McpInvalidInputError(
 						`This app isn't ready to upload — fix these first: ${violations
@@ -291,7 +300,7 @@ export function registerUploadAppToHq(
 					 * references emitted and the files sent come from the
 					 * same source. An empty manifest (media-free app) makes
 					 * the upload step a no-op. */
-					const manifest = await resolveMediaManifest(doc, ctx.userId, {
+					const manifest = await resolveMediaManifest(doc, app.project_id, {
 						withBytes: true,
 					});
 

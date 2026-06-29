@@ -86,7 +86,19 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * message, so an invalid app never compiles into an artifact —
 				 * and a stale media reference never reaches `expandDoc`'s
 				 * `requireAssetRef` throw (an opaque `internal` error). */
-				const violations = await collectBoundaryViolations(doc, ctx.userId);
+				/* An app's media lives in its PROJECT (the sharing boundary), so
+				 * resolve/validate against `app.project_id`, not the acting caller —
+				 * matches the web export path (`prepareCompileRequest`) so a Project
+				 * co-member (who reaches this tool at `view`) compiles the project's
+				 * media the same way through MCP as through the browser. No leak: the
+				 * manifest resolves only the ids the app's own blueprint references,
+				 * filtered to the project. */
+				if (!app.project_id) {
+					throw new McpInvalidInputError(
+						"This app isn't ready to compile — it has no Project.",
+					);
+				}
+				const violations = await collectBoundaryViolations(doc, app.project_id);
 				if (violations.length > 0) {
 					throw new McpInvalidInputError(
 						`This app isn't ready to compile — fix these first: ${violations
@@ -99,7 +111,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * expander's media references and — for a media-bearing app —
 				 * the byte bundle. A media-free app resolves to an empty
 				 * manifest at no byte cost. */
-				const assets = await resolveMediaManifest(doc, ctx.userId, {
+				const assets = await resolveMediaManifest(doc, app.project_id, {
 					withBytes: true,
 				});
 				const hasMedia = assets.size > 0;

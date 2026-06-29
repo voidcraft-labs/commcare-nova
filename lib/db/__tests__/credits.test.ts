@@ -438,6 +438,9 @@ describe("reserveCredits", () => {
 				period: getCurrentPeriod(),
 				reserved: CREDITS_PER_BUILD,
 				settled: false,
+				// The charged actor is recorded so a refund returns the hold to
+				// the user who ran it, not `app.owner`.
+				userId: USER,
 			},
 		});
 		// The booked period is the genuine current period; reserved echoes cost.

@@ -16,11 +16,16 @@ import {
 	resolveAttachments,
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
-import { resolveAnthropicKey } from "@/lib/auth-utils";
+import { resolveActiveProjectId, resolveAnthropicKey } from "@/lib/auth-utils";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
+import {
+	AppAccessError,
+	resolveAppAccess,
+	resolveProjectAccess,
+} from "@/lib/db/appAccess";
 import {
 	BuildRunConflictError,
 	type ClaimedBuildRun,
@@ -29,7 +34,6 @@ import {
 	createApp,
 	failApp,
 	hasActiveGeneration,
-	loadAppOwner,
 	setAwaitingInput,
 } from "@/lib/db/apps";
 import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
@@ -44,7 +48,7 @@ import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchema
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
 import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { SA_MODEL } from "@/lib/models";
@@ -206,7 +210,7 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const { doc, runId, lastResponseAt, appReady } = parsed.data;
+	const { runId, lastResponseAt, appReady } = parsed.data;
 
 	/* Stable per-request run identifier. Every event envelope (mutation or
 	 * conversation) carries this value; the client echoes it back on follow-up
@@ -226,6 +230,18 @@ export async function POST(req: Request) {
 	 */
 	let appId = parsed.data.appId;
 	let appCreated = false;
+	/* The persisted app doc for an EXISTING-app request — captured off the
+	 * authorization read below so the SA's working doc seeds from the saved
+	 * blueprint with no extra Firestore fetch. Undefined for a new build (no
+	 * app exists yet); the seed falls back to the empty doc there. */
+	let loadedApp:
+		| Awaited<ReturnType<typeof resolveAppAccess>>["app"]
+		| undefined;
+	/* The app's Project — the media tenant. Set in BOTH branches below (the
+	 * active Project for a new build, the app's Project for an existing one) and
+	 * used to scope chat-attachment resolution (`resolveAttachments`) to the
+	 * Project the documents live in. */
+	let projectId: string | undefined;
 	/* Set when this POST claimed an existing app's build-run window
 	 * (`claimBuildRun` flipped it to `generating`). Carries the shape the
 	 * claim moved the app out of, so the pre-stream rejection arms below
@@ -238,8 +254,37 @@ export async function POST(req: Request) {
 	 * pre-stream bail-out gate has passed — see the branch that sets it. */
 	let clearPauseFlagAfterGates = false;
 	if (!appId) {
+		/* New builds land in the caller's active Project (shared resolver: the
+		 * session's stamped activeOrganizationId, self-healing to the personal
+		 * Project for pre-Projects sessions). Creating an app is a WRITE, so the
+		 * caller must hold the active Project at EDIT — a viewer in a shared
+		 * Project must not create apps there (resolveActiveProjectId only proves
+		 * membership). An AppAccessError is a permission denial (403), not a save
+		 * failure. */
 		try {
-			appId = await createApp(userId, effectiveRunId);
+			projectId = await resolveActiveProjectId(keyResult.session);
+			await resolveProjectAccess(userId, projectId, "edit");
+		} catch (err) {
+			if (err instanceof AppAccessError) {
+				return Response.json(
+					{
+						error: "You don't have permission to create apps in this Project.",
+						type: "forbidden",
+					},
+					{ status: 403 },
+				);
+			}
+			log.error("[chat] active-Project resolution failed", err);
+			return Response.json(
+				{
+					error: "Unable to save app. Please try again shortly.",
+					type: "internal",
+				},
+				{ status: 503 },
+			);
+		}
+		try {
+			appId = await createApp(userId, projectId, effectiveRunId);
 			appCreated = true;
 		} catch (err) {
 			log.error("[chat] app creation failed", err);
@@ -252,15 +297,23 @@ export async function POST(req: Request) {
 			);
 		}
 	} else {
-		/* Verify ownership — apps are a root-level collection, so the path no
-		 * longer scopes writes to the authenticated user. Without this check,
-		 * a crafted request with another user's appId would overwrite their app. */
-		const owner = await loadAppOwner(appId);
-		if (owner !== userId) {
-			return Response.json(
-				{ error: "App not found", type: "not_found" },
-				{ status: 404 },
-			);
+		/* Project-membership gate (edit) — apps are a root-level collection, so
+		 * the path doesn't scope writes; without this a crafted request with
+		 * another Project's appId could drive a build against it. The same
+		 * authorization read yields the persisted app doc, so the SA's working
+		 * doc seeds from `loadedApp.blueprint` below without a second fetch. */
+		try {
+			const access = await resolveAppAccess(appId, userId, "edit");
+			loadedApp = access.app;
+			projectId = access.projectId;
+		} catch (err) {
+			if (err instanceof AppAccessError) {
+				return Response.json(
+					{ error: "App not found", type: "not_found" },
+					{ status: 404 },
+				);
+			}
+			throw err;
 		}
 		if (!parsed.data.appReady && chargeable) {
 			/* EVERY chargeable BUILD-mode POST against an existing app claims
@@ -519,14 +572,28 @@ export async function POST(req: Request) {
 				});
 			}
 
-			/* Build the SA's working doc. The client ships the persistable
-			 * slice (no `fieldParent`) on wire; we deep-clone so in-flight
-			 * mutations never leak back into the request body, then rebuild
-			 * the reverse-parent index the SA's mutation helpers rely on.
+			/* Build the SA's working doc. For an existing app the seed is the
+			 * SAVED blueprint (`loadedApp.blueprint`, the persistable slice with
+			 * no `fieldParent`), loaded off the authorization read above — never
+			 * shipped per-turn from the client. We deep-clone so in-flight
+			 * mutations never touch the loaded doc, then rebuild the
+			 * reverse-parent index the SA's mutation helpers rely on.
+			 *
+			 * Freshness: the saved blueprint is current at send time without any
+			 * flush primitive. The mutation-only auto-save persists builder edits
+			 * within ~1.3s of the edit settling, and a chat send follows
+			 * message-typing (longer than that), so a typed send always reads a
+			 * settled doc. A code path that fires a chat turn programmatically
+			 * IMMEDIATELY after an edit (with no typing in between) would be the
+			 * one case that could outrun the auto-save and need a flush.
+			 *
 			 * Brand-new builds get the empty doc stamped with the Firestore
 			 * `appId` that `createApp` just minted. */
-			const sessionDoc: BlueprintDoc = doc
-				? structuredClone({ ...doc, fieldParent: {} })
+			const sessionDoc: BlueprintDoc = loadedApp
+				? structuredClone({
+						...(loadedApp.blueprint as PersistableDoc as BlueprintDoc),
+						fieldParent: {},
+					})
 				: {
 						appId,
 						appName: "",
@@ -765,7 +832,11 @@ export async function POST(req: Request) {
 				}
 				const preparedMessages = await resolveAttachments(
 					messagesToSend,
-					userId,
+					// The app's Project scopes attachment resolution — a chat document
+					// lives in the Project it was uploaded under (the composer stamps
+					// it). Set in both the new-build + existing-app branches above;
+					// `loadedApp.project_id` is the existing-app fallback.
+					projectId ?? loadedApp?.project_id ?? "",
 					ctx,
 					// Pulse the signal grid with real read progress while a
 					// not-yet-extracted document is read here. `transient` keeps these
@@ -950,7 +1021,6 @@ export async function POST(req: Request) {
 							await ctx.drainIntermediateSaves();
 							await materializeCaseStoreSchemas({
 								appId,
-								userId,
 								blueprint: toPersistableDoc(editDoc),
 							});
 						} catch (error) {
@@ -994,7 +1064,6 @@ export async function POST(req: Request) {
 						if (finalDoc) {
 							await materializeCaseStoreSchemas({
 								appId,
-								userId,
 								blueprint: toPersistableDoc(finalDoc),
 							});
 						}

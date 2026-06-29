@@ -6,7 +6,7 @@
  * logo, image-map column rows), this resolves the referenced asset's
  * stored state and classifies the reference as `ready`, `pending`,
  * `missing`, or `kind-mismatch`. It then reports, per app, the broken
- * references with their carrier location + reason, and per owner the
+ * references with their carrier location + reason, and per Project the
  * `ready` library assets nothing references (uploaded but never
  * attached).
  *
@@ -20,10 +20,10 @@
  *   - `walkAssetRefs(doc)` (`lib/domain/mediaRefs`) — the single
  *     carrier walk that yields every reference site with its
  *     `slotKind` + `location`.
- *   - `loadAssetsByIds(owner, ids)` (`lib/db/mediaAssets`) — bulk,
- *     owner-filtered load returning ready AND pending rows, so a
+ *   - `loadAssetsByIds(ids, projectId)` (`lib/db/mediaAssets`) — bulk,
+ *     Project-filtered load returning ready AND pending rows, so a
  *     pending reference is distinguishable from a missing one.
- *   - `listReadyAssetsForOwner(owner)` (`lib/db/mediaAssets`) — the
+ *   - `listReadyAssetsForProject(projectId)` (`lib/db/mediaAssets`) — the
  *     library-list path; its full set minus the union of referenced
  *     ids gives the orphaned-but-uploaded assets.
  *   - `describeLocation(location)` (`lib/commcare/validator/rules/
@@ -34,7 +34,7 @@
  * The classification mirrors the three media validator rules
  * (`lib/commcare/validator/rules/media/{mediaAssetExists,
  * mediaAssetReady,mediaKindMatches}`): a reference is `missing` when
- * the owner-filtered load has no row for it, `pending` when the row's
+ * the Project-filtered load has no row for it, `pending` when the row's
  * `status` isn't `ready`, `kind-mismatch` when the resolved row's
  * frozen `kind` disagrees with the carrier slot's expected kind, and
  * `ready` otherwise.
@@ -47,7 +47,10 @@
 import { Command } from "commander";
 import { describeLocation } from "@/lib/commcare/validator/rules/media/shared";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { listReadyAssetsForOwner, loadAssetsByIds } from "@/lib/db/mediaAssets";
+import {
+	listReadyAssetsForProject,
+	loadAssetsByIds,
+} from "@/lib/db/mediaAssets";
 import type { AssetRef, MediaSlotKind } from "@/lib/domain/mediaRefs";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
 import { db, hydrateBlueprint } from "./lib/firestore";
@@ -58,16 +61,16 @@ import type { BlueprintDoc } from "./lib/types";
 // ── CLI argument parsing ────────────────────────────────────────────
 
 /**
- * Scope flags. Exactly one of `--owner` / `--app` selects the unit of
+ * Scope flags. Exactly one of `--project` / `--app` selects the unit of
  * analysis; they are mutually exclusive. Orphan analysis (req 4) is
- * inherently owner-level — it needs the union of references across ALL
- * of an owner's apps — so it only runs in `--owner` mode. `--app`
- * derives its owner from the app doc (for the owner-filtered asset
+ * inherently Project-level — it needs the union of references across ALL
+ * of a Project's apps — so it only runs in `--project` mode. `--app`
+ * derives its Project from the app doc (for the Project-filtered asset
  * load) but reports per-app readiness only, noting that orphans are
- * owner-scoped.
+ * Project-scoped.
  */
 interface ScanOptions {
-	owner?: string;
+	project?: string;
 	app?: string;
 }
 
@@ -75,25 +78,25 @@ const program = new Command();
 program
 	.name("scan-multimedia-readiness")
 	.description(
-		"Read-only diagnostic of real multimedia readiness: actual media references per app, each referenced asset's resolved state (ready / pending / missing / kind-mismatch), and the owner's uploaded-but-unreferenced assets. Writes nothing.",
+		"Read-only diagnostic of real multimedia readiness: actual media references per app, each referenced asset's resolved state (ready / pending / missing / kind-mismatch), and the Project's uploaded-but-unreferenced assets. Writes nothing.",
 	)
 	.option(
-		"--owner <userId>",
-		"scan every app owned by this user (Better Auth user id) + report orphaned uploaded assets",
+		"--project <projectId>",
+		"scan every app in this Project (Better Auth organization id) + report orphaned uploaded assets",
 	)
 	.option(
 		"--app <appId>",
-		"scan a single app by id (owner derived from the app doc); orphan analysis is owner-scoped and skipped in this mode",
+		"scan a single app by id (Project derived from the app doc); orphan analysis is Project-scoped and skipped in this mode",
 	)
 	.addHelpText(
 		"after",
 		"\nScoping:\n" +
-			"  Pass --owner OR --app (not both). There is no all-database scan:\n" +
-			"  the orphaned-asset analysis needs an owner context (the union of\n" +
-			"  references across every one of that owner's apps), so a scope is\n" +
+			"  Pass --project OR --app (not both). There is no all-database scan:\n" +
+			"  the orphaned-asset analysis needs a Project context (the union of\n" +
+			"  references across every one of that Project's apps), so a scope is\n" +
 			"  required rather than iterating the whole apps collection blindly.\n" +
 			"\nExamples:\n" +
-			"  $ npx tsx scripts/scan-multimedia-readiness.ts --owner <userId>\n" +
+			"  $ npx tsx scripts/scan-multimedia-readiness.ts --project <projectId>\n" +
 			"  $ npx tsx scripts/scan-multimedia-readiness.ts --app <appId>\n",
 	);
 
@@ -123,7 +126,7 @@ interface ClassifiedRef {
 }
 
 /**
- * Classify one reference against the owner-filtered asset map.
+ * Classify one reference against the Project-filtered asset map.
  *
  * Precedence is deliberate and matches the "fix this first" order the
  * validator rules imply: `missing` (no row at all) → `pending` (row
@@ -168,7 +171,7 @@ function reasonFor(classified: ClassifiedRef): string {
 			// lands without this script being updated.
 			return `still uploading (status: ${record?.status ?? "unknown"})`;
 		case "missing":
-			return "no asset row under this owner — deleted or foreign-owned";
+			return "no asset row in this Project — deleted or in another Project";
 		case "kind-mismatch":
 			return `kind mismatch — slot expects ${ref.slotKind} but asset is ${record?.kind ?? "unknown"} (${record?.mimeType ?? "unknown mime"})`;
 	}
@@ -329,7 +332,7 @@ function loadApp(appId: string, data: FirebaseFirestoreData): LoadedApp | null {
  */
 type FirebaseFirestoreData = {
 	app_name?: unknown;
-	owner?: unknown;
+	project_id?: unknown;
 	blueprint?: unknown;
 };
 
@@ -341,8 +344,11 @@ type FirebaseFirestoreData = {
  * field-projected read would under-count references and mislabel real
  * references as orphans.
  */
-async function loadOwnerApps(owner: string): Promise<LoadedApp[]> {
-	const snap = await db.collection("apps").where("owner", "==", owner).get();
+async function loadProjectApps(projectId: string): Promise<LoadedApp[]> {
+	const snap = await db
+		.collection("apps")
+		.where("project_id", "==", projectId)
+		.get();
 	const apps: LoadedApp[] = [];
 	for (const doc of snap.docs) {
 		const loaded = loadApp(doc.id, doc.data() as FirebaseFirestoreData);
@@ -363,20 +369,20 @@ async function loadOwnerApps(owner: string): Promise<LoadedApp[]> {
  * — rather than a per-app load — avoids an N+1 read; the loader already
  * chunks the id list at Firestore's 30-value `in` cap internally.
  */
-async function scanOwner(owner: string): Promise<void> {
-	printHeader("MULTIMEDIA READINESS — OWNER (read-only)");
-	printKV([["Owner", owner]]);
+async function scanProject(projectId: string): Promise<void> {
+	printHeader("MULTIMEDIA READINESS — PROJECT (read-only)");
+	printKV([["Project", projectId]]);
 
-	const apps = await loadOwnerApps(owner);
+	const apps = await loadProjectApps(projectId);
 	if (apps.length === 0) {
-		console.log("\n  This owner has no apps with a blueprint.");
-		// Still report orphans — an owner can hold uploaded library assets
+		console.log("\n  This Project has no apps with a blueprint.");
+		// Still report orphans — a Project can hold uploaded library assets
 		// with no apps at all, and every one of those is an orphan.
-		await printOrphans(owner, new Set<string>());
+		await printOrphans(projectId, new Set<string>());
 		return;
 	}
 
-	// Union of every referenced asset id across all the owner's apps —
+	// Union of every referenced asset id across all the Project's apps —
 	// the input to the single batched load AND the referenced-set the
 	// orphan analysis subtracts from the ready library list.
 	const referencedIds = new Set<string>();
@@ -384,13 +390,13 @@ async function scanOwner(owner: string): Promise<void> {
 		for (const ref of walkAssetRefs(app.doc)) referencedIds.add(ref.assetId);
 	}
 
-	// One owner-filtered load resolves ready + pending rows for every
-	// referenced id; a foreign-owned or deleted id simply isn't returned
-	// (→ classified `missing`), so the load doubles as the privacy gate.
+	// One Project-filtered load resolves ready + pending rows for every
+	// referenced id; a foreign-Project or deleted id simply isn't returned
+	// (→ classified `missing`), so the load doubles as the tenant gate.
 	const rows =
 		referencedIds.size === 0
 			? []
-			: await loadAssetsByIds(owner, [...referencedIds]);
+			: await loadAssetsByIds([...referencedIds], projectId);
 	const assetsById = new Map(rows.map((row) => [row.id as string, row]));
 
 	const readiness = apps.map((app) =>
@@ -398,8 +404,8 @@ async function scanOwner(owner: string): Promise<void> {
 	);
 	for (const app of readiness) printAppBlock(app);
 
-	printOwnerTotals(readiness);
-	await printOrphans(owner, referencedIds);
+	printProjectTotals(readiness);
+	await printOrphans(projectId, referencedIds);
 }
 
 /**
@@ -408,14 +414,14 @@ async function scanOwner(owner: string): Promise<void> {
  * operator a one-glance "how much media, how much broken" summary
  * after the per-app blocks.
  */
-function printOwnerTotals(readiness: readonly AppReadiness[]): void {
+function printProjectTotals(readiness: readonly AppReadiness[]): void {
 	const allRefs = readiness.flatMap((app) => app.classified);
 	const byKind = countByKind(allRefs.map((c) => c.ref.slotKind));
 	const pending = allRefs.filter((c) => c.state === "pending").length;
 	const missing = allRefs.filter((c) => c.state === "missing").length;
 	const mismatch = allRefs.filter((c) => c.state === "kind-mismatch").length;
 
-	printSection("Owner Totals");
+	printSection("Project Totals");
 	printKV([
 		["Apps scanned", String(readiness.length)],
 		["Total media refs", String(allRefs.length)],
@@ -432,17 +438,17 @@ function printOwnerTotals(readiness: readonly AppReadiness[]): void {
 // ── Orphaned-but-uploaded assets (req 4) ────────────────────────────
 
 /**
- * Report the owner's `ready` library assets that no app references.
- * Pages through `listReadyAssetsForOwner` to completion (the library
+ * Report the Project's `ready` library assets that no app references.
+ * Pages through `listReadyAssetsForProject` to completion (the library
  * list is cursor-paginated at 50/page — stopping early would mislabel
  * later-page assets as referenced or silently omit orphans) and
  * subtracts the `referencedIds` union.
  */
 async function printOrphans(
-	owner: string,
+	projectId: string,
 	referencedIds: ReadonlySet<string>,
 ): Promise<void> {
-	const readyAssets = await loadAllReadyAssets(owner);
+	const readyAssets = await loadAllReadyAssets(projectId);
 	const orphans = readyAssets.filter(
 		(asset) => !referencedIds.has(asset.id as string),
 	);
@@ -469,16 +475,18 @@ async function printOrphans(
 }
 
 /**
- * Drain `listReadyAssetsForOwner` across every page into one list.
+ * Drain `listReadyAssetsForProject` across every page into one list.
  * Reading to a null cursor is mandatory for orphan correctness — the
  * orphan set is `all ready assets − referenced`, so a partial page
  * would under-report the ready set and hide real orphans.
  */
-async function loadAllReadyAssets(owner: string): Promise<MediaAssetRecord[]> {
+async function loadAllReadyAssets(
+	projectId: string,
+): Promise<MediaAssetRecord[]> {
 	const all: MediaAssetRecord[] = [];
 	let cursor: string | undefined;
 	do {
-		const page = await listReadyAssetsForOwner(owner, { cursor });
+		const page = await listReadyAssetsForProject(projectId, { cursor });
 		all.push(...page.assets);
 		cursor = page.nextCursor ?? undefined;
 	} while (cursor !== undefined);
@@ -488,10 +496,10 @@ async function loadAllReadyAssets(owner: string): Promise<MediaAssetRecord[]> {
 // ── Single-app scan (req 1–3) ───────────────────────────────────────
 
 /**
- * Run the single-app scan: load the app, derive its owner from the
+ * Run the single-app scan: load the app, derive its Project from the
  * doc, resolve only this app's referenced assets, and report per-app
- * readiness. Orphan analysis is owner-scoped (it spans every app the
- * owner holds) and is intentionally skipped here with a one-line note
+ * readiness. Orphan analysis is Project-scoped (it spans every app in
+ * the Project) and is intentionally skipped here with a one-line note
  * rather than faked from a single app.
  */
 async function scanApp(appId: string): Promise<void> {
@@ -500,23 +508,24 @@ async function scanApp(appId: string): Promise<void> {
 	const snap = await db.collection("apps").doc(appId).get();
 	if (!snap.exists) {
 		console.error(
-			`Couldn't find an app with id "${appId}". Check the id against the apps collection, or pass --owner to scan a whole owner.`,
+			`Couldn't find an app with id "${appId}". Check the id against the apps collection, or pass --project to scan a whole Project.`,
 		);
 		process.exit(1);
 	}
 
 	const data = snap.data() as FirebaseFirestoreData;
-	const owner = typeof data.owner === "string" ? data.owner : undefined;
-	if (!owner) {
+	const projectId =
+		typeof data.project_id === "string" ? data.project_id : undefined;
+	if (!projectId) {
 		console.error(
-			`App "${appId}" has no owner field, so its media assets can't be resolved (every asset read is owner-filtered). The app doc looks malformed — inspect it with scripts/inspect-app.ts.`,
+			`App "${appId}" has no project_id, so its media assets can't be resolved (every asset read is Project-scoped). Run scripts/backfill-media-project-id.ts (or backfill-apps-project-id.ts) first, or inspect the doc with scripts/inspect-app.ts.`,
 		);
 		process.exit(1);
 	}
 
 	printKV([
 		["App ID", appId],
-		["Owner", owner],
+		["Project", projectId],
 	]);
 
 	const loaded = loadApp(appId, data);
@@ -531,7 +540,7 @@ async function scanApp(appId: string): Promise<void> {
 	const rows =
 		referencedIds.size === 0
 			? []
-			: await loadAssetsByIds(owner, [...referencedIds]);
+			: await loadAssetsByIds([...referencedIds], projectId);
 	const assetsById = new Map(rows.map((row) => [row.id as string, row]));
 
 	const readiness = classifyApp(appId, loaded.appName, loaded.doc, assetsById);
@@ -539,8 +548,8 @@ async function scanApp(appId: string): Promise<void> {
 
 	printSection("Orphan Analysis");
 	console.log(
-		"  Skipped — orphaned-asset analysis is owner-scoped (it spans every\n" +
-			`  app the owner holds). Re-run with --owner ${owner} for it.`,
+		"  Skipped — orphaned-asset analysis is Project-scoped (it spans every\n" +
+			`  app in the Project). Re-run with --project ${projectId} for it.`,
 	);
 }
 
@@ -550,21 +559,21 @@ async function main(): Promise<void> {
 	// Exactly one scope is required. Both-or-neither is an Elm-shape
 	// usage error: it names what was tried, the expected condition, and
 	// what to do next.
-	if (opts.owner && opts.app) {
+	if (opts.project && opts.app) {
 		console.error(
-			"Both --owner and --app were passed, but they're mutually exclusive: --owner scans an owner's whole app set (with orphan analysis), --app scans one app. Pass just one.",
+			"Both --project and --app were passed, but they're mutually exclusive: --project scans a Project's whole app set (with orphan analysis), --app scans one app. Pass just one.",
 		);
 		process.exit(1);
 	}
-	if (!opts.owner && !opts.app) {
+	if (!opts.project && !opts.app) {
 		console.error(
-			"No scope given. Pass --owner <userId> to scan an owner's apps (with orphan analysis), or --app <appId> to scan one app. There's no all-database scan because the orphaned-asset analysis needs an owner context.",
+			"No scope given. Pass --project <projectId> to scan a Project's apps (with orphan analysis), or --app <appId> to scan one app. There's no all-database scan because the orphaned-asset analysis needs a Project context.",
 		);
 		process.exit(1);
 	}
 
-	if (opts.owner) {
-		await scanOwner(opts.owner);
+	if (opts.project) {
+		await scanProject(opts.project);
 	} else if (opts.app) {
 		await scanApp(opts.app);
 	}

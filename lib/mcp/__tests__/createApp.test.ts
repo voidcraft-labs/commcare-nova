@@ -32,6 +32,12 @@ vi.mock("@/lib/db/apps", () => ({
 	createApp: vi.fn(),
 }));
 
+/* The tool resolves the caller's personal Project before creating; stub it so
+ * the unit test never touches the auth DB. */
+vi.mock("@/lib/auth/provisionProject", () => ({
+	ensurePersonalProject: vi.fn(async () => "proj-test"),
+}));
+
 /* --- Helpers --------------------------------------------------------- */
 
 /**
@@ -63,8 +69,11 @@ describe("registerCreateApp — happy path with name", () => {
 		};
 
 		expect(createApp).toHaveBeenCalledTimes(1);
-		const [owner, runId, opts] = vi.mocked(createApp).mock.calls[0] ?? [];
+		const [owner, projectId, runId, opts] =
+			vi.mocked(createApp).mock.calls[0] ?? [];
 		expect(owner).toBe("u1");
+		/* The tool resolves the caller's personal Project (mocked). */
+		expect(projectId).toBe("proj-test");
 		/* Server-minted run id seeds the new app doc. Shape-check only;
 		 * we don't pin a specific value. */
 		expect(typeof runId).toBe("string");
@@ -89,7 +98,7 @@ describe("registerCreateApp — happy path without name", () => {
 
 		await capture()({}, {});
 
-		const [, , opts] = vi.mocked(createApp).mock.calls[0] ?? [];
+		const [, , , opts] = vi.mocked(createApp).mock.calls[0] ?? [];
 		/* The DB helper's default `""` kicks in only when `appName` is
 		 * undefined on the options object. Explicit presence with
 		 * `undefined` is the expected shape. */
@@ -106,7 +115,7 @@ describe("registerCreateApp — whitespace-only name", () => {
 
 		await capture()({ app_name: "   " }, {});
 
-		const [, , opts] = vi.mocked(createApp).mock.calls[0] ?? [];
+		const [, , , opts] = vi.mocked(createApp).mock.calls[0] ?? [];
 		expect(opts).toEqual({ appName: undefined, status: "complete" });
 	});
 });
@@ -124,8 +133,8 @@ describe("registerCreateApp — run seed", () => {
 		await capture()({}, {});
 		await capture()({}, {});
 
-		const [, runIdA] = vi.mocked(createApp).mock.calls[0] ?? [];
-		const [, runIdB] = vi.mocked(createApp).mock.calls[1] ?? [];
+		const [, , runIdA] = vi.mocked(createApp).mock.calls[0] ?? [];
+		const [, , runIdB] = vi.mocked(createApp).mock.calls[1] ?? [];
 		expect(runIdA).toMatch(UUID_RE);
 		expect(runIdB).toMatch(UUID_RE);
 		expect(runIdA).not.toBe(runIdB);
@@ -150,9 +159,9 @@ function typeCheckCreateAppOptions(): void {
 	const neverRun = false;
 	if (neverRun) {
 		// @ts-expect-error — "error" is not a valid creation status
-		void createApp("u1", "rid", { status: "error" });
+		void createApp("u1", "proj", "rid", { status: "error" });
 		// @ts-expect-error — "deleted" is not a valid creation status
-		void createApp("u1", "rid", { status: "deleted" });
+		void createApp("u1", "proj", "rid", { status: "deleted" });
 	}
 }
 /* Reference the guard so lint doesn't flag it as unused — the

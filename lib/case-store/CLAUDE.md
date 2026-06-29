@@ -7,7 +7,7 @@ JS evaluator, no parity tests.
 
 ## Public surface — barrel
 
-External consumers import from the `@/lib/case-store` barrel: the `CaseStore` interface, row/arg/result types, the `withOwnerContext` factory (the ONLY production constructor — it binds the owner id at the request boundary), the typed error classes, and JSONB value types. The implementation, sample generator, and test harness stay package-private; tests reach them via subpath.
+External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / `SchemaCaseStore` interfaces, row/arg/result types, the two production constructors (`withProjectContext(projectId, actorUserId)` — the tenant-bound reads/writes store; `withSchemaContext()` — the tenant-free, app-scoped schema-ops store), the typed error classes, and JSONB value types. The implementation, sample generator, and test harness stay package-private; tests reach them via subpath.
 
 **One deliberate exception:** the connection layer's `getCaseStorePool()` (subpath `@/lib/case-store/postgres/connection`) is a runtime export the auth layer (`lib/auth.ts`, `lib/auth/db.ts`) imports so Better Auth runs on the SAME `pg.Pool` — one pool per instance is what keeps the connection budget (`enforceConnectionBudget`) intact. Do not route it through the barrel or "tidy" it back to tests-only; the pool-sharing the budget depends on is the reason it's exposed.
 
@@ -20,24 +20,37 @@ duplication, no `InMemoryCaseStore`, no per-session lifecycle.
 that write or replace real rows; the user toggles between
 authoring and running modes against one shared row set.
 
-## Tenant scoping is structural — `(app_id, owner_id)` pair
+## Tenant scoping is structural — `(app_id, project_id)`; `owner_id` is a second axis
 
-Every `CaseStore` instance carries an owner id resolved at the
-request boundary. The factory `withOwnerContext(userId)` is the
-single construction path; every method internally adds
-`WHERE owner_id = <bound userId>` to the underlying query so a
-new method on the interface inherits the filter automatically.
-
-The compiler stack (`./sql/`) handles the JOIN-side filter on
-every `cases` row inside relation walks (see
+Case data is shared at **Project** scope. Every tenant-bound
+`CaseStore` carries a Project id resolved (and membership-gated) at
+the request boundary; `withProjectContext(projectId, actorUserId)`
+is the construction path, and every read/write internally adds
+`WHERE project_id = <bound>` so a new method inherits the filter
+automatically. The compiler stack (`./sql/`) handles the JOIN-side
+`project_id` filter on every `cases` row inside relation walks (see
 `./sql/compileRelationPath.ts`); `PostgresCaseStore` owns the
-outer-scan filter on every method's underlying SELECT / UPDATE /
-DELETE. The two halves combine to make cross-tenant reads
-structurally impossible.
+outer-scan filter on every method. The two halves combine to make
+cross-Project reads structurally impossible.
+
+`owner_id` is the **CommCare case-owner** — a SEPARATE axis written
+on every insert (the acting user today), reserved for future
+location-/group-based access carving. It is never a tenant filter and
+never to be repurposed/dropped. The two axes are orthogonal:
+`project_id` (tenant / sharing) × `owner_id` (case ownership).
+
+**Schema changes are the deliberate exception — app-scoped,
+tenant-free.** `applySchemaChange` / `dropSchema` (the
+`SchemaCaseStore` slice, built by `withSchemaContext()`) migrate
+EVERY member's rows of an app's case type, so their per-row
+migrations filter `(app_id, case_type)` ONLY — no `project_id` /
+`owner_id`. The schema-write callers (the cross-store saga, the
+chat-completion materialize, the point-of-use heal) therefore bind
+no tenant.
 
 ## Typed error contract
 
-User-domain errors (`./errors.ts`) carry `instanceof` discrimination so routes map them to typed result arms. Non-obvious rules: `CaseNotFoundError`'s message deliberately does NOT distinguish "outside the bound owner's tenant" from "never existed" — tenant boundaries stay structural, never message-leaked. `CasePropertiesValidationError`'s structured `failures` surface in the response body, but the `(appId, caseType)` pair stays server-log-only. All classes use `readonly name = "<ClassName>"` initializers so the literal name survives bundler transforms. Every other throw in the package is an internal-invariant violation using the formatters at `lib/domain/predicate/errors.ts`.
+User-domain errors (`./errors.ts`) carry `instanceof` discrimination so routes map them to typed result arms. Non-obvious rules: `CaseNotFoundError`'s message deliberately does NOT distinguish "outside the bound Project" from "never existed" — tenant boundaries stay structural, never message-leaked. `CasePropertiesValidationError`'s structured `failures` surface in the response body, but the `(appId, caseType)` pair stays server-log-only. All classes use `readonly name = "<ClassName>"` initializers so the literal name survives bundler transforms. Every other throw in the package is an internal-invariant violation using the formatters at `lib/domain/predicate/errors.ts`.
 
 ## TypeScript validates writes — there is no in-database trigger
 
@@ -170,7 +183,9 @@ The flipbook's running-app screens read case data through the
 binding helpers at `lib/preview/engine/caseDataBindingHelpers.ts`
 (pure helpers accepting a `CaseStore`) plus the Server Actions
 at `lib/preview/engine/caseDataBinding.ts` (resolve session
-server-side, construct `withOwnerContext`, route through). The
+server-side, then `gatedCaseStore` — membership-gate the app's
+Project and construct a `withProjectContext` store — and route
+through). The
 `pickBlueprintDoc` projection in the helpers package strips
 function values off the doc-store state before the wire crosses
 into a Server Action so React's RSC serializer accepts it.

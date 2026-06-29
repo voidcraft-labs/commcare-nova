@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef } from "react";
 import { RejectionCallout } from "@/components/builder/RejectionNotice";
 import type { CommitOutcome } from "@/lib/domain";
+import { useCanEdit } from "@/lib/session/hooks";
 import { useCommitField } from "@/lib/ui/hooks/useCommitField";
 import { useRejectionShake } from "@/lib/ui/hooks/useShake";
 
@@ -50,6 +51,7 @@ interface EditableTitleProps {
  * used by preview mode so the title occupies identical space to the design-mode input.
  */
 export function EditableTitle({ value, onSave, readOnly }: EditableTitleProps) {
+	const canEdit = useCanEdit();
 	const measureRef = useRef<HTMLSpanElement>(null);
 	const inputElRef = useRef<HTMLInputElement | null>(null);
 
@@ -91,8 +93,9 @@ export function EditableTitle({ value, onSave, readOnly }: EditableTitleProps) {
 
 	// Read-only path: same element and box model as the editable input, just frozen.
 	// Using the identical span+input structure guarantees pixel-perfect alignment
-	// with design mode — no layout shift when flipping between modes.
-	if (readOnly) {
+	// with design mode — no layout shift when flipping between modes. A view-only
+	// Project member (`!canEdit`) renders this same frozen title in BOTH modes.
+	if (readOnly || !canEdit) {
 		return (
 			<>
 				<span

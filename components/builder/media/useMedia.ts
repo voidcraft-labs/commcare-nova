@@ -6,7 +6,7 @@
 //
 //  - `useMediaUpload` — drives one upload, exposing in-flight /
 //    error status for the upload tab's UX.
-//  - `useMediaLibrary` — paginates the owner's existing assets for
+//  - `useMediaLibrary` — paginates the Project's existing assets for
 //    the library tab, with an `addUploaded` hook so a just-uploaded
 //    asset appears at the top without a refetch.
 
@@ -32,26 +32,33 @@ export interface UseMediaUpload {
 	status: MediaUploadStatus;
 }
 
-export function useMediaUpload(): UseMediaUpload {
+export function useMediaUpload(appId?: string): UseMediaUpload {
 	const [status, setStatus] = useState<MediaUploadStatus>({ state: "idle" });
 
-	const upload = useCallback(async (file: File) => {
-		setStatus({ state: "uploading" });
-		try {
-			const asset = await uploadMediaAsset(file);
-			setStatus({ state: "idle" });
-			return asset;
-		} catch (err) {
-			setStatus({
-				state: "error",
-				message:
-					err instanceof Error
-						? err.message
-						: "The upload failed for an unknown reason. Try again.",
-			});
-			return null;
-		}
-	}, []);
+	const upload = useCallback(
+		async (file: File) => {
+			setStatus({ state: "uploading" });
+			try {
+				// `appId` lands the asset in that app's Project (the chat composer in
+				// the builder passes it so a chat document belongs to the same
+				// Project the conversation resolves it under). Omitted by the
+				// account-menu file manager — those go to the user's active Project.
+				const asset = await uploadMediaAsset(file, { appId });
+				setStatus({ state: "idle" });
+				return asset;
+			} catch (err) {
+				setStatus({
+					state: "error",
+					message:
+						err instanceof Error
+							? err.message
+							: "The upload failed for an unknown reason. Try again.",
+				});
+				return null;
+			}
+		},
+		[appId],
+	);
 
 	return { upload, status };
 }
@@ -93,9 +100,11 @@ function kindsFromKey(key: string): AssetKind[] | undefined {
 }
 
 /**
- * Paginated view of the owner's `ready` assets, optionally filtered to a SET of
+ * Paginated view of the Project's `ready` assets, optionally filtered to a SET of
  * `kinds`. Fetches the first page on mount and whenever the kinds change;
- * `loadMore` appends the next page via the opaque cursor.
+ * `loadMore` appends the next page via the opaque cursor. `appId` (when set)
+ * resolves the app's Project as the tenant; absent, the server falls back to the
+ * caller's active Project — so the standalone file manager browses the latter.
  *
  * Keying is by a STABLE STRING, not the `kinds` array: the picker computes a
  * fresh `[filter]` array each render, so a reference compare would reset the
@@ -109,7 +118,10 @@ function kindsFromKey(key: string): AssetKind[] | undefined {
  * setState-after-unmount with a per-run `cancelled` flag so a fetch resolving
  * after the picker closes doesn't leak a state update (or trip the leak gate).
  */
-export function useMediaLibrary(kinds?: readonly AssetKind[]): UseMediaLibrary {
+export function useMediaLibrary(
+	kinds?: readonly AssetKind[],
+	appId?: string,
+): UseMediaLibrary {
 	const kindsKey = kinds && kinds.length > 0 ? [...kinds].sort().join(",") : "";
 
 	const [assets, setAssets] = useState<MediaAssetView[]>([]);
@@ -139,6 +151,7 @@ export function useMediaLibrary(kinds?: readonly AssetKind[]): UseMediaLibrary {
 		fetchMediaLibrary({
 			kinds: kindsFromKey(request.kindsKey),
 			cursor: request.cursor,
+			appId,
 		})
 			.then((page) => {
 				if (cancelled) return;
@@ -161,7 +174,7 @@ export function useMediaLibrary(kinds?: readonly AssetKind[]): UseMediaLibrary {
 		return () => {
 			cancelled = true;
 		};
-	}, [request]);
+	}, [request, appId]);
 
 	const loadMore = useCallback(() => {
 		if (isLoading || !nextCursor) return;

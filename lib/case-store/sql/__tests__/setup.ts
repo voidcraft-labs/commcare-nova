@@ -145,6 +145,7 @@ export function makeCaseRow(
 		case_id: crypto.randomUUID(),
 		app_id: "app-test",
 		case_type: "patient",
+		project_id: "project-test",
 		owner_id: "owner-test",
 		status: "open",
 		opened_on: now,

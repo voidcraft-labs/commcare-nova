@@ -190,7 +190,7 @@ describe("McpContext", () => {
 		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
 		const args = vi.mocked(applyBlueprintChange).mock.calls[0]?.[0];
 		expect(args?.guard?.mutations).toEqual([renameMut, patchMut]);
-		expect(args?.prospective.appName).toBe("patched");
+		expect(args?.prospective?.appName).toBe("patched");
 
 		// The envelopes keep each stage's own tag, in order.
 		expect(events.map((e) => e.stage)).toEqual(["rename:0-0", "edit:0-0"]);

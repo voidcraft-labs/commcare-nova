@@ -417,7 +417,7 @@ function compileCount(
 	const compiledPath = compileRelationPath(via, {
 		db: ctx.db,
 		appId: ctx.appId,
-		ownerId: ctx.ownerId,
+		projectId: ctx.projectId,
 		anchorAlias: ctx.anchorAlias,
 		relationPathDepth: ctx.relationPathDepth ?? 0,
 	});

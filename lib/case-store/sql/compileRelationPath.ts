@@ -43,7 +43,7 @@
 //
 // ## Tenant filtering lives in this module
 //
-// `(app_id, owner_id)` must be threaded by the layer emitting the
+// `(app_id, project_id)` must be threaded by the layer emitting the
 // `cases` read, not the caller. Pushing the filter to callers
 // would duplicate the relation-walk traversal and invite a leak.
 // The filter applies once per hop, every time.
@@ -92,14 +92,15 @@ export interface RelationPathLeafRow extends Selectable<Database["cases"]> {
 /** Compile context. */
 export interface RelationPathCompileContext {
 	db: Kysely<Database>;
-	/** First half of `(app_id, owner_id)`. */
+	/** First half of `(app_id, project_id)`. */
 	appId: string;
 	/**
-	 * Second half. `null` admits HQ-imported cases pre-assignment;
-	 * the filter compiles to `IS NULL` rather than `= NULL` (the
-	 * latter is always false in SQL).
+	 * Second half — the bound Project (tenant). Non-null: every
+	 * relation-walk hop filters joined `cases` rows on
+	 * `project_id = <bound>`. (`owner_id`, the CommCare case-owner, is a
+	 * separate axis and is NOT a relation-walk tenant filter.)
 	 */
-	ownerId: string | null;
+	projectId: string;
 	/**
 	 * Outer query's alias for the anchor `cases` row. Recorded for
 	 * caller-side `onRef`; the subquery itself is uncorrelated.
@@ -204,7 +205,7 @@ export function compileRelationPath(
  * FROM case_indices AS ci0
  * INNER JOIN cases AS cs0 ON cs0.case_id = ci0.ancestor_id
  * WHERE ci0.identifier = $1 AND ci0.depth = 1
- *   AND cs0.app_id = $2 AND cs0.owner_id = $3
+ *   AND cs0.app_id = $2 AND cs0.project_id = $3
  *   [AND cs0.case_type = $4]
  * ```
  *
@@ -227,17 +228,20 @@ function buildAncestorLeaf(args: {
 		.where("ci0.depth", "=", 1)
 		.where("cs0.app_id", "=", ctx.appId);
 
-	// `is null` keyword form for the null-owner case — `<col> =
-	// NULL` is unknown (false in WHERE) per three-valued logic.
-	const firstHopWithOwner =
-		ctx.ownerId === null
-			? firstHop.where("cs0.owner_id", "is", null)
-			: firstHop.where("cs0.owner_id", "=", ctx.ownerId);
+	const firstHopWithProject = firstHop.where(
+		"cs0.project_id",
+		"=",
+		ctx.projectId,
+	);
 
 	const firstHopWithType =
 		firstStep.throughCaseType !== undefined
-			? firstHopWithOwner.where("cs0.case_type", "=", firstStep.throughCaseType)
-			: firstHopWithOwner;
+			? firstHopWithProject.where(
+					"cs0.case_type",
+					"=",
+					firstStep.throughCaseType,
+				)
+			: firstHopWithProject;
 
 	if (via.length === 1) {
 		const projected = firstHopWithType.select([
@@ -280,10 +284,7 @@ function buildAncestorLeaf(args: {
 			.where(`${ci}.identifier`, "=", step.identifier)
 			.where(`${ci}.depth`, "=", 1)
 			.where(`${cs}.app_id`, "=", ctx.appId);
-		qb =
-			ctx.ownerId === null
-				? qb.where(`${cs}.owner_id`, "is", null)
-				: qb.where(`${cs}.owner_id`, "=", ctx.ownerId);
+		qb = qb.where(`${cs}.project_id`, "=", ctx.projectId);
 		if (step.throughCaseType !== undefined) {
 			qb = qb.where(`${cs}.case_type`, "=", step.throughCaseType);
 		}
@@ -331,15 +332,12 @@ function buildSubcaseLeaf(args: {
 		.where("ci0.depth", "=", 1)
 		.where("cs0.app_id", "=", ctx.appId);
 
-	const withOwner =
-		ctx.ownerId === null
-			? base.where("cs0.owner_id", "is", null)
-			: base.where("cs0.owner_id", "=", ctx.ownerId);
+	const withProject = base.where("cs0.project_id", "=", ctx.projectId);
 
 	const withType =
 		ofCaseType !== undefined
-			? withOwner.where("cs0.case_type", "=", ofCaseType)
-			: withOwner;
+			? withProject.where("cs0.case_type", "=", ofCaseType)
+			: withProject;
 
 	const projected = withType.select([
 		"ci0.ancestor_id as anchor_case_id",
@@ -384,14 +382,15 @@ function buildAnyRelationLeaf(args: {
 		.where("ci0.identifier", "=", identifier)
 		.where("ci0.depth", "=", 1)
 		.where("cs0.app_id", "=", ctx.appId);
-	const ancestorWithOwner =
-		ctx.ownerId === null
-			? ancestorBase.where("cs0.owner_id", "is", null)
-			: ancestorBase.where("cs0.owner_id", "=", ctx.ownerId);
+	const ancestorWithProject = ancestorBase.where(
+		"cs0.project_id",
+		"=",
+		ctx.projectId,
+	);
 	const ancestorWithType =
 		ofCaseType !== undefined
-			? ancestorWithOwner.where("cs0.case_type", "=", ofCaseType)
-			: ancestorWithOwner;
+			? ancestorWithProject.where("cs0.case_type", "=", ofCaseType)
+			: ancestorWithProject;
 	const ancestorBranch = ancestorWithType.select([
 		"ci0.case_id as anchor_case_id",
 		"cs0.case_id as case_id",
@@ -415,14 +414,15 @@ function buildAnyRelationLeaf(args: {
 		.where("ci0.identifier", "=", identifier)
 		.where("ci0.depth", "=", 1)
 		.where("cs0.app_id", "=", ctx.appId);
-	const subcaseWithOwner =
-		ctx.ownerId === null
-			? subcaseBase.where("cs0.owner_id", "is", null)
-			: subcaseBase.where("cs0.owner_id", "=", ctx.ownerId);
+	const subcaseWithProject = subcaseBase.where(
+		"cs0.project_id",
+		"=",
+		ctx.projectId,
+	);
 	const subcaseWithType =
 		ofCaseType !== undefined
-			? subcaseWithOwner.where("cs0.case_type", "=", ofCaseType)
-			: subcaseWithOwner;
+			? subcaseWithProject.where("cs0.case_type", "=", ofCaseType)
+			: subcaseWithProject;
 	const subcaseBranch = subcaseWithType.select([
 		"ci0.ancestor_id as anchor_case_id",
 		"cs0.case_id as case_id",

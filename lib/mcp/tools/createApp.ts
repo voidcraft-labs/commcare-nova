@@ -30,6 +30,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { createApp } from "@/lib/db/apps";
 import {
 	type McpToolErrorResult,
@@ -73,7 +74,9 @@ export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 				 * no visible way to rename. */
 				const appName = args.app_name?.trim() || undefined;
 
-				const appId = await createApp(ctx.userId, runId, {
+				/* MCP-created apps land in the caller's personal Project. */
+				const projectId = await ensurePersonalProject(ctx.userId);
+				const appId = await createApp(ctx.userId, projectId, runId, {
 					appName,
 					status: "complete",
 				});

@@ -6,17 +6,17 @@
  * `lib/media/assetDeletion.ts`, shared with the browser `DELETE` route so the
  * two surfaces can't drift. This tool wraps them with the one SA-specific
  * concern: it also checks the in-hand WORKING doc (which may carry unsaved
- * mutations the persisted copy lacks) before scanning the owner's other apps.
+ * mutations the persisted copy lacks) before scanning the Project's other apps.
  *
  * **Reference guard.** Refuse if any carrier — in the current working app OR any
  * other live app — still points at the asset, naming the slots to clear:
  * deleting a referenced asset orphans a live reference the export boundary gate
  * would later reject far from where the SA could fix it.
  *
- * Ownership is enforced by `loadAssetForOwner`, which throws
- * `MediaAssetOwnershipError` for a foreign-owned row; the tool maps both "not
- * yours" and "doesn't exist" to the same "not found" message so a probing caller
- * can't tell them apart.
+ * Authorization is by Project: the asset is loaded id-only (`loadAssetById`) and
+ * accepted only when its `project_id` matches the app's Project; a foreign-Project
+ * row and a missing row collapse to the same "not found" message so a probing
+ * caller can't tell them apart.
  *
  * Read-shaped (`kind: "read"`): the deletion is an external side effect on the
  * library, not a doc mutation, so there's no `Mutation` to advance the SA's
@@ -24,10 +24,7 @@
  */
 
 import { z } from "zod";
-import {
-	loadAssetForOwner,
-	MediaAssetOwnershipError,
-} from "@/lib/db/mediaAssets";
+import { loadAssetById } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain";
 import { extractObjectKeyForAsset } from "@/lib/domain/multimedia";
@@ -38,6 +35,7 @@ import {
 } from "@/lib/media/assetDeletion";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import type { ReadToolResult } from "../common";
+import { requireToolProjectId } from "./shared";
 
 export const removeMediaAssetInputSchema = z
 	.object({
@@ -68,17 +66,13 @@ export const removeMediaAssetTool = {
 	): Promise<ReadToolResult<RemoveMediaAssetResult>> {
 		const assetId = asAssetId(input.assetId);
 
-		// Ownership-gate + resolve the asset. A foreign-owned row throws
-		// `MediaAssetOwnershipError`; collapse it to the same "not found" the
-		// missing-row branch returns so a probing caller can't distinguish "isn't
-		// yours" from "doesn't exist".
-		const asset = await loadAssetForOwner(ctx.userId, assetId).catch(
-			(err: unknown) => {
-				if (err instanceof MediaAssetOwnershipError) return null;
-				throw err;
-			},
-		);
-		if (!asset) {
+		const projectId = await requireToolProjectId(ctx.appId);
+
+		// Resolve the asset id-only, then Project-gate it. A row in another Project
+		// (or no row at all) collapses to the same "not found" so a probing caller
+		// can't distinguish "isn't in your Project" from "doesn't exist".
+		const asset = await loadAssetById(assetId);
+		if (!asset || asset.project_id !== projectId) {
 			return {
 				kind: "read" as const,
 				data: {
@@ -104,9 +98,9 @@ export const removeMediaAssetTool = {
 		// Reference guard, part 2: every OTHER live app's persisted doc. The
 		// current app is covered by the working-doc check above, so skip it here.
 		// `asset.referencingAppIds` is the reverse index — the guard re-walks only
-		// those candidates instead of loading every one of the owner's apps.
+		// those candidates instead of loading every one of the Project's apps.
 		const otherAppReferences = await findAppReferencesToAsset(
-			ctx.userId,
+			projectId,
 			input.assetId,
 			asset.referencingAppIds,
 			{ skipAppId: ctx.appId },

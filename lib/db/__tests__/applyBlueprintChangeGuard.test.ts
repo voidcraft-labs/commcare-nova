@@ -34,18 +34,18 @@ const {
 	updateAppMock,
 	updateAppForRunMock,
 	updateAppForRunTransactionalMock,
-	updateAppGuardedByBasisMock,
+	updateAppGuardedMutatingMock,
 } = vi.hoisted(() => ({
 	loadAppMock: vi.fn(),
 	updateAppMock: vi.fn(),
 	updateAppForRunMock: vi.fn(),
 	updateAppForRunTransactionalMock: vi.fn(),
-	updateAppGuardedByBasisMock: vi.fn(),
+	updateAppGuardedMutatingMock: vi.fn(),
 }));
 
-const { applySchemaChangeMock, withOwnerContextMock } = vi.hoisted(() => ({
+const { applySchemaChangeMock, withSchemaContextMock } = vi.hoisted(() => ({
 	applySchemaChangeMock: vi.fn(),
-	withOwnerContextMock: vi.fn(),
+	withSchemaContextMock: vi.fn(),
 }));
 
 const { getAssetsInTransactionMock } = vi.hoisted(() => ({
@@ -57,8 +57,7 @@ vi.mock("@/lib/db/apps", () => ({
 	updateApp: updateAppMock,
 	updateAppForRun: updateAppForRunMock,
 	updateAppForRunTransactional: updateAppForRunTransactionalMock,
-	updateAppGuardedByBasis: updateAppGuardedByBasisMock,
-	BlueprintBasisStaleError: class BlueprintBasisStaleError extends Error {},
+	updateAppGuardedMutating: updateAppGuardedMutatingMock,
 }));
 
 vi.mock("@/lib/db/mediaAssets", () => ({
@@ -73,7 +72,7 @@ vi.mock("@/lib/case-store", async () => {
 	>;
 	return {
 		...actual,
-		withOwnerContext: withOwnerContextMock,
+		withSchemaContext: withSchemaContextMock,
 	};
 });
 
@@ -126,6 +125,7 @@ function freshAppDoc(blueprint: BlueprintDoc): AppDoc {
 	return {
 		blueprint: toPersistableDoc(blueprint),
 		owner: "user-1",
+		project_id: "project-1",
 		status: "complete",
 	} as unknown as AppDoc;
 }
@@ -146,11 +146,28 @@ function armTransactionalWith(fresh: BlueprintDoc) {
 	);
 }
 
+/** Drive the tokenless guarded mutating commit (auto-save): the body runs
+ *  against `fresh` and the mock returns a rotated basis token. */
+function armMutatingWith(fresh: BlueprintDoc) {
+	updateAppGuardedMutatingMock.mockImplementation(
+		async (
+			_appId: string,
+			body: (
+				doc: AppDoc,
+				tx: unknown,
+			) => PersistableDoc | Promise<PersistableDoc>,
+		) => {
+			await body(freshAppDoc(fresh), {});
+			return "token-next";
+		},
+	);
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	loadAppMock.mockImplementation(async () => null);
 	getAssetsInTransactionMock.mockResolvedValue(new Map());
-	withOwnerContextMock.mockResolvedValue({
+	withSchemaContextMock.mockResolvedValue({
 		applySchemaChange: applySchemaChangeMock,
 		dropSchema: vi.fn(),
 	});
@@ -239,6 +256,38 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 		expect(updateAppMock).not.toHaveBeenCalled();
 	});
 
+	it("rejects (as a conflict) a mutation whose target a concurrent writer removed", async () => {
+		const fresh = minDoc();
+		armTransactionalWith(fresh);
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(fresh) });
+		// A field uuid absent from the fresh doc — a peer deleted the field this
+		// edit targets. The reducer is total, so WITHOUT the targets-present
+		// guard this would silently no-op and the verdict would PASS (invisible
+		// data loss); the guard turns it into a surfaced conflict instead.
+		const mutations: Mutation[] = [
+			{
+				kind: "updateField",
+				uuid: "deleted-by-a-peer",
+				targetKind: "text",
+				patch: { label: "New label" },
+			} as Mutation,
+		];
+
+		const err = await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			prospective: toPersistableDoc(fresh),
+			runId: "run-1",
+			guard: { mutations },
+		}).catch((e) => e);
+
+		expect(err).toBeInstanceOf(BlueprintCommitRejectedError);
+		// The conflict message, not a generic verdict finding.
+		expect((err as Error).message).toContain("removed by someone else");
+		expect(updateAppForRunMock).not.toHaveBeenCalled();
+		expect(updateAppMock).not.toHaveBeenCalled();
+	});
+
 	it("compensates the Postgres phase when the guarded commit rejects after schema work", async () => {
 		const prior = minDoc();
 		armTransactionalWith(prior);
@@ -265,7 +314,7 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 
 		const dropSchemaMock = vi.fn();
-		withOwnerContextMock.mockResolvedValue({
+		withSchemaContextMock.mockResolvedValue({
 			applySchemaChange: applySchemaChangeMock,
 			dropSchema: dropSchemaMock,
 		});
@@ -325,7 +374,10 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 		getAssetsInTransactionMock.mockResolvedValue(
 			new Map([
-				["asset-live", { owner: "user-1", status: "ready", kind: "image" }],
+				[
+					"asset-live",
+					{ project_id: "project-1", status: "ready", kind: "image" },
+				],
 			]),
 		);
 
@@ -348,43 +400,44 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 	});
 });
 
-describe("applyBlueprintChange — basis-guarded auto-save commit", () => {
-	it("routes a basis-bearing save through the basis writer and returns the rotated token", async () => {
-		const prior = minDoc();
-		updateAppGuardedByBasisMock.mockResolvedValue("token-next");
+describe("applyBlueprintChange — guarded auto-save mutation commit", () => {
+	it("re-applies the delta on the FRESH doc (no runId) and returns the rotated token", async () => {
+		const fresh = minDoc();
+		armMutatingWith(fresh);
 
 		const result = await applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
-			prospective: toPersistableDoc(prior),
-			priorBlueprint: toPersistableDoc(prior),
-			basis: { token: "token-prev" },
+			priorBlueprint: toPersistableDoc(fresh),
+			guard: {
+				mutations: [{ kind: "setAppName", name: "Renamed" } as Mutation],
+			},
 		});
 
-		expect(updateAppGuardedByBasisMock).toHaveBeenCalledTimes(1);
-		const [appId, , basisToken] = updateAppGuardedByBasisMock.mock.calls[0];
-		expect(appId).toBe("app-1");
-		expect(basisToken).toBe("token-prev");
+		expect(updateAppGuardedMutatingMock).toHaveBeenCalledTimes(1);
+		expect(updateAppGuardedMutatingMock.mock.calls[0]?.[0]).toBe("app-1");
 		expect(result.basisToken).toBe("token-next");
-		// The blind writers never ran — the basis compare is the commit path.
+		// The blind writers + the run-scoped writer never ran — the tokenless
+		// guarded writer is the auto-save commit path.
 		expect(updateAppMock).not.toHaveBeenCalled();
 		expect(updateAppForRunMock).not.toHaveBeenCalled();
+		expect(updateAppForRunTransactionalMock).not.toHaveBeenCalled();
 	});
 
-	it("propagates a stale-basis rejection without falling back to a blind write", async () => {
-		const prior = minDoc();
-		const stale = new Error("stale basis");
-		updateAppGuardedByBasisMock.mockRejectedValue(stale);
+	it("propagates a commit rejection without falling back to a blind write", async () => {
+		const rejection = new Error("commit rejected");
+		updateAppGuardedMutatingMock.mockRejectedValue(rejection);
 
 		await expect(
 			applyBlueprintChange({
 				appId: "app-1",
 				userId: "user-1",
-				prospective: toPersistableDoc(prior),
-				priorBlueprint: toPersistableDoc(prior),
-				basis: { token: null },
+				priorBlueprint: toPersistableDoc(minDoc()),
+				guard: {
+					mutations: [{ kind: "setAppName", name: "Renamed" } as Mutation],
+				},
 			}),
-		).rejects.toBe(stale);
+		).rejects.toBe(rejection);
 
 		expect(updateAppMock).not.toHaveBeenCalled();
 		expect(updateAppForRunMock).not.toHaveBeenCalled();

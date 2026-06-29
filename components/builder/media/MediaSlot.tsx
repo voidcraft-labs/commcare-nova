@@ -57,7 +57,11 @@ import {
 	type Media,
 	type MediaKind,
 } from "@/lib/domain/multimedia";
-import { useStagedUpload, useStagedUploadsFor } from "@/lib/session/hooks";
+import {
+	useAppId,
+	useStagedUpload,
+	useStagedUploadsFor,
+} from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import type { StagedUpload } from "@/lib/session/types";
 import {
@@ -134,6 +138,7 @@ export function MediaSlot({
 	const [picker, setPicker] = useState<PickerState>({ open: false, kinds });
 	const staged = useStagedUploadsFor(slotKey);
 	const session = useBuilderSessionApi();
+	const appId = useAppId();
 	const checkAttachBudget = useAttachBudgetGuard();
 	const recordLoadedAssets = useRecordLoadedAssets();
 
@@ -196,6 +201,7 @@ export function MediaSlot({
 				open={picker.open}
 				onOpenChange={(open) => setPicker((prev) => ({ ...prev, open }))}
 				kinds={picker.kinds}
+				appId={appId}
 				onAssetsLoaded={recordLoadedAssets}
 				// The picker is media-scoped for a carrier, so a picked asset is
 				// always a media kind; the `isMediaKind` narrow makes that
@@ -273,6 +279,7 @@ export function SingleAssetSlot({
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const staged = useStagedUpload(slotKey);
 	const session = useBuilderSessionApi();
+	const appId = useAppId();
 	const checkAttachBudget = useAttachBudgetGuard();
 	const recordLoadedAssets = useRecordLoadedAssets();
 
@@ -312,6 +319,7 @@ export function SingleAssetSlot({
 				open={pickerOpen}
 				onOpenChange={setPickerOpen}
 				kinds={[kind]}
+				appId={appId}
 				iconLibrary={iconLibraryFamilyFor(slotKey, kind)}
 				onAssetsLoaded={recordLoadedAssets}
 				// Budget BEFORE dispatch — an over-ceiling pick never reaches

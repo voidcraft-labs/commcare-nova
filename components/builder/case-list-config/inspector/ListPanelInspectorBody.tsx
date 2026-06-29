@@ -28,6 +28,7 @@ import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
 import type { Uuid } from "@/lib/doc/types";
 import { asAssetId, type CaseListConfig, type Column } from "@/lib/domain";
+import { useCanEdit } from "@/lib/session/hooks";
 import { SortPriorityStack } from "../SortPriorityStack";
 import type { SampleDataAction } from "../useSampleData";
 
@@ -56,6 +57,12 @@ export function ListPanelInspectorBody({
 	caseListOnly,
 	sampleData,
 }: ListPanelInspectorBodyProps) {
+	/* Sample data (Generate + Reset) writes case rows via edit-gated server
+	 * actions, so a view-only member gets no Sample-data section AT ALL — gate
+	 * the whole `InspectorSection` here, not just its controls, or the section's
+	 * header + divider would paint empty above a null body. */
+	const canEdit = useCanEdit();
+
 	const setColumns = (next: readonly Column[]) => {
 		onChange({ ...config, columns: [...next] });
 	};
@@ -76,9 +83,11 @@ export function ListPanelInspectorBody({
 				<SortPriorityStack value={config.columns} onChange={setColumns} />
 			</InspectorSection>
 
-			<InspectorSection label="Sample data">
-				<SampleDataControls sampleData={sampleData} />
-			</InspectorSection>
+			{canEdit && (
+				<InspectorSection label="Sample data">
+					<SampleDataControls sampleData={sampleData} />
+				</InspectorSection>
+			)}
 
 			{caseListOnly && (
 				<InspectorSection label="Menu link appearance">

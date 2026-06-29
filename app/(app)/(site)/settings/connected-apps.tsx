@@ -18,6 +18,7 @@ import tablerPlugConnected from "@iconify-icons/tabler/plug-connected";
 import tablerShieldLock from "@iconify-icons/tabler/shield-lock";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import type { AuthorizedClient } from "@/lib/db/oauth-consents";
 import { docsLink } from "@/lib/hostnames";
 import { revokeClientAccess } from "./oauth-actions";
@@ -115,9 +116,9 @@ export function ConnectedApps({ initial }: ConnectedAppsProps) {
 	);
 
 	return (
-		<section className="rounded-xl border border-nova-border overflow-hidden">
+		<section className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden">
 			{/* ── Card header ───────────────────────────────────────── */}
-			<div className="flex items-center gap-3 px-6 py-4 border-b border-nova-border/50 bg-nova-surface/20">
+			<div className="flex items-center gap-3 px-6 py-4 border-b border-nova-border/50">
 				<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-nova-violet/10">
 					<Icon
 						icon={tablerPlugConnected}
@@ -326,35 +327,35 @@ function RowActions({
 	if (status.type === "confirming") {
 		return (
 			<div className="flex items-center gap-1.5">
-				<button
+				<Button
 					type="button"
+					variant="link"
 					onClick={() => onCancelConfirm(consentId)}
-					className="cursor-pointer rounded-md px-3 py-1.5 text-sm text-nova-text-secondary transition-colors hover:bg-nova-border/30 hover:text-nova-text"
 				>
 					Cancel
-				</button>
-				<button
+				</Button>
+				<Button
 					type="button"
+					variant="destructive"
 					onClick={() => onConfirmRevoke(consentId)}
-					className="cursor-pointer rounded-md bg-nova-rose/10 px-3 py-1.5 text-sm font-medium text-nova-rose transition-colors hover:bg-nova-rose/15"
 				>
 					Confirm revoke
-				</button>
+				</Button>
 			</div>
 		);
 	}
 
-	/* `idle` and `error` share the same button — error message is
-	 * shown above the actions, so the button returns to idle styling
-	 * to make retry obvious. */
+	/* `idle` and `error` share the same Revoke button — the error
+	 * message is shown above the actions, so re-showing the plain
+	 * Revoke button makes retry obvious. */
 	return (
-		<button
+		<Button
 			type="button"
+			variant="destructive"
 			onClick={() => onRequestConfirm(consentId)}
-			className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-nova-text-secondary transition-colors hover:bg-nova-rose/[0.06] hover:text-nova-rose"
 		>
 			Revoke
-		</button>
+		</Button>
 	);
 }
 

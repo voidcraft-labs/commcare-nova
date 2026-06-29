@@ -40,7 +40,7 @@ import { useCreditBalance } from "@/lib/credits/useCreditBalance";
 // `creditPolicy` is type-only, so it pulls no Firestore into the bundle.
 import { chargeAmount } from "@/lib/db/creditPolicy";
 import { isDocumentKind } from "@/lib/domain/multimedia";
-import { useBuilderIsReady } from "@/lib/session/hooks";
+import { useAppId, useBuilderIsReady } from "@/lib/session/hooks";
 import { showToast } from "@/lib/ui/toastStore";
 import { cn } from "@/lib/utils";
 
@@ -130,6 +130,9 @@ export function ChatInput({
 	 * build), so the number shown before sending equals what the server debits.
 	 * `chargeAmount` owns the amounts — never hardcode 100/5 here. */
 	const appReady = useBuilderIsReady();
+	/* Land chat-attached documents in THIS app's Project so the conversation
+	 * resolves them under the same Project (see `resolveAttachments`). */
+	const appId = useAppId();
 	const cost = chargeAmount(appReady);
 	/* Best-effort balance for the tooltip's "credits left this month" line; a null
 	 * summary simply omits that line. Default-enabled — the builder always renders
@@ -332,6 +335,7 @@ export function ChatInput({
 				open={pickerOpen}
 				onOpenChange={setPickerOpen}
 				kinds={CHAT_ATTACHMENT_KINDS}
+				appId={appId}
 				onPick={addPicked}
 				// Let the file manager warn before deleting a file that's staged as a
 				// chip here, and drop the chip when it's deleted — otherwise the chip

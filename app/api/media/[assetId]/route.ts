@@ -1,14 +1,14 @@
 /**
  * GET /api/media/[assetId] — stream a media asset's bytes.
  *
- * Owner-gated proxy in front of GCS. The bucket has uniform
+ * Project-gated proxy in front of GCS. The bucket has uniform
  * bucket-level access + public-access prevention enforced — the
  * only way the browser sees these bytes is through this route, and
- * the route's session check is what enforces "your assets, your
- * bytes."
+ * the route's Project-membership check is what enforces "your
+ * Project's assets, your bytes."
  *
- * 404 on both missing-asset AND foreign-owner so the response
- * shape can't be used to enumerate other users' asset ids.
+ * 404 on both missing-asset AND non-member so the response
+ * shape can't be used to enumerate other Projects' asset ids.
  *
  * `Cache-Control: private, immutable, max-age=86400` — the bytes
  * are content-hash addressed so they really are immutable for the
@@ -20,10 +20,8 @@ import { Readable } from "node:stream";
 import type { NextRequest } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import {
-	loadAssetForOwner,
-	MediaAssetOwnershipError,
-} from "@/lib/db/mediaAssets";
+import { userInProject } from "@/lib/db/appAccess";
+import { loadAssetById } from "@/lib/db/mediaAssets";
 import { asAssetId, extractObjectKeyForAsset } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import {
@@ -41,13 +39,13 @@ export async function GET(
 		const { assetId: rawAssetId } = await params;
 		const assetId = asAssetId(rawAssetId);
 
-		const asset = await loadAssetForOwner(session.user.id, assetId).catch(
-			(err: unknown) => {
-				if (err instanceof MediaAssetOwnershipError) return null;
-				throw err;
-			},
-		);
+		const asset = await loadAssetById(assetId);
 		if (asset?.status !== "ready") {
+			throw new ApiError("Media asset not found.", 404);
+		}
+		// A non-member reads as the same 404 a missing/unready asset does, so
+		// ids stay non-enumerable.
+		if (!(await userInProject(session.user.id, asset.project_id, "view"))) {
 			throw new ApiError("Media asset not found.", 404);
 		}
 
@@ -112,7 +110,7 @@ export async function GET(
 /**
  * DELETE /api/media/[assetId] — remove an asset from the owner's library.
  *
- * Owner-gated (404 on missing OR foreign, so ids stay non-enumerable). Refuses
+ * Project-gated (404 on missing OR non-member, so ids stay non-enumerable). Refuses
  * with a 409 — naming the carriers — if any of the owner's live apps still
  * reference the asset, so a delete can't silently orphan a reference the
  * export boundary gate would later reject. On success it purges the Firestore
@@ -133,24 +131,23 @@ export async function DELETE(
 		const { assetId: rawAssetId } = await params;
 		const assetId = asAssetId(rawAssetId);
 
-		const asset = await loadAssetForOwner(session.user.id, assetId).catch(
-			(err: unknown) => {
-				if (err instanceof MediaAssetOwnershipError) return null;
-				throw err;
-			},
-		);
-		if (!asset) {
+		const asset = await loadAssetById(assetId);
+		if (
+			!asset ||
+			!(await userInProject(session.user.id, asset.project_id, "edit"))
+		) {
 			throw new ApiError(
 				"We couldn't find that file — it may already have been deleted, or it isn't yours.",
 				404,
 			);
 		}
 
-		// Reference guard: refuse if any of the owner's live apps still uses it.
-		// `asset.referencingAppIds` is the reverse index — the candidate set the
-		// guard re-walks, so it loads 0–2 apps instead of the owner's entire list.
+		// Reference guard: refuse if any live app in the asset's PROJECT still uses
+		// it. `asset.referencingAppIds` is the reverse index — the candidate set
+		// the guard re-walks, so it loads 0–2 apps instead of the Project's whole
+		// app list.
 		const references = await findAppReferencesToAsset(
-			session.user.id,
+			asset.project_id,
 			assetId,
 			asset.referencingAppIds,
 		);
