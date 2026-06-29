@@ -21,6 +21,15 @@ import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerUsers from "@iconify-icons/tabler/users";
 import { useState } from "react";
+import { Button } from "@/components/shadcn/button";
+import { Input } from "@/components/shadcn/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
 import { authClient } from "@/lib/auth-client";
 import { INVITE_ALLOWED_DOMAINS } from "@/lib/projects/invitePolicy";
 import type {
@@ -34,6 +43,13 @@ import { showToast } from "@/lib/ui/toastStore";
  *  isn't reassignable here (ownership transfer is out of scope). */
 const ASSIGNABLE_ROLES = ["viewer", "editor", "admin"] as const;
 type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
+
+/** `value → label` pairs the role pickers hand to `Select`'s `items` so the
+ *  closed trigger shows the friendly role name rather than the raw slug. */
+const ROLE_ITEMS = ASSIGNABLE_ROLES.map((r) => ({
+	label: roleLabel(r),
+	value: r,
+}));
 
 interface ProjectMembersProps {
 	projectId: string;
@@ -170,7 +186,7 @@ export function ProjectMembers({
 				{/* Invite — admins/owners only */}
 				{canManage && (
 					<div className="mb-6 flex flex-wrap items-center gap-2">
-						<input
+						<Input
 							type="email"
 							autoComplete="off"
 							data-1p-ignore
@@ -180,27 +196,31 @@ export function ProjectMembers({
 								if (e.key === "Enter") invite();
 							}}
 							placeholder={`name@${INVITE_ALLOWED_DOMAINS[0]}`}
-							className="min-w-[220px] flex-1 rounded-lg border border-nova-border bg-nova-void px-3 py-2 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none"
+							className="min-w-[220px] flex-1"
 						/>
-						<select
+						<Select
+							items={ROLE_ITEMS}
 							value={inviteRole}
-							onChange={(e) => setInviteRole(e.target.value as AssignableRole)}
-							className="rounded-lg border border-nova-border bg-nova-void px-3 py-2 text-sm text-nova-text focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none"
+							onValueChange={(next) => setInviteRole(next as AssignableRole)}
 						>
-							{ASSIGNABLE_ROLES.map((r) => (
-								<option key={r} value={r}>
-									{roleLabel(r)}
-								</option>
-							))}
-						</select>
-						<button
+							<SelectTrigger aria-label="Invite role">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{ASSIGNABLE_ROLES.map((r) => (
+									<SelectItem key={r} value={r}>
+										{roleLabel(r)}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						<Button
 							type="button"
 							disabled={!inviteEmail.trim() || busy}
 							onClick={invite}
-							className="rounded-lg bg-nova-action px-3 py-2 text-sm font-medium text-white hover:bg-nova-action-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
 						>
 							Invite
-						</button>
+						</Button>
 					</div>
 				)}
 
@@ -226,35 +246,41 @@ export function ProjectMembers({
 									</div>
 								</div>
 								{canEditThis ? (
-									<select
+									<Select
+										items={ROLE_ITEMS}
 										value={normalizeRole(m.role)}
 										disabled={busy}
-										onChange={(e) =>
-											changeRole(m.memberId, e.target.value as AssignableRole)
+										onValueChange={(next) =>
+											changeRole(m.memberId, next as AssignableRole)
 										}
-										className="rounded-lg border border-nova-border bg-nova-void px-2.5 py-1.5 text-sm text-nova-text focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none disabled:opacity-40"
 									>
-										{ASSIGNABLE_ROLES.map((r) => (
-											<option key={r} value={r}>
-												{roleLabel(r)}
-											</option>
-										))}
-									</select>
+										<SelectTrigger size="sm" aria-label={`Role for ${m.name}`}>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											{ASSIGNABLE_ROLES.map((r) => (
+												<SelectItem key={r} value={r}>
+													{roleLabel(r)}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
 								) : (
 									<span className="text-sm text-nova-text-muted">
 										{roleLabel(m.role)}
 									</span>
 								)}
 								{canEditThis && (
-									<button
+									<Button
 										type="button"
+										variant="ghost"
+										size="icon-sm"
 										disabled={busy}
 										onClick={() => removeMember(m.memberId)}
 										aria-label={`Remove ${m.name}`}
-										className="flex items-center justify-center min-w-[36px] min-h-[36px] rounded-lg text-nova-text-muted hover:text-nova-rose transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
 									>
 										<Icon icon={tablerTrash} width="16" height="16" />
-									</button>
+									</Button>
 								)}
 							</li>
 						);
@@ -280,14 +306,15 @@ export function ProjectMembers({
 										</div>
 									</div>
 									{canManage && (
-										<button
+										<Button
 											type="button"
+											variant="ghost"
+											size="sm"
 											disabled={busy}
 											onClick={() => cancelInvitation(inv.id)}
-											className="text-sm text-nova-text-muted hover:text-nova-rose transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
 										>
 											Cancel
-										</button>
+										</Button>
 									)}
 								</li>
 							))}
