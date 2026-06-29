@@ -22,7 +22,7 @@
 // deploy this migration, run the backfill to completion, THEN deploy the
 // read-switch revision. Two later steps complete the contract, each its own deploy:
 //
-//   - Backfill: `scripts/backfill-cases-project-id.ts --apply` stamps every
+//   - Backfill: a one-time pass stamps every
 //     existing row's `project_id` from its app's `project_id` (cases.app_id →
 //     Firestore app.project_id). Run BEFORE the read-switch revision serves — a
 //     row with a null `project_id` silently fails the `project_id = $bound` filter

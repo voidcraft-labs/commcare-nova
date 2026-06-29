@@ -623,8 +623,8 @@ export const mediaAssetDocSchema = z.object({
 	 * live: once a writer arrayUnions a single app onto an absent field, the field
 	 * becomes DEFINED-but-partial and the full-scan fallback no longer fires, so a
 	 * still-referenced asset whose other apps haven't re-saved could be wrongly
-	 * deletable in that window. Run the backfill as part of the deploy (see
-	 * `scripts/backfill-media-reference-index.ts`); the export media-validator is
+	 * deletable in that window. A one-time deploy backfill seeded the existing
+	 * rows; the export media-validator is
 	 * the backstop if a partial edge ever slips through. New rows are born `[]`
 	 * (see `createPendingAsset`), so post-backfill no live row is `undefined`.
 	 */
