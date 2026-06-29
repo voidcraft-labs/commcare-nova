@@ -11,11 +11,11 @@ import { getSession } from "@/lib/auth-utils";
  * A new instance is only marked ready — and only starts receiving
  * traffic — once this page has rendered successfully. Rendering it
  * forces the work a cold instance otherwise performs on its first
- * user-facing request: the `(app)` layout chain, the auth/Firestore
- * client initialization (via `getSession`), and the builder page's
- * server module graph (via the side-effect import above). With the
- * probe pointed here, deploys and autoscale-ups stop exposing that
- * cost to users.
+ * user-facing request: the `(app)` layout chain, the auth client and
+ * shared Cloud SQL pool initialization (via `getSession`), and the
+ * builder page's server module graph (via the side-effect import
+ * above). With the probe pointed here, deploys and autoscale-ups stop
+ * exposing that cost to users.
  *
  * Reachability: only the probe should hit this. The probe arrives with
  * the instance's own Host header, which classifies as unknown in
