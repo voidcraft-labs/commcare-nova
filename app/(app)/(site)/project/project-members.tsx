@@ -18,11 +18,17 @@
 "use client";
 
 import { Icon } from "@iconify/react/offline";
+import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerUsers from "@iconify-icons/tabler/users";
 import { useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/shadcn/popover";
 import {
 	Select,
 	SelectContent,
@@ -44,12 +50,25 @@ import { showToast } from "@/lib/ui/toastStore";
 const ASSIGNABLE_ROLES = ["viewer", "editor", "admin"] as const;
 type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
 
-/** `value → label` pairs the role pickers hand to `Select`'s `items` so the
- *  closed trigger shows the friendly role name rather than the raw slug. */
-const ROLE_ITEMS = ASSIGNABLE_ROLES.map((r) => ({
-	label: roleLabel(r),
-	value: r,
-}));
+/** Plain-language summary of what each role can do, shown in the header's
+ *  role-info popover so whoever assigns a role knows what they're granting.
+ *  Keyed by every role the UI shows. Kept faithful to `lib/auth/projectRoles`:
+ *  viewer = app:view, editor = app:view+edit, admin adds member management,
+ *  owner adds Project-level control; the owner is never removable/re-rolable
+ *  here (the roster gates every action behind `!isOwner`). */
+const ROLE_DESCRIPTIONS: Record<
+	"viewer" | "editor" | "admin" | "owner",
+	string
+> = {
+	viewer:
+		"Can open and preview this Project's apps and case data — but can't change anything.",
+	editor:
+		"Can build and edit the Project's apps and case data. Can't invite people or change roles.",
+	admin:
+		"Everything an editor can do, plus managing people — invite members, change their roles, and remove them. Can't remove or change the owner.",
+	owner:
+		"Whoever created the Project. Full control, and the one member who can't be removed or have their role changed.",
+};
 
 interface ProjectMembersProps {
 	projectId: string;
@@ -76,6 +95,23 @@ export function ProjectMembers({
 	const [inviteEmail, setInviteEmail] = useState("");
 	const [inviteRole, setInviteRole] = useState<AssignableRole>("editor");
 	const [busy, setBusy] = useState(false);
+
+	/* A personal Project can't have admins — a guest administering the space
+	 * that's meant to be yours alone makes no sense — so its pickers offer
+	 * viewer/editor only. A shared Project offers all three assignable roles. */
+	const assignableRoles = personal
+		? ASSIGNABLE_ROLES.filter((r) => r !== "admin")
+		: ASSIGNABLE_ROLES;
+	const roleItems = assignableRoles.map((r) => ({
+		label: roleLabel(r),
+		value: r,
+	}));
+	/* Roles to explain in the header popover: the ones assignable here plus
+	 * owner (always present in the roster, never assignable from this surface). */
+	const legendRoles: (keyof typeof ROLE_DESCRIPTIONS)[] = [
+		...assignableRoles,
+		"owner",
+	];
 
 	async function invite() {
 		const email = inviteEmail.trim().toLowerCase();
@@ -170,7 +206,7 @@ export function ProjectMembers({
 						className="text-nova-violet-bright"
 					/>
 				</div>
-				<div className="min-w-0">
+				<div className="min-w-0 flex-1">
 					<h2 className="text-base font-display font-semibold text-nova-text">
 						Members
 					</h2>
@@ -180,6 +216,29 @@ export function ProjectMembers({
 							: "Members share this Project's apps and case data; roles control what each can do."}
 					</p>
 				</div>
+				<Popover>
+					<PopoverTrigger
+						aria-label="What the roles mean"
+						className="shrink-0 inline-flex items-center justify-center rounded-md p-1 text-nova-text-muted transition-colors cursor-pointer hover:text-nova-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nova-violet"
+					>
+						<Icon icon={tablerInfoCircle} width="16" height="16" />
+					</PopoverTrigger>
+					<PopoverContent className="w-80">
+						<p className="text-xs font-medium uppercase tracking-wide text-nova-text-muted">
+							What each role can do
+						</p>
+						{legendRoles.map((r) => (
+							<div key={r}>
+								<p className="text-sm font-medium text-nova-text">
+									{roleLabel(r)}
+								</p>
+								<p className="text-xs text-nova-text-muted leading-relaxed">
+									{ROLE_DESCRIPTIONS[r]}
+								</p>
+							</div>
+						))}
+					</PopoverContent>
+				</Popover>
 			</div>
 
 			<div className="p-6">
@@ -199,7 +258,7 @@ export function ProjectMembers({
 							className="min-w-[220px] flex-1"
 						/>
 						<Select
-							items={ROLE_ITEMS}
+							items={roleItems}
 							value={inviteRole}
 							onValueChange={(next) => setInviteRole(next as AssignableRole)}
 						>
@@ -207,7 +266,7 @@ export function ProjectMembers({
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{ASSIGNABLE_ROLES.map((r) => (
+								{assignableRoles.map((r) => (
 									<SelectItem key={r} value={r}>
 										{roleLabel(r)}
 									</SelectItem>
@@ -247,7 +306,7 @@ export function ProjectMembers({
 								</div>
 								{canEditThis ? (
 									<Select
-										items={ROLE_ITEMS}
+										items={roleItems}
 										value={normalizeRole(m.role)}
 										disabled={busy}
 										onValueChange={(next) =>
@@ -258,7 +317,7 @@ export function ProjectMembers({
 											<SelectValue />
 										</SelectTrigger>
 										<SelectContent>
-											{ASSIGNABLE_ROLES.map((r) => (
+											{assignableRoles.map((r) => (
 												<SelectItem key={r} value={r}>
 													{roleLabel(r)}
 												</SelectItem>

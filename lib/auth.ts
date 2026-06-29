@@ -47,6 +47,9 @@ import { log } from "./logger";
 import {
 	INVITE_ALLOWED_DOMAINS,
 	isInvitableEmail,
+	isPersonalProjectMetadata,
+	isRoleAllowedOnPersonalProject,
+	PERSONAL_PROJECT_ROLE_ERROR,
 } from "./projects/invitePolicy";
 
 /**
@@ -770,10 +773,36 @@ async function createAuth() {
 					 * allowlist (a non-allowlisted invitee could never accept, but
 					 * rejecting up front keeps the members UI + audit honest).
 					 * Throwing an `APIError` aborts the create with a 400. */
-					beforeCreateInvitation: async ({ invitation }) => {
+					beforeCreateInvitation: async ({ invitation, organization }) => {
 						if (!isInvitableEmail(invitation.email)) {
 							throw new APIError("BAD_REQUEST", {
 								message: `Invitations are limited to ${INVITE_ALLOWED_DOMAINS.join(" and ")} email addresses.`,
+							});
+						}
+						/* A personal Project caps invites at viewer/editor — admin/owner
+						 * make no sense for someone's solo space. The members UI hides
+						 * them; this is the wire-level enforcement (a crafted request
+						 * can't escalate). `organization.metadata` carries the personal
+						 * flag (set by `ensurePersonalProject`). */
+						if (
+							isPersonalProjectMetadata(organization.metadata) &&
+							!isRoleAllowedOnPersonalProject(invitation.role)
+						) {
+							throw new APIError("BAD_REQUEST", {
+								message: PERSONAL_PROJECT_ROLE_ERROR,
+							});
+						}
+					},
+					/* The role-change twin of the invite cap: a personal Project's
+					 * members can't be promoted to admin/owner either, so an
+					 * invite-as-editor-then-promote path can't escape the cap. */
+					beforeUpdateMemberRole: async ({ newRole, organization }) => {
+						if (
+							isPersonalProjectMetadata(organization.metadata) &&
+							!isRoleAllowedOnPersonalProject(newRole)
+						) {
+							throw new APIError("BAD_REQUEST", {
+								message: PERSONAL_PROJECT_ROLE_ERROR,
 							});
 						}
 					},
