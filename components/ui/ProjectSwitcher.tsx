@@ -172,13 +172,8 @@ export function ProjectSwitcher({
 											onClick={() => switchTo(p.id)}
 											className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
 										>
-											<span className="flex-1 text-left truncate">
-												<span className="font-medium">{p.name}</span>
-												{p.personal && (
-													<span className="ml-1.5 text-xs text-nova-text-muted">
-														Personal
-													</span>
-												)}
+											<span className="flex-1 text-left truncate font-medium">
+												{p.name}
 											</span>
 											{isActive && (
 												<Icon
