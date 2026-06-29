@@ -64,7 +64,6 @@ export function authMigrateOptions(database: Pool): BetterAuthOptions {
 			organization({
 				teams: { enabled: false },
 				schema: ORGANIZATION_SCHEMA,
-				sendInvitationEmail: async () => {},
 			}),
 		],
 	} satisfies BetterAuthOptions;

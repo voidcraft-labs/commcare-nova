@@ -160,8 +160,8 @@ export async function listPendingInvitations(
 
 /**
  * Pending, unexpired invitations addressed to `email`, each with its Project
- * name — the accept-invitation surface. Because no invitation email is sent
- * (the org plugin's `sendInvitationEmail` only logs), this in-app list is how
+ * name — the accept-invitation surface. No invitation email is sent, so this
+ * in-app list is how
  * an invitee discovers a pending invite. Expired rows are filtered out — they
  * can't be accepted, so showing them is a dead end.
  */

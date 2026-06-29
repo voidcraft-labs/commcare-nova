@@ -29,8 +29,8 @@ export default async function AcceptInvitationPage() {
 		<main className="max-w-2xl mx-auto px-6 py-12">
 			<h1 className="text-2xl font-display font-semibold mb-2">Invitations</h1>
 			<p className="mb-8 text-sm text-nova-text-muted">
-				Project invitations sent to {session.user.email}. Accepting joins you to
-				the Project's shared apps and case data.
+				Project invitations addressed to {session.user.email}. Accepting joins
+				you to the Project's shared apps and case data.
 			</p>
 			<IncomingInvitations invitations={invitations} />
 		</main>

@@ -126,7 +126,7 @@ export function ProjectMembers({
 		if (error) {
 			showToast(
 				"error",
-				"Couldn't send invitation",
+				"Couldn't create the invitation",
 				error.message ?? "Check the address and try again.",
 			);
 			return;
@@ -134,8 +134,8 @@ export function ProjectMembers({
 		setInviteEmail("");
 		showToast(
 			"info",
-			"Invitation sent",
-			`${email} can now join ${projectName}.`,
+			"Invitation created",
+			`${email} will see the ${projectName} invitation on their home page after they sign in.`,
 		);
 		navigate.refresh();
 	}

@@ -755,8 +755,9 @@ async function createAuth() {
 			 * `auth_invitation` and add `auth_session.activeOrganizationId` — keep
 			 * the two plugin registrations in sync.
 			 *
-			 * `sendInvitationEmail` logs the invitation metadata; no email
-			 * transport is wired (invitations are not created from any UI).
+			 * No invitation email is sent — invites are discovered in-app (the
+			 * home-page banner + the Invitations page); `afterCreateInvitation`
+			 * only records an audit line.
 			 */
 			organization({
 				ac,
@@ -806,12 +807,15 @@ async function createAuth() {
 							});
 						}
 					},
-				},
-				sendInvitationEmail: async (data) => {
-					log.info("[auth] organization invitation created", {
-						organizationId: data.organization.id,
-						email: data.email,
-					});
+					/* No invitation email is sent — invites are discovered in-app (the
+					 * home-page banner + the Invitations page). This hook only records
+					 * an audit line as each invite is created. */
+					afterCreateInvitation: async ({ invitation, organization }) => {
+						log.info("[auth] organization invitation created", {
+							organizationId: organization.id,
+							email: invitation.email,
+						});
+					},
 				},
 			}),
 			novaMcpPlugin(),

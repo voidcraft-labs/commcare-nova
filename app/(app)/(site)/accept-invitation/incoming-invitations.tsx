@@ -1,8 +1,7 @@
 /**
  * Incoming invitations — the surface where a signed-in user accepts or
- * declines the Project invitations addressed to them. Because no invitation
- * email is sent (the org plugin's `sendInvitationEmail` only logs), this list
- * is how an invitee discovers a pending invite.
+ * declines the Project invitations addressed to them. No invitation email is
+ * sent, so this list is how an invitee discovers a pending invite.
  *
  * Accept/decline go through Better Auth's organization client; on accept we set
  * the joined Project active and route to the app list (the user lands in the
