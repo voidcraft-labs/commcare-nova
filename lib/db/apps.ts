@@ -668,7 +668,8 @@ export async function updateAppGuardedMutating(
 export type CommitMoveResult =
 	| { kind: "moved" }
 	| { kind: "already_moved" }
-	| { kind: "media_stale"; missing: string[] };
+	| { kind: "media_stale"; missing: string[] }
+	| { kind: "busy" };
 
 /**
  * The single write that changes an app's `project_id` — the commit point of a
@@ -724,6 +725,13 @@ export async function commitAppProjectMove(
 			throw new Error(
 				`[commitAppProjectMove] source Project changed for appId=${appId} (expected ${args.expectedFromProjectId}, found ${fresh.project_id ?? "null"})`,
 			);
+		}
+		// A build that started after the caller's authz read would, on its next
+		// blueprint save, blind-overwrite the repoint we're about to write while
+		// leaving project_id flipped — breaking the moved app's media. Re-check
+		// status against the FRESH doc so the bar is atomic with the flip.
+		if (fresh.status === "generating") {
+			return { outcome: { kind: "busy" }, committed: null };
 		}
 		const missing = collectRealAssetRefs(asWalkableDoc(fresh.blueprint)).filter(
 			(id) => !args.attemptedRealIds.has(id),

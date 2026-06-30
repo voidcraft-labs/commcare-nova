@@ -10,6 +10,7 @@
 import { cache } from "react";
 import { getAuthDb } from "@/lib/auth/db";
 import { roleIsOwner } from "@/lib/auth/projectRoles";
+import { isPersonalProjectMetadata } from "./invitePolicy";
 
 /** One Project the user belongs to — drives the header switcher. */
 export interface ProjectSummary {
@@ -48,16 +49,6 @@ export interface IncomingInvitationRow {
 	organizationName: string;
 	role: string | null;
 	expiresAt: Date;
-}
-
-/** Whether a Project's stored metadata marks it the user's personal Project. */
-function isPersonalMetadata(metadata: string | null): boolean {
-	if (!metadata) return false;
-	try {
-		return (JSON.parse(metadata) as { personal?: unknown })?.personal === true;
-	} catch {
-		return false;
-	}
 }
 
 /**
@@ -111,7 +102,7 @@ export const listUserProjects = cache(async function listUserProjects(
 			name: r.name,
 			slug: r.slug,
 			role: r.role,
-			personal: isPersonalMetadata(r.metadata),
+			personal: isPersonalProjectMetadata(r.metadata),
 		}))
 		.sort((a, b) => {
 			// Personal Project leads; the rest alphabetical.

@@ -33,7 +33,9 @@ import { ConnectBadge } from "./ConnectBadge";
  * typing lets a wider success shape flow in transparently.
  */
 type DeleteResult = { success: true } | { success: false; error: string };
-type MoveResult = { success: true } | { success: false; error: string };
+type MoveResult =
+	| { success: true; warning?: string }
+	| { success: false; error: string };
 
 interface AppCardProps {
 	app: Pick<
@@ -158,14 +160,23 @@ export function AppCard({
 				setCardState({ type: "error", message: result.error });
 				return;
 			}
-			/* On success `moveApp`'s `revalidatePath("/")` re-renders the home
-			 * RSC; the app leaves this Project's list and the card unmounts —
-			 * the toast (pushed to a global store) survives that unmount. */
-			showToast(
-				"info",
-				"App moved",
-				`"${app.app_name || "Untitled"}" is now in ${target.name}.`,
-			);
+			/* On success `moveApp`'s `revalidatePath("/")` re-renders the home RSC;
+			 * the app leaves this Project's list and this card unmounts. So both the
+			 * confirmation AND any non-fatal warning (e.g. case-data sync failed) go
+			 * through the global toast store, which survives the unmount — never
+			 * inline card state, which would be discarded with the card. A warning is
+			 * persistent so the user can act on it after the card is gone. */
+			if (result.warning) {
+				showToast("warning", "App moved", result.warning, {
+					persistent: true,
+				});
+			} else {
+				showToast(
+					"info",
+					"App moved",
+					`"${app.app_name || "Untitled"}" is now in ${target.name}.`,
+				);
+			}
 		} catch {
 			setCardState({
 				type: "error",

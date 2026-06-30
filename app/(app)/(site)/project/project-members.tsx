@@ -37,6 +37,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { roleIsOwner } from "@/lib/auth/projectRoles";
 import { authClient } from "@/lib/auth-client";
 import { INVITE_ALLOWED_DOMAINS } from "@/lib/projects/invitePolicy";
 import type {
@@ -244,7 +245,7 @@ export function ProjectMembers({
 					<ul className="divide-y divide-nova-border">
 						{members.map((m) => {
 							const isSelf = m.userId === currentUserId;
-							const isOwner = m.role.includes("owner");
+							const isOwner = roleIsOwner(m.role);
 							const removable = canManage && !isOwner && !isSelf;
 							return (
 								<li key={m.memberId} className="flex items-center gap-3 py-3">
@@ -413,7 +414,7 @@ export function ProjectMembers({
 				<ul className="divide-y divide-nova-border">
 					{members.map((m) => {
 						const isSelf = m.userId === currentUserId;
-						const isOwner = m.role.includes("owner");
+						const isOwner = roleIsOwner(m.role);
 						const canEditThis = canManage && !isOwner && !isSelf;
 						return (
 							<li key={m.memberId} className="flex items-center gap-3 py-3">

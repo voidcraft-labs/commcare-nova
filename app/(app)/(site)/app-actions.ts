@@ -46,9 +46,12 @@ export type RestoreAppResult =
 	| { success: true }
 	| { success: false; error: string };
 
-/** Result of `moveApp`. */
+/** Result of `moveApp`. `warning` rides a SUCCESS (the app moved) when something
+ *  non-fatal needs surfacing — e.g. the case-data sync failed after the flip. The
+ *  card shows it as a persistent toast (which survives the post-move unmount),
+ *  never inline card state (which the revalidate-driven unmount would discard). */
 export type MoveAppResult =
-	| { success: true }
+	| { success: true; warning?: string }
 	| { success: false; error: string };
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -254,14 +257,15 @@ export async function moveApp(
 			};
 		}
 		if (err instanceof CaseDataStrandedError) {
-			// The app moved; only the case-data sync failed (already logged by the
-			// orchestrator). Revalidate so the list reflects the move, and tell the
-			// user the truth — the data is recoverable by moving the app again.
+			// The app DID move; only the case-data sync failed (already logged by the
+			// orchestrator). Report it as a success+warning so the list revalidates
+			// AND the message reaches the user via a persistent toast — returning a
+			// failure here would lose the message when revalidate unmounts the card.
 			revalidatePath("/");
 			return {
-				success: false,
-				error:
-					"The app was moved, but syncing its case data to the new Project failed. Its data is safe — move the app again to finish syncing, or contact support.",
+				success: true,
+				warning:
+					"The app moved, but syncing its case data to the new Project failed. Its data is safe — move the app again to finish syncing, or contact support.",
 			};
 		}
 		log.error("[home/move-app] error", err);

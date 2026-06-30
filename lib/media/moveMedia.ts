@@ -27,6 +27,7 @@ import {
 	isMediaKind,
 	type MediaKind,
 } from "@/lib/domain/multimedia";
+import { log } from "@/lib/logger";
 import { copyAssetObject } from "@/lib/storage/media";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { partitionAssetRefs } from "./builtinIconAssets";
@@ -69,38 +70,55 @@ export async function copyAssetsIntoProject(args: {
 	const entries = await mapWithConcurrency(
 		rows,
 		MEDIA_COPY_CONCURRENCY,
-		async (row): Promise<[string, string]> => {
-			// Dedup: an identical-bytes asset already in the destination (a prior
-			// move, or another app uploaded the same file there) is reused — no copy.
-			const existing = await findReadyAssetByProjectAndHash(
-				args.toProjectId,
-				row.contentHash,
-			);
-			if (existing) return [row.id, existing.id];
+		async (row): Promise<[string, string] | null> => {
+			try {
+				// Dedup: an identical-bytes asset already in the destination (a prior
+				// move, or another app uploaded the file there) is reused — no copy.
+				const existing = await findReadyAssetByProjectAndHash(
+					args.toProjectId,
+					row.contentHash,
+				);
+				if (existing) return [row.id, existing.id];
 
-			const destKey = gcsObjectKeyFor(
-				args.toProjectId,
-				row.contentHash,
-				row.extension,
-			);
-			await copyAssetObject(row.gcsObjectKey, destKey);
-			const { assetId } = await createReadyAsset({
-				owner: args.actorUserId,
-				project_id: args.toProjectId,
-				contentHash: row.contentHash,
-				mimeType: row.mimeType,
-				kind: row.kind,
-				extension: row.extension,
-				sizeBytes: row.sizeBytes,
-				gcsObjectKey: destKey,
-				originalFilename: row.originalFilename,
-				displayName: row.displayName,
-				dimensions: row.dimensions,
-				durationMs: row.durationMs,
-			});
-			return [row.id, assetId];
+				const destKey = gcsObjectKeyFor(
+					args.toProjectId,
+					row.contentHash,
+					row.extension,
+				);
+				await copyAssetObject(row.gcsObjectKey, destKey);
+				const { assetId } = await createReadyAsset({
+					owner: args.actorUserId,
+					project_id: args.toProjectId,
+					contentHash: row.contentHash,
+					mimeType: row.mimeType,
+					kind: row.kind,
+					extension: row.extension,
+					sizeBytes: row.sizeBytes,
+					gcsObjectKey: destKey,
+					originalFilename: row.originalFilename,
+					displayName: row.displayName,
+					dimensions: row.dimensions,
+					durationMs: row.durationMs,
+				});
+				return [row.id, assetId];
+			} catch (err) {
+				// One asset's bytes are missing/inaccessible (out-of-band deletion, a
+				// non-transient GCS error). Don't abort the whole move — skip it. The
+				// ref stays unrepointed and resolves to MEDIA_ASSET_NOT_FOUND in the
+				// destination, the same broken state it was already in at the source.
+				log.error(
+					"[copyAssetsIntoProject] failed to copy asset; skipping",
+					err,
+					{
+						assetId: row.id,
+						fromProjectId: args.fromProjectId,
+						toProjectId: args.toProjectId,
+					},
+				);
+				return null;
+			}
 		},
 	);
 
-	return new Map(entries);
+	return new Map(entries.filter((e): e is [string, string] => e !== null));
 }

@@ -164,6 +164,10 @@ export async function moveAppToProject(args: {
 				flipped = true;
 				break;
 			}
+			if (result.kind === "busy") {
+				// A build started between the caller's authz read and the commit.
+				throw new AppBusyError();
+			}
 
 			// `media_stale`: a concurrent edit added a ref after this pass's copy.
 			// Loop to re-copy it (now in `attemptedRealIds`) and re-commit. Nothing
