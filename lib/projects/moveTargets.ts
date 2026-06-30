@@ -17,26 +17,37 @@ export interface MoveTarget {
 /**
  * Whether a member holding `role` may move apps OUT of that Project. Moving an
  * app removes it from the Project for everyone in it (and relocates its case
- * data), so it is reserved to the OWNER — mirroring the owner being the one
- * member an admin can't remove, an admin must not be able to strip the owner from
- * an app by relocating it. You always own your personal Project, so your own apps
- * move freely; the server `moveApp` action enforces the same bar.
+ * data) — a governance act on the Project's contents — so it needs the `delete`
+ * capability (admin/owner), the same bar `deleteApp` uses.
  */
 export function canMoveAppsFrom(role: string): boolean {
-	return roleIsOwner(role);
+	return roleAllowsApp(role, "delete");
 }
 
 /**
- * The Projects an app may be moved INTO: every Project the user can create apps
- * in (editor or higher — the capability a new app requires), except the one the
- * app already lives in. The user's personal Project IS eligible (they're its
- * owner), which doubles as the path to take a shared app private again.
+ * The Projects an app may be moved INTO. Receiving an app injects it (and its
+ * case data + media) into the Project's shared space, exposing it to every member
+ * and handing governance to the Project's owner — the mirror of moving one out —
+ * so the destination bar is also admin/owner (`delete`), not merely editor.
+ *
+ * A PERSONAL Project is offered as a destination only when the caller owns the
+ * SOURCE (`sourceRole`): you can take your OWN app private, but an admin can't
+ * pocket someone else's app into their solo space and strip the owner. (You're
+ * always owner of your personal Project, so the destination bar alone wouldn't
+ * stop that — this guard does.)
  */
 export function eligibleMoveTargets(
 	projects: readonly ProjectSummary[],
 	activeProjectId: string,
+	sourceRole: string,
 ): MoveTarget[] {
+	const sourceIsOwner = roleIsOwner(sourceRole);
 	return projects
-		.filter((p) => p.id !== activeProjectId && roleAllowsApp(p.role, "edit"))
+		.filter(
+			(p) =>
+				p.id !== activeProjectId &&
+				roleAllowsApp(p.role, "delete") &&
+				(!p.personal || sourceIsOwner),
+		)
 		.map((p) => ({ id: p.id, name: p.name }));
 }

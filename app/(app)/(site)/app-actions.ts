@@ -27,6 +27,7 @@ import {
 import { restoreApp as restoreAppDoc, softDeleteApp } from "@/lib/db/apps";
 import { AppBusyError, moveAppToProject } from "@/lib/db/moveAppToProject";
 import { log } from "@/lib/logger";
+import { projectIsPersonal } from "@/lib/projects/membership";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -148,20 +149,23 @@ export async function restoreApp(appId: string): Promise<RestoreAppResult> {
 }
 
 /**
- * Move an app into another Project the caller can build in. Moving removes the
- * app from its current Project for everyone there (and relocates its case data),
- * so the SOURCE bar is OWNER of the current Project — an admin manages members
- * but, mirroring its inability to remove the owner, must not be able to strip the
- * owner from an app by relocating it (e.g. into the admin's own personal Project).
- * The DESTINATION bar is `edit` (editor+, what creating an app requires). The
- * orchestrator re-tenants the app's case data + media to match
- * (`moveAppToProject`).
+ * Move an app into another Project the caller helps run. Moving an app is a
+ * governance act on BOTH Projects — it removes the app (and its case data) from
+ * the source for everyone there, and injects it into the destination's shared
+ * space — so both bars are admin/owner (`delete`): admin/owner of the source to
+ * release it, admin/owner of the destination to accept it. The orchestrator
+ * re-tenants the app's case data + media to match (`moveAppToProject`).
+ *
+ * One extra guard closes the "pocket someone else's app" hole: moving an app into
+ * a PERSONAL Project requires OWNING the source. You're always owner of your own
+ * personal Project, so the destination bar alone wouldn't stop an admin from
+ * relocating a shared app into their solo space and cutting off the owner — this
+ * does.
  *
  * Every authorization denial collapses to a not-found-shaped message — the source
- * to the same `App not found` as a missing row (a non-owner member who can see the
- * app reads the same as a stranger), the destination to one generic line that
- * neither confirms nor denies an arbitrary `toProjectId` exists — so a crafted
- * request can't probe either side.
+ * to the same `App not found` as a missing row, the destination to one generic
+ * line that neither confirms nor denies an arbitrary `toProjectId` exists — so a
+ * crafted request can't probe either side.
  */
 export async function moveApp(
 	appId: string,
@@ -184,29 +188,25 @@ export async function moveApp(
 			return { success: false, error: "Missing app or Project identifier." };
 		}
 
-		// Source: OWNER of the app's current Project. Load at `view` (membership),
-		// then narrow to owner — a member who isn't the owner collapses to the same
-		// `App not found` as a stranger, so the rule can't be probed.
+		// Source: admin/owner of the app's current Project.
 		let access: Awaited<ReturnType<typeof resolveAppAccess>>;
 		try {
-			access = await resolveAppAccess(appId, session.user.id, "view");
+			access = await resolveAppAccess(appId, session.user.id, "delete");
 		} catch (err) {
 			if (err instanceof AppAccessError) {
 				return { success: false, error: "App not found." };
 			}
 			throw err;
 		}
-		if (!roleIsOwner(access.role)) {
-			return { success: false, error: "App not found." };
-		}
 
 		if (access.projectId === toProjectId) {
 			return { success: false, error: "This app is already in that Project." };
 		}
 
-		// Destination: editor or higher (the capability creating an app requires).
+		// Destination: admin/owner of the destination (the mirror of releasing it
+		// from the source — accepting an app injects its data into the Project).
 		try {
-			await resolveProjectAccess(session.user.id, toProjectId, "edit");
+			await resolveProjectAccess(session.user.id, toProjectId, "delete");
 		} catch (err) {
 			if (err instanceof AppAccessError) {
 				return {
@@ -215,6 +215,16 @@ export async function moveApp(
 				};
 			}
 			throw err;
+		}
+
+		// Taking an app into a personal Project is owner-only on the source — you're
+		// always owner of your own personal Project, so without this an admin could
+		// pocket a shared app into their solo space and cut off the owner.
+		if ((await projectIsPersonal(toProjectId)) && !roleIsOwner(access.role)) {
+			return {
+				success: false,
+				error: "Couldn't move the app to that Project.",
+			};
 		}
 
 		await moveAppToProject({

@@ -48,14 +48,15 @@ export async function AppList({ projectId, userId, isAdmin }: AppListProps) {
 		listUserProjects(userId),
 	]);
 
-	/* Destinations an app may move into — offered only when the user is the OWNER
-	 * of the active Project (the bar to move an app out of it; an admin manages
-	 * members but can't relocate an app). Empty otherwise, so the cards render no
+	/* Destinations an app may move into — offered only when the user is admin or
+	 * owner of the active Project (the bar to move an app out of it). The active
+	 * role also gates personal-Project destinations: you can take your own app
+	 * private only if you own the source. Empty otherwise, so the cards render no
 	 * move affordance. */
 	const active = projects.find((p) => p.id === projectId);
 	const moveTargets =
 		active && canMoveAppsFrom(active.role)
-			? eligibleMoveTargets(projects, projectId)
+			? eligibleMoveTargets(projects, projectId, active.role)
 			: [];
 
 	return (

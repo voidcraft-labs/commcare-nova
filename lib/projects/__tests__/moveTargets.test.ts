@@ -20,54 +20,62 @@ function proj(
 }
 
 describe("canMoveAppsFrom", () => {
-	it("allows only the owner — moving an app out is owner-reserved", () => {
+	it("allows admin and owner — moving an app out is a governance act", () => {
 		expect(canMoveAppsFrom("owner")).toBe(true);
+		expect(canMoveAppsFrom("admin")).toBe(true);
 	});
 
-	it("denies viewer, editor, and admin", () => {
+	it("denies viewer and editor", () => {
 		expect(canMoveAppsFrom("viewer")).toBe(false);
 		expect(canMoveAppsFrom("editor")).toBe(false);
-		// An admin manages members but can't relocate (and thus strip the owner
-		// from) a shared app.
-		expect(canMoveAppsFrom("admin")).toBe(false);
 	});
 
 	it("handles a comma-joined role string", () => {
-		expect(canMoveAppsFrom("admin,owner")).toBe(true);
+		expect(canMoveAppsFrom("editor,admin")).toBe(true);
 	});
 });
 
 describe("eligibleMoveTargets", () => {
 	const projects: ProjectSummary[] = [
 		proj("active", "owner"),
-		proj("shared-edit", "editor"),
 		proj("shared-admin", "admin"),
+		proj("shared-edit", "editor"),
 		proj("shared-view", "viewer"),
 		proj("personal", "owner", { personal: true }),
 	];
 
-	it("includes every Project the user can build in (editor+), minus the active one", () => {
-		const ids = eligibleMoveTargets(projects, "active")
+	it("offers only Projects the user is admin/owner of, minus the active one", () => {
+		const ids = eligibleMoveTargets(projects, "active", "owner")
 			.map((t) => t.id)
 			.sort();
-		expect(ids).toEqual(["personal", "shared-admin", "shared-edit"]);
+		expect(ids).toEqual(["personal", "shared-admin"]);
 	});
 
-	it("excludes viewer-only Projects and the active Project", () => {
-		const ids = eligibleMoveTargets(projects, "active").map((t) => t.id);
+	it("excludes editor-only and viewer-only Projects (admin/owner destination bar)", () => {
+		const ids = eligibleMoveTargets(projects, "active", "owner").map(
+			(t) => t.id,
+		);
+		expect(ids).not.toContain("shared-edit");
 		expect(ids).not.toContain("shared-view");
 		expect(ids).not.toContain("active");
 	});
 
-	it("includes the personal Project as a destination (the un-share path)", () => {
-		const ids = eligibleMoveTargets(projects, "shared-admin").map((t) => t.id);
-		expect(ids).toContain("personal");
+	it("offers a personal-Project destination only when the source is owned", () => {
+		// Source owned → may take the app private.
+		expect(
+			eligibleMoveTargets(projects, "active", "owner").map((t) => t.id),
+		).toContain("personal");
+		// Source merely admin → no pocketing into a personal Project.
+		expect(
+			eligibleMoveTargets(projects, "active", "admin").map((t) => t.id),
+		).not.toContain("personal");
 	});
 
 	it("projects each target down to { id, name }", () => {
 		const targets = eligibleMoveTargets(
-			[proj("x", "editor", { name: "Team X" })],
+			[proj("x", "admin", { name: "Team X" })],
 			"active",
+			"owner",
 		);
 		expect(targets).toEqual([{ id: "x", name: "Team X" }]);
 	});
@@ -75,8 +83,9 @@ describe("eligibleMoveTargets", () => {
 	it("is empty when no Project qualifies", () => {
 		expect(
 			eligibleMoveTargets(
-				[proj("active", "owner"), proj("v", "viewer")],
+				[proj("active", "owner"), proj("e", "editor")],
 				"active",
+				"owner",
 			),
 		).toEqual([]);
 	});

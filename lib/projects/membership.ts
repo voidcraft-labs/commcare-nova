@@ -60,6 +60,22 @@ function isPersonalMetadata(metadata: string | null): boolean {
 }
 
 /**
+ * Whether `projectId` is a personal (auto-provisioned, solo) Project. The
+ * authoritative server-side check the move action uses to gate moving an app into
+ * a personal Project (allowed only when the caller owns the source). A missing
+ * row reads as not-personal.
+ */
+export async function projectIsPersonal(projectId: string): Promise<boolean> {
+	const db = await getAuthDb();
+	const row = await db
+		.selectFrom("auth_organization")
+		.select("metadata")
+		.where("id", "=", projectId)
+		.executeTakeFirst();
+	return isPersonalMetadata(row?.metadata ?? null);
+}
+
+/**
  * Every Project the user is a member of, with the user's role and display name —
  * the full set the header switcher offers. Personal Project(s) sort first, then
  * by name, so the default scope leads. One indexed join on the

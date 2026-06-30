@@ -12,6 +12,7 @@ import { mediaSrc } from "@/components/builder/media/mediaClient";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
+	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuTrigger,
@@ -309,19 +310,21 @@ export function AppCard({
 									<Icon icon={tablerFolderSymlink} width="18" height="18" />
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end">
-									<DropdownMenuLabel>Move to Project</DropdownMenuLabel>
-									{moveTargets?.map((target) => (
-										<DropdownMenuItem
-											key={target.id}
-											onClick={(e) => {
-												e.preventDefault();
-												e.stopPropagation();
-												void handleMove(target);
-											}}
-										>
-											{target.name}
-										</DropdownMenuItem>
-									))}
+									<DropdownMenuGroup>
+										<DropdownMenuLabel>Move to Project</DropdownMenuLabel>
+										{moveTargets?.map((target) => (
+											<DropdownMenuItem
+												key={target.id}
+												onClick={(e) => {
+													e.preventDefault();
+													e.stopPropagation();
+													void handleMove(target);
+												}}
+											>
+												{target.name}
+											</DropdownMenuItem>
+										))}
+									</DropdownMenuGroup>
 								</DropdownMenuContent>
 							</DropdownMenu>
 						)}
