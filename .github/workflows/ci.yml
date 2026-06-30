@@ -179,11 +179,17 @@ jobs:
           retention-days: 7
 
   auth-healthz:
-    # The faithful gate for the auth-dependency outages (#143 undici, #145
-    # node-fetch): a REAL firebase-admin → REAL Firestore round-trip over the
-    # real outbound HTTP stack, on the prod-pinned Node. The emulator-backed
-    # smoke can't catch this class because the emulator replaces that exact
-    # network layer. See scripts/ci/auth-healthz.ts.
+    # Kept under its existing required-check name ("Auth Firestore healthz") so the
+    # branch ruleset needs no change — it now runs TWO probes over the real
+    # outbound HTTP stack on the prod-pinned Node (the emulator-backed smoke can't
+    # catch this class). Either probe failing reds this required gate:
+    #   1. Auth credential path — login runs through the Cloud SQL connector,
+    #      which mints its cert + IAM token via google-auth-library → gaxios →
+    #      node-fetch (the #143/#145 outage class). scripts/ci/auth-healthz.ts
+    #      exercises that stack directly (a WIF token mint, no database).
+    #   2. Firestore app-data path — apps / threads / runs / credits / usage /
+    #      media stay on Firestore; scripts/ci/firestore-healthz.ts does a real
+    #      firebase-admin → Firestore round-trip.
     name: Auth Firestore healthz
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -210,10 +216,17 @@ jobs:
           project_id: ${{ vars.CI_GCP_PROJECT }}
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
-      # Mint WIF creds + run the real Firestore round-trip. A regression in the
-      # outbound stack (undici / gaxios / node-fetch) throws here and reds the PR.
-      - name: Auth → Firestore round-trip on the prod Node
+      # Auth credential path: mint a token over the prod outbound stack. A
+      # regression there (undici / gaxios / node-fetch keep-alive) throws or hangs
+      # here and reds the PR.
+      - name: Auth credential — token mint over the prod outbound stack
         run: npx tsx scripts/ci/auth-healthz.ts
+      # Firestore app-data path: a real firebase-admin → Firestore round-trip.
+      # `!cancelled()` so it still runs (and reports) even when the auth probe
+      # above fails — both outbound paths get a verdict, not just the first to break.
+      - name: Firestore app-data round-trip on the prod Node
+        if: ${{ !cancelled() }}
+        run: npx tsx scripts/ci/firestore-healthz.ts
         env:
           # Set explicitly rather than relying on google-github-actions/auth to
           # export it — the script requires GOOGLE_CLOUD_PROJECT.
@@ -221,10 +234,10 @@ jobs:
 
   auth-contract:
     # Gates the session-cookie contract (a forged cookie ⇄ the real
-    # better-auth / better-call / firestore-adapter session path) on every PR.
-    # The standalone test is emulator-gated, so without a job that boots the
-    # emulator it would never run. Credential-free — it uses the shared
-    # firestoreClientOptions (gRPC against the emulator, no ADC).
+    # better-auth / better-call session read path) on every PR. The test seeds +
+    # asserts against Better Auth's Kysely/Postgres adapter on a per-test
+    # testcontainer database (booted by the case-store vitest globalSetup) — no
+    # emulator, no ADC. See lib/db/__tests__/sessionCookie.integration.test.ts.
     name: Auth session-cookie contract
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -234,21 +247,6 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      # JVM for the Firestore emulator.
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
       - run: npm ci
-      # Distinct cache key from the smoke job's so the two don't race to reserve
-      # the same key on a cold run ("Unable to reserve cache …").
-      - name: Cache Firestore emulator
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/firebase/emulators
-          key: firebase-emulators-contract-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: firebase-emulators-contract-${{ runner.os }}-
-      - name: Session-cookie contract (emulator)
-        run: |
-          node_modules/.bin/firebase emulators:exec --only firestore --project demo-test \
-            'GOOGLE_CLOUD_PROJECT=demo-test node_modules/.bin/vitest run sessionCookie.integration.test.ts'
+      - name: Session-cookie contract (Postgres testcontainer)
+        run: node_modules/.bin/vitest run sessionCookie.integration.test.ts

@@ -85,7 +85,7 @@ test.describe("authenticated builder", () => {
 	test("GET /api/auth/get-session returns the seeded user", async ({
 		request,
 	}) => {
-		// Proves the forged cookie → Better Auth → firestore-adapter read path
+		// Proves the forged cookie → Better Auth → Kysely/Postgres adapter read path
 		// round-trips in the live app: if better-auth/better-call signing or the
 		// adapter's session lookup drifted, this returns null.
 		const res = await request.get("/api/auth/get-session");

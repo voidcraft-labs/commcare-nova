@@ -25,7 +25,6 @@
 import { getMigrations } from "better-auth/db/migration";
 import type { Kysely } from "kysely";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
-import { copyAuthDataFromFirestore } from "@/lib/auth/migrate-data";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import {
@@ -55,34 +54,6 @@ async function main(): Promise<void> {
 	// grant-revocation watermark). Own ledger; same shared handle.
 	await runAuthAppMigrations(db as unknown as Kysely<unknown>);
 	console.log("[migrate] auth-app migrations applied");
-
-	// One-shot, guarded copy of durable auth state Firestore → Postgres. No-op
-	// once auth_user has rows, so it runs only on the first deploy after the
-	// tables land; all-or-nothing (a failure rolls back and fails the Job, so a
-	// retry redeploy re-copies cleanly).
-	//
-	// Restricted to the prod connector path: `NOVA_DB_LOCAL_URL` is set ONLY by
-	// local dev / smoke / tests (prod uses the Cloud SQL connector), and those
-	// must never pull the real Firestore auth collections into a local or
-	// testcontainer Postgres. The empty-auth_user guard inside the copy is the
-	// second line.
-	if (process.env.NOVA_DB_LOCAL_URL) {
-		console.log("[migrate] auth data copy skipped (local DB — prod-only step)");
-	} else {
-		const copy = await copyAuthDataFromFirestore(pool);
-		if (copy.skipped) {
-			console.log(
-				"[migrate] auth data copy skipped (auth_user already populated)",
-			);
-		} else {
-			console.log(
-				"[migrate] auth data copied:",
-				copy.perTable
-					.map((t) => `${t.table}=${t.inserted}/${t.read}`)
-					.join(" "),
-			);
-		}
-	}
 }
 
 /** Cap on best-effort teardown; the OS reclaims the socket on exit anyway. */
