@@ -49,13 +49,16 @@ chat-completion materialize, the point-of-use heal) therefore bind
 no tenant.
 
 **Re-tenanting is the second, narrower exception — `retenant.ts`.**
-`retenantAppCases({appId, from, to})` is the ONE write that crosses
+`retenantAppCases({appId, toProjectId})` is the ONE write that crosses
 the tenant boundary on purpose: it rewrites `cases.project_id` for an
 app's rows when that app moves between Projects
-(`lib/db/moveAppToProject.ts`). It is a standalone barrel export, not
-a `CaseStore` method, precisely so the single-tenant invariant of the
-bound store stays intact; only `cases` carries `project_id`, so it is
-the whole job.
+(`lib/db/moveAppToProject.ts`). It keys on `app_id` alone and moves
+every row not already in the destination, so it reconciles the rows to
+wherever the app doc committed — the move flips the doc FIRST, then runs
+this, so the doc is the source of truth and the cases follow it
+(idempotent + crash-convergent). It is a standalone barrel export, not a
+`CaseStore` method, so the single-tenant invariant of the bound store
+stays intact; only `cases` carries `project_id`, so it is the whole job.
 
 ## Typed error contract
 

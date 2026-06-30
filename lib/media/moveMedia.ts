@@ -28,7 +28,16 @@ import {
 	type MediaKind,
 } from "@/lib/domain/multimedia";
 import { copyAssetObject } from "@/lib/storage/media";
+import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { partitionAssetRefs } from "./builtinIconAssets";
+
+/**
+ * Max asset copies in flight at once. Each copy is one dedup query + (on a miss)
+ * one server-side GCS copy + one Firestore write; bounding the fan-out keeps a
+ * media-heavy app's move off a serial round-trip-per-asset critical path without
+ * opening an unbounded number of GCS operations. Mirrors `manifest.ts`.
+ */
+const MEDIA_COPY_CONCURRENCY = 6;
 
 /**
  * Copy every referenced upload-asset into `toProjectId`, returning a map from
@@ -49,49 +58,49 @@ export async function copyAssetsIntoProject(args: {
 	toProjectId: string;
 	actorUserId: string;
 }): Promise<Map<string, string>> {
-	const map = new Map<string, string>();
 	const { realIds } = partitionAssetRefs(args.assetIds);
-	if (realIds.length === 0) return map;
+	if (realIds.length === 0) return new Map();
 
 	const rows = (await loadAssetsByIds(realIds, args.fromProjectId)).filter(
 		(row): row is MediaAssetRecord & { kind: MediaKind } =>
 			row.status === "ready" && isMediaKind(row.kind),
 	);
 
-	for (const row of rows) {
-		// Dedup: an identical-bytes asset already in the destination (e.g. a prior
-		// move, or another app uploaded the same file there) is reused — no copy.
-		const existing = await findReadyAssetByProjectAndHash(
-			args.toProjectId,
-			row.contentHash,
-		);
-		if (existing) {
-			map.set(row.id, existing.id);
-			continue;
-		}
+	const entries = await mapWithConcurrency(
+		rows,
+		MEDIA_COPY_CONCURRENCY,
+		async (row): Promise<[string, string]> => {
+			// Dedup: an identical-bytes asset already in the destination (a prior
+			// move, or another app uploaded the same file there) is reused — no copy.
+			const existing = await findReadyAssetByProjectAndHash(
+				args.toProjectId,
+				row.contentHash,
+			);
+			if (existing) return [row.id, existing.id];
 
-		const destKey = gcsObjectKeyFor(
-			args.toProjectId,
-			row.contentHash,
-			row.extension,
-		);
-		await copyAssetObject(row.gcsObjectKey, destKey);
-		const { assetId } = await createReadyAsset({
-			owner: args.actorUserId,
-			project_id: args.toProjectId,
-			contentHash: row.contentHash,
-			mimeType: row.mimeType,
-			kind: row.kind,
-			extension: row.extension,
-			sizeBytes: row.sizeBytes,
-			gcsObjectKey: destKey,
-			originalFilename: row.originalFilename,
-			displayName: row.displayName,
-			dimensions: row.dimensions,
-			durationMs: row.durationMs,
-		});
-		map.set(row.id, assetId);
-	}
+			const destKey = gcsObjectKeyFor(
+				args.toProjectId,
+				row.contentHash,
+				row.extension,
+			);
+			await copyAssetObject(row.gcsObjectKey, destKey);
+			const { assetId } = await createReadyAsset({
+				owner: args.actorUserId,
+				project_id: args.toProjectId,
+				contentHash: row.contentHash,
+				mimeType: row.mimeType,
+				kind: row.kind,
+				extension: row.extension,
+				sizeBytes: row.sizeBytes,
+				gcsObjectKey: destKey,
+				originalFilename: row.originalFilename,
+				displayName: row.displayName,
+				dimensions: row.dimensions,
+				durationMs: row.durationMs,
+			});
+			return [row.id, assetId];
+		},
+	);
 
-	return map;
+	return new Map(entries);
 }

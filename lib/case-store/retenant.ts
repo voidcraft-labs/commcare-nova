@@ -1,13 +1,21 @@
 // lib/case-store/retenant.ts
 //
-// Re-tenant an app's case rows from one Project to another — the case-store
-// half of moving an app between Projects (`lib/db/moveAppToProject.ts`). It is
-// the ONE cross-tenant data write in the package: every other read/write is
-// structurally pinned to a single bound `project_id` (`withProjectContext`),
-// and `withSchemaContext`'s `SchemaCaseStore` exposes only schema ops. A move
-// has to rewrite the structural tenant key itself, so it lives here as a
-// deliberate, named, app-scoped exception rather than as a `CaseStore` method
-// that would undermine that class's single-tenant invariant.
+// Reconcile an app's case rows to its Project — the case-store half of moving an
+// app between Projects (`lib/db/moveAppToProject.ts`). It is the ONE cross-tenant
+// data write in the package: every other read/write is structurally pinned to a
+// single bound `project_id` (`withProjectContext`), and `withSchemaContext`'s
+// `SchemaCaseStore` exposes only schema ops. A move has to rewrite the structural
+// tenant key itself, so it lives here as a deliberate, named, app-scoped
+// exception rather than as a `CaseStore` method that would undermine that class's
+// single-tenant invariant.
+//
+// It keys on `app_id` ALONE and targets the app's current Project: the move
+// re-tenants cases AFTER the app doc's guarded flip, so the doc is the source of
+// truth and the cases follow it wherever it landed. Moving "every row not already
+// at the destination" (rather than "every row at a named source") is what makes
+// the step idempotent AND self-healing — a crash between the flip and here, or a
+// row set left split across Projects by a prior partial move, converges on the
+// next run with no source Project to get wrong.
 //
 // Only `cases` carries `project_id`. `cases_quarantine` has no tenant column
 // (app-scoped audit), and `case_type_schemas` / `case_indices` key on
@@ -21,16 +29,14 @@ import type { Database } from "./sql/database";
 
 interface RetenantArgs {
 	appId: string;
-	fromProjectId: string;
 	toProjectId: string;
 }
 
 /**
- * Move every `cases` row of `appId` from `fromProjectId` to `toProjectId`,
- * returning the number of rows moved. Scoped to the source Project, so a re-run
- * after a completed move matches zero rows — idempotent, which the cross-store
- * move saga relies on when retrying a partial failure. A `from === to` call is
- * a no-op.
+ * Move every `cases` row of `appId` that isn't already in `toProjectId` into it,
+ * returning the number of rows moved. Idempotent (a re-run after a completed move
+ * matches zero rows) and convergent (it pulls in rows a prior partial move left
+ * in any other Project), which the cross-store move relies on for crash recovery.
  */
 export async function retenantAppCases(
 	args: RetenantArgs,
@@ -48,12 +54,11 @@ export async function retenantAppCasesOn(
 	db: Kysely<Database>,
 	args: RetenantArgs,
 ): Promise<{ moved: number }> {
-	if (args.fromProjectId === args.toProjectId) return { moved: 0 };
 	const result = await db
 		.updateTable("cases")
 		.set({ project_id: args.toProjectId })
 		.where("app_id", "=", args.appId)
-		.where("project_id", "=", args.fromProjectId)
+		.where("project_id", "!=", args.toProjectId)
 		.executeTakeFirst();
 	return { moved: Number(result?.numUpdatedRows ?? 0) };
 }

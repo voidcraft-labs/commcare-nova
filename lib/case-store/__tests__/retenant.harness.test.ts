@@ -1,13 +1,14 @@
-// Real-Postgres tests for the cross-tenant case re-tenant (`retenantAppCases`),
-// the case-store half of moving an app between Projects. Uses the testcontainer
-// `db` fixture (transactional, rolled back per test). A single UPDATE opens no
-// nested BEGIN, so the standard transactional fixture works — no per-test
-// database needed.
+// Real-Postgres tests for the case re-tenant (`retenantAppCases`), the
+// case-store half of moving an app between Projects. It keys on `app_id` alone
+// and moves every row not already in the destination — idempotent and convergent,
+// which is what makes the move self-heal after a crash between the flip and here.
+// Uses the testcontainer `db` fixture (transactional, rolled back per test); a
+// single UPDATE opens no nested BEGIN, so the standard fixture works.
 
 import { retenantAppCasesOn } from "../retenant";
 import { expect, makeCaseRow, test } from "../sql/__tests__/setup";
 
-test("moves only the named app's source-Project rows", async ({ db }) => {
+test("moves only the named app's rows into the destination", async ({ db }) => {
 	await db
 		.insertInto("cases")
 		.values([
@@ -15,14 +16,13 @@ test("moves only the named app's source-Project rows", async ({ db }) => {
 			makeCaseRow({ app_id: "app-1", project_id: "P-src" }),
 			// Already at the destination — must not be touched / double-counted.
 			makeCaseRow({ app_id: "app-1", project_id: "P-dst" }),
-			// A different app in the same source Project — must stay put.
+			// A different app — must stay put regardless of Project.
 			makeCaseRow({ app_id: "app-2", project_id: "P-src" }),
 		])
 		.execute();
 
 	const { moved } = await retenantAppCasesOn(db, {
 		appId: "app-1",
-		fromProjectId: "P-src",
 		toProjectId: "P-dst",
 	});
 	expect(moved).toBe(2);
@@ -35,13 +35,13 @@ test("moves only the named app's source-Project rows", async ({ db }) => {
 		.execute();
 	expect(app1AtDst).toHaveLength(3);
 
-	const app1AtSrc = await db
+	const app1Elsewhere = await db
 		.selectFrom("cases")
 		.selectAll()
 		.where("app_id", "=", "app-1")
-		.where("project_id", "=", "P-src")
+		.where("project_id", "!=", "P-dst")
 		.execute();
-	expect(app1AtSrc).toHaveLength(0);
+	expect(app1Elsewhere).toHaveLength(0);
 
 	const app2AtSrc = await db
 		.selectFrom("cases")
@@ -52,41 +52,48 @@ test("moves only the named app's source-Project rows", async ({ db }) => {
 	expect(app2AtSrc).toHaveLength(1);
 });
 
+test("converges rows split across Projects onto the destination", async ({
+	db,
+}) => {
+	// The crash-recovery shape: a prior partial move left this app's rows split
+	// across two Projects. One re-tenant pulls them all to the destination.
+	await db
+		.insertInto("cases")
+		.values([
+			makeCaseRow({ app_id: "app-x", project_id: "P-a" }),
+			makeCaseRow({ app_id: "app-x", project_id: "P-b" }),
+		])
+		.execute();
+
+	const { moved } = await retenantAppCasesOn(db, {
+		appId: "app-x",
+		toProjectId: "P-dst",
+	});
+	expect(moved).toBe(2);
+
+	const all = await db
+		.selectFrom("cases")
+		.selectAll()
+		.where("app_id", "=", "app-x")
+		.execute();
+	expect(all).toHaveLength(2);
+	expect(all.every((r) => r.project_id === "P-dst")).toBe(true);
+});
+
 test("is idempotent — a re-run after the move matches zero rows", async ({
 	db,
 }) => {
 	await db
 		.insertInto("cases")
-		.values([makeCaseRow({ app_id: "app-x", project_id: "P-a" })])
+		.values([makeCaseRow({ app_id: "app-y", project_id: "P-a" })])
 		.execute();
 
-	const first = await retenantAppCasesOn(db, {
-		appId: "app-x",
-		fromProjectId: "P-a",
-		toProjectId: "P-b",
-	});
-	expect(first.moved).toBe(1);
-
-	const second = await retenantAppCasesOn(db, {
-		appId: "app-x",
-		fromProjectId: "P-a",
-		toProjectId: "P-b",
-	});
-	expect(second.moved).toBe(0);
-});
-
-test("no-ops when source and destination are the same Project", async ({
-	db,
-}) => {
-	await db
-		.insertInto("cases")
-		.values([makeCaseRow({ app_id: "app-y", project_id: "P-same" })])
-		.execute();
-
-	const { moved } = await retenantAppCasesOn(db, {
-		appId: "app-y",
-		fromProjectId: "P-same",
-		toProjectId: "P-same",
-	});
-	expect(moved).toBe(0);
+	expect(
+		(await retenantAppCasesOn(db, { appId: "app-y", toProjectId: "P-b" }))
+			.moved,
+	).toBe(1);
+	expect(
+		(await retenantAppCasesOn(db, { appId: "app-y", toProjectId: "P-b" }))
+			.moved,
+	).toBe(0);
 });

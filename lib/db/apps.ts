@@ -690,15 +690,13 @@ export type CommitMoveResult =
  *
  * `attemptedRealIds` is the set of non-builtin asset ids the caller ran the
  * media-copy over; any non-builtin ref in the fresh doc OUTSIDE that set is a
- * concurrently-added ref the copy never saw, surfaced as `media_stale` rather
- * than silently left dangling in the destination. Refs the caller attempted but
- * couldn't copy (a still-`pending` upload, a foreign ref) are NOT reported — they
- * were already broken/pending and the destination inherits that same state.
- *
- * `allowUnresolved` is the caller's final-attempt escape hatch: it forces the
- * commit through even with a concurrently-added ref outstanding (the ref stays a
- * source id, logged), so the move ALWAYS reaches a consistent end state (app +
- * case data both at the destination) rather than stranding case data mid-move.
+ * concurrently-added ref the copy never saw, returned as `media_stale` so the
+ * caller re-copies and retries rather than committing a destination-broken ref.
+ * Because this writes nothing in that case (and the move re-tenants case rows
+ * only AFTER a successful flip), an aborted commit leaves the app fully untouched
+ * — there is no forced-through "land it broken" path. Refs the caller attempted
+ * but couldn't copy (a still-`pending` upload, a foreign ref) are NOT reported —
+ * they were already broken/pending and the destination inherits that same state.
  */
 export async function commitAppProjectMove(
 	appId: string,
@@ -707,7 +705,6 @@ export async function commitAppProjectMove(
 		expectedFromProjectId: string;
 		assetIdMap: ReadonlyMap<string, string>;
 		attemptedRealIds: ReadonlySet<string>;
-		allowUnresolved?: boolean;
 	},
 ): Promise<CommitMoveResult> {
 	const basisToken = crypto.randomUUID();
@@ -740,17 +737,10 @@ export async function commitAppProjectMove(
 			(id) => !args.attemptedRealIds.has(id),
 		);
 		if (missing.length > 0) {
-			if (!args.allowUnresolved) {
-				return { outcome: { kind: "media_stale", missing }, committed: null };
-			}
-			// Final-attempt force-through: a ref the copy never saw is left as a
-			// source id (it'll read as MEDIA_ASSET_NOT_FOUND in the destination
-			// until re-attached). Completing the move keeps the app + its case data
-			// consistent at the destination, which beats stranding them mid-move.
-			log.warn(
-				"[commitAppProjectMove] forcing move with unresolved media refs",
-				{ appId, missing },
-			);
+			// A ref the copy never saw (a concurrent edit added it). Write nothing
+			// and report it so the caller re-copies + retries; the move re-tenants
+			// case rows only after a successful flip, so this leaves the app intact.
+			return { outcome: { kind: "media_stale", missing }, committed: null };
 		}
 
 		if (args.assetIdMap.size > 0) {
