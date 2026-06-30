@@ -801,6 +801,18 @@ async function createAuth() {
 							});
 						}
 					},
+					/* Close the acceptance side: `beforeCreateInvitation` blocks NEW
+					 * invites to a personal Project, but a PENDING invite created under
+					 * the old viewer/editor policy could still be accepted and grant
+					 * access to a now-private space. Reject acceptance too, so a stale
+					 * invite can never turn into membership. */
+					beforeAcceptInvitation: async ({ organization }) => {
+						if (isPersonalProjectMetadata(organization.metadata)) {
+							throw new APIError("BAD_REQUEST", {
+								message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
+							});
+						}
+					},
 					/* No invitation email is sent — invites are discovered in-app (the
 					 * home-page banner + the Invitations page). This hook only records
 					 * an audit line as each invite is created. */

@@ -58,7 +58,15 @@ export async function retenantAppCasesOn(
 		.updateTable("cases")
 		.set({ project_id: args.toProjectId })
 		.where("app_id", "=", args.appId)
-		.where("project_id", "!=", args.toProjectId)
+		// NULL-safe "not already at the destination": SQL `NULL != 'x'` is NULL
+		// (not TRUE), so a bare `!=` would silently skip a row whose `project_id`
+		// is NULL (the column is nullable). Include those rows explicitly.
+		.where((eb) =>
+			eb.or([
+				eb("project_id", "is", null),
+				eb("project_id", "!=", args.toProjectId),
+			]),
+		)
 		.executeTakeFirst();
 	return { moved: Number(result?.numUpdatedRows ?? 0) };
 }

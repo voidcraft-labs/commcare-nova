@@ -28,8 +28,11 @@
 // preconditions (already-moved, source drift, mid-generation, trashed).
 
 import { retenantAppCases } from "@/lib/case-store";
-import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
-import { asWalkableDoc, collectAssetRefs } from "@/lib/domain/mediaRefs";
+import {
+	asWalkableDoc,
+	collectAssetRefs,
+	collectRealAssetRefs,
+} from "@/lib/domain/mediaRefs";
 import { log } from "@/lib/logger";
 import { copyAssetsIntoProject } from "@/lib/media/moveMedia";
 import { commitAppProjectMove, loadApp } from "./apps";
@@ -52,6 +55,17 @@ export class AppBusyError extends Error {
  * takes a fresh concurrent media edit inside the commit window of every pass.
  */
 const MAX_COMMIT_ATTEMPTS = 2;
+
+/**
+ * How many times the case re-tenant (Step C) is retried before giving up. Unlike
+ * the flip, Step C runs AFTER the app doc has already committed to the
+ * destination, so a transient Cloud SQL error here can't be cleanly undone — the
+ * retries (with a short backoff) absorb a connection drop / pool blip so the
+ * common case self-completes; a sustained failure logs at `error` (the rows are
+ * recoverable by any later move of the app) and surfaces as a failed move.
+ */
+const MAX_RETENANT_ATTEMPTS = 3;
+const RETENANT_RETRY_DELAY_MS = 250;
 
 /**
  * Move `appId` from `fromProjectId` to `toProjectId`, re-tenanting its case data
@@ -101,11 +115,16 @@ export async function moveAppToProject(args: {
 			if (!fresh) {
 				throw new Error(`[moveAppToProject] app vanished: ${args.appId}`);
 			}
-			if (fresh.project_id === args.toProjectId) break; // a concurrent move won
+			if (fresh.project_id === args.toProjectId) {
+				// A concurrent move already flipped the doc to the destination. The
+				// flip is done — still fall through to reconcile the case rows.
+				flipped = true;
+				break;
+			}
 
 			const refs = [...collectAssetRefs(asWalkableDoc(fresh.blueprint))];
 			const attemptedRealIds = new Set(
-				refs.filter((id) => !isBuiltinIconRef(id)),
+				collectRealAssetRefs(asWalkableDoc(fresh.blueprint)),
 			);
 
 			// Step A — copy referenced media into the destination Project.
@@ -147,6 +166,32 @@ export async function moveAppToProject(args: {
 	// Step C — reconcile the case rows to the app's committed Project. Keyed by
 	// `app_id` and idempotent (it moves every row not already at the destination),
 	// so it converges whether the flip just happened, a prior move crashed between
-	// the flip and here, or the app was already at the destination.
-	await retenantAppCases({ appId: args.appId, toProjectId: args.toProjectId });
+	// the flip and here, or the app was already at the destination. Retried,
+	// because the flip already committed: a transient failure here would otherwise
+	// leave the app at its destination with its case rows behind.
+	let caseErr: unknown;
+	for (let attempt = 1; attempt <= MAX_RETENANT_ATTEMPTS; attempt++) {
+		try {
+			await retenantAppCases({
+				appId: args.appId,
+				toProjectId: args.toProjectId,
+			});
+			return;
+		} catch (err) {
+			caseErr = err;
+			if (attempt < MAX_RETENANT_ATTEMPTS) {
+				await new Promise((resolve) =>
+					setTimeout(resolve, RETENANT_RETRY_DELAY_MS * attempt),
+				);
+			}
+		}
+	}
+	// The flip already committed, so the app is at its destination but its case
+	// rows are not. Log loudly (recoverable — any later move re-runs this) and fail.
+	log.error(
+		"[moveAppToProject] case re-tenant failed after the project flip; case rows stranded",
+		caseErr,
+		{ appId: args.appId, toProjectId: args.toProjectId },
+	);
+	throw caseErr;
 }

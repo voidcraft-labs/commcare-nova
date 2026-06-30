@@ -239,29 +239,83 @@ export function ProjectMembers({
 						</div>
 					</div>
 
-					{/* Read-only roster — a personal Project has just its owner (you). */}
+					{/* Roster — normally just the owner (you). A guest invited before
+					    personal Projects were locked down can still be removed here. */}
 					<ul className="divide-y divide-nova-border">
-						{members.map((m) => (
-							<li key={m.memberId} className="flex items-center gap-3 py-3">
-								<div className="min-w-0 flex-1">
-									<div className="truncate text-sm font-medium text-nova-text">
-										{m.name}
-										{m.userId === currentUserId && (
-											<span className="ml-1.5 text-xs text-nova-text-muted">
-												You
-											</span>
-										)}
+						{members.map((m) => {
+							const isSelf = m.userId === currentUserId;
+							const isOwner = m.role.includes("owner");
+							const removable = canManage && !isOwner && !isSelf;
+							return (
+								<li key={m.memberId} className="flex items-center gap-3 py-3">
+									<div className="min-w-0 flex-1">
+										<div className="truncate text-sm font-medium text-nova-text">
+											{m.name}
+											{isSelf && (
+												<span className="ml-1.5 text-xs text-nova-text-muted">
+													You
+												</span>
+											)}
+										</div>
+										<div className="truncate text-xs text-nova-text-muted">
+											{m.email}
+										</div>
 									</div>
-									<div className="truncate text-xs text-nova-text-muted">
-										{m.email}
-									</div>
-								</div>
-								<span className="text-sm text-nova-text-muted">
-									{roleLabel(m.role)}
-								</span>
-							</li>
-						))}
+									<span className="text-sm text-nova-text-muted">
+										{roleLabel(m.role)}
+									</span>
+									{removable && (
+										<Button
+											type="button"
+											variant="ghost"
+											size="icon-sm"
+											disabled={busy}
+											onClick={() => removeMember(m.memberId)}
+											aria-label={`Remove ${m.name}`}
+										>
+											<Icon icon={tablerTrash} width="16" height="16" />
+										</Button>
+									)}
+								</li>
+							);
+						})}
 					</ul>
+
+					{/* Any invitation created before the lockdown — cancelable here
+					    (it can no longer be accepted either). */}
+					{invitations.length > 0 && (
+						<div>
+							<h3 className="mb-2 text-sm font-medium text-nova-text-muted">
+								Pending invitations
+							</h3>
+							<ul className="divide-y divide-nova-border">
+								{invitations.map((inv) => (
+									<li key={inv.id} className="flex items-center gap-3 py-2.5">
+										<div className="min-w-0 flex-1">
+											<div className="truncate text-sm text-nova-text">
+												{inv.email}
+											</div>
+											<div className="text-xs text-nova-text-muted">
+												Invited as {roleLabel(inv.role ?? "viewer")} · expires{" "}
+												{inv.expiresAt.toLocaleDateString()}
+											</div>
+										</div>
+										{canManage && (
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												disabled={busy}
+												onClick={() => cancelInvitation(inv.id)}
+											>
+												Cancel
+											</Button>
+										)}
+									</li>
+								))}
+							</ul>
+						</div>
+					)}
 				</div>
 			</section>
 		);

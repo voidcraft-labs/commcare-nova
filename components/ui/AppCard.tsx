@@ -20,6 +20,7 @@ import {
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { AppSummary } from "@/lib/db/apps";
+import type { MoveTarget } from "@/lib/projects/moveTargets";
 import { useExternalNavigate } from "@/lib/routing/hooks";
 import { showToast } from "@/lib/ui/toastStore";
 import { STATUS_STYLES } from "@/lib/utils/format";
@@ -33,13 +34,6 @@ import { ConnectBadge } from "./ConnectBadge";
  */
 type DeleteResult = { success: true } | { success: false; error: string };
 type MoveResult = { success: true } | { success: false; error: string };
-
-/** A Project the app may move into — structurally compatible with the
- *  home page's `MoveTarget`, kept inline so `components/ui` stays app/-free. */
-interface MoveTargetOption {
-	id: string;
-	name: string;
-}
 
 interface AppCardProps {
 	app: Pick<
@@ -74,7 +68,7 @@ interface AppCardProps {
 	 */
 	onMove?: (appId: string, toProjectId: string) => Promise<MoveResult>;
 	/** Projects the app may move into; empty/absent hides the move menu. */
-	moveTargets?: MoveTargetOption[];
+	moveTargets?: MoveTarget[];
 }
 
 /**
@@ -106,10 +100,15 @@ export function AppCard({
 	const isFailed = app.status === "error";
 	const updatedAt = new Date(app.updated_at);
 
-	/* Only idle/error read as interactive — while a delete is confirming, the
-	 * move menu is open, or either action is in flight, the card downgrades from
-	 * <Link> to <div> so a stray click can't navigate away mid-action. */
-	const interactive = cardState.type === "idle" || cardState.type === "error";
+	/* idle / error / pickingMove keep the card a <Link>; an in-flight action
+	 * (deleting / moving) or the delete-confirm row downgrade it to a <div> so a
+	 * stray click can't navigate mid-action. `pickingMove` stays a <Link>
+	 * deliberately: the move menu is portaled, so swapping the wrapper element
+	 * type on open would remount (and mis-anchor) the menu it just opened. */
+	const interactive =
+		cardState.type === "idle" ||
+		cardState.type === "error" ||
+		cardState.type === "pickingMove";
 	const errorMessage = cardState.type === "error" ? cardState.message : null;
 	const canMove = Boolean(onMove && moveTargets && moveTargets.length > 0);
 
@@ -137,7 +136,7 @@ export function AppCard({
 		}
 	};
 
-	const handleMove = async (target: MoveTargetOption) => {
+	const handleMove = async (target: MoveTarget) => {
 		if (!onMove) return;
 		setCardState({ type: "moving", destName: target.name });
 		try {
@@ -298,17 +297,18 @@ export function AppCard({
 									)
 								}
 							>
-								<DropdownMenuTrigger
-									title="Move to another Project"
-									aria-label="Move to another Project"
-									onClick={(e) => {
-										e.preventDefault();
-										e.stopPropagation();
-									}}
-									className="p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-md hover:bg-nova-violet/10 cursor-pointer"
-								>
-									<Icon icon={tablerFolderSymlink} width="18" height="18" />
-								</DropdownMenuTrigger>
+								<Tooltip content="Move to another Project">
+									<DropdownMenuTrigger
+										aria-label="Move to another Project"
+										onClick={(e) => {
+											e.preventDefault();
+											e.stopPropagation();
+										}}
+										className="p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-md hover:bg-nova-violet/10 cursor-pointer"
+									>
+										<Icon icon={tablerFolderSymlink} width="18" height="18" />
+									</DropdownMenuTrigger>
+								</Tooltip>
 								<DropdownMenuContent align="end">
 									<DropdownMenuGroup>
 										<DropdownMenuLabel>Move to Project</DropdownMenuLabel>

@@ -24,10 +24,9 @@ import type {
 	PersistableDoc,
 	PersistedBlueprint,
 } from "../domain/blueprint";
-import { isBuiltinIconRef } from "../domain/builtinIcons";
 import {
 	asWalkableDoc,
-	collectAssetRefs,
+	collectRealAssetRefs,
 	remapAssetRefs,
 } from "../domain/mediaRefs";
 import { refundReservation } from "./credits";
@@ -270,15 +269,11 @@ async function syncMediaReferences(
 	doc: PersistableDoc,
 ): Promise<void> {
 	try {
-		// Built-in icon refs (`nova-icon:<slug>`) have no Firestore asset row, so
-		// `addReferencingApp` would `update()` a non-existent doc and reject
-		// NOT_FOUND — logged on every save of any app the SA gave a built-in icon
-		// (i.e. nearly every generated app). They need no reverse index: they're
-		// shared + undeletable, never subject to the deletion guard. Drop them here.
-		const referenced = [...collectAssetRefs(asWalkableDoc(doc))].filter(
-			(id) => !isBuiltinIconRef(id),
-		);
-		await addReferencingApp(referenced, appId);
+		// Real refs only — built-in icon refs (`nova-icon:<slug>`) have no Firestore
+		// asset row, so `addReferencingApp` would `update()` a non-existent doc and
+		// reject NOT_FOUND on nearly every generated app. They need no reverse index
+		// (shared + undeletable, never subject to the deletion guard).
+		await addReferencingApp(collectRealAssetRefs(asWalkableDoc(doc)), appId);
 	} catch (err) {
 		log.error("[syncMediaReferences] reverse-index update failed", err, {
 			appId,
@@ -730,10 +725,7 @@ export async function commitAppProjectMove(
 				`[commitAppProjectMove] source Project changed for appId=${appId} (expected ${args.expectedFromProjectId}, found ${fresh.project_id ?? "null"})`,
 			);
 		}
-		const freshRealRefs = [
-			...collectAssetRefs(asWalkableDoc(fresh.blueprint)),
-		].filter((id) => !isBuiltinIconRef(id));
-		const missing = freshRealRefs.filter(
+		const missing = collectRealAssetRefs(asWalkableDoc(fresh.blueprint)).filter(
 			(id) => !args.attemptedRealIds.has(id),
 		);
 		if (missing.length > 0) {
@@ -751,11 +743,13 @@ export async function commitAppProjectMove(
 			});
 			return { outcome: { kind: "moved" }, committed: remapped };
 		}
-		// No media to repoint — flip `project_id` only, leaving the blueprint
-		// (and its `blueprint_token`) untouched so a co-editor's in-flight edit
-		// is neither invalidated nor merged.
+		// No media to repoint — flip `project_id` only (the blueprint is
+		// unchanged). Still rotate `blueprint_token` so a source-Project co-editor
+		// with the app open gets a 409-reload on their next auto-save rather than a
+		// silent membership denial against the now-foreign Project.
 		tx.update(docs.appRaw(appId), {
 			project_id: args.toProjectId,
+			blueprint_token: basisToken,
 			updated_at: FieldValue.serverTimestamp(),
 		});
 		return { outcome: { kind: "moved" }, committed: null };

@@ -34,6 +34,7 @@
 
 import { produce } from "immer";
 import type { BlueprintDoc, PersistableDoc } from "./blueprint";
+import { isBuiltinIconRef } from "./builtinIcons";
 import { type Field, isContainer } from "./fields";
 import type { Media } from "./multimedia";
 import type { Uuid } from "./uuid";
@@ -482,6 +483,17 @@ export function collectAssetRefs(doc: BlueprintDoc): Set<string> {
 		ids.add(ref.assetId);
 	}
 	return ids;
+}
+
+/**
+ * The blueprint's referenced asset ids MINUS the built-in `nova-icon:` slugs —
+ * i.e. the ids that resolve to a real Firestore/GCS asset. The single home for
+ * the "real (non-built-in) refs" idiom shared by the reverse-index sync and the
+ * cross-Project move (which copies + re-tenants only real assets; built-ins are
+ * shared and Firestore-less, so they must never reach an `arrayUnion`/copy).
+ */
+export function collectRealAssetRefs(doc: BlueprintDoc): string[] {
+	return [...collectAssetRefs(doc)].filter((id) => !isBuiltinIconRef(id));
 }
 
 /**
