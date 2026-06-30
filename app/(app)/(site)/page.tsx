@@ -74,7 +74,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 				</div>
 			)}
 			<Suspense fallback={<AppListFallback />}>
-				<AppList projectId={activeProjectId} isAdmin={isAdmin} />
+				<AppList
+					projectId={activeProjectId}
+					userId={session.user.id}
+					isAdmin={isAdmin}
+				/>
 			</Suspense>
 		</main>
 	);

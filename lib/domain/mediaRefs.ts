@@ -32,7 +32,9 @@
 // `caseListOnly` modules — that's the one shape where CCHQ emits a
 // case-list menu command for the icon to land on (see the walk below).
 
+import { produce } from "immer";
 import type { BlueprintDoc, PersistableDoc } from "./blueprint";
+import { isBuiltinIconRef } from "./builtinIcons";
 import { type Field, isContainer } from "./fields";
 import type { Media } from "./multimedia";
 import type { Uuid } from "./uuid";
@@ -481,6 +483,127 @@ export function collectAssetRefs(doc: BlueprintDoc): Set<string> {
 		ids.add(ref.assetId);
 	}
 	return ids;
+}
+
+/**
+ * Every asset id PRESENT in the doc — the superset {@link collectAssetRefs} would
+ * yield if nothing were render-gated. It adds the one gated slot the gated walk
+ * omits: `caseListConfig.icon` / `audioLabel` on NON-`caseListOnly` modules. Those
+ * don't render today (so the validator/manifest rightly ignore them), but they
+ * PERSIST in the doc and {@link remapAssetRefs} rewrites them un-gated — so a move
+ * must copy + repoint them too, or toggling the module back to `caseListOnly`
+ * later surfaces a dangling cross-Project ref. This is the move's (and the
+ * reverse-index's) collection basis; the gated `collectAssetRefs` stays the
+ * emit/validate basis.
+ */
+export function collectMovableAssetRefs(doc: BlueprintDoc): Set<string> {
+	const ids = collectAssetRefs(doc);
+	for (const mod of Object.values(doc.modules)) {
+		if (mod.caseListOnly) continue; // already covered by collectAssetRefs
+		if (mod.caseListConfig?.icon) ids.add(mod.caseListConfig.icon);
+		if (mod.caseListConfig?.audioLabel) ids.add(mod.caseListConfig.audioLabel);
+	}
+	return ids;
+}
+
+/**
+ * The doc's PRESENT asset ids MINUS the built-in `nova-icon:` slugs — i.e. the
+ * ids that resolve to a real Firestore/GCS asset. The single home for the "real
+ * (non-built-in) refs" idiom shared by the reverse-index sync and the
+ * cross-Project move (which copy + re-tenant only real assets; built-ins are
+ * shared and Firestore-less, so they must never reach an `arrayUnion`/copy).
+ * Built on {@link collectMovableAssetRefs} so a dead-but-present ref is still
+ * indexed (deletion guard) and carried by a move.
+ */
+export function collectRealAssetRefs(doc: BlueprintDoc): string[] {
+	return [...collectMovableAssetRefs(doc)].filter(
+		(id) => !isBuiltinIconRef(id),
+	);
+}
+
+/**
+ * Rewrite every media `AssetId` the blueprint references through `idMap`,
+ * returning a new doc (the input is untouched). An id absent from the map —
+ * a built-in `nova-icon:` ref, or any id the caller chose not to remap — is
+ * left exactly as-is, so a partial map only touches the ids it names.
+ *
+ * The WRITE counterpart of {@link walkAssetRefs}: it must touch every slot the
+ * walk reads, or a moved app would keep a stale ref the walk still surfaces.
+ * The two are pinned together by a coverage-parity test
+ * (`collectAssetRefs(remapAssetRefs(doc, fullMap))` equals the mapped set), so
+ * a slot added to the walk but not here fails CI. The single consumer is the
+ * cross-Project move (`lib/db/moveAppToProject.ts`), which copies an app's
+ * referenced assets into the destination Project and repoints the blueprint at
+ * the copies — built-ins (shared, Project-agnostic) are never copied, so they
+ * never appear in `idMap` and fall through unchanged.
+ *
+ * Unlike the walk, fields are visited flat (`doc.fields`) rather than through
+ * `fieldOrder`: ancestry is irrelevant to an id rewrite, and rewriting a field
+ * that's momentarily unreachable from the order arrays still can't leave a
+ * stale ref behind. `produce` keeps untouched subtrees structurally identical.
+ */
+export function remapAssetRefs(
+	doc: PersistableDoc,
+	idMap: ReadonlyMap<string, string>,
+): PersistableDoc {
+	if (idMap.size === 0) return doc;
+	const remap = (id: string): string => idMap.get(id) ?? id;
+	return produce(doc, (draft) => {
+		if (draft.logo) draft.logo = remap(draft.logo);
+
+		for (const moduleUuid of draft.moduleOrder) {
+			const mod = draft.modules[moduleUuid];
+			if (!mod) continue;
+			if (mod.icon) mod.icon = remap(mod.icon);
+			if (mod.audioLabel) mod.audioLabel = remap(mod.audioLabel);
+			if (mod.caseListConfig?.icon) {
+				mod.caseListConfig.icon = remap(mod.caseListConfig.icon);
+			}
+			if (mod.caseListConfig?.audioLabel) {
+				mod.caseListConfig.audioLabel = remap(mod.caseListConfig.audioLabel);
+			}
+			for (const column of mod.caseListConfig?.columns ?? []) {
+				if (column.kind !== "image-map") continue;
+				for (const row of column.mapping) {
+					row.assetId = remap(row.assetId);
+				}
+			}
+		}
+
+		for (const form of Object.values(draft.forms)) {
+			if (form.icon) form.icon = remap(form.icon);
+			if (form.audioLabel) form.audioLabel = remap(form.audioLabel);
+		}
+
+		for (const field of Object.values(draft.fields)) {
+			remapFieldMedia(field, remap);
+		}
+	});
+}
+
+/** Rewrite the media ids on one field's message bundles + select options. */
+function remapFieldMedia(field: Field, remap: (id: string) => string): void {
+	if ("label_media" in field) remapMediaBundle(field.label_media, remap);
+	if ("hint_media" in field) remapMediaBundle(field.hint_media, remap);
+	if ("help_media" in field) remapMediaBundle(field.help_media, remap);
+	if ("validate_msg_media" in field) {
+		remapMediaBundle(field.validate_msg_media, remap);
+	}
+	if (field.kind === "single_select" || field.kind === "multi_select") {
+		for (const option of field.options) remapMediaBundle(option.media, remap);
+	}
+}
+
+/** Rewrite the image/audio/video slots on one `Media` bundle in place. */
+function remapMediaBundle(
+	bundle: Media | undefined,
+	remap: (id: string) => string,
+): void {
+	if (!bundle) return;
+	for (const slotKind of MEDIA_BUNDLE_KEYS) {
+		const assetId = bundle[slotKind];
+		if (assetId) bundle[slotKind] = remap(assetId);
+	}
 }
 
 /**

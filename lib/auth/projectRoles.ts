@@ -94,5 +94,18 @@ export function roleCanManageProject(role: string): boolean {
 	return parts.includes("admin") || parts.includes("owner");
 }
 
+/**
+ * Whether a member's role is the Project owner — the one member who can't be
+ * removed or re-roled (Better Auth reserves that to owners). NOT the move-out gate
+ * (that's the `delete` capability, admin OR owner); this identifies the owner for
+ * the move's owner-PROTECTION rule: the caller-is-source-owner check (an owner may
+ * relocate their own app anywhere) and the home-page filter that reserves
+ * personal-Project destinations to source owners. `role` may be comma-joined
+ * (Better Auth allows multiple roles).
+ */
+export function roleIsOwner(role: string): boolean {
+	return role.split(",").includes("owner");
+}
+
 /** Max members per Project (Better Auth's own default is 100). */
 export const MEMBERSHIP_LIMIT = 200;

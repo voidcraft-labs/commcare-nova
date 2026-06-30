@@ -48,8 +48,7 @@ import {
 	INVITE_ALLOWED_DOMAINS,
 	isInvitableEmail,
 	isPersonalProjectMetadata,
-	isRoleAllowedOnPersonalProject,
-	PERSONAL_PROJECT_ROLE_ERROR,
+	PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
 } from "./projects/invitePolicy";
 
 /**
@@ -780,30 +779,39 @@ async function createAuth() {
 								message: `Invitations are limited to ${INVITE_ALLOWED_DOMAINS.join(" and ")} email addresses.`,
 							});
 						}
-						/* A personal Project caps invites at viewer/editor — admin/owner
-						 * make no sense for someone's solo space. The members UI hides
-						 * them; this is the wire-level enforcement (a crafted request
-						 * can't escalate). `organization.metadata` carries the personal
+						/* A personal Project is private and accepts no invitations at
+						 * all — collaboration happens by moving an app into a shared
+						 * Project. The members UI renders a read-only "can't be shared"
+						 * panel; this is the wire-level enforcement (a crafted request
+						 * can't escape it). `organization.metadata` carries the personal
 						 * flag (set by `ensurePersonalProject`). */
-						if (
-							isPersonalProjectMetadata(organization.metadata) &&
-							!isRoleAllowedOnPersonalProject(invitation.role)
-						) {
+						if (isPersonalProjectMetadata(organization.metadata)) {
 							throw new APIError("BAD_REQUEST", {
-								message: PERSONAL_PROJECT_ROLE_ERROR,
+								message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
 							});
 						}
 					},
-					/* The role-change twin of the invite cap: a personal Project's
-					 * members can't be promoted to admin/owner either, so an
-					 * invite-as-editor-then-promote path can't escape the cap. */
-					beforeUpdateMemberRole: async ({ newRole, organization }) => {
-						if (
-							isPersonalProjectMetadata(organization.metadata) &&
-							!isRoleAllowedOnPersonalProject(newRole)
-						) {
+					/* The role-change twin: a personal Project is private, so no role is
+					 * assignable on it — reject every role change. (It may still hold a
+					 * guest grandfathered in under the old viewer/editor policy; the owner
+					 * REMOVES such a guest from the members panel rather than re-roling
+					 * them, since the Project is private now.) */
+					beforeUpdateMemberRole: async ({ organization }) => {
+						if (isPersonalProjectMetadata(organization.metadata)) {
 							throw new APIError("BAD_REQUEST", {
-								message: PERSONAL_PROJECT_ROLE_ERROR,
+								message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
+							});
+						}
+					},
+					/* Close the acceptance side: `beforeCreateInvitation` blocks NEW
+					 * invites to a personal Project, but a PENDING invite created under
+					 * the old viewer/editor policy could still be accepted and grant
+					 * access to a now-private space. Reject acceptance too, so a stale
+					 * invite can never turn into membership. */
+					beforeAcceptInvitation: async ({ organization }) => {
+						if (isPersonalProjectMetadata(organization.metadata)) {
+							throw new APIError("BAD_REQUEST", {
+								message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
 							});
 						}
 					},

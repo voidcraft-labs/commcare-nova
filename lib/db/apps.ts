@@ -24,8 +24,11 @@ import type {
 	PersistableDoc,
 	PersistedBlueprint,
 } from "../domain/blueprint";
-import { isBuiltinIconRef } from "../domain/builtinIcons";
-import { asWalkableDoc, collectAssetRefs } from "../domain/mediaRefs";
+import {
+	asWalkableDoc,
+	collectRealAssetRefs,
+	remapAssetRefs,
+} from "../domain/mediaRefs";
 import { refundReservation } from "./credits";
 import { collections, docs, getDb } from "./firestore";
 import { addReferencingApp } from "./mediaAssets";
@@ -266,15 +269,11 @@ async function syncMediaReferences(
 	doc: PersistableDoc,
 ): Promise<void> {
 	try {
-		// Built-in icon refs (`nova-icon:<slug>`) have no Firestore asset row, so
-		// `addReferencingApp` would `update()` a non-existent doc and reject
-		// NOT_FOUND — logged on every save of any app the SA gave a built-in icon
-		// (i.e. nearly every generated app). They need no reverse index: they're
-		// shared + undeletable, never subject to the deletion guard. Drop them here.
-		const referenced = [...collectAssetRefs(asWalkableDoc(doc))].filter(
-			(id) => !isBuiltinIconRef(id),
-		);
-		await addReferencingApp(referenced, appId);
+		// Real refs only — built-in icon refs (`nova-icon:<slug>`) have no Firestore
+		// asset row, so `addReferencingApp` would `update()` a non-existent doc and
+		// reject NOT_FOUND on nearly every generated app. They need no reverse index
+		// (shared + undeletable, never subject to the deletion guard).
+		await addReferencingApp(collectRealAssetRefs(asWalkableDoc(doc)), appId);
 	} catch (err) {
 		log.error("[syncMediaReferences] reverse-index update failed", err, {
 			appId,
@@ -657,6 +656,120 @@ export async function updateAppGuardedMutating(
 	});
 	await syncMediaReferences(appId, committed);
 	return basisToken;
+}
+
+/**
+ * Outcome of {@link commitAppProjectMove}. `moved` and `already_moved` are both
+ * terminal success (the latter idempotent — a re-run after the flip committed);
+ * `media_stale` reports asset ids the FRESH doc references that the caller never
+ * attempted to copy into the destination (a concurrent edit added them after the
+ * orchestrator's copy pass), so the move orchestrator copies those and retries.
+ */
+export type CommitMoveResult =
+	| { kind: "moved" }
+	| { kind: "already_moved" }
+	| { kind: "media_stale"; missing: string[] }
+	| { kind: "busy" };
+
+/**
+ * The single write that changes an app's `project_id` — the commit point of a
+ * cross-Project move (`lib/db/moveAppToProject.ts`). In one transaction over the
+ * fresh app doc it repoints the blueprint's media refs onto the destination
+ * copies (`assetIdMap`, built by the move's media step) and flips `project_id`,
+ * so a co-editor's stale tab 409-reloads (rotated `blueprint_token`) and the
+ * blueprint never spends an instant referencing destination-absent media.
+ *
+ * Reads fresh and folds the remap into the same transaction (rather than routing
+ * through `applyBlueprintChange`) because a move touches no case TYPES — the
+ * case-store schema is unaffected — so there is no schema saga to run, and
+ * keeping remap + flip atomic is what removes the media-broken window.
+ *
+ * `attemptedRealIds` is the set of non-builtin asset ids the caller ran the
+ * media-copy over; any non-builtin ref in the fresh doc OUTSIDE that set is a
+ * concurrently-added ref the copy never saw, returned as `media_stale` so the
+ * caller re-copies and retries rather than committing a destination-broken ref.
+ * Because this writes nothing in that case (and the move re-tenants case rows
+ * only AFTER a successful flip), an aborted commit leaves the app fully untouched
+ * — there is no forced-through "land it broken" path. Refs the caller attempted
+ * but couldn't copy (a still-`pending` upload, a foreign ref) are NOT reported —
+ * they were already broken/pending and the destination inherits that same state.
+ */
+export async function commitAppProjectMove(
+	appId: string,
+	args: {
+		toProjectId: string;
+		expectedFromProjectId: string;
+		assetIdMap: ReadonlyMap<string, string>;
+		attemptedRealIds: ReadonlySet<string>;
+	},
+): Promise<CommitMoveResult> {
+	const basisToken = crypto.randomUUID();
+	const result = await getDb().runTransaction<{
+		outcome: CommitMoveResult;
+		committed: PersistedBlueprint | null;
+	}>(async (tx) => {
+		const snap = await tx.get(docs.app(appId));
+		const fresh = snap.exists ? (snap.data() ?? null) : null;
+		if (!fresh) {
+			throw new Error(
+				`[commitAppProjectMove] app document missing for appId=${appId}`,
+			);
+		}
+		// Already at the destination: a re-run after a completed commit. No-op.
+		if (fresh.project_id === args.toProjectId) {
+			return { outcome: { kind: "already_moved" }, committed: null };
+		}
+		// Source changed under us (another move landed first). The caller
+		// re-resolves authorization rather than overwriting that move.
+		if (fresh.project_id !== args.expectedFromProjectId) {
+			throw new Error(
+				`[commitAppProjectMove] source Project changed for appId=${appId} (expected ${args.expectedFromProjectId}, found ${fresh.project_id ?? "null"})`,
+			);
+		}
+		// A build that started after the caller's authz read would, on its next
+		// blueprint save, blind-overwrite the repoint we're about to write while
+		// leaving project_id flipped — breaking the moved app's media. Re-check
+		// status against the FRESH doc so the bar is atomic with the flip.
+		if (fresh.status === "generating") {
+			return { outcome: { kind: "busy" }, committed: null };
+		}
+		const missing = collectRealAssetRefs(asWalkableDoc(fresh.blueprint)).filter(
+			(id) => !args.attemptedRealIds.has(id),
+		);
+		if (missing.length > 0) {
+			// A ref the copy never saw (a concurrent edit added it). Write nothing
+			// and report it so the caller re-copies + retries; the move re-tenants
+			// case rows only after a successful flip, so this leaves the app intact.
+			return { outcome: { kind: "media_stale", missing }, committed: null };
+		}
+
+		if (args.assetIdMap.size > 0) {
+			const remapped = remapAssetRefs(fresh.blueprint, args.assetIdMap);
+			tx.update(docs.appRaw(appId), {
+				...blueprintSnapshotFields(remapped, { basisToken }),
+				project_id: args.toProjectId,
+			});
+			return { outcome: { kind: "moved" }, committed: remapped };
+		}
+		// No media to repoint — flip `project_id` only (the blueprint is
+		// unchanged). Still rotate `blueprint_token` so a source-Project co-editor
+		// with the app open gets a 409-reload on their next auto-save rather than a
+		// silent membership denial against the now-foreign Project.
+		tx.update(docs.appRaw(appId), {
+			project_id: args.toProjectId,
+			blueprint_token: basisToken,
+			updated_at: FieldValue.serverTimestamp(),
+		});
+		return { outcome: { kind: "moved" }, committed: null };
+	});
+
+	// Index the destination assets against the app, same best-effort contract as
+	// every other writer's post-commit sync. Only needed when the blueprint was
+	// repointed (the no-media flip references the same assets it already did).
+	if (result.committed) {
+		await syncMediaReferences(appId, result.committed);
+	}
+	return result.outcome;
 }
 
 /**

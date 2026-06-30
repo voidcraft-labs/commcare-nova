@@ -234,6 +234,54 @@ export async function confirmAssetReady(args: {
 }
 
 /**
+ * Create a `ready` asset row in one shot — the cross-Project move's
+ * copy-into-destination path (`lib/media/moveMedia.ts`). The bytes are already
+ * validated (they are a server-side GCS copy of an existing `ready` asset), so
+ * this skips the pending→confirm dance browser uploads need and writes the final
+ * row directly: no lingering `pending` intermediate to strand on a crash. The
+ * caller passes `referencingAppIds` (the moving app) so the copy is born already
+ * reverse-indexed — if the process dies after the flip commits but before the
+ * post-commit `syncMediaReferences`, the copy still reads as referenced and the
+ * deletion guard protects it (an empty array would let a co-member delete a
+ * live-referenced copy). Returns the new `assetId`.
+ */
+export async function createReadyAsset(args: {
+	owner: string;
+	project_id: string;
+	contentHash: string;
+	mimeType: AssetMimeType;
+	kind: AssetKind;
+	extension: string;
+	sizeBytes: number;
+	gcsObjectKey: string;
+	originalFilename: string;
+	displayName?: string;
+	dimensions?: { width: number; height: number };
+	durationMs?: number;
+	referencingAppIds?: readonly string[];
+}): Promise<{ assetId: AssetId }> {
+	const assetId = asAssetId(randomUUID());
+	await docs.mediaAsset(assetId).create({
+		owner: args.owner,
+		project_id: args.project_id,
+		contentHash: args.contentHash,
+		mimeType: args.mimeType,
+		kind: args.kind,
+		extension: args.extension,
+		sizeBytes: args.sizeBytes,
+		gcsObjectKey: args.gcsObjectKey,
+		originalFilename: args.originalFilename,
+		displayName: args.displayName ?? args.originalFilename,
+		...(args.dimensions !== undefined && { dimensions: args.dimensions }),
+		...(args.durationMs !== undefined && { durationMs: args.durationMs }),
+		status: "ready",
+		created_at: FieldValue.serverTimestamp() as unknown as Timestamp,
+		referencingAppIds: [...(args.referencingAppIds ?? [])],
+	});
+	return { assetId };
+}
+
+/**
  * Write the document-extract subobject in one shot, stamping `extractedAt`
  * server-side. The extract is a self-contained nested object, so a plain
  * `update({ extract })` replaces the whole subobject on every state
