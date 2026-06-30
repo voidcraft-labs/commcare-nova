@@ -459,6 +459,9 @@ export async function createApp(
 		project_id: projectId,
 		...denormalize(emptyDoc),
 		blueprint: persistable,
+		/* The per-app stream counter starts at 0; the guarded writer advances
+		 * it by one on every committed mutation batch. */
+		mutation_seq: 0,
 		status: opts?.status ?? "generating",
 		error_type: null,
 		/* Initialize soft-delete fields to null so every row on disk

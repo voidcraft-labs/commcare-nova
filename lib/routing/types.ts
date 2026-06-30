@@ -23,29 +23,52 @@
  * form is derived from the doc's ordering maps.
  */
 
-import type { Uuid } from "@/lib/doc/types";
+import { z } from "zod";
+import { uuidSchema } from "@/lib/domain";
 
 /**
- * Every valid builder location. Home is the default when the path is
- * empty or unrecognized. Cases, Form, and SearchConfig require their
- * respective UUID params; a missing or unresolvable UUID collapses to
- * home.
+ * Every valid builder location, as a Zod discriminated union over `kind`.
+ * Home is the default when the path is empty or unrecognized. Cases, Form,
+ * and SearchConfig require their respective UUID params; a missing or
+ * unresolvable UUID collapses to home (resolved by the path parser, not the
+ * schema).
  *
  * `cases` / `search-config` / `detail-config` are sibling kinds — the
  * three tabs of the unified case-list workspace (list / search /
  * detail). Each tab is its own URL kind so tab switches are ordinary
  * history navigation and the routing dispatch branches on a single
  * discriminator instead of carrying a tab parameter.
+ *
+ * The schema is the source of truth and `Location` is inferred from it, so
+ * the presence wire (`presenceDocSchema` carries `location: locationSchema`)
+ * validates a peer's location on read against the exact same shape the
+ * routing hooks consume. `uuidSchema` types the entity-uuid slots as the
+ * branded `Uuid`.
  */
-export type Location =
-	| { kind: "home" }
-	| { kind: "module"; moduleUuid: Uuid }
-	| { kind: "cases"; moduleUuid: Uuid; caseId?: string }
-	| { kind: "search-config"; moduleUuid: Uuid }
-	| { kind: "detail-config"; moduleUuid: Uuid }
-	| {
-			kind: "form";
-			moduleUuid: Uuid;
-			formUuid: Uuid;
-			selectedUuid?: Uuid;
-	  };
+export const locationSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("home") }).strict(),
+	z.object({ kind: z.literal("module"), moduleUuid: uuidSchema }).strict(),
+	z
+		.object({
+			kind: z.literal("cases"),
+			moduleUuid: uuidSchema,
+			caseId: z.string().optional(),
+		})
+		.strict(),
+	z
+		.object({ kind: z.literal("search-config"), moduleUuid: uuidSchema })
+		.strict(),
+	z
+		.object({ kind: z.literal("detail-config"), moduleUuid: uuidSchema })
+		.strict(),
+	z
+		.object({
+			kind: z.literal("form"),
+			moduleUuid: uuidSchema,
+			formUuid: uuidSchema,
+			selectedUuid: uuidSchema.optional(),
+		})
+		.strict(),
+]);
+
+export type Location = z.infer<typeof locationSchema>;

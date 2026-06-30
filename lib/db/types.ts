@@ -23,6 +23,8 @@
 import { Timestamp } from "@google-cloud/firestore";
 import { z } from "zod";
 import { attachmentRefSchema } from "@/lib/chat/attachmentRefs";
+import { mutationSchema } from "@/lib/doc/types";
+import { locationSchema } from "@/lib/routing/types";
 import { blueprintDocSchema } from "../domain/blueprint";
 import {
 	ALL_MIME_TYPES,
@@ -228,6 +230,16 @@ export const appDocSchema = z.object({
 	 * even when that field is absent in the stored document.
 	 */
 	blueprint: blueprintDocSchema,
+	/**
+	 * Monotonic per-app counter, advanced by exactly one on every committed
+	 * blueprint mutation batch. It is the per-app mutation stream's ordering
+	 * key, the client's recovery cursor, the export version boundary, and the
+	 * source for the Postgres `synced_seq` guard. `blueprint_token` keeps its
+	 * optimistic-concurrency role; clients key recovery on `mutation_seq`.
+	 * Defaults to 0 on rows that predate the field, and initializes on the
+	 * first committed write.
+	 */
+	mutation_seq: z.number().int().nonnegative().default(0),
 	/** Connect app type — denormalized for list filtering. Null for standard apps. */
 	connect_type: z.enum(["learn", "deliver"]).nullable().default(null),
 	/** Number of modules — denormalized for list display. */
@@ -368,6 +380,33 @@ export const appDocSchema = z.object({
 			 * world those markers were written in).
 			 */
 			userId: z.string().optional(),
+			/**
+			 * Absolute deadline (Timestamp) past which an edit run's hold is
+			 * considered stranded. Set at `reserveCredits` to
+			 * `now + MAX_RUN_MINUTES`; the edit reaper (`reapStaleReservation`)
+			 * refunds an unsettled marker only once it is past this, and a
+			 * `claimRun` treats a `run_lock` past its own `expireAt` as
+			 * claimable. Optional: markers written before this field shipped
+			 * carry none (and builds reap on `updated_at` staleness, not this).
+			 */
+			expireAt: timestamp.optional(),
+		})
+		.optional(),
+	/**
+	 * Per-app SA-run lease for EDIT runs (builds claim the window via
+	 * `status: 'generating'` instead). `claimRun` transactionally writes this
+	 * to serialize concurrent runs against one app without flipping status —
+	 * an edit stays `complete`. A second collaborator's run waits on a held
+	 * lock rather than 429-ing. The lock is released on every terminal state
+	 * (clean or failed, except a paused `askQuestions` hold) and an absent or
+	 * past-`expireAt` lock is treated as claimable, so a hard-killed run never
+	 * starves a waiter. Absent on apps with no edit run in flight.
+	 */
+	run_lock: z
+		.object({
+			runId: z.string(),
+			actorUserId: z.string(),
+			expireAt: timestamp,
 		})
 		.optional(),
 	/** First save timestamp. Set once via FieldValue.serverTimestamp(). */
@@ -376,6 +415,89 @@ export const appDocSchema = z.object({
 	updated_at: timestamp,
 });
 export type AppDoc = z.infer<typeof appDocSchema>;
+
+// ── Multiplayer stream — app subcollections ────────────────────────
+//
+// Three subcollections under `apps/{appId}` back the real-time stream:
+//
+//   acceptedMutations/{seq}   the durable, ordered stream of committed
+//                             mutation batches (seqDocId = padded `seq`)
+//   batchDedup/{batchId}      the idempotency latch a retried PUT keys on
+//   presence/{userId}:{sessionId}  the live roster, one doc per browser tab
+//
+// Every entry carries an absolute `expireAt` Timestamp; a Firestore TTL
+// policy provisioned out-of-band on that field reaps it. Durations live in
+// `lib/db/constants.ts`.
+
+/**
+ * One committed mutation batch in the durable stream, stored at
+ * `apps/{appId}/acceptedMutations/{seq}` (seqDocId = `String(seq).padStart(12,
+ * '0')` so lexicographic doc-id order matches numeric `seq` order). Entries
+ * store the DELTA, so folding the deltas from any retained `seq` reproduces
+ * the stored blueprint snapshot. The relay pipes these to browsers as SSE
+ * frames; a `kind: 'migration'` entry is a stream sentinel (its `mutations`
+ * are empty) that tells a client to reload rather than replay.
+ */
+export const acceptedMutationSchema = z.object({
+	/** The monotonic `mutation_seq` this batch committed at. */
+	seq: z.number().int().nonnegative(),
+	/** Client-minted idempotency key — pairs with `batchDedup/{batchId}`. */
+	batchId: z.string(),
+	/** The SA run that produced the batch (chat/mcp); absent for an autosave. */
+	runId: z.string().optional(),
+	/** The committed batch's delta. Empty for a `migration` sentinel. */
+	mutations: z.array(mutationSchema),
+	/** The user who authored the batch (echo-classification on the client). */
+	actorId: z.string(),
+	/** Which write path committed the batch. */
+	kind: z.enum(["autosave", "mcp", "chat", "migration"]),
+	/** Commit time, via FieldValue.serverTimestamp(); a Timestamp on read. */
+	ts: timestamp,
+	/** TTL deadline (`now + ACCEPTED_MUTATIONS_TTL_MS`). */
+	expireAt: timestamp,
+});
+export type AcceptedMutationDoc = z.infer<typeof acceptedMutationSchema>;
+
+/**
+ * Idempotency latch for one committed batch, stored at
+ * `apps/{appId}/batchDedup/{batchId}`. The guarded writer reads it FIRST
+ * inside the commit transaction: a hit short-circuits to the recorded `seq`
+ * and writes nothing, so a client's retry of a not-yet-acked PUT never
+ * double-commits. Carries the committed `seq` and the `basisToken`
+ * (`blueprint_token`) the commit rotated to.
+ */
+export const batchDedupSchema = z.object({
+	seq: z.number().int().nonnegative(),
+	basisToken: z.string(),
+	/** TTL deadline (`now + BATCH_DEDUP_TTL_MS`). */
+	expireAt: timestamp,
+});
+export type BatchDedupDoc = z.infer<typeof batchDedupSchema>;
+
+/**
+ * One collaborator's live presence, stored at
+ * `apps/{appId}/presence/{userId}:{sessionId}`. Keyed per browser session so a
+ * user's two tabs don't clobber each other; the roster dedupes self by
+ * `userId`. Posted on selection change and on a heartbeat; the TTL reaps a
+ * tab that stopped heartbeating. `location` is validated against the same
+ * `locationSchema` the routing hooks consume, so a peer's location is a
+ * structurally valid builder URL on read.
+ */
+export const presenceDocSchema = z.object({
+	userId: z.string(),
+	sessionId: z.string(),
+	/** Display name, denormalized from `auth_user` so the roster needs no join. */
+	name: z.string(),
+	/** Stable per-user avatar/marker color (`hash(userId) → palette`). */
+	color: z.string(),
+	/** Where this session is in the builder — a peer's avatar follows this. */
+	location: locationSchema,
+	/** Last heartbeat/selection-change time; the roster hides a stale entry. */
+	updatedAt: timestamp,
+	/** TTL deadline (`now + PRESENCE_TTL_MS`). */
+	expireAt: timestamp,
+});
+export type PresenceDoc = z.infer<typeof presenceDocSchema>;
 
 // ── Chat Threads ──────────────────────────────────────────────────
 

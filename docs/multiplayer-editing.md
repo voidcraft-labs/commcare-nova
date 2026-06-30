@@ -188,34 +188,46 @@ parse-safe on legacy data. No observable behavior alone.
     **unchanged**. P5's `getListenDb()` composes it and overrides only the transport (below). `preferRest` is load-bearing
     (it gates the gRPC channel that hangs in credential-free Docker builds and the
     node-fetch keep-alive class behind a prior all-`/api/auth` 500); never drop it.
-- `lib/domain/blueprint.ts`, `lib/domain/fields/base.ts`, `lib/domain/modules.ts` — every
-  schema is `.strict()`; each base edited individually; new slots **optional**:
-  - `structuralFieldBase`: `order: z.string().optional()` (all 19 field kinds incl. 3
-    repeat variants).
-  - `moduleSchema`, `formSchema`, `columnBase`, `searchInputCommon`: `order:
-    z.string().optional()`.
-  - `selectOptionSchema`: `order: z.string().optional()` **and** `uuid:
-    uuidSchema.optional()`.
+- `lib/domain/fields/base.ts`, `lib/domain/modules.ts`, `lib/domain/forms.ts` — every schema
+  is `.strict()`; each base edited individually; new slots **optional**:
+  - `structuralFieldBase` (`fields/base.ts`): `order: z.string().optional()` (all 19 field
+    kinds incl. 3 repeat variants).
+  - `moduleSchema` / `columnBase` / `searchInputCommon` (`modules.ts`) and `formSchema`
+    (`forms.ts` — `blueprint.ts` only imports `formSchema`): `order: z.string().optional()`.
+  - `selectOptionSchema` (`fields/base.ts`): `order: z.string().optional()` **and**
+    `uuid: uuidSchema.optional()`.
+- **Keep the new slots off the SA wire** (so P1 stays behavior-neutral): the SA tool input
+  schemas derive from the domain schemas via `.omit()`, so `order`/`uuid` would otherwise
+  leak to the model (letting it author identity/sort keys). `lib/agent/toolSchemaGenerator.ts::saOptionSchema`
+  omits `media` + `uuid` + `order`; `lib/agent/tools/case-list-config/shared.ts`'s column /
+  search-input arms omit `uuid` + `order`. The prior SA surface is preserved exactly.
+- `lib/domain/referenceSlots.ts` — classify the new non-reference scalars in the schema-key
+  totality audit (`order` → config, option `uuid` → identity, option `order` → config) and
+  update the two pinned-list tests in `referenceSlots.test.ts`.
 - `lib/doc/order/keys.ts` *(new)* — total fractional-key primitives over BASE_62:
   `keyBetween(a: string|null, b: string|null): string` (never throws; degenerate bound →
   fresh place-after key); `deriveKeyAtIndex(orderedKeys: string[], index: number): string`.
-- `lib/doc/order/backfill.ts` *(new)* — pure, idempotent, **deterministic** (position-
-  seeded so client and server agree on the same legacy doc): `backfillOrderKeys(doc)`
-  seeds `order` from current array position when absent; `backfillOptionUuids(doc)` derives
-  a stable uuid from `(field uuid, option index)` (e.g. `\`${field.uuid}-opt-${i}\``) for
-  any option lacking one — **never `randomUUID()`** (two independent hydrations of the same
-  legacy doc must produce identical uuids, or a client diff references an option the server
-  doesn't have).
+- `lib/doc/order/backfill.ts` *(new)* — pure, idempotent, **deterministic** (so client and
+  server agree on the same legacy doc): `backfillOrderKeys(doc)` seeds `order` from current
+  array position when absent, filling each run of keyless entries by **recursive midpoint
+  bisection** (O(log N) key length, not an O(N) place-after chain); `backfillOptionUuids(doc)`
+  derives a stable uuid from `(field uuid, option index)` (`\`${field.uuid}-opt-${i}\``) —
+  **never `randomUUID()`** (two independent hydrations of the same legacy doc must produce
+  identical keys/uuids, or a client diff references an option the server doesn't have).
 - `lib/doc/order/compare.ts` *(new)* — `bySortKey(a, b)`: order by `order` when both
   present; an absent `order` falls back to a stable array-position key (total).
 - `lib/case-store/sql/database.ts` + a new migration
   `<ts>_add_case_type_schemas_synced_seq.ts` + `lib/case-store/migrations/index.ts` —
-  add `synced_seq` to `CaseTypeSchemasTable`, typed `ColumnType<number, number |
-  undefined, number>` (node-postgres returns `int8`/`bigint` as a string, so the read
-  coerces `Number(row.synced_seq)` and insert is optional). Migration: `ALTER TABLE … ADD
-  COLUMN IF NOT EXISTS "synced_seq" bigint NOT NULL DEFAULT 0` (metadata-only, no index;
-  template `20260627000000_add_cases_project_id`); dual-source (type + migration in the
-  same commit).
+  add `synced_seq` to `CaseTypeSchemasTable`, typed `ColumnType<string, number | undefined,
+  number>` — the SELECT type is **`string`** because node-postgres returns `int8`/`bigint` as
+  a string, so a reader coerces `Number(row.synced_seq)` (the type forces the coercion);
+  insert is optional. Migration `20260630000000_add_case_type_schemas_synced_seq.ts`:
+  `ALTER TABLE "case_type_schemas" ADD COLUMN IF NOT EXISTS "synced_seq" bigint NOT NULL
+  DEFAULT 0` (metadata-only, no index; template `20260627000000_add_cases_project_id`);
+  dual-source (type + migration in the same commit).
+- `lib/db/apps.ts::createApp` stamps `mutation_seq: 0` on a new app doc (the §Rollout
+  "initializes on first write"). `mutation_seq`'s `.default(0)` makes `AppDoc.mutation_seq`
+  required-`number`, so the MCP test fixtures that build a full `AppDoc` gain `mutation_seq: 0`.
 
 **Code facts to handle.**
 - All domain schemas are `.strict()` — a key not added to every `.extend()` chain throws.
@@ -1078,8 +1090,10 @@ longer an accepted residual).
   reconciler; `data-mutations`/`data-done`/`data-app-id`/`data-run-id` through it.
 - `lib/collab/reconciler.ts` / `presence.ts` / `usePeersAt.ts` *(new)*; a `ReconcilerProvider`
   in the builder layout owning the single EventSource + `subscribePresence`.
-- `lib/domain/blueprint.ts` / `modules.ts` / `fields/base.ts` — `order` slots, option `uuid`;
-  `lib/routing/types.ts` — `locationSchema`.
+- `lib/domain/fields/base.ts` / `modules.ts` / `forms.ts` — `order` slots, option `uuid`;
+  `lib/domain/referenceSlots.ts` + `lib/agent/toolSchemaGenerator.ts` +
+  `lib/agent/tools/case-list-config/shared.ts` — keep the new slots off the SA wire + classify
+  them in the totality audit; `lib/routing/types.ts` — `locationSchema`.
 - `app/api/apps/[id]/route.ts` — `mutation_seq` GET; `{mutations,batchId}` PUT /
   `{ok,basisToken,seq}` response.
 - `app/api/apps/[id]/stream/route.ts` / `presence/route.ts` *(new)*.

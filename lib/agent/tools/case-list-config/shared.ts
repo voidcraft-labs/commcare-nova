@@ -55,7 +55,9 @@ export { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 // both surfaces. Same approach for the search-input tools.
 //
 // Each arm comes from `columnSchema.options` / `searchInputDefSchema.options`
-// with `uuid` omitted. Destructuring per-arm preserves the TS-inferred
+// with `uuid` and `order` omitted — both are tool-owned (uuid minted on add /
+// carried on update; the fractional `order` sort key is computed by the
+// gesture/diff layer, never authored by the SA). Destructuring per-arm preserves the TS-inferred
 // per-arm shape so the discriminated union retypes cleanly — the
 // `Iterable<ZodObject>.map(...)` form drops the per-arm narrowing into
 // a non-callable union TS can't dispatch through `omit`.
@@ -75,18 +77,19 @@ const [
 ] = columnSchema.options;
 
 /**
- * Per-arm `Column` schema with the `uuid` slot omitted. Surface the SA
- * passes when adding or updating a column — the uuid is owned by the
- * tool (minted on add, looked up by `columnUuid` on update).
+ * Per-arm `Column` schema with the `uuid` and `order` slots omitted.
+ * Surface the SA passes when adding or updating a column — the uuid is owned
+ * by the tool (minted on add, looked up by `columnUuid` on update) and the
+ * fractional `order` sort key is computed by the gesture/diff layer.
  */
 export const columnInputSchema = z.discriminatedUnion("kind", [
-	plainColumnArm.omit({ uuid: true }),
-	dateColumnArm.omit({ uuid: true }),
-	phoneColumnArm.omit({ uuid: true }),
-	idMappingColumnArm.omit({ uuid: true }),
-	imageMapColumnArm.omit({ uuid: true }),
-	intervalColumnArm.omit({ uuid: true }),
-	calculatedColumnArm.omit({ uuid: true }),
+	plainColumnArm.omit({ uuid: true, order: true }),
+	dateColumnArm.omit({ uuid: true, order: true }),
+	phoneColumnArm.omit({ uuid: true, order: true }),
+	idMappingColumnArm.omit({ uuid: true, order: true }),
+	imageMapColumnArm.omit({ uuid: true, order: true }),
+	intervalColumnArm.omit({ uuid: true, order: true }),
+	calculatedColumnArm.omit({ uuid: true, order: true }),
 ]);
 export type ColumnInput = z.infer<typeof columnInputSchema>;
 
@@ -94,12 +97,12 @@ const [simpleSearchInputArm, advancedSearchInputArm] =
 	searchInputDefSchema.options;
 
 /**
- * Per-arm `SearchInputDef` schema with the `uuid` slot omitted. Mirrors
- * `columnInputSchema` for the search-input add / update tools.
+ * Per-arm `SearchInputDef` schema with the `uuid` and `order` slots omitted.
+ * Mirrors `columnInputSchema` for the search-input add / update tools.
  */
 export const searchInputDefInputSchema = z.discriminatedUnion("kind", [
-	simpleSearchInputArm.omit({ uuid: true }),
-	advancedSearchInputArm.omit({ uuid: true }),
+	simpleSearchInputArm.omit({ uuid: true, order: true }),
+	advancedSearchInputArm.omit({ uuid: true, order: true }),
 ]);
 export type SearchInputDefInput = z.infer<typeof searchInputDefInputSchema>;
 

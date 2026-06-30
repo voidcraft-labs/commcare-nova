@@ -56,16 +56,24 @@ export { mediaSchema, xpathExpressionSchema };
 /**
  * Minimum shape every field carries: stable uuid + semantic id. Hidden
  * fields extend this directly (they have no label and no input wiring).
+ *
+ * `order` is the absolute fractional sort key (`lib/doc/order`) that names
+ * the field's position among its siblings — display/wire/preview sequence is
+ * `sort-by-(order, uuid)`, not `fieldOrder` array position. Optional because
+ * legacy fields predate it; backfilled deterministically at hydration. Never
+ * reaches CommCare (the emitters read the sorted sequence and drop it).
  */
 export type StructuralFieldBase = {
 	uuid: Uuid;
 	id: string;
+	order?: string;
 };
 
 export const structuralFieldBase = z
 	.object({
 		uuid: uuidSchema,
 		id: z.string(),
+		order: z.string().optional(),
 	})
 	.strict();
 
@@ -148,11 +156,20 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
  * each option can show its own image / audio / video alongside its
  * label text — useful for visual-pick UIs ("pick which symptom
  * matches this image" etc.).
+ *
+ * `uuid` is the option's stable identity for granular per-option mutations
+ * (so two members editing different options merge); `order` is its absolute
+ * fractional sort key. Both optional because legacy options predate them and
+ * are backfilled deterministically at hydration (`uuid` from
+ * `(field uuid, option index)`, `order` from array position). Neither
+ * reaches CommCare.
  */
 export type SelectOption = {
 	value: string;
 	label: string;
 	media?: Media;
+	uuid?: Uuid;
+	order?: string;
 };
 
 export const selectOptionSchema = z
@@ -160,5 +177,7 @@ export const selectOptionSchema = z
 		value: z.string(),
 		label: z.string(),
 		media: mediaSchema.optional(),
+		uuid: uuidSchema.optional(),
+		order: z.string().optional(),
 	})
 	.strict();

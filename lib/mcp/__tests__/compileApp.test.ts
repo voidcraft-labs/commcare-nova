@@ -106,6 +106,7 @@ function fixtureAppDoc(overrides?: Partial<AppDoc>): AppDoc {
 		project_id: "project-1",
 		app_name: "Vaccine Tracker",
 		blueprint: fixtureBlueprint(),
+		mutation_seq: 0,
 		connect_type: null,
 		module_count: 0,
 		form_count: 0,
