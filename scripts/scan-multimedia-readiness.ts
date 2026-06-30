@@ -518,7 +518,7 @@ async function scanApp(appId: string): Promise<void> {
 		typeof data.project_id === "string" ? data.project_id : undefined;
 	if (!projectId) {
 		console.error(
-			`App "${appId}" has no project_id, so its media assets can't be resolved (every asset read is Project-scoped). Run scripts/backfill-media-project-id.ts (or backfill-apps-project-id.ts) first, or inspect the doc with scripts/inspect-app.ts.`,
+			`App "${appId}" has no project_id, so its media assets can't be resolved (every asset read is Project-scoped).`,
 		);
 		process.exit(1);
 	}
