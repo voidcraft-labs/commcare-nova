@@ -37,6 +37,40 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 /**
+ * Global stub for `@sentry/nextjs`, mirroring the logger mock above:
+ * replace one module at the boundary for the whole suite rather than
+ * per-test.
+ *
+ * WHY this is mocked globally and not per-test:
+ *
+ *   Importing the real `@sentry/nextjs` server entry runs
+ *   `prepareSafeIdGeneratorContext()` at module init, which calls
+ *   `AsyncLocalStorage.snapshot()` and caches the returned context-bound
+ *   function on a global symbol for the process lifetime. Under
+ *   `vitest --detect-async-leaks` that snapshot is flagged as an
+ *   async-resource leak, attributed to whichever test file first pulled
+ *   Sentry into its import graph (via `@/lib/auth-utils`, `@/lib/logger`,
+ *   the MCP dispatch path, …). It is a benign one-time SDK init, not a
+ *   per-test leak, but the gate fails on any leak — same class of problem
+ *   the `motion/react` mock below solves.
+ *
+ * FAITHFULNESS: error reporting is a fire-and-forget side effect that no
+ * test asserts on; production Sentry (the `sentry.*.config.ts` /
+ * `instrumentation*.ts` hooks) is untouched, since those load via Next.js,
+ * not the test import graph. The stub provides exactly the namespace
+ * methods the app calls (`captureException`, `captureMessage`, `setTag`,
+ * `setUser`) as `vi.fn()`s; any other export resolves to `undefined` at the
+ * import site — a loud failure rather than silent wrong behavior — so this
+ * list tracks real usage rather than being defensively exhaustive.
+ */
+vi.mock("@sentry/nextjs", () => ({
+	captureException: vi.fn(),
+	captureMessage: vi.fn(),
+	setTag: vi.fn(),
+	setUser: vi.fn(),
+}));
+
+/**
  * Global stub for `motion/react` (framer-motion), mirroring the logger
  * mock above: replace one module at the boundary for the whole suite
  * rather than per-test.
