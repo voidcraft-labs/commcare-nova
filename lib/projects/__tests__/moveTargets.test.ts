@@ -44,38 +44,27 @@ describe("eligibleMoveTargets", () => {
 		proj("personal", "owner", { personal: true }),
 	];
 
-	it("offers only Projects the user is admin/owner of, minus the active one", () => {
-		const ids = eligibleMoveTargets(projects, "active", "owner")
+	it("offers every Project the user is admin/owner of, minus the active one", () => {
+		// The owner-protection refinement (source owner must be in the destination)
+		// is the page's job — this is the membership-only candidate list, so the
+		// personal Project is included here regardless of source role.
+		const ids = eligibleMoveTargets(projects, "active")
 			.map((t) => t.id)
 			.sort();
 		expect(ids).toEqual(["personal", "shared-admin"]);
 	});
 
 	it("excludes editor-only and viewer-only Projects (admin/owner destination bar)", () => {
-		const ids = eligibleMoveTargets(projects, "active", "owner").map(
-			(t) => t.id,
-		);
+		const ids = eligibleMoveTargets(projects, "active").map((t) => t.id);
 		expect(ids).not.toContain("shared-edit");
 		expect(ids).not.toContain("shared-view");
 		expect(ids).not.toContain("active");
-	});
-
-	it("offers a personal-Project destination only when the source is owned", () => {
-		// Source owned → may take the app private.
-		expect(
-			eligibleMoveTargets(projects, "active", "owner").map((t) => t.id),
-		).toContain("personal");
-		// Source merely admin → no pocketing into a personal Project.
-		expect(
-			eligibleMoveTargets(projects, "active", "admin").map((t) => t.id),
-		).not.toContain("personal");
 	});
 
 	it("projects each target down to { id, name }", () => {
 		const targets = eligibleMoveTargets(
 			[proj("x", "admin", { name: "Team X" })],
 			"active",
-			"owner",
 		);
 		expect(targets).toEqual([{ id: "x", name: "Team X" }]);
 	});
@@ -85,7 +74,6 @@ describe("eligibleMoveTargets", () => {
 			eligibleMoveTargets(
 				[proj("active", "owner"), proj("e", "editor")],
 				"active",
-				"owner",
 			),
 		).toEqual([]);
 	});

@@ -9,6 +9,7 @@
 
 import { cache } from "react";
 import { getAuthDb } from "@/lib/auth/db";
+import { roleIsOwner } from "@/lib/auth/projectRoles";
 
 /** One Project the user belongs to — drives the header switcher. */
 export interface ProjectSummary {
@@ -74,7 +75,7 @@ export async function projectOwnerId(
 		.select(["userId", "role"])
 		.where("organizationId", "=", projectId)
 		.execute();
-	return rows.find((r) => r.role.split(",").includes("owner"))?.userId ?? null;
+	return rows.find((r) => roleIsOwner(r.role))?.userId ?? null;
 }
 
 /**

@@ -44,6 +44,24 @@ export class AppBusyError extends Error {
 }
 
 /**
+ * The app doc + media flipped to the destination, but re-tenanting the Postgres
+ * case rows then failed (a sustained Cloud SQL outage outlasting the retries).
+ * The app HAS moved; its case rows are stranded in the source Project but intact
+ * and recoverable — re-running the move (the re-tenant is idempotent and keyed by
+ * app_id, so any later move of the app reconciles them). Distinct from a clean
+ * failure so the Server Action can tell the user the app moved rather than a
+ * misleading "couldn't move."
+ */
+export class CaseDataStrandedError extends Error {
+	readonly name = "CaseDataStrandedError";
+	constructor() {
+		super(
+			"App moved, but its case data could not be synced to the destination.",
+		);
+	}
+}
+
+/**
  * How many times the flip step copies-then-commits before giving up. The only
  * reason to retry is a concurrent edit that adds a media ref AFTER a pass's copy
  * step; the retry re-copies it and re-commits. Because the commit writes nothing
@@ -187,11 +205,13 @@ export async function moveAppToProject(args: {
 		}
 	}
 	// The flip already committed, so the app is at its destination but its case
-	// rows are not. Log loudly (recoverable — any later move re-runs this) and fail.
+	// rows are not. Log loudly (recoverable — any later move re-runs this) and
+	// raise the typed error so the caller reports "moved, sync failed" rather than
+	// a misleading "couldn't move."
 	log.error(
 		"[moveAppToProject] case re-tenant failed after the project flip; case rows stranded",
 		caseErr,
 		{ appId: args.appId, toProjectId: args.toProjectId },
 	);
-	throw caseErr;
+	throw new CaseDataStrandedError();
 }

@@ -26,7 +26,11 @@ import {
 	userInProject,
 } from "@/lib/db/appAccess";
 import { restoreApp as restoreAppDoc, softDeleteApp } from "@/lib/db/apps";
-import { AppBusyError, moveAppToProject } from "@/lib/db/moveAppToProject";
+import {
+	AppBusyError,
+	CaseDataStrandedError,
+	moveAppToProject,
+} from "@/lib/db/moveAppToProject";
 import { log } from "@/lib/logger";
 import { projectOwnerId } from "@/lib/projects/membership";
 
@@ -192,34 +196,32 @@ export async function moveApp(
 			return { success: false, error: "Missing app or Project identifier." };
 		}
 
-		// Source: admin/owner of the app's current Project.
-		let access: Awaited<ReturnType<typeof resolveAppAccess>>;
-		try {
-			access = await resolveAppAccess(appId, session.user.id, "delete");
-		} catch (err) {
-			if (err instanceof AppAccessError) {
+		// Source (admin/owner of the app's current Project) and destination
+		// (admin/owner of the target) are independent reads — resolve them in
+		// parallel. Destination `delete` passes trivially when the target IS the
+		// current Project, so a move against the app's own home falls through to the
+		// orchestrator's idempotent case re-tenant — the recovery path for a prior
+		// move whose re-tenant failed after the doc flip.
+		const [sourceResult, destResult] = await Promise.allSettled([
+			resolveAppAccess(appId, session.user.id, "delete"),
+			resolveProjectAccess(session.user.id, toProjectId, "delete"),
+		]);
+		if (sourceResult.status === "rejected") {
+			if (sourceResult.reason instanceof AppAccessError) {
 				return { success: false, error: "App not found." };
 			}
-			throw err;
+			throw sourceResult.reason;
 		}
-
-		// Destination: admin/owner of the destination (the mirror of releasing it
-		// from the source — accepting an app injects its data into the Project). This
-		// passes trivially when the destination IS the current Project, so a move
-		// against the app's current home falls through to the orchestrator's
-		// idempotent case re-tenant below — the recovery path for a prior move whose
-		// re-tenant failed after the doc flip.
-		try {
-			await resolveProjectAccess(session.user.id, toProjectId, "delete");
-		} catch (err) {
-			if (err instanceof AppAccessError) {
+		if (destResult.status === "rejected") {
+			if (destResult.reason instanceof AppAccessError) {
 				return {
 					success: false,
 					error: "Couldn't move the app to that Project.",
 				};
 			}
-			throw err;
+			throw destResult.reason;
 		}
+		const access = sourceResult.value;
 
 		// Owner-protection: unless the caller is the source Project's owner, the
 		// destination must include that owner, so a non-owner admin can't relocate
@@ -249,6 +251,17 @@ export async function moveApp(
 				success: false,
 				error:
 					"This app is being generated right now — try again once it finishes.",
+			};
+		}
+		if (err instanceof CaseDataStrandedError) {
+			// The app moved; only the case-data sync failed (already logged by the
+			// orchestrator). Revalidate so the list reflects the move, and tell the
+			// user the truth — the data is recoverable by moving the app again.
+			revalidatePath("/");
+			return {
+				success: false,
+				error:
+					"The app was moved, but syncing its case data to the new Project failed. Its data is safe — move the app again to finish syncing, or contact support.",
 			};
 		}
 		log.error("[home/move-app] error", err);

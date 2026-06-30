@@ -791,9 +791,11 @@ async function createAuth() {
 							});
 						}
 					},
-					/* The role-change twin: a personal Project has only its owner, so
-					 * there is no member to re-role. Reject any role change on one as a
-					 * defensive guard (a crafted request can't reach a member it has). */
+					/* The role-change twin: a personal Project is private, so no role is
+					 * assignable on it — reject every role change. (It may still hold a
+					 * guest grandfathered in under the old viewer/editor policy; the owner
+					 * REMOVES such a guest from the members panel rather than re-roling
+					 * them, since the Project is private now.) */
 					beforeUpdateMemberRole: async ({ organization }) => {
 						if (isPersonalProjectMetadata(organization.metadata)) {
 							throw new APIError("BAD_REQUEST", {
