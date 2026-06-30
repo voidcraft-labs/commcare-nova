@@ -17,11 +17,18 @@ import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import Link from "next/link";
 import { listApps, listDeletedApps } from "@/lib/db/apps";
+import { listUserProjects } from "@/lib/projects/membership";
+import {
+	canMoveAppsFrom,
+	eligibleMoveTargets,
+} from "@/lib/projects/moveTargets";
 import { AppListBody } from "./app-list-body";
 
 interface AppListProps {
 	/** Active Project id (Better Auth organizationId) — the tenancy scope. */
 	projectId: string;
+	/** Signed-in user — resolves which Projects an app may move into. */
+	userId: string;
 	/** Whether to show admin-only replay buttons on active cards. */
 	isAdmin: boolean;
 }
@@ -34,11 +41,21 @@ interface AppListProps {
  */
 const PAGE_SIZE = 50;
 
-export async function AppList({ projectId, isAdmin }: AppListProps) {
-	const [activeRes, deletedRes] = await Promise.all([
+export async function AppList({ projectId, userId, isAdmin }: AppListProps) {
+	const [activeRes, deletedRes, projects] = await Promise.all([
 		listApps(projectId, { limit: PAGE_SIZE, sort: "updated_desc" }),
 		listDeletedApps(projectId, { limit: PAGE_SIZE }),
+		listUserProjects(userId),
 	]);
+
+	/* Destinations an app may move into — offered only when the user is admin or
+	 * owner of the active Project (the bar to move an app out of it). Empty
+	 * otherwise, so the cards render no move affordance. */
+	const active = projects.find((p) => p.id === projectId);
+	const moveTargets =
+		active && canMoveAppsFrom(active.role)
+			? eligibleMoveTargets(projects, projectId)
+			: [];
 
 	return (
 		<>
@@ -57,6 +74,7 @@ export async function AppList({ projectId, isAdmin }: AppListProps) {
 				active={activeRes.apps}
 				deleted={deletedRes.apps}
 				showReplay={isAdmin}
+				moveTargets={moveTargets}
 			/>
 		</>
 	);

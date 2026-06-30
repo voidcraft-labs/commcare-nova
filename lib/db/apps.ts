@@ -25,7 +25,11 @@ import type {
 	PersistedBlueprint,
 } from "../domain/blueprint";
 import { isBuiltinIconRef } from "../domain/builtinIcons";
-import { asWalkableDoc, collectAssetRefs } from "../domain/mediaRefs";
+import {
+	asWalkableDoc,
+	collectAssetRefs,
+	remapAssetRefs,
+} from "../domain/mediaRefs";
 import { refundReservation } from "./credits";
 import { collections, docs, getDb } from "./firestore";
 import { addReferencingApp } from "./mediaAssets";
@@ -657,6 +661,123 @@ export async function updateAppGuardedMutating(
 	});
 	await syncMediaReferences(appId, committed);
 	return basisToken;
+}
+
+/**
+ * Outcome of {@link commitAppProjectMove}. `moved` and `already_moved` are both
+ * terminal success (the latter idempotent — a re-run after the flip committed);
+ * `media_stale` reports asset ids the FRESH doc references that the caller never
+ * attempted to copy into the destination (a concurrent edit added them after the
+ * orchestrator's copy pass), so the move orchestrator copies those and retries.
+ */
+export type CommitMoveResult =
+	| { kind: "moved" }
+	| { kind: "already_moved" }
+	| { kind: "media_stale"; missing: string[] };
+
+/**
+ * The single write that changes an app's `project_id` — the commit point of a
+ * cross-Project move (`lib/db/moveAppToProject.ts`). In one transaction over the
+ * fresh app doc it repoints the blueprint's media refs onto the destination
+ * copies (`assetIdMap`, built by the move's media step) and flips `project_id`,
+ * so a co-editor's stale tab 409-reloads (rotated `blueprint_token`) and the
+ * blueprint never spends an instant referencing destination-absent media.
+ *
+ * Reads fresh and folds the remap into the same transaction (rather than routing
+ * through `applyBlueprintChange`) because a move touches no case TYPES — the
+ * case-store schema is unaffected — so there is no schema saga to run, and
+ * keeping remap + flip atomic is what removes the media-broken window.
+ *
+ * `attemptedRealIds` is the set of non-builtin asset ids the caller ran the
+ * media-copy over; any non-builtin ref in the fresh doc OUTSIDE that set is a
+ * concurrently-added ref the copy never saw, surfaced as `media_stale` rather
+ * than silently left dangling in the destination. Refs the caller attempted but
+ * couldn't copy (a still-`pending` upload, a foreign ref) are NOT reported — they
+ * were already broken/pending and the destination inherits that same state.
+ *
+ * `allowUnresolved` is the caller's final-attempt escape hatch: it forces the
+ * commit through even with a concurrently-added ref outstanding (the ref stays a
+ * source id, logged), so the move ALWAYS reaches a consistent end state (app +
+ * case data both at the destination) rather than stranding case data mid-move.
+ */
+export async function commitAppProjectMove(
+	appId: string,
+	args: {
+		toProjectId: string;
+		expectedFromProjectId: string;
+		assetIdMap: ReadonlyMap<string, string>;
+		attemptedRealIds: ReadonlySet<string>;
+		allowUnresolved?: boolean;
+	},
+): Promise<CommitMoveResult> {
+	const basisToken = crypto.randomUUID();
+	const result = await getDb().runTransaction<{
+		outcome: CommitMoveResult;
+		committed: PersistedBlueprint | null;
+	}>(async (tx) => {
+		const snap = await tx.get(docs.app(appId));
+		const fresh = snap.exists ? (snap.data() ?? null) : null;
+		if (!fresh) {
+			throw new Error(
+				`[commitAppProjectMove] app document missing for appId=${appId}`,
+			);
+		}
+		// Already at the destination: a re-run after a completed commit. No-op.
+		if (fresh.project_id === args.toProjectId) {
+			return { outcome: { kind: "already_moved" }, committed: null };
+		}
+		// Source changed under us (another move landed first). The caller
+		// re-resolves authorization rather than overwriting that move.
+		if (fresh.project_id !== args.expectedFromProjectId) {
+			throw new Error(
+				`[commitAppProjectMove] source Project changed for appId=${appId} (expected ${args.expectedFromProjectId}, found ${fresh.project_id ?? "null"})`,
+			);
+		}
+		const freshRealRefs = [
+			...collectAssetRefs(asWalkableDoc(fresh.blueprint)),
+		].filter((id) => !isBuiltinIconRef(id));
+		const missing = freshRealRefs.filter(
+			(id) => !args.attemptedRealIds.has(id),
+		);
+		if (missing.length > 0) {
+			if (!args.allowUnresolved) {
+				return { outcome: { kind: "media_stale", missing }, committed: null };
+			}
+			// Final-attempt force-through: a ref the copy never saw is left as a
+			// source id (it'll read as MEDIA_ASSET_NOT_FOUND in the destination
+			// until re-attached). Completing the move keeps the app + its case data
+			// consistent at the destination, which beats stranding them mid-move.
+			log.warn(
+				"[commitAppProjectMove] forcing move with unresolved media refs",
+				{ appId, missing },
+			);
+		}
+
+		if (args.assetIdMap.size > 0) {
+			const remapped = remapAssetRefs(fresh.blueprint, args.assetIdMap);
+			tx.update(docs.appRaw(appId), {
+				...blueprintSnapshotFields(remapped, { basisToken }),
+				project_id: args.toProjectId,
+			});
+			return { outcome: { kind: "moved" }, committed: remapped };
+		}
+		// No media to repoint — flip `project_id` only, leaving the blueprint
+		// (and its `blueprint_token`) untouched so a co-editor's in-flight edit
+		// is neither invalidated nor merged.
+		tx.update(docs.appRaw(appId), {
+			project_id: args.toProjectId,
+			updated_at: FieldValue.serverTimestamp(),
+		});
+		return { outcome: { kind: "moved" }, committed: null };
+	});
+
+	// Index the destination assets against the app, same best-effort contract as
+	// every other writer's post-commit sync. Only needed when the blueprint was
+	// repointed (the no-media flip references the same assets it already did).
+	if (result.committed) {
+		await syncMediaReferences(appId, result.committed);
+	}
+	return result.outcome;
 }
 
 /**

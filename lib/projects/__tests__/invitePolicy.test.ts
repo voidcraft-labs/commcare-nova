@@ -9,7 +9,7 @@ import {
 	INVITE_ALLOWED_DOMAINS,
 	isInvitableEmail,
 	isPersonalProjectMetadata,
-	isRoleAllowedOnPersonalProject,
+	PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
 } from "../invitePolicy";
 
 describe("isInvitableEmail", () => {
@@ -64,21 +64,9 @@ describe("isPersonalProjectMetadata", () => {
 	});
 });
 
-describe("isRoleAllowedOnPersonalProject", () => {
-	it("allows viewer + editor, the only roles a personal Project may assign", () => {
-		expect(isRoleAllowedOnPersonalProject("viewer")).toBe(true);
-		expect(isRoleAllowedOnPersonalProject("editor")).toBe(true);
-	});
-
-	it("rejects admin + owner — the roles that make no sense for a solo space", () => {
-		expect(isRoleAllowedOnPersonalProject("admin")).toBe(false);
-		expect(isRoleAllowedOnPersonalProject("owner")).toBe(false);
-	});
-
-	it("rejects when ANY part of a multi-role value is disallowed (string or array)", () => {
-		// Better Auth permits comma-joined or array roles; every part must pass.
-		expect(isRoleAllowedOnPersonalProject("editor,admin")).toBe(false);
-		expect(isRoleAllowedOnPersonalProject(["viewer", "owner"])).toBe(false);
-		expect(isRoleAllowedOnPersonalProject(["viewer", "editor"])).toBe(true);
+describe("PERSONAL_PROJECT_NOT_SHAREABLE_ERROR", () => {
+	it("is a non-empty message the hook + UI surface verbatim", () => {
+		expect(PERSONAL_PROJECT_NOT_SHAREABLE_ERROR).toBeTruthy();
+		expect(PERSONAL_PROJECT_NOT_SHAREABLE_ERROR.length).toBeGreaterThan(0);
 	});
 });

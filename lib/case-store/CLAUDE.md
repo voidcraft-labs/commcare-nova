@@ -48,6 +48,15 @@ migrations filter `(app_id, case_type)` ONLY — no `project_id` /
 chat-completion materialize, the point-of-use heal) therefore bind
 no tenant.
 
+**Re-tenanting is the second, narrower exception — `retenant.ts`.**
+`retenantAppCases({appId, from, to})` is the ONE write that crosses
+the tenant boundary on purpose: it rewrites `cases.project_id` for an
+app's rows when that app moves between Projects
+(`lib/db/moveAppToProject.ts`). It is a standalone barrel export, not
+a `CaseStore` method, precisely so the single-tenant invariant of the
+bound store stays intact; only `cases` carries `project_id`, so it is
+the whole job.
+
 ## Typed error contract
 
 User-domain errors (`./errors.ts`) carry `instanceof` discrimination so routes map them to typed result arms. Non-obvious rules: `CaseNotFoundError`'s message deliberately does NOT distinguish "outside the bound Project" from "never existed" — tenant boundaries stay structural, never message-leaked. `CasePropertiesValidationError`'s structured `failures` surface in the response body, but the `(appId, caseType)` pair stays server-log-only. All classes use `readonly name = "<ClassName>"` initializers so the literal name survives bundler transforms. Every other throw in the package is an internal-invariant violation using the formatters at `lib/domain/predicate/errors.ts`.

@@ -1,6 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerApps from "@iconify-icons/tabler/apps";
+import tablerFolderSymlink from "@iconify-icons/tabler/folder-symlink";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerPlayerPlay from "@iconify-icons/tabler/player-play";
 import tablerTrash from "@iconify-icons/tabler/trash";
@@ -8,20 +9,36 @@ import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useState } from "react";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { AppSummary } from "@/lib/db/apps";
 import { useExternalNavigate } from "@/lib/routing/hooks";
+import { showToast } from "@/lib/ui/toastStore";
 import { STATUS_STYLES } from "@/lib/utils/format";
 import { ConnectBadge } from "./ConnectBadge";
 
 /**
- * Generic discriminated-union result the optional `onDelete` callback
- * must return. Inlined here (rather than imported from the home-page
- * action module) to keep `components/ui` independent of `app/` —
- * structural typing lets a wider success shape flow in transparently.
+ * Generic discriminated-union results the optional `onDelete` / `onMove`
+ * callbacks return. Inlined here (rather than imported from the home-page
+ * action module) to keep `components/ui` independent of `app/` — structural
+ * typing lets a wider success shape flow in transparently.
  */
 type DeleteResult = { success: true } | { success: false; error: string };
+type MoveResult = { success: true } | { success: false; error: string };
+
+/** A Project the app may move into — structurally compatible with the
+ *  home page's `MoveTarget`, kept inline so `components/ui` stays app/-free. */
+interface MoveTargetOption {
+	id: string;
+	name: string;
+}
 
 interface AppCardProps {
 	app: Pick<
@@ -48,6 +65,15 @@ interface AppCardProps {
 	 * no delete affordance appears.
 	 */
 	onDelete?: (appId: string) => Promise<DeleteResult>;
+	/**
+	 * If provided AND `moveTargets` is non-empty, the card grows a
+	 * "Move to Project" menu. The handler is the home-page `moveApp`
+	 * Server Action; on success its `revalidatePath("/")` re-renders the
+	 * list and the card unmounts (the app left this Project's scope).
+	 */
+	onMove?: (appId: string, toProjectId: string) => Promise<MoveResult>;
+	/** Projects the app may move into; empty/absent hides the move menu. */
+	moveTargets?: MoveTargetOption[];
 }
 
 /**
@@ -69,18 +95,22 @@ export function AppCard({
 	href,
 	showReplay,
 	onDelete,
+	onMove,
+	moveTargets,
 }: AppCardProps) {
 	const navigate = useExternalNavigate();
-	const [deleteState, setDeleteState] = useState<DeleteState>({ type: "idle" });
+	const [cardState, setCardState] = useState<CardState>({ type: "idle" });
 
 	const style = STATUS_STYLES[app.status];
 	const isFailed = app.status === "error";
 	const updatedAt = new Date(app.updated_at);
 
-	const interactive =
-		deleteState.type === "idle" || deleteState.type === "error";
-	const errorMessage =
-		deleteState.type === "error" ? deleteState.message : null;
+	/* Only idle/error read as interactive — while a delete is confirming, the
+	 * move menu is open, or either action is in flight, the card downgrades from
+	 * <Link> to <div> so a stray click can't navigate away mid-action. */
+	const interactive = cardState.type === "idle" || cardState.type === "error";
+	const errorMessage = cardState.type === "error" ? cardState.message : null;
+	const canMove = Boolean(onMove && moveTargets && moveTargets.length > 0);
 
 	/* Replay navigation lives on the card so admin and home callers don't
 	 * each have to wire a handler. The hook is cheap and unconditional —
@@ -89,19 +119,44 @@ export function AppCard({
 
 	const handleConfirmDelete = async () => {
 		if (!onDelete) return;
-		setDeleteState({ type: "deleting" });
+		setCardState({ type: "deleting" });
 		try {
 			const result = await onDelete(app.id);
 			if (!result.success) {
-				setDeleteState({ type: "error", message: result.error });
+				setCardState({ type: "error", message: result.error });
 			}
 			/* On success the parent RSC re-fetches via the Server Action's
 			 * `revalidatePath` and the row drops out of the active list —
 			 * this card unmounts, so we don't need to clear state here. */
 		} catch {
-			setDeleteState({
+			setCardState({
 				type: "error",
 				message: "Could not delete. Check your connection and try again.",
+			});
+		}
+	};
+
+	const handleMove = async (target: MoveTargetOption) => {
+		if (!onMove) return;
+		setCardState({ type: "moving", destName: target.name });
+		try {
+			const result = await onMove(app.id, target.id);
+			if (!result.success) {
+				setCardState({ type: "error", message: result.error });
+				return;
+			}
+			/* On success `moveApp`'s `revalidatePath("/")` re-renders the home
+			 * RSC; the app leaves this Project's list and the card unmounts —
+			 * the toast (pushed to a global store) survives that unmount. */
+			showToast(
+				"info",
+				"App moved",
+				`"${app.app_name || "Untitled"}" is now in ${target.name}.`,
+			);
+		} catch {
+			setCardState({
+				type: "error",
+				message: "Could not move. Check your connection and try again.",
 			});
 		}
 	};
@@ -161,14 +216,14 @@ export function AppCard({
 				</AnimatePresence>
 			</div>
 			<div className="shrink-0 flex items-center gap-2">
-				{deleteState.type === "confirming" ? (
+				{cardState.type === "confirmingDelete" ? (
 					<>
 						<button
 							type="button"
 							onClick={(e) => {
 								e.preventDefault();
 								e.stopPropagation();
-								setDeleteState({ type: "idle" });
+								setCardState({ type: "idle" });
 							}}
 							className="cursor-pointer rounded-md px-3 py-1.5 text-sm text-nova-text-secondary transition-colors hover:bg-nova-border/30 hover:text-nova-text"
 						>
@@ -186,7 +241,7 @@ export function AppCard({
 							Confirm delete
 						</button>
 					</>
-				) : deleteState.type === "deleting" ? (
+				) : cardState.type === "deleting" ? (
 					<span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-nova-text-muted">
 						<Icon
 							icon={tablerLoader2}
@@ -195,6 +250,16 @@ export function AppCard({
 							className="animate-spin"
 						/>
 						Deleting…
+					</span>
+				) : cardState.type === "moving" ? (
+					<span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-nova-text-muted">
+						<Icon
+							icon={tablerLoader2}
+							width="14"
+							height="14"
+							className="animate-spin"
+						/>
+						Moving…
 					</span>
 				) : (
 					<>
@@ -219,6 +284,47 @@ export function AppCard({
 						>
 							{style.label}
 						</span>
+						{canMove && !isFailed && (
+							<DropdownMenu
+								open={cardState.type === "pickingMove"}
+								onOpenChange={(open) =>
+									setCardState((s) =>
+										open
+											? { type: "pickingMove" }
+											: s.type === "pickingMove"
+												? { type: "idle" }
+												: s,
+									)
+								}
+							>
+								<DropdownMenuTrigger
+									title="Move to another Project"
+									aria-label="Move to another Project"
+									onClick={(e) => {
+										e.preventDefault();
+										e.stopPropagation();
+									}}
+									className="p-1.5 text-nova-text-muted hover:text-nova-text transition-colors rounded-md hover:bg-nova-violet/10 cursor-pointer"
+								>
+									<Icon icon={tablerFolderSymlink} width="18" height="18" />
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end">
+									<DropdownMenuLabel>Move to Project</DropdownMenuLabel>
+									{moveTargets?.map((target) => (
+										<DropdownMenuItem
+											key={target.id}
+											onClick={(e) => {
+												e.preventDefault();
+												e.stopPropagation();
+												void handleMove(target);
+											}}
+										>
+											{target.name}
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuContent>
+							</DropdownMenu>
+						)}
 						{onDelete && (
 							<Tooltip content="Move to recently deleted">
 								<button
@@ -226,7 +332,7 @@ export function AppCard({
 									onClick={(e) => {
 										e.preventDefault();
 										e.stopPropagation();
-										setDeleteState({ type: "confirming" });
+										setCardState({ type: "confirmingDelete" });
 									}}
 									className="p-1.5 text-nova-text-muted hover:text-nova-rose transition-colors rounded-md hover:bg-nova-rose/[0.08] cursor-pointer"
 									aria-label="Delete app"
@@ -263,9 +369,14 @@ export function AppCard({
 	);
 }
 
-/** Internal — parallel to the OAuth revoke pattern. */
-type DeleteState =
+/** One in-flight notion for the whole card — delete and move can't overlap, so
+ *  they share a single state machine (idle ↔ a confirm/picker ↔ an in-flight
+ *  action ↔ error). `pickingMove` and `moving` join the delete states in
+ *  downgrading the card from <Link> to <div> via `interactive`. */
+type CardState =
 	| { type: "idle" }
-	| { type: "confirming" }
+	| { type: "confirmingDelete" }
 	| { type: "deleting" }
+	| { type: "pickingMove" }
+	| { type: "moving"; destName: string }
 	| { type: "error"; message: string };

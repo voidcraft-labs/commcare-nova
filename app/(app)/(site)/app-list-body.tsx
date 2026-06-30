@@ -21,17 +21,25 @@ import { useState } from "react";
 import { AppCard } from "@/components/ui/AppCard";
 import { DeletedAppCard } from "@/components/ui/DeletedAppCard";
 import type { AppSummary, DeletedAppSummary } from "@/lib/db/apps";
-import { deleteApp, restoreApp } from "./app-actions";
+import type { MoveTarget } from "@/lib/projects/moveTargets";
+import { deleteApp, moveApp, restoreApp } from "./app-actions";
 
 interface AppListBodyProps {
 	active: AppSummary[];
 	deleted: DeletedAppSummary[];
 	showReplay: boolean;
+	/** Projects active apps may move into; empty hides the move affordance. */
+	moveTargets: MoveTarget[];
 }
 
 type View = "active" | "deleted";
 
-export function AppListBody({ active, deleted, showReplay }: AppListBodyProps) {
+export function AppListBody({
+	active,
+	deleted,
+	showReplay,
+	moveTargets,
+}: AppListBodyProps) {
 	const [view, setView] = useState<View>("active");
 
 	/* Tab strip is suppressed entirely when the user has nothing in the
@@ -62,6 +70,8 @@ export function AppListBody({ active, deleted, showReplay }: AppListBodyProps) {
 									href={app.status === "error" ? undefined : `/build/${app.id}`}
 									showReplay={showReplay}
 									onDelete={deleteApp}
+									onMove={moveApp}
+									moveTargets={moveTargets}
 								/>
 							</li>
 						))}

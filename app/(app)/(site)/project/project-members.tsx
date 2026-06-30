@@ -19,6 +19,7 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
+import tablerLock from "@iconify-icons/tabler/lock";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerUsers from "@iconify-icons/tabler/users";
 import { useState } from "react";
@@ -96,20 +97,14 @@ export function ProjectMembers({
 	const [inviteRole, setInviteRole] = useState<AssignableRole>("editor");
 	const [busy, setBusy] = useState(false);
 
-	/* A personal Project can't have admins — a guest administering the space
-	 * that's meant to be yours alone makes no sense — so its pickers offer
-	 * viewer/editor only. A shared Project offers all three assignable roles. */
-	const assignableRoles = personal
-		? ASSIGNABLE_ROLES.filter((r) => r !== "admin")
-		: ASSIGNABLE_ROLES;
-	const roleItems = assignableRoles.map((r) => ({
+	const roleItems = ASSIGNABLE_ROLES.map((r) => ({
 		label: roleLabel(r),
 		value: r,
 	}));
 	/* Roles to explain in the header popover: the ones assignable here plus
 	 * owner (always present in the roster, never assignable from this surface). */
 	const legendRoles: (keyof typeof ROLE_DESCRIPTIONS)[] = [
-		...assignableRoles,
+		...ASSIGNABLE_ROLES,
 		"owner",
 	];
 
@@ -194,6 +189,84 @@ export function ProjectMembers({
 		navigate.refresh();
 	}
 
+	/* A personal Project is private — it holds only its owner and accepts no
+	 * invitations, so there's nothing to invite or manage. Render a read-only
+	 * card that explains why and points to the collaboration path (move an app
+	 * into a shared Project) instead of the invite form + roster controls. The
+	 * shared-Project render below is never reached for a personal Project. */
+	if (personal) {
+		return (
+			<section className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden">
+				<div className="flex items-center gap-3 px-6 py-4 border-b border-nova-border/50">
+					<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-nova-violet/10">
+						<Icon
+							icon={tablerUsers}
+							width="18"
+							height="18"
+							className="text-nova-violet-bright"
+						/>
+					</div>
+					<div className="min-w-0 flex-1">
+						<h2 className="text-base font-display font-semibold text-nova-text">
+							Members
+						</h2>
+						<p className="text-xs text-nova-text-muted">
+							This is your personal Project — private to just you. To work with
+							others, move an app into a shared Project.
+						</p>
+					</div>
+				</div>
+
+				<div className="p-6 space-y-6">
+					<div className="flex gap-3 rounded-lg border border-nova-border bg-nova-deep p-4">
+						<Icon
+							icon={tablerLock}
+							width="18"
+							height="18"
+							className="mt-0.5 shrink-0 text-nova-text-muted"
+						/>
+						<div className="min-w-0">
+							<p className="text-sm font-medium text-nova-text">
+								Personal Projects can't be shared
+							</p>
+							<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
+								This Project is yours alone, so you can't invite anyone to it.
+								To work with teammates, move an app into a shared Project, then
+								invite them there — create a shared Project from the switcher at
+								the top of the page, and use "Move to Project" on any app on
+								your home page.
+							</p>
+						</div>
+					</div>
+
+					{/* Read-only roster — a personal Project has just its owner (you). */}
+					<ul className="divide-y divide-nova-border">
+						{members.map((m) => (
+							<li key={m.memberId} className="flex items-center gap-3 py-3">
+								<div className="min-w-0 flex-1">
+									<div className="truncate text-sm font-medium text-nova-text">
+										{m.name}
+										{m.userId === currentUserId && (
+											<span className="ml-1.5 text-xs text-nova-text-muted">
+												You
+											</span>
+										)}
+									</div>
+									<div className="truncate text-xs text-nova-text-muted">
+										{m.email}
+									</div>
+								</div>
+								<span className="text-sm text-nova-text-muted">
+									{roleLabel(m.role)}
+								</span>
+							</li>
+						))}
+					</ul>
+				</div>
+			</section>
+		);
+	}
+
 	return (
 		<section className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden">
 			{/* ── Card header ───────────────────────────────────────── */}
@@ -211,9 +284,8 @@ export function ProjectMembers({
 						Members
 					</h2>
 					<p className="text-xs text-nova-text-muted">
-						{personal
-							? "Invite teammates to turn your personal Project into a shared one."
-							: "Members share this Project's apps and case data; roles control what each can do."}
+						Members share this Project's apps and case data; roles control what
+						each can do.
 					</p>
 				</div>
 				<Popover>
@@ -266,7 +338,7 @@ export function ProjectMembers({
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{assignableRoles.map((r) => (
+								{ASSIGNABLE_ROLES.map((r) => (
 									<SelectItem key={r} value={r}>
 										{roleLabel(r)}
 									</SelectItem>
@@ -317,7 +389,7 @@ export function ProjectMembers({
 											<SelectValue />
 										</SelectTrigger>
 										<SelectContent>
-											{assignableRoles.map((r) => (
+											{ASSIGNABLE_ROLES.map((r) => (
 												<SelectItem key={r} value={r}>
 													{roleLabel(r)}
 												</SelectItem>

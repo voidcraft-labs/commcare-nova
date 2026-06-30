@@ -16,9 +16,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { roleIsOwner } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
-import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
+import {
+	AppAccessError,
+	resolveAppAccess,
+	resolveAppScope,
+	resolveProjectAccess,
+} from "@/lib/db/appAccess";
 import { restoreApp as restoreAppDoc, softDeleteApp } from "@/lib/db/apps";
+import { AppBusyError, moveAppToProject } from "@/lib/db/moveAppToProject";
 import { log } from "@/lib/logger";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -30,6 +37,11 @@ export type DeleteAppResult =
 
 /** Result of `restoreApp`. */
 export type RestoreAppResult =
+	| { success: true }
+	| { success: false; error: string };
+
+/** Result of `moveApp`. */
+export type MoveAppResult =
 	| { success: true }
 	| { success: false; error: string };
 
@@ -132,5 +144,97 @@ export async function restoreApp(appId: string): Promise<RestoreAppResult> {
 			success: false,
 			error: "Could not restore. Please try again.",
 		};
+	}
+}
+
+/**
+ * Move an app into another Project the caller can build in. Moving removes the
+ * app from its current Project for everyone there (and relocates its case data),
+ * so the SOURCE bar is OWNER of the current Project — an admin manages members
+ * but, mirroring its inability to remove the owner, must not be able to strip the
+ * owner from an app by relocating it (e.g. into the admin's own personal Project).
+ * The DESTINATION bar is `edit` (editor+, what creating an app requires). The
+ * orchestrator re-tenants the app's case data + media to match
+ * (`moveAppToProject`).
+ *
+ * Every authorization denial collapses to a not-found-shaped message — the source
+ * to the same `App not found` as a missing row (a non-owner member who can see the
+ * app reads the same as a stranger), the destination to one generic line that
+ * neither confirms nor denies an arbitrary `toProjectId` exists — so a crafted
+ * request can't probe either side.
+ */
+export async function moveApp(
+	appId: string,
+	toProjectId: string,
+): Promise<MoveAppResult> {
+	try {
+		const session = await getSession();
+		if (!session) {
+			return { success: false, error: "Authentication required." };
+		}
+
+		/* Server Actions deserialize JSON; the `string` annotation is not a runtime
+		 * guarantee, so the trim guards are real (mirrors `authorizeAppMutation`). */
+		if (
+			typeof appId !== "string" ||
+			!appId.trim() ||
+			typeof toProjectId !== "string" ||
+			!toProjectId.trim()
+		) {
+			return { success: false, error: "Missing app or Project identifier." };
+		}
+
+		// Source: OWNER of the app's current Project. Load at `view` (membership),
+		// then narrow to owner — a member who isn't the owner collapses to the same
+		// `App not found` as a stranger, so the rule can't be probed.
+		let access: Awaited<ReturnType<typeof resolveAppAccess>>;
+		try {
+			access = await resolveAppAccess(appId, session.user.id, "view");
+		} catch (err) {
+			if (err instanceof AppAccessError) {
+				return { success: false, error: "App not found." };
+			}
+			throw err;
+		}
+		if (!roleIsOwner(access.role)) {
+			return { success: false, error: "App not found." };
+		}
+
+		if (access.projectId === toProjectId) {
+			return { success: false, error: "This app is already in that Project." };
+		}
+
+		// Destination: editor or higher (the capability creating an app requires).
+		try {
+			await resolveProjectAccess(session.user.id, toProjectId, "edit");
+		} catch (err) {
+			if (err instanceof AppAccessError) {
+				return {
+					success: false,
+					error: "Couldn't move the app to that Project.",
+				};
+			}
+			throw err;
+		}
+
+		await moveAppToProject({
+			appId,
+			fromProjectId: access.projectId,
+			toProjectId,
+			actorUserId: session.user.id,
+			app: access.app,
+		});
+		revalidatePath("/");
+		return { success: true };
+	} catch (err) {
+		if (err instanceof AppBusyError) {
+			return {
+				success: false,
+				error:
+					"This app is being generated right now — try again once it finishes.",
+			};
+		}
+		log.error("[home/move-app] error", err);
+		return { success: false, error: "Could not move. Please try again." };
 	}
 }

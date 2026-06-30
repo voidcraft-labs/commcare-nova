@@ -48,8 +48,7 @@ import {
 	INVITE_ALLOWED_DOMAINS,
 	isInvitableEmail,
 	isPersonalProjectMetadata,
-	isRoleAllowedOnPersonalProject,
-	PERSONAL_PROJECT_ROLE_ERROR,
+	PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
 } from "./projects/invitePolicy";
 
 /**
@@ -780,30 +779,25 @@ async function createAuth() {
 								message: `Invitations are limited to ${INVITE_ALLOWED_DOMAINS.join(" and ")} email addresses.`,
 							});
 						}
-						/* A personal Project caps invites at viewer/editor — admin/owner
-						 * make no sense for someone's solo space. The members UI hides
-						 * them; this is the wire-level enforcement (a crafted request
-						 * can't escalate). `organization.metadata` carries the personal
+						/* A personal Project is private and accepts no invitations at
+						 * all — collaboration happens by moving an app into a shared
+						 * Project. The members UI renders a read-only "can't be shared"
+						 * panel; this is the wire-level enforcement (a crafted request
+						 * can't escape it). `organization.metadata` carries the personal
 						 * flag (set by `ensurePersonalProject`). */
-						if (
-							isPersonalProjectMetadata(organization.metadata) &&
-							!isRoleAllowedOnPersonalProject(invitation.role)
-						) {
+						if (isPersonalProjectMetadata(organization.metadata)) {
 							throw new APIError("BAD_REQUEST", {
-								message: PERSONAL_PROJECT_ROLE_ERROR,
+								message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
 							});
 						}
 					},
-					/* The role-change twin of the invite cap: a personal Project's
-					 * members can't be promoted to admin/owner either, so an
-					 * invite-as-editor-then-promote path can't escape the cap. */
-					beforeUpdateMemberRole: async ({ newRole, organization }) => {
-						if (
-							isPersonalProjectMetadata(organization.metadata) &&
-							!isRoleAllowedOnPersonalProject(newRole)
-						) {
+					/* The role-change twin: a personal Project has only its owner, so
+					 * there is no member to re-role. Reject any role change on one as a
+					 * defensive guard (a crafted request can't reach a member it has). */
+					beforeUpdateMemberRole: async ({ organization }) => {
+						if (isPersonalProjectMetadata(organization.metadata)) {
 							throw new APIError("BAD_REQUEST", {
-								message: PERSONAL_PROJECT_ROLE_ERROR,
+								message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
 							});
 						}
 					},
