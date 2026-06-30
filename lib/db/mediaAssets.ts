@@ -238,10 +238,12 @@ export async function confirmAssetReady(args: {
  * copy-into-destination path (`lib/media/moveMedia.ts`). The bytes are already
  * validated (they are a server-side GCS copy of an existing `ready` asset), so
  * this skips the pending→confirm dance browser uploads need and writes the final
- * row directly: no lingering `pending` intermediate to strand on a crash. Born
- * with `referencingAppIds: []`; the move's post-commit `syncMediaReferences`
- * arrayUnions the moved app once its repointed blueprint commits. Returns the new
- * `assetId`.
+ * row directly: no lingering `pending` intermediate to strand on a crash. The
+ * caller passes `referencingAppIds` (the moving app) so the copy is born already
+ * reverse-indexed — if the process dies after the flip commits but before the
+ * post-commit `syncMediaReferences`, the copy still reads as referenced and the
+ * deletion guard protects it (an empty array would let a co-member delete a
+ * live-referenced copy). Returns the new `assetId`.
  */
 export async function createReadyAsset(args: {
 	owner: string;
@@ -256,6 +258,7 @@ export async function createReadyAsset(args: {
 	displayName?: string;
 	dimensions?: { width: number; height: number };
 	durationMs?: number;
+	referencingAppIds?: readonly string[];
 }): Promise<{ assetId: AssetId }> {
 	const assetId = asAssetId(randomUUID());
 	await docs.mediaAsset(assetId).create({
@@ -273,7 +276,7 @@ export async function createReadyAsset(args: {
 		...(args.durationMs !== undefined && { durationMs: args.durationMs }),
 		status: "ready",
 		created_at: FieldValue.serverTimestamp() as unknown as Timestamp,
-		referencingAppIds: [],
+		referencingAppIds: [...(args.referencingAppIds ?? [])],
 	});
 	return { assetId };
 }

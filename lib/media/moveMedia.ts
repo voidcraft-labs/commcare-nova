@@ -83,6 +83,7 @@ export class MediaCopyFailedError extends Error {
  * "couldn't move — a media file couldn't be copied" and nothing has moved.
  */
 export async function copyAssetsIntoProject(args: {
+	appId: string;
 	assetIds: readonly string[];
 	fromProjectId: string;
 	toProjectId: string;
@@ -113,7 +114,12 @@ export async function copyAssetsIntoProject(args: {
  */
 async function copyOneAsset(
 	row: MediaAssetRecord & { kind: MediaKind },
-	args: { fromProjectId: string; toProjectId: string; actorUserId: string },
+	args: {
+		appId: string;
+		fromProjectId: string;
+		toProjectId: string;
+		actorUserId: string;
+	},
 ): Promise<[string, string]> {
 	let lastErr: unknown;
 	for (let attempt = 1; attempt <= MAX_COPY_ATTEMPTS; attempt++) {
@@ -145,6 +151,9 @@ async function copyOneAsset(
 				displayName: row.displayName,
 				dimensions: row.dimensions,
 				durationMs: row.durationMs,
+				// Born referencing the moving app so the deletion guard protects it
+				// even if a crash kills the post-commit syncMediaReferences.
+				referencingAppIds: [args.appId],
 			});
 			return [row.id, assetId];
 		} catch (err) {

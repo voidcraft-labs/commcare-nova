@@ -240,8 +240,8 @@ export function ProjectMembers({
 						</div>
 					</div>
 
-					{/* Roster — normally just the owner (you). A guest invited before
-					    personal Projects were locked down can still be removed here. */}
+					{/* Roster — a private personal Project holds just the owner (you), but
+					    may carry a non-owner guest, who can be removed here. */}
 					<ul className="divide-y divide-nova-border">
 						{members.map((m) => {
 							const isSelf = m.userId === currentUserId;
@@ -282,8 +282,8 @@ export function ProjectMembers({
 						})}
 					</ul>
 
-					{/* Any invitation created before the lockdown — cancelable here
-					    (it can no longer be accepted either). */}
+					{/* A still-pending invitation on a private personal Project —
+					    cancelable here (it can no longer be accepted either). */}
 					{invitations.length > 0 && (
 						<div>
 							<h3 className="mb-2 text-sm font-medium text-nova-text-muted">

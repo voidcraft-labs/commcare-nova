@@ -283,7 +283,7 @@ export function AppCard({
 							height="14"
 							className="animate-spin"
 						/>
-						Moving…
+						Moving to {cardState.destName}…
 					</span>
 				) : (
 					<>
