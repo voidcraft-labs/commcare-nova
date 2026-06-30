@@ -32,6 +32,7 @@ import {
 	moveAppToProject,
 } from "@/lib/db/moveAppToProject";
 import { log } from "@/lib/logger";
+import { MediaCopyFailedError } from "@/lib/media/moveMedia";
 import { projectOwnerId } from "@/lib/projects/membership";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -256,16 +257,28 @@ export async function moveApp(
 					"This app is being generated right now — try again once it finishes.",
 			};
 		}
+		if (err instanceof MediaCopyFailedError) {
+			// Copy failed before the flip — nothing moved. Actionable + recoverable
+			// (the asset is missing/unreadable, or a transient outage outlasted the
+			// retries), so the user can fix the asset or just retry shortly.
+			return {
+				success: false,
+				error:
+					"Couldn't move the app — a media file couldn't be copied to the new Project. Try again shortly; if it keeps failing, re-upload that media and retry.",
+			};
+		}
 		if (err instanceof CaseDataStrandedError) {
 			// The app DID move; only the case-data sync failed (already logged by the
 			// orchestrator). Report it as a success+warning so the list revalidates
 			// AND the message reaches the user via a persistent toast — returning a
 			// failure here would lose the message when revalidate unmounts the card.
+			// Don't promise "move it again" (the picker excludes the current Project,
+			// so it's not reachable) — the data is safe and support can reconcile it.
 			revalidatePath("/");
 			return {
 				success: true,
 				warning:
-					"The app moved, but syncing its case data to the new Project failed. Its data is safe — move the app again to finish syncing, or contact support.",
+					"The app moved, but syncing its case data to the new Project failed. Its data is safe and hasn't been lost — please contact support to finish the sync.",
 			};
 		}
 		log.error("[home/move-app] error", err);

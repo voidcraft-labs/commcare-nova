@@ -17,7 +17,6 @@ import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import Link from "next/link";
 import { roleIsOwner } from "@/lib/auth/projectRoles";
-import { userInProject } from "@/lib/db/appAccess";
 import { listApps, listDeletedApps } from "@/lib/db/apps";
 import { listUserProjects, projectOwnerId } from "@/lib/projects/membership";
 import {
@@ -67,16 +66,17 @@ export async function AppList({ projectId, userId, isAdmin }: AppListProps) {
 			moveTargets = candidates;
 		} else {
 			// Non-owner admin: keep only destinations the source Project's owner is
-			// also a member of (the owner must not lose access). A handful of reads,
-			// and only on the less-common admin-moving-a-shared-app path.
+			// also a member of (the owner must not lose access). One indexed read of
+			// the owner's Projects (cached), intersected in memory — not a query per
+			// candidate. Only on the less-common admin-moving-a-shared-app path.
 			const ownerId = await projectOwnerId(projectId);
 			if (!ownerId) {
 				moveTargets = candidates;
 			} else {
-				const ownerIsMember = await Promise.all(
-					candidates.map((c) => userInProject(ownerId, c.id, "view")),
+				const ownerProjectIds = new Set(
+					(await listUserProjects(ownerId)).map((p) => p.id),
 				);
-				moveTargets = candidates.filter((_, i) => ownerIsMember[i]);
+				moveTargets = candidates.filter((c) => ownerProjectIds.has(c.id));
 			}
 		}
 	}

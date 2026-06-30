@@ -8,7 +8,12 @@
 
 import { describe, expect, it } from "vitest";
 import { blueprintDocSchema } from "../blueprint";
-import { asWalkableDoc, collectAssetRefs, remapAssetRefs } from "../mediaRefs";
+import {
+	asWalkableDoc,
+	collectAssetRefs,
+	collectMovableAssetRefs,
+	remapAssetRefs,
+} from "../mediaRefs";
 import { NOVA_ICON_REF_PREFIX } from "../multimedia";
 
 const BUILTIN_REF = `${NOVA_ICON_REF_PREFIX}health`;
@@ -138,5 +143,61 @@ describe("remapAssetRefs", () => {
 	it("returns the same doc reference when the map is empty", () => {
 		const doc = fixtureDoc();
 		expect(remapAssetRefs(doc, new Map())).toBe(doc);
+	});
+});
+
+/** A module that is NOT caseListOnly but still carries a caseListConfig icon —
+ *  the residue of having once been case-list-only. The render-gated walk omits
+ *  it, but it persists in the doc (and remapAssetRefs rewrites it un-gated). */
+function docWithDormantCaseListIcon() {
+	return blueprintDocSchema.parse({
+		appId: "app-2",
+		appName: "Dormant",
+		connectType: null,
+		caseTypes: null,
+		moduleOrder: ["mod-x"],
+		formOrder: { "mod-x": ["form-x"] },
+		fieldOrder: { "form-x": [] },
+		modules: {
+			"mod-x": {
+				uuid: "mod-x",
+				id: "m",
+				name: "M",
+				caseListOnly: false,
+				caseListConfig: {
+					columns: [],
+					searchInputs: [],
+					icon: "dormant-cl-icon",
+					audioLabel: "dormant-cl-audio",
+				},
+			},
+		},
+		forms: {
+			"form-x": { uuid: "form-x", id: "f", name: "F", type: "survey" },
+		},
+		fields: {},
+	});
+}
+
+describe("collectMovableAssetRefs", () => {
+	it("carries a non-caseListOnly module's caseListConfig media the gated walk drops", () => {
+		const doc = asWalkableDoc(docWithDormantCaseListIcon());
+		// The render-gated walk omits it (it doesn't render on a non-caseListOnly
+		// module), so a move keyed on it would strand the ref...
+		const gated = collectAssetRefs(doc);
+		expect(gated.has("dormant-cl-icon")).toBe(false);
+		expect(gated.has("dormant-cl-audio")).toBe(false);
+		// ...but the movable set carries it, so the move copies + repoints it.
+		const movable = collectMovableAssetRefs(doc);
+		expect(movable.has("dormant-cl-icon")).toBe(true);
+		expect(movable.has("dormant-cl-audio")).toBe(true);
+	});
+
+	it("is a superset of the gated walk (never drops a rendered ref)", () => {
+		const doc = asWalkableDoc(fixtureDoc());
+		const movable = collectMovableAssetRefs(doc);
+		for (const id of collectAssetRefs(doc)) {
+			expect(movable.has(id)).toBe(true);
+		}
 	});
 });

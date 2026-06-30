@@ -40,6 +40,29 @@ import { partitionAssetRefs } from "./builtinIconAssets";
  */
 const MEDIA_COPY_CONCURRENCY = 6;
 
+/** Per-asset copy retries (with backoff) before the move aborts. Absorbs a
+ *  transient GCS/Firestore blip so it never silently breaks the asset's ref. */
+const MAX_COPY_ATTEMPTS = 3;
+const COPY_RETRY_DELAY_MS = 250;
+
+/**
+ * A referenced asset couldn't be copied into the destination after retries (its
+ * GCS object is missing/unreadable, or a sustained outage). The move ABORTS on
+ * this — nothing has flipped yet — rather than completing with a silently-broken
+ * media ref. Recoverable: retry once the asset/outage is resolved.
+ */
+export class MediaCopyFailedError extends Error {
+	readonly name = "MediaCopyFailedError";
+	constructor(
+		readonly assetId: string,
+		options?: { cause?: unknown },
+	) {
+		super(`Failed to copy media asset ${assetId} to the destination Project.`, {
+			cause: options?.cause,
+		});
+	}
+}
+
 /**
  * Copy every referenced upload-asset into `toProjectId`, returning a map from
  * each source asset id to its destination id — the input the move's blueprint
@@ -52,6 +75,12 @@ const MEDIA_COPY_CONCURRENCY = 6;
  * `pending` upload, a foreign-Project ref `loadAssetsByIds` silently drops) is
  * skipped — it was already broken/pending in the source, and the destination
  * inherits that same state rather than the move papering over it.
+ *
+ * A `ready` asset that CANNOT be copied (its GCS object is missing, or a sustained
+ * outage outlasts the per-asset retries) throws {@link MediaCopyFailedError},
+ * which aborts the whole move before the flip — far better than completing with a
+ * silently-broken, unrecoverable ref. The caller surfaces it as an actionable
+ * "couldn't move — a media file couldn't be copied" and nothing has moved.
  */
 export async function copyAssetsIntoProject(args: {
 	assetIds: readonly string[];
@@ -70,55 +99,71 @@ export async function copyAssetsIntoProject(args: {
 	const entries = await mapWithConcurrency(
 		rows,
 		MEDIA_COPY_CONCURRENCY,
-		async (row): Promise<[string, string] | null> => {
-			try {
-				// Dedup: an identical-bytes asset already in the destination (a prior
-				// move, or another app uploaded the file there) is reused — no copy.
-				const existing = await findReadyAssetByProjectAndHash(
-					args.toProjectId,
-					row.contentHash,
-				);
-				if (existing) return [row.id, existing.id];
-
-				const destKey = gcsObjectKeyFor(
-					args.toProjectId,
-					row.contentHash,
-					row.extension,
-				);
-				await copyAssetObject(row.gcsObjectKey, destKey);
-				const { assetId } = await createReadyAsset({
-					owner: args.actorUserId,
-					project_id: args.toProjectId,
-					contentHash: row.contentHash,
-					mimeType: row.mimeType,
-					kind: row.kind,
-					extension: row.extension,
-					sizeBytes: row.sizeBytes,
-					gcsObjectKey: destKey,
-					originalFilename: row.originalFilename,
-					displayName: row.displayName,
-					dimensions: row.dimensions,
-					durationMs: row.durationMs,
-				});
-				return [row.id, assetId];
-			} catch (err) {
-				// One asset's bytes are missing/inaccessible (out-of-band deletion, a
-				// non-transient GCS error). Don't abort the whole move — skip it. The
-				// ref stays unrepointed and resolves to MEDIA_ASSET_NOT_FOUND in the
-				// destination, the same broken state it was already in at the source.
-				log.error(
-					"[copyAssetsIntoProject] failed to copy asset; skipping",
-					err,
-					{
-						assetId: row.id,
-						fromProjectId: args.fromProjectId,
-						toProjectId: args.toProjectId,
-					},
-				);
-				return null;
-			}
-		},
+		(row) => copyOneAsset(row, args),
 	);
 
-	return new Map(entries.filter((e): e is [string, string] => e !== null));
+	return new Map(entries);
+}
+
+/**
+ * Copy one referenced asset into the destination, retrying transient failures.
+ * Returns the `[sourceId, destId]` mapping; throws {@link MediaCopyFailedError}
+ * if it can't copy after retries (which aborts the whole move BEFORE the flip, so
+ * the move never completes with a half-copied, silently-broken media set).
+ */
+async function copyOneAsset(
+	row: MediaAssetRecord & { kind: MediaKind },
+	args: { fromProjectId: string; toProjectId: string; actorUserId: string },
+): Promise<[string, string]> {
+	let lastErr: unknown;
+	for (let attempt = 1; attempt <= MAX_COPY_ATTEMPTS; attempt++) {
+		try {
+			// Dedup: an identical-bytes asset already in the destination (a prior
+			// move, or another app uploaded the file there) is reused — no copy.
+			const existing = await findReadyAssetByProjectAndHash(
+				args.toProjectId,
+				row.contentHash,
+			);
+			if (existing) return [row.id, existing.id];
+
+			const destKey = gcsObjectKeyFor(
+				args.toProjectId,
+				row.contentHash,
+				row.extension,
+			);
+			await copyAssetObject(row.gcsObjectKey, destKey);
+			const { assetId } = await createReadyAsset({
+				owner: args.actorUserId,
+				project_id: args.toProjectId,
+				contentHash: row.contentHash,
+				mimeType: row.mimeType,
+				kind: row.kind,
+				extension: row.extension,
+				sizeBytes: row.sizeBytes,
+				gcsObjectKey: destKey,
+				originalFilename: row.originalFilename,
+				displayName: row.displayName,
+				dimensions: row.dimensions,
+				durationMs: row.durationMs,
+			});
+			return [row.id, assetId];
+		} catch (err) {
+			lastErr = err;
+			if (attempt < MAX_COPY_ATTEMPTS) {
+				await new Promise((resolve) =>
+					setTimeout(resolve, COPY_RETRY_DELAY_MS * attempt),
+				);
+			}
+		}
+	}
+	log.error(
+		"[copyAssetsIntoProject] failed to copy asset after retries",
+		lastErr,
+		{
+			assetId: row.id,
+			fromProjectId: args.fromProjectId,
+			toProjectId: args.toProjectId,
+		},
+	);
+	throw new MediaCopyFailedError(row.id, { cause: lastErr });
 }

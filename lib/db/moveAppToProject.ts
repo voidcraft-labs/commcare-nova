@@ -23,13 +23,15 @@
 // The one transient is the destination briefly seeing the app before its cases
 // arrive (it's mid-move), which closes the instant C runs and self-heals on re-run.
 //
-// Authorization is the Server Action's job (owner of the source, edit on the
-// destination); this orchestrator trusts its caller and only guards data-shape
-// preconditions (already-moved, source drift, mid-generation, trashed).
+// Authorization is the Server Action's job (admin/owner of BOTH Projects, plus
+// owner-protection: a non-owner of the source may only target a Project the
+// source owner also belongs to); this orchestrator trusts its caller and only
+// guards data-shape preconditions (already-moved, source drift, mid-generation,
+// trashed).
 
 import { retenantAppCases } from "@/lib/case-store";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
-import { asWalkableDoc, collectAssetRefs } from "@/lib/domain/mediaRefs";
+import { asWalkableDoc, collectMovableAssetRefs } from "@/lib/domain/mediaRefs";
 import { log } from "@/lib/logger";
 import { copyAssetsIntoProject } from "@/lib/media/moveMedia";
 import { commitAppProjectMove, loadApp } from "./apps";
@@ -137,10 +139,12 @@ export async function moveAppToProject(args: {
 				break;
 			}
 
-			// One walk: the full ref set feeds the media copy, and the real-only
-			// subset (built-ins excluded) feeds the commit's concurrency guard.
+			// One walk over the MOVABLE refs (every present id, including the gated
+			// case-list slots `commitAppProjectMove`'s guard re-collects the same
+			// way): the full set feeds the media copy, the real-only subset
+			// (built-ins excluded) feeds the commit's concurrency guard.
 			const walkable = asWalkableDoc(fresh.blueprint);
-			const refs = [...collectAssetRefs(walkable)];
+			const refs = [...collectMovableAssetRefs(walkable)];
 			const attemptedRealIds = new Set(
 				refs.filter((id) => !isBuiltinIconRef(id)),
 			);

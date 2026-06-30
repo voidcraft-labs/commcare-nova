@@ -486,14 +486,39 @@ export function collectAssetRefs(doc: BlueprintDoc): Set<string> {
 }
 
 /**
- * The blueprint's referenced asset ids MINUS the built-in `nova-icon:` slugs —
- * i.e. the ids that resolve to a real Firestore/GCS asset. The single home for
- * the "real (non-built-in) refs" idiom shared by the reverse-index sync and the
- * cross-Project move (which copies + re-tenants only real assets; built-ins are
+ * Every asset id PRESENT in the doc — the superset {@link collectAssetRefs} would
+ * yield if nothing were render-gated. It adds the one gated slot the gated walk
+ * omits: `caseListConfig.icon` / `audioLabel` on NON-`caseListOnly` modules. Those
+ * don't render today (so the validator/manifest rightly ignore them), but they
+ * PERSIST in the doc and {@link remapAssetRefs} rewrites them un-gated — so a move
+ * must copy + repoint them too, or toggling the module back to `caseListOnly`
+ * later surfaces a dangling cross-Project ref. This is the move's (and the
+ * reverse-index's) collection basis; the gated `collectAssetRefs` stays the
+ * emit/validate basis.
+ */
+export function collectMovableAssetRefs(doc: BlueprintDoc): Set<string> {
+	const ids = collectAssetRefs(doc);
+	for (const mod of Object.values(doc.modules)) {
+		if (mod.caseListOnly) continue; // already covered by collectAssetRefs
+		if (mod.caseListConfig?.icon) ids.add(mod.caseListConfig.icon);
+		if (mod.caseListConfig?.audioLabel) ids.add(mod.caseListConfig.audioLabel);
+	}
+	return ids;
+}
+
+/**
+ * The doc's PRESENT asset ids MINUS the built-in `nova-icon:` slugs — i.e. the
+ * ids that resolve to a real Firestore/GCS asset. The single home for the "real
+ * (non-built-in) refs" idiom shared by the reverse-index sync and the
+ * cross-Project move (which copy + re-tenant only real assets; built-ins are
  * shared and Firestore-less, so they must never reach an `arrayUnion`/copy).
+ * Built on {@link collectMovableAssetRefs} so a dead-but-present ref is still
+ * indexed (deletion guard) and carried by a move.
  */
 export function collectRealAssetRefs(doc: BlueprintDoc): string[] {
-	return [...collectAssetRefs(doc)].filter((id) => !isBuiltinIconRef(id));
+	return [...collectMovableAssetRefs(doc)].filter(
+		(id) => !isBuiltinIconRef(id),
+	);
 }
 
 /**
