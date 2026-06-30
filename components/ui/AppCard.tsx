@@ -61,13 +61,20 @@ interface AppCardProps {
 	 */
 	onDelete?: (appId: string) => Promise<DeleteResult>;
 	/**
-	 * If provided AND `moveTargets` is non-empty, the card grows a
-	 * "Move to Project" menu. The handler is the home-page `moveApp`
-	 * Server Action; on success its `revalidatePath("/")` re-renders the
-	 * list and the card unmounts (the app left this Project's scope).
+	 * If provided AND `canMove` is true, the card grows a "Move to Project" menu.
+	 * The handler is the home-page `moveApp` Server Action; on success its
+	 * `revalidatePath("/")` re-renders the list and the card unmounts (the app
+	 * left this Project's scope).
 	 */
 	onMove?: (appId: string, toProjectId: string) => Promise<MoveResult>;
-	/** Projects the app may move into; empty/absent hides the move menu. */
+	/**
+	 * Whether the caller may move this app out (admin/owner of its Project). Drives
+	 * whether the menu is shown at all — independent of whether any destinations
+	 * exist, so a user with only their personal Project still sees the menu (with
+	 * an empty-state hint) rather than no affordance at all.
+	 */
+	canMove?: boolean;
+	/** Projects the app may move into. Empty renders the menu's empty-state hint. */
 	moveTargets?: MoveTarget[];
 }
 
@@ -91,6 +98,7 @@ export function AppCard({
 	showReplay,
 	onDelete,
 	onMove,
+	canMove,
 	moveTargets,
 }: AppCardProps) {
 	const navigate = useExternalNavigate();
@@ -110,7 +118,12 @@ export function AppCard({
 		cardState.type === "error" ||
 		cardState.type === "pickingMove";
 	const errorMessage = cardState.type === "error" ? cardState.message : null;
-	const canMove = Boolean(onMove && moveTargets && moveTargets.length > 0);
+	/* Show the move menu whenever the caller can move the app out, even with no
+	 * destinations yet — the menu then shows an empty-state hint, which is more
+	 * discoverable than no affordance (and matches the personal-Project panel,
+	 * which tells users to "use Move to Project"). */
+	const showMove = Boolean(onMove && canMove);
+	const hasMoveTargets = Boolean(moveTargets && moveTargets.length > 0);
 
 	/* Replay navigation lives on the card so admin and home callers don't
 	 * each have to wire a handler. The hook is cheap and unconditional —
@@ -284,7 +297,7 @@ export function AppCard({
 						>
 							{style.label}
 						</span>
-						{canMove && !isFailed && (
+						{showMove && !isFailed && (
 							<DropdownMenu
 								open={cardState.type === "pickingMove"}
 								onOpenChange={(open) =>
@@ -312,18 +325,24 @@ export function AppCard({
 								<DropdownMenuContent align="end">
 									<DropdownMenuGroup>
 										<DropdownMenuLabel>Move to Project</DropdownMenuLabel>
-										{moveTargets?.map((target) => (
-											<DropdownMenuItem
-												key={target.id}
-												onClick={(e) => {
-													e.preventDefault();
-													e.stopPropagation();
-													void handleMove(target);
-												}}
-											>
-												{target.name}
+										{hasMoveTargets ? (
+											moveTargets?.map((target) => (
+												<DropdownMenuItem
+													key={target.id}
+													onClick={(e) => {
+														e.preventDefault();
+														e.stopPropagation();
+														void handleMove(target);
+													}}
+												>
+													{target.name}
+												</DropdownMenuItem>
+											))
+										) : (
+											<DropdownMenuItem disabled>
+												No other Projects yet
 											</DropdownMenuItem>
-										))}
+										)}
 									</DropdownMenuGroup>
 								</DropdownMenuContent>
 							</DropdownMenu>

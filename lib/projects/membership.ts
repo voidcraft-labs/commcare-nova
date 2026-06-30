@@ -60,19 +60,21 @@ function isPersonalMetadata(metadata: string | null): boolean {
 }
 
 /**
- * Whether `projectId` is a personal (auto-provisioned, solo) Project. The
- * authoritative server-side check the move action uses to gate moving an app into
- * a personal Project (allowed only when the caller owns the source). A missing
- * row reads as not-personal.
+ * The user id of `projectId`'s owner (the creator's `owner` role), or null if the
+ * Project has none. The move action uses it to protect the source Project's owner:
+ * a non-owner admin may move an app out, but not somewhere that owner can't follow
+ * it. Roles may be comma-joined (Better Auth allows multiple), so match on parts.
  */
-export async function projectIsPersonal(projectId: string): Promise<boolean> {
+export async function projectOwnerId(
+	projectId: string,
+): Promise<string | null> {
 	const db = await getAuthDb();
-	const row = await db
-		.selectFrom("auth_organization")
-		.select("metadata")
-		.where("id", "=", projectId)
-		.executeTakeFirst();
-	return isPersonalMetadata(row?.metadata ?? null);
+	const rows = await db
+		.selectFrom("auth_member")
+		.select(["userId", "role"])
+		.where("organizationId", "=", projectId)
+		.execute();
+	return rows.find((r) => r.role.split(",").includes("owner"))?.userId ?? null;
 }
 
 /**

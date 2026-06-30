@@ -23,11 +23,12 @@ import {
 	resolveAppAccess,
 	resolveAppScope,
 	resolveProjectAccess,
+	userInProject,
 } from "@/lib/db/appAccess";
 import { restoreApp as restoreAppDoc, softDeleteApp } from "@/lib/db/apps";
 import { AppBusyError, moveAppToProject } from "@/lib/db/moveAppToProject";
 import { log } from "@/lib/logger";
-import { projectIsPersonal } from "@/lib/projects/membership";
+import { projectOwnerId } from "@/lib/projects/membership";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -156,11 +157,14 @@ export async function restoreApp(appId: string): Promise<RestoreAppResult> {
  * release it, admin/owner of the destination to accept it. The orchestrator
  * re-tenants the app's case data + media to match (`moveAppToProject`).
  *
- * One extra guard closes the "pocket someone else's app" hole: moving an app into
- * a PERSONAL Project requires OWNING the source. You're always owner of your own
- * personal Project, so the destination bar alone wouldn't stop an admin from
- * relocating a shared app into their solo space and cutting off the owner — this
- * does.
+ * Owner-protection closes the "pocket someone else's app" hole. Moving an app out
+ * removes it from the source Project's OWNER too, so unless the caller IS that
+ * owner, the destination must also include the owner — a legit team reorg keeps
+ * them, but relocating into any space the owner can't follow (a personal Project
+ * OR a solo shared Project the admin created) is refused. Checking destination
+ * MEMBERSHIP of the owner — not "is the destination personal" — is what makes the
+ * single-member-shared-Project bypass impossible. The caller-is-owner case (e.g.
+ * taking your own app private) is unrestricted.
  *
  * Every authorization denial collapses to a not-found-shaped message — the source
  * to the same `App not found` as a missing row, the destination to one generic
@@ -199,12 +203,12 @@ export async function moveApp(
 			throw err;
 		}
 
-		if (access.projectId === toProjectId) {
-			return { success: false, error: "This app is already in that Project." };
-		}
-
 		// Destination: admin/owner of the destination (the mirror of releasing it
-		// from the source — accepting an app injects its data into the Project).
+		// from the source — accepting an app injects its data into the Project). This
+		// passes trivially when the destination IS the current Project, so a move
+		// against the app's current home falls through to the orchestrator's
+		// idempotent case re-tenant below — the recovery path for a prior move whose
+		// re-tenant failed after the doc flip.
 		try {
 			await resolveProjectAccess(session.user.id, toProjectId, "delete");
 		} catch (err) {
@@ -217,14 +221,17 @@ export async function moveApp(
 			throw err;
 		}
 
-		// Taking an app into a personal Project is owner-only on the source — you're
-		// always owner of your own personal Project, so without this an admin could
-		// pocket a shared app into their solo space and cut off the owner.
-		if ((await projectIsPersonal(toProjectId)) && !roleIsOwner(access.role)) {
-			return {
-				success: false,
-				error: "Couldn't move the app to that Project.",
-			};
+		// Owner-protection: unless the caller is the source Project's owner, the
+		// destination must include that owner, so a non-owner admin can't relocate
+		// an app somewhere its owner loses access (personal OR solo-shared).
+		if (!roleIsOwner(access.role)) {
+			const ownerId = await projectOwnerId(access.projectId);
+			if (ownerId && !(await userInProject(ownerId, toProjectId, "view"))) {
+				return {
+					success: false,
+					error: "Couldn't move the app to that Project.",
+				};
+			}
 		}
 
 		await moveAppToProject({

@@ -28,11 +28,8 @@
 // preconditions (already-moved, source drift, mid-generation, trashed).
 
 import { retenantAppCases } from "@/lib/case-store";
-import {
-	asWalkableDoc,
-	collectAssetRefs,
-	collectRealAssetRefs,
-} from "@/lib/domain/mediaRefs";
+import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
+import { asWalkableDoc, collectAssetRefs } from "@/lib/domain/mediaRefs";
 import { log } from "@/lib/logger";
 import { copyAssetsIntoProject } from "@/lib/media/moveMedia";
 import { commitAppProjectMove, loadApp } from "./apps";
@@ -122,9 +119,12 @@ export async function moveAppToProject(args: {
 				break;
 			}
 
-			const refs = [...collectAssetRefs(asWalkableDoc(fresh.blueprint))];
+			// One walk: the full ref set feeds the media copy, and the real-only
+			// subset (built-ins excluded) feeds the commit's concurrency guard.
+			const walkable = asWalkableDoc(fresh.blueprint);
+			const refs = [...collectAssetRefs(walkable)];
 			const attemptedRealIds = new Set(
-				collectRealAssetRefs(asWalkableDoc(fresh.blueprint)),
+				refs.filter((id) => !isBuiltinIconRef(id)),
 			);
 
 			// Step A — copy referenced media into the destination Project.

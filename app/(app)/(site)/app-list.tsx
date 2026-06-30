@@ -48,14 +48,16 @@ export async function AppList({ projectId, userId, isAdmin }: AppListProps) {
 		listUserProjects(userId),
 	]);
 
-	/* Destinations an app may move into — offered only when the user is admin or
-	 * owner of the active Project (the bar to move an app out of it). The active
-	 * role also gates personal-Project destinations: you can take your own app
-	 * private only if you own the source. Empty otherwise, so the cards render no
-	 * move affordance. */
+	/* `canMove` — whether the user is admin/owner of the active Project (the bar
+	 * to move an app out of it); it drives whether the move menu appears at all.
+	 * `moveTargets` — the eligible destinations; the active role also gates
+	 * personal-Project destinations (you can take your own app private only if you
+	 * own the source). The menu shows even with no targets (empty-state hint), so
+	 * a user with only their personal Project can still discover the path. */
 	const active = projects.find((p) => p.id === projectId);
+	const canMove = Boolean(active && canMoveAppsFrom(active.role));
 	const moveTargets =
-		active && canMoveAppsFrom(active.role)
+		active && canMove
 			? eligibleMoveTargets(projects, projectId, active.role)
 			: [];
 
@@ -76,6 +78,7 @@ export async function AppList({ projectId, userId, isAdmin }: AppListProps) {
 				active={activeRes.apps}
 				deleted={deletedRes.apps}
 				showReplay={isAdmin}
+				canMove={canMove}
 				moveTargets={moveTargets}
 			/>
 		</>

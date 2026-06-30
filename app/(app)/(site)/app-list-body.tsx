@@ -28,7 +28,10 @@ interface AppListBodyProps {
 	active: AppSummary[];
 	deleted: DeletedAppSummary[];
 	showReplay: boolean;
-	/** Projects active apps may move into; empty hides the move affordance. */
+	/** Whether the user may move apps out of the active Project (admin/owner) —
+	 *  drives whether the move menu appears (even with no destinations). */
+	canMove: boolean;
+	/** Eligible destination Projects; empty renders the menu's empty-state hint. */
 	moveTargets: MoveTarget[];
 }
 
@@ -38,6 +41,7 @@ export function AppListBody({
 	active,
 	deleted,
 	showReplay,
+	canMove,
 	moveTargets,
 }: AppListBodyProps) {
 	const [view, setView] = useState<View>("active");
@@ -71,6 +75,7 @@ export function AppListBody({
 									showReplay={showReplay}
 									onDelete={deleteApp}
 									onMove={moveApp}
+									canMove={canMove}
 									moveTargets={moveTargets}
 								/>
 							</li>
