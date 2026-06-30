@@ -139,6 +139,14 @@ export function handleApiError(err: ApiError | Error): NextResponse {
 		return NextResponse.json(body, { status: err.status });
 	}
 
+	/* Membership denial (`lib/db/appAccess` `AppAccessError`) → 404 — the IDOR-safe
+	 * not-found posture every app surface shares (a denial must be wire-
+	 * indistinguishable from a missing id). Matched by name to avoid pulling the
+	 * db/auth graph into this lightweight error util. */
+	if (err.name === "AppAccessError") {
+		return NextResponse.json({ error: "App not found" }, { status: 404 });
+	}
+
 	// Standard Error — return a generic message to avoid leaking internal
 	// details (file paths, stack fragments, library internals) to the client.
 	log.error("[apiError] unhandled", err);

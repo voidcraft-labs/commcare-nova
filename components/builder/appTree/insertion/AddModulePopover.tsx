@@ -20,6 +20,7 @@ import { CaseTypePickerContent } from "@/components/builder/shared/CaseTypePicke
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useNavigate } from "@/lib/routing/hooks";
+import { useCanEdit } from "@/lib/session/hooks";
 import {
 	POPOVER_POPUP_CLS,
 	POPOVER_POSITIONER_ELEVATED_CLS,
@@ -45,6 +46,7 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 	const { inline } = useBlueprintMutations();
 	const { openModule, openCaseList } = useNavigate();
 	const { revealed, ref, hoverProps } = useTreeInsertionHover(open);
+	const canEdit = useCanEdit();
 
 	// Reset transient state whenever the popover closes — by dismiss
 	// (Base UI calls `onOpenChange`) OR by a programmatic close after a
@@ -86,6 +88,9 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 			setError(outcome.messages.join(" "));
 		}
 	};
+
+	// A view-only Project member can't add modules — drop the "+" strip.
+	if (!canEdit) return null;
 
 	return (
 		<Popover.Root open={open} onOpenChange={handleOpenChange}>

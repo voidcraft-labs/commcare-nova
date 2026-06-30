@@ -11,14 +11,22 @@
  */
 
 import { oauthProviderClient } from "@better-auth/oauth-provider/client";
-import { adminClient, inferAdditionalFields } from "better-auth/client/plugins";
+import {
+	adminClient,
+	inferAdditionalFields,
+	organizationClient,
+} from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import type { Auth } from "./auth";
+import { ac, PROJECT_ROLES } from "./auth/projectRoles";
 
 export const authClient = createAuthClient({
 	plugins: [
 		inferAdditionalFields<Auth>(),
 		adminClient(),
+		// "Projects" tenancy — mirror the server's custom roles/ac so client-side
+		// permission checks (checkRolePermission) match the server's authorization.
+		organizationClient({ ac, roles: PROJECT_ROLES }),
 		oauthProviderClient(),
 	],
 	/* Disable automatic session refetch on window focus. Better Auth's default

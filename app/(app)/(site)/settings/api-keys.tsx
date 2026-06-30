@@ -30,10 +30,8 @@ import { Checkbox } from "@base-ui/react/checkbox";
 import { Dialog } from "@base-ui/react/dialog";
 import { Field } from "@base-ui/react/field";
 import { Menu } from "@base-ui/react/menu";
-import { Select } from "@base-ui/react/select";
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
-import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerCircleCheck from "@iconify-icons/tabler/circle-check";
 import tablerCopy from "@iconify-icons/tabler/copy";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
@@ -47,6 +45,14 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/shadcn/button";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
 import {
 	NOVA_API_KEY_SCOPES,
 	NOVA_MCP_FLOOR_SCOPES,
@@ -262,9 +268,9 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 
 	return (
 		<>
-			<section className="rounded-xl border border-nova-border overflow-hidden">
+			<section className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden">
 				{/* ── Card header ───────────────────────────────────────── */}
-				<div className="flex items-center gap-3 px-6 py-4 border-b border-nova-border/50 bg-nova-surface/20">
+				<div className="flex items-center gap-3 px-6 py-4 border-b border-nova-border/50">
 					<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-nova-violet/10">
 						<Icon
 							icon={tablerKey}
@@ -291,14 +297,10 @@ export function ApiKeys({ initial }: ApiKeysProps) {
 							</a>
 						</p>
 					</div>
-					<button
-						type="button"
-						onClick={() => setMintOpen(true)}
-						className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-nova-violet/30 bg-nova-violet/[0.10] px-3 py-1.5 text-xs font-medium text-nova-violet-bright outline-none transition-all duration-150 hover:border-nova-violet/50 hover:bg-nova-violet/[0.16] focus-visible:ring-1 focus-visible:ring-nova-violet/40"
-					>
+					<Button type="button" size="sm" onClick={() => setMintOpen(true)}>
 						<Icon icon={tablerPlus} width="13" height="13" />
 						New key
-					</button>
+					</Button>
 				</div>
 
 				{/* ── Card body ─────────────────────────────────────────── */}
@@ -599,20 +601,20 @@ function RowActions({
 	if (status.type === "confirming") {
 		return (
 			<div className="flex h-9 items-center gap-1.5">
-				<button
+				<Button
 					type="button"
+					variant="link"
 					onClick={() => onCancelConfirm(keyId)}
-					className="cursor-pointer rounded-md px-3 h-full text-sm text-nova-text-secondary transition-colors hover:bg-nova-border/30 hover:text-nova-text"
 				>
 					Cancel
-				</button>
-				<button
+				</Button>
+				<Button
 					type="button"
+					variant="destructive"
 					onClick={() => onConfirmRevoke(keyId)}
-					className="cursor-pointer rounded-md bg-nova-rose/10 px-3 h-full text-sm font-medium text-nova-rose transition-colors hover:bg-nova-rose/15"
 				>
 					Confirm revoke
-				</button>
+				</Button>
 			</div>
 		);
 	}
@@ -946,15 +948,16 @@ function MintForm({
 						You'll see the full key once. Store it somewhere safe.
 					</Dialog.Description>
 				</div>
-				<button
+				<Button
 					type="button"
+					variant="ghost"
+					size="icon-sm"
 					onClick={onCancel}
 					disabled={submitting}
 					aria-label="Close"
-					className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-40"
 				>
 					<Icon icon={tablerX} width="16" height="16" />
-				</button>
+				</Button>
 			</div>
 
 			<div className="space-y-5 px-6 py-5">
@@ -995,43 +998,27 @@ function MintForm({
 				</fieldset>
 
 				{/* Expiry */}
-				<Select.Root
-					value={expiry}
-					onValueChange={(v) => onExpiryChange(v as ExpiryOption)}
-					items={EXPIRY_OPTIONS}
-				>
-					<Select.Label className="block text-xs font-medium text-nova-text">
+				<div>
+					<span className="block text-xs font-medium text-nova-text">
 						Expiry
-					</Select.Label>
-					<Select.Trigger className="mt-1.5 flex w-full cursor-pointer items-center justify-between rounded-lg border border-nova-border bg-nova-deep px-3 py-2 text-sm text-nova-text outline-none transition-all focus-visible:border-nova-violet focus-visible:shadow-[var(--nova-glow-violet)] data-[popup-open]:border-nova-violet">
-						<Select.Value />
-						<Select.Icon className="text-nova-text-muted transition-transform data-[popup-open]:rotate-180">
-							<Icon icon={tablerChevronDown} width="14" height="14" />
-						</Select.Icon>
-					</Select.Trigger>
-					<Select.Portal>
-						<Select.Positioner
-							sideOffset={4}
-							alignItemWithTrigger={false}
-							className="z-modal min-w-[var(--anchor-width)] outline-none"
-						>
-							<Select.Popup className="overflow-hidden rounded-lg border border-nova-border bg-nova-deep shadow-xl outline-none">
-								{EXPIRY_OPTIONS.map((opt) => (
-									<Select.Item
-										key={opt.value}
-										value={opt.value}
-										className="flex cursor-pointer items-center justify-between px-3 py-2 text-sm text-nova-text outline-none transition-colors data-[highlighted]:bg-nova-violet/[0.10] data-[selected]:bg-nova-violet/[0.06]"
-									>
-										<Select.ItemText>{opt.label}</Select.ItemText>
-										<Select.ItemIndicator className="text-nova-violet-bright">
-											<Icon icon={tablerCheck} width="13" height="13" />
-										</Select.ItemIndicator>
-									</Select.Item>
-								))}
-							</Select.Popup>
-						</Select.Positioner>
-					</Select.Portal>
-				</Select.Root>
+					</span>
+					<Select
+						value={expiry}
+						onValueChange={(v) => onExpiryChange(v as ExpiryOption)}
+						items={EXPIRY_OPTIONS}
+					>
+						<SelectTrigger className="mt-1.5 w-full" aria-label="Expiry">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{EXPIRY_OPTIONS.map((opt) => (
+								<SelectItem key={opt.value} value={opt.value}>
+									{opt.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</div>
 
 				{/* Inline error */}
 				<AnimatePresence>
@@ -1065,19 +1052,15 @@ function MintForm({
 			 *     form-phase + submitting.
 			 */}
 			<div className="flex items-center justify-end gap-2 border-t border-nova-border/40 bg-nova-surface/10 px-6 py-3.5">
-				<button
+				<Button
 					type="button"
+					variant="ghost"
 					onClick={onCancel}
 					disabled={submitting}
-					className="rounded-md px-3 py-1.5 text-sm text-nova-text-secondary transition-colors enabled:cursor-pointer enabled:hover:bg-nova-border/30 enabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-40"
 				>
 					Cancel
-				</button>
-				<button
-					type="submit"
-					disabled={!canSubmit}
-					className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-nova-action px-4 py-1.5 text-sm font-medium text-white outline-none transition-all hover:bg-nova-action-hover focus-visible:ring-1 focus-visible:ring-nova-violet-bright disabled:cursor-not-allowed disabled:opacity-40"
-				>
+				</Button>
+				<Button type="submit" disabled={!canSubmit}>
 					{submitting && (
 						<Icon
 							icon={tablerLoader2}
@@ -1087,7 +1070,7 @@ function MintForm({
 						/>
 					)}
 					{submitting ? "Minting…" : "Mint key"}
-				</button>
+				</Button>
 			</div>
 		</form>
 	);
@@ -1146,10 +1129,11 @@ function RevealedKey({
 						{revealedKey}
 					</code>
 				</div>
-				<button
+				<Button
 					type="button"
+					variant="outline"
+					className="w-full"
 					onClick={onCopy}
-					className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-nova-border bg-transparent px-3 py-2 text-sm text-nova-text transition-colors hover:border-nova-violet/40 hover:bg-nova-violet/[0.05]"
 				>
 					<AnimatePresence mode="wait" initial={false}>
 						{copied ? (
@@ -1178,7 +1162,7 @@ function RevealedKey({
 							</motion.span>
 						)}
 					</AnimatePresence>
-				</button>
+				</Button>
 				<AnimatePresence>
 					{error && (
 						<motion.p
@@ -1196,13 +1180,9 @@ function RevealedKey({
 			</div>
 
 			<div className="flex items-center justify-end border-t border-nova-border/40 bg-nova-surface/10 px-6 py-3.5">
-				<button
-					type="button"
-					onClick={onAcknowledge}
-					className="rounded-md bg-nova-action px-4 py-1.5 text-sm font-medium text-white transition-all hover:bg-nova-action-hover"
-				>
+				<Button type="button" onClick={onAcknowledge}>
 					I've saved this key
-				</button>
+				</Button>
 			</div>
 		</motion.div>
 	);
@@ -1313,15 +1293,16 @@ function EditScopesDialog({
 								{target.name}
 							</Dialog.Description>
 						</div>
-						<button
+						<Button
 							type="button"
+							variant="ghost"
+							size="icon-sm"
 							onClick={onCancel}
 							disabled={submitting}
 							aria-label="Close"
-							className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							<Icon icon={tablerX} width="16" height="16" />
-						</button>
+						</Button>
 					</div>
 
 					<div className="space-y-3 px-6 py-5">
@@ -1347,19 +1328,18 @@ function EditScopesDialog({
 					</div>
 
 					<div className="flex items-center justify-end gap-2 border-t border-nova-border/40 bg-nova-surface/10 px-6 py-3.5">
-						<button
+						<Button
 							type="button"
+							variant="ghost"
 							onClick={onCancel}
 							disabled={submitting}
-							className="rounded-md px-3 py-1.5 text-sm text-nova-text-secondary transition-colors enabled:cursor-pointer enabled:hover:bg-nova-border/30 enabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							Cancel
-						</button>
-						<button
+						</Button>
+						<Button
 							type="button"
 							onClick={handleSave}
 							disabled={!dirty || submitting}
-							className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-nova-action px-4 py-1.5 text-sm font-medium text-white outline-none transition-all hover:bg-nova-action-hover focus-visible:ring-1 focus-visible:ring-nova-violet-bright disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							{submitting && (
 								<Icon
@@ -1370,7 +1350,7 @@ function EditScopesDialog({
 								/>
 							)}
 							{submitting ? "Saving…" : "Save scopes"}
-						</button>
+						</Button>
 					</div>
 				</Dialog.Popup>
 			</Dialog.Portal>

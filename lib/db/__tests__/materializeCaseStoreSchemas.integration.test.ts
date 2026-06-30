@@ -12,7 +12,7 @@
 // The harness mirrors `applyBlueprintChange.integration.test.ts`:
 //   - `setupPerTestDatabase` boots a fresh per-test Postgres
 //     database + applies migrations (`runCaseStoreMigrations`).
-//   - A `vi.mock` of `@/lib/case-store` swaps `withOwnerContext`
+//   - A `vi.mock` of `@/lib/case-store` swaps `withSchemaContext`
 //     for a constructor that returns a `PostgresCaseStore` bound
 //     to the per-test handle.
 //
@@ -47,14 +47,14 @@ import type { CaseType, PersistableDoc } from "@/lib/domain";
 
 // ── Hoisted spy shells ─────────────────────────────────────────────
 
-const { withOwnerContextMock } = vi.hoisted(() => ({
-	withOwnerContextMock: vi.fn(),
+const { withSchemaContextMock } = vi.hoisted(() => ({
+	withSchemaContextMock: vi.fn(),
 }));
 
 vi.mock("@/lib/case-store", async () => {
 	// Re-export the rest of the barrel so error classes / type
 	// imports keep resolving — the per-test override only swaps
-	// `withOwnerContext`. Casting through `unknown` avoids the
+	// `withSchemaContext`. Casting through `unknown` avoids the
 	// type-only import signature mismatch for `vi.importActual`.
 	const actual = (await vi.importActual("@/lib/case-store")) as Record<
 		string,
@@ -62,7 +62,7 @@ vi.mock("@/lib/case-store", async () => {
 	>;
 	return {
 		...actual,
-		withOwnerContext: withOwnerContextMock,
+		withSchemaContext: withSchemaContextMock,
 	};
 });
 
@@ -83,13 +83,14 @@ beforeEach(async () => {
 });
 
 beforeEach(() => {
-	withOwnerContextMock.mockReset();
-	// Default: route every `withOwnerContext` call to a
+	withSchemaContextMock.mockReset();
+	// Default: route every `withSchemaContext` call to a
 	// PostgresCaseStore bound to the per-test handle. Production
 	// parity, just bypasses the singleton's Cloud SQL connector.
-	withOwnerContextMock.mockImplementation(async (ownerId: string) => {
+	withSchemaContextMock.mockImplementation(async () => {
 		return new PostgresCaseStore({
-			ownerId,
+			projectId: null,
+			actorUserId: null,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
@@ -99,7 +100,6 @@ beforeEach(() => {
 // ── Fixture builders ──────────────────────────────────────────────
 
 const APP_ID = "app-mat";
-const OWNER_ID = "owner-mat";
 
 function makeBlueprint(caseTypes: CaseType[] | null): PersistableDoc {
 	return {
@@ -119,7 +119,7 @@ function makeBlueprint(caseTypes: CaseType[] | null): PersistableDoc {
 // ── No-op paths — survey-only / empty case_types ─────────────────
 
 describe("materializeCaseStoreSchemas — no-op paths", () => {
-	it("does not allocate withOwnerContext when caseTypes is null", async () => {
+	it("does not allocate withSchemaContext when caseTypes is null", async () => {
 		// Survey-only build — the SA generated no case types. The
 		// helper's early return must skip the connection-pool
 		// allocation entirely; otherwise a survey-only completion
@@ -127,22 +127,20 @@ describe("materializeCaseStoreSchemas — no-op paths", () => {
 		// work.
 		await materializeCaseStoreSchemas({
 			appId: APP_ID,
-			userId: OWNER_ID,
 			blueprint: makeBlueprint(null),
 		});
-		expect(withOwnerContextMock).not.toHaveBeenCalled();
+		expect(withSchemaContextMock).not.toHaveBeenCalled();
 	});
 
-	it("does not allocate withOwnerContext when caseTypes is empty", async () => {
+	it("does not allocate withSchemaContext when caseTypes is empty", async () => {
 		// Same shape as `null` but the array is empty — the SA
 		// declared a `caseTypes` array but never filled it. The
 		// helper treats the two the same way.
 		await materializeCaseStoreSchemas({
 			appId: APP_ID,
-			userId: OWNER_ID,
 			blueprint: makeBlueprint([]),
 		});
-		expect(withOwnerContextMock).not.toHaveBeenCalled();
+		expect(withSchemaContextMock).not.toHaveBeenCalled();
 	});
 });
 
@@ -168,7 +166,6 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 
 		await materializeCaseStoreSchemas({
 			appId: APP_ID,
-			userId: OWNER_ID,
 			blueprint,
 		});
 
@@ -276,7 +273,7 @@ describe("materializeCaseStoreSchemas — partial failure", () => {
 		// the fake — `mockImplementationOnce` so subsequent tests
 		// (none in this file, but the harness pattern stays robust)
 		// fall back to the per-test database default.
-		withOwnerContextMock.mockImplementationOnce(async () => fakeStore);
+		withSchemaContextMock.mockImplementationOnce(async () => fakeStore);
 
 		const a: CaseType = {
 			name: "a",
@@ -302,7 +299,6 @@ describe("materializeCaseStoreSchemas — partial failure", () => {
 		await expect(
 			materializeCaseStoreSchemas({
 				appId: APP_ID,
-				userId: OWNER_ID,
 				blueprint: makeBlueprint([a, b, c, d]),
 			}),
 		).rejects.toThrow(failureReason);
@@ -361,7 +357,7 @@ describe("materializeCaseStoreSchemas — transient-failure retry", () => {
 			generateSampleData: unused,
 			resetSampleData: unused,
 		} satisfies CaseStore;
-		withOwnerContextMock.mockImplementationOnce(async () => fakeStore);
+		withSchemaContextMock.mockImplementationOnce(async () => fakeStore);
 
 		const a: CaseType = {
 			name: "a",
@@ -372,7 +368,6 @@ describe("materializeCaseStoreSchemas — transient-failure retry", () => {
 		await expect(
 			materializeCaseStoreSchemas({
 				appId: APP_ID,
-				userId: OWNER_ID,
 				blueprint: makeBlueprint([a]),
 			}),
 		).resolves.toBeUndefined();
@@ -419,7 +414,7 @@ describe("materializeCaseStoreSchemas — transient-failure retry", () => {
 			generateSampleData: unused,
 			resetSampleData: unused,
 		} satisfies CaseStore;
-		withOwnerContextMock.mockImplementationOnce(async () => fakeStore);
+		withSchemaContextMock.mockImplementationOnce(async () => fakeStore);
 
 		const a: CaseType = {
 			name: "a",
@@ -429,7 +424,6 @@ describe("materializeCaseStoreSchemas — transient-failure retry", () => {
 		await expect(
 			materializeCaseStoreSchemas({
 				appId: APP_ID,
-				userId: OWNER_ID,
 				blueprint: makeBlueprint([a]),
 			}),
 		).resolves.toBeUndefined();
@@ -478,7 +472,7 @@ describe("materializeCaseStoreSchemas — deterministic fault is not retried", (
 			generateSampleData: unused,
 			resetSampleData: unused,
 		} satisfies CaseStore;
-		withOwnerContextMock.mockImplementationOnce(async () => fakeStore);
+		withSchemaContextMock.mockImplementationOnce(async () => fakeStore);
 
 		const a: CaseType = {
 			name: "a",
@@ -492,7 +486,6 @@ describe("materializeCaseStoreSchemas — deterministic fault is not retried", (
 		await expect(
 			materializeCaseStoreSchemas({
 				appId: APP_ID,
-				userId: OWNER_ID,
 				blueprint: makeBlueprint([a, b]),
 			}),
 		).rejects.toThrow(failureReason);

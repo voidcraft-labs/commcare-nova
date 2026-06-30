@@ -10,6 +10,7 @@
  * so list queries never need to deserialize full blueprints.
  */
 import {
+	FieldPath,
 	FieldValue,
 	Timestamp,
 	type Transaction,
@@ -284,45 +285,76 @@ async function syncMediaReferences(
 // ── Concurrency Guard ─────────────────────────────────────────────
 
 /**
- * Check whether the user has an active generation in progress.
+ * Check whether the ACTOR has an active generation in progress.
  *
- * Queries for any app owned by `owner` with `status: 'generating'` whose
- * last Firestore write was within the staleness window. Returns `true` if
- * an active generation exists that isn't the given `excludeAppId` — so
- * retries on the same build are allowed, but concurrent new builds are blocked.
+ * Unions two queries, deduped by app id, because the run's ACTOR is
+ * recorded in two different places across a build's life:
+ *  - `owner == actor` — a brand-new build, BEFORE `reserveCredits` stamps
+ *    a `reservation` marker. `createApp` writes the app (`owner = creator
+ *    = actor`, `status: generating`) before the route's concurrency check,
+ *    so this query is the createApp-as-lock that stops two simultaneous new
+ *    builds from both slipping past (a single `reservation.userId` query
+ *    misses them — the marker doesn't exist yet — and both would charge).
+ *  - `reservation.userId == actor` — a run the actor drives on an app
+ *    someone else OWNS (a shared Project co-member building another's app),
+ *    where `owner != actor`.
  *
- * Soft-deleted rows are excluded server-side via `deleted_at == null`:
- * a deleted-mid-generation row is effectively abandoned and must not
- * keep blocking new builds.
+ * An owner-matched app whose `reservation.userId` is a DIFFERENT user is a
+ * co-member's run on this user's app — that is the CO-MEMBER's concurrency,
+ * not this user's, so it's skipped (it must not falsely block the owner's
+ * own build). A marker-less owner match (the new-build window) is kept.
  *
- * Single Firestore query with `limit(5)` — enough to find a live one
- * even if the first few results are stale or the excluded app.
+ * Returns `true` if a live generation exists that isn't `excludeAppId` —
+ * retries on the same build pass; concurrent new builds are blocked.
+ *
+ * Best-effort (the chat route treats it fail-open). The reservation's
+ * atomic debit remains the true no-overshoot guard; free edit
+ * continuations never flip to `generating`, so they never count.
  */
 export async function hasActiveGeneration(
-	owner: string,
+	actorUserId: string,
 	excludeAppId?: string,
 ): Promise<boolean> {
-	const snap = await collections
-		.apps()
-		.where("owner", "==", owner)
-		.where("deleted_at", "==", null)
-		.where("status", "==", "generating")
-		.limit(5)
-		.get();
+	const [byOwner, byActor] = await Promise.all([
+		collections
+			.apps()
+			.where("owner", "==", actorUserId)
+			.where("deleted_at", "==", null)
+			.where("status", "==", "generating")
+			.limit(5)
+			.get(),
+		collections
+			.apps()
+			.where("reservation.userId", "==", actorUserId)
+			.where("deleted_at", "==", null)
+			.where("status", "==", "generating")
+			.limit(5)
+			.get(),
+	]);
 
-	if (snap.empty) return false;
+	const byId = new Map<string, (typeof byOwner.docs)[number]>();
+	for (const doc of byOwner.docs) byId.set(doc.id, doc);
+	for (const doc of byActor.docs) byId.set(doc.id, doc);
+	if (byId.size === 0) return false;
 
 	const now = Date.now();
 	const maxAgeMs = MAX_GENERATION_MINUTES * 60_000;
 
-	for (const doc of snap.docs) {
+	for (const doc of byId.values()) {
 		if (doc.id === excludeAppId) continue;
+		const data = doc.data();
+		/* A co-member's run on THIS user's owned app (owner match but the run
+		 * actor is someone else) is the co-member's concurrency, not this
+		 * user's — don't let it block the owner's own build. A marker-less
+		 * owner match (the new-build window) has no run actor yet and is kept. */
+		const runActor = data.reservation?.userId;
+		if (runActor !== undefined && runActor !== actorUserId) continue;
 		/* A build paused on an `askQuestions` round is alive but process-less (it
 		 * resumes on a later POST). It must NOT be reaped (its hold is live) and must
 		 * NOT block a new build — an abandoned-at-questions build would otherwise lock
 		 * the user out of generating forever. Skip it on both counts. */
-		if (doc.data().awaiting_input) continue;
-		const updatedAt = (doc.data().updated_at as Timestamp)?.toDate();
+		if (data.awaiting_input) continue;
+		const updatedAt = (data.updated_at as Timestamp)?.toDate();
 		if (!updatedAt) {
 			/* No updated_at means a corrupt or very old doc — definitively dead. */
 			void reapStaleGenerating(doc.id);
@@ -343,20 +375,20 @@ export async function hasActiveGeneration(
 // ── Existence Check ───────────────────────────────────────────────
 
 /**
- * Lightweight existence check — does the user own at least one live
+ * Lightweight existence check — does the Project have at least one live
  * (non-soft-deleted) app?
  *
  * Uses `limit(1)` with no field projection so it's as cheap as a
  * Firestore read can be. Called by the root page before the Suspense
  * boundary to choose between the get-started state and the app list.
  *
- * The soft-delete filter mirrors `listApps`: a user who deleted every
- * app should land on get-started, not an empty list page.
+ * The soft-delete filter mirrors `listApps`: a Project whose every app
+ * was deleted should land on get-started, not an empty list page.
  */
-export async function userHasApps(owner: string): Promise<boolean> {
+export async function projectHasApps(projectId: string): Promise<boolean> {
 	const snap = await getDb()
 		.collection("apps")
-		.where("owner", "==", owner)
+		.where("project_id", "==", projectId)
 		.where("deleted_at", "==", null)
 		.limit(1)
 		.get();
@@ -404,6 +436,7 @@ export interface CreateAppOptions {
  */
 export async function createApp(
 	owner: string,
+	projectId: string,
 	runId: string,
 	opts?: CreateAppOptions,
 ): Promise<string> {
@@ -424,6 +457,7 @@ export async function createApp(
 	const persistable = toPersistableDoc(emptyDoc);
 	await ref.set({
 		owner,
+		project_id: projectId,
 		...denormalize(emptyDoc),
 		blueprint: persistable,
 		status: opts?.status ?? "generating",
@@ -583,54 +617,46 @@ export async function updateAppForRunTransactional(
 }
 
 /**
- * Thrown by `updateAppGuardedByBasis` when the stored `blueprint_token`
- * no longer matches the basis the client's snapshot was built on — the
- * server doc advanced under the client (another tab's save, an MCP
- * commit), so the whole-doc overwrite would erase that writer's work.
- * The auto-save route maps this to a 409; the builder reloads.
+ * Tokenless guarded mutation commit — the auto-save twin of
+ * `updateAppForRunTransactional`. One Firestore transaction: read the
+ * FRESH stored app doc, run `body` (the caller re-applies the client's
+ * `Mutation[]` onto the fresh blueprint and re-runs the validity verdict),
+ * write the result under a freshly rotated `blueprint_token`, and
+ * `syncMediaReferences` post-commit. Returns the rotated token so the
+ * client advances its save basis.
+ *
+ * Re-applying on the fresh doc is what makes concurrent edits MERGE: a
+ * mutation built against a stale client snapshot lands on whatever the
+ * stored doc is now. There is no token precondition — the only failure is
+ * the body throwing `BlueprintCommitRejectedError` when the batch would
+ * introduce a finding against fresh state (the caller surfaces it). Writes
+ * no `run_id`: auto-save is not a run.
  */
-export class BlueprintBasisStaleError extends Error {
-	constructor() {
-		super(
-			"This app changed outside this window since it was loaded — saving now would overwrite those changes.",
-		);
-		this.name = "BlueprintBasisStaleError";
-	}
-}
-
-/**
- * Basis-guarded whole-doc blueprint write — the auto-save PUT's
- * read-compare-write. Inside one Firestore transaction: read the fresh
- * app doc, compare its `blueprint_token` to the basis the client echoed
- * (both `null` for a never-PUT app — first saves need no backfill), and
- * either commit the overwrite under a freshly rotated token or throw
- * `BlueprintBasisStaleError` with nothing written. Returns the new token
- * so the client advances its basis for the next save.
- */
-export async function updateAppGuardedByBasis(
+export async function updateAppGuardedMutating(
 	appId: string,
-	doc: PersistedBlueprint,
-	basisToken: string | null,
+	body: (
+		fresh: AppDoc,
+		tx: Transaction,
+	) => PersistedBlueprint | Promise<PersistedBlueprint>,
 ): Promise<string> {
-	const nextToken = crypto.randomUUID();
-	await getDb().runTransaction(async (tx) => {
+	const basisToken = crypto.randomUUID();
+	const committed = await getDb().runTransaction(async (tx) => {
 		const snap = await tx.get(docs.app(appId));
 		const fresh = snap.exists ? (snap.data() ?? null) : null;
 		if (!fresh) {
 			throw new Error(
-				`[updateAppGuardedByBasis] app document missing for appId=${appId}`,
+				`[updateAppGuardedMutating] app document missing for appId=${appId}`,
 			);
 		}
-		if ((fresh.blueprint_token ?? null) !== basisToken) {
-			throw new BlueprintBasisStaleError();
-		}
+		const next = await body(fresh, tx);
 		tx.update(
 			docs.appRaw(appId),
-			blueprintSnapshotFields(doc, { basisToken: nextToken }),
+			blueprintSnapshotFields(next, { basisToken }),
 		);
+		return next;
 	});
-	await syncMediaReferences(appId, doc);
-	return nextToken;
+	await syncMediaReferences(appId, committed);
+	return basisToken;
 }
 
 /**
@@ -808,7 +834,14 @@ export async function claimBuildRun(appId: string): Promise<ClaimedBuildRun> {
 			 * likewise — the marker still settles below so nothing revisits). */
 			const marker = fresh.reservation;
 			if (marker && !marker.settled) {
-				const creditRef = docs.creditMonthRaw(fresh.owner, marker.period);
+				// Refund the user who was CHARGED — the actor recorded on the
+				// marker, mirroring `refundReservation`. `fresh.owner` diverges
+				// from the actor once a Project co-member ran the displaced
+				// build; legacy markers without `userId` fall back to `owner`.
+				const creditRef = docs.creditMonthRaw(
+					marker.userId ?? fresh.owner,
+					marker.period,
+				);
 				const creditSnap = await tx.get(creditRef);
 				if (creditSnap.exists) {
 					const consumed =
@@ -1086,18 +1119,27 @@ export async function loadApp(appId: string): Promise<AppDoc | null> {
 }
 
 /**
- * Load just the owner userId for an app document.
+ * Load just the owning Project id for an app document.
  *
- * Reads only the `owner` field via an untyped document reference — avoids
- * pulling the full blueprint or running Zod validation. Used by API routes
- * that need to verify ownership before writing.
+ * The lightweight projected read the authorization resolver uses: reads only
+ * `project_id` via a `documentId()` + `.select()` query, avoiding the full
+ * blueprint load + Zod validation. Returns null when the row is absent or the
+ * field is unset (a pre-backfill row).
  */
-export async function loadAppOwner(appId: string): Promise<string | null> {
-	/* Direct untyped read — `select()` is only available on queries, not
-	 * document references, so we read the raw doc and extract the one field. */
-	const snap = await getDb().collection("apps").doc(appId).get();
-	if (!snap.exists) return null;
-	return (snap.data()?.owner as string) ?? null;
+export async function loadAppProjectId(appId: string): Promise<string | null> {
+	/* Projected read — `DocumentReference.get()` has no field mask, so this uses a
+	 * `documentId()` query with `.select()` to transfer ONLY `project_id` rather
+	 * than pulling the full (multi-hundred-KB) blueprint over the wire on every
+	 * authorization gate. */
+	const snap = await getDb()
+		.collection("apps")
+		.where(FieldPath.documentId(), "==", appId)
+		.select("project_id")
+		.limit(1)
+		.get();
+	const doc = snap.docs[0];
+	if (!doc) return null;
+	return (doc.get("project_id") as string | undefined) ?? null;
 }
 
 /**
@@ -1338,8 +1380,9 @@ function projectAppSummary(
  * the web UI's fixed 50-row page — always reach every row a typical
  * user has).
  */
-export async function listApps(
-	owner: string,
+async function queryAppsByScope(
+	scopeField: "owner" | "project_id",
+	scopeValue: string | readonly string[],
 	options: ListAppsOptions,
 ): Promise<ListAppsResult> {
 	const { limit, sort, status, cursor } = options;
@@ -1350,7 +1393,12 @@ export async function listApps(
 	 * on the way out. */
 	let query: FirebaseFirestore.Query = getDb()
 		.collection("apps")
-		.where("owner", "==", owner)
+		/* A single scope value is an equality match; a list (the multi-Project
+		 * MCP enumeration) is an `in` disjunction. Firestore serves both off the
+		 * same `(scope, deleted_at, sort_field, __name__)` composite index and
+		 * applies the global orderBy + limit + startAfter cursor across the merged
+		 * result, so the pagination contract is identical either way. */
+		.where(scopeField, Array.isArray(scopeValue) ? "in" : "==", scopeValue)
 		/* `createApp` writes `deleted_at: null` on every new doc, so this
 		 * equality filter matches every live app — no missing-field rows
 		 * to leak. See the function docblock for the rationale. */
@@ -1438,77 +1486,144 @@ export async function listApps(
 }
 
 /**
- * Search a user's apps by name with fuzzy matching.
- *
- * Composes on top of `listApps` rather than running its own Firestore
- * query: `listApps` is the single canonical surface that owns soft-
- * delete stripping, stale-`generating` reaping, index usage, and
- * partial-field projection. Mirroring any of that here would be a
- * drift risk. Fuse.js runs over the `listApps` page in memory, ranking
- * results by relevance (edit-distance-based scoring via the Bitap
- * algorithm) — which is also why `searchApps` has no `sort` option:
- * relevance IS the ordering.
- *
- * Pagination semantics: one `listApps` call per `searchApps` call (no
- * internal looping). `searchApps` over-fetches by `SEARCH_FETCH_BUFFER`
- * rows so a typical query produces a full page in one round trip. When
- * Fuse returns fewer than `limit` matches and `listApps` still has
- * more to scan, the underlying `listApps.nextCursor` is passed through —
- * the caller re-calls with it to search the next batch. Total matches
- * across multiple calls are bounded by what the user actually has.
- *
- * The scan uses `sort: "updated_desc"` internally — searching the
- * newest apps first gives the best average-case latency for "find my
- * recent X" queries, which is the dominant search intent. A user who
- * wants to find an old app by name will traverse more pages; they may,
- * because the cursor works.
- *
- * When Nova's per-user app count grows beyond the buffer's reach, this
- * function is the single site to swap the in-memory Fuse filter for a
- * search index (Algolia / Typesense / trigram-denormalized storage).
- * The tool schema + cursor contract on the outside remains the same.
+ * List a Project's live apps — the tenancy listing (home page, /api/apps, MCP).
+ * Thin wrapper over `queryAppsByScope`.
  */
-export async function searchApps(
+export function listApps(
+	projectId: string,
+	options: ListAppsOptions,
+): Promise<ListAppsResult> {
+	return queryAppsByScope("project_id", projectId, options);
+}
+
+/**
+ * List a user's OWN (created) apps by the `owner` field — for admin inspection
+ * and the owner-keyed media-deletion reference scan, which are creator-scoped,
+ * NOT tenancy-scoped. (The `owner`-leading composite indexes serve this.)
+ */
+export function listAppsByOwner(
 	owner: string,
+	options: ListAppsOptions,
+): Promise<ListAppsResult> {
+	return queryAppsByScope("owner", owner, options);
+}
+
+/**
+ * List apps across SEVERAL Projects in one scan — the headless MCP enumeration
+ * scope, where `projectIds` is every Project the caller is a member of (the same
+ * reachability {@link resolveAppScope} grants app-by-app, so nothing the user
+ * can open by id is invisible to enumeration). An empty list returns an empty
+ * page without a query.
+ *
+ * Runs ONE `in`-scoped `queryAppsByScope`, so the sort, limit, and cursor
+ * contract are identical to the single-Project `listApps`. Firestore caps the
+ * `in` disjunction at 30 values; callers pass at most that many (see the MCP
+ * tools), a bound that does not bite for Nova's small-team Project sizes.
+ */
+export function listAppsAcrossProjects(
+	projectIds: readonly string[],
+	options: ListAppsOptions,
+): Promise<ListAppsResult> {
+	if (projectIds.length === 0) return Promise.resolve({ apps: [] });
+	return queryAppsByScope("project_id", projectIds, options);
+}
+
+/**
+ * Search a single Project's apps by name with fuzzy matching — the tenancy
+ * search (web UI). Composes over `listApps` through the shared
+ * {@link rankSearchOverPage} core, which owns the over-fetch buffer, Fuse
+ * relevance ranking, and cursor passthrough.
+ */
+export function searchApps(
+	projectId: string,
+	options: SearchAppsOptions,
+): Promise<SearchAppsResult> {
+	return rankSearchOverPage((scan) => listApps(projectId, scan), options);
+}
+
+/**
+ * Fuzzy-search across EVERY Project the caller is a member of — the headless MCP
+ * search scope, the search twin of {@link listAppsAcrossProjects}. Same
+ * reachability set as `get_app` / the editing tools, so a remembered-by-name app
+ * in a shared Project is findable here. Shares the Fuse ranking + cursor-
+ * passthrough with `searchApps`; only the underlying scan differs.
+ */
+export function searchAppsAcrossProjects(
+	projectIds: readonly string[],
+	options: SearchAppsOptions,
+): Promise<SearchAppsResult> {
+	return rankSearchOverPage(
+		(scan) => listAppsAcrossProjects(projectIds, scan),
+		options,
+	);
+}
+
+/**
+ * The shared search core: over-fetch one scan page, rank it with Fuse, take the
+ * caller's `limit`, and pass the scan's cursor through. `scanPage` abstracts
+ * which list scan backs the search (single Project or the cross-Project `in`
+ * scan) so `searchApps` and `searchAppsAcrossProjects` differ only in that
+ * backing call — the relevance ordering, over-fetch buffer, and cursor semantics
+ * are defined once here.
+ *
+ * Composing over a list scan (rather than a bespoke query) means the scan owns
+ * soft-delete stripping, stale-`generating` reaping, index usage, and partial-
+ * field projection — mirroring any of that here would be a drift risk. Fuse runs
+ * in memory and ranks by relevance (Bitap edit-distance scoring), which is why
+ * the search surfaces expose no `sort`: relevance IS the ordering.
+ *
+ * Pagination: ONE scan per call (no internal looping), over-fetching by
+ * `SEARCH_FETCH_BUFFER` so a typical query fills a page in one round trip. When
+ * Fuse returns fewer than `limit` matches and the scan still has more rows, the
+ * scan's `nextCursor` passes through and the caller re-calls to search the next
+ * batch. The scan sorts `updated_desc` — searching newest-first gives the best
+ * average-case latency for the dominant "find my recent X" intent; an old app is
+ * still reachable across more pages because the cursor works.
+ *
+ * When per-Project app counts grow beyond the buffer's reach, this is the single
+ * site to swap the in-memory Fuse filter for a search index (Algolia / Typesense
+ * / trigram-denormalized storage); the tool schema + cursor contract stay put.
+ */
+function rankSearchOverPage(
+	scanPage: (scan: ListAppsOptions) => Promise<ListAppsResult>,
 	options: SearchAppsOptions,
 ): Promise<SearchAppsResult> {
 	const { query, limit, status, cursor } = options;
-
-	const page = await listApps(owner, {
+	return scanPage({
 		limit: limit + SEARCH_FETCH_BUFFER,
 		sort: "updated_desc",
 		status,
 		cursor,
+	}).then((page) => {
+		/* Fuse configured for anywhere-in-string fuzzy substring matching.
+		 * `ignoreLocation` disables the default preference for matches near
+		 * the start of the string — users search for "vaccine" expecting to
+		 * find "COVID Vaccine Tracker". `includeScore` is on so we could
+		 * threshold further if needed; `threshold` already does most of that
+		 * work up front. */
+		const fuse = new Fuse(page.apps, {
+			keys: ["app_name"],
+			threshold: FUSE_THRESHOLD,
+			ignoreLocation: true,
+			includeScore: true,
+		});
+
+		/* Fuse returns results sorted best-first by its relevance score.
+		 * Take the first `limit` — extras (beyond `limit`) are effectively
+		 * discarded for this call; the caller can follow the cursor to get
+		 * more matches from the next scan page. */
+		const matches = fuse
+			.search(query)
+			.slice(0, limit)
+			.map((result) => result.item);
+
+		/* Cursor pass-through. A search call's "more available" signal is
+		 * identical to the underlying scan page's — if Firestore had more to
+		 * enumerate, there may be more matches to find; if not, the user has no
+		 * more apps to search. Passing the cursor through preserves that 1:1
+		 * semantic. */
+		return { apps: matches, nextCursor: page.nextCursor };
 	});
-
-	/* Fuse configured for anywhere-in-string fuzzy substring matching.
-	 * `ignoreLocation` disables the default preference for matches near
-	 * the start of the string — users search for "vaccine" expecting to
-	 * find "COVID Vaccine Tracker". `includeScore` is on so we could
-	 * threshold further if needed; `threshold` already does most of that
-	 * work up front. */
-	const fuse = new Fuse(page.apps, {
-		keys: ["app_name"],
-		threshold: FUSE_THRESHOLD,
-		ignoreLocation: true,
-		includeScore: true,
-	});
-
-	/* Fuse returns results sorted best-first by its relevance score.
-	 * Take the first `limit` — extras (beyond `limit`) are effectively
-	 * discarded for this call; the caller can follow the cursor to get
-	 * more matches from the next `listApps` page. */
-	const matches = fuse
-		.search(query)
-		.slice(0, limit)
-		.map((result) => result.item);
-
-	/* Cursor pass-through. A search call's "more available" signal is
-	 * identical to the underlying `listApps` page's — if Firestore had
-	 * more to enumerate, there may be more matches to find; if not, the
-	 * user has no more apps to search. Passing the cursor through
-	 * preserves that 1:1 semantic. */
-	return { apps: matches, nextCursor: page.nextCursor };
 }
 
 // ── Trash query ────────────────────────────────────────────────────
@@ -1576,7 +1691,7 @@ export interface ListDeletedAppsResult {
  * See `firestore.indexes.json`.
  */
 export async function listDeletedApps(
-	owner: string,
+	projectId: string,
 	options: ListDeletedAppsOptions,
 ): Promise<ListDeletedAppsResult> {
 	/* Untyped collection ref for the same reason `listApps` uses one —
@@ -1584,7 +1699,7 @@ export async function listDeletedApps(
 	 * converter's full-schema validation. */
 	const snap = await getDb()
 		.collection("apps")
-		.where("owner", "==", owner)
+		.where("project_id", "==", projectId)
 		.where("deleted_at", "!=", null)
 		.orderBy("deleted_at", "desc")
 		.orderBy("__name__", "asc")

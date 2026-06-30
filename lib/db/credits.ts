@@ -70,7 +70,8 @@ export interface Reservation {
  *      defeat the cap under contention.
  *
  * The same transaction also stamps the DURABLE RESERVATION MARKER onto the app
- * doc (`reservation: { period, reserved, settled:false }`). Co-committing the
+ * doc (`reservation: { period, reserved, settled:false, userId }`, where
+ * `userId` is the charged actor). Co-committing the
  * marker with the debit is load-bearing: it guarantees a charge can never land
  * without the marker the refunding reaper needs, so a hard kill after the debit
  * still has a durable record to refund. The app doc is written over its raw ref
@@ -117,7 +118,10 @@ export async function reserveCredits(
 		// Durable reservation marker, committed atomically with the debit above.
 		tx.set(
 			appRef,
-			{ reservation: { period, reserved: cost, settled: false } },
+			// `userId` records WHO was charged (the actor), so a refund returns
+			// the hold to that user — not `app.owner`, which diverges from the
+			// actor once a Project co-member runs the app.
+			{ reservation: { period, reserved: cost, settled: false, userId } },
 			{ merge: true },
 		);
 	});
@@ -134,8 +138,9 @@ export async function reserveCredits(
  * is what lets the two refund callers — the live finalize path (`flush`) and the
  * stale-`generating` reaper — both invoke this without racing a double refund:
  * whichever lands first settles the marker; the other reads `settled` and
- * no-ops. Idempotent and self-describing — it reads owner, period, and amount
- * off the marker, so callers pass only `appId`.
+ * no-ops. Idempotent and self-describing — it reads the charged user (the
+ * marker's `userId`, falling back to `owner` for pre-per-actor-billing
+ * markers), period, and amount off the marker, so callers pass only `appId`.
  *
  * No-ops cleanly when there is nothing to do: an absent marker (a free
  * continuation, or an app created before reservations shipped), an
@@ -155,10 +160,15 @@ export async function refundReservation(appId: string): Promise<void> {
 		if (!appSnap.exists) return;
 		const appData = appSnap.data() as Partial<AppDoc>;
 		const reservation = appData.reservation;
-		const owner = appData.owner;
-		if (!reservation || reservation.settled || !owner) return;
+		// Refund the user who was CHARGED — the run's actor, recorded on the
+		// marker. Pre-per-actor-billing markers carry no `userId`; fall back to
+		// `owner` (the actor in the single-member world those were written in).
+		// Using `owner` unconditionally would refund the wrong user once a
+		// Project co-member's run is the one being unbooked.
+		const chargedUserId = reservation?.userId ?? appData.owner;
+		if (!reservation || reservation.settled || !chargedUserId) return;
 
-		const creditRef = docs.creditMonthRaw(owner, reservation.period);
+		const creditRef = docs.creditMonthRaw(chargedUserId, reservation.period);
 		const creditSnap = await tx.get(creditRef);
 
 		if (creditSnap.exists) {

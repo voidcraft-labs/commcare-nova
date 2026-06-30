@@ -7,15 +7,13 @@
  *   2. Refuses (and deletes nothing) when the current doc still
  *      references the asset, naming the carrier.
  *   3. Refuses when another live app references the asset.
- *   4. Maps a missing/foreign-owned asset to a "not found" message.
+ *   4. Maps a missing/foreign-Project asset to a "not found" message.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ListAppsResult } from "@/lib/db/apps";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { MediaAssetOwnershipError } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asAssetId } from "@/lib/domain";
 import { removeMediaAssetTool } from "../removeMediaAsset";
 import { makeMediaFixture, TEXT_FIELD } from "./fixtures";
 
@@ -23,14 +21,15 @@ import { makeMediaFixture, TEXT_FIELD } from "./fixtures";
 // the factories can close over them without a "cannot access before
 // initialization" hoist error.
 const {
-	loadAssetForOwner,
+	loadAssetById,
 	deleteAssetRow,
 	hasOtherAssetForGcsObjectKey,
 	deleteGcsObject,
 	listApps,
 	loadApp,
+	loadAppProjectId,
 } = vi.hoisted(() => ({
-	loadAssetForOwner: vi.fn(),
+	loadAssetById: vi.fn(),
 	deleteAssetRow: vi.fn(() => Promise.resolve()),
 	hasOtherAssetForGcsObjectKey: vi.fn(() => Promise.resolve(false)),
 	deleteGcsObject: vi.fn(() => Promise.resolve()),
@@ -38,13 +37,14 @@ const {
 		Promise.resolve({ apps: [] }),
 	),
 	loadApp: vi.fn(),
+	loadAppProjectId: vi.fn(() => Promise.resolve("project-1")),
 }));
 
 vi.mock("@/lib/db/mediaAssets", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/db/mediaAssets")>();
 	return {
 		...actual,
-		loadAssetForOwner,
+		loadAssetById,
 		deleteAsset: deleteAssetRow,
 		hasOtherAssetForGcsObjectKey,
 	};
@@ -52,6 +52,7 @@ vi.mock("@/lib/db/mediaAssets", async (importOriginal) => {
 vi.mock("@/lib/db/apps", () => ({
 	listApps,
 	loadApp,
+	loadAppProjectId,
 }));
 vi.mock("@/lib/storage/media", () => ({
 	deleteAsset: deleteGcsObject,
@@ -72,7 +73,8 @@ function ownedAsset(
 	return {
 		id,
 		owner: "user-1",
-		gcsObjectKey: `users/user-1/${id}.png`,
+		project_id: "project-1",
+		gcsObjectKey: `projects/project-1/${id}.png`,
 		originalFilename: `${id}.png`,
 		contentHash: "abc",
 		mimeType: "image/png",
@@ -99,7 +101,7 @@ function docReferencing(assetId: string, base: BlueprintDoc): BlueprintDoc {
 describe("removeMediaAsset", () => {
 	it("deletes the GCS object and the row when unreferenced", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		loadAssetForOwner.mockResolvedValue(ownedAsset("free-asset"));
+		loadAssetById.mockResolvedValue(ownedAsset("free-asset"));
 
 		const result = await removeMediaAssetTool.execute(
 			{ assetId: "free-asset" },
@@ -113,17 +115,18 @@ describe("removeMediaAsset", () => {
 		}
 		expect(result.data.removed).toBe(true);
 		expect(hasOtherAssetForGcsObjectKey).toHaveBeenCalledWith(
-			"user-1",
-			"users/user-1/free-asset.png",
+			"projects/project-1/free-asset.png",
 			"free-asset",
 		);
-		expect(deleteGcsObject).toHaveBeenCalledWith("users/user-1/free-asset.png");
+		expect(deleteGcsObject).toHaveBeenCalledWith(
+			"projects/project-1/free-asset.png",
+		);
 		expect(deleteAssetRow).toHaveBeenCalledWith("free-asset");
 	});
 
 	it("deletes only the row when another asset shares the same GCS object", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		loadAssetForOwner.mockResolvedValue(ownedAsset("shared-asset"));
+		loadAssetById.mockResolvedValue(ownedAsset("shared-asset"));
 		hasOtherAssetForGcsObjectKey.mockResolvedValue(true);
 
 		const result = await removeMediaAssetTool.execute(
@@ -141,7 +144,7 @@ describe("removeMediaAsset", () => {
 
 	it("refuses and deletes nothing when the doc still references it", async () => {
 		const { doc: baseDoc, ctx } = makeMediaFixture();
-		loadAssetForOwner.mockResolvedValue(ownedAsset("used-asset"));
+		loadAssetById.mockResolvedValue(ownedAsset("used-asset"));
 		const doc = docReferencing("used-asset", baseDoc);
 
 		const result = await removeMediaAssetTool.execute(
@@ -164,11 +167,12 @@ describe("removeMediaAsset", () => {
 		const { doc, ctx } = makeMediaFixture();
 		// The reverse index names "other-app" as a candidate, so the guard loads
 		// ONLY it (not the owner's whole list) and re-walks it to confirm.
-		loadAssetForOwner.mockResolvedValue(
+		loadAssetById.mockResolvedValue(
 			ownedAsset("used-elsewhere", ["other-app"]),
 		);
 		loadApp.mockResolvedValue({
 			owner: "user-1",
+			project_id: "project-1",
 			app_name: "Other App",
 			deleted_at: null,
 			blueprint: docReferencing("used-elsewhere", doc),
@@ -193,7 +197,7 @@ describe("removeMediaAsset", () => {
 
 	it("returns a not-found message for a missing asset", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		loadAssetForOwner.mockResolvedValue(null);
+		loadAssetById.mockResolvedValue(null);
 
 		const result = await removeMediaAssetTool.execute(
 			{ assetId: "ghost" },
@@ -207,11 +211,15 @@ describe("removeMediaAsset", () => {
 		expect(deleteGcsObject).not.toHaveBeenCalled();
 	});
 
-	it("treats a foreign-owned asset as not found", async () => {
+	it("treats a foreign-Project asset as not found", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		loadAssetForOwner.mockRejectedValue(
-			new MediaAssetOwnershipError(asAssetId("other"), "user-1", "user-2"),
-		);
+		// A row in ANOTHER Project: the tool loads it id-only, then rejects it
+		// because its `project_id` doesn't match the app's Project — the same
+		// "not found" a missing row produces, so the two can't be told apart.
+		loadAssetById.mockResolvedValue({
+			...ownedAsset("other"),
+			project_id: "project-2",
+		});
 
 		const result = await removeMediaAssetTool.execute(
 			{ assetId: "other" },

@@ -3,13 +3,13 @@
  *
  * GET /api/apps/{id}/threads — returns all threads ordered chronologically.
  *
- * Requires an authenticated session. Ownership is verified explicitly —
- * the app's `owner` field must match `session.user.id`.
+ * Requires an authenticated session and Project membership (view) on the app,
+ * via `resolveAppScope`.
  */
 
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { loadAppOwner } from "@/lib/db/apps";
+import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadThreads } from "@/lib/db/threads";
 
 export async function GET(
@@ -20,13 +20,10 @@ export async function GET(
 		const session = await requireSession(req);
 		const { id } = await params;
 
-		/* Verify ownership — threads are a subcollection of the app, but the
-		 * collection path alone doesn't scope access. Without this check, a
-		 * crafted request could read another user's conversation history. */
-		const owner = await loadAppOwner(id);
-		if (!owner || owner !== session.user.id) {
-			throw new ApiError("App not found", 404);
-		}
+		/* Project-membership gate (view) — threads are a subcollection of the app
+		 * but the path alone doesn't scope access. An `AppAccessError` maps to 404
+		 * in `handleApiError` (shared IDOR-safe not-found posture). */
+		await resolveAppScope(id, session.user.id, "view");
 
 		const threads = await loadThreads(id);
 		return Response.json({ threads });

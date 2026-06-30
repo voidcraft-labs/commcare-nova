@@ -11,31 +11,14 @@
 
 "use client";
 
-import { Icon } from "@iconify/react/offline";
-import externalLinkIcon from "@iconify-icons/tabler/external-link";
 import Link from "next/link";
 import { AccountMenu } from "@/components/ui/AccountMenu";
 import { HeaderNavLinks } from "@/components/ui/HeaderNav";
+import { HelpMenu } from "@/components/ui/HelpMenu";
 import { ImpersonationBanner } from "@/components/ui/ImpersonationBanner";
 import { Logo } from "@/components/ui/Logo";
-
-const FEEDBACK_FORM_URL =
-	"https://docs.google.com/forms/d/e/1FAIpQLSdUHQuE9kYhG-py9pojdCDc5ChSrl2LnhLofY4kDlOQi6ghGw/viewform";
-
-/* In prod the docs site is on its own subdomain, so the link is
- * cross-origin and gets the new-tab affordance. In dev it points at
- * the internal `/docs` route on `localhost:3000` and stays in-tab so
- * developers can bounce back from a preview without juggling windows.
- * `process.env.NODE_ENV` is inlined by Next at build time, so each
- * bundle ships only one branch. */
-const DOCS_LINK_PROPS =
-	process.env.NODE_ENV === "development"
-		? { href: "/docs" }
-		: {
-				href: "https://docs.commcare.app/",
-				target: "_blank",
-				rel: "noopener noreferrer",
-			};
+import { ProjectSwitcher } from "@/components/ui/ProjectSwitcher";
+import type { ProjectSummary } from "@/lib/projects/membership";
 
 interface ImpersonationState {
 	userName: string;
@@ -49,12 +32,18 @@ interface AppHeaderProps {
 	isAuthenticated: boolean;
 	/** Active impersonation info, or null when viewing as yourself. */
 	impersonating: ImpersonationState | null;
+	/** Every Project the user belongs to — backs the switcher. */
+	projects: ProjectSummary[];
+	/** The active Project id (the tenancy scope), or null when unauthenticated. */
+	activeProjectId: string | null;
 }
 
 export function AppHeader({
 	isAdmin,
 	isAuthenticated,
 	impersonating,
+	projects,
+	activeProjectId,
 }: AppHeaderProps) {
 	/* Landing page (unauthenticated) — no header. */
 	if (!isAuthenticated) return null;
@@ -81,22 +70,11 @@ export function AppHeader({
 			) : null}
 
 			<div className="ml-auto flex items-center gap-2">
-				<a
-					{...DOCS_LINK_PROPS}
-					className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none"
-				>
-					Docs
-					<Icon icon={externalLinkIcon} width="16" height="16" />
-				</a>
-				<a
-					href={FEEDBACK_FORM_URL}
-					target="_blank"
-					rel="noopener noreferrer"
-					className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-nova-text-muted transition-colors hover:text-nova-text hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-nova-violet focus-visible:outline-none"
-				>
-					Give Feedback
-					<Icon icon={externalLinkIcon} width="16" height="16" />
-				</a>
+				<ProjectSwitcher
+					projects={projects}
+					activeProjectId={activeProjectId}
+				/>
+				<HelpMenu />
 				<AccountMenu />
 			</div>
 		</header>

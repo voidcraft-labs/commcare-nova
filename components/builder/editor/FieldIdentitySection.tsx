@@ -54,6 +54,7 @@ import {
 import { shortcutLabel } from "@/lib/platform";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import {
+	useCanEdit,
 	useClearNewField,
 	useIsNewField,
 	useSessionFocusHint,
@@ -143,6 +144,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	 * the ID input on mount. */
 	const focusHint = useSessionFocusHint();
 	const shiftHeld = useShiftKey();
+	const canEdit = useCanEdit();
 
 	/* ── ID field notices (errors + rename info) ── */
 
@@ -420,135 +422,141 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 					</Popover.Root>
 				</div>
 
-				{/* Actions overflow menu — move / convert / duplicate. */}
-				<Menu.Root>
-					<Menu.Trigger
-						aria-label="Field actions"
-						className="shrink-0 size-11 grid place-items-center rounded-lg border border-white/[0.06] text-nova-text-muted hover:text-nova-text hover:border-nova-violet/30 transition-colors cursor-pointer outline-none data-[popup-open]:bg-white/[0.06]"
-					>
-						<Icon icon={tablerDotsVertical} width="18" height="18" />
-					</Menu.Trigger>
-
-					<Menu.Portal>
-						<Menu.Positioner
-							className={MENU_POSITIONER_CLS}
-							sideOffset={4}
-							align="end"
+				{/* Actions overflow menu — move / convert / duplicate. Hidden for
+				 *  a view-only Project member: every item is a gated mutation. */}
+				{canEdit && (
+					<Menu.Root>
+						<Menu.Trigger
+							aria-label="Field actions"
+							className="shrink-0 size-11 grid place-items-center rounded-lg border border-white/[0.06] text-nova-text-muted hover:text-nova-text hover:border-nova-violet/30 transition-colors cursor-pointer outline-none data-[popup-open]:bg-white/[0.06]"
 						>
-							<Menu.Popup className={MENU_POPUP_CLS} style={{ minWidth: 200 }}>
-								{/* Move Up / cross-level up (Shift swaps) */}
-								<MenuItem
-									icon={tablerArrowUp}
-									label={
-										shiftHeld
-											? crossUp?.direction === "into"
-												? "Move Into Group"
-												: "Move Out of Group"
-											: "Move Up"
-									}
-									shortcut={shiftHeld ? "⇧↑" : "↑"}
-									disabled={shiftHeld ? !crossUp : isFirst}
-									onClick={
-										shiftHeld
-											? () => crossUp && executeCrossLevel(crossUp)
-											: handleMoveUp
-									}
-								/>
+							<Icon icon={tablerDotsVertical} width="18" height="18" />
+						</Menu.Trigger>
 
-								{/* Move Down / cross-level down (Shift swaps) */}
-								<MenuItem
-									icon={tablerArrowDown}
-									label={
-										shiftHeld
-											? crossDown?.direction === "into"
-												? "Move Into Group"
-												: "Move Out of Group"
-											: "Move Down"
-									}
-									shortcut={shiftHeld ? "⇧↓" : "↓"}
-									disabled={shiftHeld ? !crossDown : isLast}
-									onClick={
-										shiftHeld
-											? () => crossDown && executeCrossLevel(crossDown)
-											: handleMoveDown
-									}
-								/>
+						<Menu.Portal>
+							<Menu.Positioner
+								className={MENU_POSITIONER_CLS}
+								sideOffset={4}
+								align="end"
+							>
+								<Menu.Popup
+									className={MENU_POPUP_CLS}
+									style={{ minWidth: 200 }}
+								>
+									{/* Move Up / cross-level up (Shift swaps) */}
+									<MenuItem
+										icon={tablerArrowUp}
+										label={
+											shiftHeld
+												? crossUp?.direction === "into"
+													? "Move Into Group"
+													: "Move Out of Group"
+												: "Move Up"
+										}
+										shortcut={shiftHeld ? "⇧↑" : "↑"}
+										disabled={shiftHeld ? !crossUp : isFirst}
+										onClick={
+											shiftHeld
+												? () => crossUp && executeCrossLevel(crossUp)
+												: handleMoveUp
+										}
+									/>
 
-								<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
+									{/* Move Down / cross-level down (Shift swaps) */}
+									<MenuItem
+										icon={tablerArrowDown}
+										label={
+											shiftHeld
+												? crossDown?.direction === "into"
+													? "Move Into Group"
+													: "Move Out of Group"
+												: "Move Down"
+										}
+										shortcut={shiftHeld ? "⇧↓" : "↓"}
+										disabled={shiftHeld ? !crossDown : isLast}
+										onClick={
+											shiftHeld
+												? () => crossDown && executeCrossLevel(crossDown)
+												: handleMoveDown
+										}
+									/>
 
-								{/* Convert Type — submenu with conversion targets. When the
-								 *  current kind has no convert targets, the trigger
-								 *  collapses to a disabled item with an explanatory
-								 *  tooltip rather than disappearing, so the menu's
-								 *  vertical rhythm stays stable across kinds and the
-								 *  user learns *why* the affordance is unavailable for
-								 *  this type rather than wondering whether they missed
-								 *  it. */}
-								{canConvert ? (
-									<Menu.SubmenuRoot>
-										<Menu.SubmenuTrigger className={MENU_ITEM_CLS}>
-											<Icon
+									<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
+
+									{/* Convert Type — submenu with conversion targets. When the
+									 *  current kind has no convert targets, the trigger
+									 *  collapses to a disabled item with an explanatory
+									 *  tooltip rather than disappearing, so the menu's
+									 *  vertical rhythm stays stable across kinds and the
+									 *  user learns *why* the affordance is unavailable for
+									 *  this type rather than wondering whether they missed
+									 *  it. */}
+									{canConvert ? (
+										<Menu.SubmenuRoot>
+											<Menu.SubmenuTrigger className={MENU_ITEM_CLS}>
+												<Icon
+													icon={tablerArrowsExchange}
+													width="16"
+													height="16"
+													className="text-nova-text-muted shrink-0"
+												/>
+												<span className="flex-1 text-left">Convert Type</span>
+												<Icon
+													icon={tablerChevronRight}
+													width="14"
+													height="14"
+													className="text-nova-text-muted shrink-0 -mr-0.5"
+												/>
+											</Menu.SubmenuTrigger>
+											<Menu.Portal>
+												<Menu.Positioner
+													className={MENU_SUBMENU_POSITIONER_CLS}
+													sideOffset={4}
+												>
+													<Menu.Popup className={MENU_POPUP_CLS}>
+														{/* `convertField` dispatches a single atomic mutation:
+														 *  the reducer swaps the kind and reconciles per-kind
+														 *  properties via `fieldSchema`, keeping undo history
+														 *  and event logging clean. */}
+														{conversionTargets.map((target) => {
+															const targetMeta = fieldRegistry[target];
+															return (
+																<MenuItem
+																	key={target}
+																	icon={targetMeta.icon}
+																	label={targetMeta.label}
+																	onClick={() =>
+																		convertField(asUuid(selectedUuid), target)
+																	}
+																/>
+															);
+														})}
+													</Menu.Popup>
+												</Menu.Positioner>
+											</Menu.Portal>
+										</Menu.SubmenuRoot>
+									) : (
+										<Tooltip content="This field type doesn't support conversion">
+											<MenuItem
 												icon={tablerArrowsExchange}
-												width="16"
-												height="16"
-												className="text-nova-text-muted shrink-0"
+												label="Convert Type"
+												disabled
 											/>
-											<span className="flex-1 text-left">Convert Type</span>
-											<Icon
-												icon={tablerChevronRight}
-												width="14"
-												height="14"
-												className="text-nova-text-muted shrink-0 -mr-0.5"
-											/>
-										</Menu.SubmenuTrigger>
-										<Menu.Portal>
-											<Menu.Positioner
-												className={MENU_SUBMENU_POSITIONER_CLS}
-												sideOffset={4}
-											>
-												<Menu.Popup className={MENU_POPUP_CLS}>
-													{/* `convertField` dispatches a single atomic mutation:
-													 *  the reducer swaps the kind and reconciles per-kind
-													 *  properties via `fieldSchema`, keeping undo history
-													 *  and event logging clean. */}
-													{conversionTargets.map((target) => {
-														const targetMeta = fieldRegistry[target];
-														return (
-															<MenuItem
-																key={target}
-																icon={targetMeta.icon}
-																label={targetMeta.label}
-																onClick={() =>
-																	convertField(asUuid(selectedUuid), target)
-																}
-															/>
-														);
-													})}
-												</Menu.Popup>
-											</Menu.Positioner>
-										</Menu.Portal>
-									</Menu.SubmenuRoot>
-								) : (
-									<Tooltip content="This field type doesn't support conversion">
-										<MenuItem
-											icon={tablerArrowsExchange}
-											label="Convert Type"
-											disabled
-										/>
-									</Tooltip>
-								)}
+										</Tooltip>
+									)}
 
-								{/* Duplicate */}
-								<MenuItem
-									icon={tablerCopyPlus}
-									label="Duplicate"
-									shortcut={shortcutLabel("mod", "D")}
-									onClick={handleDuplicate}
-								/>
-							</Menu.Popup>
-						</Menu.Positioner>
-					</Menu.Portal>
-				</Menu.Root>
+									{/* Duplicate */}
+									<MenuItem
+										icon={tablerCopyPlus}
+										label="Duplicate"
+										shortcut={shortcutLabel("mod", "D")}
+										onClick={handleDuplicate}
+									/>
+								</Menu.Popup>
+							</Menu.Positioner>
+						</Menu.Portal>
+					</Menu.Root>
+				)}
 			</div>
 		</InspectorSection>
 	);

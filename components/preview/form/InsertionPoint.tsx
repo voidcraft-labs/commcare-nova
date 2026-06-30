@@ -31,7 +31,7 @@ import {
 } from "react";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { Uuid } from "@/lib/doc/types";
-import { useEditMode } from "@/lib/session/hooks";
+import { useCanEdit, useEditMode } from "@/lib/session/hooks";
 import {
 	insertionRevealTransition,
 	useInsertionHover,
@@ -54,12 +54,17 @@ interface InsertionPointProps {
  */
 export function InsertionPoint(props: InsertionPointProps) {
 	const mode = useEditMode();
+	const canEdit = useCanEdit();
 	const [activated, setActivated] = useState(false);
 
 	/* Insertion points are an edit-mode-only affordance — they don't exist
 	 * in preview mode. `useEditMode()` is derived from the session store
 	 * so a "no context" branch is never needed. */
 	if (mode === "preview") return null;
+	/* A view-only Project member can't add fields — drop the "+" entirely.
+	 * `InsertionPointRow`'s `minHeight` keeps the 24px gap, so the canvas
+	 * spacing is unchanged. */
+	if (!canEdit) return null;
 	if (props.disabled) return null;
 
 	if (!activated) {

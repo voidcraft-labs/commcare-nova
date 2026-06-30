@@ -1,10 +1,10 @@
 /**
  * Behavioral tests for `list_media_assets`.
  *
- * The tool delegates to `listReadyAssetsForOwner` (mocked) and projects
+ * The tool delegates to `listReadyAssetsForProject` (mocked) and projects
  * each row through `toWireMediaAsset`. Coverage:
  *   1. Returns the projected wire assets + nextCursor.
- *   2. Threads the owner from ctx.userId and the optional kind/cursor.
+ *   2. Threads the app's Project and the optional kind/cursor.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,15 +15,18 @@ import { makeMediaFixture } from "./fixtures";
 // `vi.hoisted` lifts the mock fn above the hoisted `vi.mock` factory so the
 // factory can close over it without tripping the "cannot access before
 // initialization" hoist error.
-const { listReadyAssetsForOwner } = vi.hoisted(() => ({
-	listReadyAssetsForOwner: vi.fn(),
+const { listReadyAssetsForProject } = vi.hoisted(() => ({
+	listReadyAssetsForProject: vi.fn(),
 }));
 
+vi.mock("@/lib/db/apps", () => ({
+	loadAppProjectId: vi.fn(() => Promise.resolve("project-1")),
+}));
 vi.mock("@/lib/db/mediaAssets", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/lib/db/mediaAssets")>();
 	return {
 		...actual,
-		listReadyAssetsForOwner,
+		listReadyAssetsForProject,
 	};
 });
 
@@ -36,6 +39,7 @@ function readyRecord(id: string): MediaAssetRecord {
 	return {
 		id,
 		owner: "user-1",
+		project_id: "project-1",
 		contentHash: "abc",
 		mimeType: "image/png",
 		kind: "image",
@@ -44,7 +48,7 @@ function readyRecord(id: string): MediaAssetRecord {
 		originalFilename: `${id}.png`,
 		displayName: `${id}.png`,
 		status: "ready",
-		gcsObjectKey: `users/user-1/abc.png`,
+		gcsObjectKey: `projects/project-1/abc.png`,
 		// Server-only reverse index — must never reach the wire (it would leak the
 		// owner's app ids to the client).
 		referencingAppIds: ["app-x"],
@@ -59,7 +63,7 @@ function readyRecord(id: string): MediaAssetRecord {
 describe("listMediaAssets", () => {
 	it("returns projected wire assets and the next cursor", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		listReadyAssetsForOwner.mockResolvedValue({
+		listReadyAssetsForProject.mockResolvedValue({
 			assets: [readyRecord("a1"), readyRecord("a2")],
 			nextCursor: "cursor-2",
 		});
@@ -104,7 +108,7 @@ describe("listMediaAssets", () => {
 				summary: "A few-sentence précis the preview header shows.",
 			},
 		} as unknown as MediaAssetRecord;
-		listReadyAssetsForOwner.mockResolvedValue({
+		listReadyAssetsForProject.mockResolvedValue({
 			assets: [record],
 			nextCursor: null,
 		});
@@ -122,9 +126,12 @@ describe("listMediaAssets", () => {
 		expect(wire.extract).not.toHaveProperty("model");
 	});
 
-	it("passes the owner and the kind/cursor filters through", async () => {
+	it("passes the Project and the kind/cursor filters through", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		listReadyAssetsForOwner.mockResolvedValue({ assets: [], nextCursor: null });
+		listReadyAssetsForProject.mockResolvedValue({
+			assets: [],
+			nextCursor: null,
+		});
 
 		await listMediaAssetsTool.execute(
 			{ kind: "audio", cursor: "page-1" },
@@ -132,7 +139,7 @@ describe("listMediaAssets", () => {
 			doc,
 		);
 
-		expect(listReadyAssetsForOwner).toHaveBeenCalledWith("user-1", {
+		expect(listReadyAssetsForProject).toHaveBeenCalledWith("project-1", {
 			// The tool's single-kind input is wrapped into the DB layer's kind SET.
 			kinds: ["audio"],
 			cursor: "page-1",
@@ -141,10 +148,13 @@ describe("listMediaAssets", () => {
 
 	it("omits kind/cursor when not supplied", async () => {
 		const { doc, ctx } = makeMediaFixture();
-		listReadyAssetsForOwner.mockResolvedValue({ assets: [], nextCursor: null });
+		listReadyAssetsForProject.mockResolvedValue({
+			assets: [],
+			nextCursor: null,
+		});
 
 		await listMediaAssetsTool.execute({}, ctx, doc);
 
-		expect(listReadyAssetsForOwner).toHaveBeenCalledWith("user-1", {});
+		expect(listReadyAssetsForProject).toHaveBeenCalledWith("project-1", {});
 	});
 });

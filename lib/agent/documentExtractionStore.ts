@@ -23,8 +23,7 @@
 
 import {
 	claimExtractionIfIdle,
-	loadAssetForOwner,
-	MediaAssetOwnershipError,
+	loadAssetById,
 	type MediaAssetRecord,
 	setAssetExtractStatus,
 } from "@/lib/db/mediaAssets";
@@ -137,23 +136,19 @@ function readyResult(text: string, truncated: boolean): StoredExtractResult {
  * turn-start batch snapshot that predates an eager job's claim, so the
  * single-flight decision must read current status rather than trust it.
  *
- * Degrades to `null` (→ "no live job" → we extract) on any read failure: a
- * foreign-owner throw can't legitimately happen here (the asset was already
- * loaded owner-gated) and a transient Firestore error must not break the turn —
- * extracting ourselves is the safe fallback.
+ * Loads id-only — the status read is a single-flight lock concern, not an
+ * authorization one (the caller already resolved + authorized the asset). Degrades
+ * to `null` (→ "no live job" → we extract) on any read failure: a transient
+ * Firestore error must not break the turn — extracting ourselves is the safe
+ * fallback.
  */
 async function reloadExtractStatus(
-	owner: string,
 	assetId: AssetId,
 ): Promise<{ snapshot: ExtractStatusSnapshot; truncated: boolean } | null> {
-	const fresh = await loadAssetForOwner(owner, assetId).catch(
-		(err: unknown) => {
-			if (!(err instanceof MediaAssetOwnershipError)) {
-				log.warn("[extract-store] status reload failed", { assetId, err });
-			}
-			return null;
-		},
-	);
+	const fresh = await loadAssetById(assetId).catch((err: unknown) => {
+		log.warn("[extract-store] status reload failed", { assetId, err });
+		return null;
+	});
 	const extract = fresh?.extract;
 	if (!extract) return null;
 	return {
@@ -181,14 +176,13 @@ async function reloadExtractStatus(
  * and the caller's own extraction covers it.
  */
 async function waitForInflight(
-	owner: string,
 	assetId: AssetId,
 	key: string,
 ): Promise<StoredExtractResult | null> {
 	let waiting = true;
 	while (waiting) {
 		await delay(INFLIGHT_POLL_MS);
-		const fresh = await reloadExtractStatus(owner, assetId);
+		const fresh = await reloadExtractStatus(assetId);
 		if (!fresh) return null; // record vanished / unreadable → we take over
 		if (
 			fresh.snapshot.status === "ready" &&
@@ -315,7 +309,7 @@ export async function ensureStoredExtract(opts: {
 }): Promise<StoredExtractResult> {
 	const { asset, documentKind, condenser, onInflight, onProgress } = opts;
 	const key = extractGcsObjectKeyFor(
-		asset.owner,
+		asset.project_id,
 		asset.contentHash,
 		EXTRACTOR_VERSION,
 	);
@@ -334,20 +328,20 @@ export async function ensureStoredExtract(opts: {
 			asset.extract?.status === "ready" &&
 			asset.extract.version === EXTRACTOR_VERSION
 				? asset.extract.truncated
-				: ((await reloadExtractStatus(asset.owner, asset.id))?.truncated ??
+				: ((await reloadExtractStatus(asset.id))?.truncated ??
 					asset.extract?.truncated ??
 					false);
 		return readyResult(stored, truncated);
 	}
 
 	// 2. Miss → fresh status decides whether to wait on a live job.
-	const fresh = await reloadExtractStatus(asset.owner, asset.id);
+	const fresh = await reloadExtractStatus(asset.id);
 	if (
 		decideExtractAction(fresh?.snapshot ?? null, Date.now()) ===
 		"await-inflight"
 	) {
 		if (onInflight === "report") return { status: "extracting" };
-		const waited = await waitForInflight(asset.owner, asset.id, key);
+		const waited = await waitForInflight(asset.id, key);
 		if (waited) return waited;
 		// The live job died without a usable extract → fall through to claim.
 	}
@@ -366,7 +360,7 @@ export async function ensureStoredExtract(opts: {
 	if (!claimed) {
 		// A concurrent caller won the claim in that window — behave as in-flight.
 		if (onInflight === "report") return { status: "extracting" };
-		const waited = await waitForInflight(asset.owner, asset.id, key);
+		const waited = await waitForInflight(asset.id, key);
 		if (waited) return waited;
 		// That winner also died → extract ourselves as the last-resort backstop.
 	}

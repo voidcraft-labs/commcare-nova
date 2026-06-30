@@ -98,7 +98,7 @@ const GRANDPARENT_CASE_ID = "00000000-0000-0000-0000-000000000005";
 // runtime layers.
 
 function makeCtx(db: Parameters<typeof compileRelationPath>[1]["db"]) {
-	return { db, appId: APP_ID, ownerId: OWNER_ID, anchorAlias: "c" };
+	return { db, appId: APP_ID, projectId: OWNER_ID, anchorAlias: "c" };
 }
 
 // ---------------------------------------------------------------
@@ -135,7 +135,7 @@ function executeJoined(
 		)
 		.where("c.case_id", "=", anchorCaseId)
 		.where("c.app_id", "=", APP_ID)
-		.where("c.owner_id", "=", OWNER_ID)
+		.where("c.project_id", "=", OWNER_ID)
 		.select([
 			"c.case_id as anchor_case_id",
 			`${compiled.leafAlias}.case_id as leaf_case_id`,
@@ -191,7 +191,7 @@ async function seedCases(
 					case_id: row.case_id,
 					case_type: row.case_type,
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 				}),
 			),
 		)

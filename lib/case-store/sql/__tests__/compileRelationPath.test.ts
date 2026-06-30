@@ -86,7 +86,7 @@ function makeCtx(): RelationPathCompileContext {
 	return {
 		db,
 		appId: APP_ID,
-		ownerId: OWNER_ID,
+		projectId: OWNER_ID,
 		anchorAlias: "c",
 	};
 }
@@ -229,12 +229,13 @@ describe("compileRelationPath — ancestor (two hop)", () => {
 		}
 		const sql = compile(buildJoinedQuery(compiled));
 		// Two `cases` joins inside the subquery (one per hop) =
-		// two `app_id` filter parameters and two `owner_id` filter
-		// parameters.
+		// two `app_id` filter parameters and two `project_id` filter
+		// parameters. (`OWNER_ID` is the test's tenant value, bound as
+		// `project_id` — the structural relation-walk tenant filter.)
 		const appIdCount = sql.parameters.filter((p) => p === APP_ID).length;
-		const ownerIdCount = sql.parameters.filter((p) => p === OWNER_ID).length;
+		const projectIdCount = sql.parameters.filter((p) => p === OWNER_ID).length;
 		expect(appIdCount).toBeGreaterThanOrEqual(2);
-		expect(ownerIdCount).toBeGreaterThanOrEqual(2);
+		expect(projectIdCount).toBeGreaterThanOrEqual(2);
 	});
 
 	it("filters `depth = 1` on every `case_indices` lookup", () => {
@@ -340,30 +341,15 @@ describe("compileRelationPath — any-relation", () => {
 	});
 });
 
-// -- ownerId IS NULL handling --------------------------------
+// -- anchor alias + tenant binding ----------------------------
+//
+// (The former "IS NULL filter when ownerId is null" test is gone: the
+// relation-walk tenant is now `project_id`, which is non-null by
+// construction — `compileRelationPath` no longer emits an `IS NULL`
+// branch. `owner_id`, the CommCare case-owner, is a separate
+// non-tenant axis and is never a relation-walk filter.)
 
 describe("compileRelationPath — anchor / tenant edges", () => {
-	it("emits an IS NULL filter when ownerId is null", () => {
-		// HQ-imported cases pre-assignment have a null `owner_id`;
-		// the tenant filter must use `IS NULL` rather than
-		// `= NULL` (the latter is always false in SQL).
-		const compiled = compileRelationPath(ancestorPath(relationStep("parent")), {
-			db,
-			appId: APP_ID,
-			ownerId: null,
-			anchorAlias: "c",
-		});
-		expect(compiled.kind).toBe("joined");
-		if (compiled.kind !== "joined") {
-			throw new Error("expected joined kind");
-		}
-		const sql = compile(buildJoinedQuery(compiled));
-		expect(sql.sql).toContain('"owner_id" is null');
-		// The owner_id filter no longer binds an OWNER_ID
-		// parameter — it's an `IS NULL` predicate.
-		expect(sql.parameters).not.toContain(OWNER_ID);
-	});
-
 	it("honors a custom anchor alias", () => {
 		// Callers may anchor against an alias other than `c` —
 		// e.g. when the relation path is nested inside an `exists`
@@ -371,7 +357,7 @@ describe("compileRelationPath — anchor / tenant edges", () => {
 		const ctx: RelationPathCompileContext = {
 			db,
 			appId: APP_ID,
-			ownerId: OWNER_ID,
+			projectId: OWNER_ID,
 			anchorAlias: "outer_case",
 		};
 		const compiled = compileRelationPath(

@@ -23,28 +23,34 @@ import { makeFakeServer } from "./fakeServer";
 // initialization" hoist error.
 const {
 	validateMediaBytes,
-	findReadyAssetByOwnerAndHash,
+	findReadyAssetByProjectAndHash,
 	createPendingAsset,
 	confirmAssetReady,
 	uploadAssetBytes,
+	ensurePersonalProject,
 } = vi.hoisted(() => ({
 	validateMediaBytes: vi.fn(),
-	findReadyAssetByOwnerAndHash: vi.fn(),
+	findReadyAssetByProjectAndHash: vi.fn(),
 	createPendingAsset: vi.fn(),
 	confirmAssetReady: vi.fn(() => Promise.resolve()),
 	uploadAssetBytes: vi.fn(() => Promise.resolve()),
+	// The MCP upload is app-less — it lands in the caller's personal Project.
+	ensurePersonalProject: vi.fn(() => Promise.resolve("project-1")),
 }));
 
 vi.mock("@/lib/media/validate", () => ({
 	validateMediaBytes,
 }));
 vi.mock("@/lib/db/mediaAssets", () => ({
-	findReadyAssetByOwnerAndHash,
+	findReadyAssetByProjectAndHash,
 	createPendingAsset,
 	confirmAssetReady,
 }));
 vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes,
+}));
+vi.mock("@/lib/auth/provisionProject", () => ({
+	ensurePersonalProject,
 }));
 
 const toolCtx: ToolContext = {
@@ -79,10 +85,10 @@ function parsePayload(out: unknown): Record<string, unknown> {
 describe("uploadMediaAsset", () => {
 	it("validates, stores, and returns a fresh asset id", async () => {
 		validateMediaBytes.mockResolvedValue(validatedImage);
-		findReadyAssetByOwnerAndHash.mockResolvedValue(null);
+		findReadyAssetByProjectAndHash.mockResolvedValue(null);
 		createPendingAsset.mockResolvedValue({
 			assetId: "new-asset-id",
-			gcsObjectKey: "users/user-1/deadbeef.png",
+			gcsObjectKey: "projects/project-1/deadbeef.png",
 		});
 
 		const { server, capture } = makeFakeServer();
@@ -106,7 +112,7 @@ describe("uploadMediaAsset", () => {
 
 	it("returns the existing asset on a content-hash dedup hit", async () => {
 		validateMediaBytes.mockResolvedValue(validatedImage);
-		findReadyAssetByOwnerAndHash.mockResolvedValue({ id: "existing-id" });
+		findReadyAssetByProjectAndHash.mockResolvedValue({ id: "existing-id" });
 
 		const { server, capture } = makeFakeServer();
 		registerUploadMediaAsset(server, toolCtx);

@@ -111,6 +111,10 @@ interface ChatSidebarProps {
 		output: unknown;
 	}) => void;
 	readOnly?: boolean;
+	/** When `readOnly`, an optional note shown where the composer would be —
+	 *  explains why the user can't send (view-only Project access). Replay
+	 *  passes none (it has its own transport bar). */
+	readOnlyNotice?: ReactNode;
 	/** Whether the app was loaded from Firestore (not a new build).
 	 *  Drives the empty-state prompt text. */
 	isExistingApp?: boolean;
@@ -127,6 +131,7 @@ export function ChatSidebar({
 	onSend,
 	addToolOutput,
 	readOnly,
+	readOnlyNotice,
 	isExistingApp,
 	children,
 }: ChatSidebarProps) {
@@ -634,6 +639,15 @@ export function ChatSidebar({
 						<SignalGrid controller={gridController} messages={messages} />
 					</SignalPanel>
 				</div>
+
+				{/* A view-only member sees why they can't send, where the composer
+				 *  would be. Replay passes no notice (its transport bar owns that
+				 *  strip), so this only renders for the read-only-access case. */}
+				{readOnly && readOnlyNotice && (
+					<div className="shrink-0 px-4 py-3 text-sm text-nova-text-muted border-t border-nova-border">
+						{readOnlyNotice}
+					</div>
+				)}
 
 				{/* Input — hidden in readOnly mode */}
 				{!readOnly && (

@@ -145,6 +145,7 @@ function loadedFor(doc: BlueprintDoc): LoadedApp {
 		doc,
 		app: {
 			owner: "u1",
+			project_id: null,
 			app_name: doc.appName,
 			connect_type: null,
 			module_count: doc.moduleOrder.length,

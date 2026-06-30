@@ -20,8 +20,8 @@ import { listApps, listDeletedApps } from "@/lib/db/apps";
 import { AppListBody } from "./app-list-body";
 
 interface AppListProps {
-	/** Owner ID (Better Auth user ID). */
-	userId: string;
+	/** Active Project id (Better Auth organizationId) — the tenancy scope. */
+	projectId: string;
 	/** Whether to show admin-only replay buttons on active cards. */
 	isAdmin: boolean;
 }
@@ -34,10 +34,10 @@ interface AppListProps {
  */
 const PAGE_SIZE = 50;
 
-export async function AppList({ userId, isAdmin }: AppListProps) {
+export async function AppList({ projectId, isAdmin }: AppListProps) {
 	const [activeRes, deletedRes] = await Promise.all([
-		listApps(userId, { limit: PAGE_SIZE, sort: "updated_desc" }),
-		listDeletedApps(userId, { limit: PAGE_SIZE }),
+		listApps(projectId, { limit: PAGE_SIZE, sort: "updated_desc" }),
+		listDeletedApps(projectId, { limit: PAGE_SIZE }),
 	]);
 
 	return (

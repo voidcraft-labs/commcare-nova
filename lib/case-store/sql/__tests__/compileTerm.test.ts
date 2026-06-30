@@ -141,7 +141,7 @@ function makeCtx(
 	return {
 		db,
 		appId: APP_ID,
-		ownerId: OWNER_ID,
+		projectId: OWNER_ID,
 		anchorAlias: "c",
 		caseTypeSchemas: CASE_TYPE_SCHEMAS,
 		bindings: {},

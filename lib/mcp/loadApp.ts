@@ -2,10 +2,10 @@
  * Shared MCP helper — ownership-gate and load one app's blueprint in a
  * single Firestore read.
  *
- * Combines the ownership check + the blueprint load that every MCP
+ * Combines the membership check + the blueprint load that every MCP
  * tool surface needs. Folding both into one read avoids a redundant
- * full-doc fetch (a separate `loadAppOwner` would re-read the same
- * row). The cost matters because every shared-tool dispatch + every
+ * full-doc fetch (a separate id-only ownership probe would re-read the
+ * same row). The cost matters because every shared-tool dispatch + every
  * blueprint-touching MCP tool runs through this path.
  *
  * Firestore persists the `PersistableDoc` shape (see `toPersistableDoc`)
@@ -33,12 +33,14 @@
  * the internal distinction.
  */
 
+import type { AppCapability } from "@/lib/auth/projectRoles";
+import { resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc } from "@/lib/domain";
-import { McpAccessError } from "./ownership";
+import { McpAccessError, rethrowAsMcpAccess } from "./ownership";
 
 /**
  * Result of a successful `loadAppBlueprint` call. The `fieldParent`-
@@ -71,10 +73,18 @@ export interface LoadedApp {
 export async function loadAppBlueprint(
 	appId: string,
 	userId: string,
+	required: AppCapability = "view",
 ): Promise<LoadedApp> {
 	const loaded = await loadApp(appId);
 	if (!loaded) throw new McpAccessError("not_found");
-	if (loaded.owner !== userId) throw new McpAccessError("not_owner");
+	/* Membership gate, reusing the doc we just loaded (no second read). Map the
+	 * resolver's three denial reasons onto the two-value MCP taxonomy; both
+	 * collapse to `not_found` on the wire. */
+	try {
+		await resolveAppAccess(appId, userId, required, { app: loaded });
+	} catch (err) {
+		rethrowAsMcpAccess(err);
+	}
 	/* Split the raw blueprint off the `AppDoc` envelope so the return
 	 * type can't accidentally leak a stale blueprint through `.app`.
 	 * `rebuildFieldParent` assigns into `doc.fieldParent`; spreading

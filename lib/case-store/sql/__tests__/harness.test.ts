@@ -120,6 +120,7 @@ describe("case-store harness — schema", () => {
 				"case_id",
 				"app_id",
 				"case_type",
+				"project_id",
 				"owner_id",
 				"status",
 				"opened_on",

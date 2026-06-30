@@ -32,7 +32,7 @@
  * case-store consumers (`populateSampleCasesAction`,
  * `submitFormAction`, live-preview panels) don't gate on
  * `app.status === "complete"` before issuing reads / writes;
- * they call `withOwnerContext` and dispatch directly. If
+ * they call `withProjectContext` and dispatch directly. If
  * `data-done` fired first, a user clicking "Generate sample
  * data" sub-second after the celebration animation would race
  * the materialization and trip `SchemaNotSyncedError`.
@@ -82,7 +82,7 @@
  * exists to close, not widen it.
  */
 
-import { buildCaseTypeMap, withOwnerContext } from "@/lib/case-store";
+import { buildCaseTypeMap, withSchemaContext } from "@/lib/case-store";
 import type { PersistableDoc } from "@/lib/domain";
 import { delay } from "@/lib/utils/delay";
 
@@ -95,7 +95,6 @@ import { delay } from "@/lib/utils/delay";
  */
 export interface MaterializeCaseStoreSchemasArgs {
 	readonly appId: string;
-	readonly userId: string;
 	readonly blueprint: PersistableDoc;
 }
 
@@ -211,7 +210,7 @@ async function withTransientRetry(
  * in one pass rather than one heal per stale type.
  *
  * No-op when `caseTypes` is null (survey-only build) or empty. The early
- * return skips the `withOwnerContext` allocation so a survey-only
+ * return skips the `withSchemaContext` allocation so a survey-only
  * completion never pays the connection-pool lookup cost.
  */
 export async function materializeCaseStoreSchemas(
@@ -222,10 +221,12 @@ export async function materializeCaseStoreSchemas(
 		return;
 	}
 
-	// `withOwnerContext` returns a `CaseStore` already bound to
-	// the supplied owner id; every `applySchemaChange` call
-	// inherits the tenant filter without a per-call argument.
-	const store = await withOwnerContext(args.userId);
+	// `withSchemaContext` returns a tenant-FREE `SchemaCaseStore`:
+	// `applySchemaChange` is app-scoped (it syncs the schema row + the
+	// per-property indexes + migrates EVERY member's rows of the case
+	// type), so it needs no bound Project. This helper never reads or
+	// writes a single tenant's case data, so it binds none.
+	const store = await withSchemaContext();
 
 	// Sequential rather than parallel: each `applySchemaChange`
 	// touches Postgres index DDL via `CREATE INDEX CONCURRENTLY`,

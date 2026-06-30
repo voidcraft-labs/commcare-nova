@@ -25,4 +25,21 @@ export const AUTH_TABLE_NAMES = {
 	oauthConsent: "auth_oauth_consent",
 	oauthRefreshToken: "auth_oauth_refresh_token",
 	oauthAccessToken: "auth_oauth_access_token",
+	// Organization plugin → Nova's "Projects" tenancy. Surfaced as "Projects"
+	// in the UI; the tables stay `auth_organization*` (see lib/auth/projectRoles.ts).
+	organization: "auth_organization",
+	member: "auth_member",
+	invitation: "auth_invitation",
+} as const;
+
+/**
+ * The organization plugin's `schema` modelName map — shared by the runtime
+ * config (`lib/auth.ts`) and the migrate-options mirror
+ * (`lib/auth-migrate-options.ts`) so the org table SET can't drift between them.
+ * Anchored to AUTH_TABLE_NAMES like every other auth table name.
+ */
+export const ORGANIZATION_SCHEMA = {
+	organization: { modelName: AUTH_TABLE_NAMES.organization },
+	member: { modelName: AUTH_TABLE_NAMES.member },
+	invitation: { modelName: AUTH_TABLE_NAMES.invitation },
 } as const;

@@ -21,6 +21,16 @@ export const BlueprintDocContext = createContext<BlueprintDocStore | null>(
 	null,
 );
 
+/**
+ * Whether the user-edit mutation path is enabled for this doc. `true`
+ * everywhere by default; the builder sets it `false` for a view-only member
+ * so `useBlueprintMutations` inertly no-ops every gated dispatch (the single
+ * choke point that makes the whole canvas read-only — see `useCanEdit`). The
+ * agent-stream / replay / hydration writers bypass `useBlueprintMutations`
+ * and so are unaffected, which is correct: a viewer triggers neither.
+ */
+export const BlueprintEditableContext = createContext<boolean>(true);
+
 export interface BlueprintDocProviderProps {
 	/**
 	 * The on-disk doc to load on mount. Accepts the Firestore-persisted
@@ -45,6 +55,12 @@ export interface BlueprintDocProviderProps {
 	 * completes.
 	 */
 	startTracking?: boolean;
+	/**
+	 * Whether the user may edit this doc. Defaults to `true`. A view-only
+	 * Project member passes `false` so every `useBlueprintMutations` dispatch
+	 * no-ops (provided through {@link BlueprintEditableContext}).
+	 */
+	canEdit?: boolean;
 	children: ReactNode;
 }
 
@@ -52,6 +68,7 @@ export function BlueprintDocProvider({
 	initialDoc,
 	appId,
 	startTracking = true,
+	canEdit = true,
 	children,
 }: BlueprintDocProviderProps) {
 	// useRef ensures the store is created exactly once per mount, regardless of
@@ -91,7 +108,9 @@ export function BlueprintDocProvider({
 
 	return (
 		<BlueprintDocContext.Provider value={storeRef.current}>
-			{children}
+			<BlueprintEditableContext.Provider value={canEdit}>
+				{children}
+			</BlueprintEditableContext.Provider>
 		</BlueprintDocContext.Provider>
 	);
 }

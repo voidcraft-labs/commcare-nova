@@ -34,7 +34,6 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
-import type { PersistableDoc } from "@/lib/domain";
 import { describeApiFailure } from "@/lib/ui/apiFailure";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -45,10 +44,10 @@ type Domain = { name: string; displayName: string };
 interface UploadToHqDialogProps {
 	open: boolean;
 	onClose: () => void;
-	/** Retrieves the persistable (on-disk) doc snapshot for upload.
-	 *  Called when the user clicks Upload. The server converts the doc
-	 *  to CommCare's wire format at the upload boundary. */
-	getDoc: () => PersistableDoc;
+	/** The app id to upload. The server loads the blueprint and converts it
+	 *  to CommCare's wire format at the upload boundary — no whole doc on the
+	 *  wire. Called when the user clicks Upload. */
+	getAppId: () => string;
 	/** Every space the key can upload to. Empty ⇒ HQ not configured. */
 	availableDomains: Domain[];
 }
@@ -83,7 +82,7 @@ const POPUP_CLS =
 export function UploadToHqDialog({
 	open,
 	onClose,
-	getDoc,
+	getAppId,
 	availableDomains,
 }: UploadToHqDialogProps) {
 	/* Self-subscribe to the app name from the doc store — no prop drilling
@@ -136,14 +135,13 @@ export function UploadToHqDialog({
 		setUploadStatus({ type: "uploading" });
 
 		try {
-			const doc = getDoc();
 			const res = await fetch("/api/commcare/upload", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					domain: selectedDomain,
 					appName: appName.trim(),
-					doc,
+					appId: getAppId(),
 				}),
 			});
 
@@ -181,7 +179,7 @@ export function UploadToHqDialog({
 				details: [],
 			});
 		}
-	}, [selectedDomain, appName, getDoc]);
+	}, [selectedDomain, appName, getAppId]);
 
 	const isUploading = uploadStatus.type === "uploading";
 	const canUpload =

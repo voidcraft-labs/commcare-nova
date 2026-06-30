@@ -15,9 +15,9 @@
 import { apiKey } from "@better-auth/api-key";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import type { BetterAuthOptions } from "better-auth";
-import { admin, jwt } from "better-auth/plugins";
+import { admin, jwt, organization } from "better-auth/plugins";
 import type { Pool } from "pg";
-import { AUTH_TABLE_NAMES } from "./auth-schema-shared";
+import { AUTH_TABLE_NAMES, ORGANIZATION_SCHEMA } from "./auth-schema-shared";
 
 export function authMigrateOptions(database: Pool): BetterAuthOptions {
 	return {
@@ -57,6 +57,14 @@ export function authMigrateOptions(database: Pool): BetterAuthOptions {
 				},
 			}),
 			apiKey({ schema: { apikey: { modelName: AUTH_TABLE_NAMES.apikey } } }),
+			// Organization → "Projects" tenancy. Schema-only mirror of the runtime
+			// config in lib/auth.ts: the generated tables depend on the modelNames
+			// + the teams flag, NOT on roles/ac (static AC adds no table), so those
+			// are omitted here. MUST stay in sync with lib/auth.ts's plugin set.
+			organization({
+				teams: { enabled: false },
+				schema: ORGANIZATION_SCHEMA,
+			}),
 		],
 	} satisfies BetterAuthOptions;
 }

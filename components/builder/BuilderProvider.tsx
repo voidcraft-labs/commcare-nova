@@ -59,6 +59,7 @@ export function BuilderProvider({
 	replay,
 	initialDoc,
 	initialSaveBasis,
+	canEdit = true,
 }: {
 	buildId: string;
 	children: ReactNode;
@@ -71,6 +72,10 @@ export function BuilderProvider({
 	 *  optimistic basis the builder echoes on its PUTs. Omitted for new
 	 *  builds and replay (nothing to save against yet). */
 	initialSaveBasis?: string | null;
+	/** Whether the viewing user holds `edit` on the app's Project (the build
+	 *  page's server-resolved role). Defaults `true` for new builds. A viewer
+	 *  (`false`) gets the read-only builder; see `useCanEdit`. */
+	canEdit?: boolean;
 }) {
 	return (
 		<BuilderProviderInner
@@ -79,6 +84,7 @@ export function BuilderProvider({
 			replay={replay}
 			initialDoc={initialDoc}
 			initialSaveBasis={initialSaveBasis}
+			canEdit={canEdit}
 		>
 			{children}
 		</BuilderProviderInner>
@@ -98,12 +104,14 @@ function BuilderProviderInner({
 	replay,
 	initialDoc,
 	initialSaveBasis,
+	canEdit,
 }: {
 	buildId: string;
 	children: ReactNode;
 	replay?: ReplayInit;
 	initialDoc?: PersistableDoc;
 	initialSaveBasis?: string | null;
+	canEdit: boolean;
 }) {
 	/* Pre-compute session store init so `derivePhase` returns the correct
 	 * phase on the very first render — `Loading` for existing apps and
@@ -114,6 +122,7 @@ function BuilderProviderInner({
 		loading: hasExistingData,
 		appId: buildId === "new" ? undefined : buildId,
 		saveBasis: initialSaveBasis ?? null,
+		canEdit,
 	}))[0];
 
 	return (
@@ -121,6 +130,7 @@ function BuilderProviderInner({
 			appId={buildId === "new" ? undefined : buildId}
 			initialDoc={initialDoc}
 			startTracking={Boolean(initialDoc || replay)}
+			canEdit={canEdit}
 		>
 			<BuilderSessionProvider init={sessionInit}>
 				<ScrollRegistryProvider>

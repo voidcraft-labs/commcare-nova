@@ -2,11 +2,12 @@
 //
 // Server-only I/O helpers the running-app view's data binding wraps
 // in Server Actions. Each helper accepts a `CaseStore` parameter so
-// tests inject a per-test store directly, while production wraps
-// with `withOwnerContext` at the request boundary in
-// `./caseDataBinding.ts`. Splitting from the Server Action module
-// is required — Next.js's `"use server"` boundary forbids
-// non-action exports in the same module.
+// tests inject a per-test store directly, while production binds one at
+// the request boundary via `gatedCaseStore` (the membership-gated
+// `withProjectContext` constructor in this module) from
+// `./caseDataBinding.ts`. Splitting from the Server Action module is
+// required — Next.js's `"use server"` boundary forbids non-action
+// exports in the same module.
 //
 // Helpers return `CaseRow` directly so consumers read the JSONB
 // `properties` document the same way `applySchemaChange` and the
@@ -23,16 +24,19 @@
 
 import "server-only";
 
+import type { AppCapability } from "@/lib/auth/projectRoles";
 import type {
 	CaseInsert,
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	CaseUpdate,
 } from "@/lib/case-store";
+import { withProjectContext } from "@/lib/case-store";
 import {
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
+import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
@@ -719,12 +723,12 @@ export function applySurveyMutation(): Extract<
  * holds that granularity by construction.
  *
  * One retry only: a second failure (or a heal that itself fails —
- * Postgres still down, app gone, foreign owner) rethrows the ORIGINAL
- * error so the action's typed `schema-not-synced` / `validation-failure`
- * arm stays the honest backstop.
+ * Postgres still down, app gone) rethrows the ORIGINAL error so the
+ * action's typed `schema-not-synced` / `validation-failure` arm stays
+ * the honest backstop.
  */
 export async function withSchemaHeal<T>(
-	args: { appId: string; userId: string },
+	args: { appId: string },
 	run: () => Promise<T>,
 ): Promise<T> {
 	try {
@@ -745,10 +749,14 @@ export async function withSchemaHeal<T>(
 		}
 		try {
 			const app = await loadApp(args.appId);
-			if (!app || app.owner !== args.userId) throw err;
+			// No owner/membership re-check here: the Server Action that built
+			// this healing store already gated Project membership
+			// (`resolveAppScope`), and the re-materialize is app-scoped SCHEMA
+			// sync (`case_type_schemas` + indexes, no tenant data), so it
+			// exposes nothing even if reached. Absent app → rethrow.
+			if (!app) throw err;
 			await materializeCaseStoreSchemas({
 				appId: args.appId,
-				userId: args.userId,
 				blueprint: app.blueprint,
 			});
 		} catch (healErr) {
@@ -759,6 +767,37 @@ export async function withSchemaHeal<T>(
 		}
 		return await run();
 	}
+}
+
+/**
+ * The single construction path for a tenant-bound case store inside a
+ * case-data Server Action. It does two load-bearing things in one place so no
+ * action can forget either:
+ *
+ *   1. **The IDOR gate.** `resolveAppScope` resolves the app's Project AND
+ *      verifies the actor holds `required` on it. The `appId` a Server Action
+ *      receives is client-supplied and otherwise unchecked — under owner-scoping
+ *      the store's own `owner_id` filter made a foreign `appId` harmless, but the
+ *      Project-scoped store trusts its bound `projectId`, so THIS membership
+ *      check is what now stops a crafted request from reaching another Project's
+ *      case data. A denial throws `AppAccessError`; the caller collapses it to
+ *      its typed not-found/`error` arm (never alerted — denial is expected).
+ *   2. **The Project binding + schema heal.** Binds `withProjectContext` to the
+ *      resolved Project (stamping the actor as `owner_id` on writes) and wraps it
+ *      in the per-call schema heal.
+ *
+ * Read actions pass `"view"`; write actions (sample populate/reset, form submit)
+ * pass `"edit"`.
+ */
+export async function gatedCaseStore(
+	appId: string,
+	userId: string,
+	required: AppCapability,
+): Promise<CaseStore> {
+	const { projectId } = await resolveAppScope(appId, userId, required);
+	return schemaHealingCaseStore(await withProjectContext(projectId, userId), {
+		appId,
+	});
 }
 
 /**
@@ -781,7 +820,7 @@ export async function withSchemaHeal<T>(
  */
 export function schemaHealingCaseStore(
 	store: CaseStore,
-	args: { appId: string; userId: string },
+	args: { appId: string },
 ): CaseStore {
 	const heal = <T>(run: () => Promise<T>): Promise<T> =>
 		withSchemaHeal(args, run);

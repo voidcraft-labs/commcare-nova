@@ -18,9 +18,7 @@ import { memo, useCallback, useContext, useMemo, useState } from "react";
 import { UploadToHqDialog } from "@/components/builder/UploadToHqDialog";
 import type { ExportOption } from "@/components/ui/ExportDropdown";
 import { ExportDropdown } from "@/components/ui/ExportDropdown";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import type { PersistableDoc } from "@/lib/domain";
 import { apiFailureToastBody, describeApiFailure } from "@/lib/ui/apiFailure";
 import { showToast } from "@/lib/ui/toastStore";
 
@@ -59,7 +57,7 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
  * where, so the toast shows those lines rather than a generic "failed".
  */
 async function exportDoc(opts: {
-	doc: PersistableDoc;
+	appId: string;
 	endpoint: string;
 	/** Noun for the failure toast, e.g. `"the .ccz file"` / `"the JSON file"`. */
 	fileLabel: string;
@@ -70,7 +68,8 @@ async function exportDoc(opts: {
 		const res = await fetch(opts.endpoint, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ doc: opts.doc }),
+			// Send only the app id — the route loads the blueprint server-side.
+			body: JSON.stringify({ appId: opts.appId }),
 		});
 		if (!res.ok) {
 			const body = await res.json().catch(() => null);
@@ -126,23 +125,23 @@ export const ExportPanel = memo(function ExportPanel({
 	 * unmounted doc store, it's a programming error: throw loudly rather
 	 * than fabricate an empty doc that would push a zero-module app.
 	 */
-	const getDoc = useCallback((): PersistableDoc => {
+	const getAppId = useCallback((): string => {
 		const s = docStore?.getState();
-		if (!s) {
+		if (!s?.appId) {
 			throw new Error(
-				"ExportPanel.getDoc called before BlueprintDocProvider mounted",
+				"ExportPanel.getAppId called before the app was persisted",
 			);
 		}
-		return toPersistableDoc(s);
+		return s.appId;
 	}, [docStore]);
 
 	const handleExportCcz = useCallback(async () => {
 		const s = docStore?.getState();
-		if (!s || s.moduleOrder.length === 0) return;
+		if (!s || s.moduleOrder.length === 0 || !s.appId) return;
 		// The compile endpoint returns the `.ccz` bytes inline — one request, no
 		// separate download round-trip.
 		await exportDoc({
-			doc: toPersistableDoc(s),
+			appId: s.appId,
 			endpoint: "/api/compile",
 			fileLabel: "the .ccz file",
 			filename: () => `${s.appName || "app"}.ccz`,
@@ -151,9 +150,9 @@ export const ExportPanel = memo(function ExportPanel({
 
 	const handleExportJson = useCallback(async () => {
 		const s = docStore?.getState();
-		if (!s || s.moduleOrder.length === 0) return;
+		if (!s || s.moduleOrder.length === 0 || !s.appId) return;
 		await exportDoc({
-			doc: toPersistableDoc(s),
+			appId: s.appId,
 			endpoint: "/api/compile/json",
 			fileLabel: "the JSON file",
 			// Media-aware: a media-free app comes back as a plain `.json`; an app
@@ -203,7 +202,7 @@ export const ExportPanel = memo(function ExportPanel({
 			<UploadToHqDialog
 				open={uploadDialogOpen}
 				onClose={handleCloseUpload}
-				getDoc={getDoc}
+				getAppId={getAppId}
 				availableDomains={commcareAvailableDomains}
 			/>
 		</>
