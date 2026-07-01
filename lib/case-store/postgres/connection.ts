@@ -1,55 +1,50 @@
 // lib/case-store/postgres/connection.ts
 //
 // Cloud SQL Postgres connection for the case store, runtime-only.
-// Follows Google's canonical pattern for Cloud Run → Cloud SQL with
-// private IP + IAM auth via `@google-cloud/cloud-sql-connector` +
-// `pg.Pool` (`https://docs.cloud.google.com/sql/docs/postgres/connect-run`).
-// The connector returns a TLS-handshake-aware `stream` factory pg.Pool
-// consumes as if it were a regular TCP socket; certificate rotation,
-// IAM token refresh, and private-IP resolution against the SQL Admin
-// API live inside the connector. Reaching for raw `google-auth-library`
-// would duplicate that logic without merits-based justification.
+// Follows Google's canonical Cloud Run → Cloud SQL pattern: the platform
+// mounts the Cloud SQL Auth Proxy as a Unix socket at
+// `/cloudsql/<instanceConnectionName>` (wired by `--add-cloudsql-instances`
+// in `cloudbuild.yaml`), and `pg.Pool` talks to that socket like a local
+// file. The proxy owns the mTLS + ephemeral-certificate rotation in its own
+// platform layer — nothing in this process runs a cert-refresh timer, so
+// Cloud Run CPU throttling between requests can't starve it.
 //
-// One `Connector` + one `pg.Pool` + one `Kysely<Database>` per
-// process. Lazy via `getCaseStoreDatabase()` — module-load
-// eagerness would crash Next.js builds (which import modules
-// without runtime env). `closeCaseStoreDatabase` is the SIGTERM
-// teardown entry point; Kysely owns the pool's lifecycle through
-// its dialect, so the close path destroys Kysely and then closes
-// the connector.
+// Authentication is manual IAM database auth: the Postgres password is a
+// short-lived Google access token fetched inline by `google-auth-library`
+// (from the local metadata server) at connection time. The token is cached
+// and refreshed by the library near its hour expiry; because pg only calls
+// the password function while opening a connection — which happens on the
+// live request path, CPU unthrottled — there is no background work to freeze.
+//
+// One `pg.Pool` + one `Kysely<Database>` per process. Lazy via
+// `getCaseStoreDatabase()` — module-load eagerness would crash Next.js builds
+// (which import modules without runtime env). `closeCaseStoreDatabase` is the
+// SIGTERM teardown entry point; Kysely owns the pool's lifecycle through its
+// dialect, so the close path just destroys Kysely (which drains the pool).
 //
 // ## Two connection modes
 //
-// **Production** targets Cloud Run → Cloud SQL: the instance is
-// `--no-assign-ip`, so the connector resolves a private IP via the SQL
-// Admin API and authenticates with IAM. `cloud-sql-proxy --private-ip`
-// from a laptop can't reach that IP (it's outside the VPC).
+// **Production** targets Cloud Run → Cloud SQL over the `/cloudsql/…` socket
+// with manual IAM auth. The instance is IAM-auth enabled
+// (`cloudsql.iam_authentication`); the runtime service account holds
+// `roles/cloudsql.client` and exists as an IAM database user.
 //
 // **Local dev** is an EXPLICIT opt-in via `NOVA_DB_LOCAL_URL`: when that var
 // is set, `initialize()` connects to a plain Postgres at that URL — the
 // docker-compose container `npm run dev` boots (`compose.yaml` at the repo
-// root) — with no connector, IAM, or private-IP resolution. It is NOT a
-// silent `NODE_ENV` fallback: production never sets the var, so a missing
-// `NOVA_DB_*` there still fails loudly via `readCaseStoreEnvConfig`. That is
-// the distinction the earlier "no localhost fallback" rule was protecting —
-// an unconditional fallback masks production misconfiguration; an explicit
-// opt-in URL that prod never sets does not.
+// root) — with no socket, IAM, or token fetch. It is NOT a silent `NODE_ENV`
+// fallback: production never sets the var, so a missing `NOVA_DB_*` there
+// still fails loudly via `readCaseStoreEnvConfig`. That is the distinction the
+// earlier "no localhost fallback" rule was protecting — an unconditional
+// fallback masks production misconfiguration; an explicit opt-in URL that prod
+// never sets does not.
 //
 // Tests use the testcontainers harness under
 // `lib/case-store/sql/__tests__/`. Ad-hoc prod DB inspection runs through
 // Cloud SQL Studio in the Google Cloud Console.
 
-import {
-	AuthTypes,
-	Connector,
-	IpAddressTypes,
-} from "@google-cloud/cloud-sql-connector";
-import {
-	Kysely,
-	type KyselyConfig,
-	PostgresDialect,
-	type PostgresPool,
-} from "kysely";
+import { GoogleAuth } from "google-auth-library";
+import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import type { PoolConfig } from "pg";
 import { Pool } from "pg";
 import type { Database } from "../sql/database.js";
@@ -59,6 +54,14 @@ import type { Database } from "../sql/database.js";
 // runtime-instance and the type contract sit on one import path.
 
 export type { Database } from "../sql/database.js";
+
+/**
+ * OAuth scope for manual IAM database login. The access token minted under
+ * this scope is what Cloud SQL accepts as the Postgres password for the IAM
+ * database user. NOT `sqlservice.admin` — that scope is for the Admin API
+ * (managing instances), not for logging in to the database.
+ */
+const IAM_DB_LOGIN_SCOPE = "https://www.googleapis.com/auth/sqlservice.login";
 
 // Pool-sizing invariant — named constants, not magic numbers. The
 // three deployment numbers below compose into the budget guarantee:
@@ -137,8 +140,9 @@ export function enforceConnectionBudget(): void {
 // `NOVA_DB_NAME` (the database name), `NOVA_DB_USER` (the IAM
 // database user identity for the Cloud Run runtime SA, in Cloud
 // SQL's truncated form without `.gserviceaccount.com`), and
-// `NOVA_DB_INSTANCE_CONNECTION_NAME` (the instance reference the
-// connector resolves to a private IP via the SQL Admin API).
+// `NOVA_DB_INSTANCE_CONNECTION_NAME` (the `project:region:instance`
+// string — wired into `--add-cloudsql-instances` and used to form
+// the socket path `/cloudsql/<name>`).
 // Defensive about both "absent key" and "key present but empty
 // string" because Cloud Run's `--update-env-vars` flag accepts
 // empty values silently — a defaultable runtime would mask the
@@ -185,7 +189,7 @@ export function readCaseStoreEnvConfig(
 				"",
 				"Cloud Run accepts an empty env-var value silently via",
 				"`--update-env-vars`, so a typo or a stale revision can leave the",
-				"deployed pod with one or more variables absent. The connector path",
+				"deployed pod with one or more variables absent. The socket path",
 				"requires all three: `NOVA_DB_NAME`, `NOVA_DB_USER`,",
 				"`NOVA_DB_INSTANCE_CONNECTION_NAME`.",
 				"",
@@ -205,46 +209,59 @@ export function readCaseStoreEnvConfig(
 }
 
 /**
- * The shape `Connector.getOptions` returns for a pg-driver
- * connection. Exposed structurally so the test harness can pass a
- * stub without booting a real connector.
+ * Compose a `pg.PoolConfig` for the Cloud Run built-in Cloud SQL socket.
+ * Pure helper — tests exercise it directly with hand-rolled inputs.
+ *
+ * `host` is the `/cloudsql/<instance>` socket directory the platform proxy
+ * mounts; pg treats a `/`-prefixed host as a Unix socket, so no `ssl` block is
+ * needed (the proxy owns the mTLS transport). `password` is the manual-IAM
+ * token callback — pg invokes it per new connection, so every handshake
+ * presents a fresh access token as the Postgres password.
  */
-export interface ConnectorClientOptions {
-	stream: PoolConfig["stream"];
+export function buildPoolConfig(
+	env: CaseStoreEnvConfig,
+	password: PoolConfig["password"],
+): PoolConfig {
+	return {
+		host: `/cloudsql/${env.NOVA_DB_INSTANCE_CONNECTION_NAME}`,
+		user: env.NOVA_DB_USER,
+		database: env.NOVA_DB_NAME,
+		password,
+		max: POOL_MAX_PER_INSTANCE,
+		connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
+	};
 }
 
 /**
- * Compose a `pg.PoolConfig` from the connector's stream factory
- * and the validated env block. Pure helper — tests exercise it
- * directly with hand-rolled inputs.
- *
- * `password` is omitted intentionally: IAM authentication uses the
- * connector's stream factory to present the Cloud-Run runtime SA's
- * identity via TLS, and Postgres skips password negotiation. Adding
- * password auth would require reading the file-level rationale first.
+ * Build the manual-IAM password callback bound to a `GoogleAuth` client. pg
+ * calls it on each new connection; `google-auth-library` caches the access
+ * token and only re-hits the metadata server near its ~1h expiry, so the
+ * steady-state cost is a cache read. A missing token is fatal — a connection
+ * with no password can't authenticate — so it throws rather than handing pg an
+ * empty credential that would surface as an opaque auth failure.
  */
-export function buildPoolConfig(
-	clientOpts: ConnectorClientOptions,
-	env: CaseStoreEnvConfig,
-): PoolConfig {
-	return {
-		stream: clientOpts.stream,
-		user: env.NOVA_DB_USER,
-		database: env.NOVA_DB_NAME,
-		max: POOL_MAX_PER_INSTANCE,
-		connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
+export function iamTokenPassword(auth: GoogleAuth): () => Promise<string> {
+	return async () => {
+		const token = await auth.getAccessToken();
+		if (!token) {
+			throw new Error(
+				[
+					"Cloud SQL IAM auth could not obtain an access token.",
+					"",
+					"`GoogleAuth.getAccessToken()` returned empty. The runtime service",
+					"account must resolve Application Default Credentials and hold",
+					"`roles/cloudsql.client`, and the instance must have IAM database",
+					"authentication enabled.",
+				].join("\n"),
+			);
+		}
+		return token;
 	};
 }
 
 // Process-scoped lazy singleton.
 
 interface CaseStoreHandles {
-	/**
-	 * The Cloud SQL connector — `null` on the local-dev path
-	 * (`NOVA_DB_LOCAL_URL`), where a plain `pg.Pool` connects directly and
-	 * there is no connector to construct or close.
-	 */
-	connector: Connector | null;
 	db: Kysely<Database>;
 	/**
 	 * The underlying `pg.Pool`. Exposed via `getCaseStorePool()` so Better Auth
@@ -262,9 +279,9 @@ let initInFlight: Promise<CaseStoreHandles> | null = null;
 
 /**
  * Build the singleton handles. The connection-budget invariant
- * fires here BEFORE env validation and connector construction, so
- * a budget misconfiguration surfaces with the dedicated diagnostic
- * rather than as a downstream connector failure. Placement inside
+ * fires here BEFORE env validation and pool construction, so a
+ * budget misconfiguration surfaces with the dedicated diagnostic
+ * rather than as a downstream driver failure. Placement inside
  * `initialize` reuses the lazy singleton's once-only mutex.
  */
 async function initialize(): Promise<CaseStoreHandles> {
@@ -272,12 +289,11 @@ async function initialize(): Promise<CaseStoreHandles> {
 
 	// Local-dev path (explicit opt-in). When `NOVA_DB_LOCAL_URL` is set,
 	// connect to a plain Postgres at that URL — the docker-compose container
-	// `npm run dev` boots — with no Cloud SQL connector, IAM, or private-IP
-	// resolution. Guarded on the var's presence, NOT on `NODE_ENV`: production
-	// never sets it, so the Cloud SQL branch below (and its loud
-	// `readCaseStoreEnvConfig` validation) still owns every non-local run. See
-	// the file header for why an explicit opt-in is sound where a silent
-	// fallback wasn't.
+	// `npm run dev` boots — with no socket, IAM, or token fetch. Guarded on the
+	// var's presence, NOT on `NODE_ENV`: production never sets it, so the Cloud
+	// SQL branch below (and its loud `readCaseStoreEnvConfig` validation) still
+	// owns every non-local run. See the file header for why an explicit opt-in
+	// is sound where a silent fallback wasn't.
 	const localUrl = process.env.NOVA_DB_LOCAL_URL;
 	if (localUrl !== undefined && localUrl.length > 0) {
 		const pool = new Pool({
@@ -288,32 +304,31 @@ async function initialize(): Promise<CaseStoreHandles> {
 		const dialect = new PostgresDialect({
 			pool: pool as unknown as PostgresPool,
 		});
-		return { connector: null, db: new Kysely<Database>({ dialect }), pool };
+		return { db: new Kysely<Database>({ dialect }), pool };
 	}
 
 	const env = readCaseStoreEnvConfig();
-	const connector = new Connector();
-	const clientOpts = await connector.getOptions({
-		instanceConnectionName: env.NOVA_DB_INSTANCE_CONNECTION_NAME,
-		ipType: IpAddressTypes.PRIVATE,
-		authType: AuthTypes.IAM,
-	});
-	const pool = new Pool(buildPoolConfig(clientOpts, env));
+	// One `GoogleAuth` per process; the token cache lives inside it and is
+	// shared across every connection the pool opens. Construction is
+	// side-effect-free — no network call happens until the first
+	// `getAccessToken()` on the request path.
+	const auth = new GoogleAuth({ scopes: [IAM_DB_LOGIN_SCOPE] });
+	const pool = new Pool(buildPoolConfig(env, iamTokenPassword(auth)));
 	// Kysely's `PostgresPool` is a subset of pg.Pool; the cast is
 	// the standard Kysely pattern.
 	const dialect = new PostgresDialect({
 		pool: pool as unknown as PostgresPool,
 	});
-	const config: KyselyConfig = { dialect };
-	const db = new Kysely<Database>(config);
-	return { connector, db, pool };
+	const db = new Kysely<Database>({ dialect });
+	return { db, pool };
 }
 
 /**
- * Get the singleton handles. First call constructs the connector + pool +
- * Kysely chain; subsequent calls return the cached set. Async because
- * `Connector.getOptions` resolves the instance via the SQL Admin API on first
- * call. Concurrent first-callers share one init via `initInFlight`.
+ * Get the singleton handles. First call constructs the pool + Kysely chain;
+ * subsequent calls return the cached set. Async to preserve the public
+ * `getCaseStore{Database,Pool}` contract (Better Auth awaits the shared pool)
+ * and so a future async init step doesn't ripple through every caller.
+ * Concurrent first-callers share one init via `initInFlight`.
  */
 async function getHandles(): Promise<CaseStoreHandles> {
 	if (handles !== null) {
@@ -352,13 +367,12 @@ export async function getCaseStorePool(): Promise<Pool> {
 }
 
 /**
- * Tear down the singleton. Destroys the Kysely instance (which
- * drains the pool via PostgresDriver) and closes the connector
- * (which stops the cert-refresh timer). Idempotent.
+ * Tear down the singleton. Destroys the Kysely instance, which drains the pool
+ * via PostgresDriver. Idempotent.
  *
- * Kysely owns the pool's lifecycle once wrapped in the dialect —
- * calling `pool.end()` here a second time would throw "Called end
- * on pool more than once" from pg.
+ * Kysely owns the pool's lifecycle once wrapped in the dialect — calling
+ * `pool.end()` here a second time would throw "Called end on pool more than
+ * once" from pg.
  */
 export async function closeCaseStoreDatabase(): Promise<void> {
 	if (handles === null) {
@@ -367,7 +381,4 @@ export async function closeCaseStoreDatabase(): Promise<void> {
 	const captured = handles;
 	handles = null;
 	await captured.db.destroy();
-	// `null` on the local-dev path — only the Cloud SQL connector owns a
-	// cert-refresh timer that needs stopping.
-	captured.connector?.close();
 }

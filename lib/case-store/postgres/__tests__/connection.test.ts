@@ -19,11 +19,12 @@
 //
 // The runtime singleton (`getCaseStoreDatabase` / `closeCaseStoreDatabase`)
 // is intentionally not exercised here — it would require a live Cloud
-// SQL instance or a heavyweight mock of the connector's TLS handshake.
+// SQL instance or a mock of the platform proxy socket + IAM token fetch.
 // Round-trip read/write coverage runs through the testcontainers
 // harness at `lib/case-store/sql/__tests__/`, which provides its own
 // `Kysely<Database>` instance bound to a per-test transaction.
 
+import type { GoogleAuth } from "google-auth-library";
 import type { Kysely } from "kysely";
 import type { PoolConfig } from "pg";
 import { Pool } from "pg";
@@ -31,11 +32,11 @@ import { describe, expect, it } from "vitest";
 import {
 	buildPoolConfig,
 	type CaseStoreEnvConfig,
-	type ConnectorClientOptions,
 	closeCaseStoreDatabase,
 	type Database,
 	enforceConnectionBudget,
 	getCaseStoreDatabase,
+	iamTokenPassword,
 	POOL_MAX_PER_INSTANCE,
 	REQUIRED_ENV_VARS,
 	readCaseStoreEnvConfig,
@@ -127,69 +128,79 @@ describe("readCaseStoreEnvConfig", () => {
 // ---------------------------------------------------------------
 
 describe("buildPoolConfig", () => {
-	// The connector returns a `stream` factory; the test stub uses a
-	// minimal placeholder cast through `as unknown as`. The factory
-	// is never invoked in the unit-test path — only `Pool`'s
-	// constructor reads it, and the constructor never opens the
-	// connection until a query runs.
-	const stubStream = (() => {
-		throw new Error(
-			"stream factory should not be invoked in unit tests — Pool is constructed but never connected to",
-		);
-	}) as unknown as PoolConfig["stream"];
-
-	const stubClientOpts: ConnectorClientOptions = { stream: stubStream };
-
 	const env: CaseStoreEnvConfig = {
 		NOVA_DB_NAME: "nova_cases",
 		NOVA_DB_USER: "51003905459-compute@developer",
 		NOVA_DB_INSTANCE_CONNECTION_NAME: "commcare-nova:us-central1:nova-cases",
 	};
+	// A stand-in password callback. Never invoked in the unit path — `Pool`
+	// reads it only when opening a connection, which these tests never do.
+	const password: PoolConfig["password"] = async () => "iam-access-token";
 
 	it("pins pool max to POOL_MAX_PER_INSTANCE", () => {
-		// The runtime invariant: `max` is `POOL_MAX_PER_INSTANCE`,
-		// never anything else. A regression here breaks the
-		// connection-budget math.
-		const config = buildPoolConfig(stubClientOpts, env);
+		// The runtime invariant: `max` is `POOL_MAX_PER_INSTANCE`, never anything
+		// else. A regression here breaks the connection-budget math.
+		const config = buildPoolConfig(env, password);
 		expect(config.max).toBe(POOL_MAX_PER_INSTANCE);
 		expect(config.max).toBe(4);
 	});
 
-	it("forwards the connector's stream factory unchanged", () => {
-		// `buildPoolConfig` must not wrap or transform the stream —
-		// the connector owns the TLS-handshake logic, and any wrapper
-		// here would risk double-buffering or eat error events.
-		const config = buildPoolConfig(stubClientOpts, env);
-		expect(config.stream).toBe(stubStream);
+	it("targets the Cloud Run built-in Cloud SQL socket for the instance", () => {
+		// pg treats a `/`-prefixed host as a Unix socket directory; the platform
+		// mounts the proxy socket at `/cloudsql/<instanceConnectionName>`.
+		const config = buildPoolConfig(env, password);
+		expect(config.host).toBe(
+			`/cloudsql/${env.NOVA_DB_INSTANCE_CONNECTION_NAME}`,
+		);
 	});
 
 	it("fills user and database from the env config", () => {
-		const config = buildPoolConfig(stubClientOpts, env);
+		const config = buildPoolConfig(env, password);
 		expect(config.user).toBe(env.NOVA_DB_USER);
 		expect(config.database).toBe(env.NOVA_DB_NAME);
 	});
 
-	it("does not set a password (IAM authentication is passwordless)", () => {
-		// IAM auth flows the SA's identity through the TLS handshake;
-		// `password` must be absent so a future `pg.Pool` upgrade
-		// doesn't quietly start interpreting an undefined value as
-		// "use empty password" against a non-IAM database user.
-		const config = buildPoolConfig(stubClientOpts, env);
-		expect("password" in config).toBe(false);
+	it("forwards the IAM token password callback unchanged", () => {
+		// Manual IAM auth: `password` is the token-fetching callback pg invokes
+		// per new connection. `buildPoolConfig` must pass it through verbatim.
+		const config = buildPoolConfig(env, password);
+		expect(config.password).toBe(password);
 	});
 
 	it("constructs a real pg.Pool with the resulting config", async () => {
 		// Lock the contract that the config object is structurally
-		// `PoolConfig`-shaped — `new Pool(config)` would throw
-		// otherwise. The pool is created but never connected to (no
-		// `query()` call), so the stub stream factory's throw stays
-		// inert. End the pool immediately to keep Vitest's open-
-		// handle accounting clean; no checked-out clients exist
-		// since the constructor doesn't connect, so end() resolves
-		// instantly.
-		const config = buildPoolConfig(stubClientOpts, env);
+		// `PoolConfig`-shaped — `new Pool(config)` would throw otherwise. The pool
+		// is created but never connected to (no `query()`), so the password
+		// callback never fires. End immediately to keep Vitest's open-handle
+		// accounting clean.
+		const config = buildPoolConfig(env, password);
 		const pool = new Pool(config);
 		await pool.end();
+	});
+});
+
+// ---------------------------------------------------------------
+// IAM token password callback
+// ---------------------------------------------------------------
+
+describe("iamTokenPassword", () => {
+	it("returns the access token the auth client resolves", async () => {
+		const auth = {
+			getAccessToken: async () => "iam-access-token",
+		} as unknown as GoogleAuth;
+		await expect(iamTokenPassword(auth)()).resolves.toBe("iam-access-token");
+	});
+
+	it("throws when the auth client yields no token", async () => {
+		// A connection with no password can't authenticate — fail loud at fetch
+		// time rather than hand pg an empty credential that surfaces as an opaque
+		// auth error.
+		const auth = {
+			getAccessToken: async () => null,
+		} as unknown as GoogleAuth;
+		await expect(iamTokenPassword(auth)()).rejects.toThrow(
+			/could not obtain an access token/,
+		);
 	});
 });
 

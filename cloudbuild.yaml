@@ -91,6 +91,7 @@ steps:
           --region=us-central1 \
           --service-account=commcare-nova@commcare-nova.iam.gserviceaccount.com \
           --network=default --subnet=default --vpc-egress=private-ranges-only \
+          --set-cloudsql-instances=commcare-nova:us-central1:nova-cases \
           --set-env-vars=NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases \
           --command=node \
           --args=migrate.cjs \
@@ -103,16 +104,17 @@ steps:
   # reset can't silently drop back to scale-to-zero (which exposes the cold
   # boot on every idle return). Keep it explicit.
   #
-  # `--no-cpu-throttling` (CPU always allocated) is REQUIRED, not tuning: the
-  # Cloud SQL connector refreshes its short-lived ephemeral mTLS certificate on
-  # a BACKGROUND timer, and Cloud Run's default request-scoped CPU throttling
-  # starves that timer between requests. On a low-traffic service the idle gaps
-  # are long enough that the refresh's TLS handshake to `sqladmin.googleapis.com`
-  # dies mid-flight (ECONNRESET) and the cert lapses — after which every new DB
-  # connection is rejected with SSL alert 42 (bad certificate) until the instance
-  # restarts. Auth and case data both ride this connector, so a lapse takes down
-  # sign-in, not just case reads. Allocating CPU always keeps the refresh cycle
-  # alive. See cloud-sql-nodejs-connector issues #285 / #379.
+  # `--add-cloudsql-instances` mounts the Cloud SQL Auth Proxy as a Unix socket
+  # at `/cloudsql/<instance>`; `lib/case-store/postgres/connection.ts` connects
+  # `pg` to it with manual IAM auth (a fresh access token as the password). The
+  # platform proxy owns the mTLS + ephemeral-certificate rotation in its own
+  # layer, so nothing in the container runs a cert-refresh timer.
+  #
+  # `--no-cpu-throttling` (CPU always allocated) is NOT required by the socket
+  # path — the platform proxy owns cert rotation, so nothing in-process needs CPU
+  # between requests. It is left on purely as caution while the socket cutover is
+  # still unverified in prod; it buys no technical safety for this change. Drop it
+  # back to default throttling (~$45/mo saved) once the socket path is confirmed.
   #
   # `--startup-probe` points at `/warmup` (see `app/(app)/warmup/page.tsx`):
   # a new instance only takes traffic once it has rendered a page, which
@@ -139,6 +141,7 @@ steps:
       - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA
       - --region=us-central1
       - --min-instances=1
+      - --add-cloudsql-instances=commcare-nova:us-central1:nova-cases
       - --no-cpu-throttling
       - --startup-probe=httpGet.path=/warmup,httpGet.port=8080,initialDelaySeconds=0,timeoutSeconds=10,periodSeconds=10,failureThreshold=24
 

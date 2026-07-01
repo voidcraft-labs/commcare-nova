@@ -25,6 +25,17 @@ import { AppAccessError, resolveProjectAccess } from "./db/appAccess";
 import { log } from "./logger";
 
 /**
+ * Throttle for mirroring the fail-open DB-lookup failure to Sentry. The
+ * fail-open path runs on EVERY authenticated request, so an outage would fire
+ * one capture per request; this caps it to at most one Sentry event per window
+ * per instance while still surfacing the failure WITH its stack — the
+ * visibility that keeping this off Sentry entirely had cost. Cloud Logging
+ * still records every occurrence via the `log.warn` below.
+ */
+const DB_FAILURE_SENTRY_THROTTLE_MS = 60_000;
+let lastDbFailureSentryCaptureMs = 0;
+
+/**
  * Live check that a session's user is still active (not banned or deleted).
  * Better Auth's compact cookie cache (5-minute `maxAge`, configured at
  * `lib/auth.ts::session.cookieCache`) means a raw `getSession` can return a
@@ -62,13 +73,25 @@ async function sessionUserIsActive(session: Session): Promise<boolean> {
 		// including the per-inline-image media route), denying on a transient
 		// Postgres blip would mass-sign-out the whole user base and break every
 		// media load — strictly worse than the bounded revocation gap that
-		// reopens only during an outage, when the app is already degraded. Use
-		// `log.warn` (Cloud-Logging-only, NOT mirrored to Sentry) so an outage
-		// doesn't also flood Sentry with one event per authenticated request.
+		// reopens only during an outage, when the app is already degraded.
+		// `log.warn` is Cloud-Logging-only and records EVERY occurrence; the
+		// throttled `captureException` below is what puts the failure — with its
+		// stack — in Sentry (≤ one event per window per instance), so a DB outage
+		// is diagnosable there without the per-request flood that keeping it off
+		// Sentry entirely was avoiding.
 		log.warn("[auth] user-status lookup failed; allowing (fail-open)", {
 			userId,
 			err: err instanceof Error ? err.message : String(err),
 		});
+		const nowMs = Date.now();
+		if (nowMs - lastDbFailureSentryCaptureMs > DB_FAILURE_SENTRY_THROTTLE_MS) {
+			lastDbFailureSentryCaptureMs = nowMs;
+			Sentry.captureException(err, {
+				level: "error",
+				fingerprint: ["auth-db-lookup-failure"],
+				tags: { subsystem: "case-store" },
+			});
+		}
 		return true;
 	}
 }

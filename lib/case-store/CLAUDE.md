@@ -214,9 +214,9 @@ migrations with `npm run db:migrate` (Kysely's `Migrator` via
 `scripts/migrate.ts`), then starts Next.js — see the
 `db:dev` script. The app connects to it through `NOVA_DB_LOCAL_URL`
 (set in `.env`); when that var is present, `postgres/connection.ts`
-uses a plain `pg.Pool` against it instead of the Cloud SQL connector.
+uses a plain `pg.Pool` against it instead of the Cloud SQL socket.
 It is an EXPLICIT opt-in, not a `NODE_ENV` fallback — production never
-sets the var, so it still goes through the connector and its loud
+sets the var, so it still goes through the Cloud SQL socket + IAM path and its loud
 `NOVA_DB_*` validation (the production-misconfig-masking that an
 unconditional localhost fallback would cause is what the connection
 layer guards against; an opt-in URL doesn't).
@@ -323,13 +323,13 @@ node-only.
 
 `migrate.cjs` is `scripts/migrate.ts` bundled by esbuild during the
 Docker build (the Next standalone runner has no full node_modules, so
-kysely + pg + the Cloud SQL connector are inlined into one file). The
+kysely + pg + google-auth-library are inlined into one file). The
 Job reuses the app image with a `--command=node --args=migrate.cjs`
-override and mirrors the service's identity + network. It calls
-`getCaseStoreDatabase()`, so it connects through the SAME
-`@google-cloud/cloud-sql-connector` + IAM path the runtime uses — its
-env therefore wires `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME`
-/ `NOVA_DB_NAME` (the connector's inputs), not Atlas's raw
+override and mirrors the service's identity + network — including its own
+`--set-cloudsql-instances` so the `/cloudsql/…` socket is mounted. It calls
+`getCaseStoreDatabase()`, so it connects through the SAME Cloud SQL socket +
+manual-IAM path the runtime uses — its env therefore wires `NOVA_DB_USER` /
+`NOVA_DB_INSTANCE_CONNECTION_NAME` / `NOVA_DB_NAME`, not Atlas's raw
 `NOVA_DB_HOST` URL.
 
 The same entrypoint also owns the **auth** schema: after the case-store
@@ -337,7 +337,7 @@ migrations it runs Better Auth's own migrator (`getMigrations(...)
 .runMigrations()`, which creates/updates the `auth_*` tables) via the
 MCP-free `lib/auth-migrate-options.ts`, then the Nova-owned auth-app
 migrations (`lib/auth/migrate.ts`, the `auth_oauth_grant_revocation`
-watermark). On the prod connector path only (`NOVA_DB_LOCAL_URL` unset)
+watermark). On the prod socket path only (`NOVA_DB_LOCAL_URL` unset)
 it then runs a one-shot, `auth_user`-empty-guarded copy of the durable
 auth state Firestore → Postgres (`lib/auth/migrate-data.ts`) — local dev
 / smoke / tests set `NOVA_DB_LOCAL_URL`, so they create the tables but

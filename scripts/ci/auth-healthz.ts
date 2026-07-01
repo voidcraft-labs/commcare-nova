@@ -17,17 +17,17 @@
  * load-bearing surface is credential acquisition (google-auth-library / gaxios →
  * undici): in CI the WIF token exchange + SA impersonation; on Cloud Run the
  * metadata server + oauth2.googleapis.com. That credential stack is SHARED with
- * the auth path: after the Postgres cutover, login goes through the Cloud SQL
- * connector (`@google-cloud/cloud-sql-connector`), whose ephemeral-cert fetch
- * uses the same google-auth-library outbound stack — so a regression in that
- * shared layer (the #143/#145 class) still turns this gate red. The Firestore
+ * the auth path: login runs on Postgres over the Cloud SQL built-in socket with
+ * manual IAM auth, whose per-connection access-token fetch uses this same
+ * google-auth-library outbound stack — so a regression in that shared layer
+ * (the #143/#145 class) still turns this gate red. The Firestore
  * data call (google-gax / node-fetch) is also exercised, guarding the app-data
  * path (apps / threads / credits stay on Firestore).
  *
- * NOT covered (follow-up): a regression SPECIFIC to pg or the Cloud SQL
- * connector's TLS/socket path — not shared with Firestore — would break Postgres
- * login undetected here. Closing that gap needs a Cloud SQL instance in the CI
- * project for a real connector round-trip.
+ * NOT covered (follow-up): a regression SPECIFIC to pg or the Cloud SQL socket
+ * path — not shared with Firestore — would break Postgres login undetected here.
+ * Closing that gap needs a Cloud SQL instance in the CI project for a real
+ * socket round-trip.
  *
  * Run by the `auth-healthz` CI job against the isolated `commcare-nova-ci`
  * project (its own empty Firestore — no real data anywhere) via keyless WIF.

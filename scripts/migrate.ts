@@ -8,15 +8,16 @@
 //
 // Bundled into a single self-contained CJS file by esbuild during the Docker
 // build (the Next.js standalone runner has no full node_modules, so the
-// migrator's deps — kysely, pg, the Cloud SQL connector, and Better Auth's
+// migrator's deps — kysely, pg, google-auth-library, and Better Auth's
 // migrator — are bundled in). To keep the bundle lean it imports
 // `authMigrateOptions` (MCP-free), NOT `lib/auth.ts` (whose `novaMcpPlugin`
 // pulls the whole MCP graph). The Job runs it with `node migrate.cjs`.
 //
 // Reuses `getCaseStoreDatabase()` so the migrate Job talks to Cloud SQL through
-// the exact same `@google-cloud/cloud-sql-connector` + IAM path the runtime
-// uses — one connection code path, prod parity. The Job's env therefore wires
-// `NOVA_DB_INSTANCE_CONNECTION_NAME` (the connector's input), not the raw
+// the exact same built-in Unix socket (`/cloudsql/…`, from the Job's
+// `--set-cloudsql-instances`) + manual-IAM path the runtime uses — one
+// connection code path, prod parity. The Job's env therefore wires
+// `NOVA_DB_INSTANCE_CONNECTION_NAME` (which forms the socket path), not the raw
 // `NOVA_DB_HOST` Atlas needed. Kysely's `Migrator` is sequential, so this Job
 // holds just ONE Cloud SQL connection at a time — it fits within the connection
 // budget even while the old revision is still serving during the pre-traffic
@@ -61,8 +62,8 @@ async function main(): Promise<void> {
 	// tables land; all-or-nothing (a failure rolls back and fails the Job, so a
 	// retry redeploy re-copies cleanly).
 	//
-	// Restricted to the prod connector path: `NOVA_DB_LOCAL_URL` is set ONLY by
-	// local dev / smoke / tests (prod uses the Cloud SQL connector), and those
+	// Restricted to the prod socket path: `NOVA_DB_LOCAL_URL` is set ONLY by
+	// local dev / smoke / tests (prod uses the Cloud SQL socket), and those
 	// must never pull the real Firestore auth collections into a local or
 	// testcontainer Postgres. The empty-auth_user guard inside the copy is the
 	// second line.
@@ -92,8 +93,8 @@ const TEARDOWN_TIMEOUT_MS = 10_000;
  * Tear down and exit with `code`. The migration's outcome (and `code`) is
  * already decided in `main()`; this only releases the pool, so it must NEVER
  * change the exit code. It guards both failure modes: a teardown ERROR is
- * caught, and a teardown that never RESOLVES (a hung `pool.end()` /
- * `connector.close()`) is bounded by `TEARDOWN_TIMEOUT_MS` — otherwise the Job
+ * caught, and a teardown that never RESOLVES (a hung `pool.end()`) is bounded
+ * by `TEARDOWN_TIMEOUT_MS` — otherwise the Job
  * would run to cloudbuild's `--task-timeout` and `gcloud run jobs execute
  * --wait` would report a committed migration as a failed deploy.
  */
