@@ -490,6 +490,51 @@ describe.skipIf(!emulatorAvailable)(
 			expect(appData?.mutation_seq).toBe(0);
 		});
 
+		it("preauthorized: skips the pre-txn role read but still commits, and the in-txn project-match uses the passed projectId", async () => {
+			// The migration saga already resolved + reauthed, so it passes
+			// `preauthorized: { projectId }`. `commitGuardedBatch` must NOT re-run
+			// the pre-txn `projectRoleFor` role read — yet the commit still lands
+			// and the in-txn concurrent-move check compares against the passed
+			// projectId.
+			const doc = minDoc();
+			const appId = await seedApp(doc, { projectId: PROJECT });
+
+			const ok = await commitGuardedBatch({
+				appId,
+				batchId: crypto.randomUUID(),
+				mutations: renameVillageLabel(doc, "Home village"),
+				actorUserId: MEMBER,
+				kind: "autosave",
+				preauthorized: { projectId: PROJECT },
+			});
+
+			expect(ok.seq).toBe(1);
+			// The pre-txn role read was skipped entirely — the saga already did it.
+			expect(projectRoleForMock).not.toHaveBeenCalled();
+		});
+
+		it("preauthorized: a concurrent move away from the passed projectId still rejects (in-txn gate authoritative)", async () => {
+			// Even with the pre-txn role read skipped, the in-txn project-match
+			// against the PASSED projectId still fires — a concurrent move to a
+			// different Project mid-window rejects (retryable).
+			const doc = minDoc();
+			const appId = await seedApp(doc, { projectId: PROJECT });
+			// Flip the stored project away before the commit's transaction reads it.
+			await docs.appRaw(appId).update({ project_id: "project-moved" });
+
+			await expect(
+				commitGuardedBatch({
+					appId,
+					batchId: crypto.randomUUID(),
+					mutations: renameVillageLabel(doc, "Home village"),
+					actorUserId: MEMBER,
+					kind: "autosave",
+					preauthorized: { projectId: PROJECT },
+				}),
+			).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+			expect(projectRoleForMock).not.toHaveBeenCalled();
+		});
+
 		it("rejects a batch targeting a concurrently-removed field with BlueprintCommitRejectedError", async () => {
 			const doc = minDoc();
 			const appId = await seedApp(doc);

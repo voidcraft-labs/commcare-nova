@@ -19,7 +19,6 @@ import {
 } from "@google-cloud/firestore";
 import Fuse from "fuse.js";
 import type { ErrorType } from "@/lib/agent";
-import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { log } from "@/lib/logger";
 import {
 	describeMediaExpectationFailures,
@@ -49,6 +48,7 @@ import {
 	BlueprintCommitRejectedError,
 	batchTargetsMissing,
 	CommitReauthError,
+	reauthorizeActorForCommit,
 } from "./commitGuard";
 import {
 	ACCEPTED_MUTATIONS_TTL_MS,
@@ -58,7 +58,6 @@ import {
 import { refundReservation } from "./credits";
 import { collections, docs, getDb } from "./firestore";
 import { addReferencingApp, getAssetsInTransaction } from "./mediaAssets";
-import { projectRoleFor } from "./projectMembership";
 import type { AcceptedMutationDoc, AppDoc, CreditMonthDoc } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -624,6 +623,18 @@ export interface CommitGuardedBatchArgs {
 	readonly actorUserId: string;
 	readonly kind: AcceptedMutationDoc["kind"];
 	readonly mediaExpectations?: readonly MediaAttachExpectation[];
+	/**
+	 * A `{ projectId }` the caller ALREADY resolved (`loadAppProjectId`) and
+	 * reauthed the actor's role against (`reauthorizeActorForCommit`) moments
+	 * ago. When present, the pre-transaction reauth here is skipped — it would
+	 * re-run the identical `loadAppProjectId` + `projectRoleFor` round trip for
+	 * the same actor. Only the migration-bearing `applyBlueprintChange` path,
+	 * which reauths before its Phase-1 DDL, supplies it. The IN-transaction
+	 * checks (owner fallback, concurrent-move rejection against this same
+	 * `projectId`) remain the authoritative gate either way. Absent: resolve +
+	 * reauth here (every other caller).
+	 */
+	readonly preauthorized?: { readonly projectId: string | null };
 }
 
 /** Outcome of {@link commitGuardedBatch}. */
@@ -647,7 +658,9 @@ export interface CommitGuardedBatchResult {
  * Reauth for the common case resolves BEFORE the transaction (out of the retry
  * loop): the actor's role in the app's Project — `null` (not a member) or a
  * role without `edit` rejects. A null `project_id` defers to an in-transaction
- * `owner` check. Then one transaction: read the dedup latch + fresh app doc up
+ * `owner` check. A caller that already resolved + reauthed (the migration saga)
+ * passes `preauthorized` to skip this redundant pre-txn round trip; the in-txn
+ * checks stay authoritative. Then one transaction: read the dedup latch + fresh app doc up
  * front; a dedup hit returns the recorded seq/basis + the current committed
  * doc, writing nothing; reauth against the fresh doc (owner fallback, or the
  * fresh `project_id` must still equal the reauthed one — a concurrent move
@@ -664,18 +677,19 @@ export async function commitGuardedBatch(
 	const { appId, batchId, runId, mutations, actorUserId, kind } = args;
 	const mediaExpectations = args.mediaExpectations;
 
-	// Pre-transaction reauth for the common (non-null project) case. Guard
-	// `role === null` BEFORE `roleAllowsApp` — `projectRoleFor` returns
-	// `string | null` and a non-member's null can't index the role table.
-	const projectId = await loadAppProjectId(appId);
-	if (projectId !== null) {
-		const role = await projectRoleFor(actorUserId, projectId);
-		if (role === null || !roleAllowsApp(role, "edit")) {
-			// TERMINAL — a reload can't make the actor a member; retrying re-denies.
-			throw new CommitReauthError(
-				"You no longer have edit access to this app's Project.",
-			);
-		}
+	// Pre-transaction reauth for the common (non-null project) case — the
+	// shared {@link reauthorizeActorForCommit} `applyBlueprintChange` also runs
+	// before its Postgres DDL, so a deauth'd caller is rejected identically on
+	// both paths. A null `project_id` defers to the in-transaction owner check.
+	// A caller that ALREADY resolved + reauthed (the migration saga) passes
+	// `preauthorized` so this identical round trip isn't paid twice; the in-txn
+	// checks below stay the authoritative gate regardless.
+	let projectId: string | null;
+	if (args.preauthorized !== undefined) {
+		projectId = args.preauthorized.projectId;
+	} else {
+		projectId = await loadAppProjectId(appId);
+		await reauthorizeActorForCommit(projectId, actorUserId);
 	}
 	const basisToken = crypto.randomUUID();
 

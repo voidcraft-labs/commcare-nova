@@ -1013,26 +1013,29 @@ export async function POST(req: Request) {
 					 * `case_type_record`), and the chat surface's inline guarded
 					 * commits never touch Postgres — so sync the case-store schemas
 					 * here, the same "any case-store action after a commit sees a
-					 * synced schema" contract the build arm holds. Idempotent
-					 * upsert; `materializeCaseStoreSchemas` retries transient
-					 * failures internally, so a Postgres blip here usually still
-					 * lands the sync rather than leaving a stale/missing row. If it
-					 * STILL fails it's log-only — the edit itself succeeded, and the
-					 * case-store consumers self-heal at the point of use: a MISSING
-					 * (`SchemaNotSyncedError`) or STALE-drift
-					 * (`CasePropertiesValidationError` with an `additionalProperty`)
-					 * row on sample-populate / form submit / live preview
-					 * re-materializes the persisted blueprint and retries once
-					 * (`withSchemaHeal` in the case-data-binding actions). */
+					 * synced schema" contract the build arm holds. Idempotent upsert;
+					 * `materializeCaseStoreSchemas` swallows a TRANSIENT blip and
+					 * RETHROWS a DETERMINISTIC fault. Unlike the build arm, an edit
+					 * does NOT fail the run on that throw: the edit's blueprint already
+					 * committed (awaited, durable) and its 5-credit charge stands, so a
+					 * deterministic schema fault is logged at `error` (Sentry-visible)
+					 * but the run stays successful — the case-store consumers self-heal
+					 * a MISSING (`SchemaNotSyncedError`) / STALE-drift
+					 * (`CasePropertiesValidationError` with `additionalProperty`) row at
+					 * the point of use (`withSchemaHeal`). */
 					const editDoc = ctx.latestPersistedDoc();
 					if (editDoc) {
+						// Every commit was awaited inline through `commitGuardedBatch`,
+						// so `latestPersistedDoc()` is already durable — no save chain
+						// to drain. `syncedSeq` is the committed seq of THAT doc (feeds
+						// the monotone `synced_seq` gate, so a concurrent additive sync
+						// converges rather than clobbers).
+						const editSeq = ctx.latestCommittedSeq();
 						try {
-							// Every commit was awaited inline through `commitGuardedBatch`,
-							// so `latestPersistedDoc()` is already durable — no save chain
-							// to drain. Materialize the case-store schemas for it.
 							await materializeCaseStoreSchemas({
 								appId,
 								blueprint: toPersistableDoc(editDoc),
+								...(editSeq !== undefined && { syncedSeq: editSeq }),
 							});
 						} catch (error) {
 							log.error("[chat] edit-run case-store sync failed", error, {
@@ -1070,17 +1073,27 @@ export async function POST(req: Request) {
 					 * error). */
 					try {
 						const finalDoc = ctx.latestPersistedDoc();
+						const finalSeq = ctx.latestCommittedSeq();
 						if (finalDoc) {
+							// `syncedSeq` is the committed seq of THIS doc — feeds the
+							// monotone `synced_seq` gate so a concurrent additive sync
+							// converges. `materializeCaseStoreSchemas` swallows a
+							// TRANSIENT per-type blip (`warn`; the point-of-use
+							// `withSchemaHeal` closes the gap) but RETHROWS a
+							// DETERMINISTIC fault — that throw funnels through the
+							// `failRun` below, so a build never completes-and-charges
+							// over a permanently-unusable schema.
 							await materializeCaseStoreSchemas({
 								appId,
 								blueprint: toPersistableDoc(finalDoc),
+								...(finalSeq !== undefined && { syncedSeq: finalSeq }),
 							});
 						}
 						await completeApp(appId);
 						if (finalDoc) {
 							ctx.emit("data-done", {
 								doc: toPersistableDoc(finalDoc),
-								seq: ctx.latestCommittedSeq(),
+								seq: finalSeq,
 								success: true,
 							});
 						}

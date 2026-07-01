@@ -36,15 +36,12 @@ import { v7 as uuidv7 } from "uuid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildCaseTypeMap } from "@/lib/case-store";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
-import {
-	indexScopeTag,
-	PostgresCaseStore,
-} from "@/lib/case-store/postgres/store";
+import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import type { AppDoc } from "@/lib/db/types";
-import type { CaseType, PersistableDoc } from "@/lib/domain";
+import type { BlueprintDoc, CaseType, PersistableDoc } from "@/lib/domain";
 
 // ── Hoisted spy shells ─────────────────────────────────────────────
 //
@@ -53,14 +50,19 @@ import type { CaseType, PersistableDoc } from "@/lib/domain";
 // references survive across tests for assertion access; each test's
 // `beforeEach` resets them.
 
-const { loadAppMock, commitGuardedBatchMock, batchDedupRawGetMock } =
-	vi.hoisted(() => {
-		return {
-			loadAppMock: vi.fn(),
-			commitGuardedBatchMock: vi.fn(),
-			batchDedupRawGetMock: vi.fn(),
-		};
-	});
+const {
+	loadAppMock,
+	loadAppProjectIdMock,
+	commitGuardedBatchMock,
+	batchDedupRawGetMock,
+} = vi.hoisted(() => {
+	return {
+		loadAppMock: vi.fn(),
+		loadAppProjectIdMock: vi.fn(),
+		commitGuardedBatchMock: vi.fn(),
+		batchDedupRawGetMock: vi.fn(),
+	};
+});
 
 // `withSchemaContextMock` is patched per-test once the per-test
 // database handle is bound — the test body itself can't call
@@ -74,6 +76,7 @@ const { withSchemaContextMock } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db/apps", () => ({
 	loadApp: loadAppMock,
+	loadAppProjectId: loadAppProjectIdMock,
 	commitGuardedBatch: commitGuardedBatchMock,
 }));
 
@@ -117,12 +120,18 @@ beforeEach(async () => {
 
 beforeEach(() => {
 	loadAppMock.mockReset();
+	loadAppProjectIdMock.mockReset();
 	commitGuardedBatchMock.mockReset();
 	batchDedupRawGetMock.mockReset();
+	// A null-project (owner-scoped) app: `reauthorizeActorForCommit(null, …)`
+	// is a no-op, so the REAL helper runs without a live auth DB. The saga's
+	// reauth-before-DDL gate is unit-pinned in `applyBlueprintChangeGuard.test`.
+	loadAppProjectIdMock.mockResolvedValue(null);
 	// No prior dedup latch — the saga proceeds to the Postgres phase + commit.
 	batchDedupRawGetMock.mockResolvedValue({ exists: false });
-	// The Firestore commit succeeds by default; tests that exercise the
-	// commit-failure compensation arm override this in their body.
+	// The Firestore commit succeeds by default. Additive tests that rely on
+	// the post-commit sweep override `committedDoc` (the sweep skips a
+	// `committedDoc`-undefined result); commit-failure tests reject it.
 	commitGuardedBatchMock.mockResolvedValue({
 		seq: 1,
 		basisToken: "token-1",
@@ -170,10 +179,22 @@ function makeBlueprint(caseTypes: CaseType[] | null): PersistableDoc {
 	};
 }
 
-function makeAppDoc(blueprint: PersistableDoc): AppDoc {
-	// `loadApp` returns the full `AppDoc` shape; the saga reads
-	// only `blueprint`. The `AppDoc` schema doesn't expose every
-	// denormalized list field as a typed slot, so the cast through
+/**
+ * The `committedDoc` a successful `commitGuardedBatch` returns — the hydrated
+ * committed blueprint the post-commit sweep re-derives schemas from. The sweep
+ * reads `.caseTypes` only (via `buildCaseTypeMap`), so a `PersistableDoc`
+ * widened to `BlueprintDoc` is sufficient for the fixture. An additive test
+ * MUST supply this (the sweep skips a `committedDoc`-undefined result).
+ */
+function committedDocFor(blueprint: PersistableDoc): BlueprintDoc {
+	return blueprint as unknown as BlueprintDoc;
+}
+
+function makeAppDoc(blueprint: PersistableDoc, mutationSeq = 1): AppDoc {
+	// `loadApp` returns the full `AppDoc` shape; the saga reads `blueprint`
+	// (prior state) and `compensate` reads `blueprint` + `mutation_seq` (the
+	// current committed state, seq-guarded). The `AppDoc` schema doesn't expose
+	// every denormalized list field as a typed slot, so the cast through
 	// `unknown` papers over the test fixture's minimal shape.
 	const now = new Date();
 	const tsLike = {
@@ -187,6 +208,7 @@ function makeAppDoc(blueprint: PersistableDoc): AppDoc {
 		module_count: 0,
 		form_count: 0,
 		blueprint,
+		mutation_seq: mutationSeq,
 		status: "complete" as const,
 		error_type: null,
 		deleted_at: null,
@@ -218,6 +240,14 @@ describe("applyBlueprintChange — additive mutations", () => {
 		const prior = makeBlueprint(null);
 		const prospective = makeBlueprint([PATIENT]);
 		loadAppMock.mockResolvedValueOnce(makeAppDoc(prior));
+		// The additive `patient` addition rides the post-commit sweep, which
+		// re-derives its schema from the committed doc.
+		commitGuardedBatchMock.mockResolvedValueOnce({
+			seq: 4,
+			basisToken: "token-1",
+			committedDoc: committedDocFor(prospective),
+			deduped: false,
+		});
 
 		await applyBlueprintChange({
 			appId: APP_ID,
@@ -256,6 +286,12 @@ describe("applyBlueprintChange — additive mutations", () => {
 		const prior = makeBlueprint(null);
 		const prospective = makeBlueprint([PATIENT]);
 		loadAppMock.mockResolvedValueOnce(makeAppDoc(prior));
+		commitGuardedBatchMock.mockResolvedValueOnce({
+			seq: 4,
+			basisToken: "token-1",
+			committedDoc: committedDocFor(prospective),
+			deduped: false,
+		});
 
 		await applyBlueprintChange({
 			appId: APP_ID,
@@ -283,6 +319,12 @@ describe("applyBlueprintChange — additive mutations", () => {
 		// rather than re-reading.
 		const prior = makeBlueprint(null);
 		const prospective = makeBlueprint([PATIENT]);
+		commitGuardedBatchMock.mockResolvedValueOnce({
+			seq: 4,
+			basisToken: "token-1",
+			committedDoc: committedDocFor(prospective),
+			deduped: false,
+		});
 
 		await applyBlueprintChange({
 			appId: APP_ID,
@@ -570,13 +612,19 @@ describe("applyBlueprintChange — retype mutations", () => {
 });
 
 // ── Cases — Firestore commit failure + compensation ───────────────
+//
+// Only a MIGRATION-BEARING entry (a `change` hint) runs Postgres-first, so
+// only it compensates on a Firestore-commit failure. Additive entries never
+// touch Postgres before the commit — they ride the post-commit sweep, which is
+// simply skipped when the commit throws — so there is nothing to compensate
+// for them (the case-type-addition `dropSchema` arm is gone).
 
 describe("applyBlueprintChange — compensation on Firestore commit failure", () => {
-	it("compensates Postgres back to the prior schema when the guarded commit throws", async () => {
-		// Bootstrap: seed an initial schema with one property.
+	it("compensates a MIGRATION-BEARING retype back to the prior schema when the guarded commit throws", async () => {
+		// Bootstrap: seed an initial schema with a `text`-typed `age`.
 		const initial: CaseType = {
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [{ name: "age", label: "Age", data_type: "text" }],
 		};
 		const initialBlueprint = makeBlueprint([initial]);
 		const seedStore = new PostgresCaseStore({
@@ -591,8 +639,7 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 			caseTypeSchemas: buildCaseTypeMap(initialBlueprint),
 		});
 
-		// Capture the prior schema so we can compare after
-		// compensation runs.
+		// Capture the prior schema so we can compare after compensation runs.
 		const priorRows = await dbHandle.pool.query<{ schema: unknown }>(
 			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
 			[APP_ID, "patient"],
@@ -600,17 +647,19 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 		expect(priorRows.rows).toHaveLength(1);
 		const priorSchema = priorRows.rows[0]?.schema;
 
-		// Prospective: extend the case type with a second property.
-		const extended: CaseType = {
+		// Prospective: retype `age` text → int. The hint makes it
+		// migration-bearing, so Phase 1 forward-applies it against Postgres
+		// BEFORE the commit.
+		const retyped: CaseType = {
 			name: "patient",
-			properties: [
-				{ name: "name", label: "Name", data_type: "text" },
-				{ name: "age", label: "Age", data_type: "int" },
-			],
+			properties: [{ name: "age", label: "Age", data_type: "int" }],
 		};
-		const extendedBlueprint = makeBlueprint([extended]);
-		loadAppMock.mockResolvedValueOnce(makeAppDoc(initialBlueprint));
-		// Firestore commit fails — the saga must compensate.
+		const retypedBlueprint = makeBlueprint([retyped]);
+		// The saga's prior read AND compensate's fresh current-state read both
+		// resolve to the initial doc (no concurrent peer in this test), so
+		// compensate re-derives the prior `text` schema, seq-guarded.
+		loadAppMock.mockResolvedValue(makeAppDoc(initialBlueprint));
+		// Firestore commit fails — the saga must compensate the retype.
 		const commitErr = new Error("simulated firestore failure");
 		commitGuardedBatchMock.mockRejectedValueOnce(commitErr);
 
@@ -618,14 +667,21 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 			applyBlueprintChange({
 				appId: APP_ID,
 				userId: OWNER_ID,
-				prospective: extendedBlueprint,
+				prospective: retypedBlueprint,
 				batchId: "batch-compensate-1",
 				kind: "autosave",
 				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+				hint: {
+					kind: "retype",
+					caseType: "patient",
+					property: "age",
+					fromType: "text",
+					toType: "int",
+				},
 			}),
 		).rejects.toThrow("simulated firestore failure");
 
-		// Postgres compensated back to the prior schema.
+		// Postgres compensated back to the prior `text`-typed schema.
 		const postRows = await dbHandle.pool.query<{ schema: unknown }>(
 			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
 			[APP_ID, "patient"],
@@ -634,44 +690,25 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 		expect(postRows.rows[0]?.schema).toEqual(priorSchema);
 	});
 
-	// Parallel shape to the test above, but starting from a prior
-	// blueprint that has NO `patient` case type. Phase 1's
-	// `applySchemaChange(prospective)` materializes the schema row
-	// + index DDL; the Firestore commit then fails, and the
-	// compensation arm must DELETE the schema row + drop the
-	// indexes — the prior blueprint can't produce a schema for a
-	// case type it doesn't declare, so a naive
-	// `applySchemaChange(prior)` would orphan the row. This test
-	// pins the case-type-addition compensation arm specifically.
-	it("compensates a case-type addition by dropping the schema row + indexes when the guarded commit throws", async () => {
+	it("touches no Postgres before the commit for an ADDITIVE case-type addition, so a commit failure leaves no orphan row", async () => {
 		// Prior: empty case_types — no `patient` exists yet.
 		const priorBlueprint = makeBlueprint(null);
-
-		// Confirm the schema row really doesn't exist before the
-		// saga runs. Without this baseline, a leaked row from a
-		// prior test could let the post-failure assertion pass
-		// trivially.
 		const beforeRows = await dbHandle.pool.query<{ schema: unknown }>(
 			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
 			[APP_ID, "patient"],
 		);
 		expect(beforeRows.rows).toHaveLength(0);
 
-		// Prospective: add `patient` with a `name` property. The
-		// `text` `data_type` materializes one trgm GIN expression
-		// index — Phase 2 of the existing `applySchemaChange` —
-		// which the compensation must also drop.
+		// Prospective: add `patient`. Additive (no hint) → it rides the
+		// post-commit sweep, which never runs because the commit throws. No
+		// Phase-1 Postgres write happened, so there is nothing to compensate
+		// and no orphan row is left behind.
 		const added: CaseType = {
 			name: "patient",
 			properties: [{ name: "name", label: "Name", data_type: "text" }],
 		};
 		const addedBlueprint = makeBlueprint([added]);
-
 		loadAppMock.mockResolvedValueOnce(makeAppDoc(priorBlueprint));
-		// Firestore commit fails — the saga must compensate by
-		// dropping the schema row + indexes (NOT by routing
-		// through `applySchemaChange(prior)`, which would throw
-		// `CaseTypeNotInBlueprintError`).
 		const commitErr = new Error("simulated firestore failure");
 		commitGuardedBatchMock.mockRejectedValueOnce(commitErr);
 
@@ -686,33 +723,104 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 			}),
 		).rejects.toThrow("simulated firestore failure");
 
-		// `case_type_schemas` carries no row for `(appId, "patient")`
-		// — the compensation's DELETE returned the table to its
-		// pre-call shape.
+		// No schema row was ever written — the additive addition never ran
+		// Phase-1 Postgres-first, and the sweep was skipped on the failed
+		// commit. The table is exactly as it was.
 		const postSchemaRows = await dbHandle.pool.query<{ schema: unknown }>(
 			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
 			[APP_ID, "patient"],
 		);
 		expect(postSchemaRows.rows).toHaveLength(0);
-
-		// Per-property expression indexes are dropped. The Phase 1
-		// trgm GIN landed an app-scoped `cases_<scopeTag>_name_fuzzy`
-		// index; the compensation's `DROP INDEX CONCURRENTLY IF
-		// EXISTS` removes it. Probe `pg_indexes` directly — Kysely's
-		// typed builder doesn't compile against the catalog views. The
-		// `cases_<scopeTag>_%` prefix is the exact `(app, case_type)`
-		// scope enumeration `readLiveIndexSet` uses.
-		const postIndexes = await dbHandle.pool.query<{ indexname: string }>(
-			`SELECT indexname FROM pg_indexes
-			 WHERE tablename = 'cases'
-			 AND indexname LIKE $1 ESCAPE '\\'`,
-			[`cases\\_${indexScopeTag(APP_ID, "patient")}\\_%`],
-		);
-		expect(postIndexes.rows).toHaveLength(0);
-
-		// `commitGuardedBatch` was called once (the failing call); the
-		// saga did not retry it after compensation. The thrown
-		// `commitErr` propagates out as the rejection above.
 		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("preserves a concurrent peer's committed property when a migration compensates on commit failure", async () => {
+		// The concurrency bug [C3] guards against: migration M's un-versioned
+		// Phase-1 UPSERT overwrites the schema with M's prospective; a peer
+		// committed a NEW property to the same type mid-window. If compensate
+		// reverted to M's stale PRIOR, the peer's property would be lost. It
+		// must instead re-derive from the CURRENT committed doc (which carries
+		// the peer's property and NOT M's failed change), seq-guarded.
+
+		// Prior (M's view): `patient` has just `age: text`.
+		const priorPatient: CaseType = {
+			name: "patient",
+			properties: [{ name: "age", label: "Age", data_type: "text" }],
+		};
+		const priorBlueprint = makeBlueprint([priorPatient]);
+
+		// A peer concurrently committed `phone` → the CURRENT committed state has
+		// BOTH `age` and `phone`. Seed Postgres to that state (peer's sweep ran).
+		const currentPatient: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "age", label: "Age", data_type: "text" },
+				{ name: "phone", label: "Phone", data_type: "text" },
+			],
+		};
+		const currentBlueprint = makeBlueprint([currentPatient]);
+		const seedStore = new PostgresCaseStore({
+			projectId: OWNER_ID,
+			actorUserId: OWNER_ID,
+			db: dbHandle.db as unknown as Kysely<Database>,
+			sampleGenerator: new HeuristicCaseGenerator(),
+		});
+		await seedStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(currentBlueprint),
+			syncedSeq: 10, // the peer's committed seq
+		});
+
+		// M retypes `age` text → int against ITS prior (which lacks `phone`).
+		const retypedPatient: CaseType = {
+			name: "patient",
+			properties: [{ name: "age", label: "Age", data_type: "int" }],
+		};
+		const retypedBlueprint = makeBlueprint([retypedPatient]);
+		// The saga takes M's prior from `priorBlueprint` (below), so it never
+		// reads `loadApp` for the prior — the ONLY `loadApp` call is
+		// compensate's fresh current-state read, which must return the CURRENT
+		// committed doc (with phone) at seq 10.
+		loadAppMock.mockResolvedValue(makeAppDoc(currentBlueprint, 10));
+		const commitErr = new Error("simulated firestore failure");
+		commitGuardedBatchMock.mockRejectedValueOnce(commitErr);
+
+		await expect(
+			applyBlueprintChange({
+				appId: APP_ID,
+				userId: OWNER_ID,
+				prospective: retypedBlueprint,
+				priorBlueprint,
+				batchId: "batch-compensate-peer",
+				kind: "autosave",
+				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
+				hint: {
+					kind: "retype",
+					caseType: "patient",
+					property: "age",
+					fromType: "text",
+					toType: "int",
+				},
+			}),
+		).rejects.toThrow("simulated firestore failure");
+
+		// The compensated schema carries the peer's `phone` AND the prior
+		// `age` (text — M's int retype was uncommitted), NOT M's stale
+		// prior-without-phone. The peer's committed property survived.
+		const postRows = await dbHandle.pool.query<{
+			schema: { properties?: Record<string, { type?: string }> };
+			synced_seq: string;
+		}>(
+			"SELECT schema, synced_seq FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
+			[APP_ID, "patient"],
+		);
+		expect(postRows.rows).toHaveLength(1);
+		const props = postRows.rows[0]?.schema.properties ?? {};
+		expect(Object.keys(props).sort()).toEqual(["age", "phone"]);
+		// `age` reverted to text (M's int retype never committed).
+		expect(props.age?.type).toBe("string");
+		// The compensation recorded the current seq (10), not M's stale seq.
+		expect(Number(postRows.rows[0]?.synced_seq)).toBe(10);
 	});
 });

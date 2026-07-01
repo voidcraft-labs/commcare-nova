@@ -94,6 +94,41 @@ architecture.
 Phase A commits when both steps succeed and rolls back atomically
 on failure. The schema row + data are always consistent.
 
+### The monotone `synced_seq` gate
+
+`case_type_schemas.synced_seq` records the `mutation_seq` a row was
+last synced from. When a caller passes `syncedSeq`,
+`applySchemaChange` gates on it in two halves so concurrent additive
+edits converge instead of clobbering each other:
+
+- **Coarse (a SELECT before Phase A):** read the row's recorded
+  `synced_seq` (`Number(...)` — pg returns `int8` as a string; an
+  absent row means "proceed"). If the incoming seq is LOWER, the
+  ENTIRE call no-ops — schema UPSERT + Phase-B index DDL skipped. A
+  stale sync never rewinds a fresher row.
+- **Fine (the UPSERT SET):** the conflict `doUpdateSet` guards
+  `synced_seq = excluded.synced_seq` with
+  `WHERE excluded.synced_seq >= case_type_schemas.synced_seq`, so
+  the UPSERT itself can't regress the row even if a fresher writer
+  landed between the coarse SELECT and here. The UPSERT `RETURNING`s
+  its row, which Postgres emits only when it actually inserted or
+  updated — so a fine-gate LOSER (the WHERE was false) returns no
+  row, and Phase B is SKIPPED for it. Without that skip, the loser
+  would diff its OLDER desired index set against the winner's live
+  set and `DROP` the winner's new-property index. A lost SELECT→UPSERT
+  race then re-converges on the next sync (perf-only, not a
+  correctness gate).
+
+`syncedSeq` is mutually exclusive with `change` — the additive gate
+carries a seq and no per-row migration; a migration runs pre-commit
+un-versioned. The implementation throws when both are set (so the
+whole-call no-op can never silently skip a migration's per-row work).
+
+Absent `syncedSeq` (the pre-multiplayer path and the migration
+saga's Postgres-first forward apply — which runs before its own
+committed seq exists): a plain un-versioned UPSERT that always wins
+its own conflict.
+
 ### Phase B (no transaction; runs after Phase A commits)
 
 3. **Per-property expression-index DDL** — always runs. Computes
@@ -143,14 +178,32 @@ to a sequential scan over the case-type partition.
 The chat-completion boundary calls `applySchemaChange` once per
 case type via the sibling helper at
 `lib/db/materializeCaseStoreSchemas.ts` to close the gap the SA's
-fire-and-forget chat-side `saveBlueprint` leaves open (the
-freshly-generated case types have no `case_type_schemas` row
-until that helper lands). The two awaited blueprint-write
-boundaries (auto-save PUT, MCP tool calls) route through the
-sibling saga at `lib/db/applyBlueprintChange.ts` instead — saga
-for awaited writes (compensation on Firestore failure),
-materialize-helper for chat completion (pure additive, no
-compensation needed).
+inline chat-side commits leave open (the freshly-generated case
+types have no `case_type_schemas` row until that helper lands).
+Its failure contract splits on fault class (`lib/db/schemaSyncRetry.ts`
+`isTransientDbError`): each per-type sync retries a TRANSIENT blip,
+then **swallows** a still-transient terminal (`warn`; the
+point-of-use `withSchemaHeal` re-syncs on recovery) but **RETHROWS**
+a DETERMINISTIC fault (an identifier collision, a
+`CaseTypeNotInBlueprintError`) — a real bug that would fail
+identically on every heal, so the chat BUILD arm routes it through
+`failRun` (refund + classified error) rather than complete-and-charge
+a permanently-unusable app; the EDIT arm error-logs it (the edit
+already committed + charged). Both the materialize and the heal pass
+`syncedSeq` (the `mutation_seq` of the EXACT blueprint they
+materialize — `ctx.latestCommittedSeq()` for the drain-end,
+`app.mutation_seq` off the same `loadApp` snapshot for the heal) so
+the monotone `synced_seq` gate converges them with a concurrent
+additive sync.
+
+The two awaited blueprint-write boundaries (auto-save PUT, MCP tool
+calls) route through the sibling saga at
+`lib/db/applyBlueprintChange.ts`, whose sync splits by change kind:
+**migration-bearing** entries (a `change` reshape) stay
+Postgres-first + `compensate()` pre-commit (recoverable), while
+**additive** entries ride a single post-commit sweep of the
+committed doc at the committed seq (`syncedSeq`), which converges
+concurrent additive edits via the same monotone gate.
 
 ### Pre-flight identifier validation runs BEFORE Phase A
 

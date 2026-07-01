@@ -622,35 +622,50 @@ migration. The sync splits by change kind:
   still issues the SELECT + UPSERT + Phase-B `readLiveIndexSet` per swept type — the price of
   the concurrent-merge guarantee, not a no-op. It covers a peer's concurrently-added property
   **and** advances the migration-bearing type's `synced_seq` (its per-row work ran
-  pre-commit). A failure logs at `warn` and returns success (idempotent, re-derivable via the
-  next save / heal); never rethrown.
+  pre-commit). The sweep is a SINGLE attempt (no retry — it is post-commit + additive, so the
+  point-of-use `withSchemaHeal` closes any gap without adding latency to the response) and never
+  fails the write: a transient fault logs at `warn`, a deterministic fault at `error`; neither
+  rethrows. It is skipped on ANY dedup (top-level OR the in-transaction `deduped: true`) — a
+  deduped batch already swept at its original commit, and its returned (original seq, current
+  doc) pair is inconsistent.
 
 **Files & changes.**
 
 - `lib/db/applyBlueprintChange.ts` — partition `classifyCaseTypeChanges` entries: run the
-  migration-bearing ones Postgres-first + `compensate()` **pre-commit**, then run the single
-  post-commit `committedDoc` sweep above (no re-classify). **Rewrite the module + function
-  docblocks** to the two-arm split — `compensate()` now only ever receives migration entries,
-  and its case-type-**addition** `dropSchema` arm becomes unreachable, so **delete that arm**
-  (additions are post-commit/additive). The existing docblock describes the old
-  Postgres-first + full-compensation model.
+  migration-bearing ones Postgres-first **pre-commit**, then the single post-commit
+  `committedDoc` sweep above (no re-classify). `compensate()` receives only migration entries;
+  its case-type-addition `dropSchema` arm is deleted (unreachable). On a migration failure
+  `compensate()` re-derives each migration-bearing type's schema from a **fresh `loadApp`** (the
+  CURRENT committed doc — so a concurrent peer's committed property survives) applied seq-guarded
+  at the current `mutation_seq`, never an un-versioned revert to a stale prior; it iterates
+  EVERY migration entry's type, so an entry whose Phase A committed and whose non-transactional
+  Phase B then threw is still reconciled. **Reauth-before-DDL:** the shared
+  `reauthorizeActorForCommit(projectId, actorUserId)` (`commitGuard.ts`) runs at the saga top
+  **only when there are migration-bearing entries** (it guards the pre-commit Phase-1 DDL; a
+  pure additive / non-case-type commit pays no saga reauth — `commitGuardedBatch`'s own reauth
+  is the single gate); the resolved `projectId` threads into `commitGuardedBatch` via
+  `preauthorized` so it isn't re-read on that path.
 - `lib/case-store/store.ts` — `ApplySchemaChangeArgs` gains `syncedSeq?: number`.
-- `lib/case-store/postgres/store.ts::applySchemaChange` — when `syncedSeq` is set, read the
-  row's existing `synced_seq` (coerce `Number(...)`; an absent row means "proceed"); if the
-  incoming is **lower**, no-op the entire call (schema UPSERT + per-row migration + Phase-B
-  index DDL skipped). Else UPSERT `{ schema, synced_seq }` with the SET value
-  `eb.ref('excluded.synced_seq')` guarded by `WHERE excluded.synced_seq >=
-  case_type_schemas.synced_seq`. (The Phase-B index-DDL skip is perf-only — a lost SELECT→UPSERT
-  race re-converges on the next sync, not a correctness gate.)
+- `lib/case-store/postgres/store.ts::applySchemaChange` — `change` and `syncedSeq` are mutually
+  exclusive (a runtime throw at the top guards it). When `syncedSeq` is set: a **coarse** SELECT
+  before Phase A (`Number(...)` coerce; absent row → proceed) no-ops the whole call if the
+  incoming is lower; else the UPSERT SET `synced_seq = excluded.synced_seq` is guarded by
+  `WHERE excluded.synced_seq >= case_type_schemas.synced_seq` (the **fine** gate) and
+  `.returning('synced_seq')` reports whether this call WON the monotone write. Phase B
+  (`syncExpressionIndexes`) runs **only if this call won** — a fine-gate loser returns no row and
+  skips Phase B rather than diffing its stale desired set against the live indexes and dropping
+  the winner's index. The un-versioned path (no `syncedSeq`) always runs Phase B.
 - `lib/db/materializeCaseStoreSchemas.ts` (chat drain-end) — args `{ appId, blueprint,
   syncedSeq }`; `syncedSeq` = the seq of the **exact** blueprint materialized
   (`ctx.latestCommittedSeq()`, threaded from the chat route — **never** a fresh
   `loadApp().mutation_seq`). **This signature change AND the chat-route call-site threading
-  both land in P4.** Additive-only and monotone like the sweep; its failure contract becomes
-  swallow + `warn` (**remove** `withTransientRetry`), so the chat route's build arm no longer
-  routes a materialize failure through `failRun` — the transiently-unsynced store is closed
-  by the point-of-use `withSchemaHeal`. Rewrite its docblock (and any `lib/case-store/CLAUDE.md`
-  text) to the swallow+warn contract.
+  both land in P4.** Additive-only and monotone like the sweep. Its per-type failure splits by
+  fault class (`lib/db/schemaSyncRetry.ts` holds `withTransientRetry` + `isTransientDbError`): a
+  **transient** fault retries and, if still failing, swallows at `warn` (the point-of-use
+  `withSchemaHeal` closes the gap on recovery); a **deterministic** fault RETHROWS — the build
+  arm routes it through `failRun` (refund + surface, so a build whose schema can't sync isn't
+  celebrated + charged), the edit arm logs it at `error` (the edit already committed; a
+  deterministic schema fault is a bug to surface, not a reason to fail an already-charged edit).
 - The point-of-use `withSchemaHeal` — read `syncedSeq` off the **same** `loadApp` snapshot as
   the blueprint. Additive only.
 
@@ -666,8 +681,11 @@ migration. The sync splits by change kind:
   name-keyed compare.
 
 **Tests** (testcontainers): two concurrent additive adds both materialize; a stale lower-seq
-additive sync is a full no-op; a migration-bearing change compensates on a Firestore failure;
-a post-commit additive failure self-heals on the next save.
+additive sync is a full no-op; a fine-gate loser does NOT drop the winner's live index; a
+migration failure compensates and preserves a concurrent peer's committed property; a
+deterministic build-materialize fault routes through `failRun` (refund) while a transient one
+retries-then-swallows; the sweep skips on an in-transaction dedup; the reauth-before-DDL rejects
+a deauthorized caller before any `applySchemaChange`.
 
 **Depends on.** P1, P3.
 

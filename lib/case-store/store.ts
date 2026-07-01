@@ -287,6 +287,23 @@ export type SchemaChangeKind =
  *
  * `property` is required when `change` is present and ignored
  * otherwise.
+ *
+ * `syncedSeq` (the `mutation_seq` this schema state derives from)
+ * arms the monotone `synced_seq` guard: a sync whose `syncedSeq`
+ * is LOWER than the row's recorded value is stale — a concurrent
+ * writer already landed a fresher schema — so the ENTIRE call
+ * no-ops (schema UPSERT + index DDL skipped). A forward sync
+ * (higher or equal) UPSERTs and records the new `synced_seq`, so
+ * two concurrently-added properties both survive. Absent: no guard —
+ * the plain additive UPSERT (the pre-multiplayer path; the
+ * migration-saga forward apply, which runs before its own committed
+ * seq exists).
+ *
+ * `change` and `syncedSeq` are MUTUALLY EXCLUSIVE — a per-row
+ * migration runs pre-commit (un-versioned); the additive gate
+ * carries a seq and no migration. The implementation throws when
+ * both are set, because the coarse gate's whole-call no-op could
+ * otherwise silently skip a migration's per-row work on a stale seq.
  */
 export interface ApplySchemaChangeArgs {
 	appId: string;
@@ -294,6 +311,7 @@ export interface ApplySchemaChangeArgs {
 	caseTypeSchemas: ReadonlyMap<string, CaseType>;
 	property?: string;
 	change?: SchemaChangeKind;
+	syncedSeq?: number;
 }
 
 /**

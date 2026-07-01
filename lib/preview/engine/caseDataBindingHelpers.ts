@@ -759,9 +759,14 @@ export async function withSchemaHeal<T>(
 			// sync (`case_type_schemas` + indexes, no tenant data), so it
 			// exposes nothing even if reached. Absent app → rethrow.
 			if (!app) throw err;
+			// `syncedSeq` = `mutation_seq` off the SAME snapshot as the blueprint
+			// (never a fresh read) so the two never diverge — the seq the heal
+			// records must match exactly what it materialized, or the monotone
+			// `synced_seq` gate would pair a later seq with an earlier schema.
 			await materializeCaseStoreSchemas({
 				appId: args.appId,
 				blueprint: app.blueprint,
+				syncedSeq: app.mutation_seq,
 			});
 		} catch (healErr) {
 			log.error("[caseDataBinding] schema heal failed", healErr, {
