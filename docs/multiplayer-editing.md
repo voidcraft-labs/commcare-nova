@@ -704,7 +704,9 @@ revocation and clean teardown.
   override wins — gRPC is required for `onSnapshot`). Built on first connect, not at import.
 - `app/api/apps/[id]/stream/route.ts` *(new)* — `GET`, Node runtime, `dynamic =
   'force-dynamic'`. Gate: `requireSession(req)` + `resolveAppScope(appId, userId, 'view')`
-  (copy `threads/route.ts`; auth rides the session cookie). Then:
+  (copy `threads/route.ts`; auth rides the session cookie) — a connect-time `AppAccessError`
+  maps to the sibling routes' IDOR-safe 404 via `handleApiError`, not a 500, and resolves
+  before the stream body opens. Then:
   - **Cursor** = `Number.parseInt(Last-Event-ID header ?? ?since ?? '0', 10)` (floor 0 on
     NaN); `seq` is numeric, the header/query are strings.
   - Return a `ReadableStream` (`text/event-stream`, `no-cache, no-transform`, keep-alive).
@@ -714,17 +716,31 @@ revocation and clean teardown.
     `collections.presence(appId, getListenDb()).onSnapshot(...)` → `event: presence`.
     (`getDb()` is `preferRest:true` — REST has no listen channel, so a query on it silently
     never fires in prod.) Iterate `snapshot.docChanges()` filtered to `type === 'added'`, so
-    a retention-prune `removed` change never re-emits the window.
-  - A `setInterval(~10_000)` re-running `getSessionSafe(req)` (applies `sessionUserIsActive`
-    → ban/deletion) **and** `resolveAppScope('view')` (membership) → `event: revoked` + close
-    on either denial.
+    a retention-prune `removed` change never re-emits the window. Each `.data()` (the Zod
+    converter) is wrapped in try/catch inside the callback — a synchronous parse-throw would
+    bypass the `err` handler and leak the sibling listener + interval — so a malformed mutation
+    entry → `event: reload`, a malformed presence doc → skip that doc, both at `log.warn`. The
+    `mutation` frame carries a PROJECTED `{ seq, batchId, actorId, runId?, kind, mutations }`,
+    never the raw doc (whose `ts`/`expireAt` are Firestore `Timestamp`s the reconciler would
+    mis-order). Listen `err` handlers log at `warn` (a recoverable gRPC blip the client
+    reconnects through isn't Sentry-worthy).
+  - A `setInterval` (`~10_000`, overridable via `NOVA_STREAM_CADENCE_MS` for tests; prod never
+    sets it) re-checks access and emits `event: revoked` + closes **only on a CONFIRMED
+    denial**: a different-user session, `isUserActive(userId) === false` (a real ban/deletion),
+    or `resolveAppScope('view')` throwing `AppAccessError` (membership loss). A transient fault
+    — a bare `getSessionSafe` null, an `isUserActive` throw, a non-`AppAccessError` scope throw
+    — SKIPS the tick and leaves the stream open (`getSessionSafe` swallows every error to null,
+    so null is ambiguous and must not boot an authorized collaborator; the next tick re-checks).
   - `event: revoked`/`reload` are seq-less and carry **no `id:` line**. If `cursor < head −
-    RETENTION_COUNT` (read `app.mutation_seq` once at connect) or the first delivered seq
-    isn't `cursor + 1`, emit `event: reload`.
-  - **Teardown:** `req.signal` `abort` → unsubscribe both `onSnapshot` listeners +
-    `clearInterval`, and set a `closed` flag every enqueue/close checks first (so a cadence or
-    `onSnapshot` callback resolving after teardown is a no-op) (CI `--detect-async-leaks`;
-    tests drive disconnect).
+    RETENTION_COUNT` (read `app.mutation_seq` once at connect via the RAW `docs.appRaw` ref, so
+    a legacy/partial `AppDoc` can't 500 the stream through the converter) or the first delivered
+    seq isn't `cursor + 1`, emit `event: reload`.
+  - **Teardown:** both `req.signal` `abort` AND the `ReadableStream` `cancel()` run one
+    idempotent teardown — unsubscribe both `onSnapshot` listeners + `clearInterval` — and a
+    `closed` flag guards every enqueue/close. `send()`'s `controller.enqueue` is itself
+    try/catch'd: a platform-initiated close racing ahead of the abort listener throws on
+    enqueue, which sets `closed` + tears down rather than escaping the callback (CI
+    `--detect-async-leaks`; tests drive disconnect).
   - The 60-min Cloud Run cap is a transparent EventSource reconnect via `Last-Event-ID`
     (where `requireSession` re-runs); `maxDuration` is advisory.
 - `app/api/apps/[id]/presence/route.ts` *(new)* — `POST` (server-stamps `userId`; client
@@ -746,9 +762,11 @@ revocation and clean teardown.
   deployed infra.
 
 **Tests** (emulator, gRPC): replay-from-cursor, reload below retention, reconnect via
-`Last-Event-ID`, bounded revocation (membership **and** ban) closes within the cadence,
-disconnect tears down all listeners; **a test asserting the listen query is built on
-`getListenDb()`** (so the prod `preferRest` failure isn't masked).
+`Last-Event-ID`, bounded revocation (membership **and** ban) closes within the cadence, a
+transient blip does NOT revoke an authorized collaborator, a malformed mutation entry → reload
+(no hang) while a malformed presence doc is skipped, a connect-time denial → 404, the frame
+carries no Firestore `Timestamp`, disconnect tears down all listeners; **a test asserting the
+listen query is built on `getListenDb()`** (so the prod `preferRest` failure isn't masked).
 
 **Depends on.** P1 (client-param helpers, schemas, constants), P3.
 
