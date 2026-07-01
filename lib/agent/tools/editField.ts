@@ -65,6 +65,7 @@ import {
 	guardedMutateStages,
 	type MutatingToolResult,
 	type StagedMutationBatch,
+	toToolErrorResult,
 } from "./common";
 import type {
 	MutationSuccess,
@@ -458,7 +459,12 @@ export const editFieldTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: allMutations,
-				newDoc: workingDoc,
+				// The SA continues against the guarded writer's committed doc (a
+				// peer's concurrent edit re-applied onto the fresh stored doc merged
+				// in), NOT the tool's local `workingDoc` — every other mutating tool
+				// returns `commit.newDoc` for the same reason. The message strings
+				// above read `workingDoc` only for this call's own display values.
+				newDoc: commit.newDoc,
 				result: {
 					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.`,
 					summary: {
@@ -468,12 +474,7 @@ export const editFieldTool = {
 				},
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

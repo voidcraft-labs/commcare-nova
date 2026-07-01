@@ -1,35 +1,38 @@
-// lib/agent/__tests__/generationContext-emitMutations.test.ts
+// lib/agent/__tests__/generationContext-recordMutations.test.ts
 //
-// Unit tests for the `emitMutations`, `emitConversation`, `emit`,
-// `emitError`, and `handleAgentStep` methods on `GenerationContext`.
-// These are the single sanctioned write surface for server-side emission
-// — if their shape changes, every SA tool handler changes with it.
+// Unit tests for the doc-mutating write surface on `GenerationContext` —
+// `recordMutations`, `recordMutationStages`, and their private commit
+// helper `commitBatch` — plus the unchanged `emitConversation`, `emit`,
+// `emitError`, and `handleAgentStep` methods.
 //
-// The context fans out to TWO surfaces — the `UIMessageStreamWriter`
-// (live SSE wire format) and the `LogWriter` (Firestore event log, one
-// doc per event). `emit()` is a pure SSE pass-through; `emitMutations`
-// writes SSE + triggers the intermediate blueprint save + one
-// `MutationEvent` per mutation to the log; `emitConversation` writes log
-// only; `emitError` writes both; `handleAgentStep` is the shared fan-in
-// for every `ToolLoopAgent`'s `onStepFinish`.
+// The chat SA now commits AWAITED-INLINE through the unified guarded
+// writer (`commitGuardedBatch`). The ordering flipped from the old
+// fire-and-forget `emitMutations`: the `data-mutations` SSE frame is
+// emitted AFTER the commit resolves and carries the committed `seq` +
+// `batchId`; a `BlueprintCommitRejectedError` from the commit emits
+// NOTHING. Both record methods return `{ events, committedDoc }` — the
+// writer's hydrated `nextDoc` — and the SA continues against it.
 
 import type { LanguageModelUsage } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClassifiedError } from "@/lib/agent/errorClassifier";
-import { updateAppForRun } from "@/lib/db/apps";
+import { commitGuardedBatch } from "@/lib/db/apps";
+import {
+	BlueprintCommitRejectedError,
+	CommitReauthError,
+} from "@/lib/db/commitGuard";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import type { GenerationContext } from "../generationContext";
 import { makeMinimalDoc, makeTestContext } from "./fixtures";
 
-/* `emitMutations` fires a fire-and-forget `updateAppForRun` on every
- * call (the doc argument is the persistence target; the run id keeps
- * `app.run_id` in sync with the current chat run so MCP's sliding-
- * window derivation doesn't re-attach to a closed run). Stub it out at
- * the module level so the no-op save doesn't reach Firestore. */
+/* Both record methods await `commitGuardedBatch` (kind:'chat'). Mock the
+ * unified writer at module scope so no Firestore transaction is touched;
+ * each test tweaks the resolved `{ seq, basisToken, committedDoc, deduped }`
+ * via `mockResolvedValueOnce` / `mockRejectedValueOnce`. */
 vi.mock("@/lib/db/apps", () => ({
-	updateAppForRun: vi.fn(() => Promise.resolve()),
+	commitGuardedBatch: vi.fn(),
 }));
 
 /* Mock the logger so `emitError`'s server-side cause-logging is silent in
@@ -38,10 +41,6 @@ vi.mock("@/lib/logger", () => ({
 	log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), critical: vi.fn() },
 }));
 
-// Representative text-field add mutation. The specific mutation shape is
-// unimportant to the helper — these tests only assert that the batch
-// round-trips verbatim through `writer.write` and serialises correctly
-// into MutationEvents on the log writer.
 const TEXT_FIELD_MUTATION: Mutation = {
 	kind: "addField",
 	parentUuid: asUuid("form-uuid"),
@@ -64,36 +63,59 @@ const SECOND_MUTATION: Mutation = {
 	},
 };
 
-describe("GenerationContext.emitMutations", () => {
+/** Build a distinct committed doc the writer "returns" so tests can assert
+ *  the SA adopts the writer's hydrated `nextDoc`, not its own candidate. */
+function committedDocFor(appName: string) {
+	return { ...makeMinimalDoc(), appName };
+}
+
+describe("GenerationContext.recordMutations", () => {
 	let ctx: GenerationContext;
 	let writer: ReturnType<typeof makeTestContext>["writer"];
 	let logWriter: ReturnType<typeof makeTestContext>["logWriter"];
 
-	/* A minimal doc reused across these tests. The content doesn't matter —
-	 * the tests assert on writer + logWriter side effects, not on what got
-	 * written to Firestore (that's mocked out). But the arg must type-check
-	 * against `BlueprintDoc`, so we hand a valid shape. */
 	const DOC = makeMinimalDoc();
 
 	beforeEach(() => {
-		/* Reset the shared module-level `updateAppForRun` mock so one test's save
-		 * calls don't bleed into the next one's `toHaveBeenCalledWith`
-		 * assertions. The `vi.mock(...)` factory ran once at module load;
-		 * only the call log needs resetting. */
-		vi.mocked(updateAppForRun).mockClear();
+		vi.mocked(commitGuardedBatch).mockReset();
+		// Default: the writer commits at seq 1 and returns a distinct hydrated
+		// doc so tests can distinguish "adopted committedDoc" from "kept DOC".
+		vi.mocked(commitGuardedBatch).mockResolvedValue({
+			seq: 1,
+			basisToken: "token-1",
+			committedDoc: committedDocFor("committed"),
+			deduped: false,
+		});
 		const handles = makeTestContext();
 		ctx = handles.ctx;
 		writer = handles.writer;
 		logWriter = handles.logWriter;
 	});
 
-	it("writes a data-mutations event to the SSE stream carrying raw mutations + MutationEvent envelopes", () => {
-		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
+	it("commits through the unified guarded writer with kind:'chat', the run's id, and the actor", async () => {
+		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
+		expect(vi.mocked(commitGuardedBatch)).toHaveBeenCalledTimes(1);
+		const args = vi.mocked(commitGuardedBatch).mock.calls[0]?.[0];
+		expect(args).toMatchObject({
+			appId: "test-app",
+			runId: "run-1",
+			actorUserId: "user-1",
+			kind: "chat",
+			mutations: [TEXT_FIELD_MUTATION],
+		});
+		// A fresh uuid batchId per commit.
+		expect(args?.batchId).toEqual(expect.any(String));
+	});
+
+	it("emits data-mutations AFTER the commit, carrying raw mutations + envelopes + seq + batchId", async () => {
+		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
 		const call = writer.write.mock.calls[0]?.[0] as {
 			type: string;
 			data: {
 				mutations: Mutation[];
 				events: Array<Record<string, unknown>>;
+				seq: number;
+				batchId: string;
 			};
 			transient: boolean;
 		};
@@ -109,10 +131,48 @@ describe("GenerationContext.emitMutations", () => {
 				mutation: TEXT_FIELD_MUTATION,
 			}),
 		);
+		// The committed seq + the same batchId handed to the writer ride the frame
+		// so the reconciler can dedup its own echoes + advance its cursor.
+		expect(call.data.seq).toBe(1);
+		const commitBatchId =
+			vi.mocked(commitGuardedBatch).mock.calls[0]?.[0]?.batchId;
+		expect(call.data.batchId).toBe(commitBatchId);
 	});
 
-	it("includes the optional stage tag on the SSE payload AND on every envelope", () => {
-		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC, "form:0-0");
+	it("emits the data-mutations frame ONLY after the commit resolves (never before)", async () => {
+		let resolveCommit: (v: {
+			seq: number;
+			basisToken: string;
+			committedDoc: ReturnType<typeof committedDocFor>;
+			deduped: boolean;
+		}) => void = () => {};
+		vi.mocked(commitGuardedBatch).mockImplementationOnce(
+			() =>
+				new Promise((r) => {
+					resolveCommit = r;
+				}),
+		);
+
+		const pending = ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
+		// The commit is in flight — nothing is on the wire yet.
+		await Promise.resolve();
+		expect(writer.write).not.toHaveBeenCalled();
+		expect(logWriter.logEvent).not.toHaveBeenCalled();
+
+		resolveCommit({
+			seq: 3,
+			basisToken: "t",
+			committedDoc: committedDocFor("late"),
+			deduped: false,
+		});
+		await pending;
+		// Only now does the frame + log fan-out fire.
+		expect(writer.write).toHaveBeenCalledTimes(1);
+		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
+	});
+
+	it("carries the optional stage tag on the SSE payload AND on every envelope", async () => {
+		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC, "form:0-0");
 		const call = writer.write.mock.calls[0]?.[0] as {
 			data: {
 				mutations: Mutation[];
@@ -120,37 +180,25 @@ describe("GenerationContext.emitMutations", () => {
 				stage?: string;
 			};
 		};
-		expect(call.data.mutations).toEqual([TEXT_FIELD_MUTATION]);
 		expect(call.data.stage).toBe("form:0-0");
 		expect(call.data.events).toHaveLength(1);
 		expect(call.data.events[0]?.stage).toBe("form:0-0");
 	});
 
-	it("omits the stage key entirely from SSE when no stage is provided (not 'stage: undefined')", () => {
-		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
+	it("omits the stage key entirely from SSE when no stage is provided", async () => {
+		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
 		const call = writer.write.mock.calls[0]?.[0] as {
 			data: Record<string, unknown>;
 		};
 		expect("stage" in call.data).toBe(false);
 	});
 
-	it("writes exactly one MutationEvent to the log for a single-mutation batch (default case)", () => {
-		// Catches the regression where emitMutations writes SSE but
-		// silently skips the log fan-out on the default (stage-less) path.
-		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
-		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
-		expect(logWriter.logEvent).toHaveBeenCalledWith(
-			expect.objectContaining({
-				kind: "mutation",
-				runId: "run-1",
-				actor: "agent",
-				mutation: TEXT_FIELD_MUTATION,
-			}),
+	it("writes one MutationEvent per mutation to the log with the supplied stage", async () => {
+		await ctx.recordMutations(
+			[TEXT_FIELD_MUTATION, SECOND_MUTATION],
+			DOC,
+			"form:0-0",
 		);
-	});
-
-	it("writes one MutationEvent per mutation to the log writer with the supplied stage", () => {
-		ctx.emitMutations([TEXT_FIELD_MUTATION, SECOND_MUTATION], DOC, "form:0-0");
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(2);
 		expect(logWriter.logEvent).toHaveBeenNthCalledWith(
 			1,
@@ -158,7 +206,6 @@ describe("GenerationContext.emitMutations", () => {
 				kind: "mutation",
 				runId: "run-1",
 				stage: "form:0-0",
-				actor: "agent",
 				mutation: TEXT_FIELD_MUTATION,
 			}),
 		);
@@ -168,163 +215,211 @@ describe("GenerationContext.emitMutations", () => {
 				kind: "mutation",
 				runId: "run-1",
 				stage: "form:0-0",
-				actor: "agent",
 				mutation: SECOND_MUTATION,
 			}),
 		);
 	});
 
-	it("assigns monotonically increasing seq to each emitted mutation event", () => {
-		ctx.emitMutations([TEXT_FIELD_MUTATION, SECOND_MUTATION], DOC, "form:0-0");
+	it("assigns monotonically increasing seq to each emitted mutation event", async () => {
+		await ctx.recordMutations(
+			[TEXT_FIELD_MUTATION, SECOND_MUTATION],
+			DOC,
+			"form:0-0",
+		);
 		const first = logWriter.logEvent.mock.calls[0]?.[0] as { seq: number };
 		const second = logWriter.logEvent.mock.calls[1]?.[0] as { seq: number };
 		expect(second.seq).toBeGreaterThan(first.seq);
 	});
 
-	it("writes a mutation event WITHOUT a stage field when no stage is provided", () => {
-		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
-		const event = logWriter.logEvent.mock.calls[0]?.[0] as Record<
-			string,
-			unknown
-		>;
-		expect("stage" in event).toBe(false);
+	it("returns { events, committedDoc } — the writer's hydrated nextDoc, not the passed doc", async () => {
+		const committed = committedDocFor("merged-peer-edit");
+		vi.mocked(commitGuardedBatch).mockResolvedValueOnce({
+			seq: 5,
+			basisToken: "t",
+			committedDoc: committed,
+			deduped: false,
+		});
+		const { events, committedDoc } = await ctx.recordMutations(
+			[TEXT_FIELD_MUTATION],
+			DOC,
+			"form:0-0",
+		);
+		expect(events).toHaveLength(1);
+		// The SA adopts the writer's committed doc (a concurrent peer edit merged
+		// in), NOT the local candidate it passed in.
+		expect(committedDoc).toBe(committed);
+		expect(committedDoc).not.toBe(DOC);
 	});
 
-	it("no-ops on empty mutation arrays — no SSE write, no log event, no Firestore save", () => {
-		const result = ctx.emitMutations([], DOC, "form:0-0");
-		expect(result).toEqual([]);
+	it("no-ops on empty batches — no commit, no SSE write, no log event; returns the passed doc", async () => {
+		const result = await ctx.recordMutations([], DOC, "form:0-0");
+		expect(result.events).toEqual([]);
+		expect(result.committedDoc).toBe(DOC);
+		expect(vi.mocked(commitGuardedBatch)).not.toHaveBeenCalled();
 		expect(writer.write).not.toHaveBeenCalled();
 		expect(logWriter.logEvent).not.toHaveBeenCalled();
 	});
 
-	it("returns the built MutationEvent array so callers can forward metadata without rebuilding", () => {
-		const events = ctx.emitMutations([TEXT_FIELD_MUTATION], DOC, "form:0-0");
-		expect(events).toHaveLength(1);
-		expect(events[0]).toEqual(
-			expect.objectContaining({
-				kind: "mutation",
-				runId: "run-1",
-				actor: "agent",
-				stage: "form:0-0",
-				mutation: TEXT_FIELD_MUTATION,
-			}),
+	it("emits NOTHING and propagates when the guarded commit rejects (BlueprintCommitRejectedError)", async () => {
+		vi.mocked(commitGuardedBatch).mockRejectedValueOnce(
+			new BlueprintCommitRejectedError("removed by someone else"),
 		);
+		await expect(
+			ctx.recordMutations([TEXT_FIELD_MUTATION], DOC),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		// The client never sees a batch the doc didn't absorb, and no log entry
+		// records a batch that never committed.
+		expect(writer.write).not.toHaveBeenCalled();
+		expect(logWriter.logEvent).not.toHaveBeenCalled();
+		// A retryable conflict is NOT a reauth loss — the finalize flag stays clear
+		// so the run can complete after the SA reloads and retries.
+		expect(ctx.reauthError()).toBeUndefined();
 	});
 
-	it("dispatches a fire-and-forget Firestore save carrying the passed-in doc under the expected appId", async () => {
-		/* `emitMutations` persists the `doc` argument — every caller threads
-		 * a post-mutation snapshot through. A caller that forgets to advance
-		 * the doc would show up here as either the wrong appId or a body
-		 * shape that doesn't match what was handed in. The save rides the
-		 * chain (one microtask deep), so flush it before asserting. */
-		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
-		await Promise.resolve();
-		expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(1);
-		const [savedAppId, savedDoc] =
-			vi.mocked(updateAppForRun).mock.calls[0] ?? [];
-		expect(savedAppId).toBe("test-app");
-		// The rest of the doc flows through verbatim.
-		expect(savedDoc).toMatchObject({
-			appId: "test-app",
-			appName: "",
-			moduleOrder: [],
-		});
-	});
+	it("stashes the CommitReauthError on the context (for finalize) AND re-throws it", async () => {
+		// The actor lost edit access mid-run. The tool + SA still see the throw and
+		// stop, but the route can't key run failure on the (non-fatal) tool chunk —
+		// it reads `reauthError()` after the drain to `failRun` instead of falsely
+		// completing. So the context must record it before propagating.
+		const reauth = new CommitReauthError("no longer a member");
+		vi.mocked(commitGuardedBatch).mockRejectedValueOnce(reauth);
 
-	it("strips fieldParent from the persisted payload even when populated", async () => {
-		/* `fieldParent` is a derived reverse-index the client rebuilds from
-		 * `fieldOrder` in `docStore.load()`; it must never reach Firestore,
-		 * otherwise the persisted shape grows a second source of truth that
-		 * can drift from `fieldOrder`. The base `makeMinimalDoc()` has an
-		 * empty `fieldParent`, which would make `not.toHaveProperty` pass
-		 * vacuously — this test hands in a populated map so the strip is
-		 * exercised on real data. */
-		const docWithParent = {
-			...makeMinimalDoc(),
-			fieldParent: {
-				[asUuid("f1")]: asUuid("form-uuid"),
-				[asUuid("f2")]: asUuid("form-uuid"),
-			},
-		};
-		ctx.emitMutations([TEXT_FIELD_MUTATION], docWithParent);
-		await Promise.resolve();
-		expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(1);
-		const savedDoc = vi.mocked(updateAppForRun).mock.calls[0]?.[1];
-		expect(savedDoc).not.toHaveProperty("fieldParent");
-	});
-
-	it("skips the Firestore save on empty batches (no-op path)", () => {
-		ctx.emitMutations([], DOC, "form:0-0");
-		expect(vi.mocked(updateAppForRun)).not.toHaveBeenCalled();
-	});
-
-	it("chains intermediate saves — a later save's RPC starts only after the earlier one settled", async () => {
-		// Independent Firestore writes carry no ordering guarantee, so racing
-		// saves could land out of order and regress the stored snapshot
-		// mid-run. The chain serializes them: hold the FIRST save open and
-		// assert the second hasn't been issued, then release and watch it go.
-		let releaseFirst: () => void = () => {};
-		vi.mocked(updateAppForRun)
-			.mockImplementationOnce(
-				() =>
-					new Promise<void>((resolve) => {
-						releaseFirst = resolve;
-					}),
-			)
-			.mockImplementationOnce(() => Promise.resolve());
-
-		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
-		ctx.emitMutations([SECOND_MUTATION], DOC);
-		await Promise.resolve(); // let the first chain link start
-		expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(1);
-
-		releaseFirst();
-		await vi.waitFor(() => {
-			expect(vi.mocked(updateAppForRun)).toHaveBeenCalledTimes(2);
-		});
-	});
-
-	it("drainIntermediateSaves resolves only once the run's own saves settled", async () => {
-		// The lane this closes: an intermediate save still in flight when the
-		// route flips the app `complete` would mean `status: complete` lands
-		// ahead of the blueprint it describes. The drain must therefore
-		// resolve only once the run's own saves settled.
-		let releaseSave: () => void = () => {};
-		vi.mocked(updateAppForRun).mockImplementationOnce(
-			() =>
-				new Promise<void>((resolve) => {
-					releaseSave = resolve;
-				}),
+		expect(ctx.reauthError()).toBeUndefined();
+		await expect(ctx.recordMutations([TEXT_FIELD_MUTATION], DOC)).rejects.toBe(
+			reauth,
 		);
-
-		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
-		let drained = false;
-		const pending = ctx.drainIntermediateSaves().then(() => {
-			drained = true;
-		});
-
-		// With the save still in flight, the drain must not have settled.
-		await Promise.resolve();
-		await Promise.resolve();
-		expect(drained).toBe(false);
-
-		releaseSave();
-		await pending;
-		expect(drained).toBe(true);
+		expect(ctx.reauthError()).toBe(reauth);
+		// Nothing committed → nothing emitted.
+		expect(writer.write).not.toHaveBeenCalled();
+		expect(logWriter.logEvent).not.toHaveBeenCalled();
 	});
 
-	it("drainIntermediateSaves still settles after a save FAILED (the chain never wedges)", async () => {
-		vi.mocked(updateAppForRun).mockImplementationOnce(() =>
-			Promise.reject(new Error("firestore hiccup")),
+	it("forwards mediaExpectations into the guarded commit for the in-txn re-check", async () => {
+		const mediaExpectations = [
+			{ assetId: "asset-1", kind: "image", slot: "label media" },
+		] as const;
+		await ctx.recordMutations(
+			[TEXT_FIELD_MUTATION],
+			DOC,
+			undefined,
+			mediaExpectations,
 		);
-		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
-		await expect(ctx.drainIntermediateSaves()).resolves.toBeUndefined();
+		const args = vi.mocked(commitGuardedBatch).mock.calls[0]?.[0];
+		expect(args?.mediaExpectations).toEqual(mediaExpectations);
 	});
 
-	it("latestPersistedDoc tracks the newest emitted snapshot (absent before any batch)", () => {
+	it("omits mediaExpectations from the commit args when the batch attaches no media", async () => {
+		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
+		const args = vi.mocked(commitGuardedBatch).mock.calls[0]?.[0];
+		expect(args && "mediaExpectations" in args).toBe(false);
+	});
+
+	it("latestPersistedDoc + latestCommittedSeq reflect the committed batch (absent before any)", async () => {
 		expect(ctx.latestPersistedDoc()).toBeUndefined();
-		ctx.emitMutations([TEXT_FIELD_MUTATION], DOC);
-		expect(ctx.latestPersistedDoc()).toBe(DOC);
+		expect(ctx.latestCommittedSeq()).toBeUndefined();
+
+		const committed = committedDocFor("committed-latest");
+		vi.mocked(commitGuardedBatch).mockResolvedValueOnce({
+			seq: 9,
+			basisToken: "t",
+			committedDoc: committed,
+			deduped: false,
+		});
+		await ctx.recordMutations([TEXT_FIELD_MUTATION], DOC);
+		expect(ctx.latestPersistedDoc()).toBe(committed);
+		expect(ctx.latestCommittedSeq()).toBe(9);
+	});
+});
+
+describe("GenerationContext.recordMutationStages", () => {
+	let ctx: GenerationContext;
+	let writer: ReturnType<typeof makeTestContext>["writer"];
+	let logWriter: ReturnType<typeof makeTestContext>["logWriter"];
+
+	beforeEach(() => {
+		vi.mocked(commitGuardedBatch).mockReset();
+		vi.mocked(commitGuardedBatch).mockResolvedValue({
+			seq: 1,
+			basisToken: "token-1",
+			committedDoc: committedDocFor("committed"),
+			deduped: false,
+		});
+		const handles = makeTestContext();
+		ctx = handles.ctx;
+		writer = handles.writer;
+		logWriter = handles.logWriter;
+	});
+
+	it("commits the whole sequence as ONE batch (one batchId, one seq) preserving editField atomicity", async () => {
+		const midDoc = { ...makeMinimalDoc(), appName: "renamed" };
+		const finalDoc = { ...makeMinimalDoc(), appName: "patched" };
+		const committed = committedDocFor("committed-final");
+		vi.mocked(commitGuardedBatch).mockResolvedValueOnce({
+			seq: 4,
+			basisToken: "t",
+			committedDoc: committed,
+			deduped: false,
+		});
+
+		const { events, committedDoc } = await ctx.recordMutationStages([
+			{ mutations: [TEXT_FIELD_MUTATION], doc: midDoc, stage: "rename:0-0" },
+			{ mutations: [SECOND_MUTATION], doc: finalDoc, stage: "edit:0-0" },
+		]);
+
+		// Exactly ONE commit over the concatenated batch.
+		expect(vi.mocked(commitGuardedBatch)).toHaveBeenCalledTimes(1);
+		const args = vi.mocked(commitGuardedBatch).mock.calls[0]?.[0];
+		expect(args?.mutations).toEqual([TEXT_FIELD_MUTATION, SECOND_MUTATION]);
+		expect(args?.kind).toBe("chat");
+
+		// ONE data-mutations frame carrying the whole batch + the single seq +
+		// the single batchId.
+		expect(writer.write).toHaveBeenCalledTimes(1);
+		const frame = writer.write.mock.calls[0]?.[0] as {
+			data: { mutations: Mutation[]; seq: number; batchId: string };
+		};
+		expect(frame.data.mutations).toEqual([
+			TEXT_FIELD_MUTATION,
+			SECOND_MUTATION,
+		]);
+		expect(frame.data.seq).toBe(4);
+		expect(frame.data.batchId).toBe(args?.batchId);
+
+		// Per-stage envelopes keep their own tags, in order, with distinct seqs.
+		expect(events.map((e) => e.stage)).toEqual(["rename:0-0", "edit:0-0"]);
+		expect(events.map((e) => e.seq)).toEqual([0, 1]);
+		// The SA continues against the writer's committed doc.
+		expect(committedDoc).toBe(committed);
+	});
+
+	it("no-ops when every stage is empty — the last stage's doc is the current state", async () => {
+		const lastDoc = { ...makeMinimalDoc(), appName: "unchanged" };
+		const { events, committedDoc } = await ctx.recordMutationStages([
+			{ mutations: [], doc: makeMinimalDoc(), stage: "a" },
+			{ mutations: [], doc: lastDoc, stage: "b" },
+		]);
+		expect(events).toEqual([]);
+		expect(committedDoc).toBe(lastDoc);
+		expect(vi.mocked(commitGuardedBatch)).not.toHaveBeenCalled();
+		expect(writer.write).not.toHaveBeenCalled();
+		expect(logWriter.logEvent).not.toHaveBeenCalled();
+	});
+
+	it("emits nothing when the single staged commit rejects", async () => {
+		vi.mocked(commitGuardedBatch).mockRejectedValueOnce(
+			new BlueprintCommitRejectedError("rejected"),
+		);
+		await expect(
+			ctx.recordMutationStages([
+				{
+					mutations: [TEXT_FIELD_MUTATION],
+					doc: makeMinimalDoc(),
+					stage: "rename:0-0",
+				},
+			]),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		expect(writer.write).not.toHaveBeenCalled();
+		expect(logWriter.logEvent).not.toHaveBeenCalled();
 	});
 });
 
@@ -333,7 +428,6 @@ describe("GenerationContext.emitConversation", () => {
 		const { ctx, writer, logWriter } = makeTestContext();
 		ctx.emitConversation({ type: "assistant-text", text: "hi" });
 
-		/* Log side — durable debug artifact. */
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
 		const logCall = logWriter.logEvent.mock.calls[0]?.[0];
 		expect(logCall).toEqual(
@@ -344,8 +438,6 @@ describe("GenerationContext.emitConversation", () => {
 			}),
 		);
 
-		/* SSE side — same envelope, so the client's session events buffer
-		 * mirrors the log. */
 		expect(writer.write).toHaveBeenCalledTimes(1);
 		const writerCall = writer.write.mock.calls[0]?.[0] as {
 			type: string;
@@ -391,7 +483,6 @@ describe("GenerationContext.emitError", () => {
 		};
 		ctx.emitError(classified, "test:context");
 
-		/* Single conversation error event — visible in both surfaces. */
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
 		expect(logWriter.logEvent).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -403,20 +494,12 @@ describe("GenerationContext.emitError", () => {
 				},
 			}),
 		);
-		/* SSE emission is the same envelope via `data-conversation-event`
-		 * — no separate `data-error` side channel. */
 		expect(writer.write).toHaveBeenCalledTimes(1);
-		const writerCall = writer.write.mock.calls[0]?.[0] as {
-			type: string;
-		};
+		const writerCall = writer.write.mock.calls[0]?.[0] as { type: string };
 		expect(writerCall.type).toBe("data-conversation-event");
 	});
 
 	it("logs an internal error's raw cause server-side so it isn't swallowed", () => {
-		// The conversation event + event log only carry the user-safe
-		// `message`; the real cause (`raw`) is dropped there. emitError must
-		// surface it via the logger, or an `internal` classification reaches
-		// the operator as a bare "Something went wrong" with nothing to act on.
 		vi.mocked(log.error).mockClear();
 		const { ctx } = makeTestContext();
 		ctx.emitError(
@@ -439,8 +522,6 @@ describe("GenerationContext.emitError", () => {
 	});
 
 	it("logs known external errors at warn, not error", () => {
-		// Recoverable/expected external conditions (rate limit, auth, …)
-		// shouldn't flood Error Reporting — they surface the cause at `warn`.
 		vi.mocked(log.warn).mockClear();
 		vi.mocked(log.error).mockClear();
 		const { ctx } = makeTestContext();
@@ -462,10 +543,6 @@ describe("GenerationContext.emitError", () => {
 });
 
 describe("GenerationContext.handleAgentStep", () => {
-	/* A complete usage record with the cache-aware detail shape the
-	 * AI SDK emits; the helper only reads a handful of fields, so this
-	 * is the minimum needed to exercise the `usage.track` + step-count
-	 * path. */
 	const MINIMAL_USAGE: LanguageModelUsage = {
 		inputTokens: 100,
 		outputTokens: 50,
@@ -491,8 +568,6 @@ describe("GenerationContext.handleAgentStep", () => {
 			"Solutions Architect",
 		);
 
-		// askQuestions halts the loop to await the user — the route reads this to
-		// mark the app `awaiting_input` so the reaper skips the live paused build.
 		expect(ctx.pausedOnInput()).toBe(true);
 	});
 
@@ -528,8 +603,6 @@ describe("GenerationContext.handleAgentStep", () => {
 			"Solutions Architect",
 		);
 
-		// Four conversation events, in canonical order:
-		// reasoning → text → tool-call → tool-result.
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(4);
 		const payloads = logWriter.logEvent.mock.calls.map((c) => {
 			const ev = c[0] as { payload: unknown };
@@ -552,9 +625,6 @@ describe("GenerationContext.handleAgentStep", () => {
 			},
 		]);
 
-		// Usage: one step recorded, one tool call counted, token totals
-		// flowed through. `usage.snapshot()` is the public read path for
-		// assertion here — the private counters aren't exposed otherwise.
 		const snap = usage.snapshot();
 		expect(snap.stepCount).toBe(1);
 		expect(snap.toolCallCount).toBe(1);
@@ -594,8 +664,6 @@ describe("GenerationContext.handleAgentStep", () => {
 			"Solutions Architect",
 		);
 
-		// Exactly one event: the tool-call. Result side is empty, so no
-		// tool-result event should fire.
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
 		const payload = (
 			logWriter.logEvent.mock.calls[0]?.[0] as {
@@ -615,12 +683,6 @@ describe("GenerationContext.handleAgentStep", () => {
 	});
 
 	it("logs a failed tool call's error as a paired tool-result", () => {
-		// A call rejected for invalid input (or that throws in `execute`)
-		// surfaces as a `tool-error` part — the SA pulls it from
-		// `step.content` into `toolErrors`, NOT `toolResults`. The handler
-		// folds it into an `{ error }` output so the failed call leaves a
-		// paired record in the log instead of a bare, resultless invocation
-		// (the gap that made the omit-then-retry diagnosis require inference).
 		const { ctx, logWriter } = makeTestContext();
 
 		ctx.handleAgentStep(
@@ -640,8 +702,6 @@ describe("GenerationContext.handleAgentStep", () => {
 			"Solutions Architect",
 		);
 
-		// Two events: the tool-call, then a tool-result whose output carries
-		// the extracted error message (Error → `.message`).
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(2);
 		const payloads = logWriter.logEvent.mock.calls.map(
 			(c) => (c[0] as { payload: unknown }).payload,
@@ -663,9 +723,6 @@ describe("GenerationContext.handleAgentStep", () => {
 	});
 
 	it("prefers a real tool-result over a tool-error for the same call", () => {
-		// Defensive: a call can't both succeed and error, but if the SDK
-		// ever reports both, the genuine result must win — the error fold
-		// is skipped when a result is already present.
 		const { ctx, logWriter } = makeTestContext();
 
 		ctx.handleAgentStep(

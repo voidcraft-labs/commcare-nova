@@ -25,7 +25,11 @@ import { z } from "zod";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { addColumnsMutation, resolveModuleUuid } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { guardedMutate, type MutatingToolResult } from "../common";
+import {
+	guardedMutate,
+	type MutatingToolResult,
+	toToolErrorResult,
+} from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	columnInputSchema,
@@ -126,12 +130,7 @@ export const addCaseListColumnsTool = {
 				},
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

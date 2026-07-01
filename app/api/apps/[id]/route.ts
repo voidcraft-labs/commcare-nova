@@ -18,10 +18,11 @@ import {
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { resolveAppAccess } from "@/lib/db/appAccess";
+import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import {
-	applyBlueprintChange,
 	BlueprintCommitRejectedError,
-} from "@/lib/db/applyBlueprintChange";
+	CommitReauthError,
+} from "@/lib/db/commitGuard";
 import { mutationSchema } from "@/lib/doc/types";
 import { log } from "@/lib/logger";
 
@@ -46,6 +47,9 @@ export async function GET(
 			status: app.status,
 			error_type: app.error_type,
 			basis_token: app.blueprint_token ?? null,
+			/* The durable mutation cursor the client keys recovery on — the head
+			 * `seq` of the `acceptedMutations` stream at load time. */
+			mutation_seq: app.mutation_seq,
 		});
 	} catch (err) {
 		return handleApiError(
@@ -79,13 +83,17 @@ export async function PUT(
 			throw new ApiError("Invalid JSON body", 400);
 		}
 
-		/* The client sends the MUTATION DELTA since its last save, never the
-		 * whole doc (`diffDocsToMutations` in `useAutoSave`). Validate the
-		 * shape before writing; the saga's guard mode replays it onto the
-		 * fresh stored blueprint and re-runs the validity verdict. */
+		/* The client sends the MUTATION DELTA since its last save (never the
+		 * whole doc — `diffDocsToMutations` in `useAutoSave`) plus a client-minted
+		 * `batchId` for idempotency. Validate the shape before writing; the saga's
+		 * guard mode replays the delta onto the fresh stored blueprint and re-runs
+		 * the validity verdict. */
 		const parsed = z
-			.array(mutationSchema)
-			.safeParse((body as Record<string, unknown>)?.mutations);
+			.object({
+				mutations: z.array(mutationSchema),
+				batchId: z.string().uuid(),
+			})
+			.safeParse(body);
 		if (!parsed.success) {
 			/* The client only sees a generic 400. Log the Zod issues server-side
 			 * so a rejected auto-save is debuggable from WHICH mutation failed. */
@@ -108,15 +116,32 @@ export async function PUT(
 			appId: id,
 			userId: session.user.id,
 			priorBlueprint: app.blueprint,
-			guard: { mutations: parsed.data },
+			batchId: parsed.data.batchId,
+			kind: "autosave",
+			guard: { mutations: parsed.data.mutations },
 		});
-		return Response.json({ ok: true, basisToken: result.basisToken });
+		return Response.json({
+			ok: true,
+			basisToken: result.basisToken,
+			seq: result.seq,
+		});
 	} catch (err) {
+		if (err instanceof CommitReauthError) {
+			/* The actor lost edit access to this app (removed from its Project, or
+			 * not the owner of a personal app) — TERMINAL. 403, not a 409-reload:
+			 * a reload can't restore access, so a 409 would just re-PUT the same
+			 * delta into the same denial. */
+			log.warn(`[apps] save denied (403): ${err.message}`);
+			return Response.json(
+				{ error: err.message, type: "reauth_denied" },
+				{ status: 403 },
+			);
+		}
 		if (err instanceof BlueprintCommitRejectedError) {
 			/* The delta is invalid against the fresh server doc — a genuine
 			 * concurrent conflict (this edit targets an entity another writer
-			 * changed). 409 with the person-to-person message; the builder
-			 * reloads the server doc and tells the user. */
+			 * changed, or the app moved Projects). 409 with the person-to-person
+			 * message; the builder reloads the server doc and re-authorizes. */
 			log.warn(`[apps] save rejected (409): ${err.message}`);
 			return Response.json(
 				{ error: err.message, type: "commit_rejected" },

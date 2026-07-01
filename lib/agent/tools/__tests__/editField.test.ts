@@ -21,16 +21,17 @@ import {
 	type Form,
 	type Module,
 } from "@/lib/domain";
-import { makeMcpTestContext, makeTestContext } from "../../__tests__/fixtures";
+import {
+	makeMcpTestContext,
+	makeStubToolContext,
+} from "../../__tests__/fixtures";
 import { editFieldTool } from "../editField";
 
 vi.mock("@/lib/db/apps", () => ({
-	updateApp: vi.fn(() => Promise.resolve()),
-	updateAppForRun: vi.fn(() => Promise.resolve()),
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve()),
+	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
 }));
 
 const MOD = asUuid("11111111-1111-1111-1111-111111111111");
@@ -80,7 +81,7 @@ beforeEach(() => {
 
 describe("editField — help text", () => {
 	it("sets help text on the field", async () => {
-		const { doc, ctx } = { doc: makeDoc(), ...makeTestContext() };
+		const { doc, ctx } = { doc: makeDoc(), ...makeStubToolContext() };
 		const result = await editFieldTool.execute(
 			{
 				moduleIndex: 0,
@@ -99,7 +100,7 @@ describe("editField — help text", () => {
 	it("clears help text when handed null", async () => {
 		const { doc, ctx } = {
 			doc: makeDoc("Existing help"),
-			...makeTestContext(),
+			...makeStubToolContext(),
 		};
 		const result = await editFieldTool.execute(
 			{
@@ -135,7 +136,7 @@ function makeTwoFieldDoc(): BlueprintDoc {
 
 describe("editField — rename identifier guard", () => {
 	it("rejects a rename to a sibling-conflicting id and persists nothing", async () => {
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
 		const result = await editFieldTool.execute(
 			{
@@ -157,7 +158,7 @@ describe("editField — rename identifier guard", () => {
 	});
 
 	it("rejects a rename to an XML-illegal id", async () => {
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
 				moduleIndex: 0,
@@ -175,7 +176,7 @@ describe("editField — rename identifier guard", () => {
 	});
 
 	it("rejects a rename into the reserved __nova_ namespace", async () => {
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
 				moduleIndex: 0,
@@ -191,7 +192,7 @@ describe("editField — rename identifier guard", () => {
 	});
 
 	it("accepts a legal rename and persists it", async () => {
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
 		const result = await editFieldTool.execute(
 			{

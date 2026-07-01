@@ -21,8 +21,8 @@ import {
 import {
 	type MakeMcpTestContextHandles,
 	makeMcpTestContext,
-	makeTestContext,
-	type TestContextHandles,
+	makeStubToolContext,
+	type StubToolContextHandles,
 } from "../../../__tests__/fixtures";
 
 /* Stable uuid constants — imported by the per-tool tests so each
@@ -81,8 +81,10 @@ export function makeCaseListDoc(): BlueprintDoc {
 	};
 }
 
-/** Bundle of doc + chat-side `GenerationContext` for the per-tool tests. */
-export interface CaseListFixture extends TestContextHandles {
+/** Bundle of doc + a lightweight chat-surface `ToolExecutionContext` stub for
+ *  the per-tool tests (its `recordMutations` echoes the passed post-mutation
+ *  doc as the committed doc — no Firestore, no guarded writer). */
+export interface CaseListFixture extends StubToolContextHandles {
 	doc: BlueprintDoc;
 }
 
@@ -96,7 +98,7 @@ export interface CaseListMcpFixture extends MakeMcpTestContextHandles {
  * common shape every per-tool test boots from.
  */
 export function makeCaseListFixture(): CaseListFixture {
-	const handles = makeTestContext();
+	const handles = makeStubToolContext();
 	return { ...handles, doc: makeCaseListDoc() };
 }
 

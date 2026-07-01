@@ -16,8 +16,12 @@
 //   - `setupPerTestDatabase` for Postgres (per-test database +
 //     migrations applied in a sibling `beforeEach`).
 //   - A `vi.mock` of `@/lib/db/apps` returning a controllable
-//     `loadApp` / `updateApp` / `updateAppForRun` triple. The
-//     saga's `applyBlueprintChange` reads + writes via these.
+//     `loadApp` / `commitGuardedBatch` pair — the saga's Firestore
+//     commit chokepoint. The Postgres phase is REAL; only the
+//     Firestore write is mocked.
+//   - A `vi.mock` of `@/lib/db/firestore` stubbing `docs.batchDedupRaw`
+//     (the saga's non-transactional top-level dedup read) so the saga
+//     reaches the Postgres phase without a live Firestore.
 //   - A `vi.mock` of `@/lib/case-store` overriding
 //     `withSchemaContext` to construct a `PostgresCaseStore`
 //     against the per-test handle (production parity, just bypasses
@@ -49,13 +53,14 @@ import type { CaseType, PersistableDoc } from "@/lib/domain";
 // references survive across tests for assertion access; each test's
 // `beforeEach` resets them.
 
-const { loadAppMock, updateAppMock, updateAppForRunMock } = vi.hoisted(() => {
-	return {
-		loadAppMock: vi.fn(),
-		updateAppMock: vi.fn(),
-		updateAppForRunMock: vi.fn(),
-	};
-});
+const { loadAppMock, commitGuardedBatchMock, batchDedupRawGetMock } =
+	vi.hoisted(() => {
+		return {
+			loadAppMock: vi.fn(),
+			commitGuardedBatchMock: vi.fn(),
+			batchDedupRawGetMock: vi.fn(),
+		};
+	});
 
 // `withSchemaContextMock` is patched per-test once the per-test
 // database handle is bound — the test body itself can't call
@@ -69,8 +74,16 @@ const { withSchemaContextMock } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db/apps", () => ({
 	loadApp: loadAppMock,
-	updateApp: updateAppMock,
-	updateAppForRun: updateAppForRunMock,
+	commitGuardedBatch: commitGuardedBatchMock,
+}));
+
+// The saga's top-level dedup read is `docs.batchDedupRaw(appId, batchId).get()`
+// — a non-transactional Firestore read. Stub just that ref factory so the saga
+// proceeds to the Postgres phase without a live Firestore client.
+vi.mock("@/lib/db/firestore", () => ({
+	docs: {
+		batchDedupRaw: () => ({ get: batchDedupRawGetMock }),
+	},
 }));
 
 vi.mock("@/lib/case-store", async () => {
@@ -104,8 +117,18 @@ beforeEach(async () => {
 
 beforeEach(() => {
 	loadAppMock.mockReset();
-	updateAppMock.mockReset();
-	updateAppForRunMock.mockReset();
+	commitGuardedBatchMock.mockReset();
+	batchDedupRawGetMock.mockReset();
+	// No prior dedup latch — the saga proceeds to the Postgres phase + commit.
+	batchDedupRawGetMock.mockResolvedValue({ exists: false });
+	// The Firestore commit succeeds by default; tests that exercise the
+	// commit-failure compensation arm override this in their body.
+	commitGuardedBatchMock.mockResolvedValue({
+		seq: 1,
+		basisToken: "token-1",
+		committedDoc: undefined,
+		deduped: false,
+	});
 	withSchemaContextMock.mockReset();
 	// Default: route every `withSchemaContext` call to a
 	// PostgresCaseStore bound to the per-test handle. Tests that
@@ -191,22 +214,31 @@ describe("applyBlueprintChange — additive mutations", () => {
 		// two properties. The saga should issue one schema-sync-only
 		// `applySchemaChange` (Postgres `case_type_schemas` row
 		// materializes), then commit the new blueprint to Firestore
-		// via `updateApp`.
+		// via `commitGuardedBatch`.
 		const prior = makeBlueprint(null);
 		const prospective = makeBlueprint([PATIENT]);
 		loadAppMock.mockResolvedValueOnce(makeAppDoc(prior));
-		updateAppMock.mockResolvedValueOnce(undefined);
 
 		await applyBlueprintChange({
 			appId: APP_ID,
 			userId: OWNER_ID,
 			prospective,
+			batchId: "batch-add-1",
+			kind: "mcp",
+			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
 		});
 
-		// Firestore committed the new blueprint.
-		expect(updateAppMock).toHaveBeenCalledTimes(1);
-		expect(updateAppMock).toHaveBeenCalledWith(APP_ID, prospective);
-		expect(updateAppForRunMock).not.toHaveBeenCalled();
+		// Firestore committed through the unified guarded writer, carrying the
+		// caller's batchId + kind + actor. No runId supplied here → omitted.
+		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
+		const commitArgs = commitGuardedBatchMock.mock.calls[0]?.[0];
+		expect(commitArgs).toMatchObject({
+			appId: APP_ID,
+			batchId: "batch-add-1",
+			actorUserId: OWNER_ID,
+			kind: "mcp",
+		});
+		expect("runId" in commitArgs).toBe(false);
 
 		// Postgres `case_type_schemas` carries the new schema. The
 		// existing `PostgresCaseStore` test suite uses `pool.query`
@@ -220,26 +252,27 @@ describe("applyBlueprintChange — additive mutations", () => {
 		expect(schemaRow.rows).toHaveLength(1);
 	});
 
-	it("routes through updateAppForRun when runId is supplied", async () => {
+	it("threads runId through to the guarded writer when supplied", async () => {
 		const prior = makeBlueprint(null);
 		const prospective = makeBlueprint([PATIENT]);
 		loadAppMock.mockResolvedValueOnce(makeAppDoc(prior));
-		updateAppForRunMock.mockResolvedValueOnce(undefined);
 
 		await applyBlueprintChange({
 			appId: APP_ID,
 			userId: OWNER_ID,
 			prospective,
 			runId: "run-mcp-1",
+			batchId: "batch-run-1",
+			kind: "mcp",
+			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
 		});
 
-		expect(updateAppForRunMock).toHaveBeenCalledTimes(1);
-		expect(updateAppForRunMock).toHaveBeenCalledWith(
-			APP_ID,
-			prospective,
-			"run-mcp-1",
-		);
-		expect(updateAppMock).not.toHaveBeenCalled();
+		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
+		expect(commitGuardedBatchMock.mock.calls[0]?.[0]).toMatchObject({
+			appId: APP_ID,
+			runId: "run-mcp-1",
+			kind: "mcp",
+		});
 	});
 
 	it("skips loadApp when the caller supplies priorBlueprint", async () => {
@@ -250,20 +283,22 @@ describe("applyBlueprintChange — additive mutations", () => {
 		// rather than re-reading.
 		const prior = makeBlueprint(null);
 		const prospective = makeBlueprint([PATIENT]);
-		updateAppMock.mockResolvedValueOnce(undefined);
 
 		await applyBlueprintChange({
 			appId: APP_ID,
 			userId: OWNER_ID,
 			prospective,
 			priorBlueprint: prior,
+			batchId: "batch-prior-1",
+			kind: "autosave",
+			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
 		});
 
 		// Firestore committed; `loadApp` was NOT called because the
 		// caller supplied the prior snapshot. This is the perf
 		// invariant the call-site change in
 		// `app/api/apps/[id]/route.ts` depends on.
-		expect(updateAppMock).toHaveBeenCalledTimes(1);
+		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 		expect(loadAppMock).not.toHaveBeenCalled();
 
 		// Schema row materialized — proves the caller-supplied prior
@@ -291,16 +326,18 @@ describe("applyBlueprintChange — additive mutations", () => {
 			[modUuid]: { uuid: modUuid, id: "patients", name: "Patients" },
 		};
 		loadAppMock.mockResolvedValueOnce(makeAppDoc(prior));
-		updateAppMock.mockResolvedValueOnce(undefined);
 
 		await applyBlueprintChange({
 			appId: APP_ID,
 			userId: OWNER_ID,
 			prospective,
+			batchId: "batch-fastpath-1",
+			kind: "autosave",
+			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
 		});
 
 		// Firestore committed; case-store factory was never invoked.
-		expect(updateAppMock).toHaveBeenCalledTimes(1);
+		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 		expect(withSchemaContextMock).not.toHaveBeenCalled();
 	});
 });
@@ -360,12 +397,14 @@ describe("applyBlueprintChange — retype mutations", () => {
 		};
 		const retypedBlueprint = makeBlueprint([retyped]);
 		loadAppMock.mockResolvedValueOnce(makeAppDoc(initialBlueprint));
-		updateAppMock.mockResolvedValueOnce(undefined);
 
 		await applyBlueprintChange({
 			appId: APP_ID,
 			userId: OWNER_ID,
 			prospective: retypedBlueprint,
+			batchId: "batch-retype-1",
+			kind: "mcp",
+			guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
 			hint: {
 				kind: "retype",
 				caseType: "patient",
@@ -376,7 +415,7 @@ describe("applyBlueprintChange — retype mutations", () => {
 		});
 
 		// Firestore committed.
-		expect(updateAppMock).toHaveBeenCalledTimes(1);
+		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 
 		// Alice's row migrated; Bob's row landed in quarantine.
 		const aliceRows = await initialStore.query({
@@ -464,7 +503,7 @@ describe("applyBlueprintChange — retype mutations", () => {
 		await dbHandle.pool.query("DROP TABLE case_indices");
 
 		// Drive the retype through the saga. The mocked Firestore
-		// `updateApp` would resolve if reached, but the saga
+		// `commitGuardedBatch` would resolve if reached, but the saga
 		// short-circuits on the Postgres failure before the commit
 		// step runs — the post-failure assertion below verifies that.
 		const retyped: CaseType = {
@@ -473,13 +512,15 @@ describe("applyBlueprintChange — retype mutations", () => {
 		};
 		const retypedBlueprint = makeBlueprint([retyped]);
 		loadAppMock.mockResolvedValueOnce(makeAppDoc(initialBlueprint));
-		updateAppMock.mockResolvedValue(undefined);
 
 		await expect(
 			applyBlueprintChange({
 				appId: APP_ID,
 				userId: OWNER_ID,
 				prospective: retypedBlueprint,
+				batchId: "batch-rollback-1",
+				kind: "mcp",
+				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
 				hint: {
 					kind: "retype",
 					caseType: "patient",
@@ -520,19 +561,18 @@ describe("applyBlueprintChange — retype mutations", () => {
 		// Saga-level invariant: the Firestore commit MUST NOT have
 		// fired. The saga's contract is "Postgres first, Firestore
 		// second"; an `applySchemaChange` failure short-circuits
-		// before `updateApp` / `updateAppForRun` runs. Without this
-		// check, a future regression that swallowed the Postgres
-		// throw would silently land a Firestore commit pointing at a
-		// schema row that doesn't reflect the new blueprint.
-		expect(updateAppMock).not.toHaveBeenCalled();
-		expect(updateAppForRunMock).not.toHaveBeenCalled();
+		// before `commitGuardedBatch` runs. Without this check, a
+		// future regression that swallowed the Postgres throw would
+		// silently land a Firestore commit pointing at a schema row
+		// that doesn't reflect the new blueprint.
+		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
 	});
 });
 
 // ── Cases — Firestore commit failure + compensation ───────────────
 
 describe("applyBlueprintChange — compensation on Firestore commit failure", () => {
-	it("compensates Postgres back to the prior schema when updateApp throws", async () => {
+	it("compensates Postgres back to the prior schema when the guarded commit throws", async () => {
 		// Bootstrap: seed an initial schema with one property.
 		const initial: CaseType = {
 			name: "patient",
@@ -572,13 +612,16 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 		loadAppMock.mockResolvedValueOnce(makeAppDoc(initialBlueprint));
 		// Firestore commit fails — the saga must compensate.
 		const commitErr = new Error("simulated firestore failure");
-		updateAppMock.mockRejectedValueOnce(commitErr);
+		commitGuardedBatchMock.mockRejectedValueOnce(commitErr);
 
 		await expect(
 			applyBlueprintChange({
 				appId: APP_ID,
 				userId: OWNER_ID,
 				prospective: extendedBlueprint,
+				batchId: "batch-compensate-1",
+				kind: "autosave",
+				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
 			}),
 		).rejects.toThrow("simulated firestore failure");
 
@@ -600,7 +643,7 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 	// case type it doesn't declare, so a naive
 	// `applySchemaChange(prior)` would orphan the row. This test
 	// pins the case-type-addition compensation arm specifically.
-	it("compensates a case-type addition by dropping the schema row + indexes when updateApp throws", async () => {
+	it("compensates a case-type addition by dropping the schema row + indexes when the guarded commit throws", async () => {
 		// Prior: empty case_types — no `patient` exists yet.
 		const priorBlueprint = makeBlueprint(null);
 
@@ -630,13 +673,16 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 		// through `applySchemaChange(prior)`, which would throw
 		// `CaseTypeNotInBlueprintError`).
 		const commitErr = new Error("simulated firestore failure");
-		updateAppMock.mockRejectedValueOnce(commitErr);
+		commitGuardedBatchMock.mockRejectedValueOnce(commitErr);
 
 		await expect(
 			applyBlueprintChange({
 				appId: APP_ID,
 				userId: OWNER_ID,
 				prospective: addedBlueprint,
+				batchId: "batch-compensate-2",
+				kind: "autosave",
+				guard: { mutations: [{ kind: "setAppName", name: "Saga Test" }] },
 			}),
 		).rejects.toThrow("simulated firestore failure");
 
@@ -664,10 +710,9 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 		);
 		expect(postIndexes.rows).toHaveLength(0);
 
-		// `updateApp` was called once (the failing call); the saga
-		// did not retry it after compensation. The thrown
+		// `commitGuardedBatch` was called once (the failing call); the
+		// saga did not retry it after compensation. The thrown
 		// `commitErr` propagates out as the rejection above.
-		expect(updateAppMock).toHaveBeenCalledTimes(1);
-		expect(updateAppForRunMock).not.toHaveBeenCalled();
+		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 	});
 });

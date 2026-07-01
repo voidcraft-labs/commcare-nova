@@ -75,14 +75,23 @@ import { updateFormTool } from "../updateForm";
 import { updateModuleTool } from "../updateModule";
 
 function makeCtx(): ToolExecutionContext {
+	// The guarded writer returns `{ events, committedDoc }`; echo the passed
+	// post-mutation doc as the committed doc so the fuzz driver threads each
+	// tool's `newDoc` (= committedDoc) into the next op.
 	return {
 		appId: "app-fuzz",
 		userId: "user-fuzz",
 		runId: "run-fuzz",
-		recordMutations: vi.fn().mockResolvedValue([]),
-		recordMutationStages: vi.fn().mockResolvedValue([]),
+		recordMutations: vi.fn(async (_m: unknown, doc: unknown) => ({
+			events: [],
+			committedDoc: doc,
+		})),
+		recordMutationStages: vi.fn(async (stages: Array<{ doc: unknown }>) => ({
+			events: [],
+			committedDoc: stages[stages.length - 1]?.doc,
+		})),
 		recordConversation: vi.fn(),
-	};
+	} as unknown as ToolExecutionContext;
 }
 
 /** The empty doc a fresh app is born as — `createApp`'s shape. */

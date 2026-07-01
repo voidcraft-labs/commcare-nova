@@ -20,15 +20,26 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { addFieldsTool } from "../addFields";
 
 function makeCtx() {
-	const recordMutations = vi.fn().mockResolvedValue([]);
-	const ctx: ToolExecutionContext = {
+	// The guarded writer returns `{ events, committedDoc }`; echo the passed
+	// post-mutation doc so the tool's `newDoc` reflects the anchored insert.
+	const recordMutations = vi.fn(async (_m: unknown, doc: unknown) => ({
+		events: [],
+		committedDoc: doc,
+	}));
+	const recordMutationStages = vi.fn(
+		async (stages: Array<{ doc: unknown }>) => ({
+			events: [],
+			committedDoc: stages[stages.length - 1]?.doc,
+		}),
+	);
+	const ctx = {
 		appId: "app-1",
 		userId: "user-1",
 		runId: "run-1",
 		recordMutations,
-		recordMutationStages: vi.fn().mockResolvedValue([]),
+		recordMutationStages,
 		recordConversation: vi.fn(),
-	};
+	} as unknown as ToolExecutionContext;
 	return { ctx, recordMutations };
 }
 

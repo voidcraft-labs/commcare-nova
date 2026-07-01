@@ -37,17 +37,28 @@ import { addFieldsTool } from "../addFields";
 import { createFormTool } from "../createForm";
 import { updateModuleTool } from "../updateModule";
 
-/** Bare ctx stub — `recordMutations` is the persistence assertion surface. */
+/** Bare ctx stub — `recordMutations` is the persistence assertion surface. The
+ *  guarded writer returns `{ events, committedDoc }`; echo the passed
+ *  post-mutation doc as the committed doc so the tool's `newDoc` reflects it. */
 function makeCtx() {
-	const recordMutations = vi.fn().mockResolvedValue([]);
+	const recordMutations = vi.fn(async (_m: unknown, doc: unknown) => ({
+		events: [],
+		committedDoc: doc,
+	}));
+	const recordMutationStages = vi.fn(
+		async (stages: Array<{ doc: unknown }>) => ({
+			events: [],
+			committedDoc: stages[stages.length - 1]?.doc,
+		}),
+	);
 	const ctx: ToolExecutionContext = {
 		appId: "app-1",
 		userId: "user-1",
 		runId: "run-1",
 		recordMutations,
-		recordMutationStages: vi.fn().mockResolvedValue([]),
+		recordMutationStages,
 		recordConversation: vi.fn(),
-	};
+	} as unknown as ToolExecutionContext;
 	return { ctx, recordMutations };
 }
 

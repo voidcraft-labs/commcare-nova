@@ -980,11 +980,20 @@ export async function POST(req: Request) {
 				 * state even if forwarding broke off early when the client left. */
 				await drained;
 
-				if (sawFatalError) {
+				/* A guarded commit that threw `CommitReauthError` (the actor lost
+				 * edit access mid-run) is a FATAL run failure that must take
+				 * precedence over `completeApp` / `awaiting_input` / the edit arm — a
+				 * deauthorized run must refund and end in `error`, never report
+				 * success and keep its charge. The AI SDK turns the tool `execute()`
+				 * throw into a NON-fatal chunk (so `sawFatalError` stays false), which
+				 * is why the context flag, not the stream, carries the signal. */
+				const reauthErr = ctx.reauthError();
+				if (sawFatalError || reauthErr) {
 					await failRun(
-						pendingError ??
+						reauthErr ??
+							pendingError ??
 							new Error("The generation stream ended in an error."),
-						"route:stream",
+						reauthErr ? "route:reauth" : "route:stream",
 					);
 				} else if (ctx.pausedOnInput()) {
 					/* The run paused on an `askQuestions` round (awaiting the user's
@@ -1001,8 +1010,8 @@ export async function POST(req: Request) {
 					 * warn is how one would surface in production. */
 					ctx.warnIfEditRunIncomplete();
 					/* An edit run can land case-type records (`createModule` with
-					 * `case_type_record`), and the chat surface's fire-and-forget
-					 * saves never touch Postgres — so sync the case-store schemas
+					 * `case_type_record`), and the chat surface's inline guarded
+					 * commits never touch Postgres — so sync the case-store schemas
 					 * here, the same "any case-store action after a commit sees a
 					 * synced schema" contract the build arm holds. Idempotent
 					 * upsert; `materializeCaseStoreSchemas` retries transient
@@ -1018,7 +1027,9 @@ export async function POST(req: Request) {
 					const editDoc = ctx.latestPersistedDoc();
 					if (editDoc) {
 						try {
-							await ctx.drainIntermediateSaves();
+							// Every commit was awaited inline through `commitGuardedBatch`,
+							// so `latestPersistedDoc()` is already durable — no save chain
+							// to drain. Materialize the case-store schemas for it.
 							await materializeCaseStoreSchemas({
 								appId,
 								blueprint: toPersistableDoc(editDoc),
@@ -1032,19 +1043,18 @@ export async function POST(req: Request) {
 				} else {
 					/* BUILD finalization — the drain ended cleanly, so the run is
 					 * done and the app is at rest. There is no finishing tool: the
-					 * route owns the three finishing moves, in this order.
+					 * route owns the two finishing moves, in this order.
 					 *
-					 *  1. Drain the run's chained intermediate saves, so the stored
-					 *     blueprint is the run's final snapshot before anything
-					 *     signals "finished".
-					 *  2. Materialize the case-store schemas for whatever the run
+					 *  1. Materialize the case-store schemas for whatever the run
 					 *     persisted (awaited) — a user-initiated case-store action
 					 *     sub-second after the celebration (sample-data populate,
 					 *     form submit, live preview) must see a synced Postgres
 					 *     schema. The case-store consumers don't gate on status, so
-					 *     this MUST precede `data-done`.
-					 *  3. Flip `generating → complete` (status-only — the blueprint
-					 *     was already persisted by the chained saves, so this write
+					 *     this MUST precede `data-done`. Every commit was awaited
+					 *     inline through `commitGuardedBatch`, so the stored blueprint
+					 *     is already the run's final snapshot — no save chain to drain.
+					 *  2. Flip `generating → complete` (status-only — the blueprint
+					 *     was already persisted by the guarded commits, so this write
 					 *     can't blind-overwrite a concurrent editor) and emit
 					 *     `data-done`, the celebration + doc-reconciliation signal.
 					 *
@@ -1059,7 +1069,6 @@ export async function POST(req: Request) {
 					 * `error`, the reservation refunds, the user sees the classified
 					 * error). */
 					try {
-						await ctx.drainIntermediateSaves();
 						const finalDoc = ctx.latestPersistedDoc();
 						if (finalDoc) {
 							await materializeCaseStoreSchemas({
@@ -1071,6 +1080,7 @@ export async function POST(req: Request) {
 						if (finalDoc) {
 							ctx.emit("data-done", {
 								doc: toPersistableDoc(finalDoc),
+								seq: ctx.latestCommittedSeq(),
 								success: true,
 							});
 						}

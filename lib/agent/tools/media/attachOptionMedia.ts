@@ -27,7 +27,7 @@ import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc, type SelectOption } from "@/lib/domain";
 import { resolveFieldByIndex } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import type { MutatingToolResult } from "../common";
+import { type MutatingToolResult, toToolErrorResult } from "../common";
 import {
 	attachGuardedMutate,
 	brandMediaBundle,
@@ -179,12 +179,7 @@ export const attachOptionMediaTool = {
 				result: `${verb} ${slots} media on option "${optionValue}" of field "${fieldId}".`,
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

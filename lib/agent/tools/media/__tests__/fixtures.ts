@@ -27,8 +27,8 @@ import type { AssetKind, MediaAssetStatus } from "@/lib/domain/multimedia";
 import {
 	type MakeMcpTestContextHandles,
 	makeMcpTestContext,
-	makeTestContext,
-	type TestContextHandles,
+	makeStubToolContext,
+	type StubToolContextHandles,
 } from "../../../__tests__/fixtures";
 
 // ── In-memory asset table behind the `@/lib/db/mediaAssets` mock ─────
@@ -182,8 +182,10 @@ export function makeMediaDoc(): BlueprintDoc {
 	return doc;
 }
 
-/** Bundle of doc + chat-side `GenerationContext`. */
-export interface MediaFixture extends TestContextHandles {
+/** Bundle of doc + a lightweight chat-surface `ToolExecutionContext` stub
+ *  (its `recordMutations` echoes the passed post-mutation doc as the committed
+ *  doc; the media-expectations arg still rides through for assertion). */
+export interface MediaFixture extends StubToolContextHandles {
 	doc: BlueprintDoc;
 }
 
@@ -194,7 +196,7 @@ export interface MediaMcpFixture extends MakeMcpTestContextHandles {
 
 /** Build a `{ doc, ctx, ... }` bundle for the chat surface. */
 export function makeMediaFixture(): MediaFixture {
-	return { ...makeTestContext(), doc: makeMediaDoc() };
+	return { ...makeStubToolContext(), doc: makeMediaDoc() };
 }
 
 /** Build a `{ doc, ctx, ... }` bundle for the MCP surface. */

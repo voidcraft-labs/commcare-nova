@@ -463,18 +463,20 @@ port the chat SA, the cross-Project move, and the migration scripts; add per-com
     deduped }>`, `args = { appId, batchId, runId?, mutations, actorUserId, kind,
     mediaExpectations? }`. **Returns a fully-hydrated `BlueprintDoc`** (the verdict's
     `nextDoc`, which already carries `fieldParent` + `refIndex`) so chat consumers need no
-    re-hydration. Resolve reauth for the common case **before** the transaction (out of the
-    retry loop): `loadAppProjectId(appId)` → if non-null, resolve `role =
-    projectRoleFor(actorUserId, projectId)` and **reject when `role === null`** (not a member
-    — it returns `string | null`, so guard before `roleAllowsApp(role, 'edit')`); a null
-    `project_id` defers to an in-txn `fresh.owner === actorUserId` check. Then one
-    `getDb().runTransaction`:
+    re-hydration. Reauth resolves for the common case **before** the transaction (out of the
+    retry loop): `loadAppProjectId(appId)` → if non-null, `role = projectRoleFor(actorUserId,
+    projectId)`, and a `null` role (not a member) or one without `edit` throws
+    **`CommitReauthError`** — the TERMINAL authz denial (a reload grants no membership), guarded
+    before `roleAllowsApp` since the role read returns `string | null`; a null `project_id`
+    defers to an in-txn `fresh.owner === actorUserId` check. Then one `getDb().runTransaction`:
     1. Read both up front: `tx.get(docs.batchDedupRaw(appId, batchId))` and
        `tx.get(docs.app(appId))` → `fresh`.
     2. **Dedup hit** → return `{ seq, basisToken, committedDoc: hydrate(fresh.blueprint),
        deduped: true }`, write nothing.
-    3. Assert `fresh.project_id` equals the reauthed project (concurrent move → reject); for
-       null `project_id`, assert `fresh.owner === actorUserId`.
+    3. Reauth against the fresh doc: a null `project_id` with `fresh.owner !== actorUserId`
+       throws **`CommitReauthError`** (terminal); a non-null `fresh.project_id !== projectId`
+       — a concurrent MOVE — throws **`BlueprintCommitRejectedError`** (RETRYABLE: the actor may
+       be a member of the destination Project, so a reload + re-reauth can land).
     4. `mediaExpectations` re-check (reads asset rows via `tx`, before any write).
     5. Rebuild `freshDoc` (`backfillOrderKeys` + `backfillOptionUuids` + `rebuildFieldParent`
        + `buildReferenceIndex`); `batchTargetsMissing` → throw `BlueprintCommitRejectedError`;
@@ -507,17 +509,19 @@ port the chat SA, the cross-Project move, and the migration scripts; add per-com
     `appRaw` write); the no-media branch passes `committedDoc = fresh.blueprint`.
   - **Remove** `updateAppGuardedMutating`, `updateAppForRunTransactional`, `updateAppForRun`,
     and the dead non-guard whole-doc path (grep to confirm; remove `updateApp` if dead).
-  - **Extend `batchTargetsMissing`** (now in `commitGuard.ts`) with an arm for every P2 kind
-    **and add an `assertNever` default** over the `Mutation` union (today there is no
-    `default`, so an unlisted kind silently returns `false` — invisible data loss). The
-    `assertNever` forces explicit `case` arms for the existing app-level kinds the current
-    code covers only by a fall-through comment — add **no-op arms for `setAppName`,
-    `setConnectType`, `setCaseTypes`, `setAppLogo`**. Build a `caseTypeNames` set from the
-    fresh `doc.caseTypes` plus intra-batch `declareCaseType`s; a catalog kind
+  - `batchTargetsMissing` lives in `commitGuard.ts` (relocated from `applyBlueprintChange.ts`
+    to break the `apps.ts`↔`applyBlueprintChange.ts` cycle) with an arm for **every** mutation
+    kind and an `assertNever` default — an unlisted kind is a compile error, not a silent
+    `false`-returning data-loss hole. The app-level scalars (`setAppName`, `setConnectType`,
+    `setAppLogo`) are no-op arms; **`setCaseTypes` RE-SEEDS** the `caseTypeNames` set (it is a
+    wholesale catalog replace, event-log-replay-only — a no-op arm would blind the catalog
+    conflict checks). `caseTypeNames` seeds from the fresh `doc.caseTypes` plus intra-batch
+    `declareCaseType`s; a catalog kind
     (`addCaseProperty`/`removeCaseProperty`/`setCaseProperty`/`setCaseTypeMeta`/`retireCaseType`)
-    against an absent type name is a conflict. For a collection kind, resolve the owning
-    module/field, then assert the item uuid still exists in `caseListConfig.columns` /
-    `.searchInputs` / `field.options`.
+    against an absent type name is a conflict. A collection kind resolves the owning
+    module/field, then asserts the item uuid still exists in `caseListConfig.columns` /
+    `.searchInputs` / `field.options` — item-uuid granularity (authored in P2, relocated + closed
+    with `assertNever` here).
 - `lib/db/applyBlueprintChange.ts` — thread `{ batchId, runId, actorUserId, kind }`; add a
   **top-level `batchId` dedup** (read `docs.batchDedupRaw` non-transactionally before the
   Postgres work). `ApplyBlueprintChangeResult` gains `seq` and `committedDoc?: BlueprintDoc`
@@ -536,34 +540,39 @@ port the chat SA, the cross-Project move, and the migration scripts; add per-com
     the writer returns — no re-hydration here). `recordMutationStages` concatenates all
     stages into **one** body (one `batchId`, one `seq`) — preserving `editField` atomicity.
     The `data-mutations` SSE emit happens **after** the commit resolves, carrying the
-    committed `seq` + `batchId`; on a `BlueprintCommitRejectedError` no `data-mutations` is
-    emitted. **`saveChain`/`drainIntermediateSaves` are removed** (the SA `serial()` mutex
-    serializes; `consumeStream()` resolving implies every inline commit settled). Add a
-    `latestCommittedSeq()` accessor.
+    committed `seq` + `batchId`; on a rejected commit no `data-mutations` is emitted.
+    `commitBatch` forwards `mediaExpectations` into `commitGuardedBatch` so a chat media attach
+    gets the same in-transaction asset re-check MCP does, and on a `CommitReauthError` it stashes
+    `_reauthError` (read at finalize, below) before re-throwing.
+    **`saveChain`/`drainIntermediateSaves` are removed** (the SA `serial()` mutex serializes;
+    `consumeStream()` resolving implies every inline commit settled). `latestCommittedSeq()`
+    exposes the last committed seq for `data-done`.
   - `lib/mcp/context.ts`: `recordMutations`/`recordMutationStages` return `{ events,
     committedDoc }`. The shared interface keeps `committedDoc: BlueprintDoc` **non-optional**;
     MCP coalesces `committedDoc: result.committedDoc ?? <the post-mutation doc the tool passed
     in>` (the result's `committedDoc` is undefined only on a top-level dedup hit). Mint
     `batchId`, `kind:'mcp'`.
-  - `lib/agent/tools/common.ts`: on a pre-commit `mutationCommitVerdict` finding,
-    `guardedMutate`/`guardedMutateStages` return the existing `{ ok:false, error }`
-    (self-correctable — the SA's working doc is valid, no reload); on success
-    `newDoc = committedDoc`. They **do not catch** `BlueprintCommitRejectedError` (the
-    authoritative conflict) — it propagates, as does any generic throw (Firestore fault / txn
-    contention / the concurrent-move reject). `GuardedMutateOutcome` and `MutatingToolResult`
-    are unchanged — **no `conflict` flag, no shared failure-result helper** (there is none
-    today; ~13 tools each inline `result:{error}`, so the propagate-the-throw design touches
-    one place, not every tool).
-  - `lib/agent/solutionsArchitect.ts`: `wrapMutating` sets `doc = committedDoc` on success.
-    It runs each tool body inside the `serial()` mutex and **catches a
-    `BlueprintCommitRejectedError`** (a peer deleted the target): it returns the standard
-    `{ error }` envelope to the SA **and** reloads fresh before the next tool call —
-    `loadApp(appId).blueprint` → `rebuildFieldParent` + `buildReferenceIndex` + the P2
-    `backfillOrderKeys`/`backfillOptionUuids` (idempotent). A pre-commit `{ error }` (no
-    throw) does **not** reload.
-  - `app/api/chat/route.ts` **(P3 edits)**: remove both `await ctx.drainIntermediateSaves()`
-    calls; the finalize reads `ctx.latestPersistedDoc()` and stamps `ctx.latestCommittedSeq()`
-    on `data-done` (`{ doc, seq, success }`).
+  - `lib/agent/tools/common.ts`: a pre-commit `mutationCommitVerdict` finding returns
+    `{ ok:false, error }` (self-correctable — the working doc is valid, no reload); on success
+    `newDoc = committedDoc` (the peer-merged commit, never the tool's local doc).
+    `guardedMutate`/`guardedMutateStages` do NOT catch the commit throw. Every mutating tool's
+    blanket catch (all 26 — top-level + case-list-config + case-search-config + media) routes
+    through a shared `toToolErrorResult(err, doc)` that **re-throws** the authoritative commit
+    signals (`BlueprintCommitRejectedError`, `CommitReauthError`) and returns `{ error }` for any
+    other throw — so a commit signal escapes the tool rather than being swallowed by the blanket
+    catch. The MCP `sharedToolAdapter` catch does the same.
+  - `lib/agent/solutionsArchitect.ts`: `wrapMutating` sets `doc = committedDoc` on success,
+    runs each tool body inside the `serial()` mutex, and catches **only**
+    `BlueprintCommitRejectedError` (a peer deleted the target): it returns `{ error }` to the SA
+    and reloads fresh (`loadApp(appId).blueprint` → `hydratePersistedBlueprint`, idempotent)
+    before the next tool. A `CommitReauthError` **propagates** (terminal). A pre-commit `{ error }`
+    (no throw) does not reload.
+  - `app/api/chat/route.ts` **(P3 edits)**: remove both `drainIntermediateSaves` awaits; the
+    finalize stamps `ctx.latestCommittedSeq()` on `data-done`. A thrown tool error is NON-fatal to
+    the AI SDK (a `tool-output-error` chunk, not the terminal `error` chunk `sawFatalError` keys
+    on), so a deauthorized run fails via the context flag: `if (sawFatalError || ctx.reauthError())
+    failRun(…)`, taking precedence over the `completeApp` / `awaiting_input` / edit arms — the run
+    refunds and never finalizes as success.
 - Migration scripts `scripts/migrate-expression-asts.ts`, `repair-legacy-findings.ts` call
   `appendSyntheticBatchTx(theirClient, appId, migratedDoc)`. `recover-app.ts` writes no
   `blueprint` → exempt.
@@ -572,15 +581,23 @@ port the chat SA, the cross-Project move, and the migration scripts; add per-com
 - Chat intermediate saves don't rotate `blueprint_token` today; under the port every chat
   stage commits via `commitGuardedBatch` (rotates the token, advances the seq). The author's
   own tab absorbs its own chat frames as echoes (P6).
-- A pre-commit gate finding returns `{ error }` without throwing (no reload); an authoritative
-  commit conflict throws `BlueprintCommitRejectedError`, which `wrapMutating` catches to reload.
+- A pre-commit gate finding returns `{ error }` without throwing (no reload). The two commit
+  signals differ: `BlueprintCommitRejectedError` (retryable conflict / concurrent move) →
+  `wrapMutating` reloads + retries, PUT 409, MCP error; `CommitReauthError` (terminal authz
+  denial) → propagates, PUT 403, MCP IDOR-safe `not_found`, and fails the chat run via the
+  `ctx.reauthError()` flag. Both are defined in `commitGuard.ts` (no `AppAccessError` import,
+  keeping the `apps.ts`↔`appAccess.ts` cycle broken).
 
 **Tests** (emulator): atomic `mutation_seq` + `acceptedMutations` + `batchDedup`; gap-free
-seqs under contention; `batchId` idempotency does zero schema work; per-commit reauth denies
-a non-member; null `project_id` owner fallback; concurrent `project_id` change rejects;
-`batchTargetsMissing` covers every new kind; `appendSyntheticBatchTx` advances seq + stream
-atomically on a passed client. Chat-port: a stage surfaces the merged `committedDoc`; a
-conflict reloads + continues; a pre-commit finding does not reload.
+seqs under contention; `batchId` idempotency does zero schema work; per-commit reauth denies a
+non-member with `CommitReauthError`; null `project_id` owner fallback; a concurrent `project_id`
+change rejects with `BlueprintCommitRejectedError`; the in-transaction `mediaExpectations`
+re-check rejects a concurrently-deleted asset (and commits when present); `batchTargetsMissing`
+covers every kind at item granularity; `appendSyntheticBatchTx` advances seq + stream atomically
+on a passed client. Chat-port: a stage surfaces the merged `committedDoc`; a
+`BlueprintCommitRejectedError` reloads + continues; a `CommitReauthError` sets `ctx.reauthError()`
+and the run finalizes via `failRun` (refund, not `completeApp`); a pre-commit finding does not
+reload.
 
 **Depends on.** P1; converges with P2 before P6.
 

@@ -306,31 +306,20 @@ export const appDocSchema = z.object({
 	/**
 	 * Optimistic-concurrency basis for whole-doc blueprint overwrites.
 	 *
-	 * Rotated (fresh random value) by every writer a live builder session
-	 * CANNOT see land in its own doc: the browser auto-save PUT (another
-	 * tab), the MCP guarded commit (an external agent), and the
-	 * `scripts/recover-app.ts` writer. The
-	 * builder echoes the token it last observed on every PUT; a mismatch
-	 * means the stored doc advanced under it, and the overwrite is
-	 * rejected (`BlueprintBasisStaleError` → 409) instead of silently
-	 * erasing the other writer's work — the builder then reloads the
-	 * server doc.
+	 * Rotated (fresh random value) by every guarded commit — the one write
+	 * path chat, MCP, and the auto-save PUT now share (`commitGuardedBatch` →
+	 * `writeCommittedSnapshot` stamps a fresh `basisToken`) — plus the
+	 * `scripts/recover-app.ts` writer. The auto-save PUT echoes the token it
+	 * last observed; a mismatch means the stored doc advanced under it, and the
+	 * overwrite is rejected (`BlueprintBasisStaleError` → 409) instead of
+	 * silently erasing the other writer's work — the builder then reloads.
 	 *
-	 * Chat-run INTERMEDIATE saves (`updateAppForRun`) deliberately do NOT
-	 * rotate it: the same browser session that drives a chat run also
-	 * receives every mutation over SSE, so its doc already carries the
-	 * run's changes and its next auto-save is a faithful overwrite — a
-	 * rotation there would 409 the builder against its own companion run.
-	 * Those saves are also ORDERED against the drain-end finish
-	 * (`completeApp` is status-only and lands after the route drains the
-	 * save chain), so `status: complete` never points at a blueprint the
-	 * run hadn't finished persisting.
-	 * RECORDED CONSTRAINT — the one-tab assumption: that reasoning holds
-	 * for the tab driving the run; a SECOND builder tab open during a
-	 * chat run sees neither the SSE mutations nor a rotation, so its next
-	 * save can still blind-overwrite the run's writes. That shape is the
-	 * known unguarded remainder of the basis matrix.
-	 * Null on rows that predate the field and on never-PUT apps; a null
+	 * The whole-doc token is the coarse basis; the fine-grained concurrency
+	 * ground truth is the durable `acceptedMutations` / `mutation_seq` stream
+	 * `commitGuardedBatch` advances per batch, which the client reconciler
+	 * consumes to dedup its own echoes and merge peers' commits without a
+	 * blind whole-doc overwrite.
+	 * Null on rows that predate the field and on never-committed apps; a null
 	 * basis matches a null stored token, so first saves need no backfill.
 	 */
 	blueprint_token: z.string().nullable().default(null),

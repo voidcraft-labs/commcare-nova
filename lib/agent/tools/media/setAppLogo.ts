@@ -23,7 +23,7 @@ import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
 import { setAppLogoMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import type { MutatingToolResult } from "../common";
+import { type MutatingToolResult, toToolErrorResult } from "../common";
 import {
 	attachGuardedMutate,
 	brandAssetSlot,
@@ -85,12 +85,7 @@ export const setAppLogoTool = {
 						: `Set the app logo to ${logo}.`,
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

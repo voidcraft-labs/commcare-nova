@@ -27,7 +27,11 @@ import {
 	updateSearchInputMutation,
 } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { guardedMutate, type MutatingToolResult } from "../common";
+import {
+	guardedMutate,
+	type MutatingToolResult,
+	toToolErrorResult,
+} from "../common";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	moduleNotFoundResult,
@@ -137,12 +141,7 @@ export const updateSearchInputTool = {
 				},
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

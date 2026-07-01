@@ -55,7 +55,11 @@ import type { FlatField } from "../contentProcessing";
 import { connectFormConfigSchema } from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
-import { guardedMutate, type MutatingToolResult } from "./common";
+import {
+	guardedMutate,
+	type MutatingToolResult,
+	toToolErrorResult,
+} from "./common";
 import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import { buildConnectConfig } from "./shared/connectInput";
 import {
@@ -263,12 +267,7 @@ export const createFormTool = {
 				},
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

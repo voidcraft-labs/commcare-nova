@@ -486,8 +486,15 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 		 * it — the spy therefore must remain uncalled. */
 		const { McpContext } = await import("../context");
 		const originalRecord = McpContext.prototype.recordMutations;
-		const recordSpy = vi.fn().mockResolvedValue([]);
-		McpContext.prototype.recordMutations = recordSpy;
+		// The guarded writer returns `{ events, committedDoc }`; echo the passed
+		// post-mutation doc as the committed doc for the happy path (the
+		// gate-rejection cases never invoke this spy).
+		const recordSpy = vi.fn(async (_muts: unknown, doc: unknown) => ({
+			events: [],
+			committedDoc: doc,
+		}));
+		McpContext.prototype.recordMutations =
+			recordSpy as unknown as typeof originalRecord;
 
 		try {
 			const { server, capture } = makeFakeServer();
@@ -553,8 +560,15 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 
 		const { McpContext } = await import("../context");
 		const originalRecord = McpContext.prototype.recordMutations;
-		const recordSpy = vi.fn().mockResolvedValue([]);
-		McpContext.prototype.recordMutations = recordSpy;
+		// The guarded writer returns `{ events, committedDoc }`; echo the passed
+		// post-mutation doc as the committed doc for the happy path (the
+		// gate-rejection cases never invoke this spy).
+		const recordSpy = vi.fn(async (_muts: unknown, doc: unknown) => ({
+			events: [],
+			committedDoc: doc,
+		}));
+		McpContext.prototype.recordMutations =
+			recordSpy as unknown as typeof originalRecord;
 
 		try {
 			const { server, capture } = makeFakeServer();
@@ -612,8 +626,15 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 
 		const { McpContext } = await import("../context");
 		const originalRecord = McpContext.prototype.recordMutations;
-		const recordSpy = vi.fn().mockResolvedValue([]);
-		McpContext.prototype.recordMutations = recordSpy;
+		// The guarded writer returns `{ events, committedDoc }`; echo the passed
+		// post-mutation doc as the committed doc for the happy path (the
+		// gate-rejection cases never invoke this spy).
+		const recordSpy = vi.fn(async (_muts: unknown, doc: unknown) => ({
+			events: [],
+			committedDoc: doc,
+		}));
+		McpContext.prototype.recordMutations =
+			recordSpy as unknown as typeof originalRecord;
 
 		try {
 			const { server, capture } = makeFakeServer();

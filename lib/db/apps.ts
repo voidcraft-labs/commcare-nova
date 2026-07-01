@@ -9,6 +9,8 @@
  * All writes extract denormalized fields from the blueprint automatically
  * so list queries never need to deserialize full blueprints.
  */
+
+import type { Firestore } from "@google-cloud/firestore";
 import {
 	FieldPath,
 	FieldValue,
@@ -17,8 +19,22 @@ import {
 } from "@google-cloud/firestore";
 import Fuse from "fuse.js";
 import type { ErrorType } from "@/lib/agent";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { log } from "@/lib/logger";
-import { toPersistableDoc } from "../doc/fieldParent";
+import {
+	describeMediaExpectationFailures,
+	type MediaAttachExpectation,
+} from "@/lib/media/attachVerdicts";
+import {
+	describeIntroducedErrors,
+	mutationCommitVerdict,
+} from "../doc/commitVerdicts";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "../doc/fieldParent";
+import { buildReferenceIndex } from "../doc/referenceIndex";
+import type { Mutation } from "../doc/types";
 import type {
 	BlueprintDoc,
 	PersistableDoc,
@@ -29,10 +45,21 @@ import {
 	collectRealAssetRefs,
 	remapAssetRefs,
 } from "../domain/mediaRefs";
+import {
+	BlueprintCommitRejectedError,
+	batchTargetsMissing,
+	CommitReauthError,
+} from "./commitGuard";
+import {
+	ACCEPTED_MUTATIONS_TTL_MS,
+	BATCH_DEDUP_TTL_MS,
+	RETENTION_COUNT,
+} from "./constants";
 import { refundReservation } from "./credits";
 import { collections, docs, getDb } from "./firestore";
-import { addReferencingApp } from "./mediaAssets";
-import type { AppDoc, CreditMonthDoc } from "./types";
+import { addReferencingApp, getAssetsInTransaction } from "./mediaAssets";
+import { projectRoleFor } from "./projectMembership";
+import type { AcceptedMutationDoc, AppDoc, CreditMonthDoc } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -243,13 +270,14 @@ function denormalize(doc: PersistableDoc) {
  * Maintain the media reverse index for a saved blueprint: record `appId` against
  * every media asset the doc references, so the delete reference guard reads an
  * asset's `referencingAppIds` candidate set instead of loading every one of the
- * owner's apps (a real, measured ~8s on an 83-app account). Reached ONLY through
- * `persistBlueprintSnapshot`, so all three production writers carry it by
- * construction — it IS denormalization, deriving an index field off the
- * blueprint on write. (The one-off migration scripts under `scripts/` that write
- * a blueprint directly do NOT sync; that is acceptable because they rewrite
- * non-media structure — a media-rewriting migration would have to re-sync, and a
- * stale edge it left behind is pruned-by-omission at delete time anyway.)
+ * owner's apps (a real, measured ~8s on an 83-app account). Two post-commit
+ * callers, both outside the transaction: {@link commitGuardedBatch} on a real
+ * commit (`!deduped`) — the one write path every editing surface shares — and
+ * {@link commitAppProjectMove} when the move repointed the blueprint. It IS
+ * denormalization, deriving an index field off the blueprint on write.
+ * ({@link appendSyntheticBatchTx} — the migration twin — deliberately does NOT
+ * sync: it writes a reload sentinel over non-media structure, and a stale edge
+ * it left behind is pruned-by-omission at delete time anyway.)
  *
  * Append-only (see `addReferencingApp`): the guard re-walks each candidate to
  * confirm, so this never needs to REMOVE an app that dropped a reference. A
@@ -479,73 +507,32 @@ export async function createApp(
 	return ref.id;
 }
 
-// ── Blueprint snapshot writers ─────────────────────────────────────
-//
-// `updateApp` and `updateAppForRun` (plain) plus the transactional
-// writers (`updateAppForRunTransactional`, `updateAppGuardedByBasis`)
-// all overwrite the blueprint +
-// denormalized summary fields on an existing app row. They
-// use Firestore `update()` so the top-level `blueprint` map is replaced
-// wholesale — the Firestore client's `ignoreUndefinedProperties: true`
-// strips cleared nested keys from the payload, and `update()` (unlike
-// `set + merge: true`) does not deep-merge nested maps, so a caller-
-// cleared form/module/field property is gone after the write. Top-level
-// fields the payload does not carry are untouched, which is why each
-// writer below lists exactly the keys it writes — that list IS the
-// scope of the write.
-//
-// Every call site is fronted by a `createApp` write that materializes
-// the row, so `update()`'s "doc must exist" precondition holds.
-//
-// The plain writers route through `persistBlueprintSnapshot` and the
-// transactional ones through `blueprintSnapshotFields` + their own
-// post-commit `syncMediaReferences` — either way the blueprint + summary
-// write and the media-index sync stay coupled. That coupling is
-// load-bearing: the delete reference guard trusts the index, so a
-// blueprint write that doesn't sync would silently rot it. Each writer
-// differs only in the extra top-level fields it sets (`status` /
-// `run_id` / `blueprint_token`), passed via `extra`.
-
-/**
- * The single blueprint-snapshot write: denormalized summary + `blueprint` +
- * `updated_at`, the optional `status` / `run_id` a caller adds, and the media
- * reverse-index sync — committed in that order. Private; the three exported
- * writers are thin wrappers that name their `extra` field-set.
- *
- * The index sync runs AFTER the blueprint write and is best-effort (see
- * `syncMediaReferences`): a missed edge self-heals on the next save and the
- * media validator still rejects a truly-orphaned reference at export, so it must
- * never fail the user's blueprint write.
- */
-async function persistBlueprintSnapshot(
-	appId: string,
-	doc: PersistedBlueprint,
-	extra: { status?: AppDoc["status"]; runId?: string } = {},
-): Promise<void> {
-	await docs.app(appId).update(blueprintSnapshotFields(doc, extra));
-	await syncMediaReferences(appId, doc);
-}
+// ── Blueprint snapshot writer ──────────────────────────────────────
+// Every blueprint write goes through `writeCommittedSnapshot` (the
+// `getDb()`-bound guarded commits) or `appendSyntheticBatchTx` (the
+// migration twin on a passed client). Both build the `update()` payload from
+// `blueprintSnapshotFields` — Firestore `update()` replaces the top-level
+// `blueprint` map wholesale (with `ignoreUndefinedProperties`, a caller-cleared
+// nested key is gone), and each write couples the blueprint + summary write to
+// the post-commit `syncMediaReferences` so the delete-reference index can't rot.
 
 /**
  * The blueprint-snapshot field set — the ONE definition of what a
- * blueprint write touches, shared by the plain writers above and the
- * transactional writers below so they can't drift on which denormalized
- * fields ride along.
+ * blueprint write touches, shared by `writeCommittedSnapshot` and
+ * `appendSyntheticBatchTx` so they can't drift on which denormalized fields
+ * ride along.
  *
  * `basisToken` rotates the optimistic-concurrency basis (see
- * `appDocSchema.blueprint_token` for which writers rotate and why the
- * chat-run writers don't); writers that omit it leave the stored token
- * untouched.
+ * `appDocSchema.blueprint_token`); a caller that omits it leaves the stored
+ * token untouched.
  *
- * Exported for the one-time migration writers (`repair-legacy-findings`,
- * `migrate-expression-asts`), which run on their own `--project`-pinned
- * Firestore client and therefore can't call the `getDb()`-bound writers
- * here — but must honor the same write contract: an owner-run migration
- * is exactly the external write a live builder tab can't see, so it
- * rotates the basis and a stale tab's next auto-save 409s and reloads
- * instead of silently overwriting the migration.
+ * Module-private: `writeCommittedSnapshot` is its only `getDb()`-bound caller,
+ * and `appendSyntheticBatchTx` (the migration twin, on a passed client) calls
+ * it directly — an owner-run migration is exactly the external write a live
+ * builder tab can't see, so it rotates the basis and a stale tab's next
+ * auto-save 409s and reloads instead of silently overwriting the migration.
  */
-export function blueprintSnapshotFields(
+function blueprintSnapshotFields(
 	doc: PersistedBlueprint,
 	extra: {
 		status?: AppDoc["status"];
@@ -566,99 +553,299 @@ export function blueprintSnapshotFields(
 }
 
 /**
- * Transactional blueprint write — the guarded MCP commit's
- * read-evaluate-write. Runs `body` with the FRESH app doc inside a
- * Firestore transaction: `body` returns the next persistable doc to
- * commit, or throws to abort with nothing written. Firestore re-runs
- * the body against the newest read on contention, so whatever decision
- * `body` makes (the validity re-verdict) always holds against the doc
- * the write actually replaces — a concurrent committed batch can't be
- * silently erased by a verdict taken against a stale snapshot.
- *
- * `body` also receives the transaction so it can fold further reads
- * into the same read set (the media attach re-check reads asset rows
- * this way) — every read must happen before `body` returns, because
- * the write below is the transaction's first write and Firestore
- * forbids reads after it.
- *
- * The media reverse-index sync runs after the commit with the same
- * best-effort contract as the plain writers (`persistBlueprintSnapshot`).
+ * The one `getDb()`-bound blueprint-snapshot write — the shared tail of every
+ * guarded commit. On the caller's transaction: rotate the blueprint +
+ * denormalized summary under `basisToken`, advance `mutation_seq` to the
+ * caller's LITERAL `seq`, fold in `extraAppFields` (the cross-Project move's
+ * `project_id` flip), append the durable `acceptedMutations/{seq}` stream entry
+ * + the `batchDedup/{batchId}` idempotency latch (both TTL-stamped), and prune
+ * the entry `RETENTION_COUNT` behind the head. The only caller of the private
+ * `blueprintSnapshotFields`.
  */
-export async function updateAppForRunTransactional(
-	appId: string,
-	runId: string,
-	body: (
-		fresh: AppDoc,
-		tx: Transaction,
-	) => PersistedBlueprint | Promise<PersistedBlueprint>,
-): Promise<PersistableDoc> {
-	const committed = await getDb().runTransaction(async (tx) => {
-		const snap = await tx.get(docs.app(appId));
-		const fresh = snap.exists ? (snap.data() ?? null) : null;
-		if (!fresh) {
-			throw new Error(
-				`[updateAppForRunTransactional] app document missing for appId=${appId}`,
-			);
-		}
-		const next = await body(fresh, tx);
-		tx.update(
-			docs.appRaw(appId),
-			blueprintSnapshotFields(next, {
-				runId,
-				/* Rotate the auto-save basis: an MCP commit is exactly the
-				 * external write a live builder tab cannot see, so its next
-				 * blind PUT must be rejected and reload rather than erase
-				 * this commit. */
-				basisToken: crypto.randomUUID(),
-			}),
-		);
-		return next;
+function writeCommittedSnapshot(
+	tx: Transaction,
+	args: {
+		appId: string;
+		seq: number;
+		batchId: string;
+		runId?: string;
+		/** The persistable doc to store (already `toPersistableDoc`'d by the
+		 *  guarded caller; the cross-Project move passes its persisted doc). */
+		committedDoc: PersistedBlueprint;
+		mutations: Mutation[];
+		actorUserId: string;
+		kind: AcceptedMutationDoc["kind"];
+		basisToken: string;
+		extraAppFields?: Record<string, unknown>;
+	},
+): void {
+	const nowMs = Date.now();
+	tx.update(docs.appRaw(args.appId), {
+		...blueprintSnapshotFields(args.committedDoc, {
+			basisToken: args.basisToken,
+			...(args.runId !== undefined && { runId: args.runId }),
+		}),
+		mutation_seq: args.seq,
+		...args.extraAppFields,
 	});
-	await syncMediaReferences(appId, committed);
-	return committed;
+	tx.set(docs.acceptedMutation(args.appId, args.seq), {
+		seq: args.seq,
+		batchId: args.batchId,
+		...(args.runId !== undefined && { runId: args.runId }),
+		mutations: args.mutations,
+		actorId: args.actorUserId,
+		kind: args.kind,
+		ts: FieldValue.serverTimestamp(),
+		expireAt: Timestamp.fromMillis(nowMs + ACCEPTED_MUTATIONS_TTL_MS),
+	});
+	tx.set(docs.batchDedup(args.appId, args.batchId), {
+		seq: args.seq,
+		basisToken: args.basisToken,
+		expireAt: Timestamp.fromMillis(nowMs + BATCH_DEDUP_TTL_MS),
+	});
+	// Count-bounded prune: drop the entry `RETENTION_COUNT` behind the head, so a
+	// recovering client whose cursor fell off the window reloads a snapshot
+	// rather than replaying an unbounded stream. The TTL is the durable floor.
+	const pruneSeq = args.seq - RETENTION_COUNT;
+	if (pruneSeq > 0) {
+		tx.delete(docs.acceptedMutation(args.appId, pruneSeq));
+	}
+}
+
+/** Arguments for {@link commitGuardedBatch}. */
+export interface CommitGuardedBatchArgs {
+	readonly appId: string;
+	/** Client-minted idempotency key; a re-commit of the same id is a no-op. */
+	readonly batchId: string;
+	/** The SA run that produced the batch (chat/mcp); absent for an autosave. */
+	readonly runId?: string;
+	readonly mutations: Mutation[];
+	/** The acting user — reauth + attribution key, never the tenant. */
+	readonly actorUserId: string;
+	readonly kind: AcceptedMutationDoc["kind"];
+	readonly mediaExpectations?: readonly MediaAttachExpectation[];
+}
+
+/** Outcome of {@link commitGuardedBatch}. */
+export interface CommitGuardedBatchResult {
+	readonly seq: number;
+	readonly basisToken: string;
+	/**
+	 * The committed doc, fully hydrated (`fieldParent` + `refIndex`) — the
+	 * verdict's `nextDoc`, so chat/MCP consumers need no re-hydration.
+	 */
+	readonly committedDoc: BlueprintDoc;
+	/** True when the `batchId` was already committed (nothing written). */
+	readonly deduped: boolean;
 }
 
 /**
- * Tokenless guarded mutation commit — the auto-save twin of
- * `updateAppForRunTransactional`. One Firestore transaction: read the
- * FRESH stored app doc, run `body` (the caller re-applies the client's
- * `Mutation[]` onto the fresh blueprint and re-runs the validity verdict),
- * write the result under a freshly rotated `blueprint_token`, and
- * `syncMediaReferences` post-commit. Returns the rotated token so the
- * client advances its save basis.
+ * The unified guarded blueprint commit — the read-evaluate-write every write
+ * path (chat, MCP, auto-save, the cross-Project move via
+ * {@link commitAppProjectMove}) now shares.
  *
- * Re-applying on the fresh doc is what makes concurrent edits MERGE: a
- * mutation built against a stale client snapshot lands on whatever the
- * stored doc is now. There is no token precondition — the only failure is
- * the body throwing `BlueprintCommitRejectedError` when the batch would
- * introduce a finding against fresh state (the caller surfaces it). Writes
- * no `run_id`: auto-save is not a run.
+ * Reauth for the common case resolves BEFORE the transaction (out of the retry
+ * loop): the actor's role in the app's Project — `null` (not a member) or a
+ * role without `edit` rejects. A null `project_id` defers to an in-transaction
+ * `owner` check. Then one transaction: read the dedup latch + fresh app doc up
+ * front; a dedup hit returns the recorded seq/basis + the current committed
+ * doc, writing nothing; reauth against the fresh doc (owner fallback, or the
+ * fresh `project_id` must still equal the reauthed one — a concurrent move
+ * rejects); re-check media expectations against the transaction's read set;
+ * rebuild the fresh doc (backfill + fieldParent + refIndex); reject a batch
+ * targeting a concurrently-removed entity ({@link batchTargetsMissing}) or one
+ * the re-run verdict rejects; advance `mutation_seq` to a LITERAL
+ * `(fresh.mutation_seq ?? 0) + 1` (recomputed each retry — never
+ * `FieldValue.increment`); and {@link writeCommittedSnapshot}.
  */
-export async function updateAppGuardedMutating(
-	appId: string,
-	body: (
-		fresh: AppDoc,
-		tx: Transaction,
-	) => PersistedBlueprint | Promise<PersistedBlueprint>,
-): Promise<string> {
+export async function commitGuardedBatch(
+	args: CommitGuardedBatchArgs,
+): Promise<CommitGuardedBatchResult> {
+	const { appId, batchId, runId, mutations, actorUserId, kind } = args;
+	const mediaExpectations = args.mediaExpectations;
+
+	// Pre-transaction reauth for the common (non-null project) case. Guard
+	// `role === null` BEFORE `roleAllowsApp` — `projectRoleFor` returns
+	// `string | null` and a non-member's null can't index the role table.
+	const projectId = await loadAppProjectId(appId);
+	if (projectId !== null) {
+		const role = await projectRoleFor(actorUserId, projectId);
+		if (role === null || !roleAllowsApp(role, "edit")) {
+			// TERMINAL — a reload can't make the actor a member; retrying re-denies.
+			throw new CommitReauthError(
+				"You no longer have edit access to this app's Project.",
+			);
+		}
+	}
 	const basisToken = crypto.randomUUID();
-	const committed = await getDb().runTransaction(async (tx) => {
-		const snap = await tx.get(docs.app(appId));
+
+	// The persistable is computed once inside the txn (for `writeCommittedSnapshot`)
+	// and carried out on this internal-only field so the post-commit
+	// `syncMediaReferences` reuses it instead of re-running `toPersistableDoc` on
+	// the same doc. Absent on a dedup hit, which writes nothing and skips the sync.
+	type InternalResult = CommitGuardedBatchResult & {
+		persistable?: PersistedBlueprint;
+	};
+
+	const result = await getDb().runTransaction<InternalResult>(async (tx) => {
+		// Read both up front — Firestore forbids reads after the first write.
+		const dedupSnap = await tx.get(docs.batchDedupRaw(appId, batchId));
+		const appSnap = await tx.get(docs.app(appId));
+		const fresh = appSnap.exists ? (appSnap.data() ?? null) : null;
+		if (!fresh) {
+			throw new Error(
+				`[commitGuardedBatch] app document missing for appId=${appId}`,
+			);
+		}
+		// Idempotent replay of an already-committed batch. `committedDoc` is
+		// contracted fully hydrated (fieldParent + refIndex); the verdict path
+		// returns `nextDoc` carrying both, so the dedup doc builds its refIndex
+		// too — via the same `buildReferenceIndex` the hydration boundaries use.
+		if (dedupSnap.exists) {
+			const latch = dedupSnap.data() as { seq: number; basisToken: string };
+			const dedupedDoc = hydratePersistedBlueprint(
+				fresh.blueprint as PersistableDoc,
+			);
+			dedupedDoc.refIndex = buildReferenceIndex(dedupedDoc);
+			return {
+				seq: latch.seq,
+				basisToken: latch.basisToken,
+				committedDoc: dedupedDoc,
+				deduped: true,
+			};
+		}
+		// Reauth against the FRESH doc: a null project_id defers to owner (a
+		// non-owner is TERMINAL — no membership to gain by reloading); a
+		// non-null must still equal the reauthed project. A concurrent MOVE
+		// flipped it → RETRYABLE (the actor may be a member of the
+		// destination, so reload + re-reauth against the moved app can land).
+		if (projectId === null) {
+			if (fresh.owner !== actorUserId) {
+				throw new CommitReauthError("You don't have edit access to this app.");
+			}
+		} else if (fresh.project_id !== projectId) {
+			throw new BlueprintCommitRejectedError(
+				"This app moved to a different Project while you were editing. Reload to get the latest state.",
+			);
+		}
+		// Media-attach expectations re-check (reads asset rows via `tx`, so a
+		// racing delete serializes against this commit) — before any write.
+		if (mediaExpectations !== undefined && mediaExpectations.length > 0) {
+			if (!fresh.project_id) {
+				throw new BlueprintCommitRejectedError(
+					"This app has no Project, so its media can't be verified. Reload and try again.",
+				);
+			}
+			const rows = await getAssetsInTransaction(
+				tx,
+				mediaExpectations.map((e) => e.assetId),
+			);
+			const failure = describeMediaExpectationFailures(
+				mediaExpectations,
+				rows,
+				fresh.project_id,
+			);
+			if (failure !== null) throw new BlueprintCommitRejectedError(failure);
+		}
+		// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
+		const freshDoc = hydratePersistedBlueprint(
+			fresh.blueprint as PersistableDoc,
+		);
+		if (batchTargetsMissing(freshDoc, mutations)) {
+			throw new BlueprintCommitRejectedError(
+				"This app changed while you were editing — something your change " +
+					"targeted was removed by someone else. Reload to get the latest " +
+					"version, then redo that change.",
+			);
+		}
+		const verdict = mutationCommitVerdict(freshDoc, mutations);
+		if (!verdict.ok) {
+			throw new BlueprintCommitRejectedError(
+				describeIntroducedErrors(verdict.introduced),
+			);
+		}
+		const seq = (fresh.mutation_seq ?? 0) + 1;
+		const persistable = toPersistableDoc(verdict.nextDoc);
+		writeCommittedSnapshot(tx, {
+			appId,
+			seq,
+			batchId,
+			runId,
+			committedDoc: persistable,
+			mutations,
+			actorUserId,
+			kind,
+			basisToken,
+		});
+		return {
+			seq,
+			basisToken,
+			committedDoc: verdict.nextDoc,
+			deduped: false,
+			persistable,
+		};
+	});
+
+	// Post-commit media reverse-index sync — best-effort, only on a real commit
+	// (`persistable` is present exactly then, reusing the txn's `toPersistableDoc`).
+	if (!result.deduped && result.persistable !== undefined) {
+		await syncMediaReferences(appId, result.persistable);
+	}
+	const { persistable: _persistable, ...publicResult } = result;
+	return publicResult;
+}
+
+/**
+ * The migration-client twin of the guarded commit: advance an app's blueprint +
+ * `mutation_seq` + durable stream + dedup latch on a PASSED Firestore client (a
+ * `--project`-pinned migration runs off its own client, not the `getDb()`
+ * singleton), so a live builder tab's next auto-save 409-reloads onto the
+ * migrated state instead of overwriting it. One transaction, every ref built
+ * from `db` directly — never the `getDb()`-bound `docs.*` helpers or
+ * {@link writeCommittedSnapshot}. The `acceptedMutations/{seq}` entry is a
+ * RELOAD SENTINEL (`mutations: []`): a recovering client can't replay an empty
+ * batch, so it reloads the snapshot — exactly right for a wholesale migration.
+ */
+export async function appendSyntheticBatchTx(
+	db: Firestore,
+	appId: string,
+	migratedDoc: PersistedBlueprint,
+): Promise<void> {
+	const appRef = db.collection("apps").doc(appId);
+	const basisToken = crypto.randomUUID();
+	const batchId = crypto.randomUUID();
+	const nowMs = Date.now();
+	await db.runTransaction(async (tx) => {
+		const snap = await tx.get(appRef);
 		const fresh = snap.exists ? (snap.data() ?? null) : null;
 		if (!fresh) {
 			throw new Error(
-				`[updateAppGuardedMutating] app document missing for appId=${appId}`,
+				`[appendSyntheticBatchTx] app document missing for appId=${appId}`,
 			);
 		}
-		const next = await body(fresh, tx);
-		tx.update(
-			docs.appRaw(appId),
-			blueprintSnapshotFields(next, { basisToken }),
+		const seq = ((fresh.mutation_seq as number | undefined) ?? 0) + 1;
+		tx.update(appRef, {
+			...blueprintSnapshotFields(migratedDoc, { basisToken }),
+			mutation_seq: seq,
+		});
+		tx.set(
+			appRef.collection("acceptedMutations").doc(String(seq).padStart(12, "0")),
+			{
+				seq,
+				batchId,
+				mutations: [],
+				actorId: "migration",
+				kind: "migration",
+				ts: FieldValue.serverTimestamp(),
+				expireAt: Timestamp.fromMillis(nowMs + ACCEPTED_MUTATIONS_TTL_MS),
+			},
 		);
-		return next;
+		tx.set(appRef.collection("batchDedup").doc(batchId), {
+			seq,
+			basisToken,
+			expireAt: Timestamp.fromMillis(nowMs + BATCH_DEDUP_TTL_MS),
+		});
 	});
-	await syncMediaReferences(appId, committed);
-	return basisToken;
 }
 
 /**
@@ -707,6 +894,7 @@ export async function commitAppProjectMove(
 	},
 ): Promise<CommitMoveResult> {
 	const basisToken = crypto.randomUUID();
+	const batchId = crypto.randomUUID();
 	const result = await getDb().runTransaction<{
 		outcome: CommitMoveResult;
 		committed: PersistedBlueprint | null;
@@ -746,22 +934,39 @@ export async function commitAppProjectMove(
 			return { outcome: { kind: "media_stale", missing }, committed: null };
 		}
 
+		// Both success branches route the single `appRaw` write through
+		// `writeCommittedSnapshot`, advancing `mutation_seq` + appending the stream
+		// entry / dedup latch, so a source-Project co-editor's stale tab 409-reloads
+		// (rotated token) rather than blind-overwriting the flip. The move is a
+		// migration-class commit with an empty mutation delta.
+		const seq = (fresh.mutation_seq ?? 0) + 1;
 		if (args.assetIdMap.size > 0) {
 			const remapped = remapAssetRefs(fresh.blueprint, args.assetIdMap);
-			tx.update(docs.appRaw(appId), {
-				...blueprintSnapshotFields(remapped, { basisToken }),
-				project_id: args.toProjectId,
+			writeCommittedSnapshot(tx, {
+				appId,
+				seq,
+				batchId,
+				committedDoc: remapped,
+				mutations: [],
+				actorUserId: "migration",
+				kind: "migration",
+				basisToken,
+				extraAppFields: { project_id: args.toProjectId },
 			});
 			return { outcome: { kind: "moved" }, committed: remapped };
 		}
-		// No media to repoint — flip `project_id` only (the blueprint is
-		// unchanged). Still rotate `blueprint_token` so a source-Project co-editor
-		// with the app open gets a 409-reload on their next auto-save rather than a
-		// silent membership denial against the now-foreign Project.
-		tx.update(docs.appRaw(appId), {
-			project_id: args.toProjectId,
-			blueprint_token: basisToken,
-			updated_at: FieldValue.serverTimestamp(),
+		// No media to repoint — the blueprint is unchanged; re-stamp the fresh
+		// snapshot and flip `project_id` in the same write.
+		writeCommittedSnapshot(tx, {
+			appId,
+			seq,
+			batchId,
+			committedDoc: fresh.blueprint,
+			mutations: [],
+			actorUserId: "migration",
+			kind: "migration",
+			basisToken,
+			extraAppFields: { project_id: args.toProjectId },
 		});
 		return { outcome: { kind: "moved" }, committed: null };
 	});
@@ -778,9 +983,9 @@ export async function commitAppProjectMove(
 /**
  * Mark a build finished — the chat route's drain-end status flip.
  *
- * STATUS-ONLY by design: the run's chained intermediate saves already
- * persisted the blueprint (the route drains the chain first), so this
- * write carries no doc snapshot and can never blind-overwrite a
+ * STATUS-ONLY by design: the blueprint is already durable — every tool
+ * batch committed inline through {@link commitGuardedBatch} during the run —
+ * so this write carries no doc snapshot and can never blind-overwrite a
  * concurrent editor's blueprint. Status is pure run-liveness — it never
  * feeds the validity gate — so a plain merge-set is enough; there is no
  * basis to compare. `error_type` clears alongside so a retried build's
@@ -888,8 +1093,9 @@ export type ClaimedBuildRun =
  * still be draining, and the old run's finalize/failure funnel then
  * touches the NEW run's marker (settling or refunding a hold it never
  * booked). That consequence class is accepted with the premise: ten
- * minutes without an intermediate save already reads as dead everywhere
- * this system looks.
+ * minutes without a commit already reads as dead everywhere this system
+ * looks — a live run refreshes `updated_at` on every `commitGuardedBatch`
+ * commit.
  *
  * The claim also SETTLES the displaced run's reservation marker —
  * EXCEPT when it displaces a paused run. The settle exists for the
@@ -1110,46 +1316,6 @@ export async function reapStaleGenerating(appId: string): Promise<void> {
 		return;
 	}
 	failApp(appId, "internal");
-}
-
-/**
- * Replace the blueprint + summary on an existing app row.
- *
- * Writes blueprint, denormalized summary fields, and `updated_at`.
- * Called by the auto-save route (`PUT /api/apps/{id}`) after user edits
- * and by `GenerationContext.saveBlueprint` for intermediate saves
- * during generation. Takes `PersistedBlueprint` — the type-level wall
- * that rejects an unstripped in-memory `BlueprintDoc` at compile time
- * (its derived `fieldParent` / reference index must never serialize) —
- * while the route's `blueprintDocSchema.safeParse` results and
- * `toPersistableDoc` outputs pass directly.
- */
-export async function updateApp(
-	appId: string,
-	doc: PersistedBlueprint,
-): Promise<void> {
-	await persistBlueprintSnapshot(appId, doc);
-}
-
-/**
- * Replace the blueprint + summary during an MCP tool call, also
- * overwriting the server-derived `run_id`.
- *
- * Writes blueprint, denormalized summary fields, `run_id`, and
- * `updated_at`. The MCP surface groups event-log rows by a `run_id`
- * that the server derives from the app's own state (see
- * `lib/mcp/runId.ts`) — clients never supply one. Every event-writing
- * MCP tool call persists the current run's id back onto the app doc so
- * (a) the next tool call within the sliding window sees the same id
- * and reuses it, and (b) the app doc carries an always-current pointer
- * to the latest run for admin-surface display.
- */
-export async function updateAppForRun(
-	appId: string,
-	doc: PersistedBlueprint,
-	runId: string,
-): Promise<void> {
-	await persistBlueprintSnapshot(appId, doc, { runId });
 }
 
 /**
@@ -1459,8 +1625,8 @@ function projectAppSummary(
  * Queries the root-level `apps` collection filtered by `owner`. Uses
  * Firestore `select()` to fetch only the denormalized summary fields —
  * the blueprint (the large nested object) is never read. Validation is
- * unnecessary here because data is validated on write (completeApp,
- * updateApp) and defaults are baked in at that time.
+ * unnecessary here because data is validated on write (`commitGuardedBatch`,
+ * the one validating writer) and defaults are baked in at that time.
  *
  * Soft-deleted rows are filtered at the Firestore query layer via
  * `where("deleted_at", "==", null)`. Filtering in JS after `.limit(N)`

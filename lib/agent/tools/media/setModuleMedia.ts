@@ -29,7 +29,7 @@ import {
 	setModuleMediaMutations,
 } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import type { MutatingToolResult } from "../common";
+import { type MutatingToolResult, toToolErrorResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import {
 	attachGuardedMutate,
@@ -136,12 +136,7 @@ export const setModuleMediaTool = {
 				result: `Set media on module "${mod.name}": icon ${describeSlot(icon)}, audio label ${describeSlot(audioLabel)}.`,
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

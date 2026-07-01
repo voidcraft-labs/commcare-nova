@@ -42,12 +42,11 @@
  *   - `app/api/apps/[id]/route.ts` PUT (auto-save).
  *   - `lib/mcp/context.ts` `recordMutations` (MCP tool calls).
  *
- * The chat-side intermediate save (`generationContext.saveBlueprint`)
- * stays fire-and-forget by design — the SA's fix-retry discipline
- * covers missed intermediate saves and SSE latency must not block
- * on Firestore. The chat route's drain-end finalize re-syncs the
- * case-store schemas for whatever the run persisted, so the chat
- * path needs no per-save saga.
+ * The chat surface does NOT route through this saga: each tool batch
+ * commits inline through `commitGuardedBatch` directly (awaited), and
+ * the chat route's drain-end finalize re-syncs the case-store schemas
+ * in one pass for whatever the run persisted — so the chat path needs
+ * no per-save saga.
  *
  * ## Loading the prior state
  *
@@ -62,18 +61,9 @@
  * path costs the saga's internal load.
  */
 
-import type { Transaction } from "@google-cloud/firestore";
 import { produce } from "immer";
 import type { SchemaCaseStore } from "@/lib/case-store";
 import { buildCaseTypeMap, withSchemaContext } from "@/lib/case-store";
-import {
-	describeIntroducedErrors,
-	mutationCommitVerdict,
-} from "@/lib/doc/commitVerdicts";
-import {
-	hydratePersistedBlueprint,
-	toPersistableDoc,
-} from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -82,34 +72,23 @@ import type {
 	PersistedBlueprint,
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
-import {
-	describeMediaExpectationFailures,
-	type MediaAttachExpectation,
-} from "@/lib/media/attachVerdicts";
-import {
-	loadApp,
-	updateApp,
-	updateAppForRun,
-	updateAppForRunTransactional,
-	updateAppGuardedMutating,
-} from "./apps";
+import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
+import { commitGuardedBatch, loadApp } from "./apps";
 import {
 	type CaseTypeChangeEntry,
 	classifyCaseTypeChanges,
 	type SchemaChangeHint,
 } from "./classifyCaseTypeChanges";
-import { getAssetsInTransaction } from "./mediaAssets";
-import type { AppDoc } from "./types";
+import { docs } from "./firestore";
+import type { AcceptedMutationDoc } from "./types";
 
 /**
  * Arguments for `applyBlueprintChange`.
  *
- * `runId` distinguishes a run-scoped write from a standalone one. With a
- * `guard` it picks the guarded transactional writer (run-scoped
- * `updateAppForRunTransactional` when present — MCP tool calls inside
- * their sliding-window run — else the tokenless `updateAppGuardedMutating`
- * for auto-save); without a `guard` it picks the whole-doc writer
- * (`updateAppForRun` when present — chat build — else `updateApp`).
+ * `runId` distinguishes a run-scoped write from a standalone one; it rides the
+ * durable stream entry. Every path routes the Firestore write through the one
+ * guarded commit ({@link commitGuardedBatch}) — the transactional
+ * read-evaluate-write below — after the Postgres schema saga.
  *
  * `hint` carries optional explicit per-row migration intent —
  * rename / retype / narrow-options. The classifier emits the
@@ -135,6 +114,13 @@ export interface ApplyBlueprintChangeArgs {
 	 */
 	readonly prospective?: PersistedBlueprint;
 	readonly runId?: string;
+	/** Client-minted idempotency key for this whole change — pairs with the
+	 *  `batchDedup/{batchId}` latch. A top-level dedup hit short-circuits the
+	 *  Postgres saga; {@link commitGuardedBatch}'s in-txn latch is the durable
+	 *  guard. */
+	readonly batchId: string;
+	/** Which write path is committing — stamped on the durable stream entry. */
+	readonly kind: AcceptedMutationDoc["kind"];
 	readonly hint?: SchemaChangeHint;
 	readonly priorBlueprint?: PersistableDoc;
 	/**
@@ -164,203 +150,17 @@ export interface ApplyBlueprintChangeArgs {
 }
 
 /**
- * Result of `applyBlueprintChange`. `basisToken` is present only on the
- * tokenless guarded-mutation (auto-save) path — the freshly rotated
- * `blueprint_token` the client tracks as the latest server version.
+ * Result of `applyBlueprintChange`. `basisToken` is the freshly rotated
+ * `blueprint_token` the client tracks as the latest server version; `seq` is
+ * the `mutation_seq` the batch committed at. `committedDoc` is the hydrated
+ * committed doc — absent only on a TOP-LEVEL dedup hit (which returns the
+ * recorded seq/basis without paying the app-doc read; the in-txn dedup inside
+ * {@link commitGuardedBatch} does supply it).
  */
 export interface ApplyBlueprintChangeResult {
 	readonly basisToken?: string;
-}
-
-/**
- * Thrown by the guarded commit when, against the freshly read blueprint, a
- * mutation targets a concurrently-removed entity ({@link batchTargetsMissing})
- * or the re-run validity verdict rejects the batch. Carries the
- * person-to-person findings as its message. The MCP tool's catch returns it
- * in the standard `{ error }` envelope; the auto-save PUT maps it to a 409
- * the builder recovers from by reloading.
- */
-export class BlueprintCommitRejectedError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = "BlueprintCommitRejectedError";
-	}
-}
-
-/**
- * Whether any mutation in `mutations` targets an entity that no longer
- * exists on `doc` (accounting for entities the batch itself adds/removes
- * along the way).
- *
- * The guarded commit re-applies a batch onto the FRESH stored doc, and the
- * reducers are TOTAL — a mutation whose target a concurrent writer deleted
- * silently NO-OPS (the reducer returns early), introduces no validator
- * finding, and the verdict passes. That is invisible data loss: the user's
- * edit to the deleted entity never lands and they get no conflict signal.
- * Running this BEFORE the verdict turns that into a
- * {@link BlueprintCommitRejectedError} (→ 409 → the builder reloads), the
- * documented conflict path. A batch that adds an entity then edits it is
- * fine: the simulated live set tracks intra-batch adds.
- */
-function batchTargetsMissing(
-	doc: BlueprintDoc,
-	mutations: Mutation[],
-): boolean {
-	const modules = new Set(Object.keys(doc.modules));
-	const forms = new Set(Object.keys(doc.forms));
-	const fields = new Set(Object.keys(doc.fields));
-	// Case-type names present on the doc, plus the ones an earlier
-	// `declareCaseType` / `setCaseTypes` in the same batch brings into being —
-	// the catalog kinds resolve against this simulated live set the same way
-	// the entity kinds resolve against `modules` / `forms` / `fields`.
-	const caseTypeNames = new Set((doc.caseTypes ?? []).map((ct) => ct.name));
-	// Sub-entity live sets at ITEM granularity, mirroring the entity sets: a
-	// column / search-input / option the batch edits, moves, or removes must
-	// still exist — a concurrent DELETE of the same item makes the reducer
-	// silently no-op instead of surfacing the conflict, the exact invisible
-	// data loss this guard closes. Option uuids are already present: the fresh
-	// doc was hydrated (backfilled) before this runs. Column / search-input
-	// uuids are schema-required.
-	const columns = new Set<string>();
-	const searchInputs = new Set<string>();
-	for (const mod of Object.values(doc.modules)) {
-		const config = mod.caseListConfig;
-		if (!config) continue;
-		for (const col of config.columns) columns.add(col.uuid);
-		for (const input of config.searchInputs) searchInputs.add(input.uuid);
-	}
-	const options = new Set<string>();
-	for (const field of Object.values(doc.fields)) {
-		if (!("options" in field) || !Array.isArray(field.options)) continue;
-		for (const opt of field.options) {
-			if (opt.uuid !== undefined) options.add(opt.uuid);
-		}
-	}
-	// A field's parent is a form or a group/repeat field — either may hold it.
-	const container = (uuid: string) => forms.has(uuid) || fields.has(uuid);
-	for (const m of mutations) {
-		switch (m.kind) {
-			case "addModule":
-				modules.add(m.module.uuid);
-				break;
-			case "removeModule":
-				if (!modules.has(m.uuid)) return true;
-				modules.delete(m.uuid);
-				break;
-			case "moveModule":
-			case "renameModule":
-			case "updateModule":
-			case "setModuleMedia":
-				if (!modules.has(m.uuid)) return true;
-				break;
-			case "addForm":
-				if (!modules.has(m.moduleUuid)) return true;
-				forms.add(m.form.uuid);
-				break;
-			case "removeForm":
-				if (!forms.has(m.uuid)) return true;
-				forms.delete(m.uuid);
-				break;
-			case "moveForm":
-				if (!forms.has(m.uuid) || !modules.has(m.toModuleUuid)) return true;
-				break;
-			case "renameForm":
-			case "updateForm":
-			case "setFormMedia":
-				if (!forms.has(m.uuid)) return true;
-				break;
-			case "addField":
-				if (!container(m.parentUuid)) return true;
-				fields.add(m.field.uuid);
-				break;
-			case "removeField":
-				if (!fields.has(m.uuid)) return true;
-				fields.delete(m.uuid);
-				break;
-			case "moveField":
-				if (!fields.has(m.uuid) || !container(m.toParentUuid)) return true;
-				break;
-			case "renameField":
-			case "duplicateField":
-			case "updateField":
-			case "convertField":
-				if (!fields.has(m.uuid)) return true;
-				break;
-			case "setFieldMedia":
-				if (!fields.has(m.fieldUuid)) return true;
-				break;
-			// ── Granular case-type catalog ─────────────────────────────
-			case "declareCaseType":
-				caseTypeNames.add(m.caseType);
-				break;
-			case "setCaseTypes":
-				// Wholesale replace (event-log replay only; the live diff never
-				// emits it) — re-seed the simulated catalog names.
-				caseTypeNames.clear();
-				for (const ct of m.caseTypes ?? []) caseTypeNames.add(ct.name);
-				break;
-			case "retireCaseType":
-				if (!caseTypeNames.has(m.caseType)) return true;
-				caseTypeNames.delete(m.caseType);
-				break;
-			case "addCaseProperty":
-			case "removeCaseProperty":
-			case "setCaseProperty":
-			case "setCaseTypeMeta":
-				// A catalog edit against a type a concurrent writer retired (and
-				// not re-declared earlier in this batch) is a conflict, not a
-				// silent no-op.
-				if (!caseTypeNames.has(m.caseType)) return true;
-				break;
-			// ── Granular case-list collections (module-owned) ──────────
-			// Add checks the parent module and seeds the new item; update / move
-			// / remove check the ITEM's own uuid (a concurrently-removed target is
-			// a conflict, not a silent no-op). `setCaseListMeta` is module-scoped.
-			case "addColumn":
-				if (!modules.has(m.moduleUuid)) return true;
-				columns.add(m.column.uuid);
-				break;
-			case "removeColumn":
-				if (!columns.has(m.uuid)) return true;
-				columns.delete(m.uuid);
-				break;
-			case "updateColumn":
-			case "moveColumn":
-				if (!columns.has(m.uuid)) return true;
-				break;
-			case "addSearchInput":
-				if (!modules.has(m.moduleUuid)) return true;
-				searchInputs.add(m.searchInput.uuid);
-				break;
-			case "removeSearchInput":
-				if (!searchInputs.has(m.uuid)) return true;
-				searchInputs.delete(m.uuid);
-				break;
-			case "updateSearchInput":
-			case "moveSearchInput":
-				if (!searchInputs.has(m.uuid)) return true;
-				break;
-			case "setCaseListMeta":
-				if (!modules.has(m.uuid)) return true;
-				break;
-			// ── Granular select options (field-owned) ──────────────────
-			case "addOption":
-				if (!fields.has(m.fieldUuid)) return true;
-				if (m.option.uuid !== undefined) options.add(m.option.uuid);
-				break;
-			case "removeOption":
-				if (!options.has(m.uuid)) return true;
-				options.delete(m.uuid);
-				break;
-			case "updateOption":
-			case "moveOption":
-				if (!options.has(m.uuid)) return true;
-				break;
-			// App-level scalar kinds (setAppName / setConnectType / setAppLogo)
-			// carry no entity target.
-		}
-	}
-	return false;
+	readonly seq: number;
+	readonly committedDoc?: BlueprintDoc;
 }
 
 /**
@@ -378,6 +178,17 @@ function batchTargetsMissing(
 export async function applyBlueprintChange(
 	args: ApplyBlueprintChangeArgs,
 ): Promise<ApplyBlueprintChangeResult> {
+	// Top-level idempotency: a re-delivered batch (a client retry) whose latch
+	// already exists short-circuits the whole cross-store saga. The read is
+	// non-transactional — a batch that commits between here and the guarded
+	// write is still caught by `commitGuardedBatch`'s in-transaction latch. A
+	// hit returns the recorded seq/basis with no `committedDoc` (skips the
+	// app-doc read); MCP/auto-save tolerate its absence on a dedup hit.
+	const dedup = await docs.batchDedupRaw(args.appId, args.batchId).get();
+	if (dedup.exists) {
+		const latch = dedup.data() as { seq: number; basisToken: string };
+		return { seq: latch.seq, basisToken: latch.basisToken };
+	}
 	const priorBlueprint = await resolvePriorBlueprint(args);
 	/* The prospective doc drives the case-type diff below. The whole-doc
 	 * paths supply it directly (the double hop steps the walled
@@ -479,109 +290,35 @@ async function resolvePriorBlueprint(
 }
 
 /**
- * Commit the blueprint to Firestore. A `guard` routes through a
- * transactional re-apply-on-fresh + re-verdict — run-scoped
- * (`updateAppForRunTransactional`, MCP tool calls) when a `runId` is
- * present, else the tokenless auto-save writer (`updateAppGuardedMutating`)
- * that rotates + returns the basis token. Without a `guard`, the whole
- * prospective doc is written directly — `updateAppForRun` with a `runId`
- * (chat build), `updateApp` otherwise.
+ * Commit the blueprint through the unified guarded writer. Every caller of the
+ * saga now supplies a `guard` (the whole-doc non-guard path is gone); the
+ * transactional re-apply-on-fresh + re-verdict + concurrent-delete guard +
+ * media re-check + durable stream + dedup latch + `mutation_seq` advance all
+ * live in {@link commitGuardedBatch}. `run_id` (MCP) rides along; auto-save
+ * omits it. Returns the rotated basis, the committed `seq`, and the hydrated
+ * committed doc for the caller to surface.
  */
 async function persistBlueprint(
 	args: ApplyBlueprintChangeArgs,
 ): Promise<ApplyBlueprintChangeResult> {
-	if (args.guard !== undefined) {
-		const { mutations, mediaExpectations } = args.guard;
-		/* The transactional commit body, shared by both guarded paths.
-		 * Re-apply the mutations onto the FRESH stored blueprint and re-run
-		 * the verdict inside the transaction, so a concurrent committed write
-		 * can't be erased (the recomputed doc builds ON the fresh state) and
-		 * an invalid batch is refused with nothing written. Firestore re-runs
-		 * this body on contention. Media expectations re-check FIRST (the only
-		 * extra read; Firestore forbids reads after the first write), joining
-		 * the transaction's read set so a racing asset delete serializes
-		 * against this commit. The fresh doc carries no reference index, so
-		 * the verdict's candidate apply seeds one — an O(doc) pass per attempt,
-		 * the accepted price of re-deriving from the doc the write replaces. */
-		const body = async (
-			fresh: AppDoc,
-			tx: Transaction,
-		): Promise<PersistedBlueprint> => {
-			if (mediaExpectations !== undefined && mediaExpectations.length > 0) {
-				// Media is Project-scoped, so the re-check verdict runs against the
-				// app's Project (every asset attached here must live in it) — read
-				// off the FRESH stored doc, not the acting user.
-				if (!fresh.project_id) {
-					throw new BlueprintCommitRejectedError(
-						"This app has no Project, so its media can't be verified. Reload and try again.",
-					);
-				}
-				const rows = await getAssetsInTransaction(
-					tx,
-					mediaExpectations.map((e) => e.assetId),
-				);
-				const failure = describeMediaExpectationFailures(
-					mediaExpectations,
-					rows,
-					fresh.project_id,
-				);
-				if (failure !== null) {
-					throw new BlueprintCommitRejectedError(failure);
-				}
-			}
-			/* The shared hydration chokepoint: fieldParent rebuilt + the
-			 * deterministic `order`/option-`uuid` backfill a legacy stored doc
-			 * needs. Backfill runs HERE, before `batchTargetsMissing` and the
-			 * verdict, so the fresh doc's options already carry the same
-			 * position-seeded uuids a client backfilled — otherwise a legacy
-			 * app's `updateOption`/`moveColumn` would resolve against a keyless
-			 * fresh doc, `findIndex` return -1, and no-op silently. The fresh doc
-			 * carries no reference index (per-boundary); the verdict's candidate
-			 * apply seeds one. */
-			const freshDoc = hydratePersistedBlueprint(
-				fresh.blueprint as PersistableDoc,
-			);
-			/* A mutation targeting an entity a concurrent writer deleted would
-			 * silently no-op (the reducers are total) and pass the verdict —
-			 * invisible data loss. Reject it as a conflict instead, so the
-			 * builder reloads and the user redoes the change. */
-			if (batchTargetsMissing(freshDoc, mutations)) {
-				throw new BlueprintCommitRejectedError(
-					"This app changed while you were editing — something your change " +
-						"targeted was removed by someone else. Reload to get the latest " +
-						"version, then redo that change.",
-				);
-			}
-			const verdict = mutationCommitVerdict(freshDoc, mutations);
-			if (!verdict.ok) {
-				throw new BlueprintCommitRejectedError(
-					describeIntroducedErrors(verdict.introduced),
-				);
-			}
-			return toPersistableDoc(verdict.nextDoc);
-		};
-		// MCP runs persist `run_id` for the sliding-window derivation;
-		// auto-save is not a run and gets the tokenless writer.
-		if (args.runId !== undefined) {
-			await updateAppForRunTransactional(args.appId, args.runId, body);
-			return {};
-		}
-		const basisToken = await updateAppGuardedMutating(args.appId, body);
-		return { basisToken };
+	if (args.guard === undefined) {
+		throw new Error("[applyBlueprintChange] a persist requires a `guard`");
 	}
-	/* Non-guard whole-doc writers (chat build) require an explicit
-	 * prospective — only the guarded mutation path derives it. */
-	if (args.prospective === undefined) {
-		throw new Error(
-			"[applyBlueprintChange] a non-guard persist requires `prospective`",
-		);
-	}
-	if (args.runId !== undefined) {
-		await updateAppForRun(args.appId, args.prospective, args.runId);
-	} else {
-		await updateApp(args.appId, args.prospective);
-	}
-	return {};
+	const { mutations, mediaExpectations } = args.guard;
+	const result = await commitGuardedBatch({
+		appId: args.appId,
+		batchId: args.batchId,
+		...(args.runId !== undefined && { runId: args.runId }),
+		mutations,
+		actorUserId: args.userId,
+		kind: args.kind,
+		...(mediaExpectations !== undefined && { mediaExpectations }),
+	});
+	return {
+		basisToken: result.basisToken,
+		seq: result.seq,
+		committedDoc: result.committedDoc,
+	};
 }
 
 /**

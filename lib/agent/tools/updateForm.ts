@@ -46,7 +46,11 @@ import {
 	updateFormMutations,
 } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { guardedMutate, type MutatingToolResult } from "./common";
+import {
+	guardedMutate,
+	type MutatingToolResult,
+	toToolErrorResult,
+} from "./common";
 import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import { buildConnectConfig } from "./shared/connectInput";
 import type {
@@ -334,12 +338,7 @@ export const updateFormTool = {
 				},
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

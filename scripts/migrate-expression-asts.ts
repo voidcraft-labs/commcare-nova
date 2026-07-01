@@ -42,7 +42,7 @@
  */
 import { Firestore } from "@google-cloud/firestore";
 import { Command } from "commander";
-import { blueprintSnapshotFields } from "../lib/db/apps";
+import { appendSyntheticBatchTx } from "../lib/db/apps";
 import {
 	type DocExpressionMigrationResult,
 	migrateDocExpressions,
@@ -148,10 +148,10 @@ async function main() {
 					 * blind-PUTting its pre-AST doc back over the converted row.
 					 * The conversion never adds an asset reference, so the
 					 * writers' media reverse-index sync has nothing to add. */
-					await appSnap.ref.update(
-						blueprintSnapshotFields(toPersistableDoc(migrated), {
-							basisToken: crypto.randomUUID(),
-						}),
+					await appendSyntheticBatchTx(
+						db,
+						appSnap.id,
+						toPersistableDoc(migrated),
 					);
 					blueprintWrites++;
 				}
