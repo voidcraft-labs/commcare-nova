@@ -1152,17 +1152,32 @@ function diffCatalog(
 	}
 	for (const toCt of toArr) {
 		const fromCt = fromByName.get(toCt.name);
+		// Emit ONLY the ancestry slot(s) that actually changed — an omitted slot
+		// means "unchanged" (the reducer leaves it alone). Setting both whenever
+		// either differs would re-write the untouched slot to this emitter's
+		// snapshot value, so a concurrent peer editing the OTHER slot would be
+		// clobbered on the guarded re-apply. A changed slot travels as its new
+		// value or an explicit `null` (a clear — JSON drops `undefined`).
+		const meta: {
+			kind: "setCaseTypeMeta";
+			caseType: string;
+			parent_type?: string | null;
+			relationship?: "child" | "extension" | null;
+		} = { kind: "setCaseTypeMeta", caseType: toCt.name };
+		let metaChanged = false;
 		if (
-			(fromCt?.parent_type ?? undefined) !== (toCt.parent_type ?? undefined) ||
+			(fromCt?.parent_type ?? undefined) !== (toCt.parent_type ?? undefined)
+		) {
+			meta.parent_type = toCt.parent_type ?? null;
+			metaChanged = true;
+		}
+		if (
 			(fromCt?.relationship ?? undefined) !== (toCt.relationship ?? undefined)
 		) {
-			out.push({
-				kind: "setCaseTypeMeta",
-				caseType: toCt.name,
-				parent_type: toCt.parent_type ?? null,
-				relationship: toCt.relationship ?? null,
-			});
+			meta.relationship = toCt.relationship ?? null;
+			metaChanged = true;
 		}
+		if (metaChanged) out.push(meta);
 		const fromProps = new Map(
 			(fromCt?.properties ?? []).map((p) => [p.name, p]),
 		);

@@ -13,6 +13,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { assembleFieldMutations } from "@/lib/agent/tools/shared/fieldAssembly";
+import { batchTargetsMissing } from "@/lib/db/commitGuard";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
@@ -27,7 +28,12 @@ import {
 	formScaffoldMutations,
 } from "@/lib/doc/scaffolds";
 import type { Mutation, Uuid } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc, type Field } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type Field,
+	type Module,
+} from "@/lib/domain";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -228,6 +234,63 @@ describe("granular catalog merges", () => {
 			).toBe(true);
 		}
 	});
+
+	it("the diff emits setCaseTypeMeta with ONLY the changed ancestry slot", () => {
+		const prev = buildDoc({
+			caseTypes: [
+				{
+					name: "child",
+					properties: [],
+					parent_type: "parent",
+					relationship: "child",
+				},
+				{ name: "parent", properties: [] },
+			],
+			modules: [{ name: "M", caseType: "child" }],
+		});
+		// Only `relationship` changes (child → extension); `parent_type` is untouched.
+		const next = produce(prev, (draft) => {
+			const ct = draft.caseTypes?.find((c) => c.name === "child");
+			if (ct) ct.relationship = "extension";
+		});
+		const diff = diffDocsToMutations(prev, next);
+		const meta = diff.find((m) => m.kind === "setCaseTypeMeta");
+		expect(meta).toBeDefined();
+		if (meta && meta.kind === "setCaseTypeMeta") {
+			// The untouched slot is NOT re-emitted (undefined = unchanged), so a
+			// concurrent edit to `parent_type` can't be clobbered.
+			expect(meta.relationship).toBe("extension");
+			expect("parent_type" in meta).toBe(false);
+		}
+	});
+
+	it("concurrent edits to DIFFERENT ancestry slots both survive the merge", () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{ name: "visit", properties: [] },
+				{ name: "patient", properties: [] },
+				{ name: "clinic", properties: [] },
+			],
+			modules: [{ name: "M", caseType: "visit" }],
+		});
+		// Member A sets `parent_type` on `visit`; member B sets `relationship` on
+		// `visit` — DIFFERENT slots of the same case type. Under the always-both
+		// emission each carried the other slot pinned to its own snapshot, so the
+		// second commit clobbered the first. Granular per-slot emission fixes it.
+		const batchA: Mutation[] = [
+			{ kind: "setCaseTypeMeta", caseType: "visit", parent_type: "patient" },
+		];
+		const batchB: Mutation[] = [
+			{ kind: "setCaseTypeMeta", caseType: "visit", relationship: "extension" },
+		];
+		const ab = apply(doc, batchA, batchB);
+		const ba = apply(doc, batchB, batchA);
+		for (const merged of [ab, ba]) {
+			const ct = merged.caseTypes?.find((c) => c.name === "visit");
+			expect(ct?.parent_type).toBe("patient");
+			expect(ct?.relationship).toBe("extension");
+		}
+	});
 });
 
 // ── Concurrent collection edits ────────────────────────────────────────
@@ -421,6 +484,132 @@ describe("disjoint collection edits merge", () => {
 				verdict.introduced.some((e) => e.code === "SELECT_TOO_FEW_OPTIONS"),
 			).toBe(true);
 		}
+	});
+});
+
+// ── setCaseListMeta does not resurrect a peer-removed config ────────────
+
+describe("setCaseListMeta on a peer-removed config", () => {
+	/** A case-list module whose config carries a filter — the slot a
+	 *  concurrent `setCaseListMeta` edits. */
+	function moduleWithFilter(): { doc: BlueprintDoc; moduleUuid: Uuid } {
+		const doc = backfilled(
+			buildDoc({
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [{ name: "case_name", label: "Name" }],
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: {
+							...caseListConfig([{ field: "case_name", header: "Name" }]),
+							filter: { kind: "match-all" },
+						},
+					},
+				],
+			}),
+		);
+		return { doc, moduleUuid: doc.moduleOrder[0] };
+	}
+
+	it("guard rejects a setCaseListMeta whose config a peer cleared (409, not resurrection)", () => {
+		const { doc, moduleUuid } = moduleWithFilter();
+		// Member A cleared the WHOLE case-list config (the presence transition the
+		// diff emits as a wholesale `updateModule{caseListConfig:null}`).
+		const aCommitted = apply(doc, [
+			{
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: { caseListConfig: null } as unknown as Partial<Module>,
+			},
+		]);
+		expect(aCommitted.modules[moduleUuid].caseListConfig).toBeUndefined();
+
+		// Member B, against the pre-clear doc, edits the always-on filter.
+		const bBatch: Mutation[] = [
+			{
+				kind: "setCaseListMeta",
+				uuid: moduleUuid,
+				patch: { filter: { kind: "match-none" } },
+			},
+		];
+
+		// On the guarded re-apply against A's committed doc, B's edit targets a
+		// config that no longer exists → a conflict (→ BlueprintCommitRejectedError
+		// → 409 reload), NOT a silent no-op that resurrects the case list.
+		expect(batchTargetsMissing(aCommitted, bBatch)).toBe(true);
+	});
+
+	it("reducer does not resurrect the config even if the guard is bypassed", () => {
+		const { doc, moduleUuid } = moduleWithFilter();
+		const aCommitted = apply(doc, [
+			{
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: { caseListConfig: null } as unknown as Partial<Module>,
+			},
+		]);
+		// Apply B's setCaseListMeta directly (bypassing the guard): the reducer
+		// reads the config directly and no-ops — the removed case list stays
+		// removed rather than reappearing as an empty-but-present config.
+		const merged = apply(aCommitted, [
+			{
+				kind: "setCaseListMeta",
+				uuid: moduleUuid,
+				patch: { filter: { kind: "match-none" } },
+			},
+		]);
+		expect(merged.modules[moduleUuid].caseListConfig).toBeUndefined();
+	});
+
+	it("a setCaseListMeta on a live config still applies (guard passes, filter lands)", () => {
+		const { doc, moduleUuid } = moduleWithFilter();
+		const batch: Mutation[] = [
+			{
+				kind: "setCaseListMeta",
+				uuid: moduleUuid,
+				patch: { filter: { kind: "match-none" } },
+			},
+		];
+		expect(batchTargetsMissing(doc, batch)).toBe(false);
+		const merged = apply(doc, batch);
+		expect(merged.modules[moduleUuid].caseListConfig?.filter).toEqual({
+			kind: "match-none",
+		});
+	});
+
+	it("a same-batch config birth then setCaseListMeta is not falsely rejected", () => {
+		const { doc, moduleUuid } = moduleWithFilter();
+		// Peer cleared the config; a later batch re-creates it wholesale AND edits
+		// its metadata in the same batch — the guard must see the intra-batch birth.
+		const cleared = apply(doc, [
+			{
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: { caseListConfig: null } as unknown as Partial<Module>,
+			},
+		]);
+		const rebirth: Mutation[] = [
+			{
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: {
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+				} as Partial<Module>,
+			},
+			{
+				kind: "setCaseListMeta",
+				uuid: moduleUuid,
+				patch: { filter: { kind: "match-all" } },
+			},
+		];
+		expect(batchTargetsMissing(cleared, rebirth)).toBe(false);
 	});
 });
 

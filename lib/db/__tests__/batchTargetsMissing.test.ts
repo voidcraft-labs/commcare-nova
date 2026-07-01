@@ -324,6 +324,93 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 		).toBe(true);
 	});
 
+	it("rejects a setCaseListMeta whose config a peer concurrently cleared", () => {
+		const { doc, moduleUuid } = fixture();
+		// The fixture's module has a config, so a setCaseListMeta on it is fine.
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "setCaseListMeta",
+					uuid: moduleUuid,
+					patch: { filter: { kind: "match-all" } },
+				} as Mutation,
+			]),
+		).toBe(false);
+
+		// Simulate a peer having cleared the whole case-list config: the same
+		// setCaseListMeta now targets a removed config → a conflict, not a silent
+		// resurrection.
+		const cleared = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[moduleUuid]: {
+					...doc.modules[moduleUuid],
+					caseListConfig: undefined,
+				},
+			},
+		} as BlueprintDoc;
+		expect(
+			batchTargetsMissing(cleared, [
+				{
+					kind: "setCaseListMeta",
+					uuid: moduleUuid,
+					patch: { filter: { kind: "match-all" } },
+				} as Mutation,
+			]),
+		).toBe(true);
+	});
+
+	it("does not reject a setCaseListMeta that follows a same-batch config birth", () => {
+		const { doc, moduleUuid } = fixture();
+		const cleared = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[moduleUuid]: {
+					...doc.modules[moduleUuid],
+					caseListConfig: undefined,
+				},
+			},
+		} as BlueprintDoc;
+		// A wholesale config birth (`updateModule{caseListConfig}`) followed by a
+		// setCaseListMeta in the same batch: the guard tracks the intra-batch birth.
+		expect(
+			batchTargetsMissing(cleared, [
+				{
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				} as unknown as Mutation,
+				{
+					kind: "setCaseListMeta",
+					uuid: moduleUuid,
+					patch: { filter: { kind: "match-all" } },
+				} as Mutation,
+			]),
+		).toBe(false);
+		// An addColumn also births a config, so a follow-up setCaseListMeta resolves.
+		expect(
+			batchTargetsMissing(cleared, [
+				{
+					kind: "addColumn",
+					moduleUuid,
+					column: {
+						uuid: asUuid("col-birth"),
+						kind: "plain",
+						field: "case_name",
+						header: "N",
+					},
+				} as unknown as Mutation,
+				{
+					kind: "setCaseListMeta",
+					uuid: moduleUuid,
+					patch: { filter: { kind: "match-all" } },
+				} as Mutation,
+			]),
+		).toBe(false);
+	});
+
 	it("seeds an intra-batch addColumn/addOption before a follow-up edit of the same item", () => {
 		const { doc, moduleUuid, selectUuid } = fixture();
 		const newColUuid = asUuid("col-new");

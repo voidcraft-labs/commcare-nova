@@ -36,4 +36,22 @@ describe("keyedOptions", () => {
 	it("returns undefined for absent options", () => {
 		expect(keyedOptions(undefined)).toBeUndefined();
 	});
+
+	it("threads a minted key AFTER a preceding existing key (mixed input)", () => {
+		// A keyed option followed by keyless ones: the minted keys must sort AFTER
+		// the existing key so the input order is preserved. A fresh 0..n run would
+		// have keyed the trailing options below the leading one.
+		const result = keyedOptions([
+			{ value: "a", label: "A", uuid: asUuid("opt-a"), order: "V" },
+			{ value: "b", label: "B" },
+			{ value: "c", label: "C" },
+		]);
+		expect(result).toBeDefined();
+		if (!result) return;
+		expect(result[0].order).toBe("V");
+		const orders = result.map((o) => o.order ?? "");
+		// Strictly ascending, so array order == display order.
+		expect(orders[0] < orders[1]).toBe(true);
+		expect(orders[1] < orders[2]).toBe(true);
+	});
 });

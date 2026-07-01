@@ -44,8 +44,31 @@ beforeEach(() => {
 });
 
 describe("setCaseListFilter", () => {
+	/** A doc whose module carries a real (non-empty) case-list config — the
+	 *  shape every production case module is born with (`caseListConfigWithName`).
+	 *  `setCaseListFilter` EDITS an existing config; a config-less module is a
+	 *  concurrent-removal signal, not a first-configure path (see the
+	 *  config-removed test below). */
+	function docWithConfig(): {
+		doc: BlueprintDoc;
+		ctx: ReturnType<typeof makeCaseListFixture>["ctx"];
+	} {
+		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const baseMod = baseDoc.modules[MOD_A];
+		const doc: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				[MOD_A]: {
+					...baseMod,
+					caseListConfig: { columns: [], searchInputs: [] },
+				} as Module,
+			},
+		};
+		return { doc, ctx };
+	}
+
 	it("sets the case list filter to the supplied predicate", async () => {
-		const { doc, ctx } = makeCaseListFixture();
+		const { doc, ctx } = docWithConfig();
 		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
 
 		const result = await setCaseListFilterTool.execute(
@@ -176,7 +199,7 @@ describe("setCaseListFilter", () => {
 	});
 
 	it("round-trips a recursive predicate (and/eq/literal/prop)", async () => {
-		const { doc, ctx } = makeCaseListFixture();
+		const { doc, ctx } = docWithConfig();
 		const filter = and(
 			eq(prop("patient", "status"), literal("active")),
 			eq(prop("patient", "region"), literal("north")),
@@ -222,11 +245,15 @@ describe("setCaseListFilter", () => {
 		expect(result.result.error).toContain("Found no module");
 	});
 
-	it("initializes the caseListConfig when the module has none", async () => {
-		// Module without an existing config — the tool must produce a
-		// fully-populated config with the new filter + empty arrays for
-		// the two array slots, rather than write `caseListConfig:
-		// { filter }` and leave the schema-required arrays absent.
+	it("does NOT resurrect a config on a config-less module (concurrent-removal signal)", async () => {
+		// Every production case module is born WITH a config
+		// (`caseListConfigWithName`), so a `setCaseListFilter` landing on a
+		// config-less module means a peer concurrently cleared the whole case
+		// list. The `setCaseListMeta` reducer edits an EXISTING config and no
+		// longer runs `ensureCaseListConfig`, so the config stays absent rather
+		// than reappearing empty-but-present with the filter stranded on it. The
+		// guarded commit turns this into a 409 reload (batchTargetsMissing); the
+		// tool's own reducer run just no-ops.
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const baseMod = baseDoc.modules[MOD_A];
 		const docWithoutConfig: BlueprintDoc = {
@@ -243,11 +270,7 @@ describe("setCaseListFilter", () => {
 			docWithoutConfig,
 		);
 
-		const finalConfig = result.newDoc.modules[MOD_A]?.caseListConfig;
-		expect(finalConfig).toBeDefined();
-		expect(finalConfig?.filter).toEqual(filter);
-		expect(finalConfig?.columns).toEqual([]);
-		expect(finalConfig?.searchInputs).toEqual([]);
+		expect(result.newDoc.modules[MOD_A]?.caseListConfig).toBeUndefined();
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
@@ -275,18 +298,10 @@ describe("setCaseListFilter", () => {
 		expect(r1.mutations).toEqual(r2.mutations);
 	});
 
-	it("initializes the caseListConfig when filter=null on a configless module", async () => {
-		// Edge case: `filter === null` on a module whose
-		// `caseListConfig` is undefined still materializes the config —
-		// the granular `setCaseListMeta` reducer runs
-		// `ensureCaseListConfig`, seeding `columns`/`searchInputs` at
-		// `[]` before applying the slot patch, so the resulting doc
-		// carries every required array slot at empty. Pinned here
-		// because a reader could reasonably expect a "no-op" when both
-		// the existing config and the new filter are absent. Current
-		// behavior is structurally fine (the schema's "if present, all
-		// required arrays present" contract holds); this test seals it
-		// against silent flips during future refactors.
+	it("clearing (filter=null) on a config-less module is a no-op, not a config birth", async () => {
+		// The dual of the resurrection guard: clearing a filter on a module with
+		// no config must NOT materialize an empty config either. `setCaseListMeta`
+		// edits an existing config; absent → absent (no `ensureCaseListConfig`).
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const baseMod = baseDoc.modules[MOD_A];
 		const docWithoutConfig: BlueprintDoc = {
@@ -302,13 +317,6 @@ describe("setCaseListFilter", () => {
 			docWithoutConfig,
 		);
 
-		const finalConfig = result.newDoc.modules[MOD_A]?.caseListConfig;
-		expect(finalConfig).toBeDefined();
-		// Every required array slot present at empty.
-		expect(finalConfig?.columns).toEqual([]);
-		expect(finalConfig?.searchInputs).toEqual([]);
-		// `filter` stays absent — `null` means "no filter," and the
-		// schema treats absence as the canonical no-filter shape.
-		expect(finalConfig?.filter).toBeUndefined();
+		expect(result.newDoc.modules[MOD_A]?.caseListConfig).toBeUndefined();
 	});
 });

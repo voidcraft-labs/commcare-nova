@@ -122,9 +122,18 @@ export function batchTargetsMissing(
 	// uuids are schema-required.
 	const columns = new Set<string>();
 	const searchInputs = new Set<string>();
+	// Modules whose `caseListConfig` is present. `setCaseListMeta` EDITS an
+	// existing config's metadata (`filter` / `icon` / `audioLabel`); a config a
+	// peer concurrently cleared is a missing target, not one to resurrect (the
+	// reducer no-ops on it — see `mutations/modules.ts`). Tracking config
+	// presence (seeded here from the fresh doc, advanced by intra-batch births /
+	// clears below) turns a `setCaseListMeta` on a cleared config into a
+	// conflict rather than a silent lost filter.
+	const modulesWithConfig = new Set<string>();
 	for (const mod of Object.values(doc.modules)) {
 		const config = mod.caseListConfig;
 		if (!config) continue;
+		modulesWithConfig.add(mod.uuid);
 		for (const col of config.columns) columns.add(col.uuid);
 		for (const input of config.searchInputs) searchInputs.add(input.uuid);
 	}
@@ -141,14 +150,31 @@ export function batchTargetsMissing(
 		switch (m.kind) {
 			case "addModule":
 				modules.add(m.module.uuid);
+				// A module can be born WITH a case-list config (the scaffold's
+				// case-list viewer) — seed config presence so a same-batch
+				// `setCaseListMeta` on it resolves.
+				if (m.module.caseListConfig !== undefined) {
+					modulesWithConfig.add(m.module.uuid);
+				}
 				break;
 			case "removeModule":
 				if (!modules.has(m.uuid)) return true;
 				modules.delete(m.uuid);
+				modulesWithConfig.delete(m.uuid);
+				break;
+			case "updateModule":
+				if (!modules.has(m.uuid)) return true;
+				// The wholesale config birth / clear (the presence transition the
+				// diff emits outside the generic patch): a non-null `caseListConfig`
+				// births it, an explicit `null` clears it — track both so a
+				// same-batch `setCaseListMeta` sees the post-patch presence.
+				if ("caseListConfig" in m.patch) {
+					if (m.patch.caseListConfig == null) modulesWithConfig.delete(m.uuid);
+					else modulesWithConfig.add(m.uuid);
+				}
 				break;
 			case "moveModule":
 			case "renameModule":
-			case "updateModule":
 			case "setModuleMedia":
 				if (!modules.has(m.uuid)) return true;
 				break;
@@ -217,6 +243,10 @@ export function batchTargetsMissing(
 			// a conflict, not a silent no-op). `setCaseListMeta` is module-scoped.
 			case "addColumn":
 				if (!modules.has(m.moduleUuid)) return true;
+				// The first column births a config-less module's config (the
+				// legitimate config-birth path); seed presence so a same-batch
+				// `setCaseListMeta` on it resolves.
+				modulesWithConfig.add(m.moduleUuid);
 				columns.add(m.column.uuid);
 				break;
 			case "removeColumn":
@@ -229,6 +259,9 @@ export function batchTargetsMissing(
 				break;
 			case "addSearchInput":
 				if (!modules.has(m.moduleUuid)) return true;
+				// The first search input births a config-less module's config;
+				// seed presence so a same-batch `setCaseListMeta` resolves.
+				modulesWithConfig.add(m.moduleUuid);
 				searchInputs.add(m.searchInput.uuid);
 				break;
 			case "removeSearchInput":
@@ -240,7 +273,14 @@ export function batchTargetsMissing(
 				if (!searchInputs.has(m.uuid)) return true;
 				break;
 			case "setCaseListMeta":
-				if (!modules.has(m.uuid)) return true;
+				// Editing an existing config's metadata: the module AND its config
+				// must still be present. A peer who cleared the whole case-list
+				// config (`updateModule{caseListConfig:null}`) is a concurrent
+				// removal — reject it as a conflict so the filter/icon edit reloads
+				// (409) rather than resurrecting the removed case list empty.
+				if (!modules.has(m.uuid) || !modulesWithConfig.has(m.uuid)) {
+					return true;
+				}
 				break;
 			// ── Granular select options (field-owned) ──────────────────
 			case "addOption":

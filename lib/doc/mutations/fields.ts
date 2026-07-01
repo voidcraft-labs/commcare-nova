@@ -667,16 +667,24 @@ export function applyFieldMutation(
 					draft as unknown as BlueprintDoc,
 					parent.parentUuid,
 				).filter((u) => u !== rootUuid);
-				const at = siblings.indexOf(mut.uuid);
-				const siblingKeys = siblings
-					.map((u) => draft.fields[u]?.order)
-					.filter((o): o is string => o !== undefined);
-				// Slot right AFTER the source in display order; the shared helper
-				// widens past a tied run so a collision at the source doesn't
-				// yield a degenerate interval.
+				// Slot the clone right AFTER the source in display order. The slot
+				// index must be computed over the SAME keyed-only list `keysForSlot`
+				// receives — indexing a full-list position into the filtered list
+				// would mis-slot the clone whenever a keyless (un-backfilled)
+				// sibling precedes the source. Walk display order once, keeping the
+				// keyed keys and the count of keyed siblings up to and including the
+				// source. `keysForSlot` widens past a tied run at the source so a
+				// copied-order collision doesn't yield a degenerate interval.
+				const siblingKeys: string[] = [];
+				let slotIndex = -1;
+				for (const u of siblings) {
+					const order = draft.fields[u]?.order;
+					if (order !== undefined) siblingKeys.push(order);
+					if (u === mut.uuid) slotIndex = siblingKeys.length;
+				}
 				clone.order = keysForSlot(
 					siblingKeys,
-					at === -1 ? siblingKeys.length : at + 1,
+					slotIndex === -1 ? siblingKeys.length : slotIndex,
 					1,
 				)[0];
 			}

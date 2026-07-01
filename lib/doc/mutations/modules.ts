@@ -204,7 +204,14 @@ export function applyModuleMutation(
 			return;
 		}
 		case "setCaseListMeta": {
-			const config = ensureCaseListConfig(draft, mut.uuid);
+			// Edit the metadata of an EXISTING config — never births one. A
+			// module whose config a peer concurrently cleared is a MISSING target
+			// (the guarded commit's `batchTargetsMissing` turns this into a 409
+			// reload), not a config to resurrect empty: reading the config directly
+			// (not `ensureCaseListConfig`) leaves this a no-op if the guard is ever
+			// bypassed, so a removed case list can't reappear as `{columns:[],
+			// searchInputs:[]}` with a peer's filter stranded on it.
+			const config = draft.modules[mut.uuid]?.caseListConfig;
 			if (!config) return;
 			// Apply the patch key-by-key: a `null` (wire spelling of a clear —
 			// JSON drops `undefined`) DELETES the slot, any other value sets it.
@@ -220,10 +227,16 @@ export function applyModuleMutation(
 
 /**
  * Resolve a module's `caseListConfig`, seeding an empty one (`columns: []`,
- * `searchInputs: []`) when absent so the collection reducers are total — an
- * `addColumn` / `addSearchInput` / `setCaseListMeta` against a module with no
- * config births it. Returns `undefined` only when the module itself is
- * missing.
+ * `searchInputs: []`) when absent so the membership-adding reducers are total —
+ * an `addColumn` / `addSearchInput` against a config-less module births it (a
+ * module's first case-list item is a legitimate config-birth). Returns
+ * `undefined` only when the module itself is missing.
+ *
+ * `setCaseListMeta` deliberately does NOT route through here: patching an
+ * always-on config's metadata (`filter` / `icon` / `audioLabel`) is an EDIT of
+ * an existing config, and birthing one to hold a peer's filter would resurrect
+ * a case list another member concurrently removed. It reads the config directly
+ * and no-ops when absent; the guarded commit rejects that case as a conflict.
  */
 function ensureCaseListConfig(
 	draft: Draft<BlueprintDoc>,

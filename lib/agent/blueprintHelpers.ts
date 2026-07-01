@@ -29,7 +29,7 @@ import {
 	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
 import { sequenceOrderKeys, sortedOrderKeys } from "@/lib/doc/order/append";
-import { keyBetween } from "@/lib/doc/order/keys";
+import { keysBetween } from "@/lib/doc/order/keys";
 import {
 	formOrderKeyAtIndex,
 	moduleOrderKeyAtIndex,
@@ -446,17 +446,15 @@ export function addColumnsMutation(
 	columns: readonly Column[],
 ): CaseListMutationOk {
 	const keys = sortedOrderKeys(mod.caseListConfig?.columns ?? []);
-	const mutations: Mutation[] = [];
-	let last: string | null = keys.at(-1) ?? null;
-	for (const column of columns) {
-		const order = keyBetween(last, null);
-		last = order;
-		mutations.push({
-			kind: "addColumn",
-			moduleUuid: mod.uuid,
-			column: { ...column, order },
-		});
-	}
+	// One ascending run of fractional keys after the last existing column
+	// (`hi = null` ≡ a clean append), minted in one call by the shared
+	// `keysBetween` primitive rather than a hand-rolled place-after chain.
+	const orders = keysBetween(keys.at(-1) ?? null, null, columns.length);
+	const mutations: Mutation[] = columns.map((column, i) => ({
+		kind: "addColumn",
+		moduleUuid: mod.uuid,
+		column: { ...column, order: orders[i] },
+	}));
 	return { ok: true, mutations };
 }
 
@@ -552,17 +550,14 @@ export function addSearchInputsMutation(
 	searchInputs: readonly SearchInputDef[],
 ): CaseListMutationOk {
 	const keys = sortedOrderKeys(mod.caseListConfig?.searchInputs ?? []);
-	const mutations: Mutation[] = [];
-	let last: string | null = keys.at(-1) ?? null;
-	for (const searchInput of searchInputs) {
-		const order = keyBetween(last, null);
-		last = order;
-		mutations.push({
-			kind: "addSearchInput",
-			moduleUuid: mod.uuid,
-			searchInput: { ...searchInput, order },
-		});
-	}
+	// One ascending run after the last existing input (`hi = null` ≡ append) —
+	// the same `keysBetween` primitive `addColumnsMutation` uses.
+	const orders = keysBetween(keys.at(-1) ?? null, null, searchInputs.length);
+	const mutations: Mutation[] = searchInputs.map((searchInput, i) => ({
+		kind: "addSearchInput",
+		moduleUuid: mod.uuid,
+		searchInput: { ...searchInput, order: orders[i] },
+	}));
 	return { ok: true, mutations };
 }
 
