@@ -11,6 +11,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { bySortKey } from "@/lib/doc/order/compare";
 import { asUuid, type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
 import { reorderSearchInputsTool } from "../reorderSearchInputs";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
@@ -63,9 +64,14 @@ describe("reorderSearchInputs", () => {
 			doc,
 		);
 
+		// A reorder is an order-key change (membership array untouched) — assert
+		// the DISPLAY sequence, not raw array position.
 		const inputs =
 			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
-		expect(inputs.map((i) => i.uuid)).toEqual([C, A, B]);
+		expect([...inputs].sort(bySortKey).map((i) => i.uuid)).toEqual([C, A, B]);
+		expect(result.mutations.every((m) => m.kind === "moveSearchInput")).toBe(
+			true,
+		);
 	});
 
 	it("returns the new order in the structured result", async () => {

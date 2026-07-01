@@ -21,7 +21,10 @@
 
 import { z } from "zod";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { addSearchInputsMutation } from "../../blueprintHelpers";
+import {
+	addSearchInputsMutation,
+	resolveModuleUuid,
+} from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { guardedMutate, type MutatingToolResult } from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
@@ -70,7 +73,7 @@ export const addSearchInputsTool = {
 	): Promise<MutatingToolResult<AddSearchInputsResult>> {
 		const { moduleIndex, searchInputs } = input;
 		try {
-			const moduleUuid = doc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid)
 				return moduleNotFoundResult<AddSearchInputsSuccess>(
 					doc,

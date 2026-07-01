@@ -13,10 +13,16 @@
 // integer header (unlike the `fractional-indexing` package): a key is a
 // pure fractional part, which keeps the algorithm small and TOTAL.
 //
-// `keyBetween` NEVER throws. A null/degenerate/equal bound resolves to a
-// fresh place-after key rather than an error — the gesture that computes a
-// key must always succeed, and the reducer stores whatever it produces
-// verbatim.
+// `keyBetween` requires an ORDERED interval (`lo < hi`, treating a null bound
+// as ±∞) and throws on a degenerate one (`lo >= hi`, both non-null) — the empty
+// open interval has no key, so silently emitting one OUTSIDE it (the old
+// `placeAfter` fallback) put an anchored insert in the wrong slot. A slot inside
+// a run of equal-keyed siblings (a legitimate rested state — `bySortKey`
+// tie-breaks equal keys on uuid) is not a degenerate interval: it's widened past
+// the tied run to a distinct bound by `keysForSlot`, the ONE helper every
+// insert-between gesture (SA anchor + builder drag) computes its interval
+// through. A null upper bound is always a clean append, so append/prepend
+// gestures never trip the precondition.
 
 const DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const BASE = DIGITS.length; // 62
@@ -70,9 +76,10 @@ function keyBetweenStrict(a: string, b: string): string {
  *
  * - `a` null ≡ "before everything" (0); `b` null ≡ "after everything" (1).
  * - Both null → a fresh middle key.
- * - A degenerate or inverted bound (`a >= b`, or an empty-string bound)
- *   resolves to a fresh place-after key — `keyBetween` is total and never
- *   throws.
+ * - PRECONDITION: `lo < hi` (both non-null). A degenerate/inverted interval
+ *   (`lo >= hi`) has no key strictly between the bounds, so it THROWS — a
+ *   caller that could see two display-adjacent siblings share a key computes
+ *   its slot through {@link keysForSlot}, which widens past the tied run.
  *
  * The returned key never ends in the zero digit, so a later `keyBetween`
  * against it always has room to bisect.
@@ -81,8 +88,13 @@ export function keyBetween(a: string | null, b: string | null): string {
 	const lo = a && a.length > 0 ? a : null;
 	const hi = b && b.length > 0 ? b : null;
 	if (lo !== null && hi !== null && lo >= hi) {
-		// Inverted/equal bound — place after the lower bound.
-		return placeAfter(lo);
+		throw new Error(
+			`keyBetween needs an ordered interval, but got lo="${lo}" >= hi="${hi}". ` +
+				"Two display-adjacent siblings share an order key (a rested tie broken " +
+				"on uuid), so there is no key strictly between them. Compute the slot " +
+				"through keysForSlot, which widens past the whole tied run to a distinct " +
+				"bound before minting keys.",
+		);
 	}
 	if (hi === null) {
 		// No upper bound: place after `lo` (or seed a base key when null).
@@ -93,14 +105,67 @@ export function keyBetween(a: string | null, b: string | null): string {
 }
 
 /**
+ * `count` fractional keys strictly ASCENDING inside the open interval
+ * (`lo`, `hi`) — the run a multi-item insert distributes between two
+ * neighbors (either bound `null` for an edge insert). Input order is
+ * preserved (the i-th caller item takes `keys[i]`). Empty for `count <= 0`.
+ * Inherits `keyBetween`'s ordered-interval precondition, so it throws on a
+ * degenerate `(lo, hi)` — callers route through {@link keysForSlot}.
+ */
+export function keysBetween(
+	lo: string | null,
+	hi: string | null,
+	count: number,
+): string[] {
+	const keys: string[] = [];
+	let low = lo;
+	for (let i = 0; i < count; i++) {
+		low = keyBetween(low, hi);
+		keys.push(low);
+	}
+	return keys;
+}
+
+/**
+ * `count` keys for a NEW run landing at `slotIndex` in a list whose existing
+ * keys are `sortedKeys` (ASCENDING). The interval is the slot's neighbors —
+ * `sortedKeys[slotIndex - 1]` and `sortedKeys[slotIndex]` — EXCEPT when those
+ * two collide (the slot sits inside a run of equal-keyed siblings): then `hi`
+ * widens FORWARD past the whole tied run to the nearest DISTINCT key (null at
+ * the end → a clean append), so the run lands AT a well-defined position after
+ * the tie, and the interval handed to `keysBetween` is never degenerate.
+ * `slotIndex` is clamped to `[0, sortedKeys.length]`. This is the ONE helper
+ * every insert-between gesture (SA anchor + builder drag + duplicate) computes
+ * its interval through, so they all agree at a collision.
+ */
+export function keysForSlot(
+	sortedKeys: readonly string[],
+	slotIndex: number,
+	count: number,
+): string[] {
+	const clamped = Math.max(0, Math.min(slotIndex, sortedKeys.length));
+	const lo = clamped > 0 ? sortedKeys[clamped - 1] : null;
+	let hiIndex = clamped;
+	let hi = hiIndex < sortedKeys.length ? sortedKeys[hiIndex] : null;
+	if (lo !== null && hi !== null && lo === hi) {
+		// Widen past the tied run to the first strictly-greater key (null at
+		// the list end). `lo` stays the tied value, so the new run sorts after
+		// every equal-keyed sibling and before the first distinct one above.
+		while (hiIndex < sortedKeys.length && sortedKeys[hiIndex] === lo) {
+			hiIndex++;
+		}
+		hi = hiIndex < sortedKeys.length ? sortedKeys[hiIndex] : null;
+	}
+	return keysBetween(lo, hi, count);
+}
+
+/**
  * The key for an item inserted at `index` into a list whose existing keys
  * are `orderedKeys`, given in ASCENDING sorted order. Places the new key
- * between the neighbors on either side of the slot (null past either end).
- * `index` is clamped to `[0, orderedKeys.length]`.
+ * between the neighbors on either side of the slot (null past either end),
+ * widening past a collision run via {@link keysForSlot} so equal-keyed
+ * neighbors never yield a degenerate interval. `index` is clamped.
  */
 export function deriveKeyAtIndex(orderedKeys: string[], index: number): string {
-	const clamped = Math.max(0, Math.min(index, orderedKeys.length));
-	const before = clamped > 0 ? orderedKeys[clamped - 1] : null;
-	const after = clamped < orderedKeys.length ? orderedKeys[clamped] : null;
-	return keyBetween(before, after);
+	return keysForSlot(orderedKeys, index, 1)[0];
 }

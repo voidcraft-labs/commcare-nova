@@ -34,13 +34,14 @@
  */
 
 import { z } from "zod";
+import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { type Predicate, predicateSchema } from "@/lib/domain/predicate";
-import { updateModuleMutations } from "../../blueprintHelpers";
+import { resolveModuleUuid } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { guardedMutate, type MutatingToolResult } from "../common";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
-import { moduleNotFoundResult, snapshotCaseListConfig } from "./shared";
+import { moduleNotFoundResult } from "./shared";
 
 export const setCaseListFilterInputSchema = z
 	.object({
@@ -96,7 +97,7 @@ export const setCaseListFilterTool = {
 	): Promise<MutatingToolResult<SetCaseListFilterResult>> {
 		const { moduleIndex, filter } = input;
 		try {
-			const moduleUuid = doc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid)
 				return moduleNotFoundResult<SetCaseListFilterSuccess>(
 					doc,
@@ -111,20 +112,14 @@ export const setCaseListFilterTool = {
 					"set the case list filter",
 				);
 
-			// `filter === null` clears the slot. The schema treats absent
-			// as "no filter," so we OMIT the key on the persisted config
-			// rather than write `filter: undefined` (which would round-
-			// trip as a present-with-undefined key under Zod's strip
-			// mode and break round-trip equality). Matches the
-			// optional-slot omission idiom `searchInputDef` uses for its
-			// `via` slot.
-			const base = snapshotCaseListConfig(mod);
-			const { filter: _existingFilter, ...baseWithoutFilter } = base;
-			const nextConfig =
-				filter === null ? baseWithoutFilter : { ...baseWithoutFilter, filter };
-			const mutations = updateModuleMutations(mod, {
-				caseListConfig: nextConfig,
-			});
+			// The filter rides the GRANULAR `setCaseListMeta` kind (not a
+			// wholesale `updateModule{caseListConfig}` that would clobber a
+			// concurrent column edit on the guarded re-apply): `null` clears the
+			// slot, a Predicate sets it. The reducer maps `null → delete`, so a
+			// clear crosses the JSON wire intact.
+			const mutations: Mutation[] = [
+				{ kind: "setCaseListMeta", uuid: mod.uuid, patch: { filter } },
+			];
 			const commit = await guardedMutate(
 				ctx,
 				doc,

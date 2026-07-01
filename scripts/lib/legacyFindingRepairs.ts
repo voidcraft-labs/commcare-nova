@@ -350,9 +350,15 @@ export const REPAIR_JUDGMENTS: Readonly<
 	CASE_PROPERTY_TOO_LONG: mechanical(
 		`truncate to the ${MAX_CASE_PROPERTY_LENGTH}-character cap — identifier surgery, deduplicated against siblings`,
 	),
+	CASE_PROPERTY_ON_UNKNOWN_TYPE: owner(
+		"a field writes to a case type the catalog doesn't declare; auto-declaring it could resurrect a deliberately-retired type and clearing the field's target drops authored intent — the owner picks (a legacy snapshot can't reach this: the pre-P2 auto-mint left the type in the catalog)",
+	),
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_NO_OPTIONS: owner(
 		'option values and labels are device-visible content (the retired fix invented "Option 1/2" — exactly the line this table refuses to cross)',
+	),
+	SELECT_TOO_FEW_OPTIONS: owner(
+		"a select needs at least two options; inventing the missing one is device-visible content, the same line SELECT_NO_OPTIONS refuses to cross",
 	),
 	HIDDEN_NO_VALUE: owner("what the hidden field should compute is content"),
 	REQUIRED_ON_HIDDEN: mechanical(

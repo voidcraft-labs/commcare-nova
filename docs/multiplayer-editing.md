@@ -265,11 +265,11 @@ legacy doc → identical keys/uuids twice); legacy-fixture Zod round-trip;
     `addColumn`/`updateColumn`/`removeColumn`/`moveColumn`; the search-input quartet;
     `addOption`/`updateOption`/`removeOption`/`moveOption`; `setCaseListMeta { uuid, patch }`
     (`filter`/`icon`/`audioLabel`).
-  - **Keep** `setCaseTypes` and wholesale `updateModule{caseListConfig}` /
-    `updateField{options}` in the union — required for event-log replay and for whole-entity
-    creation (`createModule`/`createForm`). The diff stops emitting them for content
-    changes but still emits wholesale `updateModule{caseListConfig}` for the **presence
-    transition** (config absent↔present, or whole-object swap on a case-type flip).
+  - The union **retains** `setCaseTypes` and wholesale `updateModule{caseListConfig}` /
+    `updateField{options}` — for event-log replay and whole-entity creation
+    (`createModule`/`createForm`). The diff emits wholesale `updateModule{caseListConfig}`
+    **only** for the **presence transition** (config absent↔present, or whole-object swap on a
+    case-type flip), never for a content change.
 - `lib/doc/mutations/index.ts` (`dispatchMutation`): a `switch` arm for **every** new kind
   (default is `assertNever`); warn-and-skip totality. Catalog arms → `app.ts`; column/
   search-input arms → `modules.ts`; option arms → `fields.ts`.
@@ -282,108 +282,132 @@ legacy doc → identical keys/uuids twice); legacy-fixture Zod round-trip;
   reducers (insert idempotently on uuid, set `order`). The **option reducers mutate the
   `options` array in place and do NOT re-parse the field through `fieldSchema`** — so a
   `removeOption` dropping to 1 reaches the gate as a sub-2 candidate (else a `fieldSchema`
-  `.min(2)` re-parse would warn-skip it and the gate would see no change). Remove
-  `ensureCatalogProperty`'s auto-create-of-an-absent-**type** side-effect from all five call
-  sites; it still appends an absent property to an **existing** declared type (so two
-  concurrent `addCaseProperty` both materialize) but no longer creates an undeclared type — a
-  field on one then fails the gate via `CASE_PROPERTY_ON_UNKNOWN_TYPE`.
+  `.min(2)` re-parse would warn-skip it and the gate would see no change). `ensureCatalogProperty`
+  appends an absent property to an **existing** declared type (so two concurrent
+  `addCaseProperty` both materialize) but does not create an undeclared type — a field on an
+  undeclared type fails the gate via `CASE_PROPERTY_ON_UNKNOWN_TYPE`.
 - `lib/doc/hooks/useBlueprintMutations.ts` + `components/builder/useBuilderShortcuts.ts` — the
   builder reorder/add gestures (`moveField`/`moveModule`/`moveForm`/`moveColumn`/
   `moveSearchInput`/`moveOption` + the `addX`) **compute the fractional `order`** via
-  `keyBetween`/`deriveKeyAtIndex` against the live store doc and emit `moveX{order}` /
-  `addX{order}`. Today they dispatch `toIndex`/`before`/`after` only; under the new reducer
-  that leaves `entity.order` unchanged, so the reorder neither persists (the diff emits
-  nothing) nor renders (the UI re-sorts to the same order).
+  `keyBetween`/`keysForSlot`/`deriveKeyAtIndex` against the live store doc and emit
+  `moveX{order}` / `addX{order}`. An anchored insert (drag-between, or an SA
+  `before`/`after` anchor) resolves its slot through `keysForSlot`, which widens past a run of
+  equal-keyed siblings to a distinct bound so the interval handed to `keyBetween` is never
+  degenerate — the builder drag and the SA anchor share that one helper and so agree at a
+  collision.
 - `lib/commcare/validator/` — two new rules + `errors.ts` codes, **registered with class
   `"soundness"` in `gate.ts::VALIDITY_CLASS_BY_CODE`** (the typed-total map — an omitted code
   is a compile error, and a boundary-only rule would not run at the commit gate):
   `SELECT_TOO_FEW_OPTIONS` (`options.length < 2`) and `CASE_PROPERTY_ON_UNKNOWN_TYPE` (a
   field's `case_property_on` names an absent type).
-- `lib/commcare/validator/scopeOfMutations.ts` — exhaustive `switch (mut.kind)` with a
-  `never` tripwire; **adding kinds breaks the build and an under-broad scope staleness-bugs
-  the gate.** Add: a `full` arm for every catalog kind (mirroring `setCaseTypes`); a
-  module/form-scoped arm for the column/search-input/option/`setCaseListMeta` families; and
-  `full` for any collection kind referencing a case property/type (calculated column,
-  search predicate/default/via).
+- `lib/commcare/validator/scopeOfMutations.ts` — an exhaustive `switch (mut.kind)` with a
+  `never` tripwire (**a new kind breaks the build; an under-broad scope staleness-bugs the
+  gate**): a `full` arm for every catalog kind (mirroring `setCaseTypes`); a module/form-scoped
+  arm for the column/search-input/option/`setCaseListMeta` families; and `full` for any
+  collection kind referencing a case property/type (calculated column, search
+  predicate/default/via).
 - `lib/doc/referenceIndex.ts::planReferenceIndexMaintenance` — a second exhaustive `switch`
-  with a `never` tripwire (per-mutation via `applyOne`). Add: no-op arms for catalog kinds
-  (target namespace, like `setCaseTypes`); re-index arms for the column/search-input/option/
+  with a `never` tripwire (per-mutation via `applyOne`): no-op arms for catalog kinds (target
+  namespace, like `setCaseTypes`); re-index arms for the column/search-input/option/
   `setCaseListMeta` families that re-derive the owning module/field's reference slots
   **exactly as the `updateModule`/`updateField` arms do** (calculated-column refs, search
-  predicate/default/via, option-label hashtag prose). Not stubbed to no-ops.
+  predicate/default/via, option-label hashtag prose) — not stubbed to no-ops.
 - **Case-type declaration chokepoint.** A shared helper prepends `declareCaseType` for any
   field whose `case_property_on` names a type absent from `caseTypes`. **Every**
   `case_property_on`-setting surface routes through it: the SA add/edit assembly
   (`blueprintHelpers.ts`/`tools/shared/fieldAssembly.ts`/`createModule`'s `case_type_record`
-  + any bulk-generation assembly), the **MCP `add_fields`/`edit_field` handlers**, and the
-  builder (`useBlueprintMutations` add/edit, `FieldIdentitySection`). A CI test asserts each
-  surface emits the `declareCaseType` (a miss fails CI, not a user edit).
+  + `updateModule`'s `caseTypeCatalogMutations` + any bulk-generation assembly), the **MCP
+  `add_fields`/`edit_field` handlers**, and the builder (`useBlueprintMutations` add/edit,
+  `caseListModuleMutations`, `formScaffoldMutations`). A per-surface CI test
+  (`multiplayerMerge.test.ts`) exercises each field-birth chokepoint against a doc where the
+  target type is absent and asserts the batch declares the type before the `case_property_on`
+  writer and passes the gate — so a new surface that assembles `case_property_on` fields
+  without routing through a declare fails CI, not a user edit.
   `lib/doc/scaffolds.ts::declareCaseTypeMutations` and `::caseTypeCatalogMutations` emit
-  granular `declareCaseType`/`retireCaseType` (the latter's "collapse to one `setCaseTypes`"
-  rationale is obsolete — granular catalog mutations no longer clobber);
-  `lib/doc/caseTypeRetirement.ts` emits `retireCaseType`.
+  granular `declareCaseType`/`retireCaseType`; `lib/doc/caseTypeRetirement.ts` emits
+  `retireCaseType`.
 - `lib/agent/blueprintHelpers.ts` — the **eight case-list-config builders**
   (`addColumnsMutation`/`updateColumnMutation`/`removeColumnMutation`/`reorderColumnsMutation`
-  + the four search-input parallels) currently return wholesale
-  `{ kind:'updateModule', patch:{ caseListConfig } }`; rewrite them to emit granular
-  column/search-input kinds keyed by item uuid + `order`. The SA/MCP case-list tools that
-  call them (`add_case_list_columns`/`update_case_list_column`/`remove_case_list_column`/
+  + the four search-input parallels) emit granular column/search-input kinds keyed by item
+  uuid + `order`. The SA/MCP case-list tools that call them
+  (`add_case_list_columns`/`update_case_list_column`/`remove_case_list_column`/
   `reorder_case_list_columns` + the search-input tools) inherit the granular emission (they
-  apply mutations directly, no diff), so concurrent column/search-input edits stop
-  clobbering. `attachOptionMedia` likewise emits a granular `updateOption`.
-- `lib/doc/diffDocsToMutations.ts` (a ~1060-line, position-dependent reimplementation —
-  treat the existing machinery carefully):
+  apply mutations directly, no diff), so concurrent column/search-input edits merge.
+  `attachOptionMedia` emits a granular `updateOption`. The builder's case-list workspace
+  preserves each item's `order` + `uuid` through its rebuild path (`withPreservedIdentity`),
+  and the auto-save diff granularizes the workspace's wholesale `updateModule{caseListConfig}`
+  into per-item kinds, so the durable stream carries granular column/search-input edits.
+- `lib/doc/diffDocsToMutations.ts` (a ~1060-line, position-dependent module):
   - Every diff-internal walk (`walkFieldTree`, `nextParentsTopDown`, `buildParentMap`,
-    `reconcileFieldTree`, `reconcileFormOrders`, `reconcileOrder`) must order entities by
-    `bySortKey(order, uuid)`, since the `*Order` arrays are no longer the authoritative
-    sequence. **`reconcileOrder` / array-position move detection is replaced** by the
-    order-key diff (a common entity whose `order` changed → `moveX{order}`); the
-    **membership** reconciliation (add / remove / cross-parent move) **and the
-    evacuation-before-removes emission phase** are **retained**.
-  - The evacuation-before-removes phase MUST survive: a surviving field inside a
-    to-be-removed parent must emit `moveField` OUT before the `removeForm`/`removeModule`
-    that would cascade-delete it (`fields.ts::moveField` early-returns on a missing field, so
-    a lost survivor vanishes silently).
-  - Moves/adds/reorders per the §order-key contract. Add `order` to `MODULE_PATCH_SKIP` /
-    `FORM_PATCH_SKIP` and the field patch skip-set; add **`caseListConfig`** to
+    `reconcileFieldTree`, `reconcileFormOrders`) orders entities by `bySortKey(order, uuid)` —
+    the `*Order` arrays are membership sets, not the authoritative sequence. A reorder is
+    detected by the order-key diff (a common entity whose `order` changed → `moveX{order}`);
+    the **membership** reconciliation (add / remove / cross-parent move) and the
+    **evacuation-before-removes** emission phase run alongside it.
+  - The evacuation-before-removes phase emits `moveField` OUT of a to-be-removed parent
+    before the `removeForm`/`removeModule` that would cascade-delete it
+    (`fields.ts::moveField` early-returns on a missing field, so a lost survivor would vanish
+    silently).
+  - Moves/adds/reorders follow the §order-key contract. `order` is in `MODULE_PATCH_SKIP` /
+    `FORM_PATCH_SKIP` and the field patch skip-set; **`caseListConfig`** is in
     `MODULE_PATCH_SKIP` (so the module-common loop never co-emits a wholesale
     `updateModule{caseListConfig}` that would clobber a concurrent granular column edit); and
-    add **`options`** to the field generic-patch skip-set. Specify the option-by-uuid diff
-    routine (match on uuid; compare content excluding `order`/`uuid`; emit `addOption`/
-    `updateOption`/`removeOption`/`moveOption`).
-  - Catalog: diff by `(type, property)` **name**; emit granular catalog mutations instead of
-    `setCaseTypes` — `declareCaseType` for a new type **before** any `addCaseProperty`
-    targeting it, and `setCaseTypeMeta` for a `parent_type`/`relationship` change on an
-    existing type. No live diff path emits `setCaseTypes` after this (verify).
+    **`options`** is in the field generic-patch skip-set. The option-by-uuid diff matches on
+    uuid, compares content excluding `order`/`uuid`, and emits `addOption`/`updateOption`/
+    `removeOption`/`moveOption`.
+  - Catalog: diffs by `(type, property)` **name** and emits granular catalog mutations —
+    `declareCaseType` for a new type **before** any `addCaseProperty` targeting it, and
+    `setCaseTypeMeta` for a `parent_type`/`relationship` change on an existing type. No live
+    diff path emits `setCaseTypes`.
   - Collections: granular column/search-input/option + `setCaseListMeta` for a *persisting*
     config's content change; the wholesale `updateModule{caseListConfig}` is emitted (outside
-    the now-skipped generic patch) **only** when the config goes absent↔present or the
-    module's case type flips (the whole-object birth/clear), never for a content edit.
-- **Sort every order-consumption site through one `bySortKey(order, uuid)` helper.** There
-  are TWO field walks, not one: `lib/doc/fieldWalk.ts::buildFieldTree` (imported only by the
-  SA — `getForm` via `formSnapshot`, `getField`) **and**
+    the generic patch) **only** when the config goes absent↔present or the module's case type
+    flips (the whole-object birth/clear), never for a content edit.
+- **Every order-consumption site derives its sequence through one `bySortKey(order, uuid)`
+  helper.** There are TWO field walks, not one: `lib/doc/fieldWalk.ts::buildFieldTree`
+  (imported only by the SA — `getForm` via `formSnapshot`, `getField`) **and**
   `lib/preview/engine/fieldTree.ts::buildFieldTree` (imported by the validator field rules
-  `lib/commcare/validator/rules/field.ts` + `validator/index.ts` **and** the preview engine).
-  **Sort in both** — otherwise a same-parent reorder (membership array untouched) is invisible
-  to the commit gate and the running preview. Also sort the direct array-position reads the
-  walks don't cover: the wire emitters' `fieldOrder` walks (`lib/commcare/xform/builder.ts`,
-  `deriveCaseConfig.ts`, `formActions.ts`), the case-list column/search-input emitters
-  (`suite/case-list/*`, `suite/case-search/searchSession.ts`), the select-option XForm
-  emitter, the preview's column/option consumption, `lib/agent/summarizeBlueprint.ts`, the SA
-  positional resolvers (`blueprintHelpers.ts::resolveFieldByIndex`/`resolveFormUuid`/
-  `resolveFormContext`/`findFieldByBareId`), `caseTypeRetirement.ts::placeCarrier`, and the
-  builder render (canvas / flipbook / case-list workspace / field rows). Add a **CI grep
-  tripwire** that fails on a new raw array-index iteration of an order array *as a sequence*,
-  so a missed site fails the build, not prod. `order` never reaches CommCare.
-- Hydration boundaries call `backfillOrderKeys` + `backfillOptionUuids`: `store.ts::load`,
-  the server read path, and `commitGuardedBatch`'s `freshDoc` rebuild (P3).
+  `lib/commcare/validator/rules/field.ts` + `validator/index.ts` **and** the preview engine) —
+  both sort, otherwise a same-parent reorder (membership array untouched) is invisible to the
+  commit gate and the running preview. The direct array-position reads the walks don't cover
+  sort too: the wire emitters (`lib/commcare/xform/builder.ts`, `deriveCaseConfig.ts`,
+  `formActions.ts`, `expander.ts`/`compiler.ts` menu + form-link targets, `suite/case-list/*`,
+  `suite/case-search/searchSession.ts`, the select-option XForm emitter), the preview
+  (`CaseListScreen`, `SelectOne`/`SelectMultiField`, the edit-canvas `rowModel`, `useDragIntent`),
+  the builder (canvas / flipbook / case-list + search canvases / field rows / `navigation.ts`
+  move + Tab targets), `lib/agent/summarizeBlueprint.ts` + `searchBlueprint.ts`, the SA
+  positional resolvers (the sorted `blueprintHelpers.ts::resolveModuleUuid`/`resolveFormUuid`/
+  `resolveFieldByIndex`/`resolveFormContext` chokepoint; `createModule`/`createForm` report a
+  born entity's **display-order** index), `useSearchFilter`, `SignalGrid` +
+  `signalGrid/editFocus.ts`, `caseTypeRetirement.ts::placeCarrier`, and `log/replayChapters.ts`.
+  A **two-part CI tripwire** (`lib/doc/__tests__/orderSequenceSweep.test.ts`) keeps it exhaustive
+  per-SITE: a global scan bans `.indexOf` on a raw membership array (`moduleOrder`/`formOrder[m]`/
+  `fieldOrder[p]` — reducers + the position-as-slot `diffDocsToMutations` exempted), and the
+  enumerated pure-consumer files (`navigation.ts`, `useDragIntent.ts`) must carry **zero** raw
+  positional read; a maintenance-free scan of `lib/agent/tools` bans any raw variable-index into
+  the SA's positional resolvers. `order` and the option `uuid` never reach CommCare.
+- **One hydration chokepoint.** `lib/doc/fieldParent.ts::hydratePersistedBlueprint`
+  deep-clones a stored `PersistableDoc`, runs `backfillOrderKeys` + `backfillOptionUuids` +
+  `rebuildFieldParent`, and returns a working `BlueprintDoc`; every stored-blueprint→working-doc
+  boundary routes through it — `store.ts::load`, `lib/mcp/loadApp.ts::loadAppBlueprint`,
+  `applyBlueprintChange.ts::persistBlueprint`'s `freshDoc` (before `batchTargetsMissing` + the
+  verdict), the chat `sessionDoc`, and the two compile boundaries
+  (`prepareCompileRequest.ts`, `commcare/upload`). The reference index stays per-boundary (the
+  guarded-commit `freshDoc` omits it; the verdict seeds it). Backfill is deterministic +
+  collision-tolerant, so client and server hydrate a legacy doc to byte-identical keys/uuids.
 - Persist-at-rest scan/migrate scripts (committed, run, `git rm`): `scripts/scan-order-keys.ts`
-  + `migrate-order-keys.ts`, `scripts/scan-select-option-keys.ts` + `migrate-select-option-keys.ts`.
-  Each writes through P3's `appendSyntheticBatchTx` (written after P3).
+  + `migrate-order-keys.ts`, `scripts/scan-select-option-keys.ts` + `migrate-select-option-keys.ts`
+  (each writes through P3's `appendSyntheticBatchTx`), and `scripts/scan-replay-declare.ts` +
+  `migrate-replay-declare.ts` — the event-log forward migration that injects a synthetic
+  `declareCaseType` before any historical `addField` that created a child case type via the
+  removed auto-mint, so an admin replay of a pre-feature run reconstructs faithfully.
 
 **Seams & contracts.** A new kind = `mutationSchema` arm + `dispatchMutation` reducer arm +
 `scopeOfMutations` arm + `planReferenceIndexMaintenance` arm + diff emission + (if the SA
-authors it) a tool path + a `batchTargetsMissing` arm (P3).
+authors it) a tool path + a `batchTargetsMissing` arm. The granular catalog / collection /
+option `batchTargetsMissing` arms live in `applyBlueprintChange.ts` at item-uuid granularity
+(a concurrently-removed column/search-input/option is a conflict, not a silent no-op); P3
+relocates the function to the unified commit guard and closes it with `assertNever`.
 
 **Code facts to handle.**
 - `mutationCommitVerdict` runs `applyMutations` with no Zod parse, so the option reducers
@@ -391,21 +415,27 @@ authors it) a tool path + a `batchTargetsMissing` arm (P3).
   rule (`SELECT_TOO_FEW_OPTIONS`).
 - Case properties have no order key; the catalog diff compares by name and is a no-op on a
   reorder-only delta.
-- Removing `ensureCatalogProperty`'s auto-create changes how a *reductive* replay of a
-  historical pre-feature `addField`/`updateField`/`convertField` event targeting a
-  then-undeclared type would reduce (it used to create the type). This is safe because the
-  blueprint is snapshot-authoritative and the `acceptedMutations` fold always starts from a
-  stored snapshot that already carries the type — pre-feature deltas are never re-reduced
-  from scratch. Update `lib/doc/CLAUDE.md`'s `ensureCatalogProperty` description in the same
-  merge so the stated reducer/replay byte-identity invariant doesn't contradict the new
-  behavior.
+- The live, export, and snapshot paths are unaffected by the auto-mint's absence: a stored
+  blueprint is snapshot-authoritative and already carries every case type, and the
+  `acceptedMutations` fold starts from that snapshot rather than reducing pre-feature deltas
+  from scratch. The one path that reconstructs a doc purely from an event stream is the
+  admin-only replay/inspect view (`replayEventsSync` → `applyMany` on an empty doc); a
+  pre-feature run that created a child case type via `add_fields` recorded an `addField`
+  with no `declareCaseType`, so the event-log forward migration (`scripts/…-replay-declare`)
+  injects the missing `declareCaseType` and replay reconstructs faithfully.
 
 **Tests** (state-model): concurrent disjoint reorders converge with no clobber/snap (incl. a
 **same-position order-key-only reorder is emitted and persists**); two concurrent
 `addCaseProperty` to one type both materialize; a field on a concurrently-retired type 409s;
-two members editing different columns/options merge; `removeOption` below 2 is gate-rejected;
+a concurrently-removed column/search-input/option edit 409s (item-uuid granularity); two
+members editing different columns/options merge; `removeOption` below 2 is gate-rejected;
 every `case_property_on`-setting surface emits `declareCaseType`; the `caseListConfig`
-presence transition still emits; the diff round-trip oracle holds.
+presence transition still emits; the diff round-trip oracle holds; a legacy stored doc
+committed through the guarded body resolves a backfilled-uuid `updateOption`/`moveColumn`
+(not a silent no-op); an anchored insert between two colliding-key siblings lands after the
+tied run; the order-key primitives are total (`keyBetween` throws on a degenerate interval,
+`backfill` never reaches it) and every constructed member carries an `order` (options a
+`uuid` + `order`) — the `constructionFuzz` `assertEveryMemberKeyed` oracle.
 
 **Depends on.** P1. (The migrate scripts additionally use P3's `appendSyntheticBatchTx`.)
 
@@ -1023,9 +1053,9 @@ only non-merging cases, both rare and convergent.
 
 Subtree docs move with behavior: update `lib/agent/CLAUDE.md` (chat commit awaited-inline
 through the guarded writer; `data-done` carries a seq), `lib/doc/CLAUDE.md`
-(`ensureCatalogProperty` no longer auto-creates; declaration via the authoring chokepoint), and
-`lib/db/CLAUDE.md` (an edit run's reservation is settled on success and reaped if stranded — no
-longer an accepted residual).
+(`ensureCatalogProperty` appends only to a declared type; declaration flows through the
+authoring chokepoint), and `lib/db/CLAUDE.md` (an edit run's reservation settles on success and
+is reaped if stranded).
 
 ---
 
@@ -1068,18 +1098,32 @@ longer an accepted residual).
   seq on `data-done`; **(P4)** thread `syncedSeq` into both `materializeCaseStoreSchemas` calls;
   **(P6)** the `data-done` seq the reconciler reseeds from + `data-app-id`/`data-run-id` into the
   reconciler; **(P9)** serialize-with-wait inside `execute`.
-- `lib/doc/order/*` *(new)* — `keys.ts`, `backfill.ts` (deterministic), `compare.ts`.
+- `lib/doc/order/*` *(new)* — `keys.ts` (`keyBetween` total/throws-on-degenerate, `keysBetween`,
+  `keysForSlot`, `deriveKeyAtIndex`), `append.ts` (`sortedOrderKeys`/`appendOrderKey`/
+  `sequenceOrderKeys`), `backfill.ts` (deterministic, collision-tolerant), `compare.ts`
+  (`bySortKey`, `sameSequenceByIdentity`), `options.ts` (`keyedOptions`).
+- `lib/doc/fieldParent.ts` — `hydratePersistedBlueprint` (the one stored→working chokepoint:
+  backfill + `rebuildFieldParent`).
 - `lib/doc/types.ts` / `lib/doc/mutations/*` (incl. `app.ts`) / `lib/doc/diffDocsToMutations.ts`
-  — `order` moves (order-key diff), granular catalog + collection kinds, switch arms, remove
-  `ensureCatalogProperty` auto-create, options-skip + option-by-uuid diff, presence-transition
-  `caseListConfig`; `lib/doc/fieldWalk.ts` sorts by `bySortKey`.
+  — `order` moves (order-key diff), granular catalog + collection kinds, switch arms,
+  `ensureCatalogProperty` appends-only-to-a-declared-type, options-skip + option-by-uuid diff,
+  presence-transition `caseListConfig`; `lib/doc/fieldWalk.ts` + `lib/preview/engine/fieldTree.ts`
+  sort by `bySortKey`; the `orderSequenceSweep` two-part tripwire keeps the read-side sweep
+  exhaustive.
 - `lib/commcare/validator/*` + `errors.ts` — `SELECT_TOO_FEW_OPTIONS`,
   `CASE_PROPERTY_ON_UNKNOWN_TYPE` (gating class); `scopeOfMutations.ts` arms for every new kind.
 - `lib/doc/referenceIndex.ts` — `planReferenceIndexMaintenance` arms for every new kind.
-- `lib/doc/scaffolds.ts` (`declareCaseTypeMutations` + `caseTypeCatalogMutations` granular) /
-  `caseTypeRetirement.ts` (`retireCaseType`); `lib/agent/blueprintHelpers.ts` — the eight
-  case-list-config builders → granular; the `declareCaseType` chokepoint helper (SA + MCP
-  `add_fields`/`edit_field` + builder route through it).
+- `lib/doc/scaffolds.ts` (`declareCaseTypeMutations` + `caseTypeCatalogMutations` granular;
+  `formScaffoldMutations` declares) / `caseTypeRetirement.ts` (`retireCaseType`);
+  `lib/agent/blueprintHelpers.ts` — the eight case-list-config builders → granular; the sorted
+  `resolveModuleUuid`/`resolveFormUuid`/`resolveFieldByIndex` resolvers. The `declareCaseType`
+  chokepoint routes every `case_property_on` surface (SA + MCP `add_fields`/`edit_field` +
+  builder add/edit + `caseListModuleMutations` + `formScaffoldMutations`), guarded by the
+  `multiplayerMerge` per-surface test.
+- `lib/db/applyBlueprintChange.ts` — the granular `batchTargetsMissing` arms (item-uuid
+  granularity), `freshDoc` hydrated before the guard + verdict.
+- `scripts/scan-*` + `migrate-*` *(order-keys, select-option-keys, replay-declare)* — the
+  persist-at-rest + event-log forward migrations (committed, run, `git rm`).
 - `lib/doc/store.ts` — store-owned `suppressionDepth` (derives `isTracking`), depth-aware at
   every temporal site, `beginRemoteApply`/`endRemoteApply`, `rebaseHistory`,
   `remoteFrameApplyInProgress`.

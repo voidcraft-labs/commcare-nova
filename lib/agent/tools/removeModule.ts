@@ -33,7 +33,7 @@ import { z } from "zod";
 import { planCaseTypeRetirementOnRemove } from "@/lib/doc/caseTypeRetirement";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import { removeModuleMutations } from "../blueprintHelpers";
+import { removeModuleMutations, resolveModuleUuid } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { guardedMutate, type MutatingToolResult } from "./common";
 import type {
@@ -62,7 +62,7 @@ export const removeModuleTool = {
 	): Promise<MutatingToolResult<RemoveModuleResult>> {
 		const { moduleIndex } = input;
 		try {
-			const moduleUuid = doc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 
 			// Missing index → clear "no change" summary. A
 			// "Successfully removed" string on a missing target would

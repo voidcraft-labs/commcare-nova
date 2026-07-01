@@ -123,7 +123,7 @@ describe("planCaseTypeRetirementOnRemove", () => {
 		if (plan.kind !== "retire") return;
 		expect(plan.caseType).toBe("visit");
 		expect(plan.mutations).toEqual([
-			{ kind: "setCaseTypes", caseTypes: [PATIENT_RECORD] },
+			{ kind: "retireCaseType", caseType: "visit" },
 		]);
 	});
 
@@ -162,7 +162,7 @@ describe("planCaseTypeRetirementOnRemove", () => {
 
 		expect(plan).toMatchObject({
 			kind: "retire",
-			mutations: [{ kind: "setCaseTypes", caseTypes: null }],
+			mutations: [{ kind: "retireCaseType", caseType: "patient" }],
 		});
 	});
 
@@ -403,7 +403,7 @@ describe("planCaseTypeRetirementOnRetype", () => {
 		expect(plan).toMatchObject({
 			kind: "retire",
 			caseType: "visit",
-			mutations: [{ kind: "setCaseTypes", caseTypes: [PATIENT_RECORD] }],
+			mutations: [{ kind: "retireCaseType", caseType: "visit" }],
 		});
 	});
 
@@ -431,7 +431,7 @@ describe("planCaseTypeRetirementOnRetype", () => {
 		);
 		expect(plan).toMatchObject({
 			kind: "retire",
-			mutations: [{ kind: "setCaseTypes", caseTypes: null }],
+			mutations: [{ kind: "retireCaseType", caseType: "visit" }],
 		});
 	});
 });

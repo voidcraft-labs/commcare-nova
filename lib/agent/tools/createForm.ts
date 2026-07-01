@@ -42,6 +42,7 @@
  */
 
 import { z } from "zod";
+import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type {
 	BlueprintDoc,
 	ConnectConfig,
@@ -49,7 +50,7 @@ import type {
 	PostSubmitDestination,
 } from "@/lib/domain";
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
-import { addFormMutations } from "../blueprintHelpers";
+import { addFormMutations, resolveModuleUuid } from "../blueprintHelpers";
 import type { FlatField } from "../contentProcessing";
 import { connectFormConfigSchema } from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
@@ -116,7 +117,7 @@ export const createFormTool = {
 		const { moduleIndex, name, type, fields, purpose, post_submit, connect } =
 			input;
 		try {
-			const moduleUuid = doc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid) {
 				return {
 					kind: "mutate" as const,
@@ -235,8 +236,13 @@ export const createFormTool = {
 			const newDoc = commit.newDoc;
 
 			const mod = newDoc.modules[moduleUuid];
-			const forms = newDoc.formOrder[moduleUuid] ?? [];
-			const newFormIndex = forms.length - 1;
+			const forms = orderedFormUuids(newDoc, moduleUuid);
+			// The SA addresses forms by DISPLAY index (`sort-by-(order, uuid)`),
+			// so report the new form's SORTED position — not its `formOrder`
+			// array slot, which a born order key need not land last.
+			const newFormIndex = orderedFormUuids(newDoc, moduleUuid).indexOf(
+				formUuid,
+			);
 			const fieldCount = assembly.mutations.length;
 			const skippedNote =
 				assembly.skipped.length > 0

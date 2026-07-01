@@ -16,6 +16,7 @@
  * chapter and is already present by the time subtitle resolution runs.
  */
 import { produce } from "immer";
+import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -100,7 +101,10 @@ function subtitleForStage(
 	if (stage.startsWith("module:")) {
 		const n = Number.parseInt(stage.slice("module:".length), 10);
 		if (!Number.isFinite(n)) return stage;
-		const uuid = doc.moduleOrder[n];
+		// The stage tag's index is the SA's DISPLAY-order position
+		// (`sort-by-(order, uuid)`), so resolve it the same way — not by
+		// `moduleOrder` array slot.
+		const uuid = orderedModuleUuids(doc)[n];
 		return uuid ? (doc.modules[uuid]?.name ?? `Module ${n}`) : `Module ${n}`;
 	}
 	if (stage.startsWith("form:")) {
@@ -108,8 +112,11 @@ function subtitleForStage(
 		const m = Number.parseInt(mRaw ?? "", 10);
 		const f = Number.parseInt(fRaw ?? "", 10);
 		if (!Number.isFinite(m) || !Number.isFinite(f)) return stage;
-		const moduleUuid = doc.moduleOrder[m];
-		const formUuid = moduleUuid ? doc.formOrder[moduleUuid]?.[f] : undefined;
+		// DISPLAY-order positions (the SA's index vocabulary), not array slots.
+		const moduleUuid = orderedModuleUuids(doc)[m];
+		const formUuid = moduleUuid
+			? orderedFormUuids(doc, moduleUuid)[f]
+			: undefined;
 		return formUuid
 			? (doc.forms[formUuid]?.name ?? `Form ${m}-${f}`)
 			: `Form ${m}-${f}`;

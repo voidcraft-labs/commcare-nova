@@ -13,6 +13,10 @@
 
 import { xp } from "@/lib/__tests__/docHelpers";
 import {
+	backfillOptionUuids,
+	backfillOrderKeys,
+} from "@/lib/doc/order/backfill";
+import {
 	asUuid,
 	type BlueprintDoc,
 	type Field,
@@ -144,7 +148,7 @@ export function makeMediaDoc(): BlueprintDoc {
 		kind: "hidden",
 		calculate: xp("0"),
 	} as Field;
-	return {
+	const doc: BlueprintDoc = {
 		appId: "test-app",
 		appName: "Clinic Intake",
 		connectType: null,
@@ -170,6 +174,12 @@ export function makeMediaDoc(): BlueprintDoc {
 			[HIDDEN_FIELD]: FORM_A,
 		},
 	};
+	// Mirror the production hydration boundary (`loadAppBlueprint`): backfill
+	// order keys + option uuids so a granular `updateOption` can key the option
+	// by uuid (a hand-built fixture lacks them otherwise).
+	backfillOrderKeys(doc);
+	backfillOptionUuids(doc);
+	return doc;
 }
 
 /** Bundle of doc + chat-side `GenerationContext`. */

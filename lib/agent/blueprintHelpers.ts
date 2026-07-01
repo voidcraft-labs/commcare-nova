@@ -21,7 +21,19 @@
  */
 
 import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
-import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
+import {
+	buildFieldTree,
+	type FieldWithChildren,
+	orderedFieldUuids,
+	orderedFormUuids,
+	orderedModuleUuids,
+} from "@/lib/doc/fieldWalk";
+import { sequenceOrderKeys, sortedOrderKeys } from "@/lib/doc/order/append";
+import { keyBetween } from "@/lib/doc/order/keys";
+import {
+	formOrderKeyAtIndex,
+	moduleOrderKeyAtIndex,
+} from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	AssetId,
@@ -44,7 +56,6 @@ import {
 	removeByUuid,
 	reorderByUuid,
 	replaceByUuid,
-	snapshotCaseListConfig,
 } from "./tools/case-list-config/shared";
 
 // ── Positional lookup helpers ───────────────────────────────────────────
@@ -60,8 +71,8 @@ export function findFieldByBareId(
 	// path prefix alongside each uuid so the returned `path` matches the
 	// order of traversal (visual order of the form).
 	const stack: Array<{ uuid: Uuid; prefix: string }> = [];
-	const topOrder = doc.fieldOrder[formUuid] ?? [];
-	// Push in reverse so iteration order matches visual form order.
+	const topOrder = orderedFieldUuids(doc, formUuid);
+	// Push in reverse so iteration order matches visual (sorted) form order.
 	for (let i = topOrder.length - 1; i >= 0; i--) {
 		stack.push({ uuid: topOrder[i], prefix: "" });
 	}
@@ -75,7 +86,7 @@ export function findFieldByBareId(
 		if (field.id === bareId) return { field, path };
 		// Only container kinds have children in the order map.
 		if (isContainer(field)) {
-			const children = doc.fieldOrder[uuid] ?? [];
+			const children = orderedFieldUuids(doc, uuid);
 			for (let i = children.length - 1; i >= 0; i--) {
 				stack.push({ uuid: children[i], prefix: path });
 			}
@@ -96,10 +107,9 @@ export function resolveFieldByIndex(
 	formIndex: number,
 	bareId: string,
 ): { field: Field; path: string; formUuid: Uuid } | undefined {
-	const moduleUuid = doc.moduleOrder[moduleIndex];
+	const moduleUuid = orderedModuleUuids(doc)[moduleIndex];
 	if (!moduleUuid) return undefined;
-	const formUuids = doc.formOrder[moduleUuid] ?? [];
-	const formUuid = formUuids[formIndex];
+	const formUuid = orderedFormUuids(doc, moduleUuid)[formIndex];
 	if (!formUuid) return undefined;
 	const resolved = findFieldByBareId(doc, formUuid, bareId);
 	if (!resolved) return undefined;
@@ -120,10 +130,27 @@ export function resolveFormUuid(
 	moduleIndex: number,
 	formIndex: number,
 ): Uuid | undefined {
-	const moduleUuid = doc.moduleOrder[moduleIndex];
+	const moduleUuid = orderedModuleUuids(doc)[moduleIndex];
 	if (!moduleUuid) return undefined;
-	const formUuids = doc.formOrder[moduleUuid] ?? [];
-	return formUuids[formIndex];
+	return orderedFormUuids(doc, moduleUuid)[formIndex];
+}
+
+/**
+ * Map a `moduleIndex` to the doc's module uuid in DISPLAY order
+ * (`sort-by-(order, uuid)`) — the SAME sequence the SA reads from
+ * `summarizeBlueprint` / `get_app` / `searchBlueprint`, so "module N"
+ * addresses the entity the SA sees at position N, not the `moduleOrder`
+ * array slot (which a same-parent reorder leaves untouched). Returns
+ * `undefined` when the index is out of range; tool bodies surface that as
+ * an error string. Every module-addressing tool resolves through this (or
+ * `resolveFormUuid` / `resolveFormContext`, which sort the same way) — a
+ * raw `doc.moduleOrder[moduleIndex]` in a tool body is a defect.
+ */
+export function resolveModuleUuid(
+	doc: BlueprintDoc,
+	moduleIndex: number,
+): Uuid | undefined {
+	return orderedModuleUuids(doc)[moduleIndex];
 }
 
 /**
@@ -157,11 +184,11 @@ export function resolveFormContext(
 	moduleIndex: number,
 	formIndex: number,
 ): FormContext | undefined {
-	const moduleUuid = doc.moduleOrder[moduleIndex];
+	const moduleUuid = orderedModuleUuids(doc)[moduleIndex];
 	if (!moduleUuid) return undefined;
 	const mod = doc.modules[moduleUuid];
 	if (!mod) return undefined;
-	const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
+	const formUuid = orderedFormUuids(doc, moduleUuid)[formIndex];
 	if (!formUuid) return undefined;
 	const form = doc.forms[formUuid];
 	if (!form) return undefined;
@@ -231,7 +258,7 @@ export interface NewModuleInput {
  *  `addField` in the reducer. Accepts an optional `index` for ordered
  *  insertion; omit to append at the end. */
 export function addModuleMutations(
-	_doc: BlueprintDoc,
+	doc: BlueprintDoc,
 	input: NewModuleInput,
 	opts?: { index?: number },
 ): Mutation[] {
@@ -247,6 +274,11 @@ export function addModuleMutations(
 		// absent so round-tripping through the store stays consistent.
 		id: input.id ?? slugifyModuleId(input.name),
 		name: input.name,
+		// A born module needs an `order` key at the requested slot (append when
+		// none) — same key the builder's `moduleOrderKeyAtIndex` mints — or an
+		// order-less SA module sorts ahead of every keyed sibling until a
+		// reload's backfill.
+		order: moduleOrderKeyAtIndex(doc, opts?.index),
 		...(input.caseType !== undefined && { caseType: input.caseType }),
 		...(input.caseListOnly !== undefined && {
 			caseListOnly: input.caseListOnly,
@@ -400,36 +432,38 @@ export interface CaseListMutationOk {
 export type CaseListMutationResult = CaseListMutationOk | { error: string };
 
 /**
- * Append one or more columns to a module's case-list `columns` array in a
- * single patch (preserving order). There is no separate single-column
- * builder: the SA tool surface is the plural `addCaseListColumns`, and one
- * column is just a length-1 array — so the column-append path stays one
- * function and one mutation regardless of count.
+ * Append one or more columns to a module's case list, each as a granular
+ * `addColumn` carrying a fresh fractional `order` placed after the last
+ * existing column — so a concurrent edit to a different column merges. There
+ * is no separate single-column builder: the SA surface is the plural
+ * `addCaseListColumns`, and one column is a length-1 array.
  *
- * Always succeeds — the input is the resolved `Module`, so module
- * existence is the caller's invariant.
+ * Always succeeds — the input is the resolved `Module`, so module existence
+ * is the caller's invariant.
  */
 export function addColumnsMutation(
 	mod: Module,
 	columns: readonly Column[],
 ): CaseListMutationOk {
-	const base = snapshotCaseListConfig(mod);
-	return {
-		ok: true,
-		mutations: [
-			{
-				kind: "updateModule",
-				uuid: mod.uuid,
-				patch: {
-					caseListConfig: { ...base, columns: [...base.columns, ...columns] },
-				},
-			},
-		],
-	};
+	const keys = sortedOrderKeys(mod.caseListConfig?.columns ?? []);
+	const mutations: Mutation[] = [];
+	let last: string | null = keys.at(-1) ?? null;
+	for (const column of columns) {
+		const order = keyBetween(last, null);
+		last = order;
+		mutations.push({
+			kind: "addColumn",
+			moduleUuid: mod.uuid,
+			column: { ...column, order },
+		});
+	}
+	return { ok: true, mutations };
 }
 
 /**
- * Replace one column on a module's case-list, keyed by `columnUuid`.
+ * Replace one column on a module's case list, keyed by `columnUuid` — a
+ * granular `updateColumn` (the reducer preserves the column's current
+ * `order`).
  *
  * Failure arm: columnUuid not in the module's columns array.
  */
@@ -438,9 +472,8 @@ export function updateColumnMutation(
 	columnUuid: Uuid,
 	replacement: Column,
 ): CaseListMutationResult {
-	const base = snapshotCaseListConfig(mod);
 	const op = replaceByUuid(
-		base.columns,
+		mod.caseListConfig?.columns ?? [],
 		columnUuid,
 		replacement,
 		"case list column",
@@ -450,16 +483,18 @@ export function updateColumnMutation(
 		ok: true,
 		mutations: [
 			{
-				kind: "updateModule",
-				uuid: mod.uuid,
-				patch: { caseListConfig: { ...base, columns: op.items } },
+				kind: "updateColumn",
+				moduleUuid: mod.uuid,
+				uuid: columnUuid,
+				column: { ...replacement, uuid: columnUuid },
 			},
 		],
 	};
 }
 
 /**
- * Drop one column from a module's case-list, keyed by `columnUuid`.
+ * Drop one column from a module's case list, keyed by `columnUuid` — a
+ * granular `removeColumn`.
  *
  * Failure arm: columnUuid not in the module's columns array.
  */
@@ -467,70 +502,68 @@ export function removeColumnMutation(
 	mod: Module,
 	columnUuid: Uuid,
 ): CaseListMutationResult {
-	const base = snapshotCaseListConfig(mod);
-	const op = removeByUuid(base.columns, columnUuid, "case list column");
+	const op = removeByUuid(
+		mod.caseListConfig?.columns ?? [],
+		columnUuid,
+		"case list column",
+	);
 	if ("error" in op) return { error: op.error };
 	return {
 		ok: true,
 		mutations: [
-			{
-				kind: "updateModule",
-				uuid: mod.uuid,
-				patch: { caseListConfig: { ...base, columns: op.items } },
-			},
+			{ kind: "removeColumn", moduleUuid: mod.uuid, uuid: columnUuid },
 		],
 	};
 }
 
 /**
- * Reorder a module's case-list columns to match the supplied uuid
- * sequence.
+ * Reorder a module's case-list columns to match the supplied uuid sequence —
+ * one `moveColumn` per column, each assigned a fresh ascending fractional
+ * `order` (a wholesale reorder).
  *
- * Failure arms: length mismatch, duplicate uuid, unknown uuid in the
- * request.
+ * Failure arms: length mismatch, duplicate uuid, unknown uuid in the request.
  */
 export function reorderColumnsMutation(
 	mod: Module,
 	order: readonly Uuid[],
 ): CaseListMutationResult {
-	const base = snapshotCaseListConfig(mod);
-	const op = reorderByUuid(base.columns, order, "case list column");
+	const op = reorderByUuid(
+		mod.caseListConfig?.columns ?? [],
+		order,
+		"case list column",
+	);
 	if ("error" in op) return { error: op.error };
+	const keys = sequenceOrderKeys(order.length);
 	return {
 		ok: true,
-		mutations: [
-			{
-				kind: "updateModule",
-				uuid: mod.uuid,
-				patch: { caseListConfig: { ...base, columns: op.items } },
-			},
-		],
+		mutations: order.map((uuid, i) => ({
+			kind: "moveColumn",
+			moduleUuid: mod.uuid,
+			uuid,
+			order: keys[i],
+		})),
 	};
 }
 
-/** Search-input parallel of `addColumnsMutation` — appends one or more
- *  inputs (in order) in a single patch. Always succeeds (see
- *  `CaseListMutationOk`). */
+/** Search-input parallel of `addColumnsMutation` — one granular
+ *  `addSearchInput` per input, each carrying a fresh append `order`. */
 export function addSearchInputsMutation(
 	mod: Module,
 	searchInputs: readonly SearchInputDef[],
 ): CaseListMutationOk {
-	const base = snapshotCaseListConfig(mod);
-	return {
-		ok: true,
-		mutations: [
-			{
-				kind: "updateModule",
-				uuid: mod.uuid,
-				patch: {
-					caseListConfig: {
-						...base,
-						searchInputs: [...base.searchInputs, ...searchInputs],
-					},
-				},
-			},
-		],
-	};
+	const keys = sortedOrderKeys(mod.caseListConfig?.searchInputs ?? []);
+	const mutations: Mutation[] = [];
+	let last: string | null = keys.at(-1) ?? null;
+	for (const searchInput of searchInputs) {
+		const order = keyBetween(last, null);
+		last = order;
+		mutations.push({
+			kind: "addSearchInput",
+			moduleUuid: mod.uuid,
+			searchInput: { ...searchInput, order },
+		});
+	}
+	return { ok: true, mutations };
 }
 
 /** Search-input parallel of `updateColumnMutation`. */
@@ -539,9 +572,8 @@ export function updateSearchInputMutation(
 	searchInputUuid: Uuid,
 	replacement: SearchInputDef,
 ): CaseListMutationResult {
-	const base = snapshotCaseListConfig(mod);
 	const op = replaceByUuid(
-		base.searchInputs,
+		mod.caseListConfig?.searchInputs ?? [],
 		searchInputUuid,
 		replacement,
 		"search input",
@@ -551,9 +583,10 @@ export function updateSearchInputMutation(
 		ok: true,
 		mutations: [
 			{
-				kind: "updateModule",
-				uuid: mod.uuid,
-				patch: { caseListConfig: { ...base, searchInputs: op.items } },
+				kind: "updateSearchInput",
+				moduleUuid: mod.uuid,
+				uuid: searchInputUuid,
+				searchInput: { ...replacement, uuid: searchInputUuid },
 			},
 		],
 	};
@@ -564,16 +597,19 @@ export function removeSearchInputMutation(
 	mod: Module,
 	searchInputUuid: Uuid,
 ): CaseListMutationResult {
-	const base = snapshotCaseListConfig(mod);
-	const op = removeByUuid(base.searchInputs, searchInputUuid, "search input");
+	const op = removeByUuid(
+		mod.caseListConfig?.searchInputs ?? [],
+		searchInputUuid,
+		"search input",
+	);
 	if ("error" in op) return { error: op.error };
 	return {
 		ok: true,
 		mutations: [
 			{
-				kind: "updateModule",
-				uuid: mod.uuid,
-				patch: { caseListConfig: { ...base, searchInputs: op.items } },
+				kind: "removeSearchInput",
+				moduleUuid: mod.uuid,
+				uuid: searchInputUuid,
 			},
 		],
 	};
@@ -584,18 +620,21 @@ export function reorderSearchInputsMutation(
 	mod: Module,
 	order: readonly Uuid[],
 ): CaseListMutationResult {
-	const base = snapshotCaseListConfig(mod);
-	const op = reorderByUuid(base.searchInputs, order, "search input");
+	const op = reorderByUuid(
+		mod.caseListConfig?.searchInputs ?? [],
+		order,
+		"search input",
+	);
 	if ("error" in op) return { error: op.error };
+	const keys = sequenceOrderKeys(order.length);
 	return {
 		ok: true,
-		mutations: [
-			{
-				kind: "updateModule",
-				uuid: mod.uuid,
-				patch: { caseListConfig: { ...base, searchInputs: op.items } },
-			},
-		],
+		mutations: order.map((uuid, i) => ({
+			kind: "moveSearchInput",
+			moduleUuid: mod.uuid,
+			uuid,
+			order: keys[i],
+		})),
 	};
 }
 
@@ -612,6 +651,11 @@ export interface NewFormInput {
 	closeCondition?: Form["closeCondition"];
 	connect?: ConnectConfig | null;
 	postSubmit?: PostSubmitDestination;
+	/** Explicit `order` key — supplied by a caller adding SEVERAL forms to a
+	 *  module in ONE batch (`createModule`), which pre-mints a sequential run
+	 *  since none of the sibling forms is in `doc` yet. Omitted for a single
+	 *  `addForm`, where the key is derived from the module's existing forms. */
+	order?: string;
 }
 
 /** Build an `addForm` mutation. Mints a uuid when the caller doesn't
@@ -642,6 +686,11 @@ export function addFormMutations(
 		id: input.id ?? slugifyFormId(input.name),
 		name: input.name,
 		type: input.type,
+		// A born form needs an `order` key: an explicit one from a batch that
+		// pre-minted a sequential run (`createModule`), else derived at the
+		// requested slot (append) from the module's existing forms — same key
+		// the builder's `formOrderKeyAtIndex` mints.
+		order: input.order ?? formOrderKeyAtIndex(doc, moduleUuid, opts?.index),
 		...(input.purpose !== undefined && { purpose: input.purpose }),
 		...(input.closeCondition !== undefined && {
 			closeCondition: input.closeCondition,

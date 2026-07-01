@@ -21,9 +21,14 @@
  */
 
 import { z } from "zod";
+import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import { removeFormMutations, resolveFormUuid } from "../blueprintHelpers";
+import {
+	removeFormMutations,
+	resolveFormUuid,
+	resolveModuleUuid,
+} from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { guardedMutate, type MutatingToolResult } from "./common";
 import type {
@@ -62,9 +67,11 @@ export const removeFormTool = {
 			// step. Reporting the state truthfully (target not present,
 			// no mutation applied) keeps the SA aligned with reality.
 			if (!formUuid) {
-				const moduleUuid = doc.moduleOrder[moduleIndex];
+				const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 				const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
-				const remainingForms = (moduleUuid && doc.formOrder[moduleUuid]) ?? [];
+				const remainingForms = moduleUuid
+					? orderedFormUuids(doc, moduleUuid)
+					: [];
 				return {
 					kind: "mutate" as const,
 					mutations: [],
@@ -95,9 +102,11 @@ export const removeFormTool = {
 			}
 			const newDoc = commit.newDoc;
 
-			const moduleUuid = newDoc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(newDoc, moduleIndex);
 			const mod = moduleUuid ? newDoc.modules[moduleUuid] : undefined;
-			const remainingForms = (moduleUuid && newDoc.formOrder[moduleUuid]) ?? [];
+			const remainingForms = moduleUuid
+				? orderedFormUuids(newDoc, moduleUuid)
+				: [];
 			return {
 				kind: "mutate" as const,
 				mutations,

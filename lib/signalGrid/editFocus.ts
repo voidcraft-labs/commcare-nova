@@ -23,6 +23,13 @@ const MIN_EDIT_ZONE = 0.15;
  * Data required to compute the edit focus zone. Mirrors the ordering
  * slices of `BlueprintDoc` (moduleOrder / formOrder / fieldOrder) so
  * callers can pass a narrowed view without cloning the whole doc.
+ *
+ * `moduleOrder` and each `formOrder` list must be in DISPLAY order
+ * (`sort-by-(order, uuid)`): the scope's `moduleIndex` / `formIndex` are
+ * that same sorted position, and the cumulative field offsets this builds
+ * must match the canvas's rendered layout. `fieldOrder` may stay in any
+ * order — its only use is a total field COUNT per form, which is
+ * position-independent.
  */
 export interface EditFocusData {
 	moduleOrder: readonly string[];

@@ -39,6 +39,7 @@ import {
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { and, eq, literal, prop, term } from "@/lib/domain/predicate/builders";
@@ -375,8 +376,11 @@ function buildCaseStoreSortKeys(
 
 	type Survivor = { readonly column: Column; readonly index: number };
 	const survivors: Survivor[] = [];
-	for (let i = 0; i < caseListConfig.columns.length; i++) {
-		const column = caseListConfig.columns[i];
+	// DISPLAY order (`sort-by-(order, uuid)`, not array position) — the same
+	// sequence the wire emitter walks, so the equal-priority tie-break matches.
+	const sortedColumns = [...caseListConfig.columns].sort(bySortKey);
+	for (let i = 0; i < sortedColumns.length; i++) {
+		const column = sortedColumns[i];
 		if (column.sort === undefined) continue;
 		survivors.push({ column, index: i });
 	}

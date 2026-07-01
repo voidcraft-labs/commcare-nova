@@ -15,7 +15,10 @@
 
 import { z } from "zod";
 import type { BlueprintDoc, CaseSearchConfig } from "@/lib/domain";
-import { updateModuleMutations } from "../../blueprintHelpers";
+import {
+	resolveModuleUuid,
+	updateModuleMutations,
+} from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { guardedMutate, type MutatingToolResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
@@ -72,7 +75,7 @@ export const setCaseSearchAdvancedTool = {
 	): Promise<MutatingToolResult<SetCaseSearchAdvancedResult>> {
 		const { moduleIndex } = input;
 		try {
-			const moduleUuid = doc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid)
 				return moduleNotFoundResult<SetCaseSearchAdvancedSuccess>(
 					doc,

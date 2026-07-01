@@ -21,7 +21,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import type { AppDoc } from "@/lib/db/types";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import {
@@ -397,6 +400,221 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 		const committed =
 			await updateAppForRunTransactionalMock.mock.results[0]?.value;
 		expect(committed.logo).toBe("asset-live");
+	});
+});
+
+/** Strip the `order` keys + select-option `uuid`s off a persisted doc to
+ *  simulate a LEGACY app stored before the order-key model shipped. */
+function toLegacyStored(doc: BlueprintDoc): PersistableDoc {
+	const p = structuredClone(toPersistableDoc(doc)) as PersistableDoc & {
+		modules: Record<string, { order?: string; caseListConfig?: unknown }>;
+		forms: Record<string, { order?: string }>;
+		fields: Record<string, { order?: string; options?: unknown[] }>;
+	};
+	for (const mod of Object.values(p.modules)) {
+		delete mod.order;
+		const config = mod.caseListConfig as
+			| {
+					columns: { order?: string }[];
+					searchInputs: { order?: string }[];
+			  }
+			| undefined;
+		if (config) {
+			for (const col of config.columns) delete col.order;
+			for (const input of config.searchInputs) delete input.order;
+		}
+	}
+	for (const form of Object.values(p.forms)) delete form.order;
+	for (const field of Object.values(p.fields)) {
+		delete field.order;
+		if (Array.isArray(field.options)) {
+			for (const opt of field.options as {
+				order?: string;
+				uuid?: string;
+			}[]) {
+				delete opt.order;
+				delete opt.uuid;
+			}
+		}
+	}
+	return p;
+}
+
+/** Arm the transactional writer to read an already-persisted (legacy) doc. */
+function armTransactionalWithPersisted(fresh: PersistableDoc) {
+	updateAppForRunTransactionalMock.mockImplementation(
+		async (
+			_appId: string,
+			_runId: string,
+			body: (
+				doc: AppDoc,
+				tx: unknown,
+			) => PersistableDoc | Promise<PersistableDoc>,
+		) =>
+			body(
+				{
+					blueprint: fresh,
+					owner: "user-1",
+					project_id: "project-1",
+					status: "complete",
+				} as unknown as AppDoc,
+				{},
+			),
+	);
+}
+
+describe("applyBlueprintChange — legacy stored doc hydrates before the guard", () => {
+	it("resolves an updateOption keyed by the client's BACKFILLED uuid (no silent no-op) and persists the keys", async () => {
+		// A stored select field with no order keys + no option uuids — a
+		// pre-order-key legacy app.
+		const authored = buildDoc({
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								f({
+									kind: "single_select",
+									id: "color",
+									label: "Color",
+									options: [
+										{ value: "red", label: "Red" },
+										{ value: "green", label: "Green" },
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const fieldUuid = Object.values(authored.fields).find(
+			(fl) => fl.id === "color",
+		)?.uuid as string;
+		const legacy = toLegacyStored(authored);
+		armTransactionalWithPersisted(legacy);
+		loadAppMock.mockResolvedValue({ blueprint: legacy });
+
+		// The CLIENT hydrates the same legacy doc — deterministic backfill —
+		// and edits "red"'s label, referencing the backfilled uuid + order.
+		const clientDoc = hydratePersistedBlueprint(legacy);
+		const clientField = clientDoc.fields[fieldUuid] as {
+			options: { value: string; uuid?: string; order?: string }[];
+		};
+		const red = clientField.options.find((o) => o.value === "red");
+		const mutations: Mutation[] = [
+			{
+				kind: "updateOption",
+				fieldUuid,
+				uuid: red?.uuid,
+				option: { ...red, label: "Crimson" },
+			} as Mutation,
+		];
+
+		await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			prospective: legacy,
+			runId: "run-1",
+			guard: { mutations },
+		});
+
+		const committed =
+			await updateAppForRunTransactionalMock.mock.results[0]?.value;
+		const committedOptions = (
+			committed.fields[fieldUuid] as {
+				options: { value: string; label: string; uuid?: string }[];
+			}
+		).options;
+		// The edit LANDED against the server's freshly-hydrated doc (server and
+		// client backfilled the same deterministic uuid) — not a silent no-op.
+		expect(committedOptions.find((o) => o.value === "red")?.label).toBe(
+			"Crimson",
+		);
+		// And the backfilled uuids persisted forward, migrating the legacy app.
+		expect(committedOptions.every((o) => o.uuid !== undefined)).toBe(true);
+	});
+
+	it("resolves a moveColumn on a legacy case list and persists a fully-keyed column order", async () => {
+		const authored = buildDoc({
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListOnly: true,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+						{ field: "age", header: "Age" },
+					]),
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "age", label: "Age" },
+					],
+				},
+			],
+		});
+		const moduleUuid = Object.values(authored.modules).find(
+			(m) => m.name === "Patients",
+		)?.uuid as string;
+		// The auto-generated column uuids (the helper mints them).
+		const authoredCols = (authored.modules[moduleUuid].caseListConfig
+			?.columns ?? []) as { uuid: string; field?: string }[];
+		const c1 = authoredCols.find((c) => c.field === "case_name")
+			?.uuid as string;
+		const c2 = authoredCols.find((c) => c.field === "age")?.uuid as string;
+		const legacy = toLegacyStored(authored);
+		armTransactionalWithPersisted(legacy);
+		loadAppMock.mockResolvedValue({ blueprint: legacy });
+
+		// The client hydrates, then moves "Name" (col-1) to the END — the case
+		// that lands WRONG against a partially-keyed doc (a lone keyed entity
+		// sorts ahead of keyless siblings).
+		const clientDoc = hydratePersistedBlueprint(legacy);
+		const clientCols = clientDoc.modules[moduleUuid].caseListConfig
+			?.columns as { uuid: string; order?: string }[];
+		const ageOrder = clientCols.find((c) => c.uuid === c2)?.order ?? null;
+		const { keyBetween } = await import("@/lib/doc/order/keys");
+		const mutations: Mutation[] = [
+			{
+				kind: "moveColumn",
+				moduleUuid,
+				uuid: c1,
+				order: keyBetween(ageOrder, null),
+			} as Mutation,
+		];
+
+		await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			prospective: legacy,
+			runId: "run-1",
+			guard: { mutations },
+		});
+
+		const committed =
+			await updateAppForRunTransactionalMock.mock.results[0]?.value;
+		const cols = (
+			committed.modules[moduleUuid].caseListConfig as {
+				columns: { uuid: string; order?: string }[];
+			}
+		).columns;
+		// Every column carries an order key (server backfilled the keyless
+		// siblings before applying the move) …
+		expect(cols.every((c) => c.order !== undefined)).toBe(true);
+		// … so the display sequence puts Age before the moved-to-end Name.
+		const bySort = [...cols].sort((a, b) =>
+			(a.order ?? "") < (b.order ?? "") ? -1 : 1,
+		);
+		expect(bySort[0].uuid).toBe(c2);
+		expect(bySort[1].uuid).toBe(c1);
 	});
 });
 

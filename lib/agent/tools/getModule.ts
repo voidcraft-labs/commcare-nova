@@ -18,13 +18,14 @@
  */
 
 import { z } from "zod";
-import { countFieldsUnder } from "@/lib/doc/fieldWalk";
+import { countFieldsUnder, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
 	CaseSearchConfig,
 	FormType,
 } from "@/lib/domain";
+import { resolveModuleUuid } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
 
@@ -79,7 +80,7 @@ export const getModuleTool = {
 		doc: BlueprintDoc,
 	): Promise<ReadToolResult<GetModuleResult>> {
 		const { moduleIndex } = input;
-		const moduleUuid = doc.moduleOrder[moduleIndex];
+		const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 		if (!moduleUuid) {
 			return {
 				kind: "read",
@@ -93,7 +94,7 @@ export const getModuleTool = {
 				data: { error: `Module ${moduleIndex} not found` },
 			};
 		}
-		const formUuids = doc.formOrder[moduleUuid] ?? [];
+		const formUuids = orderedFormUuids(doc, moduleUuid);
 		return {
 			kind: "read",
 			data: {

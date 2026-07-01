@@ -18,7 +18,10 @@
 
 import { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
-import { reorderSearchInputsMutation } from "../../blueprintHelpers";
+import {
+	reorderSearchInputsMutation,
+	resolveModuleUuid,
+} from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { guardedMutate, type MutatingToolResult } from "../common";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
@@ -65,7 +68,7 @@ export const reorderSearchInputsTool = {
 		const { moduleIndex, searchInputUuids: rawSearchInputUuids } = input;
 		const searchInputUuids = rawSearchInputUuids.map(asUuid);
 		try {
-			const moduleUuid = doc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid)
 				return moduleNotFoundResult<ReorderSearchInputsSuccess>(
 					doc,

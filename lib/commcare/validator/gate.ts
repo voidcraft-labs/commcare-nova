@@ -176,6 +176,13 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	CASE_PROPERTY_TOO_LONG: "soundness",
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_NO_OPTIONS: "shape",
+	// `options.length < 2` reached in place by a granular `removeOption` the
+	// reducer applies without re-parsing the field through `fieldSchema`'s
+	// `.min(2)`, so it needs a gating rule rather than the shape backstop.
+	SELECT_TOO_FEW_OPTIONS: "soundness",
+	// A field still writing to a case type absent from the catalog — reachable
+	// when a peer concurrently retires the type the field was declared against.
+	CASE_PROPERTY_ON_UNKNOWN_TYPE: "soundness",
 	HIDDEN_NO_VALUE: "soundness",
 	REQUIRED_ON_HIDDEN: "shape",
 	CALCULATE_ON_VISIBLE_INPUT: "shape",

@@ -26,7 +26,10 @@ import { temporal } from "zundo";
 import { create } from "zustand";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import {
+	hydratePersistedBlueprint,
+	rebuildFieldParent,
+} from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
@@ -229,10 +232,13 @@ export function createBlueprintDocStore() {
 						 * `store.temporal.getState().resume()` afterward.
 						 */
 						load: (doc: PersistableDoc) => {
-							// Spread the on-disk doc (which has no fieldParent) into a full
-							// in-memory BlueprintDoc by initializing fieldParent to {} first.
-							// rebuildFieldParent below fills it in from fieldOrder atomically.
-							const next: BlueprintDoc = { ...doc, fieldParent: {} };
+							// The single hydration chokepoint: fieldParent rebuilt +
+							// deterministic `order`/option-`uuid` backfill of a legacy doc,
+							// on a deep clone so `doc` is never mutated. Position-seeded, so
+							// this client and the server agree on the same legacy doc and a
+							// diff against it never disagrees on an entity's position or an
+							// option's identity.
+							const hydrated = hydratePersistedBlueprint(doc);
 							set((draft) => {
 								// Copy EVERY doc field onto the draft in one pass. A
 								// hand-listed field-by-field assignment silently drops any
@@ -241,16 +247,14 @@ export function createBlueprintDocStore() {
 								// field. The cast strips the action-overlay
 								// (`BlueprintDocState = BlueprintDoc & { actions }`) whose
 								// readonly Record maps otherwise reject the swap; the draft's
-								// own action methods aren't keys on `next`, so they survive.
+								// own action methods aren't keys on `hydrated`, so they survive.
 								// Immer records each assignment through its proxy and produces
 								// the next state with structural sharing.
-								Object.assign(draft as BlueprintDoc, next);
-								// Rebuild the derived state so hooks and the pre-dispatch
-								// verdict layer read indexes for THIS doc immediately after
-								// load. The reference index is assigned (not merged): `next`
-								// carries no `refIndex` key, so the Object.assign above would
-								// otherwise leave a prior app's stale index in place.
-								rebuildFieldParent(draft as unknown as BlueprintDoc);
+								Object.assign(draft as BlueprintDoc, hydrated);
+								// The reference index is assigned (not merged) — the
+								// reference index stays per-boundary: `hydrated` carries no
+								// `refIndex` key, so the Object.assign above would otherwise
+								// leave a prior app's stale index in place.
 								(draft as unknown as BlueprintDoc).refIndex =
 									buildReferenceIndex(draft as unknown as BlueprintDoc);
 							});

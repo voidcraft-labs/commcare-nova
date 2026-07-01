@@ -7,6 +7,7 @@ import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm } from "@/lib/doc/hooks/useEntity";
 import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
+import { bySortKey } from "@/lib/doc/order/compare";
 import { asUuid } from "@/lib/doc/types";
 import { InlineField } from "./InlineField";
 import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
@@ -74,11 +75,13 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 	/* Resolve the referenced field to check if it has selectable options. */
 	const selectedFieldOptions = useMemo(() => {
 		if (!closeField) return undefined;
-		// `options` only exists on select kinds; narrow via `in`.
+		// `options` only exists on select kinds; narrow via `in`. In DISPLAY
+		// order (`sort-by-(order, uuid)`, matching the field's rendered choices),
+		// not `options` array position.
 		return "options" in closeField &&
 			closeField.options &&
 			closeField.options.length > 0
-			? closeField.options
+			? [...closeField.options].sort(bySortKey)
 			: undefined;
 	}, [closeField]);
 

@@ -39,6 +39,7 @@
 import { z } from "zod";
 import { parseXPathForField } from "@/lib/doc/expressionText";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
+import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -379,6 +380,23 @@ export const editFieldTool = {
 						parseXPathForField(workingDoc, afterRename.field.uuid, text),
 				);
 				if (Object.keys(patch).length > 0) {
+					// Declaration chokepoint: a patch RE-TARGETING `case_property_on`
+					// to a type absent from the catalog declares it FIRST (a stage of
+					// its own, so the type exists before the field's catalog sync
+					// runs) — the reducer no longer auto-creates the type.
+					const nextType = (patch as { case_property_on?: unknown })
+						.case_property_on;
+					if (typeof nextType === "string" && nextType.length > 0) {
+						const declMuts = declareCaseTypeMutations(workingDoc, nextType);
+						if (declMuts.length > 0) {
+							workingDoc = applyToDoc(workingDoc, declMuts);
+							stages.push({
+								mutations: declMuts,
+								doc: workingDoc,
+								stage: `edit:${moduleIndex}-${formIndex}`,
+							});
+						}
+					}
 					// `afterRename.field.kind` is the kind after any
 					// just-applied conversion — pass it as `targetKind` so
 					// the mutation discriminates against the post-convert

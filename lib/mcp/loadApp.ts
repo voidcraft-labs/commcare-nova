@@ -37,9 +37,9 @@ import type { AppCapability } from "@/lib/auth/projectRoles";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { McpAccessError, rethrowAsMcpAccess } from "./ownership";
 
 /**
@@ -85,17 +85,17 @@ export async function loadAppBlueprint(
 	} catch (err) {
 		rethrowAsMcpAccess(err);
 	}
-	/* Split the raw blueprint off the `AppDoc` envelope so the return
-	 * type can't accidentally leak a stale blueprint through `.app`.
-	 * `rebuildFieldParent` assigns into `doc.fieldParent`; spreading
-	 * first prevents mutation of the shared object `loadApp` returned.
-	 * The reference index hydrates here too, so every reference lookup
-	 * the tool layer makes (retirement planning, the rename verdict's
-	 * peer scan, the rename cascade itself) is O(1) from the first
-	 * call instead of falling back to a per-call rebuild. */
+	/* Split the raw blueprint off the `AppDoc` envelope so the return type
+	 * can't accidentally leak a stale blueprint through `.app`. The shared
+	 * hydration chokepoint rebuilds `fieldParent` and backfills a legacy doc's
+	 * `order`/option-`uuid`s on a clone, so `loaded.blueprint` is untouched.
+	 * The reference index hydrates here too (per-boundary), so every reference
+	 * lookup the tool layer makes (retirement planning, the rename verdict's
+	 * peer scan, the rename cascade itself) is O(1) from the first call. */
 	const { blueprint, ...appRest } = loaded;
-	const doc: BlueprintDoc = { ...blueprint, fieldParent: {} };
-	rebuildFieldParent(doc);
+	const doc: BlueprintDoc = hydratePersistedBlueprint(
+		blueprint as PersistableDoc,
+	);
 	ensureReferenceIndex(doc);
 	return { doc, app: appRest };
 }

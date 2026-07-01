@@ -221,6 +221,34 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		);
 		expect("message" in out.result).toBe(true);
 	});
+
+	it("updateModule setting a BRAND-NEW case_type declares it so the seeded Name column resolves", async () => {
+		// The catalog holds only "respondent"; "household" is brand new. With
+		// `ensureCatalogProperty`'s auto-mint gone, this surface must emit a
+		// `declareCaseType` — otherwise the seeded Name column's `case_name`
+		// can't resolve (`CASE_LIST_COLUMN_UNKNOWN_FIELD`) and the gate rejects,
+		// so the SA/MCP could not do what the builder gesture does.
+		const { ctx, recordMutations } = makeCtx();
+		const out = await updateModuleTool.execute(
+			{
+				moduleIndex: 0,
+				case_type: "household",
+				case_list_columns: [
+					{ kind: "plain", field: "case_name", header: "Name" } as never,
+				],
+			},
+			ctx,
+			caseTypelessDoc(),
+		);
+		expect("message" in out.result).toBe(true);
+		expect(recordMutations).toHaveBeenCalled();
+		// The new type landed in the catalog…
+		expect(
+			(out.newDoc.caseTypes ?? []).some((ct) => ct.name === "household"),
+		).toBe(true);
+		// …and the module carries it.
+		expect(Object.values(out.newDoc.modules)[0]?.caseType).toBe("household");
+	});
 });
 
 // ── NO_CASE_NAME_FIELD (cannot dissolve — content) ──────────────────

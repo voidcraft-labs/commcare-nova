@@ -70,7 +70,10 @@ import {
 	describeIntroducedErrors,
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
-import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -206,6 +209,33 @@ function batchTargetsMissing(
 	const modules = new Set(Object.keys(doc.modules));
 	const forms = new Set(Object.keys(doc.forms));
 	const fields = new Set(Object.keys(doc.fields));
+	// Case-type names present on the doc, plus the ones an earlier
+	// `declareCaseType` / `setCaseTypes` in the same batch brings into being —
+	// the catalog kinds resolve against this simulated live set the same way
+	// the entity kinds resolve against `modules` / `forms` / `fields`.
+	const caseTypeNames = new Set((doc.caseTypes ?? []).map((ct) => ct.name));
+	// Sub-entity live sets at ITEM granularity, mirroring the entity sets: a
+	// column / search-input / option the batch edits, moves, or removes must
+	// still exist — a concurrent DELETE of the same item makes the reducer
+	// silently no-op instead of surfacing the conflict, the exact invisible
+	// data loss this guard closes. Option uuids are already present: the fresh
+	// doc was hydrated (backfilled) before this runs. Column / search-input
+	// uuids are schema-required.
+	const columns = new Set<string>();
+	const searchInputs = new Set<string>();
+	for (const mod of Object.values(doc.modules)) {
+		const config = mod.caseListConfig;
+		if (!config) continue;
+		for (const col of config.columns) columns.add(col.uuid);
+		for (const input of config.searchInputs) searchInputs.add(input.uuid);
+	}
+	const options = new Set<string>();
+	for (const field of Object.values(doc.fields)) {
+		if (!("options" in field) || !Array.isArray(field.options)) continue;
+		for (const opt of field.options) {
+			if (opt.uuid !== undefined) options.add(opt.uuid);
+		}
+	}
 	// A field's parent is a form or a group/repeat field — either may hold it.
 	const container = (uuid: string) => forms.has(uuid) || fields.has(uuid);
 	for (const m of mutations) {
@@ -259,8 +289,75 @@ function batchTargetsMissing(
 			case "setFieldMedia":
 				if (!fields.has(m.fieldUuid)) return true;
 				break;
-			// App-level kinds (setAppName / setConnectType / setCaseTypes /
-			// setAppLogo) carry no entity target.
+			// ── Granular case-type catalog ─────────────────────────────
+			case "declareCaseType":
+				caseTypeNames.add(m.caseType);
+				break;
+			case "setCaseTypes":
+				// Wholesale replace (event-log replay only; the live diff never
+				// emits it) — re-seed the simulated catalog names.
+				caseTypeNames.clear();
+				for (const ct of m.caseTypes ?? []) caseTypeNames.add(ct.name);
+				break;
+			case "retireCaseType":
+				if (!caseTypeNames.has(m.caseType)) return true;
+				caseTypeNames.delete(m.caseType);
+				break;
+			case "addCaseProperty":
+			case "removeCaseProperty":
+			case "setCaseProperty":
+			case "setCaseTypeMeta":
+				// A catalog edit against a type a concurrent writer retired (and
+				// not re-declared earlier in this batch) is a conflict, not a
+				// silent no-op.
+				if (!caseTypeNames.has(m.caseType)) return true;
+				break;
+			// ── Granular case-list collections (module-owned) ──────────
+			// Add checks the parent module and seeds the new item; update / move
+			// / remove check the ITEM's own uuid (a concurrently-removed target is
+			// a conflict, not a silent no-op). `setCaseListMeta` is module-scoped.
+			case "addColumn":
+				if (!modules.has(m.moduleUuid)) return true;
+				columns.add(m.column.uuid);
+				break;
+			case "removeColumn":
+				if (!columns.has(m.uuid)) return true;
+				columns.delete(m.uuid);
+				break;
+			case "updateColumn":
+			case "moveColumn":
+				if (!columns.has(m.uuid)) return true;
+				break;
+			case "addSearchInput":
+				if (!modules.has(m.moduleUuid)) return true;
+				searchInputs.add(m.searchInput.uuid);
+				break;
+			case "removeSearchInput":
+				if (!searchInputs.has(m.uuid)) return true;
+				searchInputs.delete(m.uuid);
+				break;
+			case "updateSearchInput":
+			case "moveSearchInput":
+				if (!searchInputs.has(m.uuid)) return true;
+				break;
+			case "setCaseListMeta":
+				if (!modules.has(m.uuid)) return true;
+				break;
+			// ── Granular select options (field-owned) ──────────────────
+			case "addOption":
+				if (!fields.has(m.fieldUuid)) return true;
+				if (m.option.uuid !== undefined) options.add(m.option.uuid);
+				break;
+			case "removeOption":
+				if (!options.has(m.uuid)) return true;
+				options.delete(m.uuid);
+				break;
+			case "updateOption":
+			case "moveOption":
+				if (!options.has(m.uuid)) return true;
+				break;
+			// App-level scalar kinds (setAppName / setConnectType / setAppLogo)
+			// carry no entity target.
 		}
 	}
 	return false;
@@ -432,11 +529,18 @@ async function persistBlueprint(
 					throw new BlueprintCommitRejectedError(failure);
 				}
 			}
-			const freshDoc: BlueprintDoc = {
-				...(fresh.blueprint as PersistableDoc),
-				fieldParent: {},
-			} as BlueprintDoc;
-			rebuildFieldParent(freshDoc);
+			/* The shared hydration chokepoint: fieldParent rebuilt + the
+			 * deterministic `order`/option-`uuid` backfill a legacy stored doc
+			 * needs. Backfill runs HERE, before `batchTargetsMissing` and the
+			 * verdict, so the fresh doc's options already carry the same
+			 * position-seeded uuids a client backfilled — otherwise a legacy
+			 * app's `updateOption`/`moveColumn` would resolve against a keyless
+			 * fresh doc, `findIndex` return -1, and no-op silently. The fresh doc
+			 * carries no reference index (per-boundary); the verdict's candidate
+			 * apply seeds one. */
+			const freshDoc = hydratePersistedBlueprint(
+				fresh.blueprint as PersistableDoc,
+			);
 			/* A mutation targeting an entity a concurrent writer deleted would
 			 * silently no-op (the reducers are total) and pass the verdict —
 			 * invisible data loss. Reject it as a conflict instead, so the

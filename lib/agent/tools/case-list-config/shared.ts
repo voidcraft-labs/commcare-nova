@@ -32,10 +32,8 @@
 
 import { z } from "zod";
 import {
-	type CaseListConfig,
 	type Column,
 	columnSchema,
-	type Module,
 	type SearchInputDef,
 	searchInputDefSchema,
 	type Uuid,
@@ -184,40 +182,6 @@ export function newUuid(): Uuid {
  * value into the branded `Uuid`-typed mutation builders.
  */
 export const uuidInputSchema = z.string().min(1);
-
-// ── Snapshot helper ─────────────────────────────────────────────────
-
-/**
- * Pick the existing `caseListConfig` off the supplied module entity,
- * falling back to an empty config when the module has none. Read by
- * every case-list-config tool — the atomic-op mutation builders in
- * `lib/agent/blueprintHelpers.ts` and the wholesale `setCaseListFilter`
- * tool — before applying a slot-specific patch so the surrounding
- * slots survive the edit.
- *
- * Three-slot empty fallback: `columns` and `searchInputs` start as
- * empty arrays, `filter` is OMITTED rather than `undefined`. The
- * schema treats absence as "no filter," and a literal `filter:
- * undefined` would round-trip as an explicit clear at the reducer's
- * `Object.assign`. The non-empty path preserves the live `filter`
- * reference when present and leaves the key absent otherwise.
- *
- * Returns live array references — callers that mutate must copy
- * first. The case-list-config consumers all do: the atomic builders
- * either spread (`[...base.columns, column]`) or thread through
- * `replaceByUuid` / `removeByUuid` / `reorderByUuid`, each of which
- * slices internally before splicing; `setCaseListFilter` destructures
- * into a fresh object before patching. No consumer mutates in place.
- */
-export function snapshotCaseListConfig(mod: Module): CaseListConfig {
-	const config = mod.caseListConfig;
-	if (config === undefined) return { columns: [], searchInputs: [] };
-	return {
-		columns: config.columns,
-		searchInputs: config.searchInputs,
-		...(config.filter !== undefined && { filter: config.filter }),
-	};
-}
 
 // ── Uuid-keyed array helpers ────────────────────────────────────────
 //

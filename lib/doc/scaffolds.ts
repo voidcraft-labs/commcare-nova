@@ -19,8 +19,10 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
+	type Field,
 	type Form,
 	type FormType,
+	fieldCasePropertyOn,
 	formTypeLabels,
 	humanizeId,
 	type Module,
@@ -30,7 +32,54 @@ import {
 	uniqueSlug,
 } from "@/lib/domain";
 import type { CaseTypeRetirement } from "./caseTypeRetirement";
+import { orderedFormUuids, orderedModuleUuids } from "./fieldWalk";
+import { sequenceOrderKeys } from "./order/append";
+import { deriveKeyAtIndex, keyBetween } from "./order/keys";
 import type { Mutation } from "./types";
+
+/** The fractional `order` key for a module inserted at `index` (default
+ *  append) in the app's DISPLAY sequence — so the "+" insertion renders at the
+ *  requested slot under the order-key-sorted render. */
+export function moduleOrderKeyAtIndex(
+	doc: BlueprintDoc,
+	index: number | undefined,
+): string {
+	const keys = orderedModuleUuids(doc)
+		.map((uuid) => doc.modules[uuid]?.order)
+		.filter((o): o is string => o !== undefined);
+	return deriveKeyAtIndex(keys, index ?? keys.length);
+}
+
+/** The fractional `order` key for a form inserted at `index` (default append)
+ *  in its module's DISPLAY sequence. */
+export function formOrderKeyAtIndex(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	index: number | undefined,
+): string {
+	const keys = orderedFormUuids(doc, moduleUuid)
+		.map((uuid) => doc.forms[uuid]?.order)
+		.filter((o): o is string => o !== undefined);
+	return deriveKeyAtIndex(keys, index ?? keys.length);
+}
+
+/**
+ * The case-type DECLARATION chokepoint. A field writing to a case type absent
+ * from the catalog prepends a granular `declareCaseType` — the reducer no
+ * longer auto-creates the type on a field write (that would clobber a
+ * concurrent declaration), so EVERY `case_property_on`-setting surface (the SA
+ * add/edit assembly, the MCP field handlers via the shared tools, and the
+ * builder's add/edit gestures) routes through this. A no-op when the field
+ * writes no case or its type is already declared.
+ */
+export function declareCaseTypeForField(
+	doc: BlueprintDoc,
+	field: Field,
+): Mutation[] {
+	const caseType = fieldCasePropertyOn(field);
+	if (caseType === undefined) return [];
+	return declareCaseTypeMutations(doc, caseType);
+}
 
 /** Header for the `Name` column a new case module is born with. `case_name` is
  *  a CommCare standard property, so the column resolves (`columnReferences` →
@@ -38,13 +87,20 @@ import type { Mutation } from "./types";
  *  viewer declares its type even when no form writes `case_name` yet. */
 const NAME_COLUMN_HEADER = "Name";
 
-/** The canonical starter case-list column — a plain `case_name`/"Name" column. */
+/** The canonical starter case-list column — a plain `case_name`/"Name" column.
+ *  Born WITH an `order` key (the first-member seed `keyBetween(null, null)`) so
+ *  it sorts correctly the moment a keyed column is added beside it — the
+ *  `store.load` backfill is a legacy safety net, not a substitute for minting
+ *  the key at construction. */
 function nameColumn() {
-	return plainColumn(
-		asUuid(crypto.randomUUID()),
-		"case_name",
-		NAME_COLUMN_HEADER,
-	);
+	return {
+		...plainColumn(
+			asUuid(crypto.randomUUID()),
+			"case_name",
+			NAME_COLUMN_HEADER,
+		),
+		order: keyBetween(null, null),
+	};
 }
 
 /** A case-list config carrying a `Name` column, preserving an existing
@@ -117,31 +173,24 @@ export interface CaseListModuleScaffold {
 /** Declare `caseType` in the catalog (empty properties) when it's new — a no-op
  *  for a type already present. A formless viewer (or a settings-set type) has no
  *  form to write `case_name`, so the type must be in the catalog for the `Name`
- *  column's standard property to resolve (`augmentCaseType`). */
+ *  column's standard property to resolve (`augmentCaseType`). Emits the granular
+ *  `declareCaseType` (the reducer is idempotent), so a concurrent catalog edit
+ *  merges. */
 export function declareCaseTypeMutations(
 	doc: BlueprintDoc,
 	caseType: string,
 ): Mutation[] {
 	const existing = doc.caseTypes ?? [];
 	if (existing.some((ct) => ct.name === caseType)) return [];
-	return [
-		{
-			kind: "setCaseTypes",
-			caseTypes: [...existing, { name: caseType, properties: [] }],
-		},
-	];
+	return [{ kind: "declareCaseType", caseType }];
 }
 
 /**
- * The SINGLE catalog write for a module case-type change, composing the
- * retirement of the orphaned OLD type with the declaration of a brand-NEW one.
- *
- * Both are WHOLESALE `setCaseTypes`, so they MUST collapse to one mutation:
- * emitting the declare and the retirement's own set separately lets the later
- * wholesale write clobber the earlier — re-typing a viewer to a fresh type
- * would drop the new type back out of the catalog, failing the seeded `Name`
- * column (`CASE_LIST_COLUMN_UNKNOWN_FIELD`). Returns `[]` when neither applies
- * (an existing type set on a still-owned module, or a non-case-type patch).
+ * The catalog writes for a module case-type change: retire the orphaned OLD
+ * type and/or declare the brand-NEW one. Both are granular kinds keyed by type
+ * name, so emitting them separately merges a concurrent edit to a DIFFERENT
+ * type. Returns `[]` when neither applies (an existing type set on a
+ * still-owned module, or a non-case-type patch).
  */
 export function caseTypeCatalogMutations(
 	doc: BlueprintDoc,
@@ -152,15 +201,17 @@ export function caseTypeCatalogMutations(
 	const isNew =
 		typeof nextCaseType === "string" &&
 		!existing.some((ct) => ct.name === nextCaseType);
-	if (retirement.kind !== "retire" && !isNew) return [];
-	let next = existing;
+	const mutations: Mutation[] = [];
 	if (retirement.kind === "retire") {
-		next = next.filter((ct) => ct.name !== retirement.caseType);
+		mutations.push({ kind: "retireCaseType", caseType: retirement.caseType });
 	}
 	if (isNew) {
-		next = [...next, { name: nextCaseType as string, properties: [] }];
+		mutations.push({
+			kind: "declareCaseType",
+			caseType: nextCaseType as string,
+		});
 	}
-	return [{ kind: "setCaseTypes", caseTypes: next.length > 0 ? next : null }];
+	return mutations;
 }
 
 /**
@@ -181,6 +232,7 @@ export function caseListModuleMutations(
 		uuid: moduleUuid,
 		id: uniqueSlug(moduleName, "module", existingModuleIds(doc)),
 		name: moduleName,
+		order: moduleOrderKeyAtIndex(doc, index),
 		caseType,
 		caseListOnly: true,
 		caseListConfig: caseListConfigWithName(),
@@ -209,6 +261,7 @@ export function surveyModuleMutations(
 		uuid: moduleUuid,
 		id: uniqueSlug(moduleName, "module", existingModuleIds(doc)),
 		name: moduleName,
+		order: moduleOrderKeyAtIndex(doc, index),
 	};
 	return {
 		mutations: [
@@ -243,6 +296,7 @@ export function formScaffoldMutations(
 		uuid: formUuid,
 		id: uniqueSlug(formName, "form", existingFormIds(doc)),
 		name: formName,
+		order: formOrderKeyAtIndex(doc, moduleUuid, index),
 		type,
 	};
 	// A registration form is born with just the `case_name` writer; every other
@@ -253,6 +307,16 @@ export function formScaffoldMutations(
 			: [defaultQuestion()];
 
 	const mutations: Mutation[] = [];
+	// Declare each case type a born field writes to BEFORE its addField. The
+	// reducer no longer auto-mints the type, and `mod.caseType` can be ABSENT
+	// from the catalog (dropped from the data model, or a retire-vs-add race) —
+	// so a registration form's `case_name` writer would otherwise trip
+	// `CASE_PROPERTY_ON_UNKNOWN_TYPE` and the form would silently not be created.
+	// The same declare chokepoint every sibling case_property_on surface routes
+	// through; idempotent (a no-op) when the type is already present.
+	for (const field of fields) {
+		mutations.push(...declareCaseTypeForField(doc, field));
+	}
 	if (mod.caseListOnly) {
 		const patch: Partial<Omit<Module, "uuid">> = { caseListOnly: false };
 		if ((mod.caseListConfig?.columns.length ?? 0) === 0) {
@@ -266,12 +330,14 @@ export function formScaffoldMutations(
 		form,
 		...(index !== undefined && { index }),
 	});
+	// The born-with fields land in ascending display order — a fresh order-key
+	// sequence (the form is new, so it seeds one).
+	const orderKeys = sequenceOrderKeys(fields.length);
 	for (let i = 0; i < fields.length; i++) {
 		mutations.push({
 			kind: "addField",
 			parentUuid: formUuid,
-			field: fields[i],
-			index: i,
+			field: { ...fields[i], order: orderKeys[i] },
 		});
 	}
 	return { mutations, formUuid };

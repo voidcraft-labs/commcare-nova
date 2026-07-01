@@ -1,5 +1,7 @@
 import type { Draft } from "immer";
 import type { FieldPath } from "@/lib/doc/fieldPath";
+import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
+import { keysForSlot } from "@/lib/doc/order/keys";
 import { declarersOf, referencingCarrierUuids } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
@@ -152,7 +154,11 @@ export function applyFieldMutation(
 				| "duplicateField"
 				| "updateField"
 				| "convertField"
-				| "setFieldMedia";
+				| "setFieldMedia"
+				| "addOption"
+				| "updateOption"
+				| "removeOption"
+				| "moveOption";
 		}
 	>,
 ): MoveFieldResult | FieldRenameMeta | undefined {
@@ -290,6 +296,22 @@ export function applyFieldMutation(
 		case "moveField": {
 			const field = draft.fields[mut.uuid];
 			if (!field) return;
+			// New emission carrying an `order` key. A SAME-parent reorder is the
+			// hot path: it touches only the sort key, never membership, so it
+			// skips the destination / subtree / same-form guards (the field is
+			// already in a valid position) and the reference rewrites (the path
+			// is unchanged). A cross-parent move falls through to the full
+			// machinery below and sets `order` at the insertion step.
+			if (mut.order !== undefined) {
+				const currentParent = findFieldParent(
+					draft as unknown as BlueprintDoc,
+					mut.uuid,
+				);
+				if (currentParent?.parentUuid === mut.toParentUuid) {
+					field.order = mut.order;
+					return {} satisfies MoveFieldResult;
+				}
+			}
 			// Destination parent must exist as either a form or a group/repeat.
 			const destIsForm = draft.forms[mut.toParentUuid] !== undefined;
 			const destField = draft.fields[mut.toParentUuid];
@@ -420,10 +442,20 @@ export function applyFieldMutation(
 				ensureCatalogProperty(draft as unknown as BlueprintDoc, field);
 			}
 
-			// Insert at destination.
+			// Insert at destination. A new emission carries the fractional
+			// `order` (membership position is arbitrary — append + stamp the
+			// sort key); a legacy event places by `toIndex`.
 			const destOrder = draft.fieldOrder[mut.toParentUuid] ?? [];
-			const clamped = Math.max(0, Math.min(mut.toIndex, destOrder.length));
-			destOrder.splice(clamped, 0, mut.uuid);
+			if (mut.order !== undefined) {
+				field.order = mut.order;
+				destOrder.push(mut.uuid);
+			} else {
+				const clamped = Math.max(
+					0,
+					Math.min(mut.toIndex ?? destOrder.length, destOrder.length),
+				);
+				destOrder.splice(clamped, 0, mut.uuid);
+			}
 			draft.fieldOrder[mut.toParentUuid] = destOrder;
 
 			// Rewrite absolute-path / hashtag references that now point at a
@@ -617,11 +649,36 @@ export function applyFieldMutation(
 				clone.id = deduped;
 			}
 
-			// Splice the clone right after the source in the parent's order.
+			// Splice the clone into the parent's membership array (position
+			// arbitrary — sequence is the `order` key).
 			const parentOrder = draft.fieldOrder[parent.parentUuid];
 			if (parentOrder) {
 				parentOrder.splice(parent.index + 1, 0, rootUuid);
 				draft.fieldOrder[parent.parentUuid] = parentOrder;
+			}
+			// The root clone must sort RIGHT AFTER the source. `cloneFieldSubtree`
+			// copied the source's `order` onto it (a collision that would
+			// tie-break arbitrarily on uuid), so assign a fresh key between the
+			// source and its next DISPLAY-order sibling. (Descendant clones keep
+			// their copied keys — they live under the new clone root, a distinct
+			// subtree, so they can't collide with the originals.)
+			if (clone) {
+				const siblings = orderedFieldUuids(
+					draft as unknown as BlueprintDoc,
+					parent.parentUuid,
+				).filter((u) => u !== rootUuid);
+				const at = siblings.indexOf(mut.uuid);
+				const siblingKeys = siblings
+					.map((u) => draft.fields[u]?.order)
+					.filter((o): o is string => o !== undefined);
+				// Slot right AFTER the source in display order; the shared helper
+				// widens past a tied run so a collision at the source doesn't
+				// yield a degenerate interval.
+				clone.order = keysForSlot(
+					siblingKeys,
+					at === -1 ? siblingKeys.length : at + 1,
+					1,
+				)[0];
 			}
 			// Every cloned writer declares its (case type, property) pair —
 			// the deduped root clone introduces a NEW pair (suffixed id);
@@ -719,6 +776,66 @@ export function applyFieldMutation(
 			(field as Record<string, unknown>)[mediaKey] = mut.media ?? undefined;
 			return;
 		}
+		case "addOption":
+		case "updateOption":
+		case "removeOption":
+		case "moveOption":
+			applyOptionMutation(draft, mut);
+			return;
+	}
+}
+
+/**
+ * Granular select-option mutations. The `options` array is a membership set
+ * keyed by per-option `uuid`; sequence is `sort-by-(order, uuid)`, so two
+ * members editing different options merge.
+ *
+ * These reducers mutate `field.options` IN PLACE and DELIBERATELY do not
+ * re-parse the field through `fieldSchema` (which carries `options.min(2)`):
+ * a `removeOption` dropping below two options must reach the commit gate as a
+ * sub-2 candidate so `SELECT_TOO_FEW_OPTIONS` can reject it — a re-parse here
+ * would warn-skip the reducer and the gate would see no change. `update`
+ * preserves the option's CURRENT `order` so a content edit never clobbers a
+ * concurrent `moveOption`; `move` writes the new `order` verbatim.
+ */
+function applyOptionMutation(
+	draft: Draft<BlueprintDoc>,
+	mut: Extract<
+		Mutation,
+		{ kind: "addOption" | "updateOption" | "removeOption" | "moveOption" }
+	>,
+): void {
+	const field = draft.fields[mut.fieldUuid];
+	if (!field || !("options" in field) || !Array.isArray(field.options)) return;
+	const options = field.options;
+	switch (mut.kind) {
+		case "addOption": {
+			// Idempotent on uuid (a re-applied add is a no-op).
+			if (options.some((o) => o.uuid === mut.option.uuid)) return;
+			options.push(mut.option);
+			return;
+		}
+		case "updateOption": {
+			const idx = options.findIndex((o) => o.uuid === mut.uuid);
+			if (idx === -1) return;
+			const order = options[idx].order;
+			options[idx] = {
+				...mut.option,
+				uuid: mut.uuid,
+				...(order !== undefined && { order }),
+			};
+			return;
+		}
+		case "removeOption": {
+			const idx = options.findIndex((o) => o.uuid === mut.uuid);
+			if (idx !== -1) options.splice(idx, 1);
+			return;
+		}
+		case "moveOption": {
+			const opt = options.find((o) => o.uuid === mut.uuid);
+			if (opt) opt.order = mut.order;
+			return;
+		}
 	}
 }
 
@@ -770,14 +887,16 @@ interface RenameTracking {
  *   - A declared entry is never touched — no duplicate, no
  *     `data_type` / `label` overwrite. Writer/declaration mismatches
  *     stay visible to the `FIELD_KIND_PROPERTY_TYPE_MISMATCH` rule.
- *   - An absent case TYPE is created as a bare `{ name, properties }`
- *     record. The system already treats naming a type as bringing its
- *     namespace into existence (`reachableCaseTypes` admits an
- *     undeclared module type at depth 0), and writer-derived
- *     properties are already admitted by the case-list rules
- *     (`validator/rules/case-list/shared.ts::augmentCaseType`).
- *     Ancestry (`parent_type` / `relationship`) is a declaration-level
- *     act made via `setCaseTypes` — never invented here.
+ *   - An absent case TYPE is NOT created here — declaration is an explicit
+ *     act (the authoring chokepoint prepends a `declareCaseType` for any
+ *     `case_property_on`-setting surface; `setCaseTypes` seeds the whole
+ *     catalog). A field left writing to an undeclared type is what the
+ *     commit gate's `CASE_PROPERTY_ON_UNKNOWN_TYPE` rejects — keeping the
+ *     creation explicit is what lets two members concurrently add different
+ *     properties to one type and merge (a reducer that re-minted the type on
+ *     every writer would clobber a concurrent declaration). Ancestry
+ *     (`parent_type` / `relationship`) is likewise a declaration-level act
+ *     (`setCaseTypeMeta`) — never invented here.
  *   - New entries carry the kind-derived `data_type` from the locked
  *     domain table (`caseDataTypeForFieldKind`); kinds that don't pin
  *     a value type (`hidden`) yield an untyped entry, read as `text`
@@ -790,13 +909,9 @@ interface RenameTracking {
 function ensureCatalogProperty(doc: BlueprintDoc, field: Field): void {
 	const caseType = fieldCasePropertyOn(field);
 	if (caseType === undefined || field.id.length === 0) return;
-	doc.caseTypes ??= [];
-	const catalog = doc.caseTypes;
-	let ct = catalog.find((c) => c.name === caseType);
-	if (!ct) {
-		ct = { name: caseType, properties: [] };
-		catalog.push(ct);
-	}
+	// Append only to an EXISTING declared type — never create the type here.
+	const ct = doc.caseTypes?.find((c) => c.name === caseType);
+	if (!ct) return;
 	if (ct.properties.some((p) => p.name === field.id)) return;
 	const dataType = caseDataTypeForFieldKind(field.kind);
 	ct.properties.push({

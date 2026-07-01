@@ -46,7 +46,10 @@ import {
 } from "@/lib/db/credits";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
-import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
@@ -589,25 +592,22 @@ export async function POST(req: Request) {
 			 *
 			 * Brand-new builds get the empty doc stamped with the Firestore
 			 * `appId` that `createApp` just minted. */
-			const sessionDoc: BlueprintDoc = loadedApp
-				? structuredClone({
-						...(loadedApp.blueprint as PersistableDoc as BlueprintDoc),
-						fieldParent: {},
-					})
-				: {
-						appId,
-						appName: "",
-						connectType: null,
-						caseTypes: null,
-						modules: {},
-						forms: {},
-						fields: {},
-						moduleOrder: [],
-						formOrder: {},
-						fieldOrder: {},
-						fieldParent: {},
-					};
-			rebuildFieldParent(sessionDoc);
+			const sessionDoc: BlueprintDoc = hydratePersistedBlueprint(
+				loadedApp
+					? (loadedApp.blueprint as PersistableDoc)
+					: {
+							appId,
+							appName: "",
+							connectType: null,
+							caseTypes: null,
+							modules: {},
+							forms: {},
+							fields: {},
+							moduleOrder: [],
+							formOrder: {},
+							fieldOrder: {},
+						},
+			);
 			/* Hydrate the reference index alongside — the SA's tool layer
 			 * answers "who references / declares X" through it (retirement
 			 * planning, rename verdicts, the rename cascade) from the first

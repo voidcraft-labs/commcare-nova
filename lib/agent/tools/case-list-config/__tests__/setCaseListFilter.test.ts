@@ -279,16 +279,16 @@ describe("setCaseListFilter", () => {
 
 	it("initializes the caseListConfig when filter=null on a configless module", async () => {
 		// Edge case: `filter === null` on a module whose
-		// `caseListConfig` is undefined still materializes the config
-		// — the empty-config fallback in `snapshotCaseListConfig` runs
-		// regardless of which slot the tool is replacing, so the
-		// resulting doc carries every required array slot at empty.
-		// Pinned here because a reader could reasonably expect a
-		// "no-op" when both the existing config and the new filter
-		// are absent. Current behavior is structurally fine (the
-		// schema's "if present, all required arrays present"
-		// contract holds); this test seals it against silent flips
-		// during future refactors.
+		// `caseListConfig` is undefined still materializes the config —
+		// the granular `setCaseListMeta` reducer runs
+		// `ensureCaseListConfig`, seeding `columns`/`searchInputs` at
+		// `[]` before applying the slot patch, so the resulting doc
+		// carries every required array slot at empty. Pinned here
+		// because a reader could reasonably expect a "no-op" when both
+		// the existing config and the new filter are absent. Current
+		// behavior is structurally fine (the schema's "if present, all
+		// required arrays present" contract holds); this test seals it
+		// against silent flips during future refactors.
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const baseMod = baseDoc.modules[MOD_A];
 		const docWithoutConfig: BlueprintDoc = {

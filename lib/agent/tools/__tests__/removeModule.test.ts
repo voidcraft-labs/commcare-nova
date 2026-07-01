@@ -113,7 +113,7 @@ describe("removeModule", () => {
 		expect(recordMutations).toHaveBeenCalledTimes(1);
 		expect(out.mutations).toEqual([
 			{ kind: "removeModule", uuid: expect.any(String) },
-			{ kind: "setCaseTypes", caseTypes: [record("patient")] },
+			{ kind: "retireCaseType", caseType: "visit" },
 		]);
 		expect(out.newDoc.moduleOrder).toHaveLength(1);
 		expect(out.newDoc.caseTypes).toEqual([record("patient")]);

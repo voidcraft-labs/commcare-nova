@@ -55,6 +55,7 @@ import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
 import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
+import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
 import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
 
 /** Compile-time options. `assets` is the resolved media manifest; when
@@ -140,14 +141,16 @@ export function compileCcz(
 	// keeps the rendered suite.xml structurally local.
 	const suiteRemoteRequests: Element[] = [];
 
-	// Walk HQ modules and `doc.moduleOrder` in lockstep. `expandDoc`
-	// produces HQ modules in the same order as `moduleOrder`, so
-	// `doc.modules[doc.moduleOrder[mIdx]]` is the domain twin of
-	// `hqModules[mIdx]`.
+	// Walk HQ modules and the doc's DISPLAY-ordered module sequence in
+	// lockstep. `expandDoc` produces HQ modules in `sort-by-(order, uuid)`
+	// order (NOT `moduleOrder` array position), so the domain twin of
+	// `hqModules[mIdx]` is `sortedModuleUuids[mIdx]` — the SAME sort here keeps
+	// the two aligned, and the per-module form sequence likewise sorts.
+	const sortedModuleUuids = orderedModuleUuids(doc);
 	for (let mIdx = 0; mIdx < hqModules.length; mIdx++) {
 		const hqMod = hqModules[mIdx];
-		const moduleUuid = doc.moduleOrder[mIdx];
-		const formUuids = doc.formOrder[moduleUuid] ?? [];
+		const moduleUuid = sortedModuleUuids[mIdx];
+		const formUuids = orderedFormUuids(doc, moduleUuid);
 
 		const mod = doc.modules[moduleUuid];
 		const modName = hqMod.name.en;

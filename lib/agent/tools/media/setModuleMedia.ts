@@ -24,7 +24,10 @@
 
 import { z } from "zod";
 import { type BlueprintDoc, MODULE_ICON_SLUGS } from "@/lib/domain";
-import { setModuleMediaMutations } from "../../blueprintHelpers";
+import {
+	resolveModuleUuid,
+	setModuleMediaMutations,
+} from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import type { MutatingToolResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
@@ -70,7 +73,7 @@ export const setModuleMediaTool = {
 	): Promise<MutatingToolResult<SetModuleMediaResult>> {
 		const { moduleIndex, icon, audioLabel } = input;
 		try {
-			const moduleUuid = doc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid)
 				return moduleNotFoundResult<string>(
 					doc,

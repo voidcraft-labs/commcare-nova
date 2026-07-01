@@ -55,6 +55,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	CASE_LOADING_FORM_TYPES,
@@ -227,10 +228,14 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		setFilterText("");
 	};
 
-	const visibleColumns = (config?.columns ?? []).filter(
+	// DISPLAY order (`sort-by-(order, uuid)`, the sequence the wire case-list
+	// detail emits), not `columns` array position — a `moveColumn` reorder must
+	// show here exactly as it exports.
+	const sortedColumns = [...(config?.columns ?? [])].sort(bySortKey);
+	const visibleColumns = sortedColumns.filter(
 		(col) => col.visibleInList ?? true,
 	);
-	const detailColumns = (config?.columns ?? []).filter(
+	const detailColumns = sortedColumns.filter(
 		(col) => col.visibleInDetail !== false,
 	);
 	const hasSearch = (config?.searchInputs.length ?? 0) > 0;

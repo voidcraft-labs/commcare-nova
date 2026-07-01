@@ -41,3 +41,24 @@ export function bySortKey(a: Sortable, b: Sortable): number {
 	if (b.order !== undefined) return 1;
 	return 0;
 }
+
+/**
+ * Element-wise identity equality over two sequences — true iff same length and
+ * every index holds the identical reference. The equality predicate the
+ * DISPLAY-order hooks (`useModuleIds`, `useOrderedFields`, `useFormIds`, …) hand
+ * `useBlueprintDocEq`: it returns the PRIOR array reference when the derived
+ * sequence is unchanged, so a doc edit touching neither `order` nor membership
+ * doesn't churn `React.memo` consumers. One home so module/form-list and
+ * field-list stability can't silently diverge.
+ */
+export function sameSequenceByIdentity<T>(
+	a: readonly T[],
+	b: readonly T[],
+): boolean {
+	if (a === b) return true;
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) {
+		if (a[i] !== b[i]) return false;
+	}
+	return true;
+}

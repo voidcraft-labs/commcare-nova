@@ -38,8 +38,10 @@
 
 import { z } from "zod";
 import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
+import { sequenceOrderKeys } from "@/lib/doc/order/append";
+import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/domain";
-import { updateModuleMutations } from "../blueprintHelpers";
+import { resolveModuleUuid, updateModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	columnInputSchema,
@@ -101,7 +103,7 @@ export const updateModuleTool = {
 					},
 				};
 			}
-			const moduleUuid = doc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid) {
 				return {
 					kind: "mutate" as const,
@@ -147,13 +149,31 @@ export const updateModuleTool = {
 
 			/* Seed columns only when the module has none — an existing config
 			 * is authored state the case-list-config tools own, and a
-			 * wholesale replace here would silently drop sort/search work. */
+			 * wholesale replace here would silently drop sort/search work.
+			 * Each born column needs a uuid AND a fresh sequential `order` key
+			 * (the module has no columns yet, so the run is from scratch) — a
+			 * key-less column sorts ahead of every keyed sibling until a
+			 * reload's backfill. */
+			const seedColumnKeys = sequenceOrderKeys(
+				(case_list_columns ?? []).length,
+			);
 			const seedColumns =
 				case_list_columns !== undefined &&
 				(mod.caseListConfig?.columns ?? []).length === 0
-					? case_list_columns.map((c) => stampColumnUuid(c, newUuid()))
+					? case_list_columns.map((c, i) => ({
+							...stampColumnUuid(c, newUuid()),
+							order: seedColumnKeys[i],
+						}))
 					: undefined;
+			/* ONE catalog write covers both retiring the orphaned OLD type and
+			 * declaring a brand-NEW one. A brand-new type MUST be cataloged or
+			 * the seeded `Name` column can't resolve (`CASE_LIST_COLUMN_UNKNOWN_FIELD`)
+			 * — with `ensureCatalogProperty`'s auto-mint gone, this surface must
+			 * declare it, exactly like the builder twin (`useBlueprintMutations`
+			 * → `caseTypeCatalogMutations`) and `createModule`'s `case_type_record`.
+			 * Catalog writes lead so the type is present when the column resolves. */
 			const mutations = [
+				...caseTypeCatalogMutations(doc, retirement, case_type),
 				...updateModuleMutations(mod, {
 					...(name !== undefined && { name }),
 					...(case_type !== undefined && { caseType: case_type }),
@@ -164,7 +184,6 @@ export const updateModuleTool = {
 						},
 					}),
 				}),
-				...(retirement.kind === "retire" ? retirement.mutations : []),
 			];
 			const commit = await guardedMutate(
 				ctx,

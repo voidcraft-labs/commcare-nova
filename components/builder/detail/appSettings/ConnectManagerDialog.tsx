@@ -8,6 +8,7 @@ import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useDocEntityMaps } from "@/lib/doc/hooks/useDocEntityMaps";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { BlueprintDoc, XPathExpression } from "@/lib/domain";
 import {
 	asUuid,
@@ -76,8 +77,17 @@ function useFormRows(): FormRow[] {
 	const { modules, forms } = useDocEntityMaps();
 	return useMemo(() => {
 		const out: FormRow[] = [];
-		for (const moduleUuid of moduleOrder) {
-			for (const formUuid of formOrder[moduleUuid] ?? []) {
+		// DISPLAY order (`sort-by-(order, uuid)`) — the manager renders one row
+		// per form, so it must match the app's rendered module/form sequence,
+		// not `moduleOrder` / `formOrder` array position.
+		const sortedModules = [...moduleOrder].sort((a, b) =>
+			bySortKey(modules[a] ?? {}, modules[b] ?? {}),
+		);
+		for (const moduleUuid of sortedModules) {
+			const sortedForms = [...(formOrder[moduleUuid] ?? [])].sort((a, b) =>
+				bySortKey(forms[a] ?? {}, forms[b] ?? {}),
+			);
+			for (const formUuid of sortedForms) {
 				out.push({
 					formUuid,
 					formName: forms[formUuid]?.name ?? "",

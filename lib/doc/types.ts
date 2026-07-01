@@ -15,15 +15,20 @@ import { z } from "zod";
 import {
 	assetIdSchema,
 	CONNECT_TYPES,
+	casePropertySchema,
 	caseTypeSchema,
+	columnSchema,
 	fieldKinds,
 	fieldPatchSchemaByKind,
 	fieldSchema,
 	formSchema,
 	mediaSchema,
 	moduleSchema,
+	searchInputDefSchema,
+	selectOptionSchema,
 	uuidSchema,
 } from "@/lib/domain";
+import { predicateSchema } from "@/lib/domain/predicate";
 
 /**
  * The four field message slots a `Media` bundle attaches to. The
@@ -170,10 +175,16 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 		index: z.number().int().nonnegative().optional(),
 	}),
 	z.object({ kind: z.literal("removeModule"), uuid: uuidSchema }),
+	// A move carries the absolute fractional `order` key the gesture computed;
+	// the reducer writes it verbatim (a same-parent reorder leaves the
+	// membership array untouched). `toIndex` is kept OPTIONAL so the reducer can
+	// still replay legacy pre-`order` events (array-position moves); new
+	// emissions always carry `order` and the reducer prefers it.
 	z.object({
 		kind: z.literal("moveModule"),
 		uuid: uuidSchema,
-		toIndex: z.number().int().nonnegative(),
+		order: z.string().optional(),
+		toIndex: z.number().int().nonnegative().optional(),
 	}),
 	z.object({
 		kind: z.literal("renameModule"),
@@ -204,11 +215,15 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 		index: z.number().int().nonnegative().optional(),
 	}),
 	z.object({ kind: z.literal("removeForm"), uuid: uuidSchema }),
+	// `order` is the gesture-computed fractional key (written verbatim);
+	// `toIndex` is kept optional for legacy replay only. A same-module reorder
+	// sets only `order`; a cross-module move also updates membership.
 	z.object({
 		kind: z.literal("moveForm"),
 		uuid: uuidSchema,
 		toModuleUuid: uuidSchema,
-		toIndex: z.number().int().nonnegative(),
+		order: z.string().optional(),
+		toIndex: z.number().int().nonnegative().optional(),
 	}),
 	z.object({
 		kind: z.literal("renameForm"),
@@ -236,11 +251,16 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 		index: z.number().int().nonnegative().optional(),
 	}),
 	z.object({ kind: z.literal("removeField"), uuid: uuidSchema }),
+	// `order` is the gesture-computed fractional key (written verbatim);
+	// `toIndex` is kept optional for legacy replay only. A same-parent reorder
+	// sets only `order` (membership untouched); a cross-parent move also updates
+	// membership and re-anchors references.
 	z.object({
 		kind: z.literal("moveField"),
 		uuid: uuidSchema,
 		toParentUuid: uuidSchema,
-		toIndex: z.number().int().nonnegative(),
+		order: z.string().optional(),
+		toIndex: z.number().int().nonnegative().optional(),
 	}),
 	z.object({
 		kind: z.literal("renameField"),
@@ -281,6 +301,134 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("setCaseTypes"),
 		caseTypes: z.array(caseTypeSchema).nullable(),
+	}),
+	// ─── Granular case-type catalog ──────────────────────────────────────
+	//
+	// The catalog is keyed by `(case-type name, property name)`. Replacing the
+	// wholesale `setCaseTypes` on the live diff path, these fine-grained kinds
+	// let two members concurrently declare a type / add a property / edit a
+	// property and merge by construction. `setCaseTypes` stays in the union for
+	// event-log replay and whole-catalog seeding. Each `setCaseTypeMeta` slot is
+	// nullable so a clear (`parent_type` / `relationship`) crosses the JSON wire
+	// as an explicit `null`; the reducer maps `null → delete`.
+	z.object({ kind: z.literal("declareCaseType"), caseType: z.string() }),
+	z.object({ kind: z.literal("retireCaseType"), caseType: z.string() }),
+	z.object({
+		kind: z.literal("addCaseProperty"),
+		caseType: z.string(),
+		property: casePropertySchema,
+	}),
+	z.object({
+		kind: z.literal("setCaseProperty"),
+		caseType: z.string(),
+		property: casePropertySchema,
+	}),
+	z.object({
+		kind: z.literal("removeCaseProperty"),
+		caseType: z.string(),
+		property: z.string(),
+	}),
+	z.object({
+		kind: z.literal("setCaseTypeMeta"),
+		caseType: z.string(),
+		parent_type: z.string().nullable().optional(),
+		relationship: z.enum(["child", "extension"]).nullable().optional(),
+	}),
+	// ─── Granular case-list collections ──────────────────────────────────
+	//
+	// `caseListConfig.columns` / `.searchInputs` are membership arrays whose
+	// position is NOT authoritative (sequence is `sort-by-(order, uuid)`). Each
+	// quartet (`add` / `update` / `remove` / `move`) is keyed by the owning
+	// module uuid + the item uuid, so concurrent edits to different columns /
+	// inputs merge. `add` carries the entity (with its `order`); `move` carries
+	// the gesture-computed `order` and leaves membership untouched; `update`
+	// replaces content and PRESERVES the item's current `order` in the reducer.
+	z.object({
+		kind: z.literal("addColumn"),
+		moduleUuid: uuidSchema,
+		column: columnSchema,
+	}),
+	z.object({
+		kind: z.literal("updateColumn"),
+		moduleUuid: uuidSchema,
+		uuid: uuidSchema,
+		column: columnSchema,
+	}),
+	z.object({
+		kind: z.literal("removeColumn"),
+		moduleUuid: uuidSchema,
+		uuid: uuidSchema,
+	}),
+	z.object({
+		kind: z.literal("moveColumn"),
+		moduleUuid: uuidSchema,
+		uuid: uuidSchema,
+		order: z.string(),
+	}),
+	z.object({
+		kind: z.literal("addSearchInput"),
+		moduleUuid: uuidSchema,
+		searchInput: searchInputDefSchema,
+	}),
+	z.object({
+		kind: z.literal("updateSearchInput"),
+		moduleUuid: uuidSchema,
+		uuid: uuidSchema,
+		searchInput: searchInputDefSchema,
+	}),
+	z.object({
+		kind: z.literal("removeSearchInput"),
+		moduleUuid: uuidSchema,
+		uuid: uuidSchema,
+	}),
+	z.object({
+		kind: z.literal("moveSearchInput"),
+		moduleUuid: uuidSchema,
+		uuid: uuidSchema,
+		order: z.string(),
+	}),
+	// The module's case-list metadata that is NOT a membership array — the
+	// always-on `filter` predicate and the case-list-link `icon` / `audioLabel`.
+	// Each slot is nullable so a clear crosses the JSON wire as `null`.
+	z.object({
+		kind: z.literal("setCaseListMeta"),
+		uuid: uuidSchema,
+		patch: z
+			.object({
+				filter: predicateSchema.nullable().optional(),
+				icon: assetIdSchema.nullable().optional(),
+				audioLabel: assetIdSchema.nullable().optional(),
+			})
+			.strict(),
+	}),
+	// ─── Granular select options ─────────────────────────────────────────
+	//
+	// A select field's `options` array is a membership set keyed by per-option
+	// `uuid`; sequence is `sort-by-(order, uuid)`. The reducers mutate `options`
+	// IN PLACE and never re-parse the field through `fieldSchema`, so a
+	// `removeOption` dropping below two options reaches the commit gate as a
+	// sub-2 candidate (`SELECT_TOO_FEW_OPTIONS`).
+	z.object({
+		kind: z.literal("addOption"),
+		fieldUuid: uuidSchema,
+		option: selectOptionSchema,
+	}),
+	z.object({
+		kind: z.literal("updateOption"),
+		fieldUuid: uuidSchema,
+		uuid: uuidSchema,
+		option: selectOptionSchema,
+	}),
+	z.object({
+		kind: z.literal("removeOption"),
+		fieldUuid: uuidSchema,
+		uuid: uuidSchema,
+	}),
+	z.object({
+		kind: z.literal("moveOption"),
+		fieldUuid: uuidSchema,
+		uuid: uuidSchema,
+		order: z.string(),
 	}),
 	// ─── Media slots — dedicated clear-safe kinds ────────────────────────
 	//

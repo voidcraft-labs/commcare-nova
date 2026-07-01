@@ -1,12 +1,20 @@
 // Fuzz + property tests for the fractional-key primitives.
 //
 // The load-bearing contracts: `keyBetween` returns a key that sorts STRICTLY
-// between its bounds, it NEVER throws (degenerate/equal/inverted/null bounds
-// resolve to a place-after key), and a long sequence of insertions keeps the
-// list strictly ordered with no renumbering.
+// between its bounds and requires an ORDERED interval (`lo < hi`, null ≡ ±∞) —
+// it THROWS on a degenerate one (`lo >= hi`, both non-null), the empty open
+// interval that has no key. `keysForSlot` is the collision-safe slot layer:
+// it widens past a run of equal-keyed siblings to a distinct bound so the
+// interval it hands `keysBetween` is never degenerate. A long sequence of
+// insertions keeps the list strictly ordered with no renumbering.
 
 import { describe, expect, it } from "vitest";
-import { deriveKeyAtIndex, keyBetween } from "../keys";
+import {
+	deriveKeyAtIndex,
+	keyBetween,
+	keysBetween,
+	keysForSlot,
+} from "../keys";
 
 const DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
@@ -71,40 +79,101 @@ describe("keyBetween — strictly between ordered bounds", () => {
 	});
 });
 
-describe("keyBetween — total (never throws)", () => {
-	it("never throws and never returns empty across null/empty/equal/inverted bounds", () => {
+describe("keyBetween — ordered-interval precondition", () => {
+	it("throws on a degenerate non-null interval (equal or inverted bounds)", () => {
+		expect(() => keyBetween("V", "V")).toThrow();
+		expect(() => keyBetween("Z", "A")).toThrow();
+	});
+
+	it("treats a null / empty bound as ±∞ and never throws", () => {
 		const rng = makeRng(0xabcdef);
-		const sample = (): string | null => {
-			const r = rng();
-			if (r < 0.15) return null;
-			if (r < 0.25) return "";
-			return randomKey(rng);
-		};
-		for (let i = 0; i < 5000; i++) {
-			const a = sample();
-			const b = sample();
-			let c: string | null = null;
-			expect(() => {
-				c = keyBetween(a, b);
-			}).not.toThrow();
-			expect(c).not.toBeNull();
-			expect((c as unknown as string).length).toBeGreaterThan(0);
+		for (let i = 0; i < 2000; i++) {
+			const key = randomKey(rng);
+			// At least one bound is an edge (null or empty ≡ ±∞), so the
+			// interval is never degenerate.
+			expect(() => keyBetween(null, key)).not.toThrow();
+			expect(() => keyBetween(key, null)).not.toThrow();
+			expect(() => keyBetween("", key)).not.toThrow();
+			expect(() => keyBetween(key, "")).not.toThrow();
+		}
+		expect(() => keyBetween(null, null)).not.toThrow();
+		expect(() => keyBetween("", "")).not.toThrow();
+	});
+
+	it("throws EXACTLY when both bounds are real and lo >= hi", () => {
+		const rng = makeRng(0x13579);
+		for (let i = 0; i < 3000; i++) {
+			const a = randomKey(rng);
+			const b = randomKey(rng);
+			if (a >= b) {
+				expect(() => keyBetween(a, b)).toThrow();
+			} else {
+				expect(keyBetween(a, b) > a).toBe(true);
+			}
+		}
+	});
+});
+
+describe("keysBetween", () => {
+	it("returns `count` strictly-increasing keys inside the open interval", () => {
+		const keys = keysBetween("a", "z", 5);
+		expect(keys).toHaveLength(5);
+		for (let i = 0; i < keys.length; i++) {
+			expect(keys[i] > "a").toBe(true);
+			expect(keys[i] < "z").toBe(true);
+			if (i > 0) expect(keys[i] > keys[i - 1]).toBe(true);
 		}
 	});
 
-	it("an equal bound resolves to a fresh place-after key (no throw)", () => {
-		const c = keyBetween("V", "V");
-		expect(c > "V").toBe(true);
+	it("null bounds append / prepend without throwing", () => {
+		for (const k of keysBetween(null, "m", 3)) expect(k < "m").toBe(true);
+		for (const k of keysBetween("m", null, 3)) expect(k > "m").toBe(true);
 	});
 
-	it("an inverted bound (a > b) resolves to a place-after key (no throw)", () => {
-		const c = keyBetween("Z", "A");
-		expect(c > "Z").toBe(true);
+	it("inherits the ordered-interval precondition (throws on degenerate)", () => {
+		expect(() => keysBetween("V", "V", 2)).toThrow();
 	});
 
-	it("both-null returns a usable base key", () => {
-		const c = keyBetween(null, null);
-		expect(c.length).toBeGreaterThan(0);
+	it("is empty for a non-positive count", () => {
+		expect(keysBetween("a", "z", 0)).toEqual([]);
+	});
+});
+
+describe("keysForSlot — collision-safe slot", () => {
+	it("mints between the slot's neighbors when they're distinct", () => {
+		const [k] = keysForSlot(["a", "c"], 1, 1);
+		expect(k > "a").toBe(true);
+		expect(k < "c").toBe(true);
+	});
+
+	it("widens past a tied run so a collision yields a NON-degenerate interval", () => {
+		// Three siblings share key "V"; inserting at a slot inside the run
+		// lands AFTER the whole run and before the next distinct key.
+		const [k] = keysForSlot(["V", "V", "V", "z"], 2, 1);
+		expect(k > "V").toBe(true);
+		expect(k < "z").toBe(true);
+	});
+
+	it("a tie reaching the list end appends cleanly (widened hi ≡ null)", () => {
+		const [k] = keysForSlot(["V", "V", "V"], 1, 1);
+		expect(k > "V").toBe(true);
+	});
+
+	it("a MULTI-key insert at a collision stays strictly increasing in the widened interval", () => {
+		const keys = keysForSlot(["V", "V", "z"], 1, 3);
+		expect(keys).toHaveLength(3);
+		for (const k of keys) {
+			expect(k > "V").toBe(true);
+			expect(k < "z").toBe(true);
+		}
+		for (let i = 1; i < keys.length; i++) {
+			expect(keys[i] > keys[i - 1]).toBe(true);
+		}
+	});
+
+	it("edge slots prepend / append", () => {
+		expect(keysForSlot(["m"], 0, 1)[0] < "m").toBe(true);
+		expect(keysForSlot(["m"], 1, 1)[0] > "m").toBe(true);
 	});
 });
 

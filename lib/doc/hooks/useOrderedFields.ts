@@ -21,6 +21,7 @@
 "use client";
 
 import type { Uuid } from "@/lib/domain";
+import { bySortKey, sameSequenceByIdentity } from "../order/compare";
 import { useBlueprintDocEq } from "./useBlueprintDoc";
 
 /**
@@ -31,29 +32,23 @@ import { useBlueprintDocEq } from "./useBlueprintDoc";
 const EMPTY_ORDER: readonly Uuid[] = Object.freeze([]);
 
 /**
- * Element-wise identity equality. Returns true iff both arrays are the
- * same length and every index holds the identical reference. zustand's
- * `useStoreWithEqualityFn` returns the prior snapshot when this predicate
- * holds, preserving array identity for consumers.
- */
-function arraysEqualByIdentity<T>(a: readonly T[], b: readonly T[]): boolean {
-	if (a === b) return true;
-	if (a.length !== b.length) return false;
-	for (let i = 0; i < a.length; i++) {
-		if (a[i] !== b[i]) return false;
-	}
-	return true;
-}
-
-/**
  * Uuids of a parent's direct children (form's top-level fields, or a
  * group/repeat's contained fields), in visual order.
  *
  * Materialize with `useField(uuid)` per child at the call site.
  */
 export function useOrderedFields(parentUuid: Uuid): readonly Uuid[] {
-	return useBlueprintDocEq(
-		(s) => s.fieldOrder[parentUuid] ?? EMPTY_ORDER,
-		arraysEqualByIdentity,
-	);
+	return useBlueprintDocEq((s) => {
+		const order = s.fieldOrder[parentUuid];
+		if (!order || order.length === 0) return EMPTY_ORDER;
+		// Visual sequence is `sort-by-(order, uuid)`, not array position — a
+		// same-parent reorder leaves the membership array untouched and only
+		// changes a field's `order`, so the canvas re-sequences because this
+		// hook sorts. The identity equality below keeps the reference stable
+		// when the sorted order is unchanged.
+		const fields = s.fields;
+		return [...order].sort((a, b) =>
+			bySortKey(fields[a] ?? {}, fields[b] ?? {}),
+		);
+	}, sameSequenceByIdentity);
 }

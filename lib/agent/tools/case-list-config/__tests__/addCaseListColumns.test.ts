@@ -85,7 +85,10 @@ describe("addCaseListColumns", () => {
 			doc,
 		);
 
-		expect(result.mutations).toHaveLength(1);
+		// One granular `addColumn` per column now (keyed by uuid + an append
+		// `order`), not a single wholesale `updateModule{caseListConfig}`.
+		expect(result.mutations).toHaveLength(3);
+		expect(result.mutations.every((m) => m.kind === "addColumn")).toBe(true);
 		const final = result.newDoc.modules[MOD_A]?.caseListConfig;
 		expect(final?.columns.map((c) => c.kind)).toEqual([
 			"plain",
@@ -306,22 +309,13 @@ describe("addCaseListColumns", () => {
 		const r1 = await addCaseListColumnsTool.execute(input, chatCtx, doc);
 		const r2 = await addCaseListColumnsTool.execute(input, mcpCtx, doc);
 
+		// The minted column uuid differs per run; the granular `order` key is
+		// deterministic (same fixture). Strip the uuid before comparing.
 		const stripUuid = (mutations: typeof r1.mutations) =>
 			mutations.map((m) => {
-				if (m.kind !== "updateModule") return m;
-				const cols = m.patch.caseListConfig?.columns ?? [];
-				return {
-					...m,
-					patch: {
-						...m.patch,
-						caseListConfig: m.patch.caseListConfig
-							? {
-									...m.patch.caseListConfig,
-									columns: cols.map(({ uuid: _u, ...rest }) => rest),
-								}
-							: m.patch.caseListConfig,
-					},
-				};
+				if (m.kind !== "addColumn") return m;
+				const { uuid: _u, ...col } = m.column;
+				return { ...m, column: col };
 			});
 
 		expect(stripUuid(r1.mutations)).toEqual(stripUuid(r2.mutations));

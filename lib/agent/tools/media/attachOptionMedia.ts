@@ -23,11 +23,9 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc, FieldPatchFor, SelectOption } from "@/lib/domain";
-import {
-	resolveFieldByIndex,
-	updateFieldMutations,
-} from "../../blueprintHelpers";
+import type { Mutation } from "@/lib/doc/types";
+import { asUuid, type BlueprintDoc, type SelectOption } from "@/lib/domain";
+import { resolveFieldByIndex } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import type { MutatingToolResult } from "../common";
 import {
@@ -127,22 +125,26 @@ export const attachOptionMediaTool = {
 				branded.audio !== undefined ||
 				branded.video !== undefined;
 
-			// Rebuild the options array with the one option's media swapped.
-			// `options` is wholesale-replaced on the field patch — the
-			// reducer has no per-option op, so the tool computes the new
-			// array and hands it over intact.
-			const nextOptions: SelectOption[] = field.options.map((o, i) =>
-				i === index ? withMedia(o, hasAny ? branded : undefined) : o,
+			// Swap the one option's media via a granular `updateOption` keyed by
+			// the option's uuid, so a concurrent edit to a DIFFERENT option of the
+			// same field merges. The reducer preserves the option's current
+			// `order`; the uuid falls back to the deterministic backfill key when
+			// a not-yet-hydrated doc lacks one (matching what backfill mints).
+			const targetOption = field.options[index];
+			const optionUuid =
+				targetOption.uuid ?? asUuid(`${field.uuid}-opt-${index}`);
+			const updated = withMedia(
+				{ ...targetOption, uuid: optionUuid },
+				hasAny ? branded : undefined,
 			);
-			const patch = { options: nextOptions } as FieldPatchFor<
-				typeof field.kind
-			>;
-			const mutations = updateFieldMutations(
-				doc,
-				field.uuid,
-				field.kind,
-				patch,
-			);
+			const mutations: Mutation[] = [
+				{
+					kind: "updateOption",
+					fieldUuid: field.uuid,
+					uuid: optionUuid,
+					option: updated,
+				},
+			];
 			const commit = await attachGuardedMutate(
 				ctx,
 				doc,

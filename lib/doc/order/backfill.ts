@@ -35,7 +35,16 @@ function fillOrder(items: Ordered[]): void {
 		}
 		let end = i;
 		while (end < items.length && items[end].order === undefined) end++;
-		const upper = end < items.length ? (items[end].order as string) : null;
+		const rawUpper = end < items.length ? (items[end].order as string) : null;
+		// A partially-keyed legacy doc can bound a keyless run by two keys whose
+		// ARRAY order disagrees with their KEY order (a reorder set keys without
+		// touching the array). There's no key between an inverted/equal pair, so
+		// append the run after `lower` (upper ≡ null) — deterministic, and keeps
+		// `keyBetween`'s ordered-interval precondition.
+		const upper =
+			lower !== null && rawUpper !== null && lower >= rawUpper
+				? null
+				: rawUpper;
 		assignRange(items, i, end, lower, upper);
 		i = end;
 	}
