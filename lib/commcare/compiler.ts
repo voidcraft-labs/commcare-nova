@@ -66,6 +66,14 @@ import { type BlueprintDoc, defaultPostSubmit } from "@/lib/domain";
  *  artifacts). */
 export interface CompileOptions {
 	assets?: AssetManifest;
+	/**
+	 * The blueprint's `mutation_seq` at compile time, stamped into the
+	 * profile.ccpr `cc-content-version` so each archive names the exact
+	 * document version it was built from. Absent = the default `"1"` (tests +
+	 * callers that don't thread a live seq). Does NOT touch the per-compile
+	 * `uniqueid`, which HQ uses for version dedup.
+	 */
+	compiledAtSeq?: number;
 }
 
 /**
@@ -114,6 +122,7 @@ export function compileCcz(
 	files["profile.ccpr"] = generateProfile(
 		appName,
 		buildLogoProfileProperty(doc.logo, assets, "compileCcz logo"),
+		opts.compiledAtSeq,
 	);
 	files["media_suite.xml"] = mediaBundle.mediaSuiteXml;
 
@@ -654,8 +663,17 @@ export function compileCcz(
  * `<property key="brand-banner-web-apps" value="jr://file/..." force="true"/>`
  * built from `doc.logo`; it's appended to the property list. Absent =
  * no logo property (media off, or no logo set).
+ *
+ * `compiledAtSeq`, when present, is the blueprint's `mutation_seq` at
+ * compile time; it's stamped into `cc-content-version` so the archive
+ * names the exact document version it was built from. Absent (tests +
+ * callers with no live seq) falls back to `"1"`.
  */
-function generateProfile(appName: string, logoProperty?: Element): string {
+function generateProfile(
+	appName: string,
+	logoProperty?: Element,
+	compiledAtSeq?: number,
+): string {
 	const profileEl = el(
 		"profile",
 		{
@@ -667,7 +685,10 @@ function generateProfile(appName: string, logoProperty?: Element): string {
 		},
 		[
 			el("property", { key: "CommCare App Name", value: appName }),
-			el("property", { key: "cc-content-version", value: "1" }),
+			el("property", {
+				key: "cc-content-version",
+				value: String(compiledAtSeq ?? 1),
+			}),
 			el("property", { key: "cc-app-version", value: "1" }),
 			...(logoProperty ? [logoProperty] : []),
 			el("features", {}, [el("users", { active: "true" })]),

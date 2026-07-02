@@ -71,10 +71,11 @@ function reqWith(body: unknown) {
 	} as unknown as NextRequest;
 }
 
-/** Mock `resolveAppAccess` to load `doc` for app owner `u1` in `project-1`. */
-function loadsDoc(doc: ReturnType<typeof validDoc>) {
+/** Mock `resolveAppAccess` to load `doc` for app owner `u1` in `project-1`
+ *  at the given committed `mutation_seq`. */
+function loadsDoc(doc: ReturnType<typeof validDoc>, mutationSeq = 7) {
 	vi.mocked(resolveAppAccess).mockResolvedValue({
-		app: { blueprint: doc, owner: "u1" },
+		app: { blueprint: doc, owner: "u1", mutation_seq: mutationSeq },
 		projectId: "project-1",
 	} as never);
 }
@@ -157,6 +158,9 @@ describe("prepareCompileRequest", () => {
 		// `fieldParent` is the derived index the routes' expand/compile walk needs.
 		expect(result.doc.fieldParent).toBeDefined();
 		expect(result.assets.size).toBe(0);
+		// `compiledAtSeq` is the `mutation_seq` off the SAME loaded snapshot as
+		// the blueprint — each export names the exact document version it emitted.
+		expect(result.compiledAtSeq).toBe(7);
 		// Media resolves at the app's PROJECT scope (the sharing boundary).
 		expect(resolveMediaManifest).toHaveBeenCalledWith(
 			expect.objectContaining({ appName: "Vaccine Tracker" }),

@@ -78,10 +78,11 @@ function reqWith(body: unknown) {
 	} as unknown as Parameters<typeof POST>[0];
 }
 
-/** Mock `resolveAppAccess` to load `doc` for app owner `u1` in `project-1`. */
-function loadsDoc(doc: ReturnType<typeof validDoc>) {
+/** Mock `resolveAppAccess` to load `doc` for app owner `u1` in `project-1`
+ *  at the given committed `mutation_seq`. */
+function loadsDoc(doc: ReturnType<typeof validDoc>, mutationSeq = 42) {
 	vi.mocked(resolveAppAccess).mockResolvedValue({
-		app: { blueprint: doc, owner: "u1" },
+		app: { blueprint: doc, owner: "u1", mutation_seq: mutationSeq },
 		projectId: "project-1",
 	} as never);
 }
@@ -145,5 +146,24 @@ describe("POST /api/compile — inline archive return", () => {
 			"project-1",
 		);
 		expect(compileCcz).toHaveBeenCalledTimes(1);
+	});
+
+	it("threads the loaded `mutation_seq` into compileCcz as `compiledAtSeq`", async () => {
+		loadsDoc(validDoc(), 99);
+
+		const res = await POST(reqWith({ appId: "a1" }));
+		expect(res.status).toBe(200);
+		// Read the body so the response stream closes (async-leak gate).
+		await res.arrayBuffer();
+
+		// The seq stamps the archive's `cc-content-version` (verified against a
+		// real profile in the compiler unit test); here we assert the route
+		// forwards the loaded `mutation_seq` into the compile options.
+		expect(compileCcz).toHaveBeenCalledWith(
+			expect.anything(),
+			"Vaccine Tracker",
+			expect.anything(),
+			expect.objectContaining({ compiledAtSeq: 99 }),
+		);
 	});
 });

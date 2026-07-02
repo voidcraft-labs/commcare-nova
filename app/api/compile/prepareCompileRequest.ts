@@ -28,6 +28,14 @@ export interface PreparedCompileRequest {
 	 * emission boundary.
 	 */
 	assets: Awaited<ReturnType<typeof resolveMediaManifest>>;
+	/**
+	 * The `mutation_seq` the loaded blueprint committed at — read off the SAME
+	 * `resolveAppAccess` snapshot that carries `app.blueprint`, so the seq and
+	 * the doc it stamps can't drift. Each export names the exact document
+	 * version it emitted (the `.ccz` profile's `cc-content-version`, the JSON
+	 * export's `X-Compiled-At-Seq` header).
+	 */
+	compiledAtSeq: number;
 }
 
 /**
@@ -101,5 +109,5 @@ export async function prepareCompileRequest(
 		withBytes: true,
 	});
 
-	return { doc: docWithParent, assets };
+	return { doc: docWithParent, assets, compiledAtSeq: app.mutation_seq };
 }

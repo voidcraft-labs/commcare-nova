@@ -973,11 +973,17 @@ nearest valid ancestor when the target was deleted.
   fall-through, so a **same-id retype** (`convertField` keeps the uuid + id) **and** a combined
   retype+rename both route to `onKindChanged` (today there is no `kind` comparison, so a
   same-id retype classifies `none`/`expression` and the stale value never drops). Add
-  `'kind_change'` to the return union + switch arm. `onKindChanged` re-inits the field —
-  **delete the value at the old path**
-  (`DataInstance.delete`, since `addFieldState` only seeds `""` when `!instance.has(path)`) and
-  rebuild the path maps + DAG + re-evaluate dependents at the new path (subsuming
-  `onIdRenamed`'s work).
+  `'kind_change'` to the return union + switch arm. `onKindChanged` branches leaf vs container.
+  A **leaf retype** deletes the value at the old path (`DataInstance.delete`, since
+  `addFieldState` only seeds `""` when `!instance.has(path)`) and re-seeds empty — a leaf answer
+  is invalid under the new kind. A **container conversion** (group↔repeat) instead RE-PATHS
+  every descendant: snapshot each descendant's old path, rebuild the path maps, `renamePath`
+  each descendant's value + runtime state old→new (the `[0]` template segment appears/disappears
+  so the old/new path sets never overlap and move order is irrelevant), and re-seed only the
+  container's shell (`addFieldState` skips the value write for a container) — so in-progress
+  child answers survive the reindex instead of stranding. Both rebuild the path maps + DAG +
+  re-evaluate dependents at the new path (subsuming `onIdRenamed`); a rebuild that yields no path
+  for the uuid (detached in the same batch) falls back to `onFieldsRemoved`.
 - `lib/preview/engine/dataInstance.ts` — add `delete(path: string): void`.
 - `engineController.ts::onFieldsRemoved` / `formEngine.ts::removeFieldState` — on a remote
   field delete, also delete the `DataInstance` value; keep the uuid-keyed runtime mirror and
@@ -997,8 +1003,10 @@ nearest valid ancestor when the target was deleted.
     artifact, so carry the seq in an `X-Compiled-At-Seq` **response header**, not the body.
   - **MCP JSON** (`compileApp.ts` `'json'` branch): the media-free case returns a bare
     `{ content:[{ type:'text', text: JSON.stringify(hqJson) }] }` with **no wrapper**, so carry
-    the seq on the tool result's **`_meta`/`structuredContent`** (leaving the `text` body
-    byte-identical) for both the media-free and the media-bearing (`{format:'zip'}`) shapes.
+    the seq on the tool result's **`_meta['nova/compiledAtSeq']`** — NOT `structuredContent`,
+    which the MCP SDK validates against a declared `outputSchema` that `compile_app` doesn't have
+    (`_meta` is the schema-free carrier) — leaving the `text` body byte-identical, for both the
+    media-free and the media-bearing (`{format:'zip'}`) shapes.
 - The test asserts `compiledAtSeq === app.mutation_seq` on the web `.ccz` profile, the MCP
   `.ccz` profile, the web JSON `X-Compiled-At-Seq` header, and the MCP JSON tool-result
   `_meta` (four outputs).

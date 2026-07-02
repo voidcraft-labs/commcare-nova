@@ -229,6 +229,29 @@ describe("registerCompileApp — happy path, ccz format", () => {
 			expect.objectContaining({ assets: expect.any(Map) }),
 		);
 	});
+
+	it("stamps the loaded `mutation_seq` into compileCcz as `compiledAtSeq`", async () => {
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(
+			fixtureLoadedApp({ mutation_seq: 17 }),
+		);
+		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
+		vi.mocked(compileCcz).mockReturnValueOnce(Buffer.from("ccz"));
+
+		const { server, capture } = makeFakeServer();
+		registerCompileApp(server, toolCtx);
+
+		await capture()({ app_id: "a1", format: "ccz" }, {});
+
+		/* The seq stamps the profile's `cc-content-version` (verified against
+		 * a real profile in the compiler unit test); here we assert the tool
+		 * forwards `app.mutation_seq` into the compile options. */
+		expect(compileCcz).toHaveBeenCalledWith(
+			FAKE_HQ_JSON,
+			"Vaccine Tracker",
+			expect.anything(),
+			expect.objectContaining({ compiledAtSeq: 17 }),
+		);
+	});
 });
 
 describe("registerCompileApp — ownership failure", () => {
@@ -459,6 +482,64 @@ describe("registerCompileApp — media validation gate", () => {
 		expect(mediaZip.getEntries().map((e) => e.entryName)).toEqual([
 			"commcare/abc123def.png",
 		]);
+	});
+});
+
+describe("registerCompileApp — json compiledAtSeq (_meta carrier)", () => {
+	it("carries the seq on `_meta` for a media-free json compile, body byte-identical", async () => {
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(
+			fixtureLoadedApp({ mutation_seq: 23 }),
+		);
+		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
+
+		const { server, capture } = makeFakeServer();
+		registerCompileApp(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+			_meta?: Record<string, unknown>;
+		};
+
+		/* The seq rides on `_meta` — protocol metadata that needs no
+		 * `outputSchema` — so the `text` body stays the byte-identical HQ-import
+		 * artifact (bare `HqApplication` JSON). */
+		expect(out._meta?.["nova/compiledAtSeq"]).toBe(23);
+		expect(out.content[0]?.text).toBe(JSON.stringify(FAKE_HQ_JSON));
+	});
+
+	it("carries the seq on `_meta` for a media-bearing json compile", async () => {
+		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(
+			fixtureLoadedApp({ mutation_seq: 24 }),
+		);
+		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
+		const asset = {
+			assetId: asAssetId("a1"),
+			wirePath: "commcare/abc123def.png",
+			kind: "image" as const,
+			mimeType: "image/png",
+			contentHash: "abc123def",
+			extension: ".png",
+			bytes: Buffer.from("PNG-BYTES"),
+		};
+		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
+			new Map([[asset.assetId, asset]]),
+		);
+
+		const { server, capture } = makeFakeServer();
+		registerCompileApp(server, toolCtx);
+
+		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
+			content: Array<{ type: "text"; text: string }>;
+			_meta?: Record<string, unknown>;
+		};
+
+		/* The seq rides on `_meta` for the zip-wrapper shape too, leaving the
+		 * `{ format: "zip", ... }` text body untouched. */
+		expect(out._meta?.["nova/compiledAtSeq"]).toBe(24);
+		const payload = JSON.parse(out.content[0]?.text ?? "{}") as {
+			format: string;
+		};
+		expect(payload.format).toBe("zip");
 	});
 });
 

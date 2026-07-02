@@ -87,6 +87,29 @@ describe("compileCcz", () => {
 		).toHaveLength(2);
 	});
 
+	it("stamps `compiledAtSeq` into the profile's cc-content-version", () => {
+		const hq = expandDoc(doc);
+		const profile = new AdmZip(
+			compileCcz(hq, "CHW App", doc, { compiledAtSeq: 42 }),
+		).readAsText("profile.ccpr");
+
+		// The blueprint's `mutation_seq` names the document version in the
+		// profile; the per-compile `uniqueid` stays a fresh UUID (HQ version
+		// dedup) and is NOT the seq.
+		expect(profile).toContain(
+			'<property key="cc-content-version" value="42"/>',
+		);
+		expect(profile).not.toContain('uniqueid="42"');
+	});
+
+	it("defaults cc-content-version to 1 when no seq is threaded", () => {
+		const hq = expandDoc(doc);
+		const profile = new AdmZip(compileCcz(hq, "CHW App", doc)).readAsText(
+			"profile.ccpr",
+		);
+		expect(profile).toContain('<property key="cc-content-version" value="1"/>');
+	});
+
 	it("injects case create block into registration XForms", () => {
 		const hq = expandDoc(doc);
 		const buf = compileCcz(hq, "CHW App", doc);
