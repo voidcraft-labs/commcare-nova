@@ -2,6 +2,8 @@
 
 The Firestore singleton, Zod-backed converters, typed collection/doc helpers, and the credit gate that meters generation. `firestore.ts` owns the wire (lazy singleton, `withConverter` reads parse through Zod); `types.ts` owns every document schema. The non-obvious part is the credit gate, below.
 
+**Request-path writes ride out Firestore's write throttle** — every transaction goes through `runThrottledTransaction`, and the hot plain writes (app creation, blueprint snapshots) through `runThrottledWrite` (`firestore.ts`); never bare `runTransaction` or a raw hot-path write. Firestore sheds commits (429) outside its documented limits and the client owns the retry; the SDK's own retries can't classify the REST-transport error shape — mechanics live in the `runThrottledTransaction` docstring. Only the throttle retries (each bounce `log.warn`s); a transaction body's own rejection (`OutOfCreditsError`, commit-gate rejections) is recognized by identity and propagates immediately.
+
 **Exception — the auth-read modules read Postgres, not Firestore.** `api-keys.ts`, `oauth-consents.ts`, and `admin.ts` (the user-list half) live here for proximity to the surfaces that use them, but auth state moved to Postgres: they read/write the `auth_*` tables through `getAuthDb` (`@/lib/auth/db`, a `Kysely<AuthDatabase>` on the shared case-store pool) — no `getDb`, no Zod converter. The Firestore/Zod description above covers the app-domain modules (apps, threads, runs, credits, usage, media), not these three. `admin.ts` still fans out to Firestore for per-user usage/credits (a fan-out, not a join).
 
 ## Two ledgers, different lifecycles

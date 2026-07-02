@@ -826,6 +826,22 @@
 	],
 	"fieldOverrides": [
 		{
+			"collectionGroup": "apps",
+			"fieldPath": "blueprint",
+			"ttl": false,
+			"indexes": []
+		},
+		{
+			"collectionGroup": "apps",
+			"fieldPath": "blueprint.logo",
+			"ttl": false,
+			"indexes": [
+				{ "order": "ASCENDING", "queryScope": "COLLECTION" },
+				{ "order": "DESCENDING", "queryScope": "COLLECTION" },
+				{ "arrayConfig": "CONTAINS", "queryScope": "COLLECTION" }
+			]
+		},
+		{
 			"collectionGroup": "users",
 			"fieldPath": "email",
 			"ttl": false,

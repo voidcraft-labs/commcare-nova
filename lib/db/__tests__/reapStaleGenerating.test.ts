@@ -58,7 +58,8 @@ const {
 });
 
 vi.mock("../credits", () => ({ refundReservation: refundReservationMock }));
-vi.mock("../firestore", () => ({
+vi.mock("../firestore", async () => ({
+	...(await import("./throttlePassthrough")).throttlePassthrough,
 	docs: {
 		app: appMock,
 		appRaw: appRawMock,

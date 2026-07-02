@@ -485,9 +485,15 @@ export async function POST(req: Request) {
 				restoreClaimedRun(claimedRun, "internal");
 			}
 			log.error("[chat] credit reservation failed", err);
+			/* The user-facing message must not read as a balance problem — this
+			 * arm is infrastructure, and a credits framing would send the user
+			 * chasing their allowance instead of retrying. It also asserts
+			 * NOTHING about the charge: the transaction usually rolled back,
+			 * but an ambiguous RPC outcome can leave the debit applied. */
 			return Response.json(
 				{
-					error: "Unable to reserve credits. Please try again shortly.",
+					error:
+						"That message didn't go through. Please try again in a moment.",
 					type: "internal",
 				},
 				{ status: 503 },
