@@ -131,6 +131,11 @@ export function useAutoSave(): SaveState {
 	 * every edit and re-announce the alert region. Cleared on any successful
 	 * save / reload; reset on app change. */
 	const lastErroredRef = useRef(false);
+	/* Once-per-episode gate for the TERMINAL toasts (`permanent` / `tooLarge`) —
+	 * the reconciler re-surfaces the signal on every post-freeze edit so the
+	 * indicator stays honest, but the persistent toast must show ONCE, not once
+	 * per keystroke. Reset on app change and on a successful save. */
+	const warnedTerminalRef = useRef(false);
 
 	/* Clear the 404 warning + dismiss its persistent toast. Called wherever the
 	 * "can't save" state ends — a successful save, an app change, unmount — so
@@ -158,6 +163,7 @@ export function useAutoSave(): SaveState {
 		pendingTrailingRef.current = false;
 		dismiss404Warning();
 		lastErroredRef.current = false;
+		warnedTerminalRef.current = false;
 		setState(IDLE_STATE);
 	}
 
@@ -191,6 +197,7 @@ export function useAutoSave(): SaveState {
 				case "saved":
 					inFlightRef.current = false;
 					lastErroredRef.current = false;
+					warnedTerminalRef.current = false;
 					dismiss404Warning();
 					setState({ status: "saved", savedAt: Date.now() });
 					startCooldown();
@@ -240,15 +247,20 @@ export function useAutoSave(): SaveState {
 					 * "Invalid mutations", a client↔server gate disagreement): the
 					 * reconciler FROZE saving (no retry, no discard — the edits stay in
 					 * the store) and OWNS the Sentry report (`onSaveError`). Tell the
-					 * user to reload; a persistent toast, since it won't auto-recover. */
+					 * user to reload; ONE persistent toast per episode — the reconciler
+					 * re-surfaces the signal on every post-freeze edit to keep the
+					 * indicator honest, and un-gated that would toast per keystroke. */
 					inFlightRef.current = false;
 					lastErroredRef.current = true;
-					showToast(
-						"error",
-						"These edits couldn't be saved",
-						"The server rejected a change, so saving is paused to avoid losing work. Reload the app to continue from the last saved version.",
-						{ persistent: true },
-					);
+					if (!warnedTerminalRef.current) {
+						warnedTerminalRef.current = true;
+						showToast(
+							"error",
+							"These edits couldn't be saved",
+							"The server rejected a change, so saving is paused to avoid losing work. Reload the app to continue from the last saved version.",
+							{ persistent: true },
+						);
+					}
 					setState((prev) =>
 						prev.status === "error" ? prev : { ...prev, status: "error" },
 					);
@@ -257,16 +269,20 @@ export function useAutoSave(): SaveState {
 				case "tooLarge":
 					/* A 413 — the accumulated unsaved changes are too large to save in
 					 * one request. The reconciler stopped retrying (no storm) but KEPT
-					 * the edits and OWNS the report. Tell the user to reload; persistent,
-					 * since retrying the same body won't help. */
+					 * the edits and OWNS the report. Tell the user to reload; ONE
+					 * persistent toast per episode (the signal re-fires on every edit
+					 * dispatched behind the stuck batch). */
 					inFlightRef.current = false;
 					lastErroredRef.current = true;
-					showToast(
-						"error",
-						"Your unsaved changes are too large to save",
-						"There are too many unsaved changes to save at once. Reload the app to continue from the last saved version.",
-						{ persistent: true },
-					);
+					if (!warnedTerminalRef.current) {
+						warnedTerminalRef.current = true;
+						showToast(
+							"error",
+							"Your unsaved changes are too large to save",
+							"There are too many unsaved changes to save at once. Reload the app to continue from the last saved version.",
+							{ persistent: true },
+						);
+					}
 					setState((prev) =>
 						prev.status === "error" ? prev : { ...prev, status: "error" },
 					);

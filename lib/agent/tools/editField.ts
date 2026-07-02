@@ -169,8 +169,12 @@ function editPatchToFieldPatch(
 		// lands keyed: a uuid-less option committed mid-session is INVISIBLE to
 		// the per-uuid option diff (and `options` sits in the generic-patch
 		// skip-set), so a collaborator's next edit to it would silently never
-		// persist until a reload's backfill.
-		patch.options = reconciledOptions(updates.options, existingOptions);
+		// persist until a reload's backfill. A `null` passes through verbatim
+		// (a clear — the commit gate then rejects the sub-2 candidate).
+		patch.options =
+			updates.options === null
+				? null
+				: reconciledOptions(updates.options, existingOptions);
 	}
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
