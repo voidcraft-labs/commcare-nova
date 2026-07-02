@@ -1,10 +1,10 @@
 // lib/db/constants.ts
 //
-// Shared numeric constants for the multiplayer mutation stream's retention,
-// the presence/dedup TTLs, and the SA-run liveness bound. A deliberate
-// dependency-free leaf so every consumer imports from here rather than
-// redefining, and nothing here imports `apps.ts` / `credits.ts` (which would
-// cycle, since those import each other through the reservation/usage paths).
+// Shared numeric constants for the multiplayer mutation stream's retention and
+// the presence/dedup TTLs. A deliberate dependency-free leaf so every consumer
+// imports from here rather than redefining, and nothing here imports `apps.ts`
+// / `credits.ts` (which would cycle, since those import each other through the
+// reservation/usage paths).
 
 /**
  * How many `acceptedMutations/{seq}` deltas to retain per app: entries older
@@ -37,13 +37,3 @@ export const PRESENCE_TTL_MS = 60 * 1000;
  * latch collection stays small.
  */
 export const BATCH_DEDUP_TTL_MS = 60 * 60 * 1000;
-
-/**
- * Upper bound (minutes) on a single SA run's hold — the `expireAt` an edit
- * `run_lock` and a credit `reservation` carry. A `claimRun` treats a
- * `run_lock` past `expireAt` as claimable, and the edit reaper refunds a
- * stranded reservation only once it is past `expireAt`. Comfortably above
- * the build staleness window (`MAX_GENERATION_MINUTES`, 10) so a legitimately
- * long run is never reaped out from under itself.
- */
-export const MAX_RUN_MINUTES = 15;

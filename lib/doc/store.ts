@@ -11,15 +11,35 @@
  * its own isolated store instance. `<BlueprintDocProvider>` calls this
  * factory at mount time and exposes the instance via React context.
  *
- * Temporal lifecycle:
- *   - Created with tracking paused — a freshly created store has no history.
- *   - `load()` replaces the entire doc and clears + re-pauses temporal, so
- *     the hydration from a blueprint never enters undo history.
- *   - Callers that want undo support (the live builder) must call
- *     `store.temporal.getState().resume()` after `load()` returns.
- *   - Agent writes call `beginAgentWrite()` / `endAgentWrite()` to
- *     bracket the stream: changes inside are invisible to undo, and the
- *     entire stream collapses to a single undoable snapshot on resume.
+ * Suppression depth — the store owns undo tracking, not its callers.
+ *   The store holds a `suppressionDepth` counter and derives `isTracking`
+ *   from it: tracking is live only at depth 0, paused at any depth > 0.
+ *   The zundo `temporal.pause/resume` calls are internal helpers driven
+ *   when the depth crosses 0 — no external caller ever touches
+ *   `temporal.resume()` directly (a raw resume can't compose with a second
+ *   suppression source, so two concurrent brackets would fight over the
+ *   flag). `beginAgentWrite`/`beginRemoteApply` increment the depth and
+ *   `endAgentWrite`/`endRemoteApply` decrement it; the provider decrements
+ *   once after `load()` when the live builder wants tracking.
+ *
+ *   Depths (depth > 0 ⇒ paused):
+ *     - factory init → 1 (no meaningful history at birth).
+ *     - after `load()`: the provider decrements to 0 for the live builder;
+ *       an agent-stream / replay mount stays at 1.
+ *     - `beginAgentWrite` / `beginRemoteApply` ++; the paired end -- .
+ *     - `load()` / `clear()` reset the depth to 1 (paused) and clear the
+ *       temporal stacks; a `load()` inside an open begin/end bracket is
+ *       illegal (asserts) — the reset would desync the counter.
+ *
+ * Two suppression kinds bracket writes that must stay off the undo stack:
+ *   - `beginAgentWrite`/`endAgentWrite` — an SA run streams one whole
+ *     undoable snapshot; opened at `beginRun`, closed at stream-close.
+ *   - `beginRemoteApply`/`endRemoteApply` — a single inbound reconciler
+ *     frame's write (an echo/remote apply, a reload re-fold, a `data-done`
+ *     reseed). `remoteFrameApplyInProgress` flips true for exactly that
+ *     synchronous bracket so `useAutoSave`'s leading edge (which fires
+ *     synchronously from the store subscriber) skips re-PUTing a
+ *     server-originated change.
  */
 
 import { temporal } from "zundo";
@@ -84,16 +104,55 @@ export type BlueprintDocState = BlueprintDoc & {
 	 */
 	load: (doc: PersistableDoc) => void;
 	/**
-	 * Pause undo tracking before an agent write stream begins.
+	 * Open an agent-write suppression bracket before an SA run streams.
 	 *
-	 * All `applyMany()` calls while paused take effect but are invisible
-	 * to the undo stack. Call `endAgentWrite()` when the stream is done —
-	 * tracking resumes and the next user mutation will create a single
-	 * undo entry spanning the entire agent write.
+	 * Increments `suppressionDepth`; all `applyMany()` calls while the
+	 * depth is > 0 take effect but stay off the undo stack. Call
+	 * `endAgentWrite()` at stream-close — the depth decrements and, if it
+	 * reaches 0, tracking resumes so the next user mutation is one undo
+	 * entry spanning the entire agent write.
 	 */
 	beginAgentWrite: () => void;
-	/** Resume undo tracking after an agent write stream completes. */
+	/** Close the agent-write bracket (decrements `suppressionDepth`). */
 	endAgentWrite: () => void;
+	/**
+	 * Release the store's one-time birth pause so undo tracking goes live.
+	 *
+	 * The store is born paused (depth 1) so the initial hydration / generation
+	 * doesn't enter history. `startTracking()` drives the depth to 0 exactly
+	 * once, when the builder becomes editable: at provider mount for an existing
+	 * app, and — for a fresh build (which mounts paused and generates first) —
+	 * when its first run ends. Idempotent (a second call no-ops), and DEFERRED
+	 * when a suppression bracket is open at the call (a fresh build's `endRun`
+	 * closes the agent bracket, so the release rides that bracket close). This
+	 * is what makes undo work after a build without a page reload.
+	 */
+	startTracking: () => void;
+	/**
+	 * Open a remote-apply suppression bracket for one inbound reconciler
+	 * frame's write (an echo/remote apply, a reload re-fold, a `data-done`
+	 * reseed). Increments `suppressionDepth` AND sets
+	 * `remoteFrameApplyInProgress` so `useAutoSave`'s synchronous leading
+	 * edge skips re-PUTing the server-originated change. The reconciler
+	 * pairs it with `endRemoteApply()` in the same synchronous turn.
+	 */
+	beginRemoteApply: () => void;
+	/** Close the remote-apply bracket (decrements `suppressionDepth` and
+	 *  clears `remoteFrameApplyInProgress`). */
+	endRemoteApply: () => void;
+	/**
+	 * Re-key the undo/redo stacks through `fold` after a remote frame
+	 * advances `confirmedDoc` — so a past/future state the user can undo
+	 * to still folds the peer's committed change in, instead of snapping
+	 * it back out. `fold` maps a full recorded state to its rebased twin.
+	 */
+	rebaseHistory: (fold: (state: BlueprintDoc) => BlueprintDoc) => void;
+	/**
+	 * True for exactly the synchronous window a `beginRemoteApply` bracket
+	 * is open. Read by `useAutoSave` to gate the re-PUT — a server-applied
+	 * frame must not bounce back out as a client save.
+	 */
+	remoteFrameApplyInProgress: boolean;
 };
 
 /**
@@ -131,12 +190,81 @@ const EMPTY_DOC: BlueprintDoc = {
  * UI is ready to record user edits.
  */
 export function createBlueprintDocStore() {
-	// `store` is declared here so the `load`, `beginAgentWrite`, and
-	// `endAgentWrite` action closures can reference `store.temporal` after
-	// the store has been fully constructed. JavaScript's closure semantics
-	// allow the variable to be captured before its value is assigned —
-	// these closures are only *called* at runtime, by which point `store`
-	// is fully initialized.
+	// The store owns undo tracking through a suppression-depth counter, not
+	// the zundo `temporal.pause/resume` calls directly. Tracking is live
+	// only at depth 0. `openBrackets` is the separate count of currently-open
+	// `begin*/end*` pairs — `load()`/`clear()` reset the depth, which is only
+	// coherent when no bracket is mid-flight, so they assert on it.
+	//
+	// Born at 1: a fresh store has no meaningful history, so it starts paused.
+	// `startTracking()` releases that birth pause (depth 1 → 0) exactly once when
+	// the builder goes live — for an existing app at provider mount, for a fresh
+	// build when its first run ends. `birthPauseReleased` makes it idempotent;
+	// `pendingStartTracking` defers the release when a bracket is open at the call
+	// (a fresh build's `endRun` closes the agent bracket, so the release rides the
+	// bracket close), so undo works after a build without a page reload.
+	let suppressionDepth = 1;
+	let openBrackets = 0;
+	let birthPauseReleased = false;
+	let pendingStartTracking = false;
+
+	// `store` is declared here so the depth helpers and the action closures
+	// (`load`, `beginAgentWrite`, `beginRemoteApply`, …) can reference
+	// `store.temporal` / `store.setState` after the store has been fully
+	// constructed. JavaScript's closure semantics allow the variable to be
+	// captured before its value is assigned — these closures are only
+	// *called* at runtime, by which point `store` is fully initialized.
+
+	/** Reflect the current `suppressionDepth` onto zundo: track at 0, pause
+	 *  otherwise. The single place `temporal.pause/resume` is called. */
+	function syncTracking(): void {
+		const temporal = store.temporal.getState();
+		const shouldTrack = suppressionDepth === 0;
+		if (shouldTrack && !temporal.isTracking) temporal.resume();
+		else if (!shouldTrack && temporal.isTracking) temporal.pause();
+	}
+
+	/** Release the one-time birth pause (depth 1 → 0) if it hasn't been released
+	 *  and no bracket is open. Returns whether it fired. `startTracking()` and
+	 *  `closeBracket()` both drive it so the release can ride a bracket close. */
+	function maybeReleaseBirthPause(): boolean {
+		if (birthPauseReleased || openBrackets > 0 || suppressionDepth !== 1) {
+			return false;
+		}
+		birthPauseReleased = true;
+		suppressionDepth = 0;
+		syncTracking();
+		return true;
+	}
+
+	/** Open a suppression bracket. `remote` also raises
+	 *  `remoteFrameApplyInProgress` for the synchronous window. The flag flip is
+	 *  itself a `set()`, so it must land AFTER `syncTracking()` has paused —
+	 *  otherwise zundo records the flag change as an undo entry. */
+	function openBracket(remote: boolean): void {
+		suppressionDepth += 1;
+		openBrackets += 1;
+		syncTracking();
+		if (remote) store.setState({ remoteFrameApplyInProgress: true });
+	}
+
+	/** Close a suppression bracket opened by `openBracket`. The flag clear must
+	 *  land BEFORE `syncTracking()` resumes (the depth is still ≥ the paused
+	 *  base at this point), so the clearing `set()` stays off the undo stack. */
+	function closeBracket(remote: boolean): void {
+		if (remote) store.setState({ remoteFrameApplyInProgress: false });
+		suppressionDepth = Math.max(0, suppressionDepth - 1);
+		openBrackets = Math.max(0, openBrackets - 1);
+		syncTracking();
+		// A `startTracking()` that arrived while a bracket was open (a fresh build's
+		// first `endRun` closes the agent bracket) releases the birth pause now that
+		// no bracket remains — so undo works after a build with no page reload.
+		if (pendingStartTracking) {
+			pendingStartTracking = false;
+			maybeReleaseBirthPause();
+		}
+	}
+
 	const store = create<BlueprintDocState>()(
 		devtools(
 			temporal(
@@ -144,6 +272,9 @@ export function createBlueprintDocStore() {
 					immer((set) => ({
 						// ── Initial state ──────────────────────────────────────────
 						...EMPTY_DOC,
+						/* Off unless a `beginRemoteApply` bracket is currently open —
+						 * an inbound reconciler frame's synchronous write window. */
+						remoteFrameApplyInProgress: false,
 
 						// ── Mutation actions ───────────────────────────────────────
 
@@ -232,6 +363,17 @@ export function createBlueprintDocStore() {
 						 * `store.temporal.getState().resume()` afterward.
 						 */
 						load: (doc: PersistableDoc) => {
+							// A `load()` inside an open `begin*/end*` bracket would reset
+							// the depth counter out from under the bracket, desyncing it —
+							// the reconciler's `data-done` reseed path reseeds through a
+							// suppressed `commitDoc` for exactly this reason (the agent
+							// bracket is still open at `data-done`). Assert rather than
+							// silently corrupt the counter.
+							if (openBrackets > 0) {
+								throw new Error(
+									"BlueprintDoc.load() called inside an open suppression bracket — reseed via commitDoc instead so the depth counter stays coherent.",
+								);
+							}
 							// The single hydration chokepoint: fieldParent rebuilt +
 							// deterministic `order`/option-`uuid` backfill of a legacy doc,
 							// on a deep clone so `doc` is never mutated. Position-seeded, so
@@ -259,32 +401,92 @@ export function createBlueprintDocStore() {
 									buildReferenceIndex(draft as unknown as BlueprintDoc);
 							});
 							// Clear any undo history accumulated since last load (e.g.
-							// stale entries from a prior session in the same store instance).
+							// stale entries from a prior session in the same store instance)
+							// and reset the depth to the paused base (1). The caller
+							// (the provider) calls `startTracking()` afterward if it wants
+							// tracking. A load is a fresh birth-paused baseline, so re-arm
+							// the one-time birth-pause release.
 							store.temporal.getState().clear();
-							// Keep temporal paused — the caller decides when to resume.
-							store.temporal.getState().pause();
+							suppressionDepth = 1;
+							openBrackets = 0;
+							birthPauseReleased = false;
+							pendingStartTracking = false;
+							syncTracking();
 						},
 
 						/**
-						 * Pause undo tracking for an agent write stream.
-						 *
-						 * All `applyMany` calls while paused modify state normally but
-						 * are invisible to the undo stack. Pairing with `endAgentWrite()`
-						 * collapses the entire agent output into one undoable snapshot
-						 * from the user's perspective.
+						 * Open the agent-write suppression bracket (see the
+						 * suppression-depth note at the top of the file). All
+						 * `applyMany` calls while the depth is > 0 modify state
+						 * normally but stay off the undo stack; pairing with
+						 * `endAgentWrite()` collapses the entire agent output into one
+						 * undoable snapshot from the user's perspective.
 						 */
 						beginAgentWrite: () => {
-							store.temporal.getState().pause();
+							openBracket(false);
+						},
+
+						/** Close the agent-write bracket (decrements the depth; tracking
+						 *  resumes when it reaches 0). */
+						endAgentWrite: () => {
+							closeBracket(false);
+						},
+
+						/** Release the one-time birth pause so undo tracking goes live
+						 *  (see the type doc). Idempotent; deferred to the next bracket
+						 *  close when a bracket is open at the call. */
+						startTracking: () => {
+							if (openBrackets > 0) {
+								// A bracket is open (a fresh build mid-run): defer the
+								// release to the bracket close so we don't unbalance the
+								// depth counter.
+								pendingStartTracking = true;
+								return;
+							}
+							maybeReleaseBirthPause();
 						},
 
 						/**
-						 * Resume undo tracking after an agent write stream completes.
-						 *
-						 * From this point, any further `applyMany` calls will create
-						 * undo entries as normal.
+						 * Open the remote-apply suppression bracket for one inbound
+						 * reconciler frame's write. Raises `remoteFrameApplyInProgress`
+						 * so `useAutoSave`'s synchronous leading edge skips re-PUTing
+						 * the server-originated change; pairs with `endRemoteApply()`.
 						 */
-						endAgentWrite: () => {
-							store.temporal.getState().resume();
+						beginRemoteApply: () => {
+							openBracket(true);
+						},
+
+						/** Close the remote-apply bracket (decrements the depth and
+						 *  clears `remoteFrameApplyInProgress`). */
+						endRemoteApply: () => {
+							closeBracket(true);
+						},
+
+						/**
+						 * Re-key the undo/redo stacks through `fold`. Called after a
+						 * remote frame advances `confirmedDoc` so a past/future state
+						 * still folds the peer's committed change in rather than
+						 * snapping it back out on undo/redo.
+						 *
+						 * `fold` maps the doc-DATA of one recorded state to its rebased
+						 * twin; zundo records the full state (data + action closures, no
+						 * `partialize`), so the folded doc is overlaid onto the recorded
+						 * entry to keep the action methods intact. `toPersistableDoc`
+						 * isn't needed — the recorded state already carries the working
+						 * shape; `fold` operates on it directly.
+						 */
+						rebaseHistory: (fold: (doc: BlueprintDoc) => BlueprintDoc) => {
+							const rebase = (s: Partial<BlueprintDocState>) => ({
+								...s,
+								...fold(s as unknown as BlueprintDoc),
+							});
+							const temporal = store.temporal.getState();
+							// `store.temporal` is the temporal StoreApi; `setState` lives on
+							// it, not on the snapshot `getState()` returns.
+							store.temporal.setState({
+								pastStates: temporal.pastStates.map(rebase),
+								futureStates: temporal.futureStates.map(rebase),
+							});
 						},
 					})),
 				),
@@ -304,10 +506,10 @@ export function createBlueprintDocStore() {
 		),
 	);
 
-	// Pause temporal immediately after creation. Factory-created stores
-	// start with no meaningful history — the initial empty-doc state is
-	// not something the user should be able to undo to.
-	store.temporal.getState().pause();
+	// Reflect the birth depth (1 ⇒ paused). Factory-created stores start
+	// with no meaningful history — the initial empty-doc state is not
+	// something the user should be able to undo to.
+	syncTracking();
 
 	return store;
 }

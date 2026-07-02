@@ -98,6 +98,8 @@ function emitMutations(
 		{ mutations, events: envelopes(mutations, stage), stage },
 		docStore,
 		sessionStore,
+		null,
+		undefined,
 	);
 }
 
@@ -113,6 +115,8 @@ function emitConversation(
 		convEvent(payload, seq) as unknown as Record<string, unknown>,
 		docStore,
 		sessionStore,
+		null,
+		undefined,
 	);
 }
 

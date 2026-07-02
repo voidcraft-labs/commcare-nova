@@ -22,8 +22,8 @@ import { FieldValue, Timestamp } from "@google-cloud/firestore";
 import { z } from "zod";
 import {
 	ApiError,
-	BLUEPRINT_REQUEST_MAX_BYTES,
 	handleApiError,
+	PRESENCE_REQUEST_MAX_BYTES,
 	readJsonBody,
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
@@ -56,7 +56,7 @@ export async function POST(
 		const { id } = await params;
 		await resolveAppScope(id, session.user.id, "view");
 
-		const body = await readJsonBody(req, BLUEPRINT_REQUEST_MAX_BYTES);
+		const body = await readJsonBody(req, PRESENCE_REQUEST_MAX_BYTES);
 		if (body === null) throw new ApiError("Invalid JSON body", 400);
 		const parsed = presenceBodySchema.safeParse(body);
 		if (!parsed.success) throw new ApiError("Invalid presence body", 400);
@@ -89,7 +89,7 @@ export async function DELETE(
 		const { id } = await params;
 		await resolveAppScope(id, session.user.id, "view");
 
-		const body = await readJsonBody(req, BLUEPRINT_REQUEST_MAX_BYTES);
+		const body = await readJsonBody(req, PRESENCE_REQUEST_MAX_BYTES);
 		if (body === null) throw new ApiError("Invalid JSON body", 400);
 		const parsed = presenceDeleteSchema.safeParse(body);
 		if (!parsed.success) throw new ApiError("Invalid presence body", 400);

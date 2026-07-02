@@ -369,33 +369,6 @@ export const appDocSchema = z.object({
 			 * world those markers were written in).
 			 */
 			userId: z.string().optional(),
-			/**
-			 * Absolute deadline (Timestamp) past which an edit run's hold is
-			 * considered stranded. Set at `reserveCredits` to
-			 * `now + MAX_RUN_MINUTES`; the edit reaper (`reapStaleReservation`)
-			 * refunds an unsettled marker only once it is past this, and a
-			 * `claimRun` treats a `run_lock` past its own `expireAt` as
-			 * claimable. Optional: markers written before this field shipped
-			 * carry none (and builds reap on `updated_at` staleness, not this).
-			 */
-			expireAt: timestamp.optional(),
-		})
-		.optional(),
-	/**
-	 * Per-app SA-run lease for EDIT runs (builds claim the window via
-	 * `status: 'generating'` instead). `claimRun` transactionally writes this
-	 * to serialize concurrent runs against one app without flipping status —
-	 * an edit stays `complete`. A second collaborator's run waits on a held
-	 * lock rather than 429-ing. The lock is released on every terminal state
-	 * (clean or failed, except a paused `askQuestions` hold) and an absent or
-	 * past-`expireAt` lock is treated as claimable, so a hard-killed run never
-	 * starves a waiter. Absent on apps with no edit run in flight.
-	 */
-	run_lock: z
-		.object({
-			runId: z.string(),
-			actorUserId: z.string(),
-			expireAt: timestamp,
 		})
 		.optional(),
 	/** First save timestamp. Set once via FieldValue.serverTimestamp(). */

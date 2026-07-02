@@ -864,9 +864,11 @@ its own batches back as echoes.
   "changes aren't being saved" warning.
 - **Collaborative undo** in `lib/routing/builderActions.ts::useUndoRedo` — **gate before
   mutating, then let autosave emit the one PUT**: peek `temporal.pastStates[last]` for
-  `rebasedTarget`, compute `diff(displayed, rebasedTarget)`, run `mutationCommitVerdict`; on a
-  finding **refuse** with a person-readable reason and apply nothing (no `temporal.undo()`, no
-  PUT). On a pass, call `temporal.undo()` **without** an autosave-suppression bracket — its
+  `rebasedTarget`, run `mutationCommitVerdict` over `diff(localBase(), rebasedTarget)` — the
+  EXACT delta autosave PUTs after `temporal.undo()`, NOT `diff(displayed, rebasedTarget)` (which
+  differs when `sentPending` is non-empty and would gate a batch the reconciler never sends,
+  approving a transition whose real PUT then 409s); on a finding **refuse** with a
+  person-readable reason and apply nothing (no `temporal.undo()`, no PUT). On a pass, call `temporal.undo()` **without** an autosave-suppression bracket — its
   synchronous store mutation fires `useAutoSave`'s leading edge exactly once, which PUTs
   `diff(localBase(), displayed)` (one PUT per undo). The undo handler itself never PUTs.
   **`redo` mirrors this** (the same `useUndoRedo.run()` drives both): peek
@@ -887,7 +889,28 @@ rebases; a stale `seq ≤ baseSeq` frame is dropped (no reload); a two-tab same-
 from the other tab takes the **remote** branch; concurrent reorders/catalog/column-option
 edits converge with no clobber/snap; undo refused before any PUT on a finding, exactly one
 PUT otherwise; a human edit during a run persists; the invariant holds across relay-first and
-local-first orderings, a new-build bootstrap, and a `data-done` reseed (no double-apply).
+local-first orderings, a new-build bootstrap, and a `data-done` reseed (no double-apply); the
+recovery machine (failed-reload-GET recovery, deferred-reload-on-PUT-failure,
+dispose-during-reload, coalesced concurrent reloads, monotonic `baseSeq`); the PUT taxonomy (400
+freezes, 401 retries, 413 stops without discard); a false-network re-send drops without
+clobbering a peer; post-build undo works.
+
+**As-built hardening** (`lib/collab/CLAUDE.md` is the authoritative detail). The reconciler is a
+headless state machine — every side effect an injected dep, driven synchronously in tests.
+Beyond the happy path, the reload / retry / dispose machine holds five invariants: one recovery
+tick drives both re-sends and a stranded reload (re-send FIRST so a reload never GETs mid-PUT);
+every PUT resolution runs a deferred reload; `dispose()` sets a `disposed` flag first so a late
+resolution can't leak an `EventSource`; exactly one reload at a time (`reloadInFlight` coalesces,
+preserving the 409-loop-break `rejectedBatchId`); `baseSeq` is monotonic (a frame during a reload
+re-arms rather than regresses it, and `onDataDone`↔reload carry an `M < baseSeq` guard). Every
+`sentPending` mutation re-folds `displayed` through one `withRefold` primitive (a drop that
+skipped the refold would leave a stale local value the next autosave re-PUTs, clobbering a peer).
+The PUT adapter maps a fine 4xx taxonomy: only a **400 "Invalid mutations"** freezes (a
+client↔server gate disagreement, discarded on the user's explicit reload); **401** is transient
+(keep + retry — a lapsed session mustn't discard work); **413** is `tooLarge` (stop retrying,
+surface, keep). The store owns a `suppressionDepth` counter (agent-write + remote-apply brackets
+compose); `startTracking()` releases the one-time birth pause to 0 when a fresh build goes live
+(after its first run), so post-build undo works without a reload.
 
 **Depends on.** P2, P3, P5.
 

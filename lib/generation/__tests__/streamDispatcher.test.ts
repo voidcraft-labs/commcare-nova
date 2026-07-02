@@ -11,6 +11,11 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
+import {
+	createReconciler,
+	type Reconciler,
+	type ReconcilerDeps,
+} from "@/lib/collab/reconciler";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { asUuid, type PersistableDoc } from "@/lib/domain";
 import type { ConversationEvent } from "@/lib/log/types";
@@ -18,6 +23,34 @@ import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { READ_ENERGY_PER_CHAR, signalGrid } from "@/lib/signalGrid/store";
 import { applyStreamEvent } from "../streamDispatcher";
 import { createWiredStores } from "./testHelpers";
+
+/** Inert deps — this suite drives the dispatcher, not the reconciler's
+ *  network, so the PUT/reload/retry side effects are no-ops. */
+const INERT_DEPS: ReconcilerDeps = {
+	put: async () => ({ ok: true, seq: 0 }),
+	reload: async () => ({ blueprint: MINIMAL_DOC, seq: 0 }),
+	resubscribe: () => {},
+	scheduleRetry: () => () => {},
+};
+
+/** Build a reconciler seeded on the store's current doc, mirroring an active
+ *  builder session so a `data-done` reseeds via `onDataDone` (not `load()`). */
+function makeReconciler(
+	docStore: BlueprintDocStoreApi,
+	sessionStore: BuilderSessionStoreApi,
+): Reconciler {
+	return createReconciler(
+		docStore,
+		sessionStore,
+		{
+			appId: "test-app-id",
+			baseSeq: 0,
+			baseDoc: docStore.getState(),
+			userId: "u1",
+		},
+		INERT_DEPS,
+	);
+}
 
 // ── Fixture docs (normalized domain shape) ─────────────────────────────
 //
@@ -99,19 +132,28 @@ describe("applyStreamEvent", () => {
 	// ── Doc lifecycle (full-doc replacements) ───────────────────────────
 
 	describe("data-done", () => {
-		it("loads final doc AND stamps runCompletedAt (whole-build completion)", () => {
-			/* Begin a run to simulate a live session. */
+		it("reseeds the doc AND stamps runCompletedAt (whole-build completion)", () => {
+			/* Begin a run to simulate a live session — this opens the agent
+			 * suppression bracket (via `beginAgentWrite`), still open at
+			 * data-done, so the reconciler reseeds via a suppressed `commitDoc`
+			 * (not `load()`, which asserts inside an open bracket). */
+			const reconciler = makeReconciler(docStore, sessionStore);
 			sessionStore.getState().beginRun();
 			expect(sessionStore.getState().runCompletedAt).toBeUndefined();
 
 			applyStreamEvent(
 				"data-done",
-				{ doc: MINIMAL_DOC as unknown as Record<string, unknown> },
+				{
+					doc: MINIMAL_DOC as unknown as Record<string, unknown>,
+					seq: 3,
+				},
 				docStore,
 				sessionStore,
+				reconciler,
+				undefined,
 			);
 
-			/* Doc replaced with the authoritative snapshot. */
+			/* Doc reseeded to the authoritative snapshot. */
 			const doc = docStore.getState();
 			expect(doc.appName).toBe("Test App");
 			expect(doc.moduleOrder).toHaveLength(1);
@@ -121,6 +163,37 @@ describe("applyStreamEvent", () => {
 			 * ChatContainer status effect via `endRun`). */
 			const session = sessionStore.getState();
 			expect(session.runCompletedAt).toEqual(expect.any(Number));
+		});
+
+		it("[C4] a DORMANT reconciler data-done reconciles bracket-safe (no load() crash)", () => {
+			/* A brand-new build whose `data-app-id` hasn't activated the reconciler
+			 * yet: the reconciler is DORMANT and the agent suppression bracket is
+			 * open (beginRun). The old dispatcher fell back to `docStore.load()`,
+			 * which now THROWS inside an open bracket — crashing the build finalize.
+			 * The dispatcher must route through `onDataDone` (bracket-safe) instead. */
+			const reconciler = createReconciler(
+				docStore,
+				sessionStore,
+				{
+					appId: undefined,
+					baseSeq: 0,
+					baseDoc: docStore.getState(),
+					userId: "u1",
+				},
+				INERT_DEPS,
+			);
+			sessionStore.getState().beginRun(); // opens the agent bracket
+			expect(() => {
+				applyStreamEvent(
+					"data-done",
+					{ doc: MINIMAL_DOC as unknown as Record<string, unknown>, seq: 2 },
+					docStore,
+					sessionStore,
+					reconciler,
+					undefined,
+				);
+			}).not.toThrow();
+			expect(docStore.getState().appName).toBe("Test App");
 		});
 	});
 
@@ -135,6 +208,8 @@ describe("applyStreamEvent", () => {
 				event as unknown as Record<string, unknown>,
 				docStore,
 				sessionStore,
+				null,
+				undefined,
 			);
 
 			expect(sessionStore.getState().events).toEqual([event]);
@@ -154,6 +229,8 @@ describe("applyStreamEvent", () => {
 				event as unknown as Record<string, unknown>,
 				docStore,
 				sessionStore,
+				null,
+				undefined,
 			);
 
 			expect(sessionStore.getState().events).toHaveLength(1);
@@ -175,6 +252,8 @@ describe("applyStreamEvent", () => {
 				event as unknown as Record<string, unknown>,
 				docStore,
 				sessionStore,
+				null,
+				undefined,
 			);
 
 			expect(sessionStore.getState().events).toEqual([event]);
@@ -193,6 +272,8 @@ describe("applyStreamEvent", () => {
 				) as unknown as Record<string, unknown>,
 				docStore,
 				sessionStore,
+				null,
+				undefined,
 			);
 
 			expect(signalGrid.drainEnergy()).toBe(50);
@@ -210,6 +291,8 @@ describe("applyStreamEvent", () => {
 				},
 				docStore,
 				sessionStore,
+				null,
+				undefined,
 			);
 
 			expect(signalGrid.drainEnergy()).toBe(200);
@@ -223,6 +306,8 @@ describe("applyStreamEvent", () => {
 				{ delta: 10 },
 				docStore,
 				sessionStore,
+				null,
+				undefined,
 			);
 
 			expect(signalGrid.drainThinkEnergy()).toBe(10 * READ_ENERGY_PER_CHAR);
@@ -241,6 +326,8 @@ describe("applyStreamEvent", () => {
 					{ foo: "bar" },
 					docStore,
 					sessionStore,
+					null,
+					undefined,
 				);
 			}).not.toThrow();
 		});

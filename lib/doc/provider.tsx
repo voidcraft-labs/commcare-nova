@@ -97,11 +97,15 @@ export function BlueprintDocProvider({
 				s.appId = effectiveAppId;
 			});
 		}
-		// Start tracking unless explicitly disabled. Agent write streams pass
-		// `false` here and call `endAgentWrite()` when the stream completes,
-		// collapsing the entire agent output into one undoable snapshot.
+		// Start tracking unless explicitly disabled. The store owns undo
+		// tracking through a suppression-depth counter (see store.ts): the
+		// live builder releases the birth pause (depth 1 → 0) via the store's
+		// `startTracking()`. A fresh build passes `false` here (it generates
+		// first) and calls `startTracking()` when its first run ends —
+		// `ChatContainer` drives that so undo works post-build without a page
+		// reload. A replay mount never tracks.
 		if (startTracking) {
-			store.temporal.getState().resume();
+			store.getState().startTracking();
 		}
 		storeRef.current = store;
 	}

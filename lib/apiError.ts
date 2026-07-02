@@ -66,6 +66,13 @@ export const BLUEPRINT_REQUEST_MAX_BYTES = 2 * 1024 * 1024;
 export const CHAT_REQUEST_MAX_BYTES = 16 * 1024 * 1024;
 export const CLIENT_ERROR_MAX_BYTES = 32 * 1024;
 export const OAUTH_REVOKE_MAX_BYTES = 16 * 1024;
+/**
+ * `PRESENCE_REQUEST_MAX_BYTES` — the presence heartbeat body (a `sessionId`,
+ * `name`, `color`, and a `Location`) is a few hundred bytes; 16 KB accepts
+ * every valid one and keeps this hot per-tab endpoint from buffering
+ * multi-MB bodies.
+ */
+export const PRESENCE_REQUEST_MAX_BYTES = 16 * 1024;
 
 /**
  * The cheap declared-size gate shared by every body-capped route: a request

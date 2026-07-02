@@ -8,6 +8,8 @@ The builder's state is split across three stores, each with a distinct lifecycle
 - **The doc store** (`lib/doc`) owns the blueprint and undo/redo. Every UI edit dispatches through `useBlueprintMutations`, which runs the commit gate — a rejected edit never reaches the store and its findings surface inline or via a toast.
 - **The session store** (`lib/session`) owns ephemeral run/UI lifecycle (preview mode, sidebars, the active run's event buffer, staged uploads). None of it is undoable or persisted, and every lifecycle signal is *derived* from a few base fields — never add a shadow flag.
 
+Under multiplayer, a fourth, non-store owner mediates persistence: the **reconciler** (`lib/collab`, mounted by `ReconcilerProvider` inside this stack for non-replay sessions). The doc store is still the display + undo source of truth, but `useAutoSave` no longer PUTs directly — it dispatches the human delta to the reconciler, which owns the diff base (`confirmedDoc ⊕ sentPending`), the durable stream, and 409/reload recovery. A remote peer's edit arrives as an inbound frame the reconciler folds into the store via a `beginRemoteApply` bracket; `useAutoSave`'s first gate is `remoteFrameApplyInProgress` so a server-applied change never bounces back out as a PUT. See `lib/collab/CLAUDE.md`.
+
 ## View-only members (read-only builder)
 
 A Project **viewer** (the `view`-only role) opens the builder read-only. The build page resolves the role (`resolveAppAccess`) and passes `canEdit` down; the session store holds it (`useCanEdit()`), and the doc provider mirrors it into `BlueprintEditableContext`. Three layers make it airtight without per-control paranoia:

@@ -52,10 +52,12 @@ export default async function BuilderPage({
 		? { userName: session.user.name, userEmail: session.user.email }
 		: null;
 
-	/* New apps — no blueprint fetch needed. */
+	/* New apps — no blueprint fetch needed. The reconciler mounts dormant
+	 * (no appId yet) and activates when the run mints one via `data-app-id`;
+	 * still pass the user id so echo classification works once it activates. */
 	if (id === "new") {
 		return (
-			<BuilderProvider buildId={id}>
+			<BuilderProvider buildId={id} userId={session?.user.id}>
 				<BuilderLayout
 					commcareSettings={commcareSettings}
 					impersonating={impersonating}
@@ -95,6 +97,8 @@ export default async function BuilderPage({
 			initialDoc={app.blueprint}
 			initialSaveBasis={app.blueprint_token ?? null}
 			canEdit={canEdit}
+			baseSeq={app.mutation_seq}
+			userId={session.user.id}
 		>
 			<BuilderLayout
 				isExistingApp

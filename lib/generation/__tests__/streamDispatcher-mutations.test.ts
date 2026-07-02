@@ -65,6 +65,8 @@ describe("applyStreamEvent — data-mutations", () => {
 			{ mutations, events, stage: "schema" },
 			docStore,
 			sessionStore,
+			null,
+			undefined,
 		);
 
 		expect(docStore.getState().appName).toBe("Clinical Trial App");
@@ -104,6 +106,8 @@ describe("applyStreamEvent — data-mutations", () => {
 			{ mutations, events, stage: "scaffold" },
 			docStore,
 			sessionStore,
+			null,
+			undefined,
 		);
 
 		const doc = docStore.getState();
@@ -125,6 +129,8 @@ describe("applyStreamEvent — data-mutations", () => {
 			{ mutations: [] as Mutation[], events: [] as MutationEvent[] },
 			docStore,
 			sessionStore,
+			null,
+			undefined,
 		);
 
 		expect(docStore.getState().appName).toBe(docBefore.appName);
@@ -138,7 +144,14 @@ describe("applyStreamEvent — data-mutations", () => {
 		const eventsBefore = sessionStore.getState().events;
 
 		expect(() => {
-			applyStreamEvent("data-mutations", {}, docStore, sessionStore);
+			applyStreamEvent(
+				"data-mutations",
+				{},
+				docStore,
+				sessionStore,
+				null,
+				undefined,
+			);
 		}).not.toThrow();
 
 		expect(docStore.getState().appName).toBe(appNameBefore);
@@ -156,6 +169,8 @@ describe("applyStreamEvent — data-mutations", () => {
 			{ mutations, events, stage: "scaffold" },
 			docStore,
 			sessionStore,
+			null,
+			undefined,
 		);
 
 		expect(docStore.getState().appName).toBe("Staged Build");
