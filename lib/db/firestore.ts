@@ -37,6 +37,7 @@ import {
 import type { ZodType } from "zod";
 import { type Event, eventSchema } from "@/lib/log/types";
 import { log } from "@/lib/logger";
+import { delay } from "@/lib/utils/delay";
 import { firestoreClientOptions } from "./firestoreClientOptions";
 import {
 	type AppDoc,
@@ -84,7 +85,7 @@ export function getDb(): Firestore {
 // ── Write-throttle ride-out ────────────────────────────────────────
 
 /** gRPC status the write throttle carries on the gRPC transport — the shape
- * `runTransaction`'s own retry predicate recognizes. */
+ * the SDK's own retry predicates recognize. */
 const GRPC_RESOURCE_EXHAUSTED = 8;
 
 /** HTTP status the same throttle carries on the REST transport. */
@@ -96,19 +97,19 @@ const WRITE_THROTTLE_RETRY_DELAYS_MS = [250, 750, 2000, 5000];
 
 /**
  * Matches Firestore's write throttle on both transports: the gRPC status code
- * (`GoogleError.code`), and the REST shape — an HTTP 429 whose `status`/`code`
- * carry the HTTP number, or a raw error whose message embeds the response body
- * verbatim (`"status": "RESOURCE_EXHAUSTED"`, `"reason": "rateLimitExceeded"`,
- * "…maximum bandwidth for writes…").
+ * (`GoogleError.code`), the REST shape — an HTTP 429 whose `code`/`status`
+ * carry the number or its string form — and, as a last resort, an error whose
+ * message embeds the 429 response body verbatim.
  */
 function isFirestoreWriteThrottled(err: unknown): boolean {
 	if (typeof err === "object" && err !== null) {
 		const { code, status } = err as { code?: unknown; status?: unknown };
 		if (code === GRPC_RESOURCE_EXHAUSTED) return true;
 		if (
-			status === HTTP_TOO_MANY_REQUESTS ||
 			code === HTTP_TOO_MANY_REQUESTS ||
-			code === String(HTTP_TOO_MANY_REQUESTS)
+			code === String(HTTP_TOO_MANY_REQUESTS) ||
+			status === HTTP_TOO_MANY_REQUESTS ||
+			status === String(HTTP_TOO_MANY_REQUESTS)
 		) {
 			return true;
 		}
@@ -117,6 +118,39 @@ function isFirestoreWriteThrottled(err: unknown): boolean {
 	return /RESOURCE_EXHAUSTED|maximum bandwidth for writes|rateLimitExceeded/i.test(
 		message,
 	);
+}
+
+/**
+ * The shared ride-out loop. `shouldBypass` short-circuits classification for
+ * errors the caller KNOWS are not the throttle — a transaction body's own
+ * rejection, which can quote user-authored text that would otherwise match
+ * the message fallback. Each bounce logs a warning so a shed is never
+ * invisible.
+ */
+async function retryThrottled<T>(
+	attemptOnce: () => Promise<T>,
+	shouldBypass: (err: unknown) => boolean,
+): Promise<T> {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await attemptOnce();
+		} catch (err) {
+			if (
+				shouldBypass(err) ||
+				attempt === WRITE_THROTTLE_RETRY_DELAYS_MS.length ||
+				!isFirestoreWriteThrottled(err)
+			) {
+				throw err;
+			}
+			const delayMs = WRITE_THROTTLE_RETRY_DELAYS_MS[attempt];
+			log.warn("[firestore] write throttled; retrying", {
+				attempt: attempt + 1,
+				delayMs,
+				error: err instanceof Error ? err.message.slice(0, 300) : String(err),
+			});
+			await delay(delayMs);
+		}
+	}
 }
 
 /**
@@ -129,9 +163,8 @@ function isFirestoreWriteThrottled(err: unknown): boolean {
  * backoff" — and its contract makes the retry the CLIENT's job. The shed is
  * not always explained by the documented limits: this database has rejected
  * single small commits at zero measured load, reads unaffected, with no cause
- * visible on any surface Google exposes — so the wrapper treats any 429
- * commit rejection as weather to ride out, and logs a warning per bounce so
- * a shed is never invisible.
+ * visible on any surface Google exposes — so any 429 commit rejection is
+ * weather to ride out.
  *
  * The SDK is built to absorb this itself — RESOURCE_EXHAUSTED is retryable at
  * three layers (the gax call retry, `Firestore._retry`, and the transaction
@@ -139,35 +172,47 @@ function isFirestoreWriteThrottled(err: unknown): boolean {
  * transport this codebase uses (`preferRest`, see `firestoreClientOptions`)
  * the throttle surfaces as an HTTP error carrying `code: 429`, which none of
  * them match. Unwrapped, a single shed therefore hard-fails the request that
- * carried it. Only the throttle is retried: business rejections (e.g. the
- * credit gate's `OutOfCreditsError`) and contention ABORTs (which
- * `runTransaction` retries internally) propagate immediately, and the retry
- * re-runs the whole transaction body — the same re-execution contract the
- * SDK's own contention retry already imposes on every body.
+ * carried it.
+ *
+ * Only TRANSPORT errors are ever classified: an error thrown by the
+ * transaction body itself (`OutOfCreditsError`, a commit-gate rejection whose
+ * message may quote user-authored text) is recognized by identity and
+ * propagates on the first attempt no matter what its message contains.
+ * Contention ABORTs are `runTransaction`'s own to retry, and a throttle retry
+ * re-runs the whole body — the same re-execution contract the SDK's
+ * contention retry already imposes on every body.
  */
 export async function runThrottledTransaction<T>(
 	db: Firestore,
 	updateFunction: (tx: Transaction) => Promise<T>,
 ): Promise<T> {
-	for (let attempt = 0; ; attempt++) {
-		try {
-			return await db.runTransaction(updateFunction);
-		} catch (err) {
-			if (
-				attempt === WRITE_THROTTLE_RETRY_DELAYS_MS.length ||
-				!isFirestoreWriteThrottled(err)
-			) {
-				throw err;
-			}
-			const delayMs = WRITE_THROTTLE_RETRY_DELAYS_MS[attempt];
-			log.warn("[firestore] write throttled; retrying transaction", {
-				attempt: attempt + 1,
-				delayMs,
-				error: err instanceof Error ? err.message.slice(0, 300) : String(err),
+	let bodyError: unknown;
+	return retryThrottled(
+		() => {
+			bodyError = undefined;
+			return db.runTransaction(async (tx) => {
+				try {
+					return await updateFunction(tx);
+				} catch (err) {
+					bodyError = err;
+					throw err;
+				}
 			});
-			await new Promise((resolve) => setTimeout(resolve, delayMs));
-		}
-	}
+		},
+		(err) => bodyError !== undefined && err === bodyError,
+	);
+}
+
+/**
+ * `runThrottledTransaction`'s sibling for PLAIN writes (a bare
+ * `set`/`update`/`create`), for the hot paths where a single shed must not
+ * fail the user's save (app creation, blueprint snapshots). A plain write's
+ * rejection can only come from the SDK — there is no body to misread — so the
+ * classifier applies directly. Ops must be idempotent under re-execution;
+ * lib/db's plain writes are (full-doc sets and fixed-field updates).
+ */
+export function runThrottledWrite<T>(op: () => Promise<T>): Promise<T> {
+	return retryThrottled(op, () => false);
 }
 
 // ── Converters ─────────────────────────────────────────────────────

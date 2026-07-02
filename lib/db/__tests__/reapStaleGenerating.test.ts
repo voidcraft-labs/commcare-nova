@@ -58,13 +58,8 @@ const {
 });
 
 vi.mock("../credits", () => ({ refundReservation: refundReservationMock }));
-vi.mock("../firestore", () => ({
-	// Pass-through for the write-throttle wrapper - the retry itself is covered
-	// in writeThrottleRetry.test.ts; these suites exercise the transaction bodies.
-	runThrottledTransaction: (dbArg: unknown, fn: unknown) =>
-		(
-			dbArg as { runTransaction: (f: unknown) => Promise<unknown> }
-		).runTransaction(fn),
+vi.mock("../firestore", async () => ({
+	...(await import("./throttlePassthrough")).throttlePassthrough,
 	docs: {
 		app: appMock,
 		appRaw: appRawMock,

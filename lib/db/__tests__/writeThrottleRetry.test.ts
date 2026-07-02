@@ -29,7 +29,7 @@ vi.mock("@/lib/logger", () => ({
 	log: { warn: warnMock, error: vi.fn(), info: vi.fn(), critical: vi.fn() },
 }));
 
-import { runThrottledTransaction } from "@/lib/db/firestore";
+import { runThrottledTransaction, runThrottledWrite } from "@/lib/db/firestore";
 
 const THROTTLE_TEXT =
 	"This database has exceeded their maximum bandwidth for writes, please retry with exponential backoff. To learn more about best practices for increasing traffic, see 'Ramping up traffic' section of the support documentation.";
@@ -121,6 +121,56 @@ describe("runThrottledTransaction", () => {
 		).rejects.toThrow(/app document missing/);
 		expect(runTransaction).toHaveBeenCalledTimes(1);
 		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("never classifies a transaction BODY error, whatever its message says", async () => {
+		// A commit-gate rejection quoting user-authored text that matches the
+		// message fallback must propagate on the first attempt — the classifier
+		// applies to transport errors only (recognized by identity).
+		const { db, runTransaction } = stubDb([]);
+		const bodyRejection = new Error(
+			`Field label "rateLimitExceeded — maximum bandwidth for writes" is invalid`,
+		);
+		await expect(
+			runThrottledTransaction(db, async () => {
+				throw bodyRejection;
+			}),
+		).rejects.toBe(bodyRejection);
+		expect(runTransaction).toHaveBeenCalledTimes(1);
+		expect(warnMock).not.toHaveBeenCalled();
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("matches a stringified HTTP status ('429' on status)", async () => {
+		const { db, runTransaction } = stubDb([
+			Object.assign(new Error("Too Many Requests"), { status: "429" }),
+		]);
+		const result = runThrottledTransaction(db, async () => 1);
+		await vi.runAllTimersAsync();
+		await expect(result).resolves.toBe(1);
+		expect(runTransaction).toHaveBeenCalledTimes(2);
+	});
+
+	it("runThrottledWrite rides out a shed on a plain write and propagates other errors", async () => {
+		let calls = 0;
+		const flaky = vi.fn(async () => {
+			calls++;
+			if (calls === 1)
+				throw Object.assign(new Error("Too Many Requests"), { status: 429 });
+			return "written";
+		});
+		const result = runThrottledWrite(flaky);
+		await vi.runAllTimersAsync();
+		await expect(result).resolves.toBe("written");
+		expect(flaky).toHaveBeenCalledTimes(2);
+
+		const hardFail = vi.fn(async () => {
+			throw new Error("document missing");
+		});
+		await expect(runThrottledWrite(hardFail)).rejects.toThrow(
+			/document missing/,
+		);
+		expect(hardFail).toHaveBeenCalledTimes(1);
 	});
 
 	it("gives up once the backoff schedule is exhausted and rethrows the throttle", async () => {

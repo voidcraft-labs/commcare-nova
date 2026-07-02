@@ -97,12 +97,6 @@ const { firestoreMock, seedDoc, readDoc, resetStore } = vi.hoisted(() => {
 
 	return {
 		firestoreMock: {
-			// Pass-through for the write-throttle wrapper - the retry itself is covered
-			// in writeThrottleRetry.test.ts; these suites exercise the transaction bodies.
-			runThrottledTransaction: (dbArg: unknown, fn: unknown) =>
-				(
-					dbArg as { runTransaction: (f: unknown) => Promise<unknown> }
-				).runTransaction(fn),
 			getDb: () => db,
 			docs: {
 				app: (id: string) => makeRef(`apps/${id}`),
@@ -124,7 +118,10 @@ const { firestoreMock, seedDoc, readDoc, resetStore } = vi.hoisted(() => {
 	};
 });
 
-vi.mock("../firestore", () => firestoreMock);
+vi.mock("../firestore", async () => ({
+	...(await import("./throttlePassthrough")).throttlePassthrough,
+	...firestoreMock,
+}));
 
 describe("claim window — kept charges survive a hard kill; live holds still refund", () => {
 	const PERIOD = getCurrentPeriod();

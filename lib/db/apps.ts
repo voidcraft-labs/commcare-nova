@@ -30,7 +30,13 @@ import {
 	remapAssetRefs,
 } from "../domain/mediaRefs";
 import { refundReservation } from "./credits";
-import { collections, docs, getDb, runThrottledTransaction } from "./firestore";
+import {
+	collections,
+	docs,
+	getDb,
+	runThrottledTransaction,
+	runThrottledWrite,
+} from "./firestore";
 import { addReferencingApp } from "./mediaAssets";
 import type { AppDoc, CreditMonthDoc } from "./types";
 
@@ -454,25 +460,27 @@ export async function createApp(
 		fieldParent: {},
 	};
 	const persistable = toPersistableDoc(emptyDoc);
-	await ref.set({
-		owner,
-		project_id: projectId,
-		...denormalize(emptyDoc),
-		blueprint: persistable,
-		status: opts?.status ?? "generating",
-		error_type: null,
-		/* Initialize soft-delete fields to null so every row on disk
-		 * matches the full `appDocSchema` shape and first-soft-delete
-		 * writes update existing fields rather than materializing them. */
-		deleted_at: null,
-		recoverable_until: null,
-		/* Auto-save basis starts null — a null basis matches a null stored
-		 * token, so the builder's first PUT passes without backfill. */
-		blueprint_token: null,
-		run_id: runId,
-		created_at: FieldValue.serverTimestamp(),
-		updated_at: FieldValue.serverTimestamp(),
-	});
+	await runThrottledWrite(() =>
+		ref.set({
+			owner,
+			project_id: projectId,
+			...denormalize(emptyDoc),
+			blueprint: persistable,
+			status: opts?.status ?? "generating",
+			error_type: null,
+			/* Initialize soft-delete fields to null so every row on disk
+			 * matches the full `appDocSchema` shape and first-soft-delete
+			 * writes update existing fields rather than materializing them. */
+			deleted_at: null,
+			recoverable_until: null,
+			/* Auto-save basis starts null — a null basis matches a null stored
+			 * token, so the builder's first PUT passes without backfill. */
+			blueprint_token: null,
+			run_id: runId,
+			created_at: FieldValue.serverTimestamp(),
+			updated_at: FieldValue.serverTimestamp(),
+		}),
+	);
 	return ref.id;
 }
 
@@ -519,7 +527,9 @@ async function persistBlueprintSnapshot(
 	doc: PersistedBlueprint,
 	extra: { status?: AppDoc["status"]; runId?: string } = {},
 ): Promise<void> {
-	await docs.app(appId).update(blueprintSnapshotFields(doc, extra));
+	await runThrottledWrite(() =>
+		docs.app(appId).update(blueprintSnapshotFields(doc, extra)),
+	);
 	await syncMediaReferences(appId, doc);
 }
 
