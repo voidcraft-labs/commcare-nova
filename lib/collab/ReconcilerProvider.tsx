@@ -82,6 +82,13 @@ function buildRuntime(
 	const presenceSubs = new Set<(roster: PresenceFrame) => void>();
 	const retryTimers = new Set<ReturnType<typeof setTimeout>>();
 	let eventSource: EventSource | null = null;
+	/* Set by `teardown` so a stream-reopen timer that fires post-unmount is a
+	 * no-op (no fresh EventSource after the provider is gone). */
+	let torndown = false;
+	/* Backoff attempt counter for the stream REOPEN path below — reset by a
+	 * successful `open`, so an isolated failure retries at 1s while a sustained
+	 * outage backs off to the 30s cap. */
+	let streamRetryAttempt = 0;
 
 	// Forward reference so the deps' `resubscribe` and the mount effect share
 	// one `openStream`; assigned just below.
@@ -125,8 +132,39 @@ function buildRuntime(
 				/* a malformed presence frame is best-effort — skip it. */
 			}
 		});
-		// The browser's EventSource auto-reconnects (with `Last-Event-ID`) on a
-		// transport drop; no `onerror` handler is needed beyond that default.
+		es.addEventListener("open", () => {
+			streamRetryAttempt = 0;
+		});
+		es.addEventListener("error", () => {
+			/* The browser's EventSource auto-reconnects (with `Last-Event-ID`) only
+			 * on a TRANSPORT drop (readyState CONNECTING — leave it alone). An
+			 * HTTP-error response — a 502/503 from the LB mid-deploy, a transient
+			 * 500 — FAILS the connection permanently (readyState CLOSED) and the
+			 * browser never retries it. Without this reopen the tab keeps PUT-ing
+			 * fine but silently stops receiving peer frames — the exact divergence
+			 * the stream exists to prevent. Reopen at the reconciler's confirmed
+			 * cursor with backoff; the route's replay + gap check reconcile
+			 * whatever was missed (a retention overrun reloads). A REVOKED member's
+			 * reopen just re-404s at ≤30s cadence until the tab notices (the next
+			 * PUT's 403 freezes the reconciler, which stops the reopens). */
+			if (es.readyState !== EventSource.CLOSED) return;
+			if (es !== eventSource) return; // superseded by a newer stream
+			const snap = reconciler.getSnapshot();
+			if (torndown || snap.revoked || snap.disposed) return;
+			const timer = setTimeout(() => {
+				retryTimers.delete(timer);
+				const now = reconciler.getSnapshot();
+				if (torndown || now.revoked || now.disposed) return;
+				/* A reload's `resubscribe` may have already replaced the failed
+				 * stream while this timer was pending — don't churn a healthy one. */
+				if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
+					return;
+				}
+				openStream(now.baseSeq);
+			}, retryDelayMs(streamRetryAttempt));
+			streamRetryAttempt += 1;
+			retryTimers.add(timer);
+		});
 	}
 
 	const put = async (
@@ -256,6 +294,7 @@ function buildRuntime(
 	}
 
 	function teardown(): void {
+		torndown = true;
 		eventSource?.close();
 		eventSource = null;
 		for (const t of retryTimers) clearTimeout(t);
