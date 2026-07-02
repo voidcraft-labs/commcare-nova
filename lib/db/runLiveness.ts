@@ -144,10 +144,22 @@ export interface RunLease {
 	ownedByResume: (runId: string, resumeMode: "build" | "edit") => boolean;
 	/**
 	 * An unsettled reservation marker exists — a credit hold owed a settle/refund.
-	 * The ONLY `reservation.settled` read: the failure-path lock-clear and the
-	 * reapers key on this, never on "my refund call returned".
+	 * The failure-path lock-clear and the reapers key on this, never on "my
+	 * refund call returned".
 	 */
 	markerSettleable: boolean;
+	/**
+	 * The app's LAST run was resolved by a REAPER and nothing re-claimed since:
+	 * a marker present, SETTLED, with its `runId` CLEARED. Only the two reaper
+	 * refunds clear a marker's `runId` — a run's own terminal writers keep it,
+	 * and a re-claimant's `reserveCredits` books a fresh marker carrying its own
+	 * — so this shape is the reaper's signature. Combined with `mode: "none"` +
+	 * `status: "error"` by the build completion's FALSE-REAP SELF-HEAL: a live
+	 * build reaped mid-run (a lapsed clock) that then finishes cleanly flips the
+	 * reaper's `error` back to `complete` instead of celebrating over a
+	 * failed-looking row (the reaper's refund stands — the build is kept free).
+	 */
+	reaperResolved: boolean;
 	/**
 	 * A hard-killed EDIT with a stranded, unsettled hold — the edit reaper's target
 	 * (complete + non-paused + an unsettled marker + a `run_lock` present-and-lapsed).
@@ -214,6 +226,10 @@ export function runLeaseState(
 	};
 
 	const markerSettleable = !!reservation && !reservation.settled;
+	// The reaper's signature: settled marker, runId CLEARED (only the reaper
+	// refunds clear it; every other writer keeps or freshly books it).
+	const reaperResolved =
+		!!reservation && !!reservation.settled && reservation.runId === undefined;
 
 	const terminalWriteOwned = (runId: string): boolean => {
 		if (mode === "edit") return mine(runId); // lock runId — authoritative
@@ -266,6 +282,7 @@ export function runLeaseState(
 		terminalWriteOwned,
 		ownedByResume,
 		markerSettleable,
+		reaperResolved,
 		reapableStrandedEdit,
 		reapableStaleBuild,
 	};

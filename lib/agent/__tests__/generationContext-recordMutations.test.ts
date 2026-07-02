@@ -33,6 +33,8 @@ import { makeMinimalDoc, makeTestContext } from "./fixtures";
  * via `mockResolvedValueOnce` / `mockRejectedValueOnce`. */
 vi.mock("@/lib/db/apps", () => ({
 	commitGuardedBatch: vi.fn(),
+	refreshEditLease: vi.fn(() => Promise.resolve()),
+	refreshBuildLiveness: vi.fn(() => Promise.resolve()),
 }));
 
 /* Mock the logger so `emitError`'s server-side cause-logging is silent in

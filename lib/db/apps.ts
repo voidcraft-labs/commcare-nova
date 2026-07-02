@@ -1040,13 +1040,14 @@ export async function commitAppProjectMove(
  *
  * Settles WHATEVER unsettled marker is on the app (the `askQuestions` flow is
  * multi-POST, so the kept charge may have been booked by an earlier POST). The
- * ownership gate (`terminalWriteOwned` = `markerSettleable && mine`) means an
- * unowned build — a marker-less one, or one whose marker the reaper settled +
- * `runId`-cleared — NO-OPs rather than completing the app (it does NOT flip
- * status). That unowned path is currently unreachable on the live flow (every
- * build POST is chargeable, so a completing build always has its own unsettled
- * marker); the gate is the defensive in-txn re-check that makes a reaped-then-
- * re-claimed build's stale completion no-op instead of clobbering the taker.
+ * ownership gate (`terminalWriteOwned` = `markerSettleable && mine`) makes a
+ * reaped-then-RE-CLAIMED build's stale completion no-op instead of clobbering
+ * the taker. A reaped-but-UNCLAIMED build (the false-reap: a live run whose
+ * clock lapsed was refunded + flipped to `error`, then finished cleanly) takes
+ * the SELF-HEAL branch instead — `status: "error"` + `mode: "none"` +
+ * `lease.reaperResolved` (the reaper's settled/`runId`-cleared marker
+ * signature) flips the row back to `complete` without touching the marker, so
+ * the celebration and the dashboard agree; the reaper's refund stands.
  * Awaited so the route's `data-done` follows the durable flip (a page load right
  * after the celebration never sees a still-`generating` row and bounce off the
  * build page's redirect). `error_type` clears alongside so a retried build's
@@ -1079,7 +1080,33 @@ export async function completeAndSettleRun(
 			// false and this no-ops rather than clobbering the new run. Every build
 			// reaching here reserved (a build POST is chargeable), so a legit live one
 			// always has an unsettled marker.
-			if (lease.mode !== "build" || !lease.terminalWriteOwned(runId)) return;
+			if (lease.mode !== "build" || !lease.terminalWriteOwned(runId)) {
+				/* FALSE-REAP SELF-HEAL. A live build whose clock lapsed mid-run (the
+				 * heartbeat missed, or a pre-heartbeat row) was REAPED — refunded,
+				 * marker `runId`-cleared, flipped to `error` — yet the process
+				 * survived, kept committing (commits are not status-gated), and
+				 * finished cleanly. Without this, the run celebrates + emits
+				 * `data-done` over a row the dashboard shows as a FAILED build.
+				 * `reaperResolved` (settled marker, `runId` cleared) is the reaper's
+				 * signature, and `mode: "none"` + `status: "error"` proves nothing
+				 * re-claimed the freed app since (a re-claimant books a fresh marker
+				 * carrying its own runId / flips the status) — so flipping the
+				 * reaper's `error` back to `complete` clobbers nobody. The reaper's
+				 * refund stands: the finished build is kept free rather than
+				 * re-charged. */
+				if (
+					fresh.status === "error" &&
+					lease.mode === "none" &&
+					lease.reaperResolved
+				) {
+					tx.set(
+						docs.appRaw(appId),
+						{ status: "complete", error_type: null },
+						{ merge: true },
+					);
+				}
+				return;
+			}
 			const reservation = fresh.reservation as NonNullable<
 				AppDoc["reservation"]
 			>;
@@ -1403,6 +1430,47 @@ export async function refreshEditLease(
 		if (!ownsEditLock) return;
 		tx.update(docs.appRaw(appId), {
 			"run_lock.expireAt": Timestamp.fromMillis(editLeaseDeadlineMs()),
+		});
+	});
+}
+
+/**
+ * Refresh a live BUILD run's liveness clock (`updated_at`) off SA activity —
+ * the build-mode twin of {@link refreshEditLease}, fired by the same per-step
+ * + wall-clock heartbeats in `GenerationContext`.
+ *
+ * A build's liveness horizon is `updated_at` inside `MAX_GENERATION_MINUTES`.
+ * Every commit stamps it (`writeCommittedSnapshot`), but a live build can
+ * legitimately go longer than the window with NO commit — a long planning /
+ * document-extraction / reasoning stretch, or an SA loop whose rejected tool
+ * calls persist nothing — and a concurrent scan (or a waiter's claim-conflict
+ * nudge) would then reap the LIVE run: refund its hold + flip it to `error`
+ * out from under a build that goes on to finish. The heartbeat keeps a live
+ * build fresh; a hard-killed one stops beating and still lapses inside the
+ * unchanged ~`MAX_GENERATION_MINUTES` window, and an abandoned PAUSED build
+ * never beats (its run finalized, stopping the heartbeat), so it lapses and
+ * reaps exactly as the descoped model intends.
+ *
+ * Transactionally OWNERSHIP-GATED via the one liveness reader: a build owns
+ * via its reservation marker's `runId`, so a superseded/reaped run never
+ * re-arms the clock on an app it no longer holds; the pre-reservation window
+ * (claim → `reserveCredits`) reads unowned and no-ops — harmless, the claim
+ * itself just stamped a fresh `updated_at`.
+ */
+export async function refreshBuildLiveness(
+	appId: string,
+	runId: string,
+): Promise<void> {
+	await runThrottledTransaction(getDb(), async (tx) => {
+		const snap = await tx.get(docs.appRaw(appId));
+		const fresh = (snap.exists ? snap.data() : undefined) as
+			| Partial<AppDoc>
+			| undefined;
+		const lease = fresh ? runLeaseState(fresh) : undefined;
+		const ownsBuild = lease?.mode === "build" && lease?.mine(runId);
+		if (!ownsBuild) return;
+		tx.update(docs.appRaw(appId), {
+			updated_at: FieldValue.serverTimestamp(),
 		});
 	});
 }

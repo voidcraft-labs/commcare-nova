@@ -21,7 +21,7 @@
  */
 
 import { deleteApp, getApps, initializeApp } from "firebase-admin/app";
-import { Firestore } from "firebase-admin/firestore";
+import { Firestore, type Timestamp } from "firebase-admin/firestore";
 import {
 	afterAll,
 	beforeAll,
@@ -711,5 +711,85 @@ describe.skipIf(!emulatorAvailable)("P9 run-lifecycle invariant matrix", () => {
 		await expect(claimRun(APP, "build", "b2", MEMBER)).resolves.toMatchObject({
 			mode: "build",
 		});
+	});
+	// ── False-reap self-heal + build liveness heartbeat ───────────────────
+
+	it("a reaped-but-UNCLAIMED build's clean completion self-heals error → complete (refund stands)", async () => {
+		const { claimRun, completeAndSettleRun, reapStaleGenerating } =
+			await import("../apps");
+		const { reserveCredits } = await import("../credits");
+		await seedApp(APP, { status: "complete" });
+		await seedCredits(OWNER);
+		await claimRun(APP, "build", "b1", OWNER);
+		await reserveCredits(OWNER, CREDITS_PER_BUILD, APP, "b1");
+		// The live build's clock lapses mid-run (a long no-commit stretch on a
+		// pre-heartbeat row) and a scan reaps it: refund + error + runId cleared.
+		await db
+			.collection("apps")
+			.doc(APP)
+			.update({ updated_at: new Date(Date.now() - 60 * 60_000) });
+		await reapStaleGenerating(APP);
+		expect(await consumed(OWNER)).toBe(0);
+		expect((await readApp(APP))?.status).toBe("error");
+
+		// The surviving process finishes cleanly. Nothing re-claimed the app, so
+		// the completion flips the reaper's error back to complete — the
+		// dashboard and the celebration agree — without re-charging (the
+		// reaper's refund stands) and without touching the settled marker.
+		await completeAndSettleRun(APP, "b1");
+		const app = await readApp(APP);
+		expect(app?.status).toBe("complete");
+		expect(app?.error_type).toBeNull();
+		expect(await consumed(OWNER)).toBe(0);
+		await assertNoStrand(APP);
+	});
+
+	it("a reaped-then-RE-CLAIMED build's stale completion still no-ops (the taker is untouched)", async () => {
+		const { claimRun, completeAndSettleRun, reapStaleGenerating } =
+			await import("../apps");
+		const { reserveCredits } = await import("../credits");
+		await seedApp(APP, { status: "complete" });
+		await seedCredits(OWNER);
+		await seedCredits(MEMBER);
+		await claimRun(APP, "build", "b1", OWNER);
+		await reserveCredits(OWNER, CREDITS_PER_BUILD, APP, "b1");
+		await db
+			.collection("apps")
+			.doc(APP)
+			.update({ updated_at: new Date(Date.now() - 60 * 60_000) });
+		await reapStaleGenerating(APP);
+		// A second run re-claims the freed app and books its own marker.
+		await claimRun(APP, "build", "b2", MEMBER);
+		await reserveCredits(MEMBER, CREDITS_PER_BUILD, APP, "b2");
+
+		// The ghost's completion must not flip the taker's live run.
+		await completeAndSettleRun(APP, "b1");
+		const app = await readApp(APP);
+		expect(app?.status).toBe("generating");
+		expect(runLeaseState(app as Partial<AppDoc>).mine("b2")).toBe(true);
+		expect(await consumed(MEMBER)).toBe(CREDITS_PER_BUILD);
+	});
+
+	it("refreshBuildLiveness re-arms updated_at only for the OWNING live build", async () => {
+		const { claimRun, refreshBuildLiveness } = await import("../apps");
+		const { reserveCredits } = await import("../credits");
+		await seedApp(APP, { status: "complete" });
+		await seedCredits(OWNER);
+		await claimRun(APP, "build", "b1", OWNER);
+		await reserveCredits(OWNER, CREDITS_PER_BUILD, APP, "b1");
+		// Age the clock, then beat as the owner — the clock re-arms.
+		const aged = new Date(Date.now() - 9 * 60_000);
+		await db.collection("apps").doc(APP).update({ updated_at: aged });
+		await refreshBuildLiveness(APP, "b1");
+		const afterOwned = await readApp(APP);
+		const ownedMs = (afterOwned?.updated_at as Timestamp).toDate().getTime();
+		expect(ownedMs).toBeGreaterThan(aged.getTime());
+		// A NON-owning runId's beat leaves the clock untouched.
+		await db.collection("apps").doc(APP).update({ updated_at: aged });
+		await refreshBuildLiveness(APP, "ghost");
+		const afterGhost = await readApp(APP);
+		expect((afterGhost?.updated_at as Timestamp).toDate().getTime()).toBe(
+			aged.getTime(),
+		);
 	});
 });

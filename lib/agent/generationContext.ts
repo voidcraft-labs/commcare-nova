@@ -53,7 +53,11 @@ import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { classifyError as classifyValidityError } from "@/lib/commcare/validator/gate";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { commitGuardedBatch, refreshEditLease } from "@/lib/db/apps";
+import {
+	commitGuardedBatch,
+	refreshBuildLiveness,
+	refreshEditLease,
+} from "@/lib/db/apps";
 import { CommitReauthError } from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { UsageAccumulator } from "@/lib/db/usage";
@@ -82,10 +86,11 @@ import type {
 } from "./toolExecutionContext";
 
 /**
- * Debounce for the per-step edit-lease heartbeat — a live edit refreshes its
- * `run_lock` at most this often (a third of the lease), so many fast agent steps
- * write a few times per lease rather than once per step, while still keeping the
- * lease comfortably fresh (refresh every ~5 min against a 15-min lease).
+ * Debounce for the per-step run-lease heartbeat — a live run refreshes its
+ * liveness horizon at most this often (a third of the edit lease), so many fast
+ * agent steps write a few times per lease rather than once per step, while
+ * keeping the horizon comfortably fresh: ~5 min against an edit's 15-min
+ * `run_lock` lease AND against a build's 10-min `updated_at` staleness window.
  */
 const LEASE_HEARTBEAT_INTERVAL_MS = (MAX_RUN_MINUTES / 3) * 60_000;
 
@@ -143,11 +148,11 @@ interface GenerationContextOptions {
 	appId: string;
 	/**
 	 * True when this run holds an EDIT `run_lock` (an edit-mode run: a chargeable
-	 * edit that claimed, or an edit resume). Enables the per-step lease heartbeat
-	 * (`refreshEditLease`) so a live edit doing an extended read-only stretch
-	 * before its first commit doesn't let its 15-min lease lapse and get reaped. A
-	 * BUILD run holds via `status`, not a lock, so it passes `false` and pays no
-	 * heartbeat read.
+	 * edit that claimed, or an edit resume) — it selects WHICH horizon the
+	 * per-step + wall-clock heartbeats refresh: the edit `run_lock` lease
+	 * (`refreshEditLease`), or, when `false`, a BUILD's `updated_at` staleness
+	 * clock (`refreshBuildLiveness`) — so neither mode's live run lapses and is
+	 * reaped mid-run during a long no-commit stretch.
 	 */
 	editLease: boolean;
 }
@@ -232,19 +237,20 @@ export class GenerationContext implements ToolExecutionContext {
 	 * through `failRun` (refund, never keep the charge) instead. TERMINAL — a
 	 * reload can't restore access, so it's never cleared within a run. */
 	private _reauthError: CommitReauthError | undefined;
-	/** Whether this run holds an edit `run_lock` (enables the lease heartbeat).
+	/** Which liveness horizon the heartbeats refresh: an edit `run_lock` lease,
+	 * or (false) a build's `updated_at` staleness clock.
 	 * See {@link GenerationContextOptions.editLease}. */
 	private readonly editLease: boolean;
-	/** Epoch-ms of the last edit-lease heartbeat, for debounce — the per-step
+	/** Epoch-ms of the last run-lease heartbeat, for debounce — the per-step
 	 * refresh and the wall-clock timer share it, so a run with many fast steps
 	 * (or a step landing right after a timer tick) writes a few times per lease,
 	 * not on every signal. */
 	private lastLeaseRefreshMs = 0;
-	/** The wall-clock lease-heartbeat interval handle. Guarantees an edit doing a
+	/** The wall-clock lease-heartbeat interval handle. Guarantees a run doing a
 	 * single long model turn with NO intermediate step-finish still refreshes its
-	 * lease (the step-fired refresh alone can't cover a no-step stretch). Started
-	 * by `startEditLeaseHeartbeat`, cleared by `stopEditLeaseHeartbeat` in the
-	 * route's finalize — an uncleared interval is an async leak. */
+	 * horizon (the step-fired refresh alone can't cover a no-step stretch).
+	 * Started by `startRunLeaseHeartbeat`, cleared by `stopRunLeaseHeartbeat` in
+	 * the route's finalize — an uncleared interval is an async leak. */
 	private leaseHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
 	constructor(opts: GenerationContextOptions) {
@@ -676,24 +682,28 @@ export class GenerationContext implements ToolExecutionContext {
 	 * `label` is used only for the warning-log prefix; not persisted.
 	 */
 	/**
-	 * Refresh the edit `run_lock` lease off SA activity — the shared beat both the
-	 * per-step (`handleAgentStep`) and the wall-clock timer
-	 * (`startEditLeaseHeartbeat`) fire, so a live edit's lease never lapses whether
-	 * it commits often, does a long read-only stretch, or sits in a single long
-	 * model turn with no step-finish. Debounced to at most once per
-	 * `LEASE_HEARTBEAT_INTERVAL_MS` (well under `MAX_RUN_MINUTES`) across BOTH
-	 * signals. Only for an edit run (builds hold via `status`, no lock);
-	 * `refreshEditLease` is ownership-gated, so a run superseded mid-way never
-	 * extends the taker's lease. Fire-and-forget — a miss just risks an earlier
-	 * lapse and the next beat retries.
+	 * Refresh the run's LIVENESS HORIZON off SA activity — the shared beat both
+	 * the per-step (`handleAgentStep`) and the wall-clock timer
+	 * (`startRunLeaseHeartbeat`) fire, so a live run never lapses whether it
+	 * commits often, does a long read-only stretch, or sits in a single long
+	 * model turn with no step-finish. Per mode: an EDIT refreshes its `run_lock`
+	 * lease; a BUILD re-arms its `updated_at` staleness clock — a live build
+	 * with no commit for over `MAX_GENERATION_MINUTES` (long planning, document
+	 * extraction, an SA loop whose rejected tool calls persist nothing) would
+	 * otherwise be reaped mid-run: refunded + flipped to `error` out from under
+	 * a build that then finishes and celebrates over an `error` row. Debounced
+	 * to at most once per `LEASE_HEARTBEAT_INTERVAL_MS` across BOTH signals.
+	 * Both refreshers are ownership-gated through the one liveness reader, so a
+	 * run superseded mid-way never re-arms the taker's horizon. Fire-and-forget
+	 * — a miss just risks an earlier lapse and the next beat retries.
 	 */
-	private beatEditLease(): void {
-		if (!this.editLease) return;
+	private beatRunLease(): void {
 		const nowMs = Date.now();
 		if (nowMs - this.lastLeaseRefreshMs < LEASE_HEARTBEAT_INTERVAL_MS) return;
 		this.lastLeaseRefreshMs = nowMs;
-		refreshEditLease(this.appId, this.runId).catch((err) =>
-			log.error("[generation] edit-lease heartbeat failed", err, {
+		const refresh = this.editLease ? refreshEditLease : refreshBuildLiveness;
+		refresh(this.appId, this.runId).catch((err) =>
+			log.error("[generation] run-lease heartbeat failed", err, {
 				appId: this.appId,
 			}),
 		);
@@ -701,24 +711,27 @@ export class GenerationContext implements ToolExecutionContext {
 
 	/**
 	 * Start the wall-clock lease heartbeat — the guarantee that a single long
-	 * no-step model turn can't let the lease lapse (the per-step beat alone can't
-	 * cover a stretch with no step-finish). The route calls this once the run is
-	 * live and MUST call {@link stopEditLeaseHeartbeat} in its finalize (an
-	 * uncleared interval leaks). No-op for a build (no lease to refresh) or if
-	 * already started. `.unref()` so the interval never keeps the process alive.
+	 * no-step model turn can't let the run's liveness horizon lapse (the
+	 * per-step beat alone can't cover a stretch with no step-finish). The route
+	 * calls this once the run is live and MUST call
+	 * {@link stopRunLeaseHeartbeat} in its finalize (an uncleared interval
+	 * leaks — and a PAUSED run must stop beating, or an abandoned pause would
+	 * never lapse for the reapers). `.unref()` so the interval never keeps the
+	 * process alive.
 	 */
-	startEditLeaseHeartbeat(): void {
-		if (!this.editLease || this.leaseHeartbeatTimer) return;
+	startRunLeaseHeartbeat(): void {
+		if (this.leaseHeartbeatTimer) return;
 		this.leaseHeartbeatTimer = setInterval(
-			() => this.beatEditLease(),
+			() => this.beatRunLease(),
 			LEASE_HEARTBEAT_INTERVAL_MS,
 		);
 		this.leaseHeartbeatTimer.unref?.();
 	}
 
 	/** Stop the wall-clock lease heartbeat. Idempotent; MUST run in the route's
-	 * finalize so the interval is cleared (an uncleared timer is an async leak). */
-	stopEditLeaseHeartbeat(): void {
+	 * finalize so the interval is cleared (an uncleared timer is an async leak,
+	 * and a paused/finalized run must stop re-arming its liveness horizon). */
+	stopRunLeaseHeartbeat(): void {
 		if (this.leaseHeartbeatTimer) {
 			clearInterval(this.leaseHeartbeatTimer);
 			this.leaseHeartbeatTimer = undefined;
@@ -727,9 +740,9 @@ export class GenerationContext implements ToolExecutionContext {
 
 	handleAgentStep(step: AgentStep, label: string): void {
 		logWarnings(`runAgent:${label}`, step.warnings);
-		// Refresh the edit lease off SA activity (debounced) — the cheap early beat;
-		// the wall-clock timer covers a long no-step turn.
-		this.beatEditLease();
+		// Refresh the run's liveness horizon off SA activity (debounced) — the
+		// cheap early beat; the wall-clock timer covers a long no-step turn.
+		this.beatRunLease();
 		const { usage } = step;
 		if (!usage) return;
 

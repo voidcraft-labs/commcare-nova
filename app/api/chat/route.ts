@@ -698,10 +698,12 @@ export async function POST(req: Request) {
 				finalizeRan = true;
 				/* Stop the wall-clock lease heartbeat the moment the run reaches a
 				 * terminal state — the run is no longer live, so it must stop extending
-				 * its own lease (a clean edit is about to release the lock; a paused edit
-				 * deliberately lets the lease ride until resume). Idempotent + a no-op
-				 * for a build. Clearing the interval here is what keeps it from leaking. */
-				ctx.stopEditLeaseHeartbeat();
+				 * its own liveness horizon (a clean edit is about to release the lock; a
+				 * paused run deliberately lets its horizon ride until resume — the
+				 * heartbeat MUST stop here or an abandoned pause would never lapse for
+				 * the reapers). Idempotent. Clearing the interval here is what keeps it
+				 * from leaking. */
+				ctx.stopRunLeaseHeartbeat();
 				const paused = opts?.paused ?? false;
 				/* Whether THIS POST owns the run holding the app. False only on the
 				 * serialize-with-wait early returns (a timed-out waiter, or a
@@ -1081,13 +1083,16 @@ export async function POST(req: Request) {
 
 				const sa = createSolutionsArchitect(ctx, sessionDoc, editing);
 
-				/* Start the wall-clock edit-lease heartbeat now the run is live — a
-				 * no-op for a build (no lease). It guarantees an edit that sits in a
-				 * single long model turn with no intermediate step-finish still refreshes
-				 * its `run_lock` lease, so its lease can't lapse and be reaped mid-run.
-				 * Stopped in `finalizeRun` (the finally always runs it); the timer is
-				 * `.unref()`ed so it never keeps the process alive. */
-				ctx.startEditLeaseHeartbeat();
+				/* Start the wall-clock run-lease heartbeat now the run is live — an
+				 * edit refreshes its `run_lock` lease, a build re-arms its `updated_at`
+				 * staleness clock. It guarantees a run that sits in a single long model
+				 * turn (or a long no-commit stretch) with no intermediate step-finish
+				 * still refreshes its liveness horizon, so a LIVE run can't lapse and
+				 * be reaped mid-run. Stopped in `finalizeRun` (the finally always runs
+				 * it — a paused run must stop beating so an abandoned pause lapses for
+				 * the reapers); the timer is `.unref()`ed so it never keeps the process
+				 * alive. */
+				ctx.startRunLeaseHeartbeat();
 
 				/* The messages to actually send the SA this turn. `selectMessagesToSend`
 				 * applies the one-shot trim (expired-cache edit → only the last user
@@ -1430,7 +1435,7 @@ export async function POST(req: Request) {
 			 * `finally` is the primary finalize path; this only matters if the prelude
 			 * itself threw. Idempotent. (The lease heartbeat is started only AFTER the
 			 * prelude, inside the main try whose `finally` always runs `finalizeRun` →
-			 * `stopEditLeaseHeartbeat`, so a prelude throw that lands here never leaves
+			 * `stopRunLeaseHeartbeat`, so a prelude throw that lands here never leaves
 			 * a timer running.) */
 			void (async () => {
 				/* Flush FIRST: a prelude-throw edit's `flush()` refunds+SETTLES its
