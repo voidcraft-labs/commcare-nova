@@ -852,3 +852,78 @@ describe("diff round-trip — granular edits", () => {
 		expect(opts).toContain("Emerald");
 	});
 });
+
+describe("diff — evacuation into a same-diff-added container", () => {
+	it("hoists the added destination before the evacuation so the batch replays in order", () => {
+		// One accumulated save (in-flight PUT / retry backoff) carrying three
+		// gestures: create group G, drag X out of group H into G, delete H.
+		const G = asUuid("44444444-4444-4444-4444-444444444444");
+		const prev = backfilled(
+			buildDoc({
+				modules: [
+					{
+						name: "M",
+						forms: [
+							{
+								name: "F",
+								type: "survey",
+								fields: [
+									f({
+										kind: "group",
+										id: "h",
+										label: "H",
+										children: [f({ kind: "text", id: "x", label: "X" })],
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+		);
+		const formUuid = prev.formOrder[prev.moduleOrder[0]][0];
+		const hUuid = byId(prev, "h").uuid;
+		const xUuid = byId(prev, "x").uuid;
+		const next = apply(prev, [
+			{
+				kind: "addField",
+				parentUuid: formUuid,
+				field: {
+					uuid: G,
+					id: "g",
+					kind: "group",
+					label: "G",
+					order: "zz",
+				} as Field,
+			},
+			{ kind: "moveField", uuid: xUuid, toParentUuid: G, order: "a1" },
+			{ kind: "removeField", uuid: hUuid },
+		]);
+
+		const diff = diffDocsToMutations(prev, next);
+		// The evacuation (moveField X→G) must not precede the addField that
+		// creates G: the server-side guard walks the batch in order, and a
+		// move into a not-yet-existing container reads as a phantom conflict
+		// (409 → the reload silently drops the user's create+move+delete).
+		expect(batchTargetsMissing(prev, diff)).toBe(false);
+		// The add of G comes before the move of X, which precedes H's remove
+		// (the evacuation contract) — assert the actual order.
+		const addG = diff.findIndex(
+			(m) => m.kind === "addField" && m.field.uuid === G,
+		);
+		const moveX = diff.findIndex(
+			(m) => m.kind === "moveField" && m.uuid === xUuid,
+		);
+		const removeH = diff.findIndex(
+			(m) => m.kind === "removeField" && m.uuid === hUuid,
+		);
+		expect(addG).toBeGreaterThanOrEqual(0);
+		expect(moveX).toBeGreaterThan(addG);
+		expect(removeH).toBeGreaterThan(moveX);
+		// An unguarded replay preserves the survivor under its new parent.
+		const replayed = apply(prev, diff);
+		expect(replayed.fields[xUuid]).toBeDefined();
+		expect(replayed.fields[hUuid]).toBeUndefined();
+		expect(replayed.fieldParent[xUuid]).toBe(G);
+	});
+});

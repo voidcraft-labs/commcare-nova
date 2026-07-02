@@ -885,6 +885,39 @@ function reconcileFieldTree(
 		}
 	}
 
+	// An evacuation's DESTINATION may itself be a container ADDED in this diff
+	// (create group G, drag X out of doomed H into G, delete H — one batch).
+	// Field adds otherwise emit AFTER the removes, so the batch would reference
+	// a not-yet-existing container mid-replay: `batchTargetsMissing` runs in
+	// batch order and rejects the whole save as a phantom conflict (409 → the
+	// reload drops the user's create+move+delete), and an unguarded replay
+	// would silently no-op the move and cascade-delete the survivor. Hoist the
+	// destination's ADDED-ancestor chain ahead of the evacuations (keeping the
+	// adds' parent-before-child order) so every referenced container exists by
+	// the time its evacuation applies.
+	if (evacuations.length > 0) {
+		const hoistedUuids = new Set<Uuid>();
+		for (const ev of evacuations) {
+			if (ev.kind !== "moveField") continue;
+			let cursor: Uuid | undefined = ev.toParentUuid;
+			while (cursor !== undefined && addedFieldSet.has(cursor)) {
+				hoistedUuids.add(cursor);
+				cursor = nextParentMap.get(cursor);
+			}
+		}
+		if (hoistedUuids.size > 0) {
+			const hoisted: Mutation[] = [];
+			for (let i = adds.length - 1; i >= 0; i--) {
+				const m = adds[i];
+				if (m.kind === "addField" && hoistedUuids.has(m.field.uuid)) {
+					hoisted.unshift(m);
+					adds.splice(i, 1);
+				}
+			}
+			evacuations.unshift(...hoisted);
+		}
+	}
+
 	return { evacuations, rest: [...adds, ...moves], crossParentMoved };
 }
 
