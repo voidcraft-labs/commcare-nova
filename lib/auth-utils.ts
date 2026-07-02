@@ -10,7 +10,6 @@
  * present on valid sessions, no custom session fields needed.
  */
 
-import { isValidIP, normalizeIP } from "@better-auth/core/utils/ip";
 import * as Sentry from "@sentry/nextjs";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -107,30 +106,10 @@ function identifySentryUser(session: Session): void {
 
 // ── Caller IP ───────────────────────────────────────────────────────
 
-/**
- * Extract the caller's IP from a `Headers` object for audit-log
- * payloads. Reads the proxy-stamped `x-nova-client-ip` header that
- * `proxy.ts` populates from `X-Forwarded-For`'s trusted suffix; the
- * proxy strips any client-supplied value first, so anything reaching
- * here under that name is guaranteed proxy-derived (the leftmost
- * spoofable region of XFF cannot reach this code path). `isValidIP`
- * rejects anything that isn't a parseable IPv4/IPv6 address (defends
- * against an upstream regression that lets a malformed value through),
- * and `normalizeIP` collapses equivalent representations so log
- * queries pivot on one canonical form. Returns `"unknown"` when the
- * header is absent (proxy didn't run for this request — tests, dev
- * paths bypassing the middleware) or the value fails validation.
- *
- * The Headers parameter lets the same helper serve route handlers
- * (passing `req.headers`) and Server Components / Server Actions
- * (passing `await headers()`) — the async vs sync seam stays at the
- * call site, where it belongs.
- */
-export function callerIpFromHeaders(reqHeaders: Headers): string {
-	const trusted = reqHeaders.get("x-nova-client-ip");
-	if (!trusted || !isValidIP(trusted)) return "unknown";
-	return normalizeIP(trusted);
-}
+// Re-exported from the dependency-free `@/lib/callerIp` leaf: the MCP
+// API-key route imports the helper directly from there to avoid dragging
+// this barrel's heavy Better Auth + DB-pool graph into the request path.
+export { callerIpFromHeaders } from "./callerIp";
 
 // ── Anthropic-key resolution for chat-API routes ────────────────────
 
