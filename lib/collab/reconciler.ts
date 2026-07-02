@@ -682,15 +682,13 @@ export function createReconciler(
 		if (inert()) return;
 		retryAttempt += 1;
 
-		// Re-send FIRST, THEN attempt a stranded reload. Ordering is load-bearing:
-		// a re-send bumps `putsInFlight`, so a pending reload defers behind it
-		// (`maybeRunDeferredReload` returns while a PUT is in flight) — never a
-		// reload GET mid-PUT, which the `putsInFlight` guard exists to prevent.
-		// The pump re-sends only the HEAD of the un-acked pipeline (stacked
-		// batches are dependent, so they must land in order — see `pumpSend`),
-		// skips one already in flight, and excludes `rejectedBatchId` (a 409'd
-		// batch is awaiting the deferred reload that drops it — re-sending it
-		// before then just re-409s in a storm) and a 413-stuck batch.
+		// The pump and the reload attempt are mutually exclusive per tick: with a
+		// reload pending/in-flight the pump HOLDS (the reload barrier — see
+		// `pumpSend`) and the stranded reload runs below; with none pending the
+		// pump re-sends the HEAD of the un-acked pipeline (stacked batches are
+		// dependent, so they must land in order), skipping one already in flight,
+		// the `rejectedBatchId` (a 409'd batch is awaiting the reload that drops
+		// it — re-sending it just re-409s in a storm), and a 413-stuck batch.
 		pumpSend();
 
 		// Now attempt a stranded reload — a failed reload GET (or one deferred
