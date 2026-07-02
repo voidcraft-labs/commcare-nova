@@ -108,6 +108,11 @@ interface SentBatch {
 	/** True once the batch's echo frame has advanced `confirmedDoc` — it is
 	 *  about to leave `sentPending`, so the retry loop must not re-send it. */
 	echoed: boolean;
+	/** True once a 413 rejected the batch — re-PUTting the same body can't
+	 *  shrink it, so the send pipeline holds behind it (nothing later is sent,
+	 *  no dependent 409 churn) while the batch stays folded into `localBase()`
+	 *  (the edits are KEPT; the user's explicit reload is the only discard). */
+	tooLarge: boolean;
 	/** Save-lifecycle observer for a human batch (drives the save indicator +
 	 *  404 warning). Absent on a chat batch (registered already-committed). */
 	observe?: SaveObserver;
@@ -345,6 +350,12 @@ export function createReconciler(
 	 *  ONE follow-up reload instead of starting a second concurrent one. */
 	let reloadInFlight = false;
 	let revoked = false;
+	/** True when the freeze was a PERMANENT 400 rejection (a client↔server gate
+	 *  disagreement), not an authz revocation — the two share the `revoked`
+	 *  no-more-PUTs machinery but must surface DIFFERENT terminal signals: a
+	 *  post-freeze edit warns "reload to continue", never the false "your edit
+	 *  access may have been removed". */
+	let frozenPermanently = false;
 	/** Set once `dispose()` runs (provider unmount). A reload/PUT promise that
 	 *  resolves after this must NOT resubscribe (a leaked EventSource) or write
 	 *  into the torn-down store — every async continuation checks it. */
@@ -440,18 +451,31 @@ export function createReconciler(
 	function dispatchHumanBatch(observe?: SaveObserver): string | undefined {
 		if (!canPut()) {
 			// A member REVOKED via the cadence `revoked` frame (`onRevoked` just sets
-			// `revoked` — no PUT ever 403s, so no `reauth` signal fired). Without this,
-			// a subsequent edit hits `canPut() === false` and returns SILENTLY: no PUT,
-			// no observer signal → `useAutoSave` shows no "Save failed" and the member
-			// keeps editing edits that never persist. Emit the terminal `reauth` signal
-			// (edit access lost) so `useAutoSave` surfaces its persistent toast + error
-			// indicator — `reauth` warns WITHOUT a Sentry report (`onReauthDenied`
-			// wasn't called here — no 403), and its once-per-episode gate means
-			// repeated post-revocation edits toast once. Only for a real revocation
-			// with an actual unsaved delta; dormant / no-appId stay clean no-ops.
+			// `revoked` — no PUT ever 403s, so no `reauth` signal fired) — or a
+			// PERMANENT 400 freeze (which rides the same no-more-PUTs flag). Without
+			// this, a subsequent edit hits `canPut() === false` and returns SILENTLY:
+			// no PUT, no observer signal → `useAutoSave` shows no "Save failed" and
+			// the member keeps editing edits that never persist. Emit the matching
+			// TERMINAL signal so `useAutoSave` surfaces the right persistent toast:
+			// `permanent` ("reload to continue") for the 400 freeze, `reauth` (edit
+			// access lost) for a real revocation — a permanent-frozen user must not
+			// be sent chasing phantom permission problems. `reauth` warns WITHOUT a
+			// Sentry report (`onReauthDenied` wasn't called here — no 403), and each
+			// signal's once-per-episode gating in `useAutoSave` means repeated
+			// post-freeze edits toast once. Only for a real freeze with an actual
+			// unsaved delta; dormant / no-appId stay clean no-ops.
 			if (revoked && appId !== undefined && humanUncommitted().length > 0) {
-				observe?.({ kind: "reauth" });
+				observe?.({ kind: frozenPermanently ? "permanent" : "reauth" });
 			}
+			return undefined;
+		}
+		// A 413-stuck batch holds the pipeline: minting more batches behind it
+		// would either never send or 409-churn (each is diffed against a
+		// localBase the server can't reach). The delta stays in
+		// `humanUncommitted` (kept + rendered); re-surface the terminal signal
+		// so the indicator stays in its "too large — reload" state.
+		if (sentPending.some((b) => b.tooLarge)) {
+			if (humanUncommitted().length > 0) observe?.({ kind: "tooLarge" });
 			return undefined;
 		}
 		const mutations = humanUncommitted();
@@ -463,12 +487,45 @@ export function createReconciler(
 			sent: false,
 			putInFlight: false,
 			echoed: false,
+			tooLarge: false,
 			observe,
 		};
 		sentPending.push(batch);
 		awaitingEcho.add(batchId);
-		void sendBatch(batch);
+		pumpSend();
 		return batchId;
+	}
+
+	/**
+	 * The single-flight, IN-ORDER send pipeline. Stacked batches are dependent
+	 * by construction (each is diffed against a `localBase` that already folds
+	 * its predecessors), so two un-acked batches must never race over the wire —
+	 * two PUTs landing on different instances commit in arbitrary order, and the
+	 * later-diffed batch then 409s on entities its predecessor hadn't created
+	 * yet (a silent drop with no real conflict). The pump sends ONLY the first
+	 * un-acked, un-echoed batch (in `sentPending` order); everything behind it
+	 * waits for its ack. An ACKED batch (committed — only its echo is pending)
+	 * doesn't block: the server already holds it, so a successor's PUT is safe.
+	 * A 409-rejected batch is the deferred reload's to drop, and a 413 batch
+	 * blocks the pipeline (see `SentBatch.tooLarge`).
+	 */
+	function pumpSend(): void {
+		if (inert()) return;
+		// A reload is the pipeline's synchronization barrier: it drops the
+		// 409-rejected batch (and everything acked at or below M), re-folds the
+		// survivors onto the fresh doc, and only then does sending resume (the
+		// reload's own completion pumps). Sending into a state the reload is
+		// about to replace would race the very reconciliation it exists for.
+		if (reloadPending || reloadInFlight) return;
+		for (const b of sentPending) {
+			if (b.echoed || b.ackedSeq !== undefined) continue;
+			if (b.batchId === rejectedBatchId) continue;
+			// The head of the un-acked pipeline: in flight or 413-stuck → wait;
+			// otherwise send it (first flight, or a retry-tick re-send).
+			if (b.putInFlight || b.tooLarge) return;
+			void sendBatch(b);
+			return;
+		}
 	}
 
 	/** PUT one `sentPending` batch and route its outcome. Idempotent on the
@@ -514,6 +571,8 @@ export function createReconciler(
 			// `displayed` and the next autosave re-PUTs it, clobbering the peer's
 			// edit and inverting commit order) or it double-folds forever.
 			if (outcome.seq <= baseSeq) withRefold(() => dropBatch(batch.batchId));
+			// The pipeline head just acked — the next queued batch may fly.
+			pumpSend();
 			// A reload deferred behind THIS PUT now runs (putsInFlight is 0).
 			maybeRunDeferredReload();
 			return;
@@ -549,7 +608,11 @@ export function createReconciler(
 			// couldn't be saved — reload to continue" state, and report it. The user
 			// reloads to a clean server-known-good state; the whole doomed local
 			// stack is discarded at once — no silent partial application.
+			// `frozenPermanently` keeps this freeze's TERMINAL SIGNAL distinct from
+			// a revocation's: a post-freeze edit re-surfaces `permanent` ("reload to
+			// continue"), never the false "edit access removed" warning.
 			revoked = true;
+			frozenPermanently = true;
 			reloadPending = false;
 			cancelRetry?.();
 			cancelRetry = undefined;
@@ -561,16 +624,22 @@ export function createReconciler(
 		}
 		if (outcome.kind === "tooLarge") {
 			// A 413 — the accumulated unsaved delta exceeds the request cap.
-			// Retrying the same body won't shrink it, so STOP the retry loop (no
-			// 413-storm) and surface it — but do NOT freeze or discard the edits.
-			// The batch stays in `sentPending` (the display is unchanged); a reload
-			// is the user's explicit choice, not an automatic data-drop. Report it.
-			cancelRetry?.();
-			cancelRetry = undefined;
+			// Retrying the same body won't shrink it, so mark the batch 413-stuck
+			// (the pump never re-sends it and holds everything behind it — no
+			// 413-storm, no dependent 409 churn) and surface it — but do NOT freeze
+			// or discard the edits. The batch stays in `sentPending` (the display
+			// is unchanged); a reload is the user's explicit choice, not an
+			// automatic data-drop. Report it. The SHARED recovery machinery keeps
+			// running: this is a live (non-frozen) PUT resolution, so it must still
+			// run a deferred reload — a reload armed behind this PUT would
+			// otherwise strand, and `onFrame` would swallow every subsequent peer
+			// frame against the armed `reloadPending` forever.
+			batch.tooLarge = true;
 			batch.observe?.({ kind: "tooLarge" });
 			deps.onSaveError?.(
 				`auto-save PUT too large — ${outcome.detail ?? "413"}`,
 			);
+			maybeRunDeferredReload();
 			return;
 		}
 		// notFound (404) / network / 5xx / recoverable 401: leave the batch in
@@ -613,24 +682,16 @@ export function createReconciler(
 		if (inert()) return;
 		retryAttempt += 1;
 
-		// Re-send failed batches FIRST, THEN attempt a stranded reload. Ordering is
-		// load-bearing: a re-send bumps `putsInFlight`, so a pending reload defers
-		// behind it (`maybeRunDeferredReload` returns while a PUT is in flight) —
-		// never a reload GET mid-PUT, which the `putsInFlight` guard exists to
-		// prevent. `putInFlight` excludes a batch still in its first (or a prior
-		// retry's) flight, so the loop never fires a second concurrent PUT for one
-		// already open. `rejectedBatchId` is EXCLUDED: a 409'd batch is awaiting the
-		// deferred reload that drops it — re-sending it before then just re-409s in
-		// a storm (the exact re-send the `rejectedBatchId` break exists to prevent).
-		const toResend = sentPending.filter(
-			(b) =>
-				b.sent &&
-				!b.putInFlight &&
-				b.ackedSeq === undefined &&
-				!b.echoed &&
-				b.batchId !== rejectedBatchId,
-		);
-		for (const b of toResend) void sendBatch(b);
+		// Re-send FIRST, THEN attempt a stranded reload. Ordering is load-bearing:
+		// a re-send bumps `putsInFlight`, so a pending reload defers behind it
+		// (`maybeRunDeferredReload` returns while a PUT is in flight) — never a
+		// reload GET mid-PUT, which the `putsInFlight` guard exists to prevent.
+		// The pump re-sends only the HEAD of the un-acked pipeline (stacked
+		// batches are dependent, so they must land in order — see `pumpSend`),
+		// skips one already in flight, and excludes `rejectedBatchId` (a 409'd
+		// batch is awaiting the deferred reload that drops it — re-sending it
+		// before then just re-409s in a storm) and a 413-stuck batch.
+		pumpSend();
 
 		// Now attempt a stranded reload — a failed reload GET (or one deferred
 		// behind a PUT that then failed) re-armed `reloadPending`. If a re-send is
@@ -642,10 +703,14 @@ export function createReconciler(
 		// Reschedule while anything is still outstanding — a batch awaiting a
 		// re-send/response, or a reload still pending. `reloadInFlight` is NOT a
 		// reschedule reason: `runReload` runs its own coalesced follow-up on
-		// completion, so a tick churning through a slow reload GET does nothing.
+		// completion, so a tick churning through a slow reload GET does nothing. A
+		// 413-stuck batch is NOT outstanding — nothing will ever re-send it, so
+		// counting it would spin the backoff loop forever over a no-op tick.
 		const outstanding =
 			reloadPending ||
-			sentPending.some((b) => b.ackedSeq === undefined && !b.echoed);
+			sentPending.some(
+				(b) => b.ackedSeq === undefined && !b.echoed && !b.tooLarge,
+			);
 		if (outstanding) scheduleRetryLoop();
 		else retryAttempt = 0;
 	}
@@ -653,9 +718,17 @@ export function createReconciler(
 	// ── Inbound frame ────────────────────────────────────────────────────
 	function isEcho(frame: MutationFrame): boolean {
 		if (awaitingEcho.has(frame.batchId)) return true;
-		// A chat frame from THIS user's active run. A runId-less frame from
-		// another tab of the same user is REMOTE (two tabs share one actorId).
+		// A CHAT frame from THIS user's active run. A runId-less frame from
+		// another tab of the same user is REMOTE (two tabs share one actorId) —
+		// and so is an MCP frame even when it CARRIES this run id: MCP's
+		// deriveRunId CONTINUES the app's stored run_id inside a sliding window,
+		// so a same-user MCP edit made after a chat run re-uses that run's id.
+		// Its mutations were never applied to this tab's store, so classifying
+		// it as an echo would skip both the apply-refold and the undo rebase —
+		// the next Ctrl+Z would silently revert the committed MCP change. Only
+		// `kind: "chat"` frames can be this tab's run echoes.
 		return (
+			frame.kind === "chat" &&
 			frame.actorId === selfUserId &&
 			frame.runId != null &&
 			frame.runId === selfActiveRunId
@@ -825,8 +898,12 @@ export function createReconciler(
 		reloadInFlight = false;
 		// A frame arrived DURING the GET (it re-armed `reloadPending` rather than
 		// applying, keeping `baseSeq` monotonic). Run the coalesced follow-up now
-		// so anything past M is picked up — one reload at a time.
+		// so anything past M is picked up — one reload at a time; the send
+		// pipeline stays held behind it. Otherwise the barrier is down: resume
+		// the pipeline promptly (the surviving un-acked head may have been
+		// waiting behind the reload) rather than waiting for the backoff tick.
 		if (reloadPending && !inert()) maybeRunDeferredReload();
+		else pumpSend();
 	}
 
 	/** Commit an EXPLICIT hydrated doc onto the store inside a remote-apply
@@ -899,6 +976,7 @@ export function createReconciler(
 			sent: true,
 			putInFlight: false,
 			echoed: false,
+			tooLarge: false,
 		};
 		sentPending.push(batch);
 		awaitingEcho.add(args.batchId);

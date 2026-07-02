@@ -314,6 +314,13 @@ export function ChatContainer({
 			sessionApi.getState().beginRun();
 		} else if (!streamOpen && wasOpen) {
 			sessionApi.getState().endRun();
+			/* The run is over — clear the reconciler's active run id. Every batch
+			 * the run committed is registered (`batchId ∈ awaitingEcho` covers its
+			 * late echoes), so the runId fallback is no longer needed — and leaving
+			 * it set would misclassify a LATER same-user frame that carries the
+			 * same run id (MCP's deriveRunId continues the app's stored run_id
+			 * inside a sliding window) as a self-echo, skipping its apply/rebase. */
+			reconcilerCtxRef.current?.reconciler.setSelfActiveRunId(undefined);
 			// A fresh build mounts with undo paused (it generates first). When the
 			// run ends the app is live/editable, so release the store's one-time
 			// birth pause — this is what makes undo work after a build without a

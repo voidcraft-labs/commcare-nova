@@ -565,6 +565,57 @@ describe("reconciler", () => {
 			expect(snap.sentPending).toHaveLength(0);
 			expect(snap.confirmedDoc.appName).toBe("SAEdit");
 		});
+
+		it("an MCP frame carrying this tab's actorId + run id is REMOTE (rebases undo), never an echo", () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			// A chat run set the tab's active run id and ENDED without clearing it
+			// (or a frame races the clear). MCP's deriveRunId CONTINUES the app's
+			// stored run_id in a sliding window, so a same-user MCP edit arrives
+			// with actorId=self AND runId=selfActiveRunId — but kind "mcp".
+			h.reconciler.setSelfActiveRunId("run-1");
+			// A local edit — recorded as an undo entry (tracking is live).
+			h.docStore.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: F_A,
+					targetKind: "text",
+					patch: { label: "A-local" },
+				},
+			]);
+			// The MCP frame must take the REMOTE branch: its mutations were never
+			// applied to this tab's store, and the undo stack must absorb them.
+			h.reconciler.onFrame({
+				seq: 1,
+				batchId: "mcp-batch",
+				actorId: "u1",
+				runId: "run-1",
+				kind: "mcp",
+				mutations: [
+					{
+						kind: "updateField",
+						uuid: F_B,
+						targetKind: "text",
+						patch: { label: "B-mcp" },
+					},
+				],
+			});
+			expect(
+				(h.docStore.getState().fields[F_B] as { label: string }).label,
+			).toBe("B-mcp");
+			// Undo the local A edit — the restored state must still carry the MCP
+			// change (an echo-classification would have skipped the rebase, and
+			// this undo would silently revert the committed MCP edit).
+			h.docStore.temporal.getState().undo();
+			const afterUndo = h.docStore.getState();
+			expect((afterUndo.fields[F_A] as { label: string }).label).toBe("A");
+			expect((afterUndo.fields[F_B] as { label: string }).label).toBe("B-mcp");
+		});
 	});
 
 	// ── Chat-batch registration ordering ────────────────────────────────
@@ -1099,6 +1150,69 @@ describe("reconciler", () => {
 			expect(h.reconciler.canPut()).toBe(false);
 		});
 
+		// The send pipeline is SINGLE-FLIGHT and IN-ORDER: stacked batches are
+		// dependent by construction (each is diffed against a localBase that
+		// already folds its predecessors), so a successor never races its
+		// predecessor over the wire — two PUTs landing on different instances
+		// commit in arbitrary order and the later-diffed batch 409s on entities
+		// its predecessor hadn't created yet (a silent drop with no real
+		// conflict). An ACKED head releases the pipeline; its echo isn't needed.
+		it("[C6] a batch dispatched behind an un-acked predecessor waits for its ack (ordered pipeline)", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			// B1 in flight.
+			h.docStore.getState().applyMany([{ kind: "setAppName", name: "One" }]);
+			const b1 = h.reconciler.dispatchHumanBatch();
+			expect(h.puts).toHaveLength(1);
+			// B2 dispatched while B1 is un-acked — queued, NOT sent.
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			const b2 = h.reconciler.dispatchHumanBatch();
+			expect(b2).toBeDefined();
+			expect(h.puts).toHaveLength(1);
+			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(2);
+			// B1 acks → the pipeline releases B2 immediately (no echo needed —
+			// the server already holds B1, so B2's PUT builds on committed state).
+			await h.resolvePut(0, { ok: true, seq: 1 });
+			expect(h.puts).toHaveLength(2);
+			expect(h.puts[0]?.batchId).toBe(b1);
+			expect(h.puts[1]?.batchId).toBe(b2);
+			await h.resolvePut(1, { ok: true, seq: 2 });
+		});
+
+		it("[C7] a re-send after a network failure targets the pipeline HEAD, and a new dispatch never overtakes it", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			// B1 fails on the network — kept, retry scheduled.
+			h.docStore.getState().applyMany([{ kind: "setAppName", name: "One" }]);
+			const b1 = h.reconciler.dispatchHumanBatch();
+			await h.resolvePut(0, { ok: false, kind: "network" });
+			// The user keeps editing; B2's dispatch pumps the pipeline — which
+			// re-sends the HEAD (B1), never B2 ahead of it.
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			const b2 = h.reconciler.dispatchHumanBatch();
+			expect(h.puts).toHaveLength(2);
+			expect(h.puts[1]?.batchId).toBe(b1); // the head re-sent, not B2
+			// B1's re-send acks → B2 follows, strictly ordered.
+			await h.resolvePut(1, { ok: true, seq: 1 });
+			expect(h.puts).toHaveLength(3);
+			expect(h.puts[2]?.batchId).toBe(b2);
+			await h.resolvePut(2, { ok: true, seq: 2 });
+		});
+
 		// [2b] — a 401 (session lapsed) is RECOVERABLE, not permanent: the batch is
 		// KEPT (not frozen, not discarded) and retried, so a cookie refresh /
 		// re-login saves the work. (The provider maps 401 → network; here we inject
@@ -1158,9 +1272,67 @@ describe("reconciler", () => {
 			expect(h.saveErrors.length).toBeGreaterThan(0);
 		});
 
-		// [1](a) — runRetry re-sends failed batches FIRST so the reload defers
-		// behind the re-send: NO reload GET is ever issued while putsInFlight > 0.
-		it("[1a] the retry tick never issues a reload GET while a re-send is in flight", async () => {
+		it("[3c] a 413 landing under a deferred reload still runs the reload — frames don't freeze", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			h.enableManualReload();
+			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Big" }]);
+			h.reconciler.dispatchHumanBatch();
+			// A GAP frame arrives while the PUT is in flight → a reload is armed,
+			// deferred behind the in-flight PUT.
+			h.reconciler.onFrame(
+				autosaveFrame(5, "peer", "u2", [{ kind: "setAppName", name: "Peer" }]),
+			);
+			expect(h.reconciler.getSnapshot().reloadPending).toBe(true);
+			expect(h.pendingReloads()).toBe(0);
+			// The PUT resolves 413 — a LIVE (non-frozen) resolution, so the
+			// deferred reload MUST run now; stranding it would leave `reloadPending`
+			// armed forever and `onFrame` swallowing every subsequent peer frame.
+			await h.resolvePut(0, { ok: false, kind: "tooLarge" });
+			expect(h.pendingReloads()).toBe(1);
+			await h.resolveReload({ blueprint: makeDoc("Fresh"), seq: 5 });
+			const snap = h.reconciler.getSnapshot();
+			expect(snap.baseSeq).toBe(5);
+			// The 413 batch is KEPT (un-acked, not rejected) and re-folded.
+			expect(snap.sentPending).toHaveLength(1);
+		});
+
+		it("[3d] a dispatch while a 413 batch is stuck mints nothing and re-surfaces `tooLarge`", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Big" }]);
+			h.reconciler.dispatchHumanBatch();
+			await h.resolvePut(0, { ok: false, kind: "tooLarge" });
+			// The user keeps editing behind the stuck batch. Minting more batches
+			// would 409-churn (each is diffed against a base the server can't
+			// reach), so the delta stays human-uncommitted and the indicator is
+			// re-told the terminal state.
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			const signals: SaveSignal[] = [];
+			expect(
+				h.reconciler.dispatchHumanBatch((s) => signals.push(s)),
+			).toBeUndefined();
+			expect(h.puts).toHaveLength(1); // nothing new sent
+			expect(signals).toEqual([{ kind: "tooLarge" }]);
+		});
+
+		// [1](a) — a pending reload is the send pipeline's BARRIER: the retry tick
+		// never launches a PUT while a reload is pending or in flight (a PUT
+		// mid-reload would race the very reconciliation the reload performs), and
+		// the surviving un-acked batch re-sends in order once the reload lands.
+		it("[1a] the retry tick holds the send pipeline behind a pending reload, resuming after it", async () => {
 			const base = makeDoc("Base");
 			const h = harness({
 				appId: "app-1",
@@ -1181,18 +1353,19 @@ describe("reconciler", () => {
 			expect(h.reconciler.getSnapshot().reloadPending).toBe(true);
 			expect(h.pendingReloads()).toBe(0);
 
-			// The retry tick fires: it re-sends the batch FIRST (putsInFlight→1), so
-			// the reload defers — NO reload GET is issued while the re-send is open.
+			// The retry tick fires: the reload barrier holds the pipeline (no PUT
+			// launches) and the stranded reload GET runs with no PUT in the air.
 			await h.runScheduledRetry();
-			expect(h.puts).toHaveLength(2); // the batch was re-sent
-			expect(h.pendingReloads()).toBe(0); // the reload did NOT GET mid-PUT
-			expect(h.reconciler.getSnapshot().reloadPending).toBe(true);
+			expect(h.puts).toHaveLength(1); // no re-send behind the barrier
+			expect(h.pendingReloads()).toBe(1); // the reload GET runs first
 
-			// The re-send resolves → the deferred reload now runs (putsInFlight 0).
-			await h.resolvePut(1, { ok: true, seq: 6 });
-			expect(h.pendingReloads()).toBe(1);
+			// The reload lands → the un-acked batch survived it (re-folded, not
+			// dropped) and the pipeline resumes: the batch re-sends promptly.
 			await h.resolveReload({ blueprint: makeDoc("Fresh"), seq: 6 });
 			expect(h.reconciler.getSnapshot().baseSeq).toBe(6);
+			expect(h.puts).toHaveLength(2); // the survivor re-sent post-reload
+			await h.resolvePut(1, { ok: true, seq: 7 });
+			expect(h.reconciler.getSnapshot().sentPending[0]?.ackedSeq).toBe(7);
 		});
 
 		// [1](b) — a false-network re-send of an ALREADY-committed batch (dedup
@@ -1383,8 +1556,9 @@ describe("reconciler", () => {
 			expect(h.docStore.getState().appName).toBe("Built");
 		});
 
-		// [C5] — a 409 while a retry loop is ALREADY active does not re-send the
-		// rejected batch (the toResend filter excludes rejectedBatchId).
+		// [C5] — a 409-rejected batch is never re-sent while its reload is
+		// pending (re-sending would just re-409 in a storm), and the reload's
+		// barrier holds the whole pipeline until it drops the rejected batch.
 		it("[C5] a 409 with an active retry loop does not re-send the rejected batch", async () => {
 			const base = makeDoc("Base");
 			const h = harness({
@@ -1394,25 +1568,25 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			h.enableManualReload();
-			// Batch A network-fails → a retry loop is now active.
+			// Batch A 409s → rejectedBatchId = A, a reload is requested + starts.
 			h.docStore.getState().applyMany([{ kind: "setAppName", name: "A" }]);
-			h.reconciler.dispatchHumanBatch();
-			await h.resolvePut(0, { ok: false, kind: "network" });
-			expect(h.hasScheduledRetry()).toBe(true);
+			const aId = h.reconciler.dispatchHumanBatch();
+			await h.resolvePut(0, { ok: false, kind: "conflict" });
+			expect(h.pendingReloads()).toBe(1);
 
-			// Batch B 409s → rejectedBatchId = B, a reload is requested (pending).
+			// A second edit dispatches B behind the barrier — nothing sends.
 			h.docStore
 				.getState()
 				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
 			const bId = h.reconciler.dispatchHumanBatch();
-			await h.resolvePut(1, { ok: false, kind: "conflict" });
-			const putsBefore = h.puts.length;
+			expect(h.puts).toHaveLength(1);
 
-			// The retry tick fires while the reload is pending: it must re-send A
-			// but NOT the rejected B (which awaits the reload that drops it).
-			await h.runScheduledRetry();
-			const resent = h.puts.slice(putsBefore).map((p) => p.batchId);
-			expect(resent).not.toContain(bId);
+			// The reload lands: A (rejected) is dropped, B survives and re-sends.
+			const putsBefore = h.puts.length;
+			await h.resolveReload({ blueprint: makeDoc("Fresh"), seq: 6 });
+			const sentAfter = h.puts.slice(putsBefore).map((p) => p.batchId);
+			expect(sentAfter).not.toContain(aId);
+			expect(sentAfter).toContain(bId);
 		});
 	});
 
@@ -1540,6 +1714,31 @@ describe("reconciler", () => {
 			expect(batchId).toBeUndefined();
 			expect(h.puts).toHaveLength(0);
 			expect(signals).toEqual([{ kind: "reauth" }]);
+		});
+
+		it("a human edit AFTER a permanent (400) freeze emits `permanent`, never the false `reauth`", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Bad" }]);
+			h.reconciler.dispatchHumanBatch();
+			await h.resolvePut(0, { ok: false, kind: "permanent" });
+			// The member keeps editing behind the freeze; there IS an unsaved delta.
+			h.docStore
+				.getState()
+				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			const signals: SaveSignal[] = [];
+			expect(
+				h.reconciler.dispatchHumanBatch((s) => signals.push(s)),
+			).toBeUndefined();
+			// The 400 freeze rides the same no-more-PUTs flag as a revocation, but
+			// the terminal signal must stay `permanent` ("reload to continue") — a
+			// `reauth` here would send the user chasing phantom permission loss.
+			expect(signals).toEqual([{ kind: "permanent" }]);
 		});
 
 		it("a revoked dispatch with NO unsaved delta stays a clean no-op (no `reauth`)", () => {
