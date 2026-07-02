@@ -151,7 +151,15 @@ export function isClientAbort(err: unknown): boolean {
 		if (err.name === "AbortError") return true;
 		const code = (err as { code?: unknown }).code;
 		if (code === "ABORT_ERR" || code === "ECONNRESET") return true;
-		if (err.message.includes("aborted")) return true;
+		// The message shapes are matched ANCHORED, never by substring: Node's
+		// http server surfaces a destroyed request socket as exactly `aborted`
+		// (`abortIncoming`), and the body-reading layer as `request aborted…`.
+		// A substring match would misclassify a genuine server fault that merely
+		// MENTIONS an abort — a store's "transaction aborted on contention", a
+		// gRPC "…ABORTED…" passthrough — as a 499 disconnect, hiding a real
+		// mid-request failure from Sentry behind a WARN.
+		if (err.message === "aborted") return true;
+		if (err.message.startsWith("request aborted")) return true;
 	}
 	return false;
 }

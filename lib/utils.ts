@@ -12,7 +12,17 @@ export function cn(...inputs: ClassValue[]) {
  * empty / whitespace-only name.
  */
 export function getInitials(name: string): string {
-	const parts = name.trim().split(/\s+/).filter(Boolean);
-	if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-	return parts[0]?.[0]?.toUpperCase() ?? "?";
+	// Take each word's first CODE POINT (the string iterator), never `word[0]`
+	// — indexing is by UTF-16 code unit, so a name starting with a non-BMP
+	// character (an emoji, astral-plane CJK) would split the surrogate pair
+	// and render "�".
+	const initials = name
+		.trim()
+		.split(/\s+/)
+		.filter(Boolean)
+		.map((word) => [...word][0] ?? "");
+	if (initials.length >= 2) {
+		return `${initials[0]}${initials[1]}`.toUpperCase();
+	}
+	return initials[0]?.toUpperCase() || "?";
 }

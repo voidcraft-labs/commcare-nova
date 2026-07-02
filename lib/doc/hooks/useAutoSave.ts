@@ -8,22 +8,21 @@
  * "Saving…" appears only while a PUT is actually in flight, not during an
  * artificial debounce window.
  *
- * What changed under multiplayer: the reconciler (`lib/collab/reconciler.ts`)
- * owns `confirmedDoc ⊕ sentPending` — the diff base — and the PUT itself
- * (`dispatchHumanBatch` mints a batchId, registers the batch, PUTs
- * `{ mutations, batchId }`, and re-sends on network failure via its own retry
- * loop). This hook is the throttle + the save-status surface: it computes when
- * to dispatch, hands the reconciler a `SaveObserver`, and renders the status +
- * the "changes aren't being saved" warning from the signals it gets back.
+ * The reconciler (`lib/collab/reconciler.ts`) owns `confirmedDoc ⊕ sentPending`
+ * — the diff base — and the PUT itself (`dispatchHumanBatch` mints a batchId,
+ * registers the batch, PUTs `{ mutations, batchId }`, and re-sends on network
+ * failure via its own retry loop). This hook is the throttle + the save-status
+ * surface: it computes when to dispatch, hands the reconciler a
+ * `SaveObserver`, and renders the status + the "changes aren't being saved"
+ * warning from the signals it gets back.
  *
  * Gate order (load-bearing): `remoteFrameApplyInProgress` is checked FIRST —
  * the store subscriber fires synchronously from `applyMany`, including when the
  * reconciler applies an inbound frame, and a server-originated frame must never
- * bounce back out as a client PUT. The run gate is gone: a human edit made
- * during an agent run is a `humanUncommitted` delta (the run's own batches are
- * in the reconciler's `sentPending`), so the reconciler's diff picks it up and
- * PUTs it on the next tick — the old "fold the human edit into the base and
- * lose it" limitation is closed.
+ * bounce back out as a client PUT. There is deliberately NO agent-run gate: a
+ * human edit made during an agent run is a `humanUncommitted` delta (the run's
+ * own batches are in the reconciler's `sentPending`), so the reconciler's diff
+ * picks it up and PUTs it on the next tick.
  *
  * Returns a SaveState the SaveIndicator renders.
  */
@@ -361,9 +360,9 @@ export function useAutoSave(): SaveState {
 				/* Gate on lifecycle phase + app existence. Only dispatch when the
 				 * builder is Ready or Completed (a usable blueprint, no initial
 				 * generation in progress). A human edit made DURING an agent run is
-				 * NOT gated out any more — it is a `humanUncommitted` delta the
+				 * deliberately NOT gated out — it is a `humanUncommitted` delta the
 				 * reconciler diffs + PUTs on the next tick (the run's own batches
-				 * are in `sentPending`), closing the old fold-and-lose limitation. */
+				 * are in `sentPending`). */
 				const docSnap = docStore.getState();
 				const phase = derivePhase(sessionState, docHasData(docSnap));
 				if (phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed)

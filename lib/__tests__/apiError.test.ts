@@ -135,6 +135,14 @@ describe("isClientAbort", () => {
 
 	it("does NOT match a genuine server error", () => {
 		expect(isClientAbort(new Error("auth store unreachable"))).toBe(false);
+		// A fault that merely MENTIONS an abort mid-message is a real server
+		// error — a substring match here would 499 it out of Sentry's sight.
+		expect(
+			isClientAbort(new Error("transaction aborted due to contention")),
+		).toBe(false);
+		expect(isClientAbort(new Error("10 ABORTED: too much contention"))).toBe(
+			false,
+		);
 		expect(isClientAbort(new ApiError("nope", 400))).toBe(false); // ApiError has its own path
 		expect(isClientAbort(undefined)).toBe(false);
 		expect(isClientAbort("aborted")).toBe(false); // a bare string is not an Error

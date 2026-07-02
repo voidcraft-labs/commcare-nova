@@ -109,9 +109,9 @@ export async function PUT(
 		 * `case_type_schemas` row before Firestore commits; pure non-case-type
 		 * edits fast-path through. `guard` mode re-applies the delta onto the
 		 * FRESH stored blueprint and re-verdicts inside the transaction, so a
-		 * co-member's concurrent committed edit MERGES instead of being erased
-		 * (the basis-compare overwrite is gone). The pre-loaded `app.blueprint`
-		 * threads through as `priorBlueprint` so the saga doesn't re-read it. */
+		 * co-member's concurrent committed edit MERGES instead of being erased.
+		 * The pre-loaded `app.blueprint` threads through as `priorBlueprint` so
+		 * the saga doesn't re-read it. */
 		const result = await applyBlueprintChange({
 			appId: id,
 			userId: session.user.id,

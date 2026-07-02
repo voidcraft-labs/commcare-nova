@@ -996,8 +996,8 @@ export function createReconciler(
 		// stream, no `sentPending`, and `baseSeq` is meaningless — but the store
 		// must still reconcile to the run's final snapshot. Do it BRACKET-SAFE (a
 		// suppressed `commitDoc` + temporal clear, never `load()` — the agent
-		// suppression bracket is still open at data-done). This is the crash the
-		// dispatcher's old `load()` fallback caused.
+		// suppression bracket is still open at data-done, and `load()` asserts
+		// inside an open bracket).
 		if (dormant) {
 			reseedStore(hydrateConfirmed(args.doc), /* clearUndo */ true);
 			return;
