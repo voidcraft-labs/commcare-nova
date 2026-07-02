@@ -23,7 +23,7 @@
 
 "use client";
 
-import { type ReactNode, useContext, useEffect, useRef } from "react";
+import { type ReactNode, useContext, useEffect, useMemo, useRef } from "react";
 import { reportClientError } from "@/lib/clientErrorReporter";
 import { ReconcilerContext } from "@/lib/collab/context";
 import type { PresenceFrame } from "@/lib/collab/presenceTypes";
@@ -51,13 +51,22 @@ interface ReconcilerRuntime {
 	readonly reconciler: Reconciler;
 	/** The app id, mutable once (new-build activation). Deps read it here. */
 	readonly appIdBox: { current: string | undefined };
-	/** Open (or re-open) the single EventSource at `cursor`. */
-	openStream: (cursor: number) => void;
+	/** Effect setup: mark the runtime live and open the single EventSource at
+	 *  the reconciler's confirmed cursor (a dormant new build opens nothing —
+	 *  `activate` does, once the app id is minted). Re-entrant: React
+	 *  StrictMode's dev-only setup→cleanup→setup replay runs this on the SAME
+	 *  ref-cached runtime, so it must fully restore what `suspend` stopped. */
+	start: () => void;
 	/** New-build activation: stamp the minted app id, seed the reconciler, open
 	 *  the stream at cursor 0. No-op if already active. */
 	activate: (appId: string) => void;
-	/** Close the stream + cancel all retry timers + dispose the reconciler. */
-	teardown: () => void;
+	/** Effect cleanup: close the stream + cancel every pending timer and mark
+	 *  the runtime inert so an async continuation (a resolving PUT/reload)
+	 *  can't reopen a stream or schedule work after unmount. Deliberately does
+	 *  NOT dispose the reconciler — the runtime is built once in a ref, and
+	 *  StrictMode's replay re-runs `start` on it; a one-way dispose would leave
+	 *  every dev session ignoring frames + discarding PUT outcomes forever. */
+	suspend: () => void;
 	readonly presenceSubs: Set<(roster: PresenceFrame) => void>;
 }
 
@@ -82,9 +91,12 @@ function buildRuntime(
 	const presenceSubs = new Set<(roster: PresenceFrame) => void>();
 	const retryTimers = new Set<ReturnType<typeof setTimeout>>();
 	let eventSource: EventSource | null = null;
-	/* Set by `teardown` so a stream-reopen timer that fires post-unmount is a
-	 * no-op (no fresh EventSource after the provider is gone). */
-	let torndown = false;
+	/* True between the mount effect's `start` and its `suspend` cleanup. Gates
+	 * every side-effect entry point (openStream, scheduleRetry, the reopen
+	 * timer) so an async continuation resolving post-unmount can't open an
+	 * untear-downable EventSource or schedule an orphan timer — while staying
+	 * RE-ARMABLE for StrictMode's setup→cleanup→setup replay. */
+	let active = false;
 	/* Backoff attempt counter for the stream REOPEN path below — reset by a
 	 * successful `open`, so an isolated failure retries at 1s while a sustained
 	 * outage backs off to the 30s cap. */
@@ -96,7 +108,7 @@ function buildRuntime(
 
 	function openStream(cursor: number): void {
 		const id = appIdBox.current;
-		if (!id) return;
+		if (!id || !active) return;
 		// `EventSource` is a browser global; guard its presence so a non-browser
 		// render (SSR, a jsdom/happy-dom test that mounts the builder tree) mounts
 		// the reconciler for its state machine without a live stream — the PUT path
@@ -149,12 +161,11 @@ function buildRuntime(
 			 * PUT's 403 freezes the reconciler, which stops the reopens). */
 			if (es.readyState !== EventSource.CLOSED) return;
 			if (es !== eventSource) return; // superseded by a newer stream
-			const snap = reconciler.getSnapshot();
-			if (torndown || snap.revoked || snap.disposed) return;
+			if (!active || reconciler.getSnapshot().revoked) return;
 			const timer = setTimeout(() => {
 				retryTimers.delete(timer);
 				const now = reconciler.getSnapshot();
-				if (torndown || now.revoked || now.disposed) return;
+				if (!active || now.revoked) return;
 				/* A reload's `resubscribe` may have already replaced the failed
 				 * stream while this timer was pending — don't churn a healthy one. */
 				if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
@@ -232,6 +243,10 @@ function buildRuntime(
 	};
 
 	const scheduleRetry = (attempt: number, run: () => void): (() => void) => {
+		// A continuation resolving after the effect's cleanup must not schedule
+		// an orphan timer into a suspended runtime (a leak the cleanup can no
+		// longer clear). A no-op canceller keeps the reconciler's contract.
+		if (!active) return () => {};
 		const timer = setTimeout(() => {
 			retryTimers.delete(timer);
 			run();
@@ -293,21 +308,30 @@ function buildRuntime(
 		openStream(0);
 	}
 
-	function teardown(): void {
-		torndown = true;
+	function start(): void {
+		active = true;
+		// An existing app (or a replay of the mount effect after activation)
+		// opens at the reconciler's confirmed cursor; a dormant new build waits
+		// for `activate` to open at 0.
+		if (appIdBox.current !== undefined) {
+			openStream(reconciler.getSnapshot().baseSeq);
+		}
+	}
+
+	function suspend(): void {
+		active = false;
 		eventSource?.close();
 		eventSource = null;
 		for (const t of retryTimers) clearTimeout(t);
 		retryTimers.clear();
-		reconciler.dispose();
 	}
 
 	return {
 		reconciler,
 		appIdBox,
-		openStream,
+		start,
 		activate,
-		teardown,
+		suspend,
 		presenceSubs,
 	};
 }
@@ -331,31 +355,46 @@ export function ReconcilerProvider({
 	}
 
 	// Open the stream on mount for an existing app; a dormant new build waits
-	// for chat activation to open at 0. Tear everything down on unmount. The
-	// provider remounts (BuilderProvider's `key={buildId}`) on an app change, so
-	// `appId`/`baseSeq` are effectively mount-time constants — listing them keeps
-	// the deps exhaustive without re-running the mount-once wiring in practice.
+	// for chat activation to open at 0. Suspend (close the stream + cancel
+	// timers) on unmount. `start`/`suspend` are a re-entrant pair over the
+	// ref-cached runtime: React StrictMode's dev-only setup→cleanup→setup
+	// replay must land back on a WORKING runtime — a one-way dispose here left
+	// every dev session with a reconciler that ignored frames and discarded
+	// PUT outcomes (multiplayer + save-status dead in dev only). `start` reads
+	// the live app id + confirmed cursor off the runtime itself, so the effect
+	// has no reactive inputs; an app change remounts the whole provider
+	// (BuilderProvider's `key={buildId}`).
 	useEffect(() => {
 		const runtime = runtimeRef.current;
 		if (!runtime) return;
-		if (appId !== undefined) runtime.openStream(baseSeq);
-		return () => runtime.teardown();
-	}, [appId, baseSeq]);
+		runtime.start();
+		return () => runtime.suspend();
+	}, []);
 
 	const runtime = runtimeRef.current;
-	if (!runtime) return <>{children}</>;
+
+	// One stable context value per runtime — an inline object would mint a new
+	// identity every provider render and re-render every consumer of the
+	// context (each PeerBadge, the auto-save hook) for nothing.
+	const contextValue = useMemo(
+		() =>
+			runtime
+				? {
+						reconciler: runtime.reconciler,
+						activate: runtime.activate,
+						subscribePresence: (cb: (roster: PresenceFrame) => void) => {
+							runtime.presenceSubs.add(cb);
+							return () => runtime.presenceSubs.delete(cb);
+						},
+					}
+				: null,
+		[runtime],
+	);
+
+	if (!contextValue) return <>{children}</>;
 
 	return (
-		<ReconcilerContext.Provider
-			value={{
-				reconciler: runtime.reconciler,
-				activate: runtime.activate,
-				subscribePresence: (cb) => {
-					runtime.presenceSubs.add(cb);
-					return () => runtime.presenceSubs.delete(cb);
-				},
-			}}
-		>
+		<ReconcilerContext.Provider value={contextValue}>
 			{children}
 		</ReconcilerContext.Provider>
 	);
