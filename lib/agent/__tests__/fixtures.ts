@@ -56,6 +56,9 @@ export interface MakeTestContextOptions {
 	/** Override the appId passed into `GenerationContext`. Defaults to
 	 * "test-app" (matches `DEFAULT_SEED.appId`) when not supplied. */
 	appId?: string;
+	/** Whether the run holds an edit `run_lock` (enables the per-step lease
+	 * heartbeat). Defaults to `false` — a build-mode fixture. */
+	editLease?: boolean;
 }
 
 export interface TestContextHandles {
@@ -103,6 +106,8 @@ export function makeTestContext(
 		usage,
 		session,
 		appId: opts.appId ?? "test-app",
+		// Build-mode fixture by default (no edit run_lock, so no lease heartbeat).
+		editLease: opts.editLease ?? false,
 	});
 	return {
 		ctx,

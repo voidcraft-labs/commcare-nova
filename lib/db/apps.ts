@@ -19,6 +19,7 @@ import {
 } from "@google-cloud/firestore";
 import Fuse from "fuse.js";
 import type { ErrorType } from "@/lib/agent";
+import { getAuthDb } from "@/lib/auth/db";
 import { log } from "@/lib/logger";
 import {
 	describeMediaExpectationFailures,
@@ -55,10 +56,12 @@ import {
 	BATCH_DEDUP_TTL_MS,
 	RETENTION_COUNT,
 } from "./constants";
-import { refundReservation } from "./credits";
+import { refundStaleGeneration, refundStaleReservation } from "./credits";
 import { collections, docs, getDb } from "./firestore";
+import { withFirestoreRetry } from "./firestoreRetry";
 import { addReferencingApp, getAssetsInTransaction } from "./mediaAssets";
-import type { AcceptedMutationDoc, AppDoc, CreditMonthDoc } from "./types";
+import { editLeaseDeadlineMs, runLeaseState } from "./runLiveness";
+import type { AcceptedMutationDoc, AppDoc } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -209,17 +212,6 @@ export interface SearchAppsResult {
 }
 
 /**
- * Maximum age (in minutes) since the last Firestore write before a
- * 'generating' app is considered dead.
- *
- * Intermediate saves advance `updated_at` during generation, so an
- * actively-running build always has a recent timestamp. If `updated_at`
- * hasn't advanced in this window, the process was killed by the platform
- * or crashed without writing a failure status.
- */
-const MAX_GENERATION_MINUTES = 10;
-
-/**
  * Display name for an app whose `appName` has never been set.
  *
  * The denormalize step writes this string into `app_name` for any row
@@ -364,35 +356,28 @@ export async function hasActiveGeneration(
 	if (byId.size === 0) return false;
 
 	const now = Date.now();
-	const maxAgeMs = MAX_GENERATION_MINUTES * 60_000;
 
 	for (const doc of byId.values()) {
 		if (doc.id === excludeAppId) continue;
-		const data = doc.data();
+		const data = doc.data() as Partial<AppDoc>;
 		/* A co-member's run on THIS user's owned app (owner match but the run
 		 * actor is someone else) is the co-member's concurrency, not this
 		 * user's — don't let it block the owner's own build. A marker-less
-		 * owner match (the new-build window) has no run actor yet and is kept. */
+		 * owner match (the new-build window) has no run actor yet and is kept.
+		 * (`reservation.userId` is provenance, not a liveness field — read directly.) */
 		const runActor = data.reservation?.userId;
 		if (runActor !== undefined && runActor !== actorUserId) continue;
-		/* A build paused on an `askQuestions` round is alive but process-less (it
-		 * resumes on a later POST). It must NOT be reaped (its hold is live) and must
-		 * NOT block a new build — an abandoned-at-questions build would otherwise lock
-		 * the user out of generating forever. Skip it on both counts. */
-		if (data.awaiting_input) continue;
-		const updatedAt = (data.updated_at as Timestamp)?.toDate();
-		if (!updatedAt) {
-			/* No updated_at means a corrupt or very old doc — definitively dead. */
-			void reapStaleGenerating(doc.id);
-			continue;
-		}
 
-		/* Still within the generation window — a live build is in progress. */
-		if (now - updatedAt.getTime() <= maxAgeMs) return true;
-
-		/* Stale — reap it (refund the stranded hold + flip to error) so a dead
-		 * build doesn't block future generations. */
-		void reapStaleGenerating(doc.id);
+		const lease = runLeaseState(data, now);
+		/* A LIVE build (inside its staleness window, not paused) is a real
+		 * in-progress run — the user has another build running. */
+		if (lease.live) return true;
+		/* Stale — reap it (refund the stranded hold + flip to error) so a dead build
+		 * doesn't block future generations. `reapableStaleBuild` reaps a HARD-KILLED
+		 * build AND an ABANDONED PAUSED one whose frozen `updated_at` drifted past the
+		 * window (a paused run's own resume re-arms `updated_at`, so a legit
+		 * recently-paused build stays fresh and is neither reaped nor counted busy). */
+		if (lease.reapableStaleBuild) void reapStaleGenerating(doc.id);
 	}
 
 	return false;
@@ -780,6 +765,30 @@ export async function commitGuardedBatch(
 		}
 		const seq = (fresh.mutation_seq ?? 0) + 1;
 		const persistable = toPersistableDoc(verdict.nextDoc);
+		/* Refresh the EDIT `run_lock` lease on activity — the run-lock analogue of
+		 * how a build advances `updated_at` on every commit. An edit can legitimately
+		 * run longer than the fixed `MAX_RUN_MINUTES` lease (Cloud Run's ceiling is
+		 * far higher), so a live edit must extend its lease as it commits or its lease
+		 * would lapse and the reaper would free the app mid-run (releasing the lock a
+		 * co-member could then claim → two SA loops). Fires only when THIS commit's
+		 * run OWNS the edit lock
+		 * (`runLeaseState().mine` — routed through the one reader) — a build commit
+		 * (`mode !== "edit"`) or a commit from a different run never touches it, and a
+		 * HARD-KILLED edit (no more commits) lets the lease lapse in ~15min and become
+		 * claimable, exactly as intended. A dotted `run_lock.expireAt` update extends
+		 * just that nested field, leaving the rest of the lock intact. This is the
+		 * per-COMMIT lease refresh; the per-STEP + wall-clock-TIMER heartbeats
+		 * (`refreshEditLease`) cover an edit that commits infrequently. */
+		const commitLease = runId !== undefined ? runLeaseState(fresh) : undefined;
+		const ownsEditLock =
+			runId !== undefined &&
+			commitLease?.mode === "edit" &&
+			commitLease?.mine(runId);
+		const refreshLease = ownsEditLock
+			? {
+					"run_lock.expireAt": Timestamp.fromMillis(editLeaseDeadlineMs()),
+				}
+			: undefined;
 		writeCommittedSnapshot(tx, {
 			appId,
 			seq,
@@ -790,6 +799,7 @@ export async function commitGuardedBatch(
 			actorUserId,
 			kind,
 			basisToken,
+			...(refreshLease && { extraAppFields: refreshLease }),
 		});
 		return {
 			seq,
@@ -995,225 +1005,577 @@ export async function commitAppProjectMove(
 }
 
 /**
- * Mark a build finished — the chat route's drain-end status flip.
+ * Clean BUILD completion — flip `generating → complete` AND settle the run's
+ * kept-charge reservation marker in ONE transaction. The one drain-end build
+ * finalizer (there is no status-only variant — a status flip that didn't settle
+ * atomically is the exact window that clawed back a kept charge).
  *
- * STATUS-ONLY by design: the blueprint is already durable — every tool
- * batch committed inline through {@link commitGuardedBatch} during the run —
- * so this write carries no doc snapshot and can never blind-overwrite a
- * concurrent editor's blueprint. Status is pure run-liveness — it never
- * feeds the validity gate — so a plain merge-set is enough; there is no
- * basis to compare. `error_type` clears alongside so a retried build's
- * stale classification doesn't linger on the now-finished row.
+ * The atomicity is load-bearing. `status: 'complete'` (with no `run_lock`) is
+ * what makes the app CLAIMABLE, and a settled marker is what tells the reaper +
+ * the next `reserveCredits` "this charge was kept, don't refund it." Doing them
+ * as two separate writes (a status flip then a later settle) opens a window: the
+ * instant status flips to `complete` the app is claimable, and an edit POST
+ * landing before the settle wins `claimRun('edit')` and its `reserveCredits` sees
+ * the build's still-unsettled marker and (per the unconditional leftover-refund)
+ * claws back the build's KEPT 100 credits. One transaction closes it — the moment
+ * the build is claimable, its charge is already settled.
  *
- * Awaited (unlike `failApp`): the route emits `data-done` only after the
- * flip lands, so a page load right after the celebration never sees a
- * still-`generating` row and bounce off the build page's redirect.
+ * A hard kill BEFORE this transaction leaves the app `generating` with an
+ * unsettled marker → `reapStaleGenerating` (the build reaper) refunds it, which
+ * is correct (the build never finished). AFTER → complete + settled + kept.
+ *
+ * Settles WHATEVER unsettled marker is on the app (the `askQuestions` flow is
+ * multi-POST, so the kept charge may have been booked by an earlier POST). The
+ * ownership gate (`terminalWriteOwned` = `markerSettleable && mine`) means an
+ * unowned build — a marker-less one, or one whose marker the reaper settled +
+ * `runId`-cleared — NO-OPs rather than completing the app (it does NOT flip
+ * status). That unowned path is currently unreachable on the live flow (every
+ * build POST is chargeable, so a completing build always has its own unsettled
+ * marker); the gate is the defensive in-txn re-check that makes a reaped-then-
+ * re-claimed build's stale completion no-op instead of clobbering the taker.
+ * Awaited so the route's `data-done` follows the durable flip (a page load right
+ * after the celebration never sees a still-`generating` row and bounce off the
+ * build page's redirect). `error_type` clears alongside so a retried build's
+ * stale classification doesn't linger.
  */
-export async function completeApp(appId: string): Promise<void> {
-	await docs.app(appId).set(
-		{
-			status: "complete",
-			error_type: null,
-		},
-		{ merge: true },
+export async function completeAndSettleRun(
+	appId: string,
+	runId: string,
+): Promise<void> {
+	await withFirestoreRetry(() =>
+		getDb().runTransaction(async (tx) => {
+			// RAW ref (converter-less): this only needs the run-liveness leaves, and a
+			// converter read would re-parse the whole blueprint through Zod — a doc
+			// that fails `appDocSchema.parse` would THROW inside the txn, stranding the
+			// status flip + settle.
+			const snap = await tx.get(docs.appRaw(appId));
+			const fresh = (snap.exists ? snap.data() : undefined) as
+				| Partial<AppDoc>
+				| undefined;
+			if (!fresh) return;
+			const lease = runLeaseState(fresh);
+			// OWNERSHIP GATE (re-checked at WRITE time, in the txn — the stale
+			// `heldApp` flag set at claim is not enough). A build's clean completion
+			// acts ONLY on an UNSETTLED marker it OWNS (`terminalWriteOwned` = build:
+			// `markerSettleable && mine`). It guards the one race that survives without
+			// a barge: a long no-commit build whose `updated_at` went stale mid-run is
+			// REAPED (flipped to `error` + settled) and the freed app RE-CLAIMED by
+			// another run before this completion lands — the reaper settled the marker
+			// (or the taker overwrote its `runId`), so `markerSettleable && mine` is
+			// false and this no-ops rather than clobbering the new run. Every build
+			// reaching here reserved (a build POST is chargeable), so a legit live one
+			// always has an unsettled marker.
+			if (lease.mode !== "build" || !lease.terminalWriteOwned(runId)) return;
+			const reservation = fresh.reservation as NonNullable<
+				AppDoc["reservation"]
+			>;
+			tx.set(
+				docs.appRaw(appId),
+				{
+					status: "complete",
+					error_type: null,
+					reservation: { ...reservation, settled: true },
+				},
+				{ merge: true },
+			);
+		}),
 	);
 }
 
 /**
- * Thrown by `claimBuildRun` when the app's run window is already owned at
- * the transaction's read — another request's build run is live on this
- * app, so THIS contender must not run. The chat route maps it to the
- * same 429 a cross-app concurrent build gets.
+ * Thrown by `claimRun` when the app's run window is already held at the
+ * transaction's read — a live build (`status: 'generating'` inside the
+ * staleness window, not paused) OR a live edit (`run_lock` present, not past
+ * its `expireAt`) owns the app, so THIS contender must not run. The chat route
+ * no longer 429s this: it opens the SSE stream and waits inside `execute` (a
+ * second collaborator's request serializes behind the holder rather than
+ * bouncing), taking the claim once the holder releases.
  */
-export class BuildRunConflictError extends Error {
+export class RunConflictError extends Error {
 	constructor() {
 		super(
-			"Another request is already running a build on this app — only one run can work on an app at a time.",
+			"Another request is already running on this app — only one run can work on an app at a time.",
 		);
-		this.name = "BuildRunConflictError";
+		this.name = "RunConflictError";
 	}
 }
 
 /**
- * The at-rest shape `claimBuildRun` moved the app out of. The chat route
- * holds this so a pre-stream bail-out (concurrency 429, out-of-credits,
- * reservation failure) can put the app back exactly where the claim
- * found it — flipping a previously-`complete` app to `error` over a
- * rejected request would brick a working app.
+ * The EXACT at-rest values `claimRun` overwrote — a verbatim snapshot of the
+ * run-liveness fields the claim mutated, captured off the fresh doc BEFORE the
+ * claim write. `restoreClaimedRun` writes these back unchanged to revert the
+ * claim, so a bailed claim (a post-claim gate rejection) returns the app to
+ * precisely the shape it found. A claim only ever runs on a FREE app — `complete`
+ * / `error` at rest, or a HARD-KILLED run (a stale `generating` row / a
+ * lease-lapsed lock, neither live nor paused); a live OR paused run blocks the
+ * claim (`RunConflictError`), so a bailed claim never has to restore a running
+ * peer.
+ *
+ * Captures EVERY field a claim writes (except the reservation marker, below):
+ * `status` + `error_type` (build claim flips these; edit claim normalizes
+ * `status → complete`, so both can move them), `awaiting_input` (both claims
+ * clear it), `run_lock` (build claim deletes it; edit claim overwrites it), AND
+ * `updated_at` (both claims stamp a fresh server timestamp). `updated_at` MUST
+ * be captured + reverted verbatim: a bailed claim that re-stamped it fresh would
+ * (a) re-arm the ~10-min `generating` staleness clock on a reverted stale-build
+ * displacement → a phantom "in progress" that rejects every retry for 10 min,
+ * and (b) reorder a plain `complete`/`error` app to the top of every member's
+ * recently-updated list though nothing ran. `reservation` is NOT captured: a
+ * claim NEVER touches the reservation marker (a displaced hard-killed run's
+ * stranded hold is handed back by THIS run's own `reserveCredits` leftover-refund,
+ * not by the claim), so there is nothing to revert.
  */
-export type ClaimedBuildRun =
-	| { from: "complete" }
-	/** A failed build awaiting retry. `errorType` is the displaced
-	 *  classification (cleared by the claim's `error_type: null`), carried
-	 *  so a bail-out restore puts back what the row actually said —
-	 *  overwriting a `model_error` with the bail-out's own reason would
-	 *  lose why the build originally failed. `null` only on a legacy row
-	 *  that reached `error` without a classification. The read-side
-	 *  narrowing to `ErrorType` is sound because `failApp` (typed
-	 *  `ErrorType`) is the only writer of non-null `error_type`. */
-	| { from: "error"; errorType: ErrorType | null }
-	/** A build paused on an `askQuestions` round — `generating` with
-	 *  `awaiting_input`. The claim cleared the pause flag; restoring
-	 *  means re-setting it so the paused run stays alive and unreapable. */
-	| { from: "paused" };
+export interface PriorRunState {
+	status: AppDoc["status"];
+	error_type: string | null;
+	/** Whether `awaiting_input` was set (a paused run). */
+	awaiting_input: boolean;
+	/** The exact prior `run_lock`, or `null` if the app had none. */
+	run_lock: AppDoc["run_lock"] | null;
+	/** The exact prior `updated_at` — reverted verbatim (NOT re-stamped) so a
+	 *  bailed claim doesn't re-arm staleness or reorder the list. */
+	updated_at: AppDoc["updated_at"];
+}
 
 /**
- * Claim the app's build-run window: transactionally flip the row to
- * `generating` with a FRESH `updated_at`, clearing `error_type` and the
- * `awaiting_input` pause flag. Every chargeable build-mode POST against
- * an existing app runs this — a retry of a failed build (`error`), a new
- * instruction into a finished one (`complete`), and a fresh instruction
- * into a build paused on questions (`generating` + `awaiting_input`) all
- * enter the window through the same compare-and-flip, so every build run
- * sits under the liveness machinery uniformly: `hasActiveGeneration`
- * blocks concurrent new builds while it runs, the staleness reaper
- * refunds a hard-killed run's reservation, and the list failure
- * inference surfaces a dead one. The fresh timestamp matters — the row's
- * old `updated_at` belongs to the PREVIOUS run and may already sit
- * outside the staleness window, so without re-arming, a concurrent list
- * scan could reap the new run at birth.
- *
- * The chat route awaits this BEFORE its concurrency check — the same
- * write-then-check ordering `createApp` uses (the durable `generating`
- * row IS the lock; checking first would reopen the TOCTOU the pattern
- * closes).
- *
- * The claim is a TRANSACTION because same-app contenders share ONE row —
- * `hasActiveGeneration` excludes the contender's own appId, so the row
- * can't arbitrate between them the way per-contender `createApp` rows
- * arbitrate new builds. The compare-and-flip is the lock: the first
- * contender's transaction sees a claimable shape and flips it; the
- * loser's re-read sees a live `generating` (no pause flag) and throws
- * `BuildRunConflictError` with nothing written, so two near-simultaneous
- * POSTs can never run two SA loops against one app.
- *
- * A non-paused `generating` row reads as owned ONLY while its
- * `updated_at` is inside the staleness window. Past it, the run is
- * TREATED as dead — the same ten-minute mutation-silent inference
- * `reapStaleGenerating` has always made (a hard kill the
- * list/concurrency reapers haven't scanned yet — and a retry POST runs
- * neither of them, so without this arm the 429 would repeat
- * indefinitely while telling the user to wait for a run that no longer
- * exists). The claim settles the inferred-dead run exactly as the
- * reaper would — refund-first off the marker's `settled` flag,
- * classification `internal` per the reaper's convention — and claims in
- * the same transaction, reporting `from: "error"` because that IS the
- * shape the reaper would have left for a bail-out to restore.
- *
- * When the inference is WRONG — a run still alive but mutation-silent
- * past the window — the reaper would previously at worst refund it and
- * flip the row to `error` out from under it; this arm additionally
- * starts a SECOND SA loop against the same app while the first may
- * still be draining, and the old run's finalize/failure funnel then
- * touches the NEW run's marker (settling or refunding a hold it never
- * booked). That consequence class is accepted with the premise: ten
- * minutes without a commit already reads as dead everywhere this system
- * looks — a live run refreshes `updated_at` on every `commitGuardedBatch`
- * commit.
- *
- * The claim also SETTLES the displaced run's reservation marker —
- * EXCEPT when it displaces a paused run. The settle exists for the
- * `complete` arm's kept charge: between this claim and the new run's
- * `reserveCredits` (which overwrites the marker with its own fresh,
- * unsettled one), a hard kill or a dropped bail-out restore leaves a
- * `generating` row the reaper WILL reap, and an unsettled leftover
- * marker there would hand back a charge that was kept. An `error` row's
- * marker is already settled (its refund settled it) and the stale arm
- * settles via its own in-transaction refund. A PAUSED run's marker must
- * stay untouched: the displaced run is restorable-ALIVE — a bail-out
- * re-flags it, a later free continuation resumes it, and the chat
- * route's failure funnel refunds that run's hold OFF THIS MARKER (the
- * post-flush `refundReservation`: an earlier chargeable POST booked the
- * hold, the failing continuation reads it back). Settling here would
- * foreclose a refund the finalization invariant owes. The cost: a hard
- * kill inside THIS claim's window over a paused displacement reaps with
- * a refund of the paused run's hold — acceptable, since the run that
- * hold charged never finished.
- *
- * Returns the shape the claim moved the app out of, for bail-out
- * restoration (see `ClaimedBuildRun`).
+ * What `claimRun` returns: the claim `mode` (still read by the route for the
+ * onFinish stranded-lock release) plus the {@link PriorRunState} snapshot the
+ * bail-out restore reverts to.
  */
-export async function claimBuildRun(appId: string): Promise<ClaimedBuildRun> {
+export interface ClaimedRun {
+	mode: "build" | "edit";
+	prior: PriorRunState;
+}
+
+// Run liveness / ownership / paused / settled is derived ONLY through
+// `runLeaseState` (`./runLiveness`) — see its header for the single-reader
+// invariant. `claimRun`'s busy check is `lease.live || lease.paused` (a live hold
+// OR a paused run of either mode blocks — a paused run is not a takeover), and
+// ownership is `lease.mine(runId)`. There are no per-mode `buildHolds` /
+// `editHolds` / `isPausedRun` predicates — a decision that read a raw liveness
+// field independently is what the single-reader invariant physically prevents.
+
+/**
+ * Claim the app's run window for `mode` — the per-app serialization primitive
+ * for BOTH SA modes.
+ *
+ * The app is BUSY when it is `runLeaseState(fresh).live || .paused` — a live hold
+ * of EITHER mode OR a paused run (a paused run is NO LONGER a claimable takeover
+ * — that whole class was descoped). A claim of either mode on a busy app throws
+ * {@link RunConflictError} with nothing written; the route serializes-with-wait
+ * (polls until the holder completes / fails / is reaped, then re-claims). Only a
+ * FREE app falls through: `complete` / `error` at rest, or a HARD-KILLED run (a
+ * stale `generating` row / a lease-lapsed lock, neither live nor paused). Because
+ * a live/paused run always blocks, a claim NEVER displaces a run with a running
+ * process — so it NEVER mutates a prior run's marker/lock, which deletes the
+ * barge/displacement credit-transfer class (and its [claim, reserveCredits)
+ * window) by construction.
+ *
+ * **Build claim** (`mode: 'build'`) — flip the row to `generating` with a FRESH
+ * `updated_at` (the build's liveness horizon), clearing `error_type`, the
+ * `awaiting_input` flag, AND any stale `run_lock` a hard-killed prior edit left.
+ * The fresh timestamp matters — the row's old `updated_at` belongs to a dead
+ * prior run and may already sit outside the staleness window, so without
+ * re-arming a concurrent list scan could reap the new run at birth. The claim
+ * does NOT touch the reservation MARKER: a displaced hard-killed run's stranded
+ * hold is handed back by THIS run's own `reserveCredits` (its unconditional
+ * leftover-refund) before it books its fresh marker.
+ *
+ * **Edit claim** (`mode: 'edit'`) — write `run_lock` `{ runId, actorUserId,
+ * expireAt: now + MAX_RUN_MINUTES }`, clear `awaiting_input`, and NORMALIZE
+ * `status → complete` + `error_type → null`. The status normalize is an edit's
+ * postcondition guarantee: an edit's clean finalize (`clearRunLockAndSettle`)
+ * never touches status, so an edit that claimed a stale `generating` row (a
+ * hard-killed build) would otherwise complete onto a `generating` row that
+ * `reapStaleGenerating` flips to `error` — bricking a cleanly-edited app. The
+ * common case (app already `complete`) is a no-op. A stale row's stranded build
+ * hold is handed back by this run's own `reserveCredits`; the marker is otherwise
+ * left alone.
+ *
+ * The chat route awaits this before its concurrency check — the same
+ * write-then-check ordering `createApp` uses (the durable claim IS the lock).
+ * The compare-and-flip is what arbitrates same-app contenders that
+ * `hasActiveGeneration` can't (it excludes the contender's own appId).
+ *
+ * Returns `{ mode, prior }` — the claim mode plus the {@link PriorRunState}
+ * snapshot of the exact fields it overwrote, for a faithful bail-out restore.
+ */
+export async function claimRun(
+	appId: string,
+	mode: "build" | "edit",
+	runId: string,
+	actorUserId: string,
+): Promise<ClaimedRun> {
 	return await getDb().runTransaction(async (tx) => {
-		const snap = await tx.get(docs.app(appId));
-		const fresh = snap.exists ? (snap.data() ?? null) : null;
+		// RAW ref (converter-less): `claimRun` reads only top-level run-liveness
+		// fields (status / error_type / awaiting_input / run_lock / updated_at), so
+		// a converter parse of the whole blueprint is both
+		// wasteful and a hazard — a doc that fails `appDocSchema.parse` would THROW
+		// inside the claim txn, blocking EVERY claim on that app.
+		const snap = await tx.get(docs.appRaw(appId));
+		const fresh = (snap.exists ? (snap.data() ?? null) : null) as AppDoc | null;
 		if (!fresh) {
-			throw new Error(
-				`[claimBuildRun] app document missing for appId=${appId}`,
-			);
-		}
-		let claimed: ClaimedBuildRun | undefined =
-			fresh.status === "complete"
-				? { from: "complete" }
-				: fresh.status === "error"
-					? { from: "error", errorType: fresh.error_type as ErrorType | null }
-					: fresh.status === "generating" && fresh.awaiting_input
-						? { from: "paused" }
-						: undefined;
-
-		/* Deferred refund write for the stale-displacement arm — Firestore
-		 * transactions require every read to precede every write, so the
-		 * credit-doc read happens here and its write below. */
-		let refundCredits: (() => void) | undefined;
-		if (claimed === undefined) {
-			const updatedAt = fresh.updated_at.toDate();
-			const stale =
-				Date.now() - updatedAt.getTime() > MAX_GENERATION_MINUTES * 60_000;
-			if (!stale) {
-				throw new BuildRunConflictError();
-			}
-			/* A dead run's stranded hold refunds before anything else touches
-			 * the row — the same refund-first discipline `reapStaleGenerating`
-			 * holds, here made atomic with the claim: the transaction either
-			 * refunds AND claims or leaves the row reapable. A settled or
-			 * absent marker has nothing to hand back (a missing credit doc
-			 * likewise — the marker still settles below so nothing revisits). */
-			const marker = fresh.reservation;
-			if (marker && !marker.settled) {
-				// Refund the user who was CHARGED — the actor recorded on the
-				// marker, mirroring `refundReservation`. `fresh.owner` diverges
-				// from the actor once a Project co-member ran the displaced
-				// build; legacy markers without `userId` fall back to `owner`.
-				const creditRef = docs.creditMonthRaw(
-					marker.userId ?? fresh.owner,
-					marker.period,
-				);
-				const creditSnap = await tx.get(creditRef);
-				if (creditSnap.exists) {
-					const consumed =
-						(creditSnap.data() as Partial<CreditMonthDoc>).consumed ?? 0;
-					refundCredits = () =>
-						tx.set(
-							creditRef,
-							{
-								consumed: Math.max(0, consumed - marker.reserved),
-								updated_at: FieldValue.serverTimestamp(),
-							},
-							{ merge: true },
-						);
-				}
-			}
-			claimed = { from: "error", errorType: "internal" };
+			throw new Error(`[claimRun] app document missing for appId=${appId}`);
 		}
 
-		refundCredits?.();
+		/* Busy check — a claim SUCCEEDS only on a FREE app. Busy is `live || paused`:
+		 * a LIVE hold of either mode blocks (as always), AND a PAUSED run now ALSO
+		 * blocks — a paused run is NO LONGER a claimable takeover. A second request
+		 * (build OR edit) on a busy app serializes-with-wait (the route polls
+		 * `claimRun` up to the wait cap, then "still busy — try again"); the app
+		 * frees when the holder completes/fails (its own terminal path) or is reaped
+		 * (a hard kill / an abandoned paused run whose lease lapses). A genuine
+		 * same-run continuation of a paused run is the RESUME path (`reacquireLease`),
+		 * which re-establishes its OWN lease and never re-claims. Only a FREE app
+		 * (`mode: none`, or a hard-killed run past its horizon — not live, not paused)
+		 * falls through to the claim arms below; because a live/paused run always
+		 * blocks, a claim NEVER displaces a run with a running process, so it never
+		 * mutates a prior run's marker/lock (a hard-killed run's stranded hold is
+		 * handed back by THIS run's own `reserveCredits` leftover-refund, not here).
+		 * That is what deletes the barge/displacement credit-transfer class — and its
+		 * [claim, reserveCredits) window — by construction. */
+		const lease = runLeaseState(fresh);
+		if (lease.live || lease.paused) {
+			throw new RunConflictError();
+		}
+
+		/* The exact at-rest values this claim is about to overwrite — captured
+		 * BEFORE any write so a bail-out `restoreClaimedRun` can revert verbatim
+		 * (see {@link PriorRunState}). */
+		const prior: PriorRunState = {
+			status: fresh.status,
+			error_type: fresh.error_type ?? null,
+			awaiting_input: !!fresh.awaiting_input,
+			run_lock: fresh.run_lock ?? null,
+			updated_at: fresh.updated_at,
+		};
+
+		if (mode === "edit") {
+			/* Edit lease — write a fresh `run_lock` (overwriting any STALE lock a
+			 * hard-killed prior edit left; the busy check only let a FREE app through,
+			 * so this can never overwrite a LIVE lock). `awaiting_input` is cleared
+			 * (a fresh claim is never paused).
+			 *
+			 * `status → complete` + `error_type → null` are NORMALIZED here: an edit's
+			 * postcondition is a `complete` app, and its clean finalize
+			 * (`clearRunLockAndSettle`) never touches status — so if this edit claimed a
+			 * stale `generating` row (a hard-killed build) or an `error` row, leaving
+			 * the status/classification would either let the edit complete onto a
+			 * `generating` row that `reapStaleGenerating` flips to `error` (bricking a
+			 * cleanly-edited app) or leave a `complete` app carrying a stale
+			 * `error_type` (breaking `projectAppSummary`'s "error_type present only when
+			 * status===error" contract). Nulling both guarantees a clean `complete` app.
+			 * (The common case is already `complete` with no error_type, a no-op.) A
+			 * stale row's stranded build hold is handed back by this run's own
+			 * `reserveCredits` leftover-refund; the marker is otherwise left alone. */
+			tx.update(docs.appRaw(appId), {
+				status: "complete",
+				error_type: null,
+				run_lock: {
+					runId,
+					actorUserId,
+					expireAt: Timestamp.fromMillis(editLeaseDeadlineMs()),
+				},
+				awaiting_input: false,
+			});
+			return { mode: "edit", prior };
+		}
+
+		/* Build claim — flip the app to a live `generating` run with a FRESH
+		 * `updated_at` (the build's liveness horizon; the row's old timestamp belongs
+		 * to a hard-killed prior run and may already be stale, so without re-arming a
+		 * concurrent list scan could reap the new run at birth). Clear `error_type` +
+		 * `awaiting_input`, and delete any STALE `run_lock` a hard-killed prior edit
+		 * left (the busy check only let a FREE app through, so this never deletes a
+		 * LIVE lock). The claim does NOT touch the reservation MARKER: a prior run's
+		 * stranded unsettled hold is handed back by THIS run's own `reserveCredits`
+		 * (its unconditional leftover-refund) before it books the fresh marker. Since
+		 * a live/paused run always blocks the claim, the only prior run this ever
+		 * displaces is HARD-KILLED (no running process), so there is no concurrent
+		 * writer and no [claim, reserveCredits) window — the barge/displacement class
+		 * is gone by construction. */
 		tx.update(docs.appRaw(appId), {
 			status: "generating",
 			error_type: null,
 			awaiting_input: false,
 			updated_at: FieldValue.serverTimestamp(),
-			/* Settle the displaced run's marker (see the docblock) — except a
-			 * paused run's, which is a LIVE hold the resumed run's failure
-			 * funnel must still refund. Left untouched when already settled
-			 * or absent — `reserveCredits` writes the new run's marker fresh
-			 * either way. */
-			...(claimed.from !== "paused" &&
-			fresh.reservation &&
-			!fresh.reservation.settled
-				? { reservation: { ...fresh.reservation, settled: true } }
-				: {}),
+			run_lock: FieldValue.delete(),
 		});
-		return claimed;
+		return { mode: "build", prior };
+	});
+}
+
+/**
+ * Refresh a live EDIT run's `run_lock` lease off SA ACTIVITY — the per-STEP
+ * heartbeat, complementing the per-COMMIT refresh inside `commitGuardedBatch`.
+ *
+ * The per-commit refresh alone leaves a gap: an edit doing an extended READ-ONLY
+ * stretch (many `search_blueprint` / `get_field` calls, a long model turn)
+ * before its first commit would let the 15-min lease lapse → its lease reads dead
+ * → `reapStaleReservation` frees the app mid-run (refunds the live hold + releases
+ * the lock a co-member could then claim). Heartbeating off SA activity (per-step, debounced) AND a wall-clock
+ * TIMER (so a single long no-step model turn can't lapse either) keeps a live
+ * edit's lease fresh; a hard-killed edit (no more activity) still lapses in
+ * ~`MAX_RUN_MINUTES` and is reaped — so the hard-kill recovery window is
+ * unchanged (this does NOT lengthen the lease).
+ *
+ * Transactionally OWNERSHIP-GATED via `runLeaseState().mine(runId)`: extends the
+ * lease ONLY if this run still OWNS it — so a run superseded mid-way (a co-member
+ * took over, overwriting the lock's `runId`) never extends the taker's lease, and
+ * a build (no `run_lock`) is a clean no-op. Fire-and-forget at the call site. A
+ * thrown write bubbles to the caller's `.catch`.
+ */
+export async function refreshEditLease(
+	appId: string,
+	runId: string,
+): Promise<void> {
+	await getDb().runTransaction(async (tx) => {
+		const snap = await tx.get(docs.appRaw(appId));
+		const fresh = (snap.exists ? snap.data() : undefined) as
+			| Partial<AppDoc>
+			| undefined;
+		const lease = fresh ? runLeaseState(fresh) : undefined;
+		// Only an EDIT run that this run still owns has a lease to extend (a build
+		// holds via `status`, not a lock, so `mode !== "edit"` → no-op).
+		const ownsEditLock = lease?.mode === "edit" && lease?.mine(runId);
+		if (!ownsEditLock) return;
+		tx.update(docs.appRaw(appId), {
+			"run_lock.expireAt": Timestamp.fromMillis(editLeaseDeadlineMs()),
+		});
+	});
+}
+
+/**
+ * Release an edit run's `run_lock` WITHOUT touching the reservation marker — for
+ * the terminal states that are NOT a clean kept-charge completion: a FAILED edit
+ * (its marker was already refunded+settled by the failure funnel before this
+ * releases the lock), a pre-stream bail-out RESTORE (nothing was reserved), and
+ * the `onFinish` release of a prelude-throw-stranded lock (a hard kill; its
+ * marker, if any, is refunded by the reaper). The clean kept-charge completion
+ * uses {@link clearRunLockAndSettle} instead, which releases AND settles
+ * atomically.
+ *
+ * Merge-set with a field delete so it can't disturb `status` / blueprint / the
+ * reservation marker. Fire-and-forget like `failApp` (an edit terminal state
+ * must not block on Firestore); a dropped clear degrades to the lock expiring at
+ * `expireAt`, which the next `claimRun` treats as claimable anyway. A PAUSED
+ * edit keeps its lock — the run is alive (a later POST resumes it) — so its
+ * caller gates on not-paused.
+ */
+export function clearRunLock(appId: string): Promise<void> {
+	return docs
+		.app(appId)
+		.set({ run_lock: FieldValue.delete() }, { merge: true })
+		.then(
+			() => {},
+			(err) => {
+				log.error("[clearRunLock] Firestore write failed", err, { appId });
+			},
+		);
+}
+
+/**
+ * Revert a bailed claim — write the {@link PriorRunState} snapshot back
+ * VERBATIM, so a bailed-out claim (concurrency 429, out-of-credits, reservation
+ * failure) returns the app to the EXACT shape `claimRun` found it in.
+ *
+ * A single merge-set restores EVERY field the claim overwrote:
+ * `status` + `error_type` (a build flip reverts to `complete`/`error`+its
+ * original classification; an edit claim reverts its `status → complete`
+ * normalize), `awaiting_input` (DELETED — a claim only runs on a FREE app, which
+ * is never paused, so the prior is always unpaused), `run_lock` (re-set a
+ * hard-killed edit's exact stale lock the claim overwrote, else DELETED — a
+ * build/fresh-edit claim found none), and `updated_at` (written back VERBATIM,
+ * NOT a fresh server timestamp). Reverting `updated_at` verbatim is load-bearing:
+ * a fresh stamp would re-arm the ~10-min `generating` staleness clock on a
+ * reverted stale-build row (a phantom "in progress" for 10 min) and reorder a
+ * plain `complete`/`error` app to the top of every member's recent list though
+ * nothing ran. `FieldValue.delete()` for the absent-prior cases is what makes
+ * the revert faithful rather than leaving a stale `false`/lock behind. The
+ * reservation marker is intentionally not reverted (see {@link PriorRunState}).
+ * Fire-and-forget like `failApp`: a rejection must not block on Firestore, and a
+ * dropped revert degrades to the reaper settling the still-held row.
+ */
+export function restoreRunState(
+	appId: string,
+	prior: PriorRunState,
+): Promise<void> {
+	return docs
+		.app(appId)
+		.set(
+			{
+				status: prior.status,
+				error_type: prior.error_type,
+				awaiting_input: prior.awaiting_input ? true : FieldValue.delete(),
+				run_lock: prior.run_lock ?? FieldValue.delete(),
+				updated_at: prior.updated_at,
+			},
+			{ merge: true },
+		)
+		.then(
+			() => {},
+			(err) => {
+				log.error("[restoreRunState] Firestore write failed", err, { appId });
+			},
+		);
+}
+
+/**
+ * Clean EDIT completion — delete the `run_lock` AND settle the run's kept-charge
+ * reservation marker in ONE transaction.
+ *
+ * The atomicity is the edit-mode analogue of {@link completeAndSettleRun}. An
+ * edit stays `complete` throughout, so what makes it CLAIMABLE is the `run_lock`
+ * being gone. Releasing the lock and settling the kept charge as two separate
+ * writes opens the same clawback window: the instant the lock is deleted the app
+ * is claimable, and a run landing before the settle would see the edit's
+ * still-unsettled marker and (per the unconditional leftover-refund) claw back
+ * its KEPT 5 credits. One transaction closes it — the moment the edit is
+ * claimable, its charge is already settled.
+ *
+ * A hard kill BEFORE this transaction leaves the `run_lock` present → the app is
+ * not yet claimable and `reapStaleReservation` refunds the stranded hold once
+ * `expireAt` passes (correct — the edit never finished). AFTER → claimable +
+ * settled + kept.
+ *
+ * Settles WHATEVER unsettled marker is on the app (the `askQuestions` flow is
+ * multi-POST, so the kept charge may have been booked by an earlier POST). Runs
+ * as a transaction (read marker → write) so the settle rides the same commit as
+ * the lock delete. Awaited by the caller so the terminal state is durable.
+ */
+export async function clearRunLockAndSettle(
+	appId: string,
+	runId: string,
+): Promise<void> {
+	await withFirestoreRetry(() =>
+		getDb().runTransaction(async (tx) => {
+			// RAW ref (converter-less) for the same reason as `completeAndSettleRun`:
+			// only the run-liveness leaves are needed, and a converter parse of a bad
+			// blueprint would throw inside the txn and strand the lock release + settle.
+			const snap = await tx.get(docs.appRaw(appId));
+			const fresh = (snap.exists ? snap.data() : undefined) as
+				| Partial<AppDoc>
+				| undefined;
+			if (!fresh) return;
+			const lease = runLeaseState(fresh);
+			// OWNERSHIP GATE (re-checked at WRITE time, in the txn). Release the lock
+			// + settle ONLY if this run still OWNS the edit lock. It no-ops on the
+			// reaper-race that survives without a barge: this edit's lease lapsed
+			// mid-run, it was REAPED (lock released + hold refunded), and the freed app
+			// was re-claimed — so `run_lock.runId` changed (`mine` false) or the app is
+			// no longer an edit (`mode !== "edit"`), and deleting the new run's LIVE
+			// lock + settling its marker would double-run + claw its charge. The
+			// `withFirestoreRetry` wrapper makes a clean completion land through a
+			// transient blip, so a genuine owner reliably settles+releases (no 15-min
+			// lockout from a dropped clean finalize).
+			if (lease.mode !== "edit" || !lease.terminalWriteOwned(runId)) return;
+			const reservation = fresh.reservation;
+			tx.set(
+				docs.appRaw(appId),
+				{
+					run_lock: FieldValue.delete(),
+					...(reservation && !reservation.settled
+						? { reservation: { ...reservation, settled: true } }
+						: {}),
+				},
+				{ merge: true },
+			);
+		}),
+	);
+}
+
+/**
+ * Whether the app is STILL an EDIT run owned by `runId` — the guard the route's
+ * `onFinish` net runs before releasing a prelude-throw-stranded lock.
+ *
+ * A run that DID finalize already made the right lock decision; this only fires
+ * when `finalizeRun` never ran (a prelude throw), and must not release a lock a
+ * DIFFERENT run now owns (this run's lease lapsed + it was reaped + the freed app
+ * re-claimed). Ownership is derived through the one reader (`runLeaseState().mine`),
+ * so it applies the same edit-ownership rule the resume path uses (a build has no
+ * lock, so `mode !== "edit"` ⇒ `false`).
+ *
+ * Reads the RAW ref (converter-less — only run-liveness leaves are needed).
+ * A thrown read bubbles; the caller decides best-effort semantics.
+ */
+export async function editRunLockHeldBy(
+	appId: string,
+	runId: string,
+): Promise<boolean> {
+	const snap = await docs.appRaw(appId).get();
+	if (!snap.exists) return false;
+	const lease = runLeaseState(snap.data() as Partial<AppDoc>);
+	return lease.mode === "edit" && lease.mine(runId);
+}
+
+/**
+ * Re-acquire a free-continuation resume's paused run — the supersede guard AND
+ * lease re-establishment, in ONE atomic transaction, UNIFORM across both modes.
+ *
+ * A paused run holds its app (a paused run BLOCKS a claim — no takeover), but its
+ * lease lapses while it waits for the user (no heartbeat during a pause), so it
+ * CAN be REAPED mid-answer and the freed app re-claimed by another run. The resume
+ * does NOT re-claim, so without this it could start a SECOND SA loop against an
+ * app another run now owns. It also must RENEW its own liveness horizon: a paused
+ * edit whose lease lapsed while the user answered would proceed on an
+ * already-lapsed lease and be reaped mid-run — the horizon renewal makes "still
+ * mine" and "not about to be reaped" the same atomic fact. `false` ⇒ superseded
+ * (reaped + re-claimed) ⇒ bail, touched nothing.
+ *
+ * Ownership is `runLeaseState().ownedByResume(runId, mode)` — keyed on the
+ * RESUME's OWN mode, so a run re-claimed in the OTHER mode still reads the right
+ * discriminator: an edit-resume requires `mode === "edit" && mine` (a reap
+ * cleared the lock or a re-claim overwrote its `runId`); a build-resume requires a
+ * paused-build shape `mode === "build" && paused && mine`.
+ *
+ * RE-ESTABLISHES the mode's liveness horizon atomically when ownership holds, so
+ * a resume RENEWS its lease rather than being reaped mid-run: an edit RE-STAMPS
+ * `run_lock.expireAt`; a build RE-ARMS `updated_at` (its staleness clock froze
+ * during the pause). Also clears `awaiting_input` in the SAME transaction (the
+ * resume is no longer paused), so the assert + lease-renew + un-pause commit as
+ * one atomic write and a superseded resume touches nothing.
+ *
+ * Returns whether this run still owns the paused run: `true` ⇒ ownership held +
+ * lease renewed + pause cleared (proceed); `false` ⇒ superseded ⇒ touched
+ * NOTHING (the caller bails). A thrown read bubbles; the caller decides fail-open
+ * vs fail-closed.
+ */
+export async function reacquireLease(
+	appId: string,
+	runId: string,
+	mode: "build" | "edit",
+): Promise<boolean> {
+	return await getDb().runTransaction(async (tx) => {
+		const snap = await tx.get(docs.appRaw(appId));
+		const fresh = (snap.exists ? snap.data() : undefined) as
+			| Partial<AppDoc>
+			| undefined;
+		if (!fresh) return false;
+		const lease = runLeaseState(fresh);
+		// Superseded — this paused run's lease lapsed while the user answered, it was
+		// REAPED, and the freed app was re-claimed by another run. Keyed on the
+		// RESUME's OWN mode (`ownedByResume`), NOT `lease.mine` off the doc's derived
+		// mode: a re-claim in the OTHER mode changes the derived `mode`, so `mine` would
+		// read the wrong discriminator (the marker's runId for a build vs the lock's for
+		// an edit). `ownedByResume` requires the app to STILL be in the shape the resume expects
+		// — an edit's lock (a reap cleared it / a re-claim overwrote it) or a
+		// paused-build shape (a reap flipped it / a re-claim cleared `awaiting_input`)
+		// — so a superseded run bails.
+		if (!lease.ownedByResume(runId, mode)) return false;
+		if (mode === "edit") {
+			// Renew the edit lease (may have lapsed while paused) + un-pause, atomically.
+			tx.update(docs.appRaw(appId), {
+				"run_lock.expireAt": Timestamp.fromMillis(editLeaseDeadlineMs()),
+				awaiting_input: false,
+			});
+		} else {
+			// Re-arm the build's staleness window (frozen during the pause) + un-pause.
+			tx.update(docs.appRaw(appId), {
+				updated_at: FieldValue.serverTimestamp(),
+				awaiting_input: false,
+			});
+		}
+		return true;
 	});
 }
 
@@ -1292,44 +1654,104 @@ export function setAwaitingInput(
  * which leaves the credit hold stranded because the live refund only runs from a
  * flush. Plain `failApp` writes status only; this also returns the credits.
  *
- * The refund precedes the status flip ON PURPOSE: while the app is still
- * `generating` it remains reapable, so if this process dies after the refund but
- * before the flip, the next list/concurrency scan reaps it again —
- * `refundReservation` is idempotent (the settled marker), so the retry settles
- * nothing twice and `failApp` finishes the transition. Flipping first would close
- * the `generating` window before the refund landed and strand the hold forever.
- * A refund failure returns early (no status flip) for the same reason: leave the
- * row reapable so the refund is retried, rather than marking it done with the
- * hold still booked.
+ * Delegates to `refundStaleGeneration`, which refunds the stranded hold AND flips
+ * `generating → error` in ONE transaction with the staleness RE-VALIDATED inside
+ * it. The in-txn re-check closes a TOCTOU: this reap is fired off an
+ * out-of-transaction `listApps` / `hasActiveGeneration` scan, so between the scan
+ * and the refund a FRESH build can re-claim the app (`claimRun('build')` re-arms
+ * `updated_at` + writes a fresh marker) — refunding + failing that live build
+ * would claw its charge and brick it. `refundStaleGeneration` re-reads in the txn
+ * and acts ONLY if the row is STILL `reapableStaleBuild`; a re-claimed build reads
+ * live and it no-ops. Doing the refund + the `error` flip in the same commit means
+ * no fresh run can slip between them either. Idempotent (a second reap of an
+ * `error` row is no longer `generating` → no-op).
  *
  * An app with no marker (created before reservations shipped, or whose run never
- * reserved) reaps to `error` with no refund — `refundReservation` no-ops on the
- * absent marker. Fire-and-forget at the call sites, like `failApp`: a transient
- * failure self-heals on the next scan.
+ * reserved) reaps to `error` with no refund. Fire-and-forget at the call sites,
+ * like `failApp`: a transient failure self-heals on the next scan.
  *
  * Scope: BUILDS only. The reaper keys on `status: "generating"`, which only the
- * build paths write — `createApp` for a new build, `claimBuildRun` for every
- * chargeable build POST against an existing app (a retry of a failed build, a
- * new instruction into a finished one, a takeover of a paused one). A
- * chargeable EDIT reserves credits but keeps its app `complete`, so a
- * hard-killed edit's 5-credit hold is never reaped — an accepted residual
- * (small and rare). Builds are the high-value case (100 credits) this reaper
- * exists for. `claimBuildRun`'s stale-displacement arm performs this same
- * settle (refund-first, `internal`) inline when a retry POST lands on a dead
- * row before any list/concurrency scan has.
+ * build paths write — `createApp` for a new build, `claimRun('build')` for every
+ * chargeable build POST against an existing app. A chargeable EDIT reserves
+ * credits but keeps its app `complete`, so its hard-killed hold is reaped off the
+ * `run_lock`'s lapsed lease by the edit-only `reapStaleReservation` (called from
+ * `projectAppSummary`) rather than here.
  */
 export async function reapStaleGenerating(appId: string): Promise<void> {
 	try {
-		await refundReservation(appId);
+		await refundStaleGeneration(appId);
 	} catch (err) {
-		log.error("[reapStaleGenerating] reservation refund failed", err, {
+		log.error("[reapStaleGenerating] stale-build reap failed", err, { appId });
+		// Leave the row `generating` (untouched) so the next scan retries — the
+		// refund + flip are atomic, so a failure means neither happened.
+	}
+}
+
+/**
+ * Reap a stranded EDIT reservation: refund an unsettled hold whose run never
+ * reached a clean completion, WITHOUT flipping status.
+ *
+ * The edit-only twin of `reapStaleGenerating`. An edit run stays `complete`
+ * (its status never flips to `generating`), so a hard kill leaves its 5-credit
+ * hold stranded on a row the `generating`-keyed reaper never scans. This reaper
+ * keys on the SINGLE run-liveness signal — the `run_lock` (the one the
+ * per-commit heartbeat refreshes): it fires only on a `status === "complete"`
+ * app whose marker is present + unsettled, NOT `awaiting_input` (a paused run's
+ * hold is live), and whose EDIT is a hard kill — `run_lock` PRESENT but PAST its
+ * refreshed `expireAt`. A LIVE edit keeps a future `run_lock.expireAt` as long as
+ * it commits, so even one running far past the initial `MAX_RUN_MINUTES` lease is
+ * never reaped. Requiring the lock be PRESENT is what excludes a BUILD's marker:
+ * a build never claims a `run_lock`, so a `complete` app with an unsettled marker
+ * and NO lock is a build's KEPT charge (settled atomically by
+ * `completeAndSettleRun`; a prelude-throw edit whose lock was cleared is refunded
+ * by its own zero-cost `flush`), never a stranded edit — reaping it would claw back
+ * a completed build's kept 100 credits. Builds reap off `updated_at` staleness
+ * (`reapStaleGenerating`) while `generating`.
+ *
+ * The out-of-transaction read below is ONLY a pre-filter: the actual refund runs
+ * through `refundStaleReservation`, which RE-VALIDATES the whole guard (status,
+ * awaiting_input, unsettled, run_lock-present-and-lapsed) INSIDE its transaction.
+ * That closes a TOCTOU: between this read (looks dead) and the refund, a fresh
+ * edit can win the app and `reserveCredits` writes its own unsettled marker + a
+ * fresh `run_lock` — the in-txn re-check sees the live lock and skips, so a live
+ * charge is never clawed back.
+ *
+ * Called from `projectAppSummary` — the `listApps` scan sees `complete` apps —
+ * NOT `hasActiveGeneration`, whose queries filter `status === "generating"` and
+ * so never see an edit hold. Fire-and-forget at the call site, like
+ * `reapStaleGenerating`: a transient failure self-heals on the next scan
+ * (`refundStaleReservation`'s settle is idempotent, so a double-fire can't
+ * double-refund).
+ *
+ * The every-kept-charge-settled invariant is the other half of the claw-back
+ * protection: a clean, non-paused completion settles the kept charge ATOMICALLY
+ * with the make-claimable transition (`clearRunLockAndSettle` for an edit,
+ * `completeAndSettleRun` for a build) BEFORE the app is claimable/reapable, so a
+ * completed edit's KEPT charge is already `settled: true` and this no-ops on it.
+ */
+export async function reapStaleReservation(appId: string): Promise<void> {
+	// Cheap out-of-transaction pre-filter off the RAW ref (converter-less — only
+	// the run-liveness leaves are needed, not the whole blueprint): skip the
+	// transaction entirely unless the row LOOKS reapable. The full guard is
+	// re-checked INSIDE `refundStaleReservation`'s transaction, so the "never reap
+	// a live hold" invariant is self-contained in the refund path (not dependent
+	// on this caller or `projectAppSummary`). This read only avoids opening a
+	// transaction on the common not-reapable row.
+	const data = (await docs.appRaw(appId).get()).data() as
+		| Partial<AppDoc>
+		| undefined;
+	// Reap ONLY a hard-killed EDIT — `runLeaseState().reapableStrandedEdit` is the
+	// single shared derivation (complete + non-paused + unsettled marker + a
+	// `run_lock` present-and-lapsed + marker/lock same run), so this pre-filter,
+	// `projectAppSummary`, and `refundStaleReservation`'s in-txn re-check can't drift.
+	if (!data || !runLeaseState(data).reapableStrandedEdit) return;
+	try {
+		await refundStaleReservation(appId);
+	} catch (err) {
+		log.error("[reapStaleReservation] reservation refund failed", err, {
 			appId,
 		});
-		// Leave the row `generating` so the next scan retries the refund before the
-		// status flip closes the reapable window.
-		return;
 	}
-	failApp(appId, "internal");
 }
 
 /**
@@ -1415,6 +1837,54 @@ export async function loadApp(appId: string): Promise<AppDoc | null> {
 }
 
 /**
+ * Resolve the display name of whoever currently HOLDS the app's run window, for
+ * the serialize-with-wait "busy: <name>'s request" status the waiter emits.
+ *
+ * The holder is whichever run owns the app right now: an edit lock records its
+ * actor on `run_lock.actorUserId`; a build hold records its charged actor on the
+ * reservation marker (`reservation.userId`, falling back to `owner` for a legacy
+ * marker or the pre-reservation new-build window). The `run_lock` actor wins
+ * when both are present — a live edit-lock is the current holder. Reads the
+ * name from `auth_user` (Kysely), the same denormalized profile presence shows.
+ *
+ * Uses a PROJECTED read of only the three holder-id fields (`documentId()` +
+ * `.select()`), never the full `loadApp` — this is on the serialize-with-wait
+ * path, and pulling the whole (multi-hundred-KB) blueprint just to render a
+ * display name would be wasteful.
+ *
+ * Best-effort: returns `"someone"` when the app or holder can't be resolved (a
+ * generic fallback keeps the busy status friendly without leaking a raw id) —
+ * the wait itself keys on `claimRun`, never on this label.
+ */
+export async function loadAppHolderName(appId: string): Promise<string> {
+	const snap = await getDb()
+		.collection("apps")
+		.where(FieldPath.documentId(), "==", appId)
+		.select("run_lock.actorUserId", "reservation.userId", "owner")
+		.limit(1)
+		.get();
+	const doc = snap.docs[0];
+	if (!doc) return "someone";
+	const holderId =
+		(doc.get("run_lock.actorUserId") as string | undefined) ??
+		(doc.get("reservation.userId") as string | undefined) ??
+		(doc.get("owner") as string | undefined);
+	if (!holderId) return "someone";
+	try {
+		const db = await getAuthDb();
+		const row = await db
+			.selectFrom("auth_user")
+			.select(["name"])
+			.where("id", "=", holderId)
+			.executeTakeFirst();
+		return row?.name || "someone";
+	} catch (err) {
+		log.error("[loadAppHolderName] auth_user lookup failed", err, { appId });
+		return "someone";
+	}
+}
+
+/**
  * Load just the owning Project id for an app document.
  *
  * The lightweight projected read the authorization resolver uses: reads only
@@ -1460,6 +1930,15 @@ const SUMMARY_FIELDS = [
 	// Projected so `projectAppSummary`'s staleness reaper can exclude a live build
 	// paused on an `askQuestions` round (it must not refund a paused hold).
 	"awaiting_input",
+	// Projected so `projectAppSummary` can fire the edit-only
+	// `reapStaleReservation` for a `complete` app whose unsettled hold is past
+	// its `expireAt` — the stranded-edit-hold reaper the `generating`-keyed scan
+	// can't reach.
+	"reservation",
+	// Projected so `projectAppSummary` sees a live edit-lock (it doesn't reap off
+	// it, but the field rides the projection alongside `reservation` for parity
+	// with the run-liveness fields a scan reasons about).
+	"run_lock",
 	"error_type",
 	// The logo lives inside the blueprint; a dotted field path reads JUST that
 	// leaf (not the large blueprint map), so the app list shows it for every
@@ -1593,28 +2072,39 @@ function cursorFor(summary: AppSummary, sort: AppsSortOrder): string {
 function projectAppSummary(
 	doc: FirebaseFirestore.QueryDocumentSnapshot,
 	now: number,
-	maxAgeMs: number,
 ): AppSummary {
 	const data = doc.data();
 
 	const createdAt = (data.created_at as Timestamp).toDate();
 	const updatedAt = (data.updated_at as Timestamp)?.toDate() ?? createdAt;
 
-	/* Timeout inference — if an app's last Firestore write was longer ago
-	 * than the staleness window, the generation process is dead. Intermediate
-	 * saves advance `updated_at` during generation, so an actively-running
-	 * build always has a recent `updated_at`. The reap (refund the stranded
-	 * credit hold + flip to error) is fire-and-forget; the projected row below
-	 * reflects the inferred `error` state immediately so the caller never sees
-	 * stale data even though the reap transaction settles asynchronously. */
-	const isStale =
-		data.status === "generating" &&
-		// A build paused on an `askQuestions` round is alive (awaiting the user), not
-		// dead — exclude it so the reaper never refunds a live paused hold.
-		!data.awaiting_input &&
-		now - updatedAt.getTime() > maxAgeMs;
+	/* Run-liveness for BOTH reapers is derived through the one reader.
+	 * `reapableStaleBuild` is a `generating` build whose `updated_at` fell outside
+	 * the staleness window — a HARD KILL or an ABANDONED PAUSED build (a paused
+	 * run's clock freezes, so it drifts past the window; its own resume re-arms
+	 * `updated_at`, so a legit recently-paused build stays fresh). Intermediate
+	 * saves advance `updated_at`, so an actively-running build always reads fresh.
+	 * The reap (refund the stranded credit hold + flip to error) is fire-and-forget;
+	 * the projected row below reflects the inferred `error` immediately so the caller
+	 * never sees stale data even though the reap transaction settles asynchronously. */
+	const lease = runLeaseState(data as Partial<AppDoc>, now);
+	const isStale = lease.reapableStaleBuild;
 	if (isStale) {
 		void reapStaleGenerating(doc.id);
+	}
+
+	/* Edit-only stranded-hold reap — an edit stays `complete`, so its
+	 * hard-killed 5-credit hold never enters the build staleness inference above.
+	 * `reapableStrandedEdit` is the single shared derivation (complete + non-paused
+	 * + unsettled marker + a `run_lock` present-and-lapsed + marker/lock same run):
+	 * keying on the `run_lock`'s liveness horizon stops clawing back a LIVE long
+	 * edit that refreshed its lease, and requiring the lock be PRESENT excludes a
+	 * completed BUILD's kept-charge marker (a build has no `run_lock`). The reap
+	 * refunds only; it never flips status, so the projected row is unchanged.
+	 * `refundStaleReservation` re-validates the SAME derivation in-transaction, so a
+	 * fresh edit that won the app between the scan and the refund isn't clawed back. */
+	if (lease.reapableStrandedEdit) {
+		void reapStaleReservation(doc.id);
 	}
 
 	return {
@@ -1761,16 +2251,11 @@ async function queryAppsByScope(
 	const snap = await query.limit(limit).get();
 
 	const now = Date.now();
-	const maxAgeMs = MAX_GENERATION_MINUTES * 60_000;
 
 	/* Soft-deletes are filtered server-side — the loop is a straight
 	 * 1:1 map, no per-row skip needed. */
 	const apps: AppSummary[] = snap.docs.map((doc) =>
-		projectAppSummary(
-			doc as FirebaseFirestore.QueryDocumentSnapshot,
-			now,
-			maxAgeMs,
-		),
+		projectAppSummary(doc as FirebaseFirestore.QueryDocumentSnapshot, now),
 	);
 
 	/* "Maybe more" signal: a full page may have followers; a short page

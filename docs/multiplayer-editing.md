@@ -1023,85 +1023,92 @@ JSON `_meta`).
 ### Phase 9 — SA runs under multiplayer
 
 **Goal.** A second collaborator's SA request **waits** instead of 429-ing — for builds **and**
-edits — and a stranded credit hold is reclaimed without clawing back a kept charge.
+edits — with at most one run per app, and a stranded credit hold is reclaimed without ever
+clawing back a kept charge.
 
-**Files & changes.**
+**One liveness reader.** Every liveness / ownership / paused / settled decision derives from
+one pure `runLeaseState(fresh)` (`lib/db/runLiveness.ts`), enforced by a build-time grep guard
+(`runLivenessGrepGuard.test.ts`) that fails on any raw read of `run_lock.expireAt` /
+`run_lock.runId` / `reservation.runId` elsewhere. Each mode reads its horizon in the ONE
+place: a build off `updated_at` (`MAX_GENERATION_MINUTES`), an edit off `run_lock.expireAt`
+(`MAX_RUN_MINUTES`, refreshed per SA step + per commit + a wall-clock timer, so a live edit
+never lapses).
 
-- **Per-app run serialization for both modes.** Today only builds claim a per-app window
-  (`claimBuildRun`); edits gate on per-user `hasActiveGeneration(userId, appId)` (which
-  excludes the app), so two co-editors edit one app concurrently and both `tx.set` the single
-  app-doc reservation marker wholesale. Generalize to `claimRun(appId, mode)`: a build flips
-  `status:'generating'` (as today); an edit transactionally claims the `run_lock` field (P1)
-  `{ runId, actorUserId, expireAt }` **without** changing status (edits stay `complete`). The
-  claim treats an absent or past-`expireAt` `run_lock` as claimable. Specify the cross-mode
-  matrix (a build claim waits on a held edit-lock and vice-versa). At most one run holds the
-  app, so the single reservation marker is never contended. `claimRun`/`reapStaleReservation`
-  read `run_lock`; add it to the `hasActiveGeneration`/`projectAppSummary` projections.
-- **Release `run_lock` on every terminal state.** `clearRunLock(appId)` deletes the
-  `run_lock` whenever an edit run reaches a terminal state — clean **or failed** — except a
-  paused (`askQuestions`) hold. Fold it into `finalizeRun`'s edit path **unconditionally**,
-  gated only on `ctx.pausedOnInput()`. A failed edit routes `failRun → finalizeRun`, which
-  never enters the clean editing arm — releasing only on clean completion would strand the
-  lock until `expireAt` and starve the serialize-with-wait waiter. A hard kill leaves a
-  `run_lock` past `expireAt`, which the next `claimRun` treats as claimable; its stranded
-  reservation is reaped below.
-- **Serialize-with-wait, inside the stream.** `claimRun` treats the app as busy when *either*
-  a build holds it (`status === 'generating'` within the staleness window **and not
-  `awaiting_input`** — a paused `askQuestions` build is a *claimable takeover*, exactly as
-  `claimBuildRun`/`hasActiveGeneration` treat it today, never busy) *or* an edit holds it
-  (`run_lock` present, not past `expireAt`); a new claim of **either** mode waits on that busy
-  condition, else takes its own form (build → `status:'generating'`; edit → write `run_lock`)
-  — that is the full cross-mode matrix, and a paused run is taken over, not waited on. All
-  gating runs **before**
-  `createUIMessageStream` today and rejects with `Response.json`, but a `data-phase` status can
-  only be written inside `execute`. So on a claim conflict the route opens the SSE stream
-  immediately and, **inside `execute`**, runs: emit `data-phase` "busy: <name>'s request"
-  (holder name from `auth_user`), poll-wait (poll ~750 ms, max wait ~120 s; on timeout emit a
-  friendly "still busy" and end), `claimRun`, then `reserveCredits`. The pre-stream bail-outs
-  that move inside `execute` are the post-`claimRun` ones — the cross-app concurrency guard
-  (`hasActiveGeneration(userId, appId)` → release the claim + end), out-of-credits (emit an
-  error data event + release the claim via `clearRunLock`/status-restore), and a
-  reservation-failure (release the claim, emit error). **After** the in-`execute`
-  `reserveCredits`, set the accumulator's reservation context —
-  `usage.configureRun({ didReserve, reservedAmount, chargePeriod: reservation.period })`
-  (**extend `AccumulatorRunConfig` in `lib/db/usage.ts` with these three fields** — today they
-  are seed-only, so `configureRun` won't compile with them) — so the flush-time refund/settle
-  targets the right period (the `UsageAccumulator` is built before the stream with no
-  reservation context on this path, so leaving it unset misfires the refund). The non-conflict (free / first-claim) path keeps its existing pre-stream gating
-  unchanged.
-- **Settle the kept charge on success — gated on NOT paused.** `reserveCredits` writes
-  `settled:false`; the only settle today is `refundReservation` (failure/zero-cost). Add
-  `settleReservation(appId)` called from `finalizeRun`'s clean branch for **every kept-charge
-  run, build or edit — but NOT when the run paused on `askQuestions`** (thread
-  `ctx.pausedOnInput()` into `finalizeRun`; a paused run's marker is a live hold the resume's
-  failure funnel must refund). Because the `askQuestions` flow is multi-POST (POST1 pauses →
-  no settle; POST2 is a free continuation), `settleReservation` settles **whatever hold is on
-  the app's marker once the charged run reaches a clean, non-paused completion** — regardless
-  of whether *this* POST reserved — so the kept charge is `settled:true` before the
-  status-agnostic reaper can reach it.
-- **Reap stranded holds for edits.** Builds keep `reapStaleGenerating` (keyed on `updated_at`
-  staleness, advanced by intermediate saves) **unchanged** — a fixed `expireAt` would wrongly
-  reap a live long build. The new reaper is **edit-only**: the marker gains `expireAt` (P1),
-  set at `reserveCredits` to `now + MAX_RUN_MINUTES`; `reapStaleReservation(appId)` fires only
-  on a `status === 'complete'` app whose marker is unsettled **and** past `expireAt` (and the
-  run is not `awaiting_input`), refunding (refund-first, idempotent via `settled`) without
-  flipping status. Call it from `projectAppSummary` (the `listApps` scan sees `complete` apps;
-  add `reservation`/`run_lock` to its projection) — **not** `hasActiveGeneration`, whose
-  queries filter `status === 'generating'` and so never see an edit hold. `reserveCredits`
-  refunds a stale unsettled marker **before** overwriting it.
+**Per-app serialization, both modes.** Both modes claim the app's run window through
+`claimRun(appId, mode, runId, actorUserId)` before the stream opens — the compare-and-flip
+that arbitrates same-app contenders across Cloud Run instances. A build HOLDS the app via
+`status:'generating'`; an edit HOLDS it via a `run_lock` `{ runId, actorUserId, expireAt }`
+while `status` stays `complete`. The busy check is `lease.live || lease.paused`: a live hold
+of either mode — or a paused (`askQuestions`) run of either mode — blocks either claim with a
+`RunConflictError` (nothing written). A claim therefore only ever runs on a FREE app
+(`complete` / `error`, or a hard-killed row past its horizon), so at most one run holds the app
+and the single reservation marker is never contended.
 
-**Code facts to handle.**
-- Finalization is drain-driven (`consumeStream()` then `await drained`), not
-  connection-driven. The waiting request is a pre-run poll loop, not a queued run object.
-- Every kept charge is settled on a clean non-paused completion, so the status-agnostic edit
-  reaper cannot claw back a completed (or completed-after-`askQuestions`) edit's charge.
+**Serialize-with-wait.** All run-rejecting gating must run before `createUIMessageStream`, but
+a `data-phase` status can only be written inside `execute`. So on a claim conflict the route
+opens the SSE stream immediately and, inside `execute`, surfaces a "waiting on <holder>" event,
+polls `claimRun` (`CLAIM_WAIT_POLL_MS`, up to `CLAIM_WAIT_MAX_MS`; on timeout a friendly "still
+busy" and ends), then runs the same post-claim gate (cross-app concurrency guard +
+`reserveCredits`) the non-conflict path runs. The cross-app concurrency guard
+(`hasActiveGeneration`, per-user, `status === 'generating'`) is gated to a NEW/retry BUILD
+(`chargeable && !appReady`): an edit serializes per-app via its `run_lock` (so a user can edit
+one app while building another), and a free-continuation resume claims / reserves nothing. The
+app frees when the holder completes / fails (its own terminal path) or is REAPED.
 
-**Tests** (integration): a second concurrent build *or edit* waits then runs (no 429); a clean
-edit releases its `run_lock` (the next waiter proceeds); a successful edit (incl. one that
-went through `askQuestions`) is settled and **not** reaped; a hard-killed edit's hold is
-refunded and its `run_lock` is treated as claimable; a paused run's marker is never settled.
+**A claim never mutates a prior run's marker/lock.** A claim writes only liveness fields (build
+→ flip to `generating` + fresh `updated_at`, delete any stale lock; edit → fresh `run_lock` +
+normalize `status → complete`). Because a live/paused run always blocks, the only prior run a
+claim ever runs behind is HARD-KILLED (no running process), so there is no concurrent writer
+and no claim-time credit-transfer window. A displaced hard-killed run's stranded unsettled hold
+is handed back by THIS run's own `reserveCredits` leftover-refund — the one place a leftover is
+refunded, targeting the *charged actor* (`reservation.userId`, which diverges from `owner` once
+a Project co-member runs a shared app).
 
-**Depends on.** P1 (`run_lock` + `reservation.expireAt`), P3. (Edits `app/api/chat/route.ts`.)
+**Reserve up front, settle atomically on clean completion.** `reserveCredits` debits the charge
+(build 100, edit 5) and writes the marker `{ runId, userId, period, reserved, settled:false }`.
+A clean completion settles the kept charge in the SAME transaction as the make-claimable
+transition (build: `completeAndSettleRun` flips `generating → complete`; edit:
+`clearRunLockAndSettle` deletes the `run_lock`), so no window leaves a claimable app with an
+unsettled marker and the reaper can never claw a completed run's charge. A paused run is NOT
+settled (its marker is a live hold). A failure refunds (`flush` + the atomic
+`settleAndRelease`, which releases the lock only inside the same commit that settles — so "lock
+cleared + marker unsettled" is impossible by construction); a failed EDIT does NOT flip its
+`complete` app to `error` (that would brick a working app over a transient model error) — it
+settles, releases, and surfaces the error.
+
+**Terminal writers gate ownership in-txn.** All four terminal writers (`completeAndSettleRun` /
+`clearRunLockAndSettle` / `settleAndRelease` / the flush `refundReservation`) re-read ownership
+(`terminalWriteOwned(runId)`) inside their transaction and no-op when a DIFFERENT run owns the
+app — guarding the one race where a run's lease goes stale mid-run, the run is reaped, and the
+freed app is re-claimed before this run's late write lands. The marker's `runId` is the
+discriminator: a live run carries it; the reapers CLEAR it (via `FieldValue.delete()`) when
+they resolve a stranded run, and `mine` is NON-LENIENT (a no-`runId` marker is owned by
+nobody), so a reaped ghost reads its own cleared marker as not-mine and no-ops rather than
+flipping the re-claimant's live app to `error`. All four retry a transient Firestore fault
+(`withFirestoreRetry`) so a dropped write can't strand a lock into a collaborator lockout.
+
+**Reap dead + abandoned-paused runs.** Each reaper re-validates its staleness IN-TXN (closing a
+scan→reap TOCTOU): `reapStaleGenerating` reaps a stale build (`generating` past its
+`updated_at` window); `reapStaleReservation` reaps a stranded edit (`complete`, unsettled
+marker, `run_lock` present-and-lapsed). Both key on the LAPSED LEASE, so they reap a
+HARD-KILLED run AND an ABANDONED PAUSED one — a paused run has no heartbeat, so its lease
+lapses, and because a paused run blocks a claim it must be reaped or it would hold the app
+forever. A recently-paused run (future lease) is untouched, and its OWN free-continuation
+resume `reacquireLease`s (keyed on the resume's mode via `ownedByResume`) — asserting ownership
++ renewing the lease + clearing the pause flag in one txn, the ONLY path that re-enters a
+paused run. The accepted cost: an abandoned paused run frees after ~`MAX_*_MINUTES` rather than
+being handed to a waiter instantly.
+
+**Tests** (integration, `runLifecycleInvariants.integration.test.ts`): serialize-wait behind a
+LIVE run (blocked → proceeds on completion), a PAUSED run (blocked → proceeds after the lease
+lapses and it is reaped), and a HARD-KILLED run (proceeds after the reaper frees it); a paused
+run's own resume works; a reaped-then-reclaimed run's late terminal write no-ops (the
+re-claimant untouched, including in the `[claim, reserveCredits)` window); a normal failed
+build flips to `error`; no double-charge / no strand / no clawback / no double-run /
+at-most-one-live-run.
+
+**Depends on.** P1 (`run_lock` + the reservation marker), P3. (Edits `app/api/chat/route.ts`,
+`lib/db/apps.ts`, `lib/db/credits.ts`, `lib/db/runLiveness.ts`.)
 
 ---
 

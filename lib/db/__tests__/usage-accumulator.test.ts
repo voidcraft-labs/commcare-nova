@@ -216,7 +216,7 @@ describe("UsageAccumulator", () => {
 			// Reservation handed straight back — flush calls refundReservation by
 			// appId; the amount + booked period live on the durable marker.
 			expect(refundReservationMock).toHaveBeenCalledTimes(1);
-			expect(refundReservationMock).toHaveBeenCalledWith("a");
+			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
 			// Zero cost short-circuits the increment — no Firestore write at all.
 			expect(setMock).not.toHaveBeenCalled();
 		});
@@ -249,7 +249,7 @@ describe("UsageAccumulator", () => {
 			expect(setMock).toHaveBeenCalledTimes(1);
 			// …while the user's credits are made whole because the app broke.
 			expect(refundReservationMock).toHaveBeenCalledTimes(1);
-			expect(refundReservationMock).toHaveBeenCalledWith("a");
+			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
 		});
 
 		it("never refunds a free continuation that was never reserved", async () => {
@@ -305,7 +305,7 @@ describe("UsageAccumulator", () => {
 			});
 			await acc.flush();
 
-			expect(refundReservationMock).toHaveBeenCalledWith("a");
+			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
 		});
 
 		it("refunds at most once across repeated flush() calls", async () => {
@@ -335,7 +335,7 @@ describe("UsageAccumulator", () => {
 			});
 			await acc.flush();
 
-			expect(refundReservationMock).toHaveBeenCalledWith("a");
+			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
 		});
 	});
 

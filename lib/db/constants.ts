@@ -37,3 +37,32 @@ export const PRESENCE_TTL_MS = 60 * 1000;
  * latch collection stays small.
  */
 export const BATCH_DEDUP_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Maximum wall-clock life of a single SA run, in minutes — the lease length for
+ * an edit's `run_lock` and the horizon after which an unsettled edit reservation
+ * is considered stranded (`reapStaleReservation`).
+ *
+ * Distinct from the build path's staleness inference, which keys on `updated_at`
+ * advancing (a live build refreshes it on every commit) rather than a fixed
+ * lease: a long-but-live build must never be reaped, so builds keep the
+ * `updated_at`-window rule (`reapStaleGenerating`) and edits — which stay
+ * `complete` and so never advance `updated_at` for the reaper to key on — use
+ * this fixed lease instead. Sized to comfortably outlast the longest real edit
+ * run (Cloud Run's per-request ceiling is 3600 s) so a live run's lock/marker is
+ * never mistaken for a hard-killed one.
+ */
+export const MAX_RUN_MINUTES = 15;
+
+/**
+ * Build-run staleness window, in minutes — how long a `generating` app may go
+ * without its `updated_at` advancing before the run is inferred hard-killed.
+ *
+ * A live build advances `updated_at` on every commit, so a genuinely-running
+ * build stays inside this window; a `generating` row that has gone quiet longer
+ * than this is a dead process the next claim displaces (`reapStaleGenerating`;
+ * `runLeaseState().live` is false for it). This is the BUILD analogue of
+ * {@link MAX_RUN_MINUTES}'s edit lease — the build-mode liveness horizon
+ * `runLiveness.ts` reads.
+ */
+export const MAX_GENERATION_MINUTES = 10;

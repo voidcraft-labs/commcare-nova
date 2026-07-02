@@ -262,7 +262,7 @@ export const appDocSchema = z.object({
 	 * - `error` — a build run failed; see `error_type` for the bucket.
 	 *   Every chargeable build POST against an existing app — a retry of
 	 *   a failed build or a new instruction into a finished one — claims
-	 *   the run window back to `generating` (`claimBuildRun`).
+	 *   the run window back to `generating` (`claimRun` in build mode).
 	 * - `deleted` — legacy marker, retained in the enum for back-compat
 	 *   with rows soft-deleted before the marker moved off `status`.
 	 *   New code uses `deleted_at != null` as the soft-delete signal
@@ -329,10 +329,13 @@ export const appDocSchema = z.object({
 	 * Written ATOMICALLY with the credit debit when a chargeable turn reserves
 	 * (same `reserveCredits` transaction), so a committed charge always carries
 	 * the marker its refund needs. `settled` means the hold is RESOLVED — no
-	 * refund is owed: set by the live refund paths (flush / `failRun` /
-	 * `reapStaleGenerating`, which hand the hold back) and by `claimBuildRun`
-	 * when it displaces a finished run whose charge was KEPT. The claim-window
-	 * rule is what makes "stale `generating` + unsettled marker ⇒ refund it"
+	 * refund is owed: set by the refunding paths (flush / `failRun` /
+	 * `reapStaleGenerating` / `reapStaleReservation`, which hand the hold back),
+	 * by the atomic clean-completion writers on a KEPT charge (`completeAndSettleRun`
+	 * for a build, `clearRunLockAndSettle` for an edit — each settles in the SAME
+	 * transaction that makes the app claimable), and by `claimRun` (build mode) when
+	 * it displaces a finished run whose charge was KEPT. The claim-window rule is what makes "stale `generating` + unsettled
+	 * marker ⇒ refund it"
 	 * safe: a KEPT charge's marker stays unsettled only while its app sits at
 	 * `complete` — a shape the reaper never touches — and the moment a new run
 	 * claims that row back to `generating`, the claim transaction marks the
@@ -348,7 +351,12 @@ export const appDocSchema = z.object({
 	 * never un-book a charge a previous run kept — even when a hard kill lands
 	 * between the claim and the new reservation. `reserved` is the exact
 	 * amount to return; `period` is the month the hold actually hit (the reaper
-	 * refunds that month, not whatever month it happens to run in).
+	 * refunds that month, not whatever month it happens to run in). The marker
+	 * carries NO expiry of its own: an EDIT's stranded hold (its `complete` app
+	 * never enters the `generating`-keyed staleness inference) is reaped off the
+	 * `run_lock`'s single liveness horizon by `reapStaleReservation` — the reaper
+	 * refunds an unsettled marker only once the edit's `run_lock` is gone or past
+	 * its (per-commit-refreshed) `expireAt`.
 	 *
 	 * Absent on apps created before this field shipped and on turns that never
 	 * reserved (free continuations) — `refundReservation` treats an absent marker
@@ -369,6 +377,46 @@ export const appDocSchema = z.object({
 			 * world those markers were written in).
 			 */
 			userId: z.string().optional(),
+			/**
+			 * The run that booked this hold — its `run_id`, the per-run BUILD-ownership
+			 * identity `runLeaseState().mine` reads (a build has no `run_lock` to carry
+			 * one). It answers "does a present marker belong to a run that will resolve
+			 * its OWN outcome, or to one already resolved for it?" — the reaper-race
+			 * discriminator. When a run reserves, `reserveCredits` writes its `runId`;
+			 * when the REAPERS resolve a stranded run they CLEAR the `runId` (keeping
+			 * `userId`/`period`/`reserved`/`settled`). So a marker still carrying a `runId`
+			 * is a live run that owns its terminal write (its `failApp` is correct); a
+			 * marker with its `runId` CLEARED is a reaped GHOST whose stale terminal writer
+			 * must NOT read it as `mine` and `failApp` a taker that re-claimed the freed app
+			 * in the `[claim, reserveCredits)` window. `mine` is NON-LENIENT (an absent
+			 * `runId` is nobody's), so a ghost and a legacy pre-P9 marker both read as
+			 * unowned, resolved only by the reapers' OWN lenient clauses. Optional: absent
+			 * on legacy pre-P9 markers, reaped markers, and free-continuation rows.
+			 */
+			runId: z.string().optional(),
+		})
+		.optional(),
+	/**
+	 * Exclusive edit-run lease — the per-app serialization lock an EDIT run
+	 * holds while it works. An edit stays `complete` (its status never flips to
+	 * `generating`), so it can't use the build path's status-as-lock; instead a
+	 * chargeable edit transactionally claims this field (`claimRun('edit')`) and
+	 * a concurrent build OR edit waits on it. Absent when no edit run holds the
+	 * app; `claimRun` treats an absent or past-`expireAt` lock as claimable, so a
+	 * hard kill that never released it (`clearRunLock`) self-heals at the lease's
+	 * expiry rather than starving the next run. Builds do NOT write this — they
+	 * hold the app via `status: 'generating'` — but `claimRun` reads it on both
+	 * modes so a build waits on a live edit-lock and vice versa (the full
+	 * cross-mode matrix).
+	 */
+	run_lock: z
+		.object({
+			/** The edit run holding the lease — the `run_id` of the claiming POST. */
+			runId: z.string(),
+			/** The user whose POST claimed the lease (attribution; not a tenant key). */
+			actorUserId: z.string(),
+			/** Absolute lease deadline (`now + MAX_RUN_MINUTES` at claim). */
+			expireAt: timestamp,
 		})
 		.optional(),
 	/** First save timestamp. Set once via FieldValue.serverTimestamp(). */

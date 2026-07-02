@@ -27,8 +27,10 @@
  * `npm run test:integration`.
  */
 
+import { Timestamp } from "@google-cloud/firestore";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -274,6 +276,76 @@ describe.skipIf(!emulatorAvailable)(
 			expect(latchSnap.exists).toBe(true);
 			expect(latchSnap.data()?.seq).toBe(1);
 			expect(latchSnap.data()?.basisToken).toBe(result.basisToken);
+		});
+
+		it("refreshes the EDIT run_lock lease on a commit by the lock-holding run (a live long edit isn't barged)", async () => {
+			// A live edit can run longer than the fixed MAX_RUN_MINUTES
+			// lease; each `commitGuardedBatch` from the run holding the lock must push
+			// `run_lock.expireAt` out (the run-lock analogue of a build advancing
+			// `updated_at`), so a co-member never sees the lease lapse and barge a
+			// live edit. Seed a near-expiry lock for run "e1", commit as "e1", and
+			// confirm the lease jumped to ~now + MAX_RUN_MINUTES.
+			const doc = minDoc();
+			const appId = await seedApp(doc);
+			const nearExpiry = Timestamp.fromMillis(Date.now() + 60_000); // ~1 min
+			await docs.appRaw(appId).set(
+				{
+					run_lock: { runId: "e1", actorUserId: OWNER, expireAt: nearExpiry },
+				},
+				{ merge: true },
+			);
+
+			await commitGuardedBatch({
+				appId,
+				batchId: crypto.randomUUID(),
+				runId: "e1",
+				mutations: renameVillageLabel(doc, "Lease refresh"),
+				actorUserId: OWNER,
+				kind: "chat",
+			});
+
+			const lock = (await docs.appRaw(appId).get()).data()?.run_lock as {
+				runId: string;
+				expireAt: Timestamp;
+			};
+			// Lock identity preserved; lease pushed out well past the near-expiry.
+			expect(lock.runId).toBe("e1");
+			expect(lock.expireAt.toDate().getTime()).toBeGreaterThan(
+				Date.now() + (MAX_RUN_MINUTES - 2) * 60_000,
+			);
+		});
+
+		it("does NOT refresh the run_lock lease on a commit by a DIFFERENT run", async () => {
+			// The refresh fires only when THIS commit's runId owns the lock — a
+			// commit from another run (or a build) must leave the lease alone, so a
+			// hard-killed edit's lock still lapses in ~MAX_RUN_MINUTES.
+			const doc = minDoc();
+			const appId = await seedApp(doc);
+			const nearExpiry = Timestamp.fromMillis(Date.now() + 60_000);
+			await docs.appRaw(appId).set(
+				{
+					run_lock: { runId: "e1", actorUserId: OWNER, expireAt: nearExpiry },
+				},
+				{ merge: true },
+			);
+
+			// A commit tagged with a DIFFERENT runId.
+			await commitGuardedBatch({
+				appId,
+				batchId: crypto.randomUUID(),
+				runId: "other-run",
+				mutations: renameVillageLabel(doc, "Other run edit"),
+				actorUserId: OWNER,
+				kind: "chat",
+			});
+
+			const lock = (await docs.appRaw(appId).get()).data()?.run_lock as {
+				expireAt: Timestamp;
+			};
+			// The lease was NOT extended — still the near-expiry we seeded.
+			expect(lock.expireAt.toDate().getTime()).toBeLessThan(
+				Date.now() + 5 * 60_000,
+			);
 		});
 
 		it("produces gap-free seqs across a run of serial commits", async () => {

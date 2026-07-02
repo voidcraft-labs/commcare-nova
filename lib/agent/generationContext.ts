@@ -53,8 +53,9 @@ import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { classifyError as classifyValidityError } from "@/lib/commcare/validator/gate";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { commitGuardedBatch } from "@/lib/db/apps";
+import { commitGuardedBatch, refreshEditLease } from "@/lib/db/apps";
 import { CommitReauthError } from "@/lib/db/commitGuard";
+import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { UsageAccumulator } from "@/lib/db/usage";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -79,6 +80,14 @@ import type {
 	StagedMutationBatch,
 	ToolExecutionContext,
 } from "./toolExecutionContext";
+
+/**
+ * Debounce for the per-step edit-lease heartbeat — a live edit refreshes its
+ * `run_lock` at most this often (a third of the lease), so many fast agent steps
+ * write a few times per lease rather than once per step, while still keeping the
+ * lease comfortably fresh (refresh every ~5 min against a 15-min lease).
+ */
+const LEASE_HEARTBEAT_INTERVAL_MS = (MAX_RUN_MINUTES / 3) * 60_000;
 
 /** Log AI SDK warnings to the console if present. */
 export function logWarnings(
@@ -132,6 +141,15 @@ interface GenerationContextOptions {
 	/** Firestore app id. The chat route creates the app doc before this
 	 * constructor runs so every context has a valid target app. */
 	appId: string;
+	/**
+	 * True when this run holds an EDIT `run_lock` (an edit-mode run: a chargeable
+	 * edit that claimed, or an edit resume). Enables the per-step lease heartbeat
+	 * (`refreshEditLease`) so a live edit doing an extended read-only stretch
+	 * before its first commit doesn't let its 15-min lease lapse and get reaped. A
+	 * BUILD run holds via `status`, not a lock, so it passes `false` and pays no
+	 * heartbeat read.
+	 */
+	editLease: boolean;
 }
 
 /**
@@ -211,9 +229,23 @@ export class GenerationContext implements ToolExecutionContext {
 	 * edit access mid-run. Load-bearing for finalization: a tool `execute()`
 	 * throw becomes a NON-fatal AI-SDK chunk, so the route can't key run
 	 * failure on it; it reads this flag after the drain and routes the run
-	 * through `failRun` (refund, never `completeApp`) instead. TERMINAL — a
+	 * through `failRun` (refund, never keep the charge) instead. TERMINAL — a
 	 * reload can't restore access, so it's never cleared within a run. */
 	private _reauthError: CommitReauthError | undefined;
+	/** Whether this run holds an edit `run_lock` (enables the lease heartbeat).
+	 * See {@link GenerationContextOptions.editLease}. */
+	private readonly editLease: boolean;
+	/** Epoch-ms of the last edit-lease heartbeat, for debounce — the per-step
+	 * refresh and the wall-clock timer share it, so a run with many fast steps
+	 * (or a step landing right after a timer tick) writes a few times per lease,
+	 * not on every signal. */
+	private lastLeaseRefreshMs = 0;
+	/** The wall-clock lease-heartbeat interval handle. Guarantees an edit doing a
+	 * single long model turn with NO intermediate step-finish still refreshes its
+	 * lease (the step-fired refresh alone can't cover a no-step stretch). Started
+	 * by `startEditLeaseHeartbeat`, cleared by `stopEditLeaseHeartbeat` in the
+	 * route's finalize — an uncleared interval is an async leak. */
+	private leaseHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
 	constructor(opts: GenerationContextOptions) {
 		this.anthropic = createAnthropic({ apiKey: opts.apiKey });
@@ -230,6 +262,7 @@ export class GenerationContext implements ToolExecutionContext {
 		this.usage = opts.usage;
 		this.session = opts.session;
 		this.appId = opts.appId;
+		this.editLease = opts.editLease;
 	}
 
 	/** Get the Anthropic model provider for a given model ID. The SA always
@@ -589,7 +622,7 @@ export class GenerationContext implements ToolExecutionContext {
 	 * The `CommitReauthError` a guarded commit threw when the actor lost edit
 	 * access mid-run, or `undefined` if none did. The route's drain-end finalize
 	 * reads it and routes the run through `failRun` (a deauthorized run must
-	 * refund, never `completeApp`) — a tool `execute()` throw alone becomes a
+	 * refund, not keep the charge) — a tool `execute()` throw alone becomes a
 	 * non-fatal AI-SDK chunk that can't fail the run.
 	 */
 	reauthError(): CommitReauthError | undefined {
@@ -642,8 +675,61 @@ export class GenerationContext implements ToolExecutionContext {
 	 *
 	 * `label` is used only for the warning-log prefix; not persisted.
 	 */
+	/**
+	 * Refresh the edit `run_lock` lease off SA activity — the shared beat both the
+	 * per-step (`handleAgentStep`) and the wall-clock timer
+	 * (`startEditLeaseHeartbeat`) fire, so a live edit's lease never lapses whether
+	 * it commits often, does a long read-only stretch, or sits in a single long
+	 * model turn with no step-finish. Debounced to at most once per
+	 * `LEASE_HEARTBEAT_INTERVAL_MS` (well under `MAX_RUN_MINUTES`) across BOTH
+	 * signals. Only for an edit run (builds hold via `status`, no lock);
+	 * `refreshEditLease` is ownership-gated, so a run superseded mid-way never
+	 * extends the taker's lease. Fire-and-forget — a miss just risks an earlier
+	 * lapse and the next beat retries.
+	 */
+	private beatEditLease(): void {
+		if (!this.editLease) return;
+		const nowMs = Date.now();
+		if (nowMs - this.lastLeaseRefreshMs < LEASE_HEARTBEAT_INTERVAL_MS) return;
+		this.lastLeaseRefreshMs = nowMs;
+		refreshEditLease(this.appId, this.runId).catch((err) =>
+			log.error("[generation] edit-lease heartbeat failed", err, {
+				appId: this.appId,
+			}),
+		);
+	}
+
+	/**
+	 * Start the wall-clock lease heartbeat — the guarantee that a single long
+	 * no-step model turn can't let the lease lapse (the per-step beat alone can't
+	 * cover a stretch with no step-finish). The route calls this once the run is
+	 * live and MUST call {@link stopEditLeaseHeartbeat} in its finalize (an
+	 * uncleared interval leaks). No-op for a build (no lease to refresh) or if
+	 * already started. `.unref()` so the interval never keeps the process alive.
+	 */
+	startEditLeaseHeartbeat(): void {
+		if (!this.editLease || this.leaseHeartbeatTimer) return;
+		this.leaseHeartbeatTimer = setInterval(
+			() => this.beatEditLease(),
+			LEASE_HEARTBEAT_INTERVAL_MS,
+		);
+		this.leaseHeartbeatTimer.unref?.();
+	}
+
+	/** Stop the wall-clock lease heartbeat. Idempotent; MUST run in the route's
+	 * finalize so the interval is cleared (an uncleared timer is an async leak). */
+	stopEditLeaseHeartbeat(): void {
+		if (this.leaseHeartbeatTimer) {
+			clearInterval(this.leaseHeartbeatTimer);
+			this.leaseHeartbeatTimer = undefined;
+		}
+	}
+
 	handleAgentStep(step: AgentStep, label: string): void {
 		logWarnings(`runAgent:${label}`, step.warnings);
+		// Refresh the edit lease off SA activity (debounced) — the cheap early beat;
+		// the wall-clock timer covers a long no-step turn.
+		this.beatEditLease();
 		const { usage } = step;
 		if (!usage) return;
 

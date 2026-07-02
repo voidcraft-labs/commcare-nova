@@ -203,6 +203,7 @@ describe.skipIf(!emulatorAvailable)("reserveCredits integration", () => {
 	});
 
 	afterAll(async () => {
+		await db.terminate();
 		for (const app of getApps()) {
 			await deleteApp(app);
 		}
@@ -210,6 +211,9 @@ describe.skipIf(!emulatorAvailable)("reserveCredits integration", () => {
 
 	beforeEach(async () => {
 		await clearCreditMonths(db);
+		// Clear the app doc too — `reserveCredits` reads it for the leftover
+		// marker, so a marker leaked from a prior case would refund into the next.
+		await db.collection("apps").doc(TEST_APP_ID).delete();
 	});
 
 	it("creates the month doc with a full allowance and the booked cost on a first reservation", async () => {
@@ -219,6 +223,7 @@ describe.skipIf(!emulatorAvailable)("reserveCredits integration", () => {
 			TEST_USER_ID,
 			CREDITS_PER_BUILD,
 			TEST_APP_ID,
+			"run-1",
 		);
 		expect(result).toEqual({ period, reserved: CREDITS_PER_BUILD });
 
@@ -232,24 +237,32 @@ describe.skipIf(!emulatorAvailable)("reserveCredits integration", () => {
 		});
 	});
 
-	it("decrements further on a second reservation, then rejects an unaffordable one without mutating the doc", async () => {
+	it("a second reservation refunds the first's stranded unsettled hold before booking its own", async () => {
 		const { OutOfCreditsError, reserveCredits } = await import("../credits");
 
-		// Two affordable builds in sequence: consumed walks 100 → 200.
-		await reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD, TEST_APP_ID);
-		await reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD, TEST_APP_ID);
+		// Two reservations in sequence on ONE app with no settle between. Under
+		// at-most-one-run-holds this only happens when the first run died/was
+		// superseded and left its hold stranded (unsettled), so the SECOND reserve
+		// refunds that leftover UNCONDITIONALLY before booking its own — net consumed
+		// stays at ONE build's cost, not two. (The old pre-C3 behavior double-booked;
+		// the fix nets the stranded hold into the fresh debit.)
+		await reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD, TEST_APP_ID, "run-a");
+		await reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD, TEST_APP_ID, "run-b");
 		expect((await readCreditMonth(db, period))?.consumed).toBe(
-			2 * CREDITS_PER_BUILD,
+			CREDITS_PER_BUILD,
 		);
 
 		// Now seed the user to the brink: 5 spendable, charging 100 must reject.
+		// (Clear the app marker first so this reserve books cleanly against the
+		// seeded balance rather than netting the leftover it would otherwise refund.)
+		await db.collection("apps").doc(TEST_APP_ID).delete();
 		await seedCreditMonth(db, period, {
 			allowance: MONTHLY_CREDIT_ALLOWANCE,
 			consumed: MONTHLY_CREDIT_ALLOWANCE - 5,
 			bonus: 0,
 		});
 		await expect(
-			reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD, TEST_APP_ID),
+			reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD, TEST_APP_ID, "run-c"),
 		).rejects.toBeInstanceOf(OutOfCreditsError);
 
 		// The rejected reservation booked nothing — the doc is exactly as seeded.
@@ -307,6 +320,7 @@ describe.skipIf(!emulatorAvailable)("credit writers integration", () => {
 	});
 
 	afterAll(async () => {
+		await db.terminate();
 		for (const app of getApps()) {
 			await deleteApp(app);
 		}
@@ -469,7 +483,7 @@ describe.skipIf(!emulatorAvailable)("credit writers integration", () => {
 
 		// The refund walks consumed 200 → 100 AND flips the marker settled, both
 		// committed in one cross-doc transaction.
-		await refundReservation(TEST_APP_ID);
+		await refundReservation(TEST_APP_ID, "run-1");
 		expect((await readCreditMonth(db, period))?.consumed).toBe(
 			CREDITS_PER_BUILD,
 		);
@@ -481,7 +495,7 @@ describe.skipIf(!emulatorAvailable)("credit writers integration", () => {
 
 		// A second refund reads the settled marker and changes nothing — the
 		// once-guard the live-flush/reaper collision relies on.
-		await refundReservation(TEST_APP_ID);
+		await refundReservation(TEST_APP_ID, "run-1");
 		expect((await readCreditMonth(db, period))?.consumed).toBe(
 			CREDITS_PER_BUILD,
 		);

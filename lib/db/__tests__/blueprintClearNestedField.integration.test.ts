@@ -35,7 +35,9 @@ vi.mock("@/lib/db/projectMembership", () => ({
 	projectRoleFor: vi.fn(async () => "editor"),
 }));
 
-const { commitGuardedBatch, completeApp, createApp } = await import("../apps");
+const { commitGuardedBatch, completeAndSettleRun, createApp } = await import(
+	"../apps"
+);
 const { getDb } = await import("../firestore");
 
 const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
@@ -266,14 +268,34 @@ describe.skipIf(!emulatorAvailable)(
 			expect(createdBefore.isEqual(after.created_at)).toBe(true);
 		});
 
-		it("completeApp flips status only — the persisted blueprint is byte-identical before and after", async () => {
+		it("completeAndSettleRun flips status only — the persisted blueprint is byte-identical before and after", async () => {
 			const appId = await seedPopulatedApp();
+			// Put the app in a live BUILD state (the drain-end state
+			// `completeAndSettleRun` acts on): `generating` with the run's UNSETTLED
+			// reservation marker (every build reserved, so it has one — the writer's
+			// ownership gate is `markerSettleable && mine(runId)`), owned by `build-run`.
+			await getDb()
+				.collection("apps")
+				.doc(appId)
+				.set(
+					{
+						status: "generating",
+						reservation: {
+							period: "2026-07",
+							reserved: 100,
+							settled: false,
+							userId: TEST_OWNER,
+							runId: "build-run",
+						},
+					},
+					{ merge: true },
+				);
 
-			/* The drain-end finish is STATUS-ONLY by contract: the run's guarded
-			 * commits own the blueprint, so the flip must not carry a doc payload
-			 * that could blind-overwrite a concurrent editor. */
+			/* The drain-end finish carries NO blueprint payload by contract: the run's
+			 * guarded commits own the blueprint, so the status flip (+ atomic settle)
+			 * must not blind-overwrite a concurrent editor. */
 			const before = await readPersistedApp(appId);
-			await completeApp(appId);
+			await completeAndSettleRun(appId, "build-run");
 
 			const after = await readPersistedApp(appId);
 			expect(after.status).toBe("complete");
