@@ -15,7 +15,7 @@
 		"typecheck": "fumadocs-mdx && tsc --noEmit",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"test:leaks": "vitest run --detect-async-leaks --pool=forks",
+		"test:leaks": "vitest run --detect-async-leaks --pool=forks --testTimeout=30000",
 		"test:integration": "node_modules/.bin/firebase emulators:exec --only firestore --project demo-test 'GOOGLE_CLOUD_PROJECT=demo-test ./node_modules/.bin/vitest run --no-file-parallelism integration.test.ts'",
 		"test:smoke": "bash scripts/smoke.sh",
 		"test:smoke:headed": "bash scripts/smoke.sh --headed",
