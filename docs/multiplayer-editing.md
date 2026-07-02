@@ -944,6 +944,15 @@ compose); `startTracking()` releases the one-time birth pause to 0 when a fresh 
 **Code facts to handle.**
 - Presence is keyed per session, so two tabs of a user don't clobber and one tab's `DELETE`
   doesn't drop the other; the roster dedupes self by `userId`.
+- A single `lib/collab/PresenceProvider.tsx` owns the ONE `usePresence` call (roster + every
+  `PeerBadge` read it via context) — without a single owner each consumer would mint its own
+  `sessionId` and heartbeat, flooding the roster with duplicate rows; consequently `usePeersAt()`
+  takes no args (reads the shared roster). The provider reads the app id from the **session
+  store** (`useAppId()`), not a static `buildId` prop — a fresh build's id is minted mid-run
+  (`'new'` → the real id via `setAppId` on `data-app-id`), so keying off the live session-store
+  id is what makes the CREATOR heartbeat + join the roster with no reload. A pure
+  `presenceCanBeat(appId, name, hasStream)` gate holds the first beat until the activated app id,
+  the shared stream, and a resolved name are all present (no blank-name row).
 
 **Tests** (state-model): `usePeersAt` grouping + self-dedupe across two sessions; most-specific
 target extraction per `Location` kind; stale-hide; `recoverLocation` follow lands on the

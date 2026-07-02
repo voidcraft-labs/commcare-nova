@@ -14,6 +14,7 @@
 import { useCallback } from "react";
 import { FieldInspectorBody } from "@/components/builder/editor/FieldInspectorBody";
 import { InspectorSurface } from "@/components/builder/inspector/InspectorSurface";
+import { PeerBadge } from "@/components/builder/PeerBadge";
 import { type Field, fieldRegistry } from "@/lib/domain";
 import { useSelect, useSelectedField } from "@/lib/routing/hooks";
 import { useEditMode } from "@/lib/session/hooks";
@@ -53,6 +54,10 @@ function FieldInspectorDock({ field }: { field: Field }) {
 			title={title}
 			onClose={handleClose}
 		>
+			{/* A peer editing this same field surfaces its marker at the top of
+			 *  the body (renders nothing while solo) — the panel header already
+			 *  names the field, so this is a status marker, not a heading. */}
+			<PeerBadge uuid={field.uuid} className="mb-1" />
 			<FieldInspectorBody field={field} />
 		</InspectorSurface>
 	);

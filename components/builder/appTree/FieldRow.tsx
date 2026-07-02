@@ -26,6 +26,7 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
+import { PeerBadge, usePeerEditingColor } from "@/components/builder/PeerBadge";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
@@ -76,6 +77,10 @@ export const FieldRow = memo(function FieldRow({
 	/** Shared provider — resolves label chips against this row's own form. */
 	const provider = useReferenceProvider();
 
+	/** The hue of a peer whose selection IS this field, or null — drives the
+	 *  live "editing this" ring. Called unconditionally (before the guard). */
+	const editingColor = usePeerEditingColor(uuid);
+
 	if (!field) return null;
 
 	const fieldPath = fpath(field.id, parentPath);
@@ -114,7 +119,7 @@ export const FieldRow = memo(function FieldRow({
 						: isSelected
 							? "cursor-pointer bg-nova-violet/[0.08] text-nova-text shadow-[inset_2px_0_0_var(--nova-violet)]"
 							: "cursor-pointer hover:bg-nova-violet/[0.06] text-nova-text-secondary"
-				}`}
+				} ${editingColor ? `ring-1 ring-inset ${editingColor.ring}` : ""}`}
 				style={{ paddingLeft: `${28 + depth * 8}px` }}
 				onClick={(e) => {
 					e.stopPropagation();
@@ -176,6 +181,13 @@ export const FieldRow = memo(function FieldRow({
 						{childUuids.length}
 					</span>
 				)}
+				{/* Peer marker at the trailing edge — takes the free space only
+				 *  when the collapsed-count didn't already claim `ml-auto`, and
+				 *  renders no wrapper at all while solo. */}
+				<PeerBadge
+					uuid={uuid}
+					className={hasChildren && isCollapsed ? "ml-1.5" : "ml-auto pl-1.5"}
+				/>
 			</TreeItemRow>
 
 			{/* Nested children for groups/repeats — self-recursive */}

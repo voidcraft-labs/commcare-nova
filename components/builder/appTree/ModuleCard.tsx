@@ -26,6 +26,7 @@ import {
 import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { PeerBadge } from "@/components/builder/PeerBadge";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useModule as useModuleDoc } from "@/lib/doc/hooks/useEntity";
@@ -155,9 +156,12 @@ export const ModuleCard = memo(function ModuleCard({
 						)}
 					</div>
 				</div>
-				{!locked && (
-					<TreeRowDelete label="Delete module" onDelete={handleDelete} />
-				)}
+				<div className="flex items-center gap-1.5 shrink-0">
+					<PeerBadge uuid={moduleUuid} />
+					{!locked && (
+						<TreeRowDelete label="Delete module" onDelete={handleDelete} />
+					)}
+				</div>
 			</TreeItemRow>
 
 			{!isCollapsed && (

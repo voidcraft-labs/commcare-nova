@@ -20,6 +20,7 @@ import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
 import Link from "next/link";
 import { AppSettingsButton } from "@/components/builder/detail/appSettings/AppSettingsButton";
 import { ExportPanel } from "@/components/builder/ExportPanel";
+import { PresenceRoster } from "@/components/builder/PresenceRoster";
 import { PreviewToggle } from "@/components/builder/PreviewToggle";
 import { SaveIndicator } from "@/components/builder/SaveIndicator";
 import { AccountMenu } from "@/components/ui/AccountMenu";
@@ -127,6 +128,14 @@ export function BuilderHeader({
 							commcareAvailableDomains={commcareAvailableDomains}
 						/>
 					</>
+				)}
+				{/* Who-else-is-here avatars — shown for editors AND viewers (a
+				 *  viewer still sees who's editing), rendered only once a usable
+				 *  blueprint exists. Renders nothing in a solo session. */}
+				{showToolbar && (
+					<div className="mx-1">
+						<PresenceRoster />
+					</div>
 				)}
 				<div className="ml-1">
 					<AccountMenu />

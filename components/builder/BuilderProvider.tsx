@@ -32,6 +32,7 @@ import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
+import { PresenceProvider } from "@/lib/collab/PresenceProvider";
 import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
@@ -184,7 +185,14 @@ function BuilderProviderInner({
 						baseSeq={baseSeq ?? 0}
 						userId={userId ?? ""}
 					>
-						{inner}
+						{/* The presence layer rides the reconciler's single
+						 *  EventSource (`subscribePresence`) and reads `useLocation`,
+						 *  so it mounts inside the reconciler + below the stores.
+						 *  It reads the LIVE app id from the session store (not
+						 *  `buildId`), so a new build's creator heartbeats the instant
+						 *  the SA mints the app. Replay mounts neither reconciler nor
+						 *  presence. */}
+						<PresenceProvider userId={userId ?? ""}>{inner}</PresenceProvider>
 					</ReconcilerProvider>
 				)}
 			</BuilderSessionProvider>
