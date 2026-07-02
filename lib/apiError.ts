@@ -129,11 +129,40 @@ export async function readJsonBody(
 }
 
 /**
+ * Whether an error is a CLIENT-INITIATED request abort (a disconnect), not a
+ * server fault. When a browser closes a connection — a tab close, a navigation,
+ * an `EventSource.close()` on a long-lived SSE stream — the request's socket is
+ * destroyed and any in-flight await against it (reading the body, a stream write)
+ * rejects. Node surfaces that as `Error: aborted` (the HTTP server's
+ * `abortIncoming`) or an `ECONNRESET`; the fetch/undici layer as a `DOMException`
+ * / `Error` named `AbortError` (code `ABORT_ERR`).
+ *
+ * A disconnect is EXPECTED for every route (and is the single most common event
+ * on the `/stream` SSE relay), so it must NOT reach `log.error` — which mirrors
+ * to Sentry (`lib/logger.ts`) and would flood the issue stream on every routine
+ * close. The server never intentionally aborts its own request in a way that
+ * should log, so an abort-shaped error is always a client disconnect. A GENUINE
+ * mid-request server error (an auth-store fault, a Firestore blip, a bug) matches
+ * NONE of these and still logs + 500s.
+ */
+export function isClientAbort(err: unknown): boolean {
+	if (err instanceof DOMException && err.name === "AbortError") return true;
+	if (err instanceof Error) {
+		if (err.name === "AbortError") return true;
+		const code = (err as { code?: unknown }).code;
+		if (code === "ABORT_ERR" || code === "ECONNRESET") return true;
+		if (err.message.includes("aborted")) return true;
+	}
+	return false;
+}
+
+/**
  * Converts an error into a consistent JSON error response.
  *
  * - `ApiError`  -> uses its status and details directly
- * - `Error`     -> 500 with the error message
- * - anything else -> 500 with a generic message
+ * - a CLIENT ABORT (disconnect) -> `499`, logged at WARN (Cloud-Logging-only)
+ * - `AppAccessError` -> 404 (IDOR-safe not-found)
+ * - anything else -> 500 with a generic message, logged at ERROR (→ Sentry)
  *
  * Response shape: `{ error: string, details?: string[] }`
  */
@@ -144,6 +173,20 @@ export function handleApiError(err: ApiError | Error): NextResponse {
 			body.details = err.details;
 		}
 		return NextResponse.json(body, { status: err.status });
+	}
+
+	/* A client disconnect (tab close / navigation / `EventSource.close()`) — the
+	 * request aborted, so any await against it rejected. This is EXPECTED, not a
+	 * server fault: return a terminal `499 Client Closed Request` and log at WARN
+	 * (Cloud-Logging-only), NEVER `log.error` → Sentry (a disconnect is the single
+	 * most common `/stream` event; logging it at error floods the issue stream).
+	 * The client is already gone, so the status/body is moot. */
+	if (isClientAbort(err)) {
+		log.warn("[apiError] client aborted request", { err: err.message });
+		return NextResponse.json(
+			{ error: "Client closed request" },
+			{ status: 499 },
+		);
 	}
 
 	/* Membership denial (`lib/db/appAccess` `AppAccessError`) → 404 — the IDOR-safe

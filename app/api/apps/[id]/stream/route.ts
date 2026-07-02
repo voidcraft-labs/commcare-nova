@@ -33,6 +33,7 @@
 import type { QuerySnapshot } from "@google-cloud/firestore";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { getSessionSafe, requireSession } from "@/lib/auth-utils";
+import type { PresenceEntry } from "@/lib/collab/presenceTypes";
 import { isUserActive } from "@/lib/db/api-keys";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { RETENTION_COUNT } from "@/lib/db/constants";
@@ -76,6 +77,27 @@ function parseCursor(req: Request): number {
 	return Number.isNaN(parsed) || parsed < 0 ? 0 : parsed;
 }
 
+/**
+ * Project a stored `PresenceDoc` into the client's `PresenceEntry` wire shape —
+ * the exact contract `lib/collab/presence.ts` parses. The raw doc's `updatedAt`
+ * is a Firestore `Timestamp`, which serializes as `{_seconds,_nanoseconds}`; the
+ * client types `updatedAt` as epoch millis and does arithmetic on it
+ * (`now − updatedAt` for stale-hide, `>` for newest-wins dedup), so shipping the
+ * raw object makes both compute `NaN`. Convert it to millis and drop the
+ * server-only `expireAt` TTL, mirroring the `mutation`-frame projection that
+ * strips its own Timestamps.
+ */
+function projectPresence(doc: PresenceDoc): PresenceEntry {
+	return {
+		userId: doc.userId,
+		sessionId: doc.sessionId,
+		name: doc.name,
+		color: doc.color,
+		location: doc.location,
+		updatedAt: doc.updatedAt.toMillis(),
+	};
+}
+
 export async function GET(
 	req: Request,
 	{ params }: { params: Promise<{ id: string }> },
@@ -108,9 +130,12 @@ export async function GET(
 
 		return openStream({ appId, userId, cursor, head, req });
 	} catch (err) {
-		/* Pre-stream failure (auth, membership, the head read). `handleApiError`
-		 * maps an `AppAccessError` → 404 and an `ApiError` → its status; anything
-		 * else → 500. No stream opened, so nothing to tear down. */
+		/* Pre-stream failure (auth, membership, the head read) — OR a client
+		 * disconnect that aborted an in-flight await here. `handleApiError`
+		 * centrally maps an `ApiError` → its status, an `AppAccessError` → 404, a
+		 * CLIENT ABORT → 499 logged at WARN (never Sentry — a disconnect is the
+		 * most common `/stream` event), and any genuine fault → 500 + `log.error`.
+		 * No stream opened, so nothing to tear down. */
 		return handleApiError(
 			err instanceof Error ? err : new ApiError("Failed to open stream", 500),
 		);
@@ -291,11 +316,15 @@ function openStream(args: {
 					/* Presence is best-effort: a single malformed/legacy presence doc's
 					 * converter throw must not blow up the whole roster (and, in this
 					 * success callback, bypass the `err` handler → leak). Skip the bad
-					 * doc and continue building the roster. */
-					const roster: PresenceDoc[] = [];
+					 * doc and continue building the roster. Each surviving doc is
+					 * PROJECTED to the client's `PresenceEntry` wire shape — the raw
+					 * doc's `updatedAt` Timestamp would serialize as
+					 * `{_seconds,_nanoseconds}`, which the client's numeric stale-hide /
+					 * newest-wins arithmetic reads as `NaN`. */
+					const roster: PresenceEntry[] = [];
 					for (const d of snap.docs) {
 						try {
-							roster.push(d.data());
+							roster.push(projectPresence(d.data()));
 						} catch (parseErr) {
 							log.warn("[stream] malformed presence doc (skipped)", {
 								appId,

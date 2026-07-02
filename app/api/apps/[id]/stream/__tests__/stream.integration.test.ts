@@ -364,15 +364,16 @@ describe.skipIf(!emulatorAvailable)(
 			expect(mutations.map((f) => f.id)).toEqual(["3"]);
 		});
 
-		it("delivers presence roster snapshots", async () => {
+		it("delivers presence roster snapshots in the projected client shape (updatedAt is epoch millis, no raw Timestamp / no expireAt)", async () => {
 			const appId = await seedApp(0);
+			const beat = Timestamp.fromMillis(1_700_000_000_000);
 			await docs.presence(appId, `${USER}:sess-a`).set({
 				userId: USER,
 				sessionId: "sess-a",
 				name: "Ada",
 				color: "#123456",
 				location: { kind: "home" },
-				updatedAt: Timestamp.now(),
+				updatedAt: beat,
 				expireAt: Timestamp.fromMillis(Date.now() + 60_000),
 			} as never);
 
@@ -385,7 +386,25 @@ describe.skipIf(!emulatorAvailable)(
 			});
 
 			const presence = frames.find((f) => f.event === "presence");
-			expect((presence?.data as { userId: string }[])[0]?.userId).toBe(USER);
+			const entry = (presence?.data as Record<string, unknown>[])[0];
+			expect(entry?.userId).toBe(USER);
+			// The wire shape is exactly the reconciler/presence-relevant fields —
+			// `updatedAt` is epoch MILLIS (a number the client does `now − updatedAt`
+			// arithmetic on), NOT a raw Firestore Timestamp `{_seconds,_nanoseconds}`.
+			expect(Object.keys(entry ?? {}).sort()).toEqual(
+				[
+					"color",
+					"location",
+					"name",
+					"sessionId",
+					"updatedAt",
+					"userId",
+				].sort(),
+			);
+			expect(typeof entry?.updatedAt).toBe("number");
+			expect(entry?.updatedAt).toBe(1_700_000_000_000);
+			// Server-only TTL metadata never reaches the wire.
+			expect(entry).not.toHaveProperty("expireAt");
 		});
 
 		it("revokes within the cadence on a CONFIRMED ban (isUserActive → false)", async () => {

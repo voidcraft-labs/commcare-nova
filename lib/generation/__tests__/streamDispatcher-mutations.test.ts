@@ -18,6 +18,8 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
+import { createReconciler } from "@/lib/collab/reconciler";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid } from "@/lib/domain";
@@ -179,5 +181,146 @@ describe("applyStreamEvent — data-mutations", () => {
 		expect(bufferEvent?.kind === "mutation" && bufferEvent.stage).toBe(
 			"scaffold",
 		);
+	});
+
+	// The end-to-end echo-vs-register race across the two transports. The chat
+	// commit writes Firestore (→ the /stream echo frame) BEFORE the
+	// `data-mutations` chunk is written. When the echo lands FIRST, the reconciler
+	// folds the batch into `displayed`; the late `data-mutations` chunk must NOT
+	// re-apply it to the store, or the non-dedup `addModule` reducer splices the
+	// module uuid twice and the builder tree renders it DUPLICATED for the rest of
+	// the run (the P6/P7 bug, healed only at data-done).
+	describe("echo-before-data-mutations race (no store duplication)", () => {
+		const MOD = asUuid("mod-base");
+		const NEW_MOD = asUuid("mod-added");
+
+		/** A base doc with one module, hydrated + tracking (a live builder). */
+		function seedDoc(store: BlueprintDocStoreApi): void {
+			store.getState().load(
+				toPersistableDoc({
+					appId: "app-1",
+					appName: "Base",
+					connectType: null,
+					caseTypes: null,
+					modules: { [MOD]: { uuid: MOD, id: "m", name: "Module" } },
+					forms: {},
+					fields: {},
+					moduleOrder: [MOD],
+					formOrder: { [MOD]: [] },
+					fieldOrder: {},
+					fieldParent: {},
+				} as never),
+			);
+			store.getState().startTracking();
+		}
+
+		const addModuleBatch: Mutation[] = [
+			{
+				kind: "addModule",
+				module: { uuid: NEW_MOD, id: "m2", name: "Added" } as never,
+			},
+		];
+
+		it("the echo folds the module in, the late data-mutations chunk does NOT re-apply it", () => {
+			seedDoc(docStore);
+			const reconciler = createReconciler(
+				docStore,
+				sessionStore,
+				{
+					appId: "app-1",
+					baseSeq: 0,
+					baseDoc: docStore.getState(),
+					userId: "u1",
+				},
+				{
+					put: async () => ({ ok: true, seq: 1 }),
+					reload: async () => {
+						throw new Error("no reload in this test");
+					},
+					resubscribe: () => {},
+					scheduleRetry: () => () => {},
+				},
+			);
+			reconciler.setSelfActiveRunId("run-1");
+
+			// ECHO FIRST — the /stream frame beats the chat chunk. The reconciler
+			// classifies it (self actor + active runId), folds it into confirmedDoc
+			// AND displayed. The store now shows exactly one added module.
+			reconciler.onFrame({
+				seq: 1,
+				batchId: "chat-1",
+				actorId: "u1",
+				runId: "run-1",
+				kind: "chat",
+				mutations: addModuleBatch,
+			});
+			expect(docStore.getState().moduleOrder).toEqual([MOD, NEW_MOD]);
+
+			// THEN the late data-mutations chunk. registerChatBatch reports
+			// `alreadyConfirmed`, so the dispatcher SKIPS applyMany — no second splice.
+			applyStreamEvent(
+				"data-mutations",
+				{ mutations: addModuleBatch, events: [], batchId: "chat-1", seq: 1 },
+				docStore,
+				sessionStore,
+				reconciler,
+				"run-1",
+			);
+
+			// The module appears EXACTLY once — no duplicate. Before the fix this was
+			// [MOD, NEW_MOD, NEW_MOD].
+			expect(docStore.getState().moduleOrder).toEqual([MOD, NEW_MOD]);
+			expect(reconciler.getSnapshot().sentPending).toHaveLength(0);
+			reconciler.dispose();
+		});
+
+		it("the common ordering (data-mutations before echo) still applies once", () => {
+			seedDoc(docStore);
+			const reconciler = createReconciler(
+				docStore,
+				sessionStore,
+				{
+					appId: "app-1",
+					baseSeq: 0,
+					baseDoc: docStore.getState(),
+					userId: "u1",
+				},
+				{
+					put: async () => ({ ok: true, seq: 1 }),
+					reload: async () => {
+						throw new Error("no reload in this test");
+					},
+					resubscribe: () => {},
+					scheduleRetry: () => () => {},
+				},
+			);
+			reconciler.setSelfActiveRunId("run-1");
+
+			// data-mutations FIRST: registerChatBatch reports NOT alreadyConfirmed, so
+			// the dispatcher DOES applyMany — the store gains the module once.
+			applyStreamEvent(
+				"data-mutations",
+				{ mutations: addModuleBatch, events: [], batchId: "chat-1", seq: 1 },
+				docStore,
+				sessionStore,
+				reconciler,
+				"run-1",
+			);
+			expect(docStore.getState().moduleOrder).toEqual([MOD, NEW_MOD]);
+			expect(reconciler.getSnapshot().sentPending).toHaveLength(1);
+
+			// The echo then drops the batch; the store is untouched (one module).
+			reconciler.onFrame({
+				seq: 1,
+				batchId: "chat-1",
+				actorId: "u1",
+				runId: "run-1",
+				kind: "chat",
+				mutations: addModuleBatch,
+			});
+			expect(docStore.getState().moduleOrder).toEqual([MOD, NEW_MOD]);
+			expect(reconciler.getSnapshot().sentPending).toHaveLength(0);
+			reconciler.dispose();
+		});
 	});
 });

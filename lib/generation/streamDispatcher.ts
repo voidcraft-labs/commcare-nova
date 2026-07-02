@@ -125,16 +125,27 @@ export function applyStreamEvent(
 			 * subscriber that fires synchronously from `applyMany` sees an empty
 			 * `humanUncommitted` delta and doesn't re-PUT the SA's own edit. A
 			 * dormant new-build reconciler no-ops (no app id yet); its mutations
-			 * still apply directly to the store. */
+			 * still apply directly to the store.
+			 *
+			 * `alreadyConfirmed` means the batch's /stream echo BEAT this chunk
+			 * (two independent transports) and already folded these mutations into
+			 * `displayed` — so `applyMany` here would apply them a SECOND time (the
+			 * non-dedup add reducers would splice a duplicated entity). Skip it. */
+			let alreadyConfirmed = false;
 			if (
 				reconciler &&
 				!reconciler.isDormant() &&
 				batchId !== undefined &&
 				seq !== undefined
 			) {
-				reconciler.registerChatBatch({ batchId, runId, mutations, seq });
+				({ alreadyConfirmed } = reconciler.registerChatBatch({
+					batchId,
+					runId,
+					mutations,
+					seq,
+				}));
 			}
-			docStore.getState().applyMany(mutations);
+			if (!alreadyConfirmed) docStore.getState().applyMany(mutations);
 		}
 		if (events && events.length > 0) {
 			sessionStore.getState().pushEvents(events);

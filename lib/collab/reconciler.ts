@@ -239,13 +239,17 @@ export interface Reconciler {
 	dispatchHumanBatch(observe?: SaveObserver): string | undefined;
 	/** Register a chat-SA batch the server just committed (from the
 	 *  `data-mutations` handler) so its own stream echo is recognized and
-	 *  dropped, and its committed seq lets a reload drop it. */
+	 *  dropped, and its committed seq lets a reload drop it. Returns
+	 *  `alreadyConfirmed: true` when the batch's echo already beat this call and
+	 *  folded these mutations into `confirmedDoc` + `displayed` — the dispatcher
+	 *  must then SKIP its `applyMany`, or the non-dedup add reducers apply the
+	 *  batch to the store a second time (a duplicated entity). */
 	registerChatBatch(args: {
 		batchId: string;
 		runId: string | undefined;
 		mutations: Mutation[];
 		seq: number;
-	}): void;
+	}): { alreadyConfirmed: boolean };
 	/** Handle one inbound `mutation` frame. */
 	onFrame(frame: MutationFrame): void;
 	/** Handle an `event: reload` (retention/migration sentinel). */
@@ -434,7 +438,22 @@ export function createReconciler(
 	}
 
 	function dispatchHumanBatch(observe?: SaveObserver): string | undefined {
-		if (!canPut()) return undefined;
+		if (!canPut()) {
+			// A member REVOKED via the cadence `revoked` frame (`onRevoked` just sets
+			// `revoked` — no PUT ever 403s, so no `reauth` signal fired). Without this,
+			// a subsequent edit hits `canPut() === false` and returns SILENTLY: no PUT,
+			// no observer signal → `useAutoSave` shows no "Save failed" and the member
+			// keeps editing edits that never persist. Emit the terminal `reauth` signal
+			// (edit access lost) so `useAutoSave` surfaces its persistent toast + error
+			// indicator — `reauth` warns WITHOUT a Sentry report (`onReauthDenied`
+			// wasn't called here — no 403), and its once-per-episode gate means
+			// repeated post-revocation edits toast once. Only for a real revocation
+			// with an actual unsaved delta; dormant / no-appId stay clean no-ops.
+			if (revoked && appId !== undefined && humanUncommitted().length > 0) {
+				observe?.({ kind: "reauth" });
+			}
+			return undefined;
+		}
 		const mutations = humanUncommitted();
 		if (mutations.length === 0) return undefined;
 		const batchId = crypto.randomUUID();
@@ -853,12 +872,25 @@ export function createReconciler(
 		runId: string | undefined;
 		mutations: Mutation[];
 		seq: number;
-	}): void {
+	}): { alreadyConfirmed: boolean } {
 		// The server already committed this batch (the chat commit is
 		// awaited-inline through the guarded writer). Register it so its own
 		// stream echo is recognized + dropped, and record its committed seq so a
 		// reload / data-done drain can drop it.
-		if (dormant) return; // a new build's initial mutations apply directly
+		if (dormant) return { alreadyConfirmed: false }; // a new build applies direct
+		// The batch's echo can beat its `data-mutations` chunk here — the commit
+		// writes Firestore (→ the /stream echo frame) BEFORE the chat chunk is
+		// written, two independent transports. If the echo landed first, `onFrame`
+		// already classified it (actorId + active runId) as an echo and `applyEcho`
+		// folded these mutations into `confirmedDoc` (advancing `baseSeq` to this
+		// seq) AND into `displayed` (its `refoldDisplayed`). Registering the batch
+		// now would fold the SAME mutations a SECOND time through `localBase()`, and
+		// re-applying them to the store (the caller's `applyMany`) would splice the
+		// non-dedup add reducers' uuid twice — a duplicated entity. Mirror
+		// `onFrame`'s stale-drop: a seq already confirmed is in `confirmedDoc` +
+		// `displayed` already — nothing to register, and the caller MUST skip its
+		// `applyMany`.
+		if (args.seq <= baseSeq) return { alreadyConfirmed: true };
 		const batch: SentBatch = {
 			batchId: args.batchId,
 			runId: args.runId,
@@ -870,6 +902,7 @@ export function createReconciler(
 		};
 		sentPending.push(batch);
 		awaitingEcho.add(args.batchId);
+		return { alreadyConfirmed: false };
 	}
 
 	function onDataDone(args: { doc: PersistableDoc; seq: number }): void {

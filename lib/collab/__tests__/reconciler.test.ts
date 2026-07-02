@@ -20,6 +20,7 @@ import {
 	type PutOutcome,
 	type Reconciler,
 	type ReconcilerDeps,
+	type SaveSignal,
 } from "@/lib/collab/reconciler";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
@@ -566,6 +567,108 @@ describe("reconciler", () => {
 		});
 	});
 
+	// ── Chat-batch registration ordering ────────────────────────────────
+	describe("registerChatBatch echo-vs-register ordering", () => {
+		const NEW_MOD = asUuid("mod-new");
+		const addModuleBatch: Mutation[] = [
+			{
+				kind: "addModule",
+				module: { uuid: NEW_MOD, id: "m2", name: "Added" } as never,
+			},
+		];
+
+		// The common ordering: the chat chunk registers the batch, THEN its echo
+		// arrives and drops it. No duplication — the guardrail must not disturb this.
+		it("register-BEFORE-echo (the common case) drops the batch on echo, no duplicate", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			h.reconciler.setSelfActiveRunId("run-1");
+			// data-mutations lands first: register + apply to the store (as the
+			// dispatcher does). The batch is NOT yet confirmed, so the dispatcher
+			// must applyMany (alreadyConfirmed === false).
+			const reg = h.reconciler.registerChatBatch({
+				batchId: "chat-1",
+				runId: "run-1",
+				mutations: addModuleBatch,
+				seq: 1,
+			});
+			expect(reg.alreadyConfirmed).toBe(false);
+			h.docStore.getState().applyMany(addModuleBatch);
+			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(1);
+
+			// Then the echo arrives (actorId=self, runId=active) → drops the batch.
+			h.reconciler.onFrame(
+				chatFrame(1, "chat-1", "u1", "run-1", addModuleBatch),
+			);
+
+			const snap = h.reconciler.getSnapshot();
+			expect(snap.baseSeq).toBe(1);
+			expect(snap.sentPending).toHaveLength(0);
+			// The module appears EXACTLY once in the confirmed order array, and
+			// localBase (confirmed ⊕ the now-empty pending) carries no re-fold.
+			expect(snap.confirmedDoc.moduleOrder).toEqual([MOD, NEW_MOD]);
+			expect(h.reconciler.localBase().moduleOrder).toEqual([MOD, NEW_MOD]);
+		});
+
+		// The race: the echo frame beats the `data-mutations` chunk (two independent
+		// transports — the commit writes Firestore → /stream echo BEFORE the chat
+		// chunk is written). The echo applies the batch to confirmedDoc and advances
+		// baseSeq; the late registration must NOT re-register (its seq is already
+		// confirmed) or the non-dedup addModule reducer splices the uuid TWICE.
+		it("echo-BEFORE-register drops the stale registration — the uuid is not duplicated", () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			h.reconciler.setSelfActiveRunId("run-1");
+
+			// The echo lands FIRST — classified as an echo (actorId=self + active
+			// runId) even though the batch isn't registered yet. applyEcho folds the
+			// addModule into confirmedDoc and advances baseSeq to 1; dropBatch no-ops
+			// (nothing registered).
+			h.reconciler.onFrame(
+				chatFrame(1, "chat-1", "u1", "run-1", addModuleBatch),
+			);
+			expect(h.reconciler.getSnapshot().baseSeq).toBe(1);
+			expect(h.reconciler.getSnapshot().confirmedDoc.moduleOrder).toEqual([
+				MOD,
+				NEW_MOD,
+			]);
+
+			// NOW the late data-mutations chunk registers the same batch at seq 1.
+			// Its seq (1) <= baseSeq (1) → the batch is already in confirmedDoc, so
+			// the guard MUST drop it rather than push it into sentPending (a re-fold
+			// would splice NEW_MOD into moduleOrder a SECOND time), and it reports
+			// `alreadyConfirmed` so the dispatcher skips its store applyMany too.
+			const reg = h.reconciler.registerChatBatch({
+				batchId: "chat-1",
+				runId: "run-1",
+				mutations: addModuleBatch,
+				seq: 1,
+			});
+			expect(reg.alreadyConfirmed).toBe(true);
+
+			const snap = h.reconciler.getSnapshot();
+			// Nothing re-registered — no double-apply.
+			expect(snap.sentPending).toHaveLength(0);
+			expect(snap.awaitingEcho.has("chat-1")).toBe(false);
+			// The module appears EXACTLY once — without the guard the late
+			// registration re-folds the addModule and moduleOrder becomes
+			// [MOD, NEW_MOD, NEW_MOD] (the non-dedup splice), duplicating the entity.
+			expect(snap.confirmedDoc.moduleOrder).toEqual([MOD, NEW_MOD]);
+			// localBase carries no re-fold (empty pending), so it too holds one module.
+			expect(h.reconciler.localBase().moduleOrder).toEqual([MOD, NEW_MOD]);
+		});
+	});
+
 	// ── 409 loop protection ─────────────────────────────────────────────
 	describe("409 conflict", () => {
 		it("drops the rejected batchId on reload so it is not re-sent (no infinite loop)", async () => {
@@ -724,7 +827,7 @@ describe("reconciler", () => {
 		});
 	});
 
-	// ── Recovery-path hardening (review round 1: reload/retry/dispose) ────
+	// ── Recovery-path hardening (reload/retry/dispose) ────
 	describe("recovery-path hardening", () => {
 		// [1] — a failed reload GET with NO pending batch must recover on the
 		// retry tick (there is nothing to re-send, so the tick must re-attempt
@@ -1413,6 +1516,64 @@ describe("reconciler", () => {
 			);
 			expect(h.reconciler.getSnapshot().baseSeq).toBe(0);
 			expect(h.reconciler.canPut()).toBe(false);
+		});
+
+		// The frame-revoked-then-edit path: `onRevoked()` fires no SaveSignal (no PUT
+		// ever 403s), so a later edit that hits `canPut() === false` must NOT return
+		// silently — it emits `reauth` so `useAutoSave` surfaces the "not saving"
+		// toast + error indicator instead of the member editing into the void.
+		it("a human edit AFTER a frame-revocation emits `reauth` (not a silent no-op)", () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			// Revoked via the cadence frame — no PUT happened, so no 403/`reauth` yet.
+			h.reconciler.onRevoked();
+			// The member keeps editing; there IS an unsaved delta.
+			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Edit" }]);
+			const signals: SaveSignal[] = [];
+			const batchId = h.reconciler.dispatchHumanBatch((s) => signals.push(s));
+			// No PUT (frozen), but the observer is told edit access is gone.
+			expect(batchId).toBeUndefined();
+			expect(h.puts).toHaveLength(0);
+			expect(signals).toEqual([{ kind: "reauth" }]);
+		});
+
+		it("a revoked dispatch with NO unsaved delta stays a clean no-op (no `reauth`)", () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			h.reconciler.onRevoked();
+			// No local edit → nothing to save → nothing to warn about.
+			const signals: SaveSignal[] = [];
+			expect(
+				h.reconciler.dispatchHumanBatch((s) => signals.push(s)),
+			).toBeUndefined();
+			expect(signals).toEqual([]);
+		});
+
+		it("a DORMANT dispatch (no appId) never emits `reauth` — it's a legitimate silent no-op", () => {
+			const h = harness({
+				appId: undefined,
+				baseSeq: 0,
+				baseDoc: makeDoc("Empty"),
+				userId: "u1",
+			});
+			// A dormant new-build with a pending human edit and no app id.
+			h.docStore.getState().applyMany([{ kind: "setAppName", name: "X" }]);
+			const signals: SaveSignal[] = [];
+			expect(
+				h.reconciler.dispatchHumanBatch((s) => signals.push(s)),
+			).toBeUndefined();
+			// Dormant is not revoked — a new build applies edits directly, no warning.
+			expect(signals).toEqual([]);
 		});
 	});
 
