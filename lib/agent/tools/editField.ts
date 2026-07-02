@@ -39,12 +39,14 @@
 import { z } from "zod";
 import { parseXPathForField } from "@/lib/doc/expressionText";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
+import { reconciledOptions } from "@/lib/doc/order/options";
 import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	FieldKind,
 	FieldPatchFor,
+	SelectOption,
 	Uuid,
 	XPathExpression,
 } from "@/lib/domain";
@@ -118,6 +120,7 @@ type EditUpdatesPatch = Omit<
 function editPatchToFieldPatch(
 	updates: EditUpdatesPatch,
 	parseExpr: (text: string) => XPathExpression,
+	existingOptions: readonly SelectOption[] | undefined,
 ): FieldPatchFor<FieldKind> {
 	const patch: Record<string, unknown> = {};
 	// Plain scalars: SA passes a new value, `null` to clear, or omits to
@@ -160,7 +163,14 @@ function editPatchToFieldPatch(
 		}
 	}
 	if (updates.options !== undefined) {
-		patch.options = updates.options;
+		// The SA's wholesale replacement is uuid/order-less (identity is off its
+		// wire — `saOptionSchema` omits both). Reconcile against the field's
+		// CURRENT options so surviving values keep their uuid and every option
+		// lands keyed: a uuid-less option committed mid-session is INVISIBLE to
+		// the per-uuid option diff (and `options` sits in the generic-patch
+		// skip-set), so a collaborator's next edit to it would silently never
+		// persist until a reload's backfill.
+		patch.options = reconciledOptions(updates.options, existingOptions);
 	}
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
@@ -379,6 +389,7 @@ export const editFieldTool = {
 					fieldUpdates as EditUpdatesPatch,
 					(text) =>
 						parseXPathForField(workingDoc, afterRename.field.uuid, text),
+					(afterRename.field as { options?: SelectOption[] }).options,
 				);
 				if (Object.keys(patch).length > 0) {
 					// Declaration chokepoint: a patch RE-TARGETING `case_property_on`

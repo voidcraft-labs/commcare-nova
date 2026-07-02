@@ -228,3 +228,83 @@ describe("editField — rename identifier guard", () => {
 		expect(recordSpy).not.toHaveBeenCalled();
 	});
 });
+
+/* --- Wholesale options replacement keeps identity --------------------- */
+
+const SEL = asUuid("77777777-7777-7777-7777-777777777777");
+const OPT_YES = asUuid("88888888-8888-8888-8888-888888888888");
+const OPT_NO = asUuid("99999999-9999-9999-9999-999999999999");
+
+/** `makeDoc` plus a single-select whose options already carry identity. */
+function makeSelectDoc(): BlueprintDoc {
+	const doc = makeDoc();
+	const select = {
+		uuid: SEL,
+		id: "consent",
+		kind: "single_select",
+		label: "Consent",
+		options: [
+			{ label: "Yes", value: "yes", uuid: OPT_YES, order: "a1" },
+			{ label: "No", value: "no", uuid: OPT_NO, order: "a2" },
+		],
+	} as unknown as Field;
+	return {
+		...doc,
+		fields: { ...doc.fields, [SEL]: select },
+		fieldOrder: { [FORM]: [FIELD, SEL] },
+		fieldParent: { [FIELD]: FORM, [SEL]: FORM },
+	};
+}
+
+describe("editField — wholesale options replacement keeps identity", () => {
+	it("carries surviving values' uuids forward and keys every option", async () => {
+		const { ctx } = makeStubToolContext();
+		// The SA replaces the whole list (its wire carries NO uuid/order):
+		// "yes" survives with a new label, "no" is dropped, "maybe" is new.
+		const result = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "consent",
+				updates: {
+					kind: "single_select",
+					options: [
+						{ label: "Yes, agreed", value: "yes" },
+						{ label: "Maybe", value: "maybe" },
+					],
+				},
+			},
+			ctx,
+			makeSelectDoc(),
+		);
+
+		expect(result.kind).toBe("mutate");
+		const options = (
+			result.newDoc.fields[SEL] as unknown as {
+				options: Array<{
+					label: string;
+					value: string;
+					uuid?: string;
+					order?: string;
+				}>;
+			}
+		).options;
+		expect(options).toHaveLength(2);
+		// The surviving value keeps its identity — a peer's concurrent granular
+		// edit addressed at OPT_YES stays valid, and this tab's own next builder
+		// edit to it is visible to the per-uuid option diff.
+		expect(options[0]).toMatchObject({ label: "Yes, agreed", value: "yes" });
+		expect(options[0]?.uuid).toBe(OPT_YES);
+		// The new option minted a fresh uuid; EVERY option carries an order key
+		// (a uuid-less/key-less option committed mid-session is invisible to the
+		// per-uuid diff until a reload's backfill — the silent-loss class).
+		expect(options[1]?.uuid).toBeDefined();
+		expect(options[1]?.uuid).not.toBe(OPT_NO);
+		for (const opt of options) {
+			expect(opt.uuid).toBeDefined();
+			expect(opt.order).toBeDefined();
+		}
+		// The SA's list order is authoritative: fresh ascending keys.
+		expect(String(options[0]?.order) < String(options[1]?.order)).toBe(true);
+	});
+});

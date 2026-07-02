@@ -41,3 +41,37 @@ export function keyedOptions(
 		};
 	});
 }
+
+/**
+ * Reconcile a WHOLESALE option replacement (the SA's `edit_field` sends a full
+ * uuid-less list — identity is off its wire) against the field's CURRENT
+ * options: an incoming option whose `value` matches an existing one (first
+ * unconsumed match) KEEPS that option's `uuid`, the rest mint fresh ones, and
+ * every option gets a fresh ascending `order` run — the incoming list order IS
+ * the SA's intended sequence, and the patch replaces the whole array anyway.
+ *
+ * Without the uuid carry-forward the committed doc holds identity-less options
+ * mid-session (backfill runs only at hydration boundaries), and the per-uuid
+ * option diff SKIPS a uuid-less option — so a collaborator's (or the same
+ * user's) next builder edit to one of them silently never persists. Preserving
+ * the uuid also keeps a peer's concurrent granular `updateOption` /
+ * `moveOption` addressed at a surviving option valid instead of conflicting.
+ */
+export function reconciledOptions(
+	incoming: readonly SelectOption[],
+	existing: readonly SelectOption[] | undefined,
+): SelectOption[] {
+	const pool = [...(existing ?? [])];
+	let last: string | null = null;
+	return incoming.map((opt) => {
+		const i = pool.findIndex((e) => e.value === opt.value);
+		const prior = i >= 0 ? pool.splice(i, 1)[0] : undefined;
+		const order = keyBetween(last, null);
+		last = order;
+		return {
+			...opt,
+			uuid: prior?.uuid ?? opt.uuid ?? asUuid(crypto.randomUUID()),
+			order,
+		};
+	});
+}
