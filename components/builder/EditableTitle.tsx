@@ -115,6 +115,7 @@ export function EditableTitle({ value, onSave, readOnly }: EditableTitleProps) {
 					className={`${INPUT_BASE_CLASS} border-transparent bg-transparent pointer-events-none`}
 					autoComplete="off"
 					data-1p-ignore
+					data-testid="editable-title"
 				/>
 			</>
 		);
@@ -154,6 +155,7 @@ export function EditableTitle({ value, onSave, readOnly }: EditableTitleProps) {
 				}`}
 				autoComplete="off"
 				data-1p-ignore
+				data-testid="editable-title"
 			/>
 			<SavedCheck visible={saved && !focused} />
 			{/* The validity gate refused the rename — the draft is still in

@@ -35,6 +35,42 @@ the non-obvious ones.
   `data-testid`, prefer it for the gate.
 - **Specs live in `e2e/tests/**` only** — Vitest excludes that dir; everything else
   under `e2e/` (helpers, `seed.ts`) is plain TS and importable by Vitest.
+- **The `multiplayer` project drives TWO users** across the whole real-time
+  matrix. `multiplayer.spec.ts` opens two members of one shared Project (Ada
+  `owner`, Grace `editor` — seeded by `lib/multiplayerSeed.ts` into a two-module,
+  four-field app), each in its OWN `browser.newContext({ storageState })`, and
+  drives eight scenarios over the real SSE stream + guarded writer + reconciler:
+  bidirectional presence + live co-edit; disjoint-edit merge (no clobber);
+  presence marker + live-highlight; follow-a-peer; offline→reconnect catch-up
+  (`context.setOffline`); reorder merge (Field-actions → Move Down); undo
+  isolation (a local undo reverts only the actor's own edit — the peer's
+  disjoint edit stays, because the remote frame folds through the undo stacks
+  via `rebaseHistory`); and membership-removal revocation (a direct `auth_member`
+  DELETE → the stream revokes + the roster drops the peer). Each captures a screenshot to
+  `e2e/multiplayer-screenshots/` (git-ignored) so the UI/UX is eyeballable.
+  Non-obvious rules:
+  - The project has NO project-level `storageState` (the spec opens its own two
+    contexts) and applies the strict error guard per-page via `attachErrorGuard`
+    (`lib/errorGuard.ts`) — the single-`page` fixture can't cover two users. The
+    revocation test does NOT guard Grace's page (a revoked stream + 404 presence
+    POSTs are the expected consequence of losing access).
+  - The seed writes a shared `auth_organization` + two `auth_member` rows through
+    Better Auth's own adapter (a direct create bypasses the invitation
+    domain-gate, which fires only on the invitation API path), and the shared app
+    carries a POPULATED, fixed-uuid blueprint written directly (`createApp` only
+    mints an empty doc) so both users deep-link straight to any entity.
+  - The suite shares ONE seeded app and mutates it cumulatively, so each test
+    asserts the CHANGE it makes (a unique marker), never a seed starting value a
+    prior test may have already edited.
+  - Co-edit targets: the module/form-name `EditableTitle` (`<input>`,
+    `data-testid="editable-title"` — its unfocused value tracks the entity name,
+    so a peer's input reflects a rename the instant the reconciler folds the
+    frame) and the field-id inspector input (`[data-field-id="id"] input`).
+    Reorder rides the `Field actions` menu's `Move Up`/`Move Down` items (drag on
+    a virtualized list is too fragile for E2E). Presence/follow ride the roster's
+    `Follow {name}` avatar button; following waits for the peer's new location to
+    propagate first (presence is eventually-consistent — the heartbeat is
+    debounced + relayed, so following mid-move would land on the stale location).
 - **Gating needs required checks.** Deploy is Cloud Build on push-to-main; CI (incl.
   this) runs on PRs, so the `smoke` / `auth-healthz` / `auth-contract` jobs only gate as
   required checks in the branch ruleset (they are) — otherwise they inform without blocking.
