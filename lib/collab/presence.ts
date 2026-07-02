@@ -16,7 +16,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import type { PresenceEntry, PresenceFrame } from "@/lib/collab/presenceTypes";
 import type { Location } from "@/lib/routing/types";
@@ -155,6 +155,35 @@ export function visiblePeers(
 	);
 }
 
+/**
+ * Estimate the client↔server clock offset from the caller's OWN presence
+ * entries in a frame: `updatedAt` is SERVER-stamped (Firestore
+ * `serverTimestamp`) while the stale-hide compares against the client's local
+ * clock — raw `Date.now()` skewed past `PRESENCE_STALE_MS` (30 s, an entirely
+ * ordinary desktop-clock error) hides every live peer (clock fast) or never
+ * hides a dead one (clock slow). Self is the anchor because its beat cadence
+ * bounds the estimate's error at one heartbeat (≈0 in practice — a frame
+ * arrives BECAUSE a write landed, so self's stamp is fresh in the frame its
+ * own beat triggered), and a long-dead peer's stale row can never drag the
+ * anchor backward. `undefined` until the caller's first beat round-trips
+ * (fall back to the raw local clock — the pre-beat window is shorter than
+ * the staleness horizon).
+ */
+export function estimateClockOffset(
+	frame: PresenceFrame,
+	selfUserId: string,
+	localNow: number,
+): number | undefined {
+	let newestSelf: number | undefined;
+	for (const entry of frame) {
+		if (entry.userId !== selfUserId) continue;
+		if (newestSelf === undefined || entry.updatedAt > newestSelf) {
+			newestSelf = entry.updatedAt;
+		}
+	}
+	return newestSelf === undefined ? undefined : newestSelf - localNow;
+}
+
 // ── Heartbeat gate (the pure state model behind `canBeat`) ──────────────
 
 /**
@@ -219,6 +248,11 @@ export function usePresence(
 	// fresh `now` — a peer that stops heartbeating fades on the next tick even
 	// with no inbound frame to trigger a recompute.
 	const [tick, setTick] = useState(0);
+	// The client↔server clock offset, re-estimated off self's server-stamped
+	// entry on every frame (see `estimateClockOffset`) — the stale-hide compares
+	// server stamps against the local clock, and an ordinary 30s+ desktop skew
+	// would otherwise hide every live peer or never hide a dead one.
+	const clockOffsetRef = useRef<number | undefined>(undefined);
 
 	// The latest location + self identity, read at POST time so the heartbeat
 	// interval closes over a box, not a stale render's values. `name` is the
@@ -231,22 +265,28 @@ export function usePresence(
 	// so a new build's creator beats the instant the app id is activated.
 	const canBeat = presenceCanBeat(appId, name, subscribePresence !== undefined);
 
-	// Subscribe to inbound roster frames off the shared EventSource.
+	// Subscribe to inbound roster frames off the shared EventSource, updating
+	// the clock-offset estimate on each (self's fresh server stamp anchors it).
 	useEffect(() => {
 		if (!subscribePresence) return;
-		return subscribePresence(setFrame);
-	}, [subscribePresence]);
+		return subscribePresence((next) => {
+			const offset = estimateClockOffset(next, self.userId, Date.now());
+			if (offset !== undefined) clockOffsetRef.current = offset;
+			setFrame(next);
+		});
+	}, [subscribePresence, self.userId]);
 
-	// Heartbeat: an immediate POST on mount, then every HEARTBEAT_MS, plus a
-	// DELETE on unmount and on `beforeunload` (a tab close skips React cleanup).
-	useEffect(() => {
-		if (!canBeat || !appId) return;
-
-		const post = () => {
-			const { location: loc, name: beatName, color } = beatInputRef.current;
+	// The ONE heartbeat POST body — the mount/interval beat and the debounced
+	// location beat share it so their payloads can't drift. `loc` is explicit
+	// (the location beat sends the render's fresh value; the interval sends the
+	// ref's); name/color always ride the ref. Stable per (appId, sessionId), so
+	// the effects below can list it without re-arming on every render.
+	const postBeat = useCallback(
+		(loc: Location) => {
+			const { name: beatName, color } = beatInputRef.current;
 			// `canBeat` guarantees a resolved name; the guard keeps a blank name off
 			// the wire even if the ref updated between renders, and narrows the type.
-			if (beatName === undefined) return;
+			if (beatName === undefined || !appId) return;
 			void fetch(`/api/apps/${appId}/presence`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -261,7 +301,15 @@ export function usePresence(
 				/* A dropped heartbeat is self-healing — the next beat retries,
 				 * and a peer stale-hides this tab until one lands. */
 			});
-		};
+		},
+		[appId, sessionId],
+	);
+
+	// Heartbeat: an immediate POST on mount, then every HEARTBEAT_MS, plus a
+	// DELETE on unmount and on `beforeunload` (a tab close skips React cleanup).
+	useEffect(() => {
+		if (!canBeat || !appId) return;
+
 		const remove = () => {
 			void fetch(`/api/apps/${appId}/presence`, {
 				method: "DELETE",
@@ -272,9 +320,9 @@ export function usePresence(
 			}).catch(() => {});
 		};
 
-		post();
+		postBeat(beatInputRef.current.location);
 		const interval = setInterval(() => {
-			post();
+			postBeat(beatInputRef.current.location);
 			setTick((t) => t + 1);
 		}, HEARTBEAT_MS);
 		window.addEventListener("beforeunload", remove);
@@ -284,13 +332,12 @@ export function usePresence(
 			window.removeEventListener("beforeunload", remove);
 			remove();
 		};
-	}, [appId, canBeat, sessionId]);
+	}, [appId, canBeat, sessionId, postBeat]);
 
 	// Prompt heartbeat on a location change, debounced so a rapid sweep POSTs
 	// once. `location` is the intended trigger — the effect re-arms whenever the
-	// peer moves — and the body reads it directly (the render's fresh value);
-	// name/color ride the ref since they rarely change and the interval covers
-	// them. Skips the initial render (the mount beat already carries it).
+	// peer moves — and the beat sends it directly (the render's fresh value).
+	// Skips the initial render (the mount beat already carries it).
 	const mountedRef = useRef(false);
 	useEffect(() => {
 		if (!canBeat || !appId) return;
@@ -298,23 +345,19 @@ export function usePresence(
 			mountedRef.current = true;
 			return;
 		}
-		const timer = setTimeout(() => {
-			const { name: beatName, color } = beatInputRef.current;
-			if (beatName === undefined) return;
-			void fetch(`/api/apps/${appId}/presence`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ sessionId, name: beatName, color, location }),
-				keepalive: true,
-			}).catch(() => {});
-		}, LOCATION_HEARTBEAT_DEBOUNCE_MS);
+		const timer = setTimeout(
+			() => postBeat(location),
+			LOCATION_HEARTBEAT_DEBOUNCE_MS,
+		);
 		return () => clearTimeout(timer);
-	}, [appId, canBeat, sessionId, location]);
+	}, [appId, canBeat, location, postBeat]);
 
 	return useMemo(() => {
 		// `tick` is a recompute trigger only — reading it keeps the memo honest.
 		void tick;
-		return visiblePeers(frame, self.userId, Date.now()).map((entry) => ({
+		// Skew-corrected "now": server stamps compare against server-ish time.
+		const now = Date.now() + (clockOffsetRef.current ?? 0);
+		return visiblePeers(frame, self.userId, now).map((entry) => ({
 			...entry,
 			peerColor: hashColor(entry.userId),
 		}));

@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	estimateClockOffset,
 	hashColor,
 	mintSessionId,
 	PEER_PALETTE,
@@ -244,5 +245,47 @@ describe("presenceCanBeat — the heartbeat gate", () => {
 
 	it("does NOT beat without a live stream (replay / dormant)", () => {
 		expect(presenceCanBeat("app-1", "Ada", false)).toBe(false);
+	});
+});
+
+describe("estimateClockOffset", () => {
+	const NOW = 1_700_000_000_000;
+	const entry = (userId: string, updatedAt: number): PresenceEntry => ({
+		userId,
+		sessionId: `${userId}-s1`,
+		name: userId,
+		color: "violet",
+		location: { kind: "home" },
+		updatedAt,
+	});
+
+	it("anchors on the caller's freshest server-stamped entry", () => {
+		// The client clock runs 90s BEHIND the server: raw Date.now() would make
+		// every live peer read >30s stale and hide the whole roster.
+		const skew = 90_000;
+		const frame = [
+			entry("me", NOW + skew), // self, just beaten (server stamp)
+			entry("peer", NOW + skew - 5_000), // live peer, 5s old server-side
+		];
+		const offset = estimateClockOffset(frame, "me", NOW);
+		expect(offset).toBe(skew);
+		// Skew-corrected staleness: the live peer is visible again.
+		const visible = visiblePeers(frame, "me", NOW + (offset ?? 0));
+		expect(visible.map((p) => p.userId)).toEqual(["peer"]);
+	});
+
+	it("never anchors on a peer's (possibly long-dead) entry", () => {
+		const frame = [
+			entry("dead-peer", NOW - 3 * 60 * 60_000), // a stale TTL-lagged row
+		];
+		expect(estimateClockOffset(frame, "me", NOW)).toBeUndefined();
+	});
+
+	it("uses the freshest of the caller's own sessions (two tabs)", () => {
+		const frame = [
+			entry("me", NOW - 14_000), // this tab's older beat
+			{ ...entry("me", NOW - 1_000), sessionId: "me-s2" }, // other tab, fresh
+		];
+		expect(estimateClockOffset(frame, "me", NOW)).toBe(-1_000);
 	});
 });
