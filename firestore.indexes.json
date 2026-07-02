@@ -826,6 +826,12 @@
 	],
 	"fieldOverrides": [
 		{
+			"collectionGroup": "apps",
+			"fieldPath": "blueprint",
+			"ttl": false,
+			"indexes": []
+		},
+		{
 			"collectionGroup": "users",
 			"fieldPath": "email",
 			"ttl": false,

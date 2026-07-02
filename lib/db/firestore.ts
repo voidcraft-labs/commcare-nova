@@ -31,10 +31,12 @@ import {
 	Firestore,
 	type FirestoreDataConverter,
 	type QueryDocumentSnapshot,
+	type Transaction,
 	type WithFieldValue,
 } from "@google-cloud/firestore";
 import type { ZodType } from "zod";
 import { type Event, eventSchema } from "@/lib/log/types";
+import { log } from "@/lib/logger";
 import { firestoreClientOptions } from "./firestoreClientOptions";
 import {
 	type AppDoc,
@@ -77,6 +79,95 @@ export function getDb(): Firestore {
 		});
 	}
 	return _db;
+}
+
+// ── Write-throttle ride-out ────────────────────────────────────────
+
+/** gRPC status the write throttle carries on the gRPC transport — the shape
+ * `runTransaction`'s own retry predicate recognizes. */
+const GRPC_RESOURCE_EXHAUSTED = 8;
+
+/** HTTP status the same throttle carries on the REST transport. */
+const HTTP_TOO_MANY_REQUESTS = 429;
+
+/** Backoff schedule — ~8s across four retries, well under the chat route's
+ * ceiling, giving Firestore time to re-allocate write capacity. */
+const WRITE_THROTTLE_RETRY_DELAYS_MS = [250, 750, 2000, 5000];
+
+/**
+ * Matches Firestore's write throttle on both transports: the gRPC status code
+ * (`GoogleError.code`), and the REST shape — an HTTP 429 whose `status`/`code`
+ * carry the HTTP number, or a raw error whose message embeds the response body
+ * verbatim (`"status": "RESOURCE_EXHAUSTED"`, `"reason": "rateLimitExceeded"`,
+ * "…maximum bandwidth for writes…").
+ */
+function isFirestoreWriteThrottled(err: unknown): boolean {
+	if (typeof err === "object" && err !== null) {
+		const { code, status } = err as { code?: unknown; status?: unknown };
+		if (code === GRPC_RESOURCE_EXHAUSTED) return true;
+		if (
+			status === HTTP_TOO_MANY_REQUESTS ||
+			code === HTTP_TOO_MANY_REQUESTS ||
+			code === String(HTTP_TOO_MANY_REQUESTS)
+		) {
+			return true;
+		}
+	}
+	const message = err instanceof Error ? err.message : String(err);
+	return /RESOURCE_EXHAUSTED|maximum bandwidth for writes|rateLimitExceeded/i.test(
+		message,
+	);
+}
+
+/**
+ * Run a Firestore transaction, riding out the write throttle with bounded
+ * exponential backoff. Every transaction call site in lib/db goes through
+ * this instead of calling `runTransaction` directly.
+ *
+ * Firestore sheds commits with 429 RESOURCE_EXHAUSTED — "This database has
+ * exceeded their maximum bandwidth for writes, please retry with exponential
+ * backoff" — and its contract makes the retry the CLIENT's job. The shed is
+ * not always explained by the documented limits: this database has rejected
+ * single small commits at zero measured load, reads unaffected, with no cause
+ * visible on any surface Google exposes — so the wrapper treats any 429
+ * commit rejection as weather to ride out, and logs a warning per bounce so
+ * a shed is never invisible.
+ *
+ * The SDK is built to absorb this itself — RESOURCE_EXHAUSTED is retryable at
+ * three layers (the gax call retry, `Firestore._retry`, and the transaction
+ * runner) — but all three classify by gRPC status code, and over the REST
+ * transport this codebase uses (`preferRest`, see `firestoreClientOptions`)
+ * the throttle surfaces as an HTTP error carrying `code: 429`, which none of
+ * them match. Unwrapped, a single shed therefore hard-fails the request that
+ * carried it. Only the throttle is retried: business rejections (e.g. the
+ * credit gate's `OutOfCreditsError`) and contention ABORTs (which
+ * `runTransaction` retries internally) propagate immediately, and the retry
+ * re-runs the whole transaction body — the same re-execution contract the
+ * SDK's own contention retry already imposes on every body.
+ */
+export async function runThrottledTransaction<T>(
+	db: Firestore,
+	updateFunction: (tx: Transaction) => Promise<T>,
+): Promise<T> {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await db.runTransaction(updateFunction);
+		} catch (err) {
+			if (
+				attempt === WRITE_THROTTLE_RETRY_DELAYS_MS.length ||
+				!isFirestoreWriteThrottled(err)
+			) {
+				throw err;
+			}
+			const delayMs = WRITE_THROTTLE_RETRY_DELAYS_MS[attempt];
+			log.warn("[firestore] write throttled; retrying transaction", {
+				attempt: attempt + 1,
+				delayMs,
+				error: err instanceof Error ? err.message.slice(0, 300) : String(err),
+			});
+			await new Promise((resolve) => setTimeout(resolve, delayMs));
+		}
+	}
 }
 
 // ── Converters ─────────────────────────────────────────────────────

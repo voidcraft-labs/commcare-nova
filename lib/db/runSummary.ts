@@ -7,7 +7,7 @@
  */
 import { FieldValue } from "@google-cloud/firestore";
 import { log } from "@/lib/logger";
-import { getDb } from "./firestore";
+import { getDb, runThrottledTransaction } from "./firestore";
 import { type RunSummaryDoc, runSummaryDocSchema } from "./types";
 
 /**
@@ -112,7 +112,8 @@ export async function writeRunSummary(
 		 * safe overwrite. */
 		const ref = db.collection("apps").doc(appId).collection("runs").doc(runId);
 
-		return await db.runTransaction(
+		return await runThrottledTransaction(
+			db,
 			async (tx): Promise<RunSummaryWriteAction> => {
 				const snap = await tx.get(ref);
 				const raw = snap.exists ? (snap.data() ?? null) : null;

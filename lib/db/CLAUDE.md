@@ -2,6 +2,8 @@
 
 The Firestore singleton, Zod-backed converters, typed collection/doc helpers, and the credit gate that meters generation. `firestore.ts` owns the wire (lazy singleton, `withConverter` reads parse through Zod); `types.ts` owns every document schema. The non-obvious part is the credit gate, below.
 
+**Every transaction goes through `runThrottledTransaction`** (`firestore.ts`), never bare `runTransaction`: Firestore sheds commits with 429 RESOURCE_EXHAUSTED ("exceeded their maximum bandwidth for writes") and its contract makes the retry the client's job — this database has shed single small commits at zero measured load, outside any documented limit, reads unaffected. The SDK's own three retry layers would absorb it but classify by gRPC code, which the REST transport (`preferRest`) doesn't surface (an HTTP 429 arrives as `code: 429`, not `8`), so the wrapper does the documented backoff-retry itself and `log.warn`s each bounce so sheds are visible. Only the throttle retries; business rejections (`OutOfCreditsError`) and contention ABORTs propagate untouched.
+
 **Exception — the auth-read modules read Postgres, not Firestore.** `api-keys.ts`, `oauth-consents.ts`, and `admin.ts` (the user-list half) live here for proximity to the surfaces that use them, but auth state moved to Postgres: they read/write the `auth_*` tables through `getAuthDb` (`@/lib/auth/db`, a `Kysely<AuthDatabase>` on the shared case-store pool) — no `getDb`, no Zod converter. The Firestore/Zod description above covers the app-domain modules (apps, threads, runs, credits, usage, media), not these three. `admin.ts` still fans out to Firestore for per-user usage/credits (a fan-out, not a join).
 
 ## Two ledgers, different lifecycles

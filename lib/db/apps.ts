@@ -30,7 +30,7 @@ import {
 	remapAssetRefs,
 } from "../domain/mediaRefs";
 import { refundReservation } from "./credits";
-import { collections, docs, getDb } from "./firestore";
+import { collections, docs, getDb, runThrottledTransaction } from "./firestore";
 import { addReferencingApp } from "./mediaAssets";
 import type { AppDoc, CreditMonthDoc } from "./types";
 
@@ -589,7 +589,7 @@ export async function updateAppForRunTransactional(
 		tx: Transaction,
 	) => PersistedBlueprint | Promise<PersistedBlueprint>,
 ): Promise<PersistableDoc> {
-	const committed = await getDb().runTransaction(async (tx) => {
+	const committed = await runThrottledTransaction(getDb(), async (tx) => {
 		const snap = await tx.get(docs.app(appId));
 		const fresh = snap.exists ? (snap.data() ?? null) : null;
 		if (!fresh) {
@@ -639,7 +639,7 @@ export async function updateAppGuardedMutating(
 	) => PersistedBlueprint | Promise<PersistedBlueprint>,
 ): Promise<string> {
 	const basisToken = crypto.randomUUID();
-	const committed = await getDb().runTransaction(async (tx) => {
+	const committed = await runThrottledTransaction(getDb(), async (tx) => {
 		const snap = await tx.get(docs.app(appId));
 		const fresh = snap.exists ? (snap.data() ?? null) : null;
 		if (!fresh) {
@@ -704,10 +704,10 @@ export async function commitAppProjectMove(
 	},
 ): Promise<CommitMoveResult> {
 	const basisToken = crypto.randomUUID();
-	const result = await getDb().runTransaction<{
+	const result = await runThrottledTransaction<{
 		outcome: CommitMoveResult;
 		committed: PersistedBlueprint | null;
-	}>(async (tx) => {
+	}>(getDb(), async (tx) => {
 		const snap = await tx.get(docs.app(appId));
 		const fresh = snap.exists ? (snap.data() ?? null) : null;
 		if (!fresh) {
@@ -911,7 +911,7 @@ export type ClaimedBuildRun =
  * restoration (see `ClaimedBuildRun`).
  */
 export async function claimBuildRun(appId: string): Promise<ClaimedBuildRun> {
-	return await getDb().runTransaction(async (tx) => {
+	return await runThrottledTransaction(getDb(), async (tx) => {
 		const snap = await tx.get(docs.app(appId));
 		const fresh = snap.exists ? (snap.data() ?? null) : null;
 		if (!fresh) {

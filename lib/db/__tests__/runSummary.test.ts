@@ -41,6 +41,12 @@ const { txGet, txSet, runTransactionMock, docRef } = vi.hoisted(() => {
 });
 
 vi.mock("../firestore", () => ({
+	// Pass-through for the write-throttle wrapper - the retry itself is covered
+	// in writeThrottleRetry.test.ts; these suites exercise the transaction bodies.
+	runThrottledTransaction: (dbArg: unknown, fn: unknown) =>
+		(
+			dbArg as { runTransaction: (f: unknown) => Promise<unknown> }
+		).runTransaction(fn),
 	getDb: () => ({
 		collection: () => ({
 			doc: () => ({

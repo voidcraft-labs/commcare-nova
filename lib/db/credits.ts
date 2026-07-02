@@ -9,71 +9,9 @@
  */
 import { FieldValue } from "@google-cloud/firestore";
 import { creditBalance, MONTHLY_CREDIT_ALLOWANCE } from "./creditPolicy";
-import { collections, docs } from "./firestore";
+import { collections, docs, runThrottledTransaction } from "./firestore";
 import { getCurrentPeriod } from "./period";
 import type { AppDoc, CreditMonthDoc } from "./types";
-
-/**
- * gRPC status code for Firestore's `RESOURCE_EXHAUSTED` write throttle. Firestore
- * returns it — "this database has exceeded their maximum bandwidth for writes" —
- * when a write burst outruns the database's current (ramp-up) write capacity or
- * hotspots a monotonically-indexed field (every ledger write stamps an
- * auto-indexed `serverTimestamp`), and it asks the client to retry with
- * exponential backoff. These transactions are on the request's critical path —
- * an unretried throttle hard-fails the user's build/edit with "credit
- * reservation failed" — so they ride it out instead of surfacing it.
- */
-const FIRESTORE_RESOURCE_EXHAUSTED = 8;
-
-/** Backoff schedule for the write-throttle retry — ~8s across four retries, well
- * under the chat route's ceiling, giving the database time to ramp up. */
-const WRITE_THROTTLE_RETRY_DELAYS_MS = [250, 750, 2000, 5000];
-
-function isFirestoreWriteThrottled(err: unknown): boolean {
-	if (
-		typeof err === "object" &&
-		err !== null &&
-		(err as { code?: unknown }).code === FIRESTORE_RESOURCE_EXHAUSTED
-	) {
-		return true;
-	}
-	const message = err instanceof Error ? err.message : String(err);
-	return /RESOURCE_EXHAUSTED|maximum bandwidth for writes|rateLimitExceeded/i.test(
-		message,
-	);
-}
-
-/**
- * Run a credit-ledger transaction, retrying ONLY Firestore's write throttle
- * (`RESOURCE_EXHAUSTED`) with exponential backoff. Every other error propagates
- * immediately — `OutOfCreditsError` (a business rejection, not a throttle) and
- * contention `ABORTED` (which `runTransaction` already retries internally) must
- * not be swallowed here.
- */
-async function withWriteThrottleRetry<T>(run: () => Promise<T>): Promise<T> {
-	let lastError: unknown;
-	for (
-		let attempt = 0;
-		attempt <= WRITE_THROTTLE_RETRY_DELAYS_MS.length;
-		attempt++
-	) {
-		try {
-			return await run();
-		} catch (err) {
-			if (
-				attempt === WRITE_THROTTLE_RETRY_DELAYS_MS.length ||
-				!isFirestoreWriteThrottled(err)
-			) {
-				throw err;
-			}
-			lastError = err;
-			await new Promise((resolve) =>
-				setTimeout(resolve, WRITE_THROTTLE_RETRY_DELAYS_MS[attempt]),
-			);
-		}
-	}
-	throw lastError;
-}
 
 /**
  * Thrown by `reserveCredits` when the user's remaining balance can't cover the
@@ -149,46 +87,44 @@ export async function reserveCredits(
 	const ref = docs.creditMonthRaw(userId, period);
 	const appRef = docs.appRaw(appId);
 
-	await withWriteThrottleRetry(() =>
-		ref.firestore.runTransaction(async (tx) => {
-			const snap = await tx.get(ref);
-			// A `Partial` view: a partially-written doc may omit fields, and a missing
-			// doc supplies none — both fall back to the per-quantity defaults below.
-			const data = snap.exists
-				? (snap.data() as Partial<CreditMonthDoc>)
-				: undefined;
-			const allowance = data?.allowance ?? MONTHLY_CREDIT_ALLOWANCE;
-			const consumed = data?.consumed ?? 0;
-			const bonus = data?.bonus ?? 0;
+	await runThrottledTransaction(ref.firestore, async (tx) => {
+		const snap = await tx.get(ref);
+		// A `Partial` view: a partially-written doc may omit fields, and a missing
+		// doc supplies none — both fall back to the per-quantity defaults below.
+		const data = snap.exists
+			? (snap.data() as Partial<CreditMonthDoc>)
+			: undefined;
+		const allowance = data?.allowance ?? MONTHLY_CREDIT_ALLOWANCE;
+		const consumed = data?.consumed ?? 0;
+		const bonus = data?.bonus ?? 0;
 
-			if (allowance + bonus - consumed < cost) {
-				throw new OutOfCreditsError();
-			}
+		if (allowance + bonus - consumed < cost) {
+			throw new OutOfCreditsError();
+		}
 
-			// Re-write allowance/bonus alongside the incremented consumed so a merge
-			// onto a missing or partial doc always leaves a complete, parseable record.
-			tx.set(
-				ref,
-				{
-					allowance,
-					bonus,
-					consumed: consumed + cost,
-					updated_at: FieldValue.serverTimestamp(),
-				},
-				{ merge: true },
-			);
+		// Re-write allowance/bonus alongside the incremented consumed so a merge
+		// onto a missing or partial doc always leaves a complete, parseable record.
+		tx.set(
+			ref,
+			{
+				allowance,
+				bonus,
+				consumed: consumed + cost,
+				updated_at: FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
 
-			// Durable reservation marker, committed atomically with the debit above.
-			tx.set(
-				appRef,
-				// `userId` records WHO was charged (the actor), so a refund returns
-				// the hold to that user — not `app.owner`, which diverges from the
-				// actor once a Project co-member runs the app.
-				{ reservation: { period, reserved: cost, settled: false, userId } },
-				{ merge: true },
-			);
-		}),
-	);
+		// Durable reservation marker, committed atomically with the debit above.
+		tx.set(
+			appRef,
+			// `userId` records WHO was charged (the actor), so a refund returns
+			// the hold to that user — not `app.owner`, which diverges from the
+			// actor once a Project co-member runs the app.
+			{ reservation: { period, reserved: cost, settled: false, userId } },
+			{ merge: true },
+		);
+	});
 
 	return { period, reserved: cost };
 }
@@ -217,45 +153,43 @@ export async function reserveCredits(
 export async function refundReservation(appId: string): Promise<void> {
 	const appRef = docs.appRaw(appId);
 
-	await withWriteThrottleRetry(() =>
-		appRef.firestore.runTransaction(async (tx) => {
-			// All reads precede all writes (Firestore's transaction rule): read the
-			// marker, then — only if there is something to refund — the credit doc.
-			const appSnap = await tx.get(appRef);
-			if (!appSnap.exists) return;
-			const appData = appSnap.data() as Partial<AppDoc>;
-			const reservation = appData.reservation;
-			// Refund the user who was CHARGED — the run's actor, recorded on the
-			// marker. Pre-per-actor-billing markers carry no `userId`; fall back to
-			// `owner` (the actor in the single-member world those were written in).
-			// Using `owner` unconditionally would refund the wrong user once a
-			// Project co-member's run is the one being unbooked.
-			const chargedUserId = reservation?.userId ?? appData.owner;
-			if (!reservation || reservation.settled || !chargedUserId) return;
+	await runThrottledTransaction(appRef.firestore, async (tx) => {
+		// All reads precede all writes (Firestore's transaction rule): read the
+		// marker, then — only if there is something to refund — the credit doc.
+		const appSnap = await tx.get(appRef);
+		if (!appSnap.exists) return;
+		const appData = appSnap.data() as Partial<AppDoc>;
+		const reservation = appData.reservation;
+		// Refund the user who was CHARGED — the run's actor, recorded on the
+		// marker. Pre-per-actor-billing markers carry no `userId`; fall back to
+		// `owner` (the actor in the single-member world those were written in).
+		// Using `owner` unconditionally would refund the wrong user once a
+		// Project co-member's run is the one being unbooked.
+		const chargedUserId = reservation?.userId ?? appData.owner;
+		if (!reservation || reservation.settled || !chargedUserId) return;
 
-			const creditRef = docs.creditMonthRaw(chargedUserId, reservation.period);
-			const creditSnap = await tx.get(creditRef);
+		const creditRef = docs.creditMonthRaw(chargedUserId, reservation.period);
+		const creditSnap = await tx.get(creditRef);
 
-			if (creditSnap.exists) {
-				const consumed =
-					(creditSnap.data() as Partial<CreditMonthDoc>).consumed ?? 0;
-				tx.set(
-					creditRef,
-					{
-						consumed: Math.max(0, consumed - reservation.reserved),
-						updated_at: FieldValue.serverTimestamp(),
-					},
-					{ merge: true },
-				);
-			}
-
+		if (creditSnap.exists) {
+			const consumed =
+				(creditSnap.data() as Partial<CreditMonthDoc>).consumed ?? 0;
 			tx.set(
-				appRef,
-				{ reservation: { ...reservation, settled: true } },
+				creditRef,
+				{
+					consumed: Math.max(0, consumed - reservation.reserved),
+					updated_at: FieldValue.serverTimestamp(),
+				},
 				{ merge: true },
 			);
-		}),
-	);
+		}
+
+		tx.set(
+			appRef,
+			{ reservation: { ...reservation, settled: true } },
+			{ merge: true },
+		);
+	});
 }
 
 /**
@@ -297,39 +231,37 @@ export async function resetCredits(
 	// transaction so the same ref is written exactly once inside it.
 	const grantRef = collections.creditGrants(userId).doc();
 
-	await withWriteThrottleRetry(() =>
-		monthRef.firestore.runTransaction(async (tx) => {
-			const snap = await tx.get(monthRef);
-			const data = snap.exists
-				? (snap.data() as Partial<CreditMonthDoc>)
-				: undefined;
+	await runThrottledTransaction(monthRef.firestore, async (tx) => {
+		const snap = await tx.get(monthRef);
+		const data = snap.exists
+			? (snap.data() as Partial<CreditMonthDoc>)
+			: undefined;
 
-			// Seed a complete doc: explicit allowance (no Zod default), preserved
-			// bonus, consumed zeroed.
-			tx.set(
-				monthRef,
-				{
-					allowance: data?.allowance ?? MONTHLY_CREDIT_ALLOWANCE,
-					consumed: 0,
-					bonus: data?.bonus ?? 0,
-					updated_at: FieldValue.serverTimestamp(),
-				},
-				{ merge: true },
-			);
+		// Seed a complete doc: explicit allowance (no Zod default), preserved
+		// bonus, consumed zeroed.
+		tx.set(
+			monthRef,
+			{
+				allowance: data?.allowance ?? MONTHLY_CREDIT_ALLOWANCE,
+				consumed: 0,
+				bonus: data?.bonus ?? 0,
+				updated_at: FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
 
-			// Audit row, written in the same transaction so the comp is always
-			// traceable to an actor. No merge: each grant ref is a fresh document.
-			tx.set(grantRef, {
-				amount: 0,
-				type: "reset",
-				actor: who.actor,
-				actor_email: who.actorEmail,
-				reason: who.reason,
-				period,
-				created_at: FieldValue.serverTimestamp(),
-			});
-		}),
-	);
+		// Audit row, written in the same transaction so the comp is always
+		// traceable to an actor. No merge: each grant ref is a fresh document.
+		tx.set(grantRef, {
+			amount: 0,
+			type: "reset",
+			actor: who.actor,
+			actor_email: who.actorEmail,
+			reason: who.reason,
+			period,
+			created_at: FieldValue.serverTimestamp(),
+		});
+	});
 }
 
 /**
@@ -351,36 +283,34 @@ export async function grantCredits(
 	const monthRef = docs.creditMonthRaw(userId, period);
 	const grantRef = collections.creditGrants(userId).doc();
 
-	await withWriteThrottleRetry(() =>
-		monthRef.firestore.runTransaction(async (tx) => {
-			const snap = await tx.get(monthRef);
-			const data = snap.exists
-				? (snap.data() as Partial<CreditMonthDoc>)
-				: undefined;
+	await runThrottledTransaction(monthRef.firestore, async (tx) => {
+		const snap = await tx.get(monthRef);
+		const data = snap.exists
+			? (snap.data() as Partial<CreditMonthDoc>)
+			: undefined;
 
-			// Seed allowance (complete-doc guard), add to bonus, and deliberately do
-			// NOT write consumed so the on-disk usage is preserved by the merge.
-			tx.set(
-				monthRef,
-				{
-					allowance: data?.allowance ?? MONTHLY_CREDIT_ALLOWANCE,
-					bonus: (data?.bonus ?? 0) + amount,
-					updated_at: FieldValue.serverTimestamp(),
-				},
-				{ merge: true },
-			);
+		// Seed allowance (complete-doc guard), add to bonus, and deliberately do
+		// NOT write consumed so the on-disk usage is preserved by the merge.
+		tx.set(
+			monthRef,
+			{
+				allowance: data?.allowance ?? MONTHLY_CREDIT_ALLOWANCE,
+				bonus: (data?.bonus ?? 0) + amount,
+				updated_at: FieldValue.serverTimestamp(),
+			},
+			{ merge: true },
+		);
 
-			tx.set(grantRef, {
-				amount,
-				type: "grant",
-				actor: who.actor,
-				actor_email: who.actorEmail,
-				reason: who.reason,
-				period,
-				created_at: FieldValue.serverTimestamp(),
-			});
-		}),
-	);
+		tx.set(grantRef, {
+			amount,
+			type: "grant",
+			actor: who.actor,
+			actor_email: who.actorEmail,
+			reason: who.reason,
+			period,
+			created_at: FieldValue.serverTimestamp(),
+		});
+	});
 }
 
 /**

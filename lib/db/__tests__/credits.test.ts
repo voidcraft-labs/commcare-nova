@@ -107,6 +107,12 @@ const {
 });
 
 vi.mock("../firestore", () => ({
+	// Pass-through for the write-throttle wrapper - the retry itself is covered
+	// in writeThrottleRetry.test.ts; these suites exercise the transaction bodies.
+	runThrottledTransaction: (dbArg: unknown, fn: unknown) =>
+		(
+			dbArg as { runTransaction: (f: unknown) => Promise<unknown> }
+		).runTransaction(fn),
 	// `docs.creditMonthRaw` resolves the converter-less month ref every
 	// transactional writer reads/writes; `docs.creditMonth` is the converter-applied
 	// single-doc ref the hot-path balance read goes through;
