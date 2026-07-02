@@ -106,7 +106,8 @@ const {
 	};
 });
 
-vi.mock("../firestore", () => ({
+vi.mock("../firestore", async () => ({
+	...(await import("./throttlePassthrough")).throttlePassthrough,
 	// `docs.creditMonthRaw` resolves the converter-less month ref every
 	// transactional writer reads/writes; `docs.creditMonth` is the converter-applied
 	// single-doc ref the hot-path balance read goes through;

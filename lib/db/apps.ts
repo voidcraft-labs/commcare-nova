@@ -57,7 +57,13 @@ import {
 	RETENTION_COUNT,
 } from "./constants";
 import { refundStaleGeneration, refundStaleReservation } from "./credits";
-import { collections, docs, getDb } from "./firestore";
+import {
+	collections,
+	docs,
+	getDb,
+	runThrottledTransaction,
+	runThrottledWrite,
+} from "./firestore";
 import { withFirestoreRetry } from "./firestoreRetry";
 import { addReferencingApp, getAssetsInTransaction } from "./mediaAssets";
 import { editLeaseDeadlineMs, runLeaseState } from "./runLiveness";
@@ -466,28 +472,30 @@ export async function createApp(
 		fieldParent: {},
 	};
 	const persistable = toPersistableDoc(emptyDoc);
-	await ref.set({
-		owner,
-		project_id: projectId,
-		...denormalize(emptyDoc),
-		blueprint: persistable,
-		/* The per-app stream counter starts at 0; the guarded writer advances
-		 * it by one on every committed mutation batch. */
-		mutation_seq: 0,
-		status: opts?.status ?? "generating",
-		error_type: null,
-		/* Initialize soft-delete fields to null so every row on disk
-		 * matches the full `appDocSchema` shape and first-soft-delete
-		 * writes update existing fields rather than materializing them. */
-		deleted_at: null,
-		recoverable_until: null,
-		/* Auto-save basis starts null — a null basis matches a null stored
-		 * token, so the builder's first PUT passes without backfill. */
-		blueprint_token: null,
-		run_id: runId,
-		created_at: FieldValue.serverTimestamp(),
-		updated_at: FieldValue.serverTimestamp(),
-	});
+	await runThrottledWrite(() =>
+		ref.set({
+			owner,
+			project_id: projectId,
+			...denormalize(emptyDoc),
+			blueprint: persistable,
+			/* The per-app stream counter starts at 0; the guarded writer advances
+			 * it by one on every committed mutation batch. */
+			mutation_seq: 0,
+			status: opts?.status ?? "generating",
+			error_type: null,
+			/* Initialize soft-delete fields to null so every row on disk
+			 * matches the full `appDocSchema` shape and first-soft-delete
+			 * writes update existing fields rather than materializing them. */
+			deleted_at: null,
+			recoverable_until: null,
+			/* Auto-save basis starts null — a null basis matches a null stored
+			 * token, so the builder's first PUT passes without backfill. */
+			blueprint_token: null,
+			run_id: runId,
+			created_at: FieldValue.serverTimestamp(),
+			updated_at: FieldValue.serverTimestamp(),
+		}),
+	);
 	return ref.id;
 }
 
@@ -686,129 +694,135 @@ export async function commitGuardedBatch(
 		persistable?: PersistedBlueprint;
 	};
 
-	const result = await getDb().runTransaction<InternalResult>(async (tx) => {
-		// Read both up front — Firestore forbids reads after the first write.
-		const dedupSnap = await tx.get(docs.batchDedupRaw(appId, batchId));
-		const appSnap = await tx.get(docs.app(appId));
-		const fresh = appSnap.exists ? (appSnap.data() ?? null) : null;
-		if (!fresh) {
-			throw new Error(
-				`[commitGuardedBatch] app document missing for appId=${appId}`,
-			);
-		}
-		// Idempotent replay of an already-committed batch. `committedDoc` is
-		// contracted fully hydrated (fieldParent + refIndex); the verdict path
-		// returns `nextDoc` carrying both, so the dedup doc builds its refIndex
-		// too — via the same `buildReferenceIndex` the hydration boundaries use.
-		if (dedupSnap.exists) {
-			const latch = dedupSnap.data() as { seq: number; basisToken: string };
-			const dedupedDoc = hydratePersistedBlueprint(
-				fresh.blueprint as PersistableDoc,
-			);
-			dedupedDoc.refIndex = buildReferenceIndex(dedupedDoc);
-			return {
-				seq: latch.seq,
-				basisToken: latch.basisToken,
-				committedDoc: dedupedDoc,
-				deduped: true,
-			};
-		}
-		// Reauth against the FRESH doc: a null project_id defers to owner (a
-		// non-owner is TERMINAL — no membership to gain by reloading); a
-		// non-null must still equal the reauthed project. A concurrent MOVE
-		// flipped it → RETRYABLE (the actor may be a member of the
-		// destination, so reload + re-reauth against the moved app can land).
-		if (projectId === null) {
-			if (fresh.owner !== actorUserId) {
-				throw new CommitReauthError("You don't have edit access to this app.");
-			}
-		} else if (fresh.project_id !== projectId) {
-			throw new BlueprintCommitRejectedError(
-				"This app moved to a different Project while you were editing. Reload to get the latest state.",
-			);
-		}
-		// Media-attach expectations re-check (reads asset rows via `tx`, so a
-		// racing delete serializes against this commit) — before any write.
-		if (mediaExpectations !== undefined && mediaExpectations.length > 0) {
-			if (!fresh.project_id) {
-				throw new BlueprintCommitRejectedError(
-					"This app has no Project, so its media can't be verified. Reload and try again.",
+	const result = await runThrottledTransaction<InternalResult>(
+		getDb(),
+		async (tx) => {
+			// Read both up front — Firestore forbids reads after the first write.
+			const dedupSnap = await tx.get(docs.batchDedupRaw(appId, batchId));
+			const appSnap = await tx.get(docs.app(appId));
+			const fresh = appSnap.exists ? (appSnap.data() ?? null) : null;
+			if (!fresh) {
+				throw new Error(
+					`[commitGuardedBatch] app document missing for appId=${appId}`,
 				);
 			}
-			const rows = await getAssetsInTransaction(
-				tx,
-				mediaExpectations.map((e) => e.assetId),
-			);
-			const failure = describeMediaExpectationFailures(
-				mediaExpectations,
-				rows,
-				fresh.project_id,
-			);
-			if (failure !== null) throw new BlueprintCommitRejectedError(failure);
-		}
-		// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
-		const freshDoc = hydratePersistedBlueprint(
-			fresh.blueprint as PersistableDoc,
-		);
-		if (batchTargetsMissing(freshDoc, mutations)) {
-			throw new BlueprintCommitRejectedError(
-				"This app changed while you were editing — something your change " +
-					"targeted was removed by someone else. Reload to get the latest " +
-					"version, then redo that change.",
-			);
-		}
-		const verdict = mutationCommitVerdict(freshDoc, mutations);
-		if (!verdict.ok) {
-			throw new BlueprintCommitRejectedError(
-				describeIntroducedErrors(verdict.introduced),
-			);
-		}
-		const seq = (fresh.mutation_seq ?? 0) + 1;
-		const persistable = toPersistableDoc(verdict.nextDoc);
-		/* Refresh the EDIT `run_lock` lease on activity — the run-lock analogue of
-		 * how a build advances `updated_at` on every commit. An edit can legitimately
-		 * run longer than the fixed `MAX_RUN_MINUTES` lease (Cloud Run's ceiling is
-		 * far higher), so a live edit must extend its lease as it commits or its lease
-		 * would lapse and the reaper would free the app mid-run (releasing the lock a
-		 * co-member could then claim → two SA loops). Fires only when THIS commit's
-		 * run OWNS the edit lock
-		 * (`runLeaseState().mine` — routed through the one reader) — a build commit
-		 * (`mode !== "edit"`) or a commit from a different run never touches it, and a
-		 * HARD-KILLED edit (no more commits) lets the lease lapse in ~15min and become
-		 * claimable, exactly as intended. A dotted `run_lock.expireAt` update extends
-		 * just that nested field, leaving the rest of the lock intact. This is the
-		 * per-COMMIT lease refresh; the per-STEP + wall-clock-TIMER heartbeats
-		 * (`refreshEditLease`) cover an edit that commits infrequently. */
-		const commitLease = runId !== undefined ? runLeaseState(fresh) : undefined;
-		const ownsEditLock =
-			runId !== undefined &&
-			commitLease?.mode === "edit" &&
-			commitLease?.mine(runId);
-		const refreshLease = ownsEditLock
-			? {
-					"run_lock.expireAt": Timestamp.fromMillis(editLeaseDeadlineMs()),
+			// Idempotent replay of an already-committed batch. `committedDoc` is
+			// contracted fully hydrated (fieldParent + refIndex); the verdict path
+			// returns `nextDoc` carrying both, so the dedup doc builds its refIndex
+			// too — via the same `buildReferenceIndex` the hydration boundaries use.
+			if (dedupSnap.exists) {
+				const latch = dedupSnap.data() as { seq: number; basisToken: string };
+				const dedupedDoc = hydratePersistedBlueprint(
+					fresh.blueprint as PersistableDoc,
+				);
+				dedupedDoc.refIndex = buildReferenceIndex(dedupedDoc);
+				return {
+					seq: latch.seq,
+					basisToken: latch.basisToken,
+					committedDoc: dedupedDoc,
+					deduped: true,
+				};
+			}
+			// Reauth against the FRESH doc: a null project_id defers to owner (a
+			// non-owner is TERMINAL — no membership to gain by reloading); a
+			// non-null must still equal the reauthed project. A concurrent MOVE
+			// flipped it → RETRYABLE (the actor may be a member of the
+			// destination, so reload + re-reauth against the moved app can land).
+			if (projectId === null) {
+				if (fresh.owner !== actorUserId) {
+					throw new CommitReauthError(
+						"You don't have edit access to this app.",
+					);
 				}
-			: undefined;
-		writeCommittedSnapshot(tx, {
-			appId,
-			seq,
-			batchId,
-			runId,
-			committedDoc: persistable,
-			mutations,
-			actorUserId,
-			kind,
-			basisToken,
-			...(refreshLease && { extraAppFields: refreshLease }),
-		});
-		return {
-			seq,
-			basisToken,
-			committedDoc: verdict.nextDoc,
-			deduped: false,
-			persistable,
-		};
-	});
+			} else if (fresh.project_id !== projectId) {
+				throw new BlueprintCommitRejectedError(
+					"This app moved to a different Project while you were editing. Reload to get the latest state.",
+				);
+			}
+			// Media-attach expectations re-check (reads asset rows via `tx`, so a
+			// racing delete serializes against this commit) — before any write.
+			if (mediaExpectations !== undefined && mediaExpectations.length > 0) {
+				if (!fresh.project_id) {
+					throw new BlueprintCommitRejectedError(
+						"This app has no Project, so its media can't be verified. Reload and try again.",
+					);
+				}
+				const rows = await getAssetsInTransaction(
+					tx,
+					mediaExpectations.map((e) => e.assetId),
+				);
+				const failure = describeMediaExpectationFailures(
+					mediaExpectations,
+					rows,
+					fresh.project_id,
+				);
+				if (failure !== null) throw new BlueprintCommitRejectedError(failure);
+			}
+			// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
+			const freshDoc = hydratePersistedBlueprint(
+				fresh.blueprint as PersistableDoc,
+			);
+			if (batchTargetsMissing(freshDoc, mutations)) {
+				throw new BlueprintCommitRejectedError(
+					"This app changed while you were editing — something your change " +
+						"targeted was removed by someone else. Reload to get the latest " +
+						"version, then redo that change.",
+				);
+			}
+			const verdict = mutationCommitVerdict(freshDoc, mutations);
+			if (!verdict.ok) {
+				throw new BlueprintCommitRejectedError(
+					describeIntroducedErrors(verdict.introduced),
+				);
+			}
+			const seq = (fresh.mutation_seq ?? 0) + 1;
+			const persistable = toPersistableDoc(verdict.nextDoc);
+			/* Refresh the EDIT `run_lock` lease on activity — the run-lock analogue of
+			 * how a build advances `updated_at` on every commit. An edit can legitimately
+			 * run longer than the fixed `MAX_RUN_MINUTES` lease (Cloud Run's ceiling is
+			 * far higher), so a live edit must extend its lease as it commits or its lease
+			 * would lapse and the reaper would free the app mid-run (releasing the lock a
+			 * co-member could then claim → two SA loops). Fires only when THIS commit's
+			 * run OWNS the edit lock
+			 * (`runLeaseState().mine` — routed through the one reader) — a build commit
+			 * (`mode !== "edit"`) or a commit from a different run never touches it, and a
+			 * HARD-KILLED edit (no more commits) lets the lease lapse in ~15min and become
+			 * claimable, exactly as intended. A dotted `run_lock.expireAt` update extends
+			 * just that nested field, leaving the rest of the lock intact. This is the
+			 * per-COMMIT lease refresh; the per-STEP + wall-clock-TIMER heartbeats
+			 * (`refreshEditLease`) cover an edit that commits infrequently. */
+			const commitLease =
+				runId !== undefined ? runLeaseState(fresh) : undefined;
+			const ownsEditLock =
+				runId !== undefined &&
+				commitLease?.mode === "edit" &&
+				commitLease?.mine(runId);
+			const refreshLease = ownsEditLock
+				? {
+						"run_lock.expireAt": Timestamp.fromMillis(editLeaseDeadlineMs()),
+					}
+				: undefined;
+			writeCommittedSnapshot(tx, {
+				appId,
+				seq,
+				batchId,
+				runId,
+				committedDoc: persistable,
+				mutations,
+				actorUserId,
+				kind,
+				basisToken,
+				...(refreshLease && { extraAppFields: refreshLease }),
+			});
+			return {
+				seq,
+				basisToken,
+				committedDoc: verdict.nextDoc,
+				deduped: false,
+				persistable,
+			};
+		},
+	);
 
 	// Post-commit media reverse-index sync — best-effort, only on a real commit
 	// (`persistable` is present exactly then, reusing the txn's `toPersistableDoc`).
@@ -919,10 +933,10 @@ export async function commitAppProjectMove(
 ): Promise<CommitMoveResult> {
 	const basisToken = crypto.randomUUID();
 	const batchId = crypto.randomUUID();
-	const result = await getDb().runTransaction<{
+	const result = await runThrottledTransaction<{
 		outcome: CommitMoveResult;
 		committed: PersistedBlueprint | null;
-	}>(async (tx) => {
+	}>(getDb(), async (tx) => {
 		const snap = await tx.get(docs.app(appId));
 		const fresh = snap.exists ? (snap.data() ?? null) : null;
 		if (!fresh) {
@@ -1206,7 +1220,7 @@ export async function claimRun(
 	runId: string,
 	actorUserId: string,
 ): Promise<ClaimedRun> {
-	return await getDb().runTransaction(async (tx) => {
+	return await runThrottledTransaction(getDb(), async (tx) => {
 		// RAW ref (converter-less): `claimRun` reads only top-level run-liveness
 		// fields (status / error_type / awaiting_input / run_lock / updated_at), so
 		// a converter parse of the whole blueprint is both

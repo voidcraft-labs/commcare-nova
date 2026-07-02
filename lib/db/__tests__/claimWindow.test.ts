@@ -152,7 +152,10 @@ const { firestoreMock, seedDoc, readDoc, resetStore } = vi.hoisted(() => {
 	};
 });
 
-vi.mock("../firestore", () => firestoreMock);
+vi.mock("../firestore", async () => ({
+	...(await import("./throttlePassthrough")).throttlePassthrough,
+	...firestoreMock,
+}));
 
 describe("claim window — kept charges survive a hard kill; live holds still refund", () => {
 	const PERIOD = getCurrentPeriod();

@@ -31,7 +31,7 @@ import {
 	pendingGcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
-import { collections, docs } from "./firestore";
+import { collections, docs, runThrottledTransaction } from "./firestore";
 import type { MediaAssetDoc, MediaAssetExtract } from "./types";
 
 /**
@@ -322,7 +322,7 @@ export async function claimExtractionIfIdle(
 	opts: { now: number; staleMs: number; currentVersion: number; model: string },
 ): Promise<boolean> {
 	const ref = docs.mediaAsset(assetId);
-	return ref.firestore.runTransaction(async (tx) => {
+	return runThrottledTransaction(ref.firestore, async (tx) => {
 		const extract = (await tx.get(ref)).data()?.extract;
 		const liveJob =
 			extract?.status === "extracting" &&

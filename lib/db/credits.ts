@@ -9,7 +9,7 @@
  */
 import { FieldValue } from "@google-cloud/firestore";
 import { creditBalance, MONTHLY_CREDIT_ALLOWANCE } from "./creditPolicy";
-import { collections, docs } from "./firestore";
+import { collections, docs, runThrottledTransaction } from "./firestore";
 import { withFirestoreRetry } from "./firestoreRetry";
 import { getCurrentPeriod } from "./period";
 import { runLeaseState } from "./runLiveness";
@@ -106,7 +106,7 @@ export async function reserveCredits(
 	const ref = docs.creditMonthRaw(userId, period);
 	const appRef = docs.appRaw(appId);
 
-	await ref.firestore.runTransaction(async (tx) => {
+	await runThrottledTransaction(ref.firestore, async (tx) => {
 		// Read every doc up front — Firestore forbids a read after the first
 		// write. The app doc carries any leftover marker to refund; the prior
 		// actor's credit doc (if the leftover is for a DIFFERENT month/user) is
@@ -260,7 +260,7 @@ export async function refundReservation(
 ): Promise<void> {
 	const appRef = docs.appRaw(appId);
 
-	await appRef.firestore.runTransaction(async (tx) => {
+	await runThrottledTransaction(appRef.firestore, async (tx) => {
 		// All reads precede all writes (Firestore's transaction rule): read the
 		// marker, then — only if there is something to refund — the credit doc.
 		const appSnap = await tx.get(appRef);
@@ -629,7 +629,7 @@ export async function resetCredits(
 	// transaction so the same ref is written exactly once inside it.
 	const grantRef = collections.creditGrants(userId).doc();
 
-	await monthRef.firestore.runTransaction(async (tx) => {
+	await runThrottledTransaction(monthRef.firestore, async (tx) => {
 		const snap = await tx.get(monthRef);
 		const data = snap.exists
 			? (snap.data() as Partial<CreditMonthDoc>)
@@ -681,7 +681,7 @@ export async function grantCredits(
 	const monthRef = docs.creditMonthRaw(userId, period);
 	const grantRef = collections.creditGrants(userId).doc();
 
-	await monthRef.firestore.runTransaction(async (tx) => {
+	await runThrottledTransaction(monthRef.firestore, async (tx) => {
 		const snap = await tx.get(monthRef);
 		const data = snap.exists
 			? (snap.data() as Partial<CreditMonthDoc>)

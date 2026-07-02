@@ -1,3 +1,6 @@
+import { readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
 	AS_ISSUER,
@@ -130,6 +133,79 @@ describe("isPathAllowedOnHost", () => {
 		expect(isPathAllowedOnHost(HOSTNAMES.main, "/api/auth/callback")).toBe(
 			true,
 		);
+	});
+});
+
+/**
+ * Structural guard for the deploy-time footgun this file's `/api/media` case
+ * already documents: a new page route under the main-host `app/(app)/` tree
+ * that nobody adds to `HOSTNAME_ALLOWLIST` renders fine on localhost (the
+ * unknown-host branch in `proxy.ts` skips the allowlist) and 404s in prod (the
+ * main host gates every path). `/project` and `/accept-invitation` both shipped
+ * this way with the shared-Project work. Rather than trust everyone to remember
+ * the allowlist, we walk the router tree and assert every main-host page path is
+ * reachable — a missing entry fails CI instead of prod.
+ */
+const APP_DIR = join(
+	dirname(fileURLToPath(import.meta.url)),
+	"..",
+	"..",
+	"app",
+);
+
+/** Route-group segment like `(app)` — organizes files without a URL segment. */
+function isRouteGroup(segment: string): boolean {
+	return segment.startsWith("(") && segment.endsWith(")");
+}
+
+/** Dynamic segment like `[id]`, `[...path]`, `[[...slug]]` — matches any value. */
+function isDynamicSegment(segment: string): boolean {
+	return segment.startsWith("[");
+}
+
+/** Recursively collect every `page.tsx` path relative to `app/`. */
+function collectPageRoutes(dir: string, prefix: string[] = []): string[][] {
+	const routes: string[][] = [];
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		if (entry.isDirectory()) {
+			routes.push(
+				...collectPageRoutes(join(dir, entry.name), [...prefix, entry.name]),
+			);
+		} else if (entry.name === "page.tsx") {
+			routes.push(prefix);
+		}
+	}
+	return routes;
+}
+
+/** Turn a page's directory segments into the wire path the proxy sees, with
+ *  dynamic segments filled by a concrete placeholder so prefix matching works. */
+function toWirePath(segments: string[]): string {
+	const parts = segments
+		.filter((s) => !isRouteGroup(s))
+		.map((s) => (isDynamicSegment(s) ? "x" : s));
+	return parts.length === 0 ? "/" : `/${parts.join("/")}`;
+}
+
+describe("main-host page routes are all allowlisted (regression guard)", () => {
+	/* The main app lives under `app/(app)/`; `(docs)` is the docs host and
+	 * `(dev-only)` is intentionally unreachable in prod, so neither belongs on
+	 * the main-host allowlist. */
+	const mainHostPages = collectPageRoutes(APP_DIR)
+		.filter((segments) => segments[0] === "(app)")
+		.map(toWirePath)
+		/* `/warmup` is the Cloud Run startup probe on the internal `*.run.app`
+		 * host; `proxy.ts` documents that the main host deliberately 404s it. */
+		.filter((path) => path !== "/warmup");
+
+	it("discovers the known main-host pages (walker sanity check)", () => {
+		expect(mainHostPages).toContain("/project");
+		expect(mainHostPages).toContain("/accept-invitation");
+		expect(mainHostPages).toContain("/settings");
+	});
+
+	it.each(mainHostPages)("allows %s on the main host", (path) => {
+		expect(isPathAllowedOnHost(HOSTNAMES.main, path)).toBe(true);
 	});
 });
 

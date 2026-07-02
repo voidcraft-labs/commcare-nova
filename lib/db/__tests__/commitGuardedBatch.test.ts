@@ -142,7 +142,8 @@ const { getDbMock, appUpdateSpy, state, invokeCount } = vi.hoisted(() => {
 	return { getDbMock, appUpdateSpy, state, invokeCount };
 });
 
-vi.mock("../firestore", () => ({
+vi.mock("../firestore", async () => ({
+	...(await import("./throttlePassthrough")).throttlePassthrough,
 	getDb: getDbMock,
 	docs: {
 		batchDedupRaw: () => ({ kind: "dedup" }),
