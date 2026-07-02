@@ -1057,7 +1057,7 @@ export async function completeAndSettleRun(
 	runId: string,
 ): Promise<void> {
 	await withFirestoreRetry(() =>
-		getDb().runTransaction(async (tx) => {
+		runThrottledTransaction(getDb(), async (tx) => {
 			// RAW ref (converter-less): this only needs the run-liveness leaves, and a
 			// converter read would re-parse the whole blueprint through Zod — a doc
 			// that fails `appDocSchema.parse` would THROW inside the txn, stranding the
@@ -1343,7 +1343,7 @@ export async function refreshEditLease(
 	appId: string,
 	runId: string,
 ): Promise<void> {
-	await getDb().runTransaction(async (tx) => {
+	await runThrottledTransaction(getDb(), async (tx) => {
 		const snap = await tx.get(docs.appRaw(appId));
 		const fresh = (snap.exists ? snap.data() : undefined) as
 			| Partial<AppDoc>
@@ -1462,7 +1462,7 @@ export async function clearRunLockAndSettle(
 	runId: string,
 ): Promise<void> {
 	await withFirestoreRetry(() =>
-		getDb().runTransaction(async (tx) => {
+		runThrottledTransaction(getDb(), async (tx) => {
 			// RAW ref (converter-less) for the same reason as `completeAndSettleRun`:
 			// only the run-liveness leaves are needed, and a converter parse of a bad
 			// blueprint would throw inside the txn and strand the lock release + settle.
@@ -1559,7 +1559,7 @@ export async function reacquireLease(
 	runId: string,
 	mode: "build" | "edit",
 ): Promise<boolean> {
-	return await getDb().runTransaction(async (tx) => {
+	return await runThrottledTransaction(getDb(), async (tx) => {
 		const snap = await tx.get(docs.appRaw(appId));
 		const fresh = (snap.exists ? snap.data() : undefined) as
 			| Partial<AppDoc>

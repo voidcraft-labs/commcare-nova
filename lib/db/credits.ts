@@ -353,7 +353,7 @@ export async function settleAndRelease(
 	// so a transient Firestore blip that made a single attempt throw would strand
 	// the lock (a collaborator lockout until the lease lapses) — the retry lands it.
 	return await withFirestoreRetry(() =>
-		appRef.firestore.runTransaction(async (tx) => {
+		runThrottledTransaction(appRef.firestore, async (tx) => {
 			const appSnap = await tx.get(appRef);
 			if (!appSnap.exists) return { settled: false };
 			const appData = appSnap.data() as Partial<AppDoc>;
@@ -458,7 +458,7 @@ export async function settleAndRelease(
 export async function refundStaleReservation(appId: string): Promise<void> {
 	const appRef = docs.appRaw(appId);
 
-	await appRef.firestore.runTransaction(async (tx) => {
+	await runThrottledTransaction(appRef.firestore, async (tx) => {
 		const appSnap = await tx.get(appRef);
 		if (!appSnap.exists) return;
 		const appData = appSnap.data() as Partial<AppDoc>;
@@ -533,7 +533,7 @@ export async function refundStaleReservation(appId: string): Promise<void> {
  */
 export async function refundStaleGeneration(appId: string): Promise<void> {
 	const appRef = docs.appRaw(appId);
-	await appRef.firestore.runTransaction(async (tx) => {
+	await runThrottledTransaction(appRef.firestore, async (tx) => {
 		const appSnap = await tx.get(appRef);
 		if (!appSnap.exists) return;
 		const appData = appSnap.data() as Partial<AppDoc>;
