@@ -1106,7 +1106,20 @@ export async function completeAndSettleRun(
  * bouncing), taking the claim once the holder releases.
  */
 export class RunConflictError extends Error {
-	constructor() {
+	/**
+	 * Whether the blocking run was REAPABLE at the claim's read — a lapsed-lease
+	 * PAUSED run (`paused` blocks a claim regardless of the lease, so only a
+	 * reaper can free it). `claimRun` fires the matching reaper off these flags
+	 * before rethrowing: the reapers otherwise fire only from the app-list scan
+	 * (`projectAppSummary`) and the build-only `hasActiveGeneration`, neither of
+	 * which a collaborator's serialize-with-wait poll touches — without the nudge
+	 * an abandoned paused run would block every waiter until a Project member
+	 * happened to load the dashboard.
+	 */
+	constructor(
+		readonly reapableStaleBuild = false,
+		readonly reapableStrandedEdit = false,
+	) {
 		super(
 			"Another request is already running on this app — only one run can work on an app at a time.",
 		);
@@ -1220,6 +1233,36 @@ export async function claimRun(
 	runId: string,
 	actorUserId: string,
 ): Promise<ClaimedRun> {
+	try {
+		return await claimRunTx(appId, mode, runId, actorUserId);
+	} catch (err) {
+		/* A conflict with a REAPABLE holder — an abandoned PAUSED run whose lease
+		 * lapsed (`paused` blocks a claim regardless of the lease, so it can only
+		 * be freed by a reaper). Run the matching reaper here, on the waiter's own
+		 * path: the reapers otherwise fire only from the app-list scan, which a
+		 * collaborator polling this claim never touches — so an abandoned paused
+		 * run would block every waiter's poll window forever. Awaited (not
+		 * fire-and-forget) so the caller's NEXT poll deterministically finds the
+		 * freed app; each reaper re-validates its staleness in-txn and swallows its
+		 * own faults, so a spurious or repeated fire no-ops and never masks the
+		 * conflict. */
+		if (err instanceof RunConflictError) {
+			if (err.reapableStaleBuild) await reapStaleGenerating(appId);
+			else if (err.reapableStrandedEdit) await reapStaleReservation(appId);
+		}
+		throw err;
+	}
+}
+
+/** The claim transaction body of {@link claimRun} — split out so the reap
+ *  nudge above stays outside the transaction (a txn body must stay pure of
+ *  side effects; it can retry). */
+async function claimRunTx(
+	appId: string,
+	mode: "build" | "edit",
+	runId: string,
+	actorUserId: string,
+): Promise<ClaimedRun> {
 	return await runThrottledTransaction(getDb(), async (tx) => {
 		// RAW ref (converter-less): `claimRun` reads only top-level run-liveness
 		// fields (status / error_type / awaiting_input / run_lock / updated_at), so
@@ -1250,7 +1293,12 @@ export async function claimRun(
 		 * [claim, reserveCredits) window — by construction. */
 		const lease = runLeaseState(fresh);
 		if (lease.live || lease.paused) {
-			throw new RunConflictError();
+			// Carry the reapable flags out so the wrapper can fire the matching
+			// reaper for an abandoned paused holder (lapsed lease) — see claimRun.
+			throw new RunConflictError(
+				lease.reapableStaleBuild,
+				lease.reapableStrandedEdit,
+			);
 		}
 
 		/* The exact at-rest values this claim is about to overwrite — captured
@@ -1681,8 +1729,10 @@ export function setAwaitingInput(
  * `error` row is no longer `generating` → no-op).
  *
  * An app with no marker (created before reservations shipped, or whose run never
- * reserved) reaps to `error` with no refund. Fire-and-forget at the call sites,
- * like `failApp`: a transient failure self-heals on the next scan.
+ * reserved) reaps to `error` with no refund. Fire-and-forget at the scan call
+ * sites (`projectAppSummary` / `hasActiveGeneration`), like `failApp`, and
+ * AWAITED from `claimRun`'s conflict path (the waiter-side nudge that frees an
+ * abandoned paused build): a transient failure self-heals on the next scan/poll.
  *
  * Scope: BUILDS only. The reaper keys on `status: "generating"`, which only the
  * build paths write — `createApp` for a new build, `claimRun('build')` for every
@@ -1710,9 +1760,12 @@ export async function reapStaleGenerating(appId: string): Promise<void> {
  * hold stranded on a row the `generating`-keyed reaper never scans. This reaper
  * keys on the SINGLE run-liveness signal — the `run_lock` (the one the
  * per-commit heartbeat refreshes): it fires only on a `status === "complete"`
- * app whose marker is present + unsettled, NOT `awaiting_input` (a paused run's
- * hold is live), and whose EDIT is a hard kill — `run_lock` PRESENT but PAST its
- * refreshed `expireAt`. A LIVE edit keeps a future `run_lock.expireAt` as long as
+ * app whose marker is present + unsettled and whose EDIT is a hard kill —
+ * `run_lock` PRESENT but PAST its refreshed `expireAt`. A paused edit is NOT
+ * excluded: the lapsed lease is the reap signal paused or not, which is how an
+ * ABANDONED paused edit (the user never answered, the tab closed) frees instead
+ * of holding the app forever; a recently-paused edit's lease is still future, so
+ * it is untouched. A LIVE edit keeps a future `run_lock.expireAt` as long as
  * it commits, so even one running far past the initial `MAX_RUN_MINUTES` lease is
  * never reaped. Requiring the lock be PRESENT is what excludes a BUILD's marker:
  * a build never claims a `run_lock`, so a `complete` app with an unsettled marker
@@ -1730,10 +1783,11 @@ export async function reapStaleGenerating(appId: string): Promise<void> {
  * fresh `run_lock` — the in-txn re-check sees the live lock and skips, so a live
  * charge is never clawed back.
  *
- * Called from `projectAppSummary` — the `listApps` scan sees `complete` apps —
- * NOT `hasActiveGeneration`, whose queries filter `status === "generating"` and
- * so never see an edit hold. Fire-and-forget at the call site, like
- * `reapStaleGenerating`: a transient failure self-heals on the next scan
+ * Called from `projectAppSummary` (fire-and-forget — the `listApps` scan sees
+ * `complete` apps; NOT `hasActiveGeneration`, whose queries filter
+ * `status === "generating"` and so never see an edit hold) and AWAITED from
+ * `claimRun`'s conflict path (the waiter-side nudge that frees an abandoned
+ * paused holder). A transient failure self-heals on the next scan/poll
  * (`refundStaleReservation`'s settle is idempotent, so a double-fire can't
  * double-refund).
  *

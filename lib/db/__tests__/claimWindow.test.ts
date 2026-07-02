@@ -32,6 +32,9 @@ import { getCurrentPeriod } from "../period";
 const staleTimestamp = () =>
 	Timestamp.fromDate(new Date(Date.now() - 60 * 60_000));
 
+/** A fresh `updated_at` — a build inside its staleness window (paused-alive). */
+const nowTimestamp = () => Timestamp.fromDate(new Date());
+
 const { firestoreMock, seedDoc, readDoc, resetStore } = vi.hoisted(() => {
 	const store = new Map<string, Record<string, unknown>>();
 
@@ -346,6 +349,9 @@ describe("claim window — kept charges survive a hard kill; live holds still re
 			owner: "user-1",
 			status: "generating",
 			awaiting_input: true,
+			// A RECENTLY-paused build (fresh clock): paused-alive, not reapable — so
+			// the conflicting claim below must not fire the abandoned-run reaper.
+			updated_at: nowTimestamp(),
 			error_type: null,
 			reservation: { period: PERIOD, reserved: 100, settled: false },
 		});

@@ -43,7 +43,7 @@ import {
 	MONTHLY_CREDIT_ALLOWANCE,
 } from "@/lib/db/creditPolicy";
 import { getCurrentPeriod } from "@/lib/db/period";
-import { MAX_RUN_MINUTES } from "../constants";
+import { MAX_GENERATION_MINUTES, MAX_RUN_MINUTES } from "../constants";
 
 const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
 
@@ -447,6 +447,77 @@ describe.skipIf(!emulatorAvailable)(
 			expect(app?.reservation).toMatchObject({ settled: true });
 			expect(app?.run_lock).toBeUndefined();
 			expect(app?.awaiting_input).toBeFalsy();
+		});
+
+		it("a claim conflicting with an ABANDONED paused edit fires the reaper itself — the waiter's poll then claims", async () => {
+			const { claimRun, RunConflictError } = await import("../apps");
+			// The reapers otherwise fire only from the app-list scan — a collaborator
+			// polling `claimRun` (the serialize-with-wait loop) never touches it, so
+			// without the claim-path nudge an abandoned paused run blocks every
+			// waiter until someone happens to load the dashboard.
+			await seedCredits(OWNER, CREDITS_PER_EDIT);
+			await seedApp({
+				status: "complete",
+				awaiting_input: true,
+				run_lock: { runId: "p", actorUserId: OWNER, expireAt: lockExpiry(-1) },
+				reservation: {
+					period,
+					reserved: CREDITS_PER_EDIT,
+					settled: false,
+					userId: OWNER,
+					runId: "p",
+				},
+			});
+
+			// The first poll conflicts (paused blocks, lease-lapsed or not) but
+			// carries the reapable flag and AWAITS `reapStaleReservation` on its way
+			// out.
+			const conflict = await claimRun(APP_ID, "edit", "waiter", MEMBER).then(
+				() => undefined,
+				(err) => err,
+			);
+			expect(conflict).toBeInstanceOf(RunConflictError);
+			expect(conflict.reapableStrandedEdit).toBe(true);
+
+			// The reap freed the app before the conflict surfaced, so the waiter's
+			// very next poll (750 ms later in the chat route's loop) claims it.
+			const claim = await claimRun(APP_ID, "edit", "waiter", MEMBER);
+			expect(claim.mode).toBe("edit");
+			// The abandoned run's hold was refunded by the reap (not buried).
+			expect(await readConsumed(OWNER)).toBe(0);
+		});
+
+		it("a claim conflicting with an ABANDONED paused build fires the reaper itself — the waiter's poll then claims", async () => {
+			const { claimRun, RunConflictError } = await import("../apps");
+			await seedCredits(OWNER, CREDITS_PER_BUILD);
+			await seedApp({
+				status: "generating",
+				awaiting_input: true,
+				// The paused build's clock froze past the staleness window.
+				updated_at: Timestamp.fromMillis(
+					Date.now() - (MAX_GENERATION_MINUTES + 1) * 60_000,
+				),
+				reservation: {
+					period,
+					reserved: CREDITS_PER_BUILD,
+					settled: false,
+					userId: OWNER,
+					runId: "p",
+				},
+			});
+
+			const conflict = await claimRun(APP_ID, "build", "waiter", MEMBER).then(
+				() => undefined,
+				(err) => err,
+			);
+			expect(conflict).toBeInstanceOf(RunConflictError);
+			expect(conflict.reapableStaleBuild).toBe(true);
+
+			// The reap flipped the abandoned build to `error` and refunded its hold
+			// before the conflict surfaced; the next poll claims the freed app.
+			const claim = await claimRun(APP_ID, "build", "waiter", MEMBER);
+			expect(claim.mode).toBe("build");
+			expect(await readConsumed(OWNER)).toBe(0);
 		});
 
 		it("refundStaleReservation never reaps a RECENTLY-paused edit (paused + FUTURE lease) — its own resume can still renew", async () => {

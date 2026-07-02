@@ -677,19 +677,14 @@ describe.skipIf(!emulatorAvailable)("P9 run-lifecycle invariant matrix", () => {
 			RunConflictError,
 		);
 
-		// The paused run's lease lapses (no heartbeat while paused). But a PAUSED run
-		// is not reaped while `awaiting_input` guards it — the abandoned run is freed
-		// once it is no longer paused-alive. Model it: the lease lapses AND the run is
-		// abandoned (the reaper's precondition is a lapsed, non-paused stranded edit),
-		// so clear the pause (the user never answered → the tab closed) + lapse, then
-		// the reaper frees it and the waiter proceeds.
+		// The paused run's lease lapses (no heartbeat while paused) and the user
+		// never answers — an ABANDONED paused edit. The reaper keys on the lapsed
+		// lease alone (`reapableStrandedEdit` does NOT exclude `awaiting_input`),
+		// so it frees the still-paused run: refund + release lock + clear the pause.
 		await db
 			.collection("apps")
 			.doc(APP)
-			.update({
-				awaiting_input: false,
-				"run_lock.expireAt": new Date(Date.now() - 1000),
-			});
+			.update({ "run_lock.expireAt": new Date(Date.now() - 1000) });
 		await reapStaleReservation(APP); // frees the app (refund + release lock)
 		expect(await consumed(OWNER)).toBe(0); // the abandoned run was refunded
 		await expect(claimRun(APP, "build", "b2", MEMBER)).resolves.toMatchObject({
