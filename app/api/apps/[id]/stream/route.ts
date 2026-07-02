@@ -58,10 +58,16 @@ export const maxDuration = 3600;
  * so they don't have to wait a full 10 s per case (a testability seam only —
  * prod never sets the var).
  */
-const REVOCATION_CADENCE_MS = Number.parseInt(
-	process.env.NOVA_STREAM_CADENCE_MS ?? "10000",
-	10,
-);
+const REVOCATION_CADENCE_MS = (() => {
+	const parsed = Number.parseInt(
+		process.env.NOVA_STREAM_CADENCE_MS ?? "10000",
+		10,
+	);
+	// Guard the test-only override like `parseCursor` guards its input: a
+	// non-numeric/non-positive value would reach `setInterval(fn, NaN)`, which
+	// coerces to ~0 ms — a full session+scope re-check spinning per tick.
+	return Number.isNaN(parsed) || parsed <= 0 ? 10_000 : parsed;
+})();
 
 /**
  * Parse the recovery cursor from the reconnect header (`Last-Event-ID`, set by
@@ -128,7 +134,22 @@ export async function GET(
 		const appSnap = await docs.appRaw(appId).get();
 		head = (appSnap.data()?.mutation_seq as number | undefined) ?? 0;
 
-		return openStream({ appId, userId, cursor, head, req });
+		/* TTL floor check. The count-based retention check (below, in the stream
+		 * body) can PASS while the 7-day `expireAt` TTL already deleted the
+		 * entries the client needs: a tab resurrected after a week idle (cursor
+		 * behind head by fewer than RETENTION_COUNT) would subscribe, receive
+		 * NOTHING — the seq-gap check fires only on a DELIVERED frame — and
+		 * silently render a stale blueprint until some future commit finally
+		 * arrives. When the client is behind the head, one doc read proves the
+		 * replay floor (`cursor + 1`) still exists; a TTL-pruned floor means
+		 * replay is impossible → tell the client to reload the snapshot. */
+		let replayUnavailable = false;
+		if (cursor < head) {
+			const floor = await docs.acceptedMutation(appId, cursor + 1).get();
+			replayUnavailable = !floor.exists;
+		}
+
+		return openStream({ appId, userId, cursor, head, replayUnavailable, req });
 	} catch (err) {
 		/* Pre-stream failure (auth, membership, the head read) — OR a client
 		 * disconnect that aborted an in-flight await here. `handleApiError`
@@ -152,9 +173,11 @@ function openStream(args: {
 	userId: string;
 	cursor: number;
 	head: number;
+	/** The connect-time floor read proved replay impossible (TTL-pruned). */
+	replayUnavailable: boolean;
 	req: Request;
 }): Response {
-	const { appId, userId, cursor, head, req } = args;
+	const { appId, userId, cursor, head, replayUnavailable, req } = args;
 
 	const encoder = new TextEncoder();
 
@@ -224,9 +247,10 @@ function openStream(args: {
 				teardown();
 			}
 
-			/* If the cursor fell below the retention window, the entries the client
-			 * missed are already pruned — it must reload rather than replay. */
-			if (cursor < head - RETENTION_COUNT) {
+			/* If the cursor fell below the retention window — or the connect-time
+			 * floor read found the needed entries TTL-pruned — the entries the
+			 * client missed are already gone: it must reload rather than replay. */
+			if (cursor < head - RETENTION_COUNT || replayUnavailable) {
 				reloadAndClose();
 				return;
 			}

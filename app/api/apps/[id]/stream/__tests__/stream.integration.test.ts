@@ -320,6 +320,24 @@ describe.skipIf(!emulatorAvailable)(
 			expect(frames.some((f) => f.event === "mutation")).toBe(false);
 		});
 
+		it("reloads at connect when the replay floor was TTL-pruned inside the retention window", async () => {
+			// The count-based retention check passes (head − cursor ≪ RETENTION),
+			// but the 7-day TTL already deleted EVERY entry the client needs — a
+			// tab resurrected after a week idle. With nothing to deliver, the
+			// seq-gap check (which fires only on a DELIVERED frame) never trips,
+			// so without the connect-time floor read the client would silently
+			// render a stale blueprint until some future commit arrived.
+			const appId = await seedApp(10); // head 10, NO entries at all
+
+			const { frames } = await collectUntil(appId, {
+				since: 5,
+				predicate: (f) => f.some((x) => x.event === "reload"),
+			});
+
+			expect(frames.some((f) => f.event === "reload")).toBe(true);
+			expect(frames.some((f) => f.event === "mutation")).toBe(false);
+		});
+
 		it("reloads on a gap — the first delivered seq isn't cursor+1", async () => {
 			// Head says seq 5 exists but only seq 5 is present (1..4 pruned); a cursor
 			// of 0 expects seq 1 first, so the seq-5 delivery is a hole → reload.
