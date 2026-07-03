@@ -97,17 +97,10 @@ interface SentBatch {
 	 *  committed seq). Set once known; a reload drops batches with
 	 *  `ackedSeq <= M`. Undefined until acked. */
 	ackedSeq?: number;
-	/** True once the PUT has been sent (guards the retry loop from re-sending
-	 *  a batch still in its first flight). Chat batches are `sent: true` at
-	 *  registration (the server committed them). */
-	sent: boolean;
 	/** True while a PUT for this batch is currently awaiting its response. The
-	 *  retry loop excludes an in-flight batch so it never fires a second,
-	 *  concurrent PUT for the one already open. */
+	 *  send pump treats an in-flight head as blocking, so it never fires a
+	 *  second, concurrent PUT for the one already open. */
 	putInFlight: boolean;
-	/** True once the batch's echo frame has advanced `confirmedDoc` — it is
-	 *  about to leave `sentPending`, so the retry loop must not re-send it. */
-	echoed: boolean;
 	/** True once a 413 rejected the batch — re-PUTting the same body can't
 	 *  shrink it, so the send pipeline holds behind it (nothing later is sent,
 	 *  no dependent 409 churn) while the batch stays folded into `localBase()`
@@ -272,6 +265,20 @@ export interface Reconciler {
 	activate(args: { appId: string; baseDoc: BlueprintDoc }): void;
 	/** A read-only state snapshot (tests + presence). */
 	getSnapshot(): ReconcilerSnapshot;
+	/**
+	 * Drop the recovery machine's scheduled-tick latch — the provider's effect
+	 * cleanup (`suspend`) clears the backing timers DIRECTLY, and without this
+	 * the reconciler's `cancelRetry` would stay truthy pointing at a cleared
+	 * timer, wedging `scheduleRetryLoop`'s "already scheduled" early-return
+	 * forever after a StrictMode-replay resume.
+	 */
+	suspendRecovery(): void;
+	/**
+	 * Re-arm the recovery machine after a `suspendRecovery` (the provider's
+	 * effect setup): schedules a tick if outstanding work survived the suspend
+	 * window (an un-acked batch, a pending reload). No-op when idle.
+	 */
+	resumeRecovery(): void;
 	/** Cancel any scheduled retry (provider teardown). */
 	dispose(): void;
 }
@@ -484,9 +491,7 @@ export function createReconciler(
 		const batch: SentBatch = {
 			batchId,
 			mutations,
-			sent: false,
 			putInFlight: false,
-			echoed: false,
 			tooLarge: false,
 			observe,
 		};
@@ -518,7 +523,7 @@ export function createReconciler(
 		// about to replace would race the very reconciliation it exists for.
 		if (reloadPending || reloadInFlight) return;
 		for (const b of sentPending) {
-			if (b.echoed || b.ackedSeq !== undefined) continue;
+			if (b.ackedSeq !== undefined) continue;
 			if (b.batchId === rejectedBatchId) continue;
 			// The head of the un-acked pipeline: in flight or 413-stuck → wait;
 			// otherwise send it (first flight, or a retry-tick re-send).
@@ -532,7 +537,6 @@ export function createReconciler(
 	 *  server via the P3 `batchDedup` latch, so a retry re-PUTs the same
 	 *  batchId safely. */
 	async function sendBatch(batch: SentBatch): Promise<void> {
-		batch.sent = true;
 		batch.putInFlight = true;
 		putsInFlight += 1;
 		batch.observe?.({ kind: "saving" });
@@ -698,19 +702,26 @@ export function createReconciler(
 		// tab (a gap frame, no local edit) recovers via this path alone.
 		if (reloadPending) maybeRunDeferredReload();
 
-		// Reschedule while anything is still outstanding — a batch awaiting a
-		// re-send/response, or a reload still pending. `reloadInFlight` is NOT a
-		// reschedule reason: `runReload` runs its own coalesced follow-up on
-		// completion, so a tick churning through a slow reload GET does nothing. A
-		// 413-stuck batch is NOT outstanding — nothing will ever re-send it, so
-		// counting it would spin the backoff loop forever over a no-op tick.
-		const outstanding =
-			reloadPending ||
-			sentPending.some(
-				(b) => b.ackedSeq === undefined && !b.echoed && !b.tooLarge,
-			);
-		if (outstanding) scheduleRetryLoop();
+		// Reschedule while anything is still outstanding; reset the backoff when
+		// nothing is.
+		if (hasOutstandingRecovery()) scheduleRetryLoop();
 		else retryAttempt = 0;
+	}
+
+	/**
+	 * Whether the recovery machine still has work a tick could advance: a
+	 * pending reload, or an un-acked batch the pump can (eventually) re-send.
+	 * `reloadInFlight` is NOT outstanding — `runReload` runs its own coalesced
+	 * follow-up on completion, so a tick churning through a slow reload GET
+	 * does nothing. A 413-stuck batch holds the whole pipeline — neither it NOR
+	 * anything queued behind it is sendable — so a held pipeline contributes
+	 * nothing (counting a follower would spin the backoff loop forever over a
+	 * tick whose pump returns at the stuck head).
+	 */
+	function hasOutstandingRecovery(): boolean {
+		if (reloadPending) return true;
+		if (sentPending.some((b) => b.tooLarge)) return false;
+		return sentPending.some((b) => b.ackedSeq === undefined);
 	}
 
 	// ── Inbound frame ────────────────────────────────────────────────────
@@ -794,10 +805,7 @@ export function createReconciler(
 
 	function dropBatch(batchId: string): void {
 		const idx = sentPending.findIndex((b) => b.batchId === batchId);
-		if (idx >= 0) {
-			sentPending[idx].echoed = true;
-			sentPending.splice(idx, 1);
-		}
+		if (idx >= 0) sentPending.splice(idx, 1);
 		awaitingEcho.delete(batchId);
 	}
 
@@ -971,9 +979,7 @@ export function createReconciler(
 			runId: args.runId,
 			mutations: args.mutations,
 			ackedSeq: args.seq,
-			sent: true,
 			putInFlight: false,
-			echoed: false,
 			tooLarge: false,
 		};
 		sentPending.push(batch);
@@ -1060,6 +1066,16 @@ export function createReconciler(
 		};
 	}
 
+	function suspendRecovery(): void {
+		cancelRetry?.();
+		cancelRetry = undefined;
+	}
+
+	function resumeRecovery(): void {
+		if (inert()) return;
+		if (hasOutstandingRecovery()) scheduleRetryLoop();
+	}
+
 	function dispose(): void {
 		// Set the flag FIRST so any in-flight reload/PUT promise that resolves
 		// after this becomes a no-op (no resubscribe → no leaked EventSource, no
@@ -1083,6 +1099,8 @@ export function createReconciler(
 		setSelfActiveRunId,
 		activate,
 		getSnapshot,
+		suspendRecovery,
+		resumeRecovery,
 		dispose,
 	};
 }

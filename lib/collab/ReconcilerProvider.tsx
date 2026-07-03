@@ -46,6 +46,10 @@ function retryDelayMs(attempt: number): number {
 	return Math.min(30_000, 1_000 * 2 ** attempt);
 }
 
+/** After this many consecutive failed stream reopens, probe the app GET to
+ *  distinguish a revocation from an outage (see the reopen listener). */
+const REOPEN_PROBE_AFTER = 3;
+
 /** Everything the provider builds once per mount and drives via effects. */
 interface ReconcilerRuntime {
 	readonly reconciler: Reconciler;
@@ -169,6 +173,29 @@ function buildRuntime(
 				/* A reload's `resubscribe` may have already replaced the failed
 				 * stream while this timer was pending — don't churn a healthy one. */
 				if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
+					return;
+				}
+				/* SUSTAINED reopen failures are ambiguous: `EventSource` exposes no
+				 * HTTP status, so a permanent 404 — access revoked while the stream
+				 * was DOWN, which the cadence `revoked` event can't deliver and a
+				 * VIEWER (who never PUTs) gets no 403 freeze for — looks identical to
+				 * a long deploy outage. Probe the app GET once: a denial answers the
+				 * IDOR-safe 404 (or 401/403) → revoke + stop reopening; anything else
+				 * (200, 5xx, network) keeps the backoff loop alive. */
+				if (streamRetryAttempt >= REOPEN_PROBE_AFTER) {
+					void fetch(`/api/apps/${appIdBox.current}`)
+						.then((res) => {
+							if (!active || reconciler.getSnapshot().revoked) return;
+							if ([401, 403, 404].includes(res.status)) {
+								reconciler.onRevoked();
+								return;
+							}
+							openStream(reconciler.getSnapshot().baseSeq);
+						})
+						.catch(() => {
+							// Network down — keep the backoff loop alive.
+							if (active) openStream(reconciler.getSnapshot().baseSeq);
+						});
 					return;
 				}
 				openStream(now.baseSeq);
@@ -316,6 +343,9 @@ function buildRuntime(
 		if (appIdBox.current !== undefined) {
 			openStream(reconciler.getSnapshot().baseSeq);
 		}
+		// Re-arm the reconciler's recovery machine — work that survived the
+		// suspend window (an un-acked batch, a pending reload) gets its tick back.
+		reconciler.resumeRecovery();
 	}
 
 	function suspend(): void {
@@ -324,6 +354,11 @@ function buildRuntime(
 		eventSource = null;
 		for (const t of retryTimers) clearTimeout(t);
 		retryTimers.clear();
+		// The timers above back the reconciler's scheduled retry — clearing them
+		// directly would leave its `cancelRetry` latch pointing at a dead timer,
+		// wedging `scheduleRetryLoop`'s "already scheduled" early-return forever
+		// after a StrictMode-replay `start`. Drop the latch with the timers.
+		reconciler.suspendRecovery();
 	}
 
 	return {

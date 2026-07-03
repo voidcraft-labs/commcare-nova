@@ -1213,6 +1213,49 @@ describe("reconciler", () => {
 			await h.resolvePut(2, { ok: true, seq: 2 });
 		});
 
+		// The provider's effect cleanup clears its backing timers DIRECTLY, so it
+		// must also drop the reconciler's scheduled-tick latch (suspendRecovery)
+		// and re-arm outstanding work on the replayed setup (resumeRecovery) — or
+		// a StrictMode suspend→start cycle wedges the retry loop forever
+		// (`scheduleRetryLoop` early-returns on the stale truthy latch).
+		it("[C8] suspendRecovery + resumeRecovery re-arm a retry that spanned the suspend window", async () => {
+			const base = makeDoc("Base");
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: base,
+				userId: "u1",
+			});
+			// A network-failed batch — a retry tick is scheduled.
+			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Edit" }]);
+			h.reconciler.dispatchHumanBatch();
+			await h.resolvePut(0, { ok: false, kind: "network" });
+			expect(h.hasScheduledRetry()).toBe(true);
+
+			// The mount effect's cleanup fires (StrictMode replay): the provider
+			// cancels the timer and drops the reconciler's latch…
+			h.reconciler.suspendRecovery();
+			expect(h.hasScheduledRetry()).toBe(false);
+			// …and the replayed setup re-arms the outstanding work.
+			h.reconciler.resumeRecovery();
+			expect(h.hasScheduledRetry()).toBe(true);
+			await h.runScheduledRetry();
+			expect(h.puts).toHaveLength(2); // the batch re-sent
+			await h.resolvePut(1, { ok: true, seq: 1 });
+		});
+
+		it("[C8b] resumeRecovery with nothing outstanding stays idle", () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: makeDoc("Base"),
+				userId: "u1",
+			});
+			h.reconciler.suspendRecovery();
+			h.reconciler.resumeRecovery();
+			expect(h.hasScheduledRetry()).toBe(false);
+		});
+
 		// [2b] — a 401 (session lapsed) is RECOVERABLE, not permanent: the batch is
 		// KEPT (not frozen, not discarded) and retried, so a cookie refresh /
 		// re-login saves the work. (The provider maps 401 → network; here we inject
