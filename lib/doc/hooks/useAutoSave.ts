@@ -134,8 +134,11 @@ export function useAutoSave(): SaveState {
 	/* Once-per-episode gate for the TERMINAL toasts (`permanent` / `tooLarge`) —
 	 * the reconciler re-surfaces the signal on every post-freeze edit so the
 	 * indicator stays honest, but the persistent toast must show ONCE, not once
-	 * per keystroke. Reset on app change and on a successful save. */
+	 * per keystroke. The toast id is captured so the app-change reset and the
+	 * unmount cleanup can DISMISS it — a persistent toast must not strand on
+	 * whatever app/screen the user lands on next (the 404 warning's rule). */
 	const warnedTerminalRef = useRef(false);
+	const terminalToastIdRef = useRef<string | undefined>(undefined);
 
 	/* Clear the 404 warning + dismiss its persistent toast. Called wherever the
 	 * "can't save" state ends — a successful save, an app change, unmount — so
@@ -145,6 +148,17 @@ export function useAutoSave(): SaveState {
 		if (warn404ToastIdRef.current) {
 			toastStore.dismiss(warn404ToastIdRef.current);
 			warn404ToastIdRef.current = undefined;
+		}
+	}, []);
+
+	/* Clear the terminal (`permanent` / `tooLarge`) warning + dismiss its
+	 * persistent toast — the terminal twin of `dismiss404Warning`, run on the
+	 * app-change reset, a successful save, and unmount. */
+	const dismissTerminalWarning = useCallback(() => {
+		warnedTerminalRef.current = false;
+		if (terminalToastIdRef.current) {
+			toastStore.dismiss(terminalToastIdRef.current);
+			terminalToastIdRef.current = undefined;
 		}
 	}, []);
 
@@ -162,8 +176,8 @@ export function useAutoSave(): SaveState {
 		}
 		pendingTrailingRef.current = false;
 		dismiss404Warning();
+		dismissTerminalWarning();
 		lastErroredRef.current = false;
-		warnedTerminalRef.current = false;
 		setState(IDLE_STATE);
 	}
 
@@ -197,8 +211,8 @@ export function useAutoSave(): SaveState {
 				case "saved":
 					inFlightRef.current = false;
 					lastErroredRef.current = false;
-					warnedTerminalRef.current = false;
 					dismiss404Warning();
+					dismissTerminalWarning();
 					setState({ status: "saved", savedAt: Date.now() });
 					startCooldown();
 					return;
@@ -254,7 +268,7 @@ export function useAutoSave(): SaveState {
 					lastErroredRef.current = true;
 					if (!warnedTerminalRef.current) {
 						warnedTerminalRef.current = true;
-						showToast(
+						terminalToastIdRef.current = showToast(
 							"error",
 							"These edits couldn't be saved",
 							"The server rejected a change, so saving is paused to avoid losing work. Reload the app to continue from the last saved version.",
@@ -276,7 +290,7 @@ export function useAutoSave(): SaveState {
 					lastErroredRef.current = true;
 					if (!warnedTerminalRef.current) {
 						warnedTerminalRef.current = true;
-						showToast(
+						terminalToastIdRef.current = showToast(
 							"error",
 							"Your unsaved changes are too large to save",
 							"There are too many unsaved changes to save at once. Reload the app to continue from the last saved version.",
@@ -409,11 +423,18 @@ export function useAutoSave(): SaveState {
 				cooldownTimerRef.current = undefined;
 			}
 			pendingTrailingRef.current = false;
-			/* Leaving the builder must not strand the persistent 404 toast on
-			 * whatever screen the user lands on next. */
+			/* Leaving the builder must not strand a persistent toast on whatever
+			 * screen the user lands on next. */
 			dismiss404Warning();
+			dismissTerminalWarning();
 		};
-	}, [sessionApi, docStore, reconcilerCtx, dismiss404Warning]);
+	}, [
+		sessionApi,
+		docStore,
+		reconcilerCtx,
+		dismiss404Warning,
+		dismissTerminalWarning,
+	]);
 
 	return state;
 }
