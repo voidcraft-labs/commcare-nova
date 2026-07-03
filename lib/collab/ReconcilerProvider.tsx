@@ -39,7 +39,6 @@ import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
 import { BuilderSessionContext } from "@/lib/session/provider";
-import type { BuilderSessionStoreApi } from "@/lib/session/store";
 
 /** Backoff for the network/5xx retry loop: 1s, 2s, 4s, … capped at 30s. */
 function retryDelayMs(attempt: number): number {
@@ -88,7 +87,6 @@ export interface ReconcilerProviderProps {
  *  provider calls it lazily from a `useRef` initializer. */
 function buildRuntime(
 	docStore: BlueprintDocStoreApi,
-	sessionApi: BuilderSessionStoreApi,
 	init: { appId?: string; baseSeq: number; userId: string },
 ): ReconcilerRuntime {
 	const appIdBox: { current: string | undefined } = { current: init.appId };
@@ -314,7 +312,6 @@ function buildRuntime(
 
 	reconciler = createReconciler(
 		docStore,
-		sessionApi,
 		{
 			appId: init.appId,
 			baseSeq: init.baseSeq,
@@ -378,7 +375,7 @@ export function ReconcilerProvider({
 
 	const runtimeRef = useRef<ReconcilerRuntime | null>(null);
 	if (runtimeRef.current === null && docStore && sessionApi) {
-		runtimeRef.current = buildRuntime(docStore, sessionApi, {
+		runtimeRef.current = buildRuntime(docStore, {
 			appId,
 			baseSeq,
 			userId,

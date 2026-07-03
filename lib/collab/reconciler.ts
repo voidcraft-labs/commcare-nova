@@ -68,7 +68,6 @@ import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
-import type { BuilderSessionStoreApi } from "@/lib/session/store";
 
 /** A projected `mutation` frame off the durable stream (see the `/stream`
  *  route's `send("mutation", …)` — the raw Firestore doc's `Timestamp`s are
@@ -338,7 +337,6 @@ function normalizeConfirmed(doc: BlueprintDoc): BlueprintDoc {
 
 export function createReconciler(
 	docStore: BlueprintDocStoreApi,
-	_sessionApi: BuilderSessionStoreApi,
 	init: ReconcilerInit,
 	deps: ReconcilerDeps,
 ): Reconciler {

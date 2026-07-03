@@ -244,8 +244,7 @@ describe.skipIf(!emulatorAvailable)("reserveCredits integration", () => {
 		// at-most-one-run-holds this only happens when the first run died/was
 		// superseded and left its hold stranded (unsettled), so the SECOND reserve
 		// refunds that leftover UNCONDITIONALLY before booking its own — net consumed
-		// stays at ONE build's cost, not two. (The old pre-C3 behavior double-booked;
-		// the fix nets the stranded hold into the fresh debit.)
+		// stays at ONE build's cost, not two.
 		await reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD, TEST_APP_ID, "run-a");
 		await reserveCredits(TEST_USER_ID, CREDITS_PER_BUILD, TEST_APP_ID, "run-b");
 		expect((await readCreditMonth(db, period))?.consumed).toBe(

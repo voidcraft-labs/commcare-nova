@@ -206,7 +206,7 @@ function makeHarness(init: {
 		onSaveError: (detail) => saveErrors.push(detail),
 	};
 
-	const reconciler = createReconciler(docStore, sessionApi, seededInit, deps);
+	const reconciler = createReconciler(docStore, seededInit, deps);
 
 	async function flush(): Promise<void> {
 		// Drain the microtask queue so awaited `sendBatch` / `runReload`
@@ -1577,7 +1577,8 @@ describe("reconciler", () => {
 		});
 
 		// [C4] — a dormant data-done reconciles WITHOUT throwing the open-bracket
-		// assert (the old `load()` fallback crashed the build finalize).
+		// assert (`load()` asserts inside an open bracket; `onDataDone` must stay
+		// on the bracket-safe suppressed-commitDoc path).
 		it("[C4] a dormant data-done reconciles bracket-safe without throwing", () => {
 			const h = harness({
 				appId: undefined,

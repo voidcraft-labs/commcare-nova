@@ -225,7 +225,6 @@ describe("applyStreamEvent — data-mutations", () => {
 			seedDoc(docStore);
 			const reconciler = createReconciler(
 				docStore,
-				sessionStore,
 				{
 					appId: "app-1",
 					baseSeq: 0,
@@ -278,7 +277,6 @@ describe("applyStreamEvent — data-mutations", () => {
 			seedDoc(docStore);
 			const reconciler = createReconciler(
 				docStore,
-				sessionStore,
 				{
 					appId: "app-1",
 					baseSeq: 0,

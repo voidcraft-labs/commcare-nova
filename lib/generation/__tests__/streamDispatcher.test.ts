@@ -35,13 +35,9 @@ const INERT_DEPS: ReconcilerDeps = {
 
 /** Build a reconciler seeded on the store's current doc, mirroring an active
  *  builder session so a `data-done` reseeds via `onDataDone` (not `load()`). */
-function makeReconciler(
-	docStore: BlueprintDocStoreApi,
-	sessionStore: BuilderSessionStoreApi,
-): Reconciler {
+function makeReconciler(docStore: BlueprintDocStoreApi): Reconciler {
 	return createReconciler(
 		docStore,
-		sessionStore,
 		{
 			appId: "test-app-id",
 			baseSeq: 0,
@@ -137,7 +133,7 @@ describe("applyStreamEvent", () => {
 			 * suppression bracket (via `beginAgentWrite`), still open at
 			 * data-done, so the reconciler reseeds via a suppressed `commitDoc`
 			 * (not `load()`, which asserts inside an open bracket). */
-			const reconciler = makeReconciler(docStore, sessionStore);
+			const reconciler = makeReconciler(docStore);
 			sessionStore.getState().beginRun();
 			expect(sessionStore.getState().runCompletedAt).toBeUndefined();
 
@@ -168,12 +164,10 @@ describe("applyStreamEvent", () => {
 		it("[C4] a DORMANT reconciler data-done reconciles bracket-safe (no load() crash)", () => {
 			/* A brand-new build whose `data-app-id` hasn't activated the reconciler
 			 * yet: the reconciler is DORMANT and the agent suppression bracket is
-			 * open (beginRun). The old dispatcher fell back to `docStore.load()`,
-			 * which now THROWS inside an open bracket — crashing the build finalize.
-			 * The dispatcher must route through `onDataDone` (bracket-safe) instead. */
+			 * open (beginRun). `docStore.load()` asserts inside an open bracket, so
+			 * the dispatcher must route through `onDataDone` (bracket-safe). */
 			const reconciler = createReconciler(
 				docStore,
-				sessionStore,
 				{
 					appId: undefined,
 					baseSeq: 0,
