@@ -60,7 +60,6 @@ export function BuilderProvider({
 	children,
 	replay,
 	initialDoc,
-	initialSaveBasis,
 	canEdit = true,
 	baseSeq,
 	userId,
@@ -72,10 +71,6 @@ export function BuilderProvider({
 	 *  in the provider so the first render sees populated entities. Firestore
 	 *  now persists the normalized `BlueprintDoc` shape directly. */
 	initialDoc?: PersistableDoc;
-	/** The app doc's `blueprint_token` at server load — the auto-save
-	 *  optimistic basis the builder echoes on its PUTs. Omitted for new
-	 *  builds and replay (nothing to save against yet). */
-	initialSaveBasis?: string | null;
 	/** Whether the viewing user holds `edit` on the app's Project (the build
 	 *  page's server-resolved role). Defaults `true` for new builds. A viewer
 	 *  (`false`) gets the read-only builder; see `useCanEdit`. */
@@ -94,7 +89,6 @@ export function BuilderProvider({
 			buildId={buildId}
 			replay={replay}
 			initialDoc={initialDoc}
-			initialSaveBasis={initialSaveBasis}
 			canEdit={canEdit}
 			baseSeq={baseSeq}
 			userId={userId}
@@ -116,7 +110,6 @@ function BuilderProviderInner({
 	children,
 	replay,
 	initialDoc,
-	initialSaveBasis,
 	canEdit,
 	baseSeq,
 	userId,
@@ -125,7 +118,6 @@ function BuilderProviderInner({
 	children: ReactNode;
 	replay?: ReplayInit;
 	initialDoc?: PersistableDoc;
-	initialSaveBasis?: string | null;
 	canEdit: boolean;
 	baseSeq?: number;
 	userId?: string;
@@ -138,7 +130,6 @@ function BuilderProviderInner({
 	const sessionInit = useState(() => ({
 		loading: hasExistingData,
 		appId: buildId === "new" ? undefined : buildId,
-		saveBasis: initialSaveBasis ?? null,
 		canEdit,
 	}))[0];
 

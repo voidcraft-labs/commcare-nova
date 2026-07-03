@@ -219,11 +219,7 @@ function buildRuntime(
 		if (res.ok) {
 			const body = (await res.json().catch(() => ({}))) as {
 				seq?: number;
-				basisToken?: string;
 			};
-			if (typeof body.basisToken === "string") {
-				sessionApi.getState().setSaveBasis(body.basisToken);
-			}
 			// The route ALWAYS returns a real committed seq on a 200. A 200 with no
 			// parseable seq is anomalous — NEVER fabricate `init.baseSeq` (once
 			// `baseSeq` has advanced, a fabricated mount-time seq is `<= baseSeq` and

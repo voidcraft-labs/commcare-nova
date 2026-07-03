@@ -95,7 +95,6 @@ export default async function BuilderPage({
 		<BuilderProvider
 			buildId={id}
 			initialDoc={app.blueprint}
-			initialSaveBasis={app.blueprint_token ?? null}
 			canEdit={canEdit}
 			baseSeq={app.mutation_seq}
 			userId={session.user.id}
