@@ -182,6 +182,35 @@ const EMPTY_DOC: BlueprintDoc = {
 };
 
 /**
+ * Overlay a whole target doc onto the state draft, BLANKING every data key the
+ * target no longer carries (a cleared `logo`, a dropped `refIndex`).
+ *
+ * The blank is `= undefined`, deliberately NOT `delete`: the produced state is
+ * shallow-MERGED over the previous one by zustand's top-level `setState`
+ * (`Object.assign({}, prev, next)`), so a key deleted on the draft is silently
+ * RESURRECTED from `prev` — a reconciler reseed whose server-hydrated target
+ * legitimately lacks an optional slot would keep the stale value displayed,
+ * and the next autosave diff would re-commit it server-side (un-deleting a
+ * peer's clear with no conflict signal). An explicit `undefined` survives the
+ * merge, and every reader treats an `undefined` slot as absent (serialization
+ * strips it).
+ *
+ * Skipped: action methods (functions living alongside data on the state) and
+ * the store's own bookkeeping flag `remoteFrameApplyInProgress` — a reseed
+ * runs INSIDE a remote-apply bracket, and blanking the raised flag would let
+ * the synchronous store subscriber bounce the server's own write back out as
+ * a PUT (the exact loop the flag exists to prevent).
+ */
+function overlayDoc(draft: Record<string, unknown>, next: object): void {
+	for (const key of Object.keys(draft)) {
+		if (typeof draft[key] === "function") continue;
+		if (key === "remoteFrameApplyInProgress") continue;
+		if (!(key in next)) draft[key] = undefined;
+	}
+	Object.assign(draft, next);
+}
+
+/**
  * Create a fresh BlueprintDoc store.
  *
  * Each builder mount gets its own store instance — this is NOT a
@@ -337,15 +366,7 @@ export function createBlueprintDocStore() {
 						 */
 						commitDoc: (next: BlueprintDoc): void => {
 							set((draft) => {
-								const d = draft as unknown as Record<string, unknown>;
-								for (const key of Object.keys(d)) {
-									// Action methods live alongside data on the state —
-									// never touch them; drop data keys the candidate
-									// no longer carries.
-									if (typeof d[key] === "function") continue;
-									if (!(key in next)) delete d[key];
-								}
-								Object.assign(d, next);
+								overlayDoc(draft as unknown as Record<string, unknown>, next);
 							});
 						},
 
@@ -382,21 +403,20 @@ export function createBlueprintDocStore() {
 							// option's identity.
 							const hydrated = hydratePersistedBlueprint(doc);
 							set((draft) => {
-								// Copy EVERY doc field onto the draft in one pass. A
+								// Overlay EVERY doc field in one pass, blanking data keys the
+								// incoming doc no longer carries (a prior load's `logo` must
+								// not survive a load whose doc lacks one) — see `overlayDoc`
+								// for why the blank must be `undefined`, not `delete`. A
 								// hand-listed field-by-field assignment silently drops any
-								// top-level slot it omits — omit `logo` and the saved logo
-								// blanks on the next load. `Object.assign` can't forget a
-								// field. The cast strips the action-overlay
-								// (`BlueprintDocState = BlueprintDoc & { actions }`) whose
-								// readonly Record maps otherwise reject the swap; the draft's
-								// own action methods aren't keys on `hydrated`, so they survive.
-								// Immer records each assignment through its proxy and produces
-								// the next state with structural sharing.
-								Object.assign(draft as BlueprintDoc, hydrated);
+								// top-level slot it omits; the overlay can't forget a field.
+								overlayDoc(
+									draft as unknown as Record<string, unknown>,
+									hydrated,
+								);
 								// The reference index is assigned (not merged) — the
 								// reference index stays per-boundary: `hydrated` carries no
-								// `refIndex` key, so the Object.assign above would otherwise
-								// leave a prior app's stale index in place.
+								// `refIndex` key, so the overlay above just blanked any prior
+								// app's stale index.
 								(draft as unknown as BlueprintDoc).refIndex =
 									buildReferenceIndex(draft as unknown as BlueprintDoc);
 							});
