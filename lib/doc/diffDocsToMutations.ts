@@ -8,61 +8,54 @@
  * without throwing.
  *
  * MERGE SEMANTICS under concurrent edits (replay on a doc a co-member has
- * advanced): entity edits are IDENTITY-keyed (module/form/field by uuid), so
- * a co-member's edit to a DIFFERENT entity survives the replay untouched —
- * the non-destructive merge. Two slices are NOT identity-keyed and stay
- * last-writer-wins under genuinely concurrent edits to the SAME slice:
- * `setCaseTypes` carries the WHOLE catalog (so a co-member's concurrent
- * case-type/property add is overwritten), and `moveModule`/`moveForm`/
- * `moveField` carry a positional `toIndex` (so a concurrent reorder can land
- * a move at a stale position). Both are rare (concurrent edits to one app's
- * catalog/order) and bounded to those slices; granular catalog mutations +
- * identity-anchored moves are the multiplayer-GA upgrade. A concurrent
- * DELETE of an entity this diff targets is caught separately — the guarded
- * commit's `batchTargetsMissing` rejects it as a 409 rather than letting it
- * silently no-op.
+ * advanced): EVERY mutation is identity-keyed — a uuid (module/form/field/
+ * column/search-input/option), a `(type, property)` name pair (catalog), or an
+ * owning-entity uuid — and a reorder carries an absolute fractional `order`
+ * key rather than an array position, so a co-member's edit to a DIFFERENT
+ * entity / property / list item, or a reorder of DIFFERENT things, survives the
+ * replay untouched. The only last-writer-wins residual is two members
+ * replacing the SAME scalar slot (or the same property/type name) at the same
+ * instant — deterministic by commit order. A concurrent DELETE of an entity
+ * this diff targets is caught separately — the guarded commit's
+ * `batchTargetsMissing` rejects it as a 409 rather than letting it silently
+ * no-op.
  *
  * The emission order is dictated by the reducer's semantics, not by the
  * mutation union's declaration order:
  *
  *   1. App-level scalars (`setAppName` / `setConnectType` / `setAppLogo`).
  *      No entity side effects, so they can lead.
- *   2. Module + form ADDS — parent before child. Modules in `next` order,
- *      then each module's added forms. Added entities are landed before the
- *      removes so an evacuation (next step) can move a survivor into a
- *      freshly-added module/form.
+ *   2. Module + form ADDS — parent before child. Added entities are landed
+ *      before the removes so an evacuation (next step) can move a survivor
+ *      into a freshly-added module/form.
  *   3. EVACUATIONS — moves of surviving forms/fields OUT of a parent that
  *      is about to be removed. `removeModule` / `removeForm` / `removeField`
  *      cascade their subtrees, so a survivor still inside a doomed parent
- *      would be deleted by the cascade; it must move out first. (Fields
- *      can only ever leave a doomed CONTAINER within the same form — a form
- *      removal deletes all its fields, since `moveField` is same-form.)
+ *      would be deleted by the cascade; it must move out first.
  *   4. Removes — TOP survivors only. A child whose parent is also removed
  *      gets no explicit remove; the parent's cascade took it.
- *   5. Field structural REST — cross-parent moves, reorders, and field adds,
- *      target-ordered + top-down in one pass, plus the cross-module form
- *      moves + same-module reorders. A `moveField`'s sibling-id dedup may
- *      transiently suffix a moved field; step 7's `updateField` patch pins
- *      the id back, so the dedup is harmless and needs no ordering around.
- *   6. Module + form renames (`renameModule` / `renameForm` — cascade-free,
- *      they only set `name`), then field converts (`convertField`).
+ *   5. Field structural REST — field adds (parent-before-child), cross-parent
+ *      moves, and same-parent reorders (each `moveField` carries the field's
+ *      `order`), plus cross-module form moves + same-module reorders. A
+ *      `moveField`'s sibling-id dedup may transiently suffix a moved field;
+ *      step 7's `updateField` patch pins the id back.
+ *   6. Module + form renames, then field converts (`convertField`).
  *   7. Updates — `updateModule` / `updateForm` / `updateField` patches of
- *      ONLY the changed keys. A field's `id` rides its `updateField` patch,
- *      NOT `renameField`: `renameField` runs a case-property cascade (peer
- *      renames, prose/module-config rewrites, catalog rename) whose side
- *      effects collide with the rest of a multi-entity diff; `updateField`
- *      sets `id` in place with none of it, and every OTHER entity's slots +
- *      the catalog are pinned directly elsewhere in this batch.
+ *      ONLY the changed keys (excluding `order`, `caseListConfig`, `options`,
+ *      and media, each diffed separately). A field's `id` rides its
+ *      `updateField` patch, not `renameField`.
  *   8. Media — the dedicated clear-safe kinds (`setFieldMedia` /
- *      `setModuleMedia` / `setFormMedia`), excluded from every generic
- *      update patch.
- *   9. Module order reconciliation (`moveModule`).
- *  10. `setCaseTypes` LAST, and ONLY when the catalog actually changed. The
- *      field reducers mutate `doc.caseTypes` as a catalog side effect
- *      (`ensureCatalogProperty`), so a pin must follow them when it's emitted;
- *      but it is emitted only on a real `caseTypes` difference, so a structural
- *      edit that left the catalog alone never re-pins it (which would clobber a
- *      co-member's concurrent catalog add on the guarded re-apply).
+ *      `setModuleMedia` / `setFormMedia`).
+ *   9. Granular COLLECTIONS — case-list column / search-input / `setCaseListMeta`
+ *      kinds + select-option kinds, keyed by item uuid (a presence transition /
+ *      case-type flip falls back to a wholesale `updateModule{caseListConfig}`).
+ *  10. Module order — `moveModule{order}` for a module whose `order` changed.
+ *  11. Catalog LAST — granular `declareCaseType` / `setCaseTypeMeta` /
+ *      `addCaseProperty` / `setCaseProperty` / `removeCaseProperty` /
+ *      `retireCaseType`, diffed against the catalog the field reducers'
+ *      `ensureCatalogProperty` side effect leaves after the structural replay
+ *      (so a property a writer add reproduces is never re-emitted, merging a
+ *      concurrent add). No wholesale `setCaseTypes` is emitted on this path.
  *
  * `renameField` and `duplicateField` are never emitted: the former for its
  * cascade (id rides `updateField`), the latter because it mints a fresh
@@ -75,6 +68,11 @@
  */
 
 import { produce } from "immer";
+import {
+	orderedFieldUuids,
+	orderedFormUuids,
+	orderedModuleUuids,
+} from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
@@ -82,7 +80,18 @@ import {
 	type Mutation,
 	type Uuid,
 } from "@/lib/doc/types";
-import type { AssetId, Form, Media, Module } from "@/lib/domain";
+import type {
+	AssetId,
+	CaseListConfig,
+	CaseType,
+	Column,
+	Field,
+	Form,
+	Media,
+	Module,
+	SearchInputDef,
+	SelectOption,
+} from "@/lib/domain";
 
 // ── Value comparison ─────────────────────────────────────────────────
 //
@@ -105,16 +114,6 @@ import type { AssetId, Form, Media, Module } from "@/lib/domain";
  */
 function cloneEntity<T>(value: T): T {
 	return structuredClone(value);
-}
-
-/** Get the array at `key`, creating an empty one if absent. */
-function ensureArray(map: Record<string, Uuid[]>, key: Uuid): Uuid[] {
-	let arr = map[key];
-	if (arr === undefined) {
-		arr = [];
-		map[key] = arr;
-	}
-	return arr;
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -151,8 +150,16 @@ function deepEqual(a: unknown, b: unknown): boolean {
 const FIELD_MEDIA_KEYS = FIELD_MEDIA_SLOTS.map(
 	(slot) => `${slot}_media` as const,
 );
-const FIELD_MEDIA_KEY_SET = new Set<string>(FIELD_MEDIA_KEYS);
 const MENU_MEDIA_KEY_SET = new Set<string>(["icon", "audioLabel"]);
+
+// The field generic patch skips the media slots (their own kinds), the `order`
+// sort key (a `moveField` carries it), and `options` (diffed per-uuid into the
+// granular option kinds).
+const FIELD_PATCH_SKIP = new Set<string>([
+	...FIELD_MEDIA_KEYS,
+	"order",
+	"options",
+]);
 
 // ── Entity-set deltas ────────────────────────────────────────────────
 
@@ -223,8 +230,24 @@ function propertyPatch(
 // generic patch or a rename, never both: a `name` change emits a rename,
 // so the generic patch skips it too.
 
-const MODULE_PATCH_SKIP = new Set<string>(["icon", "audioLabel", "name"]);
-const FORM_PATCH_SKIP = new Set<string>(["icon", "audioLabel", "name"]);
+// `order` is carried by `moveModule` / `moveForm`; `caseListConfig` is diffed
+// granularly (column / search-input / `setCaseListMeta` kinds) so the
+// module-common loop never co-emits a wholesale patch that would clobber a
+// concurrent collection edit — except on a presence transition, handled
+// explicitly below.
+const MODULE_PATCH_SKIP = new Set<string>([
+	"icon",
+	"audioLabel",
+	"name",
+	"order",
+	"caseListConfig",
+]);
+const FORM_PATCH_SKIP = new Set<string>([
+	"icon",
+	"audioLabel",
+	"name",
+	"order",
+]);
 
 // ── Field media diff ─────────────────────────────────────────────────
 
@@ -267,36 +290,6 @@ function menuMediaChanged(
 	return false;
 }
 
-// ── Order reconciliation ─────────────────────────────────────────────
-//
-// Turn a `working` order into `target` via index-addressed moves against
-// a SIMULATED copy of `working` (the reducer's remove-then-insert
-// semantics). Left-to-right: at each position `i`, if the simulated array
-// already holds the wanted uuid, advance; otherwise splice it out of its
-// current spot and reinsert at `i`, emitting one move. Both arrays hold
-// the same uuid multiset by the time this runs (adds/removes already
-// applied), so every wanted uuid is found. `emitMove(uuid, toIndex)`
-// produces the kind-specific mutation.
-
-function reconcileOrder(
-	working: Uuid[],
-	target: readonly Uuid[],
-	emitMove: (uuid: Uuid, toIndex: number) => Mutation,
-): Mutation[] {
-	const out: Mutation[] = [];
-	const sim = [...working];
-	for (let i = 0; i < target.length; i++) {
-		const wanted = target[i];
-		if (sim[i] === wanted) continue;
-		const from = sim.indexOf(wanted);
-		if (from === -1) continue; // Defensive: multisets match by contract.
-		sim.splice(from, 1);
-		sim.splice(i, 0, wanted);
-		out.push(emitMove(wanted, i));
-	}
-	return out;
-}
-
 // ── Parent reverse index ─────────────────────────────────────────────
 //
 // `BlueprintDoc.fieldParent` materializes child → parent, but the diff's
@@ -326,7 +319,7 @@ function* walkFieldTree(
 	doc: BlueprintDoc,
 	parentUuid: Uuid,
 ): Generator<{ uuid: Uuid; parentUuid: Uuid; index: number }> {
-	const order = doc.fieldOrder[parentUuid] ?? [];
+	const order = orderedFieldUuids(doc, parentUuid);
 	for (let index = 0; index < order.length; index++) {
 		const uuid = order[index];
 		yield { uuid, parentUuid, index };
@@ -350,6 +343,10 @@ export function diffDocsToMutations(
 	const updates: Mutation[] = [];
 	const media: Mutation[] = [];
 	const orders: Mutation[] = [];
+	// Granular collection edits — case-list columns / search-inputs /
+	// case-list metadata + select options — keyed by item uuid so concurrent
+	// edits to different items merge.
+	const collections: Mutation[] = [];
 
 	// (1) App-level scalars. `caseTypes` is deferred to the very end —
 	// the field reducers mutate it as a catalog side effect, so pinning
@@ -376,7 +373,6 @@ export function diffDocsToMutations(
 	);
 
 	const removedModuleSet = new Set(moduleDelta.removed);
-	const removedFormSet = new Set(formDelta.removed);
 
 	// Child → parent reverse indexes, built once and threaded to the
 	// ancestor / evacuation helpers (the inputs are persistable snapshots
@@ -388,7 +384,13 @@ export function diffDocsToMutations(
 	// the field-update loop can force-pin the `id` of every cross-parent-
 	// moved field (undoing any `moveField` sibling-id dedup). Its mutations
 	// are emitted later, in the phase order.
-	const fieldTree = reconcileFieldTree(prev, next, fieldDelta, nextParentMap);
+	const fieldTree = reconcileFieldTree(
+		prev,
+		next,
+		fieldDelta,
+		prevParentMap,
+		nextParentMap,
+	);
 
 	// (2) Removes — top survivors only.
 	//
@@ -478,6 +480,13 @@ export function diffDocsToMutations(
 				audioLabel: (n.audioLabel ?? null) as AssetId | null,
 			});
 		}
+		// `caseListConfig` is excluded from the generic patch — its content is
+		// diffed into granular column / search-input / `setCaseListMeta` kinds
+		// (a presence transition / case-type flip falls back to a wholesale
+		// `updateModule{caseListConfig}`).
+		collections.push(
+			...diffCaseListConfig(prev.modules[uuid], next.modules[uuid], uuid),
+		);
 	}
 
 	// Forms.
@@ -539,13 +548,13 @@ export function diffDocsToMutations(
 			});
 		}
 
-		// Generic property patch — every non-media, non-uuid, non-kind key,
-		// INCLUDING `id`. On a kind change the patch must cover EVERY differing
-		// key the new kind declares (the convert carried the old field's
-		// values, not next's), so build it against `next`'s value for every
-		// key present there plus a clear for any key the convert may have
-		// carried that `next` doesn't have.
-		const skip = FIELD_MEDIA_KEY_SET;
+		// Generic property patch — every non-media, non-uuid, non-kind,
+		// non-`order`, non-`options` key, INCLUDING `id`. On a kind change the
+		// patch must cover EVERY differing key the new kind declares (the convert
+		// carried the old field's values, not next's), so build it against
+		// `next`'s value for every key present there plus a clear for any key the
+		// convert may have carried that `next` doesn't have.
+		const skip = FIELD_PATCH_SKIP;
 		const patch = kindChanged
 			? fieldPatchForConvertedField(p, n, skip)
 			: propertyPatch(p, n, skip);
@@ -567,42 +576,27 @@ export function diffDocsToMutations(
 
 		// Field message media — one `setFieldMedia` per changed slot.
 		media.push(...diffFieldMedia(p, n, uuid));
+
+		// Select options — diffed per-uuid into the granular option kinds (a
+		// content change excludes `order`/`uuid`; an `order` shift emits a
+		// `moveOption`). A field added this batch carries its options inline on
+		// `addField`, so the option diff runs for COMMON fields only.
+		collections.push(...diffOptions(pField, nField, uuid));
 	}
 
-	// (5) Module order reconciliation. Build the working order by simulating
-	// the actual emission sequence — `addModule`s land FIRST (before removes,
-	// so evacuated forms have their destination module), each at its `next`
-	// index into the full prev order; THEN removed modules drop out. The
-	// result is the replay state the `moveModule` reconcile starts from.
-	const workingModuleOrder = [...prev.moduleOrder];
-	for (let index = 0; index < next.moduleOrder.length; index++) {
-		const uuid = next.moduleOrder[index];
-		if (!addedModuleSet.has(uuid)) continue;
-		workingModuleOrder.splice(
-			Math.min(index, workingModuleOrder.length),
-			0,
-			uuid,
-		);
+	// (5) Module order — a reorder is detected by an order-key change on a
+	// COMMON module (independent of `moduleOrder` array position); adds carry
+	// their own `order` on the entity.
+	for (const uuid of moduleDelta.common) {
+		const nOrder = next.modules[uuid].order;
+		if (nOrder !== undefined && prev.modules[uuid].order !== nOrder) {
+			orders.push({ kind: "moveModule", uuid, order: nOrder });
+		}
 	}
-	const postRemoveModuleOrder = workingModuleOrder.filter(
-		(u) => !removedModuleSet.has(u),
-	);
-	orders.push(
-		...reconcileOrder(
-			postRemoveModuleOrder,
-			next.moduleOrder,
-			(uuid, toIndex) => ({ kind: "moveModule", uuid, toIndex }),
-		),
-	);
 
 	// Form structural — cross-module moves (incl. forms evacuated out of
-	// removed modules) + same-module reorders.
-	const formStructure = reconcileFormOrders(
-		prev,
-		next,
-		removedFormSet,
-		addedFormSet,
-	);
+	// removed modules) + same-module reorders, both order-key-detected.
+	const formStructure = reconcileFormOrders(prev, next, formDelta);
 
 	// `fieldTree` (field ADDS + cross-parent MOVES + reorders) was computed
 	// up front. EVACUATIONS — moves of surviving forms/fields OUT of a
@@ -616,7 +610,8 @@ export function diffDocsToMutations(
 	//   app scalars → module/form adds → evacuations (survivors out of
 	//   removed parents) → removes → field/form structural (rest: adds,
 	//   moves, reorders) → module/form renames → converts → field updates
-	//   (incl. id) → media → module order reconcile.
+	//   (incl. id) → media → granular collections (columns/search-inputs/
+	//   options/case-list meta) → module order → catalog.
 	const structural: Mutation[] = [
 		...appLevel,
 		...adds,
@@ -627,49 +622,43 @@ export function diffDocsToMutations(
 		...converts,
 		...updates,
 		...media,
+		...collections,
 		...orders,
 	];
 
-	// (6) Case-type catalog LAST — a wholesale `setCaseTypes` OVERWRITES the
-	// catalog, so on the guarded re-apply it would clobber a co-member's
-	// concurrent catalog add. It is emitted only when the catalog genuinely
-	// can't be reached otherwise:
+	// (6) Case-type catalog — granular catalog mutations (declare / retire /
+	// add-property / set-property / remove-property / set-meta) keyed by
+	// `(type, property)` name, REPLACING the wholesale `setCaseTypes` on the
+	// live path so a co-member's concurrent catalog add survives the re-apply.
 	//
-	//   - ONLY the FIELD reducers mutate the catalog as a side effect
-	//     (`ensureCatalogProperty`); module/form/order/app edits never do. So
-	//     when a field add/convert/update is present, SIMULATE the structural
-	//     replay and pin only if its catalog diverges from `next.caseTypes` —
-	//     a change the side effects reproduce on the FRESH doc needs no pin
-	//     (they re-derive it, merging a concurrent add); one they can't (a
-	//     direct declaration/retirement, or an add-then-clear net) gets the
-	//     pin. Replaying on `prev` is the same simulation the round-trip oracle
-	//     checks.
-	//   - With NO field edit, a catalog difference is a direct
-	//     declaration/retirement (pin it) and no difference means no pin —
-	//     both decided cheaply, skipping the O(doc) replay.
+	// ONLY the FIELD reducers mutate the catalog as a side effect
+	// (`ensureCatalogProperty`, which now appends a writer's property to an
+	// EXISTING declared type — it no longer mints the type). So when a field
+	// add/convert/update is present, diff the catalog against the REPLAYED
+	// structural state — the residual the side effects didn't reproduce (a
+	// direct declaration / retirement / meta change / property edit). With no
+	// field edit, the catalog is reached only by the granular kinds, so diff
+	// `prev → next` directly (skipping the O(doc) replay).
 	//
-	// (A genuinely concurrent edit to the SAME catalog stays last-writer-wins —
-	// the documented multiplayer-GA limit.)
+	// (A genuinely concurrent edit to the SAME property name stays
+	// last-writer-wins — the documented multiplayer-GA limit.)
+	// Only `updateField` reaches the catalog (its `ensureCatalogProperty`
+	// side effect) — `updateModule` / `updateForm` patches never do. Gating on
+	// any `updates` entry fired the O(doc) replay on a routine module-purpose /
+	// form-settings save; gate on a field-touching mutation instead.
 	const fieldCatalogTouched =
-		fieldStructure.length > 0 || converts.length > 0 || updates.length > 0;
-	let pinCatalog: boolean;
-	if (fieldCatalogTouched) {
-		// `structuredClone` the batch for the simulation: `applyMutations` aliases
-		// payload objects into the immer draft, and immer's auto-freeze would
-		// otherwise deep-freeze the very objects this function RETURNS.
-		const replayedCaseTypes = produce(prev, (draft) => {
-			applyMutations(draft, structuredClone(structural));
-		}).caseTypes;
-		pinCatalog = !deepEqual(replayedCaseTypes, next.caseTypes);
-	} else {
-		pinCatalog = !deepEqual(prev.caseTypes, next.caseTypes);
-	}
-	if (pinCatalog) {
-		structural.push({
-			kind: "setCaseTypes",
-			caseTypes: next.caseTypes === null ? null : cloneEntity(next.caseTypes),
-		});
-	}
+		fieldStructure.length > 0 ||
+		converts.length > 0 ||
+		updates.some((m) => m.kind === "updateField");
+	const fromCatalog = fieldCatalogTouched
+		? // `structuredClone` the batch for the simulation: `applyMutations`
+			// aliases payload objects into the immer draft, and immer's auto-freeze
+			// would otherwise deep-freeze the very objects this function RETURNS.
+			produce(prev, (draft) => {
+				applyMutations(draft, structuredClone(structural));
+			}).caseTypes
+		: prev.caseTypes;
+	structural.push(...diffCatalog(fromCatalog, next.caseTypes));
 
 	return structural;
 }
@@ -753,169 +742,88 @@ function fieldRemovedByAncestor(
 // ── Order reconciliation per module / parent ─────────────────────────
 
 /**
- * Reconcile each module's `formOrder` to `next` — cross-module form moves +
- * same-module reorders. Mirrors `reconcileFieldTree`'s evacuation handling:
- * a form leaving a REMOVED module must move out before the `removeModule`
- * cascade, so it's emitted in `evacuations` (pre-removes), at the END of its
- * destination (a valid index amid not-yet-removed siblings); the post-removes
- * reconcile then lands its final position. Every other cross-module move +
- * all reorders are `rest` (post-removes), at `next` indices.
+ * Reconcile each module's forms to `next` — cross-module form moves +
+ * same-module reorders, BOTH detected by order key (a common form whose owning
+ * module or whose `order` changed), independent of `formOrder` array position.
+ * A form leaving a REMOVED module must move out before the `removeModule`
+ * cascade, so it is emitted in `evacuations` (pre-removes); every other
+ * cross-module move + all reorders are `rest` (post-removes).
  */
 function reconcileFormOrders(
 	prev: BlueprintDoc,
 	next: BlueprintDoc,
-	removedFormSet: ReadonlySet<Uuid>,
-	addedFormSet: ReadonlySet<Uuid>,
+	formDelta: SetDelta,
 ): { evacuations: Mutation[]; rest: Mutation[] } {
 	const evacuations: Mutation[] = [];
 	const rest: Mutation[] = [];
+	const prevModuleOf = buildFormModuleMap(prev);
+	const nextModuleOf = buildFormModuleMap(next);
 
-	// Working model — FULL prev formOrder per module (removed forms INCLUDED)
-	// plus added forms spliced at their next index, because the evacuation
-	// phase runs before the removes.
-	const working: Record<string, Uuid[]> = {};
-	for (const [moduleUuid, order] of Object.entries(prev.formOrder)) {
-		working[moduleUuid] = [...order];
-	}
-	for (const moduleUuid of next.moduleOrder) {
-		if (working[moduleUuid] === undefined) working[moduleUuid] = [];
-	}
-	for (const moduleUuid of next.moduleOrder) {
-		const order = next.formOrder[moduleUuid] ?? [];
-		for (let index = 0; index < order.length; index++) {
-			const formUuid = order[index];
-			if (!addedFormSet.has(formUuid)) continue;
-			const arr = ensureArray(working, moduleUuid);
-			arr.splice(Math.min(index, arr.length), 0, formUuid);
-		}
-	}
-
-	// Phase E — evacuate surviving forms out of REMOVED modules, to the END
-	// of their next module (a valid pre-removes index). Final position fixed
-	// by the post-removes reorder below.
-	for (const [moduleUuid, order] of Object.entries(prev.formOrder)) {
-		if (next.modules[moduleUuid] !== undefined) continue; // module survives
-		for (const formUuid of [...order]) {
-			if (next.forms[formUuid] === undefined) continue; // form removed too
-			const dest = ownerModuleOfForm(next, formUuid);
-			if (dest === undefined) continue;
-			const destArr = ensureArray(working, dest);
-			evacuations.push({
+	for (const formUuid of formDelta.common) {
+		const nextModule = nextModuleOf.get(formUuid);
+		if (nextModule === undefined) continue; // unreachable in next (shouldn't happen)
+		const prevModule = prevModuleOf.get(formUuid);
+		const nextOrder = next.forms[formUuid].order;
+		if (prevModule !== nextModule) {
+			const move: Mutation = {
 				kind: "moveForm",
 				uuid: formUuid,
-				toModuleUuid: dest,
-				toIndex: destArr.length,
-			});
-			const src = working[moduleUuid];
-			const at = src.indexOf(formUuid);
-			if (at !== -1) src.splice(at, 1);
-			destArr.push(formUuid);
-		}
-	}
-
-	// Phase R (simulated) — drop removed forms (and forms gone from `next`).
-	for (const moduleUuid of Object.keys(working)) {
-		working[moduleUuid] = working[moduleUuid].filter(
-			(u) => !removedFormSet.has(u) && next.forms[u] !== undefined,
-		);
-	}
-
-	// Pass 1 (rest) — remaining cross-module moves (surviving source module),
-	// at next index. Across all modules before reorders so a form leaving
-	// module A is evacuated from A's working order first.
-	for (const moduleUuid of next.moduleOrder) {
-		const target = next.formOrder[moduleUuid] ?? [];
-		for (let index = 0; index < target.length; index++) {
-			const formUuid = target[index];
-			const fromModule = findFormModuleInWorking(working, formUuid);
-			if (fromModule !== undefined && fromModule !== moduleUuid) {
-				rest.push({
-					kind: "moveForm",
-					uuid: formUuid,
-					toModuleUuid: moduleUuid,
-					toIndex: index,
-				});
-				const src = working[fromModule];
-				if (src) {
-					const at = src.indexOf(formUuid);
-					if (at !== -1) src.splice(at, 1);
-				}
-				const dst = ensureArray(working, moduleUuid);
-				dst.splice(Math.min(index, dst.length), 0, formUuid);
+				toModuleUuid: nextModule,
+				...(nextOrder !== undefined && { order: nextOrder }),
+			};
+			// A form leaving a REMOVED module evacuates before the cascade.
+			if (prevModule !== undefined && next.modules[prevModule] === undefined) {
+				evacuations.push(move);
+			} else {
+				rest.push(move);
 			}
-		}
-	}
-
-	// Pass 2 (rest) — same-module reorder. Every form is now in its target
-	// module, so each module's working order holds its target multiset.
-	for (const moduleUuid of next.moduleOrder) {
-		const target = next.formOrder[moduleUuid] ?? [];
-		rest.push(
-			...reconcileOrder(working[moduleUuid] ?? [], target, (uuid, toIndex) => ({
+		} else if (
+			nextOrder !== undefined &&
+			prev.forms[formUuid].order !== nextOrder
+		) {
+			rest.push({
 				kind: "moveForm",
-				uuid,
-				toModuleUuid: moduleUuid,
-				toIndex,
-			})),
-		);
-		working[moduleUuid] = [...target];
+				uuid: formUuid,
+				toModuleUuid: nextModule,
+				order: nextOrder,
+			});
+		}
 	}
 	return { evacuations, rest };
 }
 
-/** Which working module currently lists `formUuid`. */
-function findFormModuleInWorking(
-	working: Record<string, Uuid[]>,
-	formUuid: Uuid,
-): Uuid | undefined {
-	for (const [moduleUuid, order] of Object.entries(working)) {
-		if (order.includes(formUuid)) return moduleUuid as Uuid;
+/** Child form uuid → owning module uuid, from `formOrder`. */
+function buildFormModuleMap(doc: BlueprintDoc): Map<Uuid, Uuid> {
+	const out = new Map<Uuid, Uuid>();
+	for (const [moduleUuid, order] of Object.entries(doc.formOrder)) {
+		for (const formUuid of order) out.set(formUuid as Uuid, moduleUuid as Uuid);
 	}
-	return undefined;
+	return out;
 }
 /**
- * Reconcile the field tree to `next` in ONE target-ordered, top-down pass —
- * field ADDS, cross-parent MOVES, and reorders interleaved.
+ * Reconcile the field tree to `next` — field ADDS, cross-parent MOVES, and
+ * same-parent reorders.
  *
- * The working model starts as `prev`'s field tree minus removed fields and
- * is mutated as each placement is emitted, so each decision sees current
- * state. Parents are visited top-down (forms in module order, then nested
- * containers in pre-order) so a container is placed before its children;
- * within a parent, target slots are filled left-to-right.
+ * Membership (adds / cross-parent moves) is detected by parent-set comparison;
+ * a REORDER is an order-key change on a common, same-parent field (independent
+ * of `fieldOrder` array position). Adds are emitted parent-before-child
+ * (top-down parents, sorted children) so a container lands before the fields it
+ * holds; each carries the field's `order`. A cross-parent move carries `order`
+ * and joins `crossParentMoved` so the field-update loop force-pins its `id`
+ * (undoing any move-time sibling-id dedup).
  *
- * Per target slot `(P, i, wanted)`:
- *   - `working[P][i]` already `wanted` → nothing to do.
- *   - `wanted` is NEW (nowhere in working) → `addField` at `i`.
- *   - else `wanted` lives elsewhere (or here at a wrong index) → `moveField`
- *     to `(P, i)`.
- *
- * Sibling-id dedup is NOT defended against here: a cross-parent `moveField`
- * whose destination already holds the moved field's CURRENT id gets
- * auto-suffixed by the reducer, but the field's `id` is pinned to its exact
- * `next` value by an `updateField` patch emitted AFTER this pass (see the
- * field-update loop in `diffDocsToMutations`), which overrides any suffix.
- *
- * A cross-parent move is same-form by the reducer's guard; a surviving
- * field's containing form is identical in `prev` and `next` (only
- * `moveField` changes a field's form, and that path rejects cross-form), so
- * every emitted move stays within one form.
- *
- * Returns moves split into two phases against ONE simulated working model,
- * so every emitted index is computed against the exact state it executes on:
- *   - `evacuations` — moves of surviving fields OUT of a doomed parent (one
- *     about to be removed), executed PRE-removes while the doomed parent and
- *     other removed siblings still exist. Each evacuates to the END of its
- *     next parent (a valid index amid not-yet-removed siblings); the `rest`
- *     reorder then lands the final position.
- *   - `rest` — the post-removes target-order reconcile (cross-parent moves,
- *     reorders, field adds), against the working model after removes have
- *     dropped the removed fields. Indices here are `next` indices, valid
- *     because removed fields are gone.
+ * Cross-parent moves out of a DOOMED parent (one removed this batch) are
+ * EVACUATIONS — emitted before the removes so the cascade can't delete the
+ * survivor; the rest follow the removes. Every emitted move is same-form: a
+ * surviving field's containing form is invariant (only `moveField` changes a
+ * field's form, and that path rejects cross-form), so the reducer's same-form
+ * guard never trips.
  */
 function reconcileFieldTree(
 	prev: BlueprintDoc,
 	next: BlueprintDoc,
 	fieldDelta: SetDelta,
+	prevParentMap: ReadonlyMap<Uuid, Uuid>,
 	nextParentMap: ReadonlyMap<Uuid, Uuid>,
 ): {
 	evacuations: Mutation[];
@@ -923,131 +831,106 @@ function reconcileFieldTree(
 	crossParentMoved: Set<Uuid>;
 } {
 	const evacuations: Mutation[] = [];
-	const rest: Mutation[] = [];
-	// Fields moved ACROSS a parent boundary — the only moves the reducer
-	// runs sibling-id dedup on. The caller force-pins each one's `id` via an
-	// `updateField` patch (even when the id is unchanged), undoing any dedup
-	// suffix the move may have applied.
+	const adds: Mutation[] = [];
+	const moves: Mutation[] = [];
 	const crossParentMoved = new Set<Uuid>();
-	const removedFieldSet = new Set(fieldDelta.removed);
 	const addedFieldSet = new Set(fieldDelta.added);
 
-	// A parent is "doomed" if it won't exist after the removes — a removed
-	// form or removed container field (also covers parents under a removed
-	// module, which aren't in `next` either).
-	const isDoomedParent = (parentUuid: string): boolean =>
+	// A prev parent is "doomed" when it won't exist after the removes — a
+	// removed form or container field (covers parents under a removed module).
+	const isDoomed = (parentUuid: Uuid | undefined): boolean =>
+		parentUuid !== undefined &&
 		next.forms[parentUuid] === undefined &&
 		next.fields[parentUuid] === undefined;
 
-	// Working model — the FULL prev field tree (removed fields INCLUDED),
-	// because the evacuation phase executes before the removes.
-	const working: Record<string, Uuid[]> = {};
-	for (const [parentUuid, order] of Object.entries(prev.fieldOrder)) {
-		working[parentUuid] = [...order];
-	}
-	const parents = nextParentsTopDown(next);
-	for (const parentUuid of parents) {
-		if (working[parentUuid] === undefined) working[parentUuid] = [];
-	}
-
-	// ── Phase E — evacuate survivors out of doomed parents ────────────────
-	// A surviving field in a doomed parent moves to the END of its `next`
-	// parent (a valid pre-removes index). The final position is fixed by the
-	// `rest` reorder below. Visited top-down so a field whose next parent is
-	// itself being evacuated/added settles in the right container first.
-	for (const [parentUuid, order] of Object.entries(prev.fieldOrder)) {
-		if (!isDoomedParent(parentUuid)) continue;
-		for (const fieldUuid of order) {
-			if (removedFieldSet.has(fieldUuid)) continue; // genuinely removed
-			const dest = nextParentMap.get(fieldUuid);
-			if (dest === undefined) continue; // not reachable in next (shouldn't happen for a survivor)
-			const destArr = ensureArray(working, dest);
-			evacuations.push({
-				kind: "moveField",
-				uuid: fieldUuid,
-				toParentUuid: dest,
-				toIndex: destArr.length,
+	// Adds — parent-before-child (top-down parents, sorted children). Each
+	// added field carries its own `order`, so no `index` is needed.
+	for (const parentUuid of nextParentsTopDown(next)) {
+		for (const uuid of orderedFieldUuids(next, parentUuid)) {
+			if (!addedFieldSet.has(uuid)) continue;
+			adds.push({
+				kind: "addField",
+				parentUuid,
+				field: cloneEntity(next.fields[uuid]),
 			});
-			crossParentMoved.add(fieldUuid);
-			const src = working[parentUuid];
-			const at = src.indexOf(fieldUuid);
-			if (at !== -1) src.splice(at, 1);
-			destArr.push(fieldUuid);
 		}
 	}
 
-	// ── Phase R (simulated) — drop removed fields from the working model ──
-	for (const parentUuid of Object.keys(working)) {
-		working[parentUuid] = working[parentUuid].filter(
-			(u) => !removedFieldSet.has(u),
-		);
-	}
-
-	// ── Phase rest — target-order reconcile of every `next` parent ────────
-	for (const parentUuid of parents) {
-		const target = next.fieldOrder[parentUuid] ?? [];
-		for (let i = 0; i < target.length; i++) {
-			const wanted = target[i];
-			const cur = working[parentUuid] ?? [];
-			if (cur[i] === wanted) continue;
-			if (
-				addedFieldSet.has(wanted) &&
-				findFieldParentInWorking(working, wanted) === undefined
-			) {
-				rest.push({
-					kind: "addField",
-					parentUuid,
-					field: cloneEntity(next.fields[wanted]),
-					index: i,
-				});
-				const arr = ensureArray(working, parentUuid);
-				arr.splice(Math.min(i, arr.length), 0, wanted);
-				continue;
-			}
-			// Existing field — move into place (cross-parent or reorder).
-			rest.push({
+	// Cross-parent moves + same-parent reorders over the common fields.
+	for (const uuid of fieldDelta.common) {
+		const nextParent = nextParentMap.get(uuid);
+		if (nextParent === undefined) continue; // unreachable in next (shouldn't happen)
+		const prevParent = prevParentMap.get(uuid);
+		const nextOrder = next.fields[uuid].order;
+		if (prevParent !== nextParent) {
+			const move: Mutation = {
 				kind: "moveField",
-				uuid: wanted,
-				toParentUuid: parentUuid,
-				toIndex: i,
+				uuid,
+				toParentUuid: nextParent,
+				...(nextOrder !== undefined && { order: nextOrder }),
+			};
+			crossParentMoved.add(uuid);
+			if (isDoomed(prevParent)) evacuations.push(move);
+			else moves.push(move);
+		} else if (
+			nextOrder !== undefined &&
+			prev.fields[uuid].order !== nextOrder
+		) {
+			moves.push({
+				kind: "moveField",
+				uuid,
+				toParentUuid: nextParent,
+				order: nextOrder,
 			});
-			const from = findFieldParentInWorking(working, wanted);
-			if (from !== undefined && from !== parentUuid) {
-				crossParentMoved.add(wanted);
-			}
-			if (from !== undefined) {
-				const src = working[from];
-				const at = src.indexOf(wanted);
-				if (at !== -1) src.splice(at, 1);
-			}
-			const arr = ensureArray(working, parentUuid);
-			arr.splice(Math.min(i, arr.length), 0, wanted);
 		}
 	}
-	return { evacuations, rest, crossParentMoved };
-}
 
-/** Which working parent currently lists `fieldUuid`. */
-function findFieldParentInWorking(
-	working: Record<string, Uuid[]>,
-	fieldUuid: Uuid,
-): Uuid | undefined {
-	for (const [parentUuid, order] of Object.entries(working)) {
-		if (order.includes(fieldUuid)) return parentUuid as Uuid;
+	// An evacuation's DESTINATION may itself be a container ADDED in this diff
+	// (create group G, drag X out of doomed H into G, delete H — one batch).
+	// Field adds otherwise emit AFTER the removes, so the batch would reference
+	// a not-yet-existing container mid-replay: `batchTargetsMissing` runs in
+	// batch order and rejects the whole save as a phantom conflict (409 → the
+	// reload drops the user's create+move+delete), and an unguarded replay
+	// would silently no-op the move and cascade-delete the survivor. Hoist the
+	// destination's ADDED-ancestor chain ahead of the evacuations (keeping the
+	// adds' parent-before-child order) so every referenced container exists by
+	// the time its evacuation applies.
+	if (evacuations.length > 0) {
+		const hoistedUuids = new Set<Uuid>();
+		for (const ev of evacuations) {
+			if (ev.kind !== "moveField") continue;
+			let cursor: Uuid | undefined = ev.toParentUuid;
+			while (cursor !== undefined && addedFieldSet.has(cursor)) {
+				hoistedUuids.add(cursor);
+				cursor = nextParentMap.get(cursor);
+			}
+		}
+		if (hoistedUuids.size > 0) {
+			const hoisted: Mutation[] = [];
+			for (let i = adds.length - 1; i >= 0; i--) {
+				const m = adds[i];
+				if (m.kind === "addField" && hoistedUuids.has(m.field.uuid)) {
+					hoisted.unshift(m);
+					adds.splice(i, 1);
+				}
+			}
+			evacuations.unshift(...hoisted);
+		}
 	}
-	return undefined;
+
+	return { evacuations, rest: [...adds, ...moves], crossParentMoved };
 }
 
 /**
- * Every field parent in `next` (forms then container fields), top-down:
- * forms in module → form order, then container fields in pre-order. A
- * top-down order means a parent is always reconciled before any parent
- * nested inside it.
+ * Every field parent in `next` (forms then container fields), top-down and in
+ * DISPLAY order (`sort-by-(order, uuid)`): forms in module → form order, then
+ * container fields in pre-order. A top-down order means a parent is always
+ * visited before any parent nested inside it.
  */
 function nextParentsTopDown(next: BlueprintDoc): Uuid[] {
 	const parents: Uuid[] = [];
-	for (const moduleUuid of next.moduleOrder) {
-		for (const formUuid of next.formOrder[moduleUuid] ?? []) {
+	for (const moduleUuid of orderedModuleUuids(next)) {
+		for (const formUuid of orderedFormUuids(next, moduleUuid)) {
 			parents.push(formUuid);
 			for (const { uuid } of walkFieldTree(next, formUuid)) {
 				const field = next.fields[uuid];
@@ -1058,4 +941,310 @@ function nextParentsTopDown(next: BlueprintDoc): Uuid[] {
 		}
 	}
 	return parents;
+}
+
+// ── Granular collection + catalog diffs ──────────────────────────────
+
+/** Deep-equal two values ignoring the `order` sort key (collection content). */
+function contentEqualIgnoringOrder(a: unknown, b: unknown): boolean {
+	return deepEqual(stripOrder(a), stripOrder(b));
+}
+
+function stripOrder(value: unknown): unknown {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		return value;
+	}
+	const { order: _order, ...rest } = value as Record<string, unknown>;
+	return rest;
+}
+
+/**
+ * Diff a module's `caseListConfig`. Content edits emit granular column /
+ * search-input / `setCaseListMeta` kinds (keyed by item uuid, so concurrent
+ * edits to different items merge). A PRESENCE transition (config absent↔present)
+ * OR a case-type flip emits the wholesale `updateModule{caseListConfig}` (the
+ * whole-object birth / clear / swap), never for a content edit.
+ */
+function diffCaseListConfig(
+	prevMod: Module,
+	nextMod: Module,
+	moduleUuid: Uuid,
+): Mutation[] {
+	const prevConfig = prevMod.caseListConfig;
+	const nextConfig = nextMod.caseListConfig;
+	const presenceChanged =
+		(prevConfig === undefined) !== (nextConfig === undefined);
+	const caseTypeFlipped = prevMod.caseType !== nextMod.caseType;
+	if (presenceChanged || (caseTypeFlipped && nextConfig !== undefined)) {
+		// Wholesale birth / clear / swap. A clear travels as `null` (the patch
+		// schema admits it on the optional slot); a present config is set whole.
+		return [
+			{
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: {
+					caseListConfig:
+						nextConfig === undefined ? null : cloneEntity(nextConfig),
+				} as Partial<Module>,
+			},
+		];
+	}
+	if (nextConfig === undefined) return []; // both absent
+	const prevC = prevConfig ?? { columns: [], searchInputs: [] };
+	return [
+		...diffColumns(prevC.columns, nextConfig.columns, moduleUuid),
+		...diffSearchInputs(
+			prevC.searchInputs,
+			nextConfig.searchInputs,
+			moduleUuid,
+		),
+		...diffCaseListMeta(prevC, nextConfig, moduleUuid),
+	];
+}
+
+function diffColumns(
+	prev: readonly Column[],
+	next: readonly Column[],
+	moduleUuid: Uuid,
+): Mutation[] {
+	const out: Mutation[] = [];
+	const prevByUuid = new Map(prev.map((c) => [c.uuid, c]));
+	const nextUuids = new Set(next.map((c) => c.uuid));
+	for (const col of next) {
+		const p = prevByUuid.get(col.uuid);
+		if (!p) {
+			out.push({ kind: "addColumn", moduleUuid, column: cloneEntity(col) });
+			continue;
+		}
+		if (!contentEqualIgnoringOrder(p, col)) {
+			out.push({
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: col.uuid,
+				column: cloneEntity(col),
+			});
+		}
+		if (col.order !== undefined && p.order !== col.order) {
+			out.push({
+				kind: "moveColumn",
+				moduleUuid,
+				uuid: col.uuid,
+				order: col.order,
+			});
+		}
+	}
+	for (const col of prev) {
+		if (!nextUuids.has(col.uuid)) {
+			out.push({ kind: "removeColumn", moduleUuid, uuid: col.uuid });
+		}
+	}
+	return out;
+}
+
+function diffSearchInputs(
+	prev: readonly SearchInputDef[],
+	next: readonly SearchInputDef[],
+	moduleUuid: Uuid,
+): Mutation[] {
+	const out: Mutation[] = [];
+	const prevByUuid = new Map(prev.map((s) => [s.uuid, s]));
+	const nextUuids = new Set(next.map((s) => s.uuid));
+	for (const input of next) {
+		const p = prevByUuid.get(input.uuid);
+		if (!p) {
+			out.push({
+				kind: "addSearchInput",
+				moduleUuid,
+				searchInput: cloneEntity(input),
+			});
+			continue;
+		}
+		if (!contentEqualIgnoringOrder(p, input)) {
+			out.push({
+				kind: "updateSearchInput",
+				moduleUuid,
+				uuid: input.uuid,
+				searchInput: cloneEntity(input),
+			});
+		}
+		if (input.order !== undefined && p.order !== input.order) {
+			out.push({
+				kind: "moveSearchInput",
+				moduleUuid,
+				uuid: input.uuid,
+				order: input.order,
+			});
+		}
+	}
+	for (const input of prev) {
+		if (!nextUuids.has(input.uuid)) {
+			out.push({ kind: "removeSearchInput", moduleUuid, uuid: input.uuid });
+		}
+	}
+	return out;
+}
+
+/** The case-list's non-array metadata — always-on `filter` + case-list-link
+ *  `icon` / `audioLabel`. A clear travels as `null`. */
+function diffCaseListMeta(
+	prev: CaseListConfig,
+	next: CaseListConfig,
+	moduleUuid: Uuid,
+): Mutation[] {
+	const patch: {
+		filter?: CaseListConfig["filter"] | null;
+		icon?: string | null;
+		audioLabel?: string | null;
+	} = {};
+	if (!deepEqual(prev.filter, next.filter)) {
+		patch.filter = next.filter === undefined ? null : cloneEntity(next.filter);
+	}
+	if (prev.icon !== next.icon) patch.icon = next.icon ?? null;
+	if (prev.audioLabel !== next.audioLabel) {
+		patch.audioLabel = next.audioLabel ?? null;
+	}
+	if (Object.keys(patch).length === 0) return [];
+	return [{ kind: "setCaseListMeta", uuid: moduleUuid, patch }];
+}
+
+/** Diff a select field's options by uuid into the granular option kinds. A
+ *  field added this batch carries its options inline, so this runs for common
+ *  fields only. */
+function diffOptions(
+	prevField: Field,
+	nextField: Field,
+	fieldUuid: Uuid,
+): Mutation[] {
+	const prevOpts = optionsOf(prevField);
+	const nextOpts = optionsOf(nextField);
+	if (prevOpts.length === 0 && nextOpts.length === 0) return [];
+	const out: Mutation[] = [];
+	const prevByUuid = new Map<string, SelectOption>();
+	for (const o of prevOpts) if (o.uuid) prevByUuid.set(o.uuid, o);
+	const nextUuids = new Set<string>();
+	for (const opt of nextOpts) {
+		if (!opt.uuid) continue; // unbackfilled (shouldn't happen post-hydration)
+		nextUuids.add(opt.uuid);
+		const p = prevByUuid.get(opt.uuid);
+		if (!p) {
+			out.push({ kind: "addOption", fieldUuid, option: cloneEntity(opt) });
+			continue;
+		}
+		if (!contentEqualIgnoringOrder(p, opt)) {
+			out.push({
+				kind: "updateOption",
+				fieldUuid,
+				uuid: opt.uuid,
+				option: cloneEntity(opt),
+			});
+		}
+		if (opt.order !== undefined && p.order !== opt.order) {
+			out.push({
+				kind: "moveOption",
+				fieldUuid,
+				uuid: opt.uuid,
+				order: opt.order,
+			});
+		}
+	}
+	for (const o of prevOpts) {
+		if (o.uuid && !nextUuids.has(o.uuid)) {
+			out.push({ kind: "removeOption", fieldUuid, uuid: o.uuid });
+		}
+	}
+	return out;
+}
+
+function optionsOf(field: Field): readonly SelectOption[] {
+	return "options" in field && Array.isArray(field.options)
+		? (field.options as SelectOption[])
+		: [];
+}
+
+/**
+ * Diff the case-type catalog from → to into granular catalog mutations,
+ * keyed by `(type, property)` name. Order: declare new types FIRST (so an
+ * `addCaseProperty` targeting one has its type), then per-type meta + property
+ * edits, then retire gone types last. Replaying these on `from` reproduces
+ * `to`. No `setCaseTypes` is emitted.
+ */
+function diffCatalog(
+	from: readonly CaseType[] | null,
+	to: readonly CaseType[] | null,
+): Mutation[] {
+	const out: Mutation[] = [];
+	const fromArr = from ?? [];
+	const toArr = to ?? [];
+	const fromByName = new Map(fromArr.map((ct) => [ct.name, ct]));
+	const toByName = new Map(toArr.map((ct) => [ct.name, ct]));
+
+	for (const ct of toArr) {
+		if (!fromByName.has(ct.name)) {
+			out.push({ kind: "declareCaseType", caseType: ct.name });
+		}
+	}
+	for (const toCt of toArr) {
+		const fromCt = fromByName.get(toCt.name);
+		// Emit ONLY the ancestry slot(s) that actually changed — an omitted slot
+		// means "unchanged" (the reducer leaves it alone). Setting both whenever
+		// either differs would re-write the untouched slot to this emitter's
+		// snapshot value, so a concurrent peer editing the OTHER slot would be
+		// clobbered on the guarded re-apply. A changed slot travels as its new
+		// value or an explicit `null` (a clear — JSON drops `undefined`).
+		const meta: {
+			kind: "setCaseTypeMeta";
+			caseType: string;
+			parent_type?: string | null;
+			relationship?: "child" | "extension" | null;
+		} = { kind: "setCaseTypeMeta", caseType: toCt.name };
+		let metaChanged = false;
+		if (
+			(fromCt?.parent_type ?? undefined) !== (toCt.parent_type ?? undefined)
+		) {
+			meta.parent_type = toCt.parent_type ?? null;
+			metaChanged = true;
+		}
+		if (
+			(fromCt?.relationship ?? undefined) !== (toCt.relationship ?? undefined)
+		) {
+			meta.relationship = toCt.relationship ?? null;
+			metaChanged = true;
+		}
+		if (metaChanged) out.push(meta);
+		const fromProps = new Map(
+			(fromCt?.properties ?? []).map((p) => [p.name, p]),
+		);
+		const toPropNames = new Set(toCt.properties.map((p) => p.name));
+		for (const prop of toCt.properties) {
+			const fp = fromProps.get(prop.name);
+			if (!fp) {
+				out.push({
+					kind: "addCaseProperty",
+					caseType: toCt.name,
+					property: cloneEntity(prop),
+				});
+			} else if (!deepEqual(fp, prop)) {
+				out.push({
+					kind: "setCaseProperty",
+					caseType: toCt.name,
+					property: cloneEntity(prop),
+				});
+			}
+		}
+		for (const prop of fromCt?.properties ?? []) {
+			if (!toPropNames.has(prop.name)) {
+				out.push({
+					kind: "removeCaseProperty",
+					caseType: toCt.name,
+					property: prop.name,
+				});
+			}
+		}
+	}
+	for (const ct of fromArr) {
+		if (!toByName.has(ct.name)) {
+			out.push({ kind: "retireCaseType", caseType: ct.name });
+		}
+	}
+	return out;
 }

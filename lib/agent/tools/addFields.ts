@@ -41,7 +41,11 @@ import { resolveFormContext } from "../blueprintHelpers";
 import type { FlatField } from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
-import { guardedMutate, type MutatingToolResult } from "./common";
+import {
+	guardedMutate,
+	type MutatingToolResult,
+	toToolErrorResult,
+} from "./common";
 import {
 	assembleFieldMutations,
 	describeRejectedFieldIds,
@@ -225,12 +229,7 @@ export const addFieldsTool = {
 				},
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

@@ -129,15 +129,17 @@ describe("listApps", () => {
 		expect(apps.map((a) => a.id)).toEqual(["a", "b", "c"]);
 	});
 
-	it("excludes an awaiting_input (paused) build from staleness reaping", async () => {
-		/* A build paused on an askQuestions round is generating + awaiting_input
-		 * with a stale updated_at, yet must stay 'generating' (NOT projected to
-		 * 'error'): a live paused build's hold must never be refunded by the reaper.
-		 * A stale generating build WITHOUT the flag is a hard kill, projected
-		 * 'error'. Both share the same stale timestamp, so the ONLY difference is the
-		 * flag — pinning that the flag, not the staleness, is what spares the row. */
+	it("reaps a stale build regardless of awaiting_input, but spares a FRESH paused build", async () => {
+		/* Descoped model: the reaper keys on the LAPSED CLOCK, not `awaiting_input`.
+		 * A paused build has no heartbeat, so an ABANDONED one (stale `updated_at`)
+		 * must be reaped (a paused run BLOCKS a claim, so it can't hold forever) →
+		 * projected 'error'. A RECENTLY-paused build (fresh `updated_at`) is alive
+		 * (its own resume can still renew) → stays 'generating'. A stale generating
+		 * build WITHOUT the flag is a hard kill, also reaped. So the FRESH clock, not
+		 * the flag, is what spares a row. */
 		const stale = Timestamp.fromDate(new Date("2020-01-01T00:00:00Z"));
-		const generatingDoc = (id: string, awaiting: boolean) =>
+		const fresh = Timestamp.fromDate(new Date());
+		const generatingDoc = (id: string, awaiting: boolean, updated: Timestamp) =>
 			makeDoc(id, {
 				app_name: `App ${id}`,
 				connect_type: null,
@@ -147,11 +149,15 @@ describe("listApps", () => {
 				awaiting_input: awaiting,
 				error_type: null,
 				created_at: stale,
-				updated_at: stale,
+				updated_at: updated,
 			});
 		getMock.mockResolvedValueOnce({
-			docs: [generatingDoc("paused", true), generatingDoc("killed", false)],
-			size: 2,
+			docs: [
+				generatingDoc("freshPaused", true, fresh),
+				generatingDoc("abandonedPaused", true, stale),
+				generatingDoc("killed", false, stale),
+			],
+			size: 3,
 		});
 
 		const { listApps } = await import("../apps");
@@ -161,7 +167,8 @@ describe("listApps", () => {
 		});
 
 		const statusById = Object.fromEntries(apps.map((a) => [a.id, a.status]));
-		expect(statusById.paused).toBe("generating"); // alive, skipped
+		expect(statusById.freshPaused).toBe("generating"); // alive (fresh), skipped
+		expect(statusById.abandonedPaused).toBe("error"); // lease lapsed, reaped
 		expect(statusById.killed).toBe("error"); // hard kill, reaped
 	});
 

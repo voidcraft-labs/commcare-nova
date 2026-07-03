@@ -32,13 +32,64 @@
  * the conversation, not on the doc).
  */
 
+import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	BlueprintCommitRejectedError,
+	CommitReauthError,
+} from "@/lib/db/commitGuard";
+import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
 import { makeTestContext } from "./fixtures";
+
+/* The SA commits every batch through `commitGuardedBatch` (kind:'chat'). Mock
+ * it to re-apply the batch onto a TRACKED server doc so the SA's working doc
+ * advances across tool calls exactly as it would against the real writer, and
+ * expose `loadApp` for `wrapMutating`'s conflict-reload path. `seedServerDoc`
+ * seeds the tracked doc to the SA's initial doc per test. */
+const { commitGuardedBatchMock, loadAppMock, seedServerDoc } = vi.hoisted(
+	() => {
+		let serverDoc: unknown = null;
+		let seq = 0;
+		return {
+			seedServerDoc: (doc: unknown) => {
+				serverDoc = doc;
+				seq = 0;
+			},
+			loadAppMock: vi.fn(),
+			commitGuardedBatchMock: vi.fn(async (args: { mutations: unknown[] }) => {
+				// biome-ignore lint/suspicious/noExplicitAny: test re-applies onto the tracked doc.
+				serverDoc = produce(serverDoc as any, (draft: any) => {
+					// biome-ignore lint/suspicious/noExplicitAny: mutation union threaded verbatim.
+					applyMutations(draft, args.mutations as any);
+				});
+				seq += 1;
+				return {
+					seq,
+					basisToken: `token-${seq}`,
+					committedDoc: serverDoc,
+					deduped: false,
+				};
+			}),
+		};
+	},
+);
+
+/** Seed the tracked server doc + build the SA against it. Every test uses this
+ *  instead of `createSolutionsArchitect` directly so the guarded-writer mock
+ *  starts from the SA's own initial doc. */
+function makeSa(
+	ctx: GenerationContext,
+	doc: BlueprintDoc,
+	appReady: boolean,
+): ReturnType<typeof createSolutionsArchitect> {
+	seedServerDoc(doc);
+	return createSolutionsArchitect(ctx, doc, appReady);
+}
 
 // ── Forbidden legacy events ──────────────────────────────────────────────
 //
@@ -207,7 +258,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("generateSchema is a pure plan — a structured echo, zero mutations on the wire", async () => {
-		const sa = createSolutionsArchitect(ctx, makeEmptyDoc(), false);
+		const sa = makeSa(ctx, makeEmptyDoc(), false);
 
 		const result = await runTool(sa, "generateSchema", {
 			appName: "Trial Intake",
@@ -234,7 +285,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("planAppDesign is a pure plan — a structured index, zero mutations on the wire", async () => {
-		const sa = createSolutionsArchitect(ctx, makeEmptyDoc(), false);
+		const sa = makeSa(ctx, makeEmptyDoc(), false);
 
 		const result = await runTool(sa, "planAppDesign", {
 			app_name: "Vendor Visits",
@@ -285,7 +336,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("updateApp emits one data-mutations batch carrying setAppName + setConnectType", async () => {
-		const sa = createSolutionsArchitect(ctx, makeEmptyDoc(), false);
+		const sa = makeSa(ctx, makeEmptyDoc(), false);
 
 		await runTool(sa, "updateApp", {
 			name: "Vendor Visits",
@@ -308,7 +359,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// authoring is the typed-AST replacement for the deleted
 		// `addModule` SA tool, so the fixture exercises one structured
 		// `Column` mutation at the same staging granularity.
-		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), false);
+		const sa = makeSa(ctx, makeFixtureDoc(), false);
 
 		await runTool(sa, "addCaseListColumns", {
 			moduleIndex: 0,
@@ -322,7 +373,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("addFields emits a single data-mutations batch (not data-form-updated)", async () => {
-		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc(), true);
 
 		await runTool(sa, "addFields", {
 			moduleIndex: 0,
@@ -355,7 +406,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expectNoLegacyEvents(writer);
 	});
 
-	it("editField with id rename emits rename + update as two separate data-mutations batches", async () => {
+	it("editField with id rename emits ONE data-mutations batch carrying the whole staged edit", async () => {
 		/* Rename a non-case_name field: renaming the registration form's
 		 * case_name writer away would introduce NO_CASE_NAME_FIELD and the
 		 * gate would rightly reject the whole edit. */
@@ -369,7 +420,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		} as Field;
 		doc.fieldOrder[FORM_A] = [...doc.fieldOrder[FORM_A], VILLAGE];
 		doc.fieldParent[VILLAGE] = FORM_A;
-		const sa = createSolutionsArchitect(ctx, doc, true);
+		const sa = makeSa(ctx, doc, true);
 
 		await runTool(sa, "editField", {
 			moduleIndex: 0,
@@ -382,18 +433,21 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		});
 
 		const muts = mutationEvents(writer);
-		// Two distinct emissions: one for the rename cascade, one for the
-		// remaining property patch. Each carries its own stage tag.
-		expect(muts).toHaveLength(2);
-		expect(muts[0].stage).toBe("rename:0-0");
-		expect(muts[0].mutations.some((m) => m.kind === "renameField")).toBe(true);
-		expect(muts[1].stage).toBe("edit:0-0");
-		expect(muts[1].mutations.every((m) => m.kind === "updateField")).toBe(true);
+		// Under the P3 chat-SA port, `recordMutationStages` concatenates the
+		// convert→rename→patch stages into ONE guarded commit and emits ONE
+		// `data-mutations` frame — preserving editField's atomicity (one seq, one
+		// batchId). The per-stage tags survive on the log envelopes, not the SSE
+		// frame, so the wire frame carries no stage.
+		expect(muts).toHaveLength(1);
+		expect(muts[0].stage).toBeUndefined();
+		const kinds = muts[0].mutations.map((m) => m.kind);
+		expect(kinds).toContain("renameField");
+		expect(kinds).toContain("updateField");
 		expectNoLegacyEvents(writer);
 	});
 
 	it("updateModule emits data-mutations (not data-blueprint-updated)", async () => {
-		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc(), true);
 
 		await runTool(sa, "updateModule", {
 			moduleIndex: 0,
@@ -407,7 +461,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("createForm emits data-mutations (not data-blueprint-updated)", async () => {
-		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc(), true);
 
 		await runTool(sa, "createForm", {
 			moduleIndex: 0,
@@ -426,7 +480,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("removeModule emits data-mutations (not data-blueprint-updated)", async () => {
-		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), true);
+		const sa = makeSa(ctx, makeFixtureDoc(), true);
 
 		await runTool(sa, "removeModule", { moduleIndex: 1 });
 
@@ -443,7 +497,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// event across the whole sweep. If a future change re-introduces
 		// a legacy emission, this test fails regardless of which tool it
 		// sneaked into.
-		const sa = createSolutionsArchitect(ctx, makeFixtureDoc(), false);
+		const sa = makeSa(ctx, makeFixtureDoc(), false);
 
 		// Planning tools (build mode only) — pure, but walked so a future
 		// regression that makes them emit shows up here.
@@ -535,31 +589,146 @@ describe("solutionsArchitect — emitMutations migration", () => {
 // set carries no completeBuild on either mode, and no tool emits
 // `data-done` (that signal is the route's).
 
-/* `emitMutations` fires a fire-and-forget `updateAppForRun` on every
- * mutating tool call; stub the apps module so no save reaches Firestore. */
+/* Every mutating tool call commits through `commitGuardedBatch`; the hoisted
+ * mock re-applies the batch onto a tracked doc so no save reaches Firestore.
+ * `loadApp` backs `wrapMutating`'s conflict-reload path. */
 vi.mock("@/lib/db/apps", () => ({
-	updateAppForRun: vi.fn(() => Promise.resolve()),
+	commitGuardedBatch: commitGuardedBatchMock,
+	loadApp: loadAppMock,
 }));
 
 describe("solutionsArchitect — no finishing tool", () => {
 	it("completeBuild is absent from both tool sets", () => {
 		const { ctx } = buildCtx();
-		const buildSa = createSolutionsArchitect(ctx, makeEmptyDoc(), false);
-		const editSa = createSolutionsArchitect(ctx, makeFixtureDoc(), true);
+		const buildSa = makeSa(ctx, makeEmptyDoc(), false);
+		const editSa = makeSa(ctx, makeFixtureDoc(), true);
 		expect("completeBuild" in buildSa.tools).toBe(false);
 		expect("completeBuild" in editSa.tools).toBe(false);
 	});
 
 	it("planning tools are build-only; updateApp is shared", () => {
 		const { ctx } = buildCtx();
-		const buildSa = createSolutionsArchitect(ctx, makeEmptyDoc(), false);
-		const editSa = createSolutionsArchitect(ctx, makeFixtureDoc(), true);
+		const buildSa = makeSa(ctx, makeEmptyDoc(), false);
+		const editSa = makeSa(ctx, makeFixtureDoc(), true);
 		expect("generateSchema" in buildSa.tools).toBe(true);
 		expect("planAppDesign" in buildSa.tools).toBe(true);
 		expect("generateSchema" in editSa.tools).toBe(false);
 		expect("planAppDesign" in editSa.tools).toBe(false);
 		expect("updateApp" in buildSa.tools).toBe(true);
 		expect("updateApp" in editSa.tools).toBe(true);
+	});
+});
+
+// ── Chat-SA port: wrapMutating conflict-reload / terminal-reauth / no-reload ──
+//
+// The P3 chat-SA port routes every mutating tool through the guarded writer,
+// and every tool's blanket `catch (err)` now runs through
+// `common.ts::toToolErrorResult`, which RE-THROWS the two authoritative commit
+// signals so they escape the tool body and reach `wrapMutating`. Three distinct
+// behaviors, all exercised here through a REAL tool (`addFields`):
+//
+//   - a RETRYABLE `BlueprintCommitRejectedError` (a peer deleted/changed the
+//     target, or the app moved Projects) escapes the tool → `wrapMutating`
+//     catches it → returns `{ error }` to the SA AND reloads fresh via
+//     `loadApp`, so the NEXT tool builds on the current server state;
+//   - a TERMINAL `CommitReauthError` (the actor lost edit access) escapes the
+//     tool → `wrapMutating` does NOT catch it → it propagates out of the tool's
+//     execute and fails the run (a reload can't restore authorization);
+//   - a pre-commit validity finding returns `{ error }` WITHOUT throwing (it's a
+//     return value from `guardedMutate`, never a throw), so nothing reloads.
+
+describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth", () => {
+	/** A reloaded doc that adds a second field so a follow-up read can prove the
+	 *  SA rebased onto `loadApp`'s fresh blueprint after a conflict. */
+	function reloadedDoc(): BlueprintDoc {
+		const base = makeFixtureDoc();
+		const PEER_FIELD = asUuid("99999999-9999-9999-9999-999999999999");
+		return {
+			...base,
+			fields: {
+				...base.fields,
+				[PEER_FIELD]: {
+					uuid: PEER_FIELD,
+					id: "peer_added",
+					kind: "text",
+					label: "Peer added",
+				} as Field,
+			},
+			fieldOrder: { [FORM_A]: [FIELD_A, PEER_FIELD] },
+			fieldParent: { [FIELD_A]: FORM_A, [PEER_FIELD]: FORM_A },
+		};
+	}
+
+	it("catches a BlueprintCommitRejectedError escaping the tool, returns { error }, and reloads fresh for the next tool", async () => {
+		const { ctx } = buildCtx();
+		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		// The guarded commit rejects (a peer changed the target); the tool's
+		// blanket catch re-throws it (via toToolErrorResult), so it reaches
+		// wrapMutating, which reloads a fresh doc carrying a peer-added field.
+		commitGuardedBatchMock.mockRejectedValueOnce(
+			new BlueprintCommitRejectedError(
+				"This app changed while you were editing — reload.",
+			),
+		);
+		loadAppMock.mockResolvedValueOnce({ blueprint: reloadedDoc() });
+
+		const result = (await runTool(sa, "addFields", {
+			moduleIndex: 0,
+			formIndex: 0,
+			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+		})) as { error?: string };
+
+		// The tool surfaced the conflict as the standard `{ error }` envelope.
+		expect(result.error).toContain("reload");
+		// And `wrapMutating` reloaded fresh.
+		expect(loadAppMock).toHaveBeenCalledWith("test-app");
+
+		// The NEXT read builds on the reloaded doc — the peer's field is visible.
+		const formResult = (await runTool(sa, "getForm", {
+			moduleIndex: 0,
+			formIndex: 0,
+		})) as { form: { fields: Array<{ id: string }> } };
+		expect(formResult.form.fields.map((f) => f.id).sort()).toEqual([
+			"case_name",
+			"peer_added",
+		]);
+	});
+
+	it("propagates a terminal CommitReauthError past wrapMutating (no reload, fails the tool call)", async () => {
+		const { ctx } = buildCtx();
+		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		// The tool's blanket catch re-throws CommitReauthError; wrapMutating does
+		// NOT catch it, so it escapes the tool's execute — terminal.
+		commitGuardedBatchMock.mockRejectedValueOnce(
+			new CommitReauthError("You no longer have edit access."),
+		);
+
+		await expect(
+			runTool(sa, "addFields", {
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+			}),
+		).rejects.toBeInstanceOf(CommitReauthError);
+		expect(loadAppMock).not.toHaveBeenCalled();
+	});
+
+	it("does NOT reload on a pre-commit validity finding (the tool returns { error }, commit never runs)", async () => {
+		const { ctx } = buildCtx();
+		const sa = makeSa(ctx, makeFixtureDoc(), true);
+
+		// A duplicate sibling id is a pre-commit identifier finding — the tool
+		// returns `{ error }` before ever reaching the guarded commit.
+		const result = (await runTool(sa, "addFields", {
+			moduleIndex: 0,
+			formIndex: 0,
+			fields: [{ id: "case_name", kind: "text", label: "Dup" }],
+		})) as { error?: string };
+
+		expect(result.error).toBeDefined();
+		// Neither the commit nor a reload fired — nothing threw.
+		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
+		expect(loadAppMock).not.toHaveBeenCalled();
 	});
 });
 

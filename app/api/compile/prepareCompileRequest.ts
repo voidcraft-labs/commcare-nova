@@ -6,7 +6,7 @@ import {
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { resolveAppAccess } from "@/lib/db/appAccess";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
@@ -28,6 +28,14 @@ export interface PreparedCompileRequest {
 	 * emission boundary.
 	 */
 	assets: Awaited<ReturnType<typeof resolveMediaManifest>>;
+	/**
+	 * The `mutation_seq` the loaded blueprint committed at — read off the SAME
+	 * `resolveAppAccess` snapshot that carries `app.blueprint`, so the seq and
+	 * the doc it stamps can't drift. Each export names the exact document
+	 * version it emitted (the `.ccz` profile's `cc-content-version`, the JSON
+	 * export's `X-Compiled-At-Seq` header).
+	 */
+	compiledAtSeq: number;
 }
 
 /**
@@ -68,14 +76,14 @@ export async function prepareCompileRequest(
 		"view",
 	);
 
-	// `fieldParent` is derived, not persisted; rebuild it from
-	// `moduleOrder`/`formOrder`/`fieldOrder` before any expand/compile walk
-	// can traverse the doc.
-	const docWithParent: BlueprintDoc = {
-		...(app.blueprint as PersistableDoc as BlueprintDoc),
-		fieldParent: {},
-	};
-	rebuildFieldParent(docWithParent);
+	// The shared hydration chokepoint: fieldParent rebuilt + the
+	// deterministic `order`/option-`uuid` backfill a legacy stored doc needs,
+	// so the wire the compiler emits reflects the SAME display sequence the
+	// builder shows (a partially-keyed legacy doc otherwise sorts keyed-ahead-
+	// of-keyless and the export order diverges from the canvas).
+	const docWithParent = hydratePersistedBlueprint(
+		app.blueprint as PersistableDoc,
+	);
 
 	// The transaction-boundary gate — zero tolerance, before any expensive
 	// work. Every finding (soundness, completeness, media-state) rejects the
@@ -101,5 +109,5 @@ export async function prepareCompileRequest(
 		withBytes: true,
 	});
 
-	return { doc: docWithParent, assets };
+	return { doc: docWithParent, assets, compiledAtSeq: app.mutation_seq };
 }

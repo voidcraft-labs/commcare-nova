@@ -132,7 +132,7 @@ describe("case-store harness — schema", () => {
 			]),
 		);
 		expect(columnsByTable.get("case_type_schemas")).toEqual(
-			new Set(["app_id", "case_type", "schema"]),
+			new Set(["app_id", "case_type", "schema", "synced_seq"]),
 		);
 		expect(columnsByTable.get("case_indices")).toEqual(
 			new Set([

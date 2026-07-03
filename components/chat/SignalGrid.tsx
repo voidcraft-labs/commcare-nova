@@ -3,6 +3,11 @@ import type { UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef } from "react";
 import { type FieldPath, fpathId } from "@/lib/doc/fieldPath";
 import {
+	orderedFieldUuids,
+	orderedFormUuids,
+	orderedModuleUuids,
+} from "@/lib/doc/fieldWalk";
+import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
@@ -34,7 +39,11 @@ function flatIndexInForm(
 	let index = 0;
 	let found = -1;
 	const walk = (parent: Uuid): boolean => {
-		const children = doc.fieldOrder[parent] ?? [];
+		// Visual (display) sequence — the flat index feeds the activity
+		// gauge's focus range over the form's rendered field layout, so it
+		// must count in `sort-by-(order, uuid)` order, not `fieldOrder`
+		// array position.
+		const children = orderedFieldUuids(doc, parent);
 		for (const childUuid of children) {
 			const field = doc.fields[childUuid];
 			if (!field) continue;
@@ -123,10 +132,17 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 							 * walking the doc's normalized entity maps directly —
 							 * no wire-shape assembly needed. */
 							const doc = docStoreRef.current?.getState();
-							const moduleId = doc?.moduleOrder[input.moduleIndex as number];
-							const formId = moduleId
-								? doc?.formOrder[moduleId]?.[input.formIndex as number]
+							// The SA's `moduleIndex` / `formIndex` are DISPLAY-order
+							// positions (its resolvers speak `orderedModule/FormUuids`),
+							// so resolve them the same way — not by `moduleOrder` /
+							// `formOrder` array position.
+							const moduleId = doc
+								? orderedModuleUuids(doc)[input.moduleIndex as number]
 								: undefined;
+							const formId =
+								doc && moduleId
+									? orderedFormUuids(doc, moduleId)[input.formIndex as number]
+									: undefined;
 							if (doc && formId) {
 								const bareId = fpathId(qRef as FieldPath);
 								const flatIdx = flatIndexInForm(doc, formId, bareId);
@@ -155,13 +171,21 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 		 * progress (events buffer non-empty), so a separate "agent
 		 * active" check would be redundant. */
 		if (doc && derivePostBuildEdit(s.events, s.runStartedWithData)) {
-			/* computeEditFocus needs the blueprint's ordering maps to
-			 * convert scope indices into a 0–1 focus range. */
+			/* computeEditFocus converts scope indices into a 0–1 focus range.
+			 * It's order-agnostic (it lays fields out in the sequence it's
+			 * given), so hand it DISPLAY-ordered slices — the same
+			 * `sort-by-(order, uuid)` sequence the scope indices address and
+			 * the canvas renders — not the raw `moduleOrder` / `formOrder`. */
+			const orderedModules = orderedModuleUuids(doc);
+			const orderedForms: Record<string, readonly string[]> = {};
+			for (const moduleId of orderedModules) {
+				orderedForms[moduleId] = orderedFormUuids(doc, moduleId);
+			}
 			controller.setEditFocus(
 				computeEditFocus(
 					{
-						moduleOrder: doc.moduleOrder,
-						formOrder: doc.formOrder,
+						moduleOrder: orderedModules,
+						formOrder: orderedForms,
 						fieldOrder: doc.fieldOrder,
 					},
 					latestToolScope,

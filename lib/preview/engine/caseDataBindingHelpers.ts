@@ -39,6 +39,7 @@ import {
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { and, eq, literal, prop, term } from "@/lib/domain/predicate/builders";
@@ -375,8 +376,11 @@ function buildCaseStoreSortKeys(
 
 	type Survivor = { readonly column: Column; readonly index: number };
 	const survivors: Survivor[] = [];
-	for (let i = 0; i < caseListConfig.columns.length; i++) {
-		const column = caseListConfig.columns[i];
+	// DISPLAY order (`sort-by-(order, uuid)`, not array position) — the same
+	// sequence the wire emitter walks, so the equal-priority tie-break matches.
+	const sortedColumns = [...caseListConfig.columns].sort(bySortKey);
+	for (let i = 0; i < sortedColumns.length; i++) {
+		const column = sortedColumns[i];
 		if (column.sort === undefined) continue;
 		survivors.push({ column, index: i });
 	}
@@ -755,9 +759,14 @@ export async function withSchemaHeal<T>(
 			// sync (`case_type_schemas` + indexes, no tenant data), so it
 			// exposes nothing even if reached. Absent app → rethrow.
 			if (!app) throw err;
+			// `syncedSeq` = `mutation_seq` off the SAME snapshot as the blueprint
+			// (never a fresh read) so the two never diverge — the seq the heal
+			// records must match exactly what it materialized, or the monotone
+			// `synced_seq` gate would pair a later seq with an earlier schema.
 			await materializeCaseStoreSchemas({
 				appId: args.appId,
 				blueprint: app.blueprint,
+				syncedSeq: app.mutation_seq,
 			});
 		} catch (healErr) {
 			log.error("[caseDataBinding] schema heal failed", healErr, {

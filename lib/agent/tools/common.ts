@@ -9,6 +9,10 @@
 
 import { produce } from "immer";
 import {
+	BlueprintCommitRejectedError,
+	CommitReauthError,
+} from "@/lib/db/commitGuard";
+import {
 	describeIntroducedErrors,
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
@@ -70,9 +74,9 @@ export type GuardedMutateOutcome =
  *
  * `mediaExpectations` rides through to `ctx.recordMutations` when the
  * batch attaches media references: the media tools have already run the
- * pre-commit asset verdict (`mediaAttachVerdict`), and the MCP surface's
- * transactional save re-applies the per-asset judgment inside the same
- * transaction that re-verdicts the batch (see `toolExecutionContext.ts`).
+ * pre-commit asset verdict (`mediaAttachVerdict`), and BOTH surfaces then
+ * re-apply the per-asset judgment inside the guarded transaction that
+ * re-verdicts the batch (see `toolExecutionContext.ts`).
  */
 export async function guardedMutate(
 	ctx: ToolExecutionContext,
@@ -86,12 +90,20 @@ export async function guardedMutate(
 		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
 	}
 	if (mutations.length > 0) {
-		await ctx.recordMutations(
+		/* The guarded commit re-applies onto the FRESH stored doc, so its
+		 * `committedDoc` may carry a peer's concurrent edit merged in — the SA
+		 * continues against THAT, not the tool's pre-commit `nextDoc`. A
+		 * pre-commit finding already returned above (no reload); an
+		 * authoritative commit conflict throws `BlueprintCommitRejectedError`,
+		 * which is NOT caught here — it propagates to `wrapMutating`, which
+		 * reloads fresh. */
+		const { committedDoc } = await ctx.recordMutations(
 			mutations,
 			verdict.nextDoc,
 			stage,
 			mediaExpectations,
 		);
+		return { ok: true, newDoc: committedDoc };
 	}
 	return { ok: true, newDoc: verdict.nextDoc };
 }
@@ -125,8 +137,10 @@ export async function guardedMutateStages(
 	}
 	const nonEmpty = stages.filter((s) => s.mutations.length > 0);
 	if (nonEmpty.length === 0) return { ok: true, newDoc: prevDoc };
-	await ctx.recordMutationStages(nonEmpty);
-	return { ok: true, newDoc: nonEmpty[nonEmpty.length - 1].doc };
+	// The SA continues against the writer's committed doc (a peer edit merged
+	// in), not the tool's final-stage doc.
+	const { committedDoc } = await ctx.recordMutationStages(nonEmpty);
+	return { ok: true, newDoc: committedDoc };
 }
 
 /**
@@ -169,4 +183,47 @@ export interface MutatingToolResult<R> {
 export interface ReadToolResult<R> {
 	kind: "read";
 	data: R;
+}
+
+/**
+ * The one exit for a mutating tool body's outer `catch (err)`.
+ *
+ * A tool wraps its whole body — including the guarded commit — in a blanket
+ * `catch` so an unexpected throw surfaces to the model as a friendly `{ error }`
+ * rather than an unhandled rejection. But the two AUTHORITATIVE commit signals
+ * MUST NOT be swallowed there: they are how the chat SA's `wrapMutating`
+ * (`solutionsArchitect.ts`) recovers.
+ *
+ * - `BlueprintCommitRejectedError` — a peer deleted/changed the target, or the
+ *   app moved Projects, between the tool's read and the guarded commit. RE-THROWN
+ *   so `wrapMutating` catches it, returns `{ error }` to the SA, AND reloads
+ *   fresh so the next tool builds on the current server state (not the stale
+ *   closure doc). Swallowing it here strands the SA on a stale doc.
+ * - `CommitReauthError` — the actor lost edit access mid-run. RE-THROWN so it
+ *   propagates past `wrapMutating` (which does NOT catch it) and fails the run;
+ *   a reload can't restore authorization, so continuing would just re-deny.
+ *
+ * Every other throw (a genuine tool-body fault) becomes the standard
+ * `{ error }` envelope — the same shape + behavior the inline `catch` used
+ * before, with `newDoc` unchanged (nothing committed). A pre-commit gate
+ * finding never reaches here: `guardedMutate`/`guardedMutateStages` RETURN
+ * `{ ok: false, error }` rather than throwing, so the tool returns its own
+ * `{ error }` and nothing reloads.
+ */
+export function toToolErrorResult(
+	err: unknown,
+	doc: BlueprintDoc,
+): MutatingToolResult<{ error: string }> {
+	if (
+		err instanceof BlueprintCommitRejectedError ||
+		err instanceof CommitReauthError
+	) {
+		throw err;
+	}
+	return {
+		kind: "mutate",
+		mutations: [],
+		newDoc: doc,
+		result: { error: err instanceof Error ? err.message : String(err) },
+	};
 }

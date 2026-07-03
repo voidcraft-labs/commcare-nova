@@ -44,8 +44,19 @@ import {
 	parseXPathForForm,
 } from "@/lib/doc/expressionText";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	orderedFieldUuids,
+	orderedFormUuids,
+	orderedModuleUuids,
+} from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
+import {
+	backfillOptionUuids,
+	backfillOrderKeys,
+} from "@/lib/doc/order/backfill";
+import { bySortKey } from "@/lib/doc/order/compare";
+import { keyBetween } from "@/lib/doc/order/keys";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
@@ -467,6 +478,36 @@ function mintUuid(): string {
 	return `df000000-0000-4000-8000-${minted.toString().padStart(12, "0")}`;
 }
 
+/**
+ * The absolute fractional `order` key for an entity landing at `opIndex` among
+ * `members` (a uuid list resolved to entities + sorted by `bySortKey`),
+ * excluding `excludeUuid` (the moved entity). Mirrors the builder gesture's
+ * `orderKeyForFieldSlot` so the fuzz drives the SAME order-key path the diff
+ * detects (an array-position move would be invisible to the order-key diff).
+ */
+function orderKeyAt(
+	members: readonly Uuid[],
+	orderOf: (uuid: Uuid) => string | undefined,
+	opIndex: number,
+	excludeUuid?: Uuid,
+): string {
+	const sibs = members.filter((u) => u !== excludeUuid);
+	const index = Math.max(0, Math.min(opIndex, sibs.length));
+	const before = index > 0 ? (orderOf(sibs[index - 1]) ?? null) : null;
+	const after = index < sibs.length ? (orderOf(sibs[index]) ?? null) : null;
+	return keyBetween(before, after);
+}
+
+/** Append `order` key after the last member of `parentUuid`'s sorted children —
+ *  what a fuzz `addField`/`addForm`/`addModule` stamps so every entity is keyed. */
+function appendFieldOrder(doc: BlueprintDoc, parentUuid: Uuid): string {
+	return orderKeyAt(
+		orderedFieldUuids(doc, parentUuid),
+		(u) => doc.fields[u]?.order,
+		Number.MAX_SAFE_INTEGER,
+	);
+}
+
 const FORM_TYPES = ["registration", "followup", "close", "survey"] as const;
 const NAME_POOL = ["Alpha", "Beta", "Gamma", "Delta"];
 const PURPOSE_POOL = ["Purpose A", "Purpose B", "", "Purpose C"];
@@ -500,7 +541,13 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 						),
 						...(caseProp && { case_property_on: caseProp }),
 					} as never);
-			return [{ kind: "addField", parentUuid, field }];
+			// Stamp an append `order` so every fuzz-added field is keyed — the
+			// builder gestures do the same, and it keeps the order-key diff total.
+			const ordered = {
+				...(field as Record<string, unknown>),
+				order: appendFieldOrder(doc, parentUuid),
+			};
+			return [{ kind: "addField", parentUuid, field: ordered as never }];
 		}
 		case "removeField": {
 			const uuid = pickField(doc, op.fieldPick);
@@ -516,7 +563,13 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			const uuid = pickField(doc, op.fieldPick);
 			const toParentUuid = pickParent(doc, op.parentPick);
 			if (!uuid || !toParentUuid) return [];
-			return [{ kind: "moveField", uuid, toParentUuid, toIndex: op.index }];
+			const order = orderKeyAt(
+				orderedFieldUuids(doc, toParentUuid),
+				(u) => doc.fields[u]?.order,
+				op.index,
+				uuid,
+			);
+			return [{ kind: "moveField", uuid, toParentUuid, order }];
 		}
 		case "convertField": {
 			const uuid = pickField(doc, op.fieldPick);
@@ -583,6 +636,11 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 						id: "fuzz_form",
 						name: "Fuzz form",
 						type: FORM_TYPES[op.ftype],
+						order: orderKeyAt(
+							orderedFormUuids(doc, moduleUuid),
+							(u) => doc.forms[u]?.order,
+							Number.MAX_SAFE_INTEGER,
+						),
 					} as never,
 				},
 			];
@@ -595,7 +653,13 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			const uuid = pickForm(doc, op.formPick);
 			const toModuleUuid = pickModule(doc, op.modulePick);
 			if (!uuid || !toModuleUuid) return [];
-			return [{ kind: "moveForm", uuid, toModuleUuid, toIndex: op.index }];
+			const order = orderKeyAt(
+				orderedFormUuids(doc, toModuleUuid),
+				(u) => doc.forms[u]?.order,
+				op.index,
+				uuid,
+			);
+			return [{ kind: "moveForm", uuid, toModuleUuid, order }];
 		}
 		case "renameForm": {
 			const uuid = pickForm(doc, op.formPick);
@@ -648,6 +712,11 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 						id: "fuzz_module",
 						name: NAME_POOL[op.namePick],
 						...(caseType && { caseType }),
+						order: orderKeyAt(
+							orderedModuleUuids(doc),
+							(u) => doc.modules[u]?.order,
+							Number.MAX_SAFE_INTEGER,
+						),
 					} as never,
 				},
 			];
@@ -658,7 +727,14 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 		}
 		case "moveModule": {
 			const uuid = pickModule(doc, op.modulePick);
-			return uuid ? [{ kind: "moveModule", uuid, toIndex: op.index }] : [];
+			if (!uuid) return [];
+			const order = orderKeyAt(
+				orderedModuleUuids(doc),
+				(u) => doc.modules[u]?.order,
+				op.index,
+				uuid,
+			);
+			return [{ kind: "moveModule", uuid, order }];
 		}
 		case "renameModule": {
 			const uuid = pickModule(doc, op.modulePick);
@@ -753,7 +829,75 @@ function assertRoundTrip(prev: BlueprintDoc, next: BlueprintDoc): void {
 	const replayed = produce(prev, (draft) => {
 		applyMutations(draft, reparsed as Mutation[]);
 	});
-	expect(toPersistableDoc(replayed)).toEqual(toPersistableDoc(next));
+	// Compare on DISPLAY equivalence, not raw array position. The membership
+	// arrays (`moduleOrder` / `formOrder[m]` / `fieldOrder[p]` / `columns` /
+	// `searchInputs` / `options`) are sets whose internal position is NOT
+	// authoritative — sequence is `sort-by-(order, uuid)`. A cross-parent move /
+	// add legitimately lands at a different array slot than `next` while the
+	// `order` keys (which the comparison still checks inside the entity objects)
+	// match exactly, so canonicalize both docs to display order first.
+	expect(normalizeOrder(toPersistableDoc(replayed))).toEqual(
+		normalizeOrder(toPersistableDoc(next)),
+	);
+}
+
+/**
+ * Canonicalize every membership array to DISPLAY order (`sort-by-(order,
+ * uuid)`) so a round-trip comparison checks display-equivalence + content, not
+ * the non-authoritative raw array position. The entity objects (carrying the
+ * `order` keys) are compared unchanged, so order keys must still match exactly.
+ */
+function normalizeOrder<T extends ReturnType<typeof toPersistableDoc>>(
+	doc: T,
+): T {
+	return produce(doc, (draft) => {
+		const d = draft as unknown as BlueprintDoc;
+		d.moduleOrder = orderedModuleUuids(d);
+		for (const m of Object.keys(d.formOrder)) {
+			d.formOrder[m] = orderedFormUuids(d, m as Uuid);
+		}
+		for (const p of Object.keys(d.fieldOrder)) {
+			d.fieldOrder[p] = orderedFieldUuids(d, p as Uuid);
+		}
+		for (const mod of Object.values(d.modules)) {
+			const config = mod.caseListConfig;
+			if (config) {
+				config.columns = [...config.columns].sort(bySortKey);
+				config.searchInputs = [...config.searchInputs].sort(bySortKey);
+			}
+		}
+		for (const field of Object.values(d.fields)) {
+			if ("options" in field && Array.isArray(field.options)) {
+				field.options = [...field.options].sort(bySortKey);
+			}
+		}
+		// The case-type catalog is name-keyed (properties carry no order key), so
+		// its array order is non-authoritative — the catalog diff is a no-op on a
+		// reorder-only delta. Canonicalize types + properties by name.
+		if (d.caseTypes) {
+			d.caseTypes = [...d.caseTypes]
+				.sort((a, b) => a.name.localeCompare(b.name))
+				.map((ct) => ({
+					...ct,
+					properties: [...ct.properties].sort((a, b) =>
+						a.name.localeCompare(b.name),
+					),
+				}));
+		}
+	});
+}
+
+/** Reverse the DISPLAY order of `formUuid`'s direct children by swapping their
+ *  `order` keys — a same-parent reorder leaves the membership array untouched. */
+function reverseDisplayOrder(doc: BlueprintDoc, formUuid: Uuid): void {
+	const sorted = orderedFieldUuids(doc, formUuid);
+	const keys = sorted.map((u) => doc.fields[u]?.order);
+	const reversed = [...keys].reverse();
+	sorted.forEach((u, i) => {
+		const field = doc.fields[u];
+		const key = reversed[i];
+		if (field && key !== undefined) field.order = key;
+	});
 }
 
 // ── The property ──────────────────────────────────────────────────────
@@ -768,7 +912,13 @@ describe("diffDocsToMutations — diff(prev, next) replayed on prev ≡ next", (
 				fc.array(opArb, { minLength: 0, maxLength: 16 }),
 				(seedPick, batchA, batchB) => {
 					iterations++;
-					const seed = SEEDS[seedPick]();
+					// Backfill the seed ONCE so every initial entity is keyed (the
+					// hydration boundary does this in production); the fuzz's adds +
+					// order-key moves then keep prev/next consistently keyed.
+					const seed = produce(SEEDS[seedPick](), (draft) => {
+						backfillOrderKeys(draft);
+						backfillOptionUuids(draft);
+					});
 					const prev = applyOps(seed, batchA);
 					const next = applyOps(prev, batchB);
 					assertRoundTrip(prev, next);
@@ -810,18 +960,20 @@ describe("diffDocsToMutations — explicit cases", () => {
 	});
 
 	it("pure field reorder within a form", () => {
-		const prev = singleModuleDoc();
+		const prev = produce(singleModuleDoc(), (d) => {
+			backfillOrderKeys(d);
+		});
 		const formUuid = prev.moduleOrder
 			.flatMap((m) => prev.formOrder[m] ?? [])
 			.at(0);
+		// A same-parent reorder is an ORDER-KEY change, not an array shuffle — the
+		// membership array stays put; reverse DISPLAY order by reversing keys.
 		const next = produce(prev, (draft) => {
-			if (formUuid)
-				draft.fieldOrder[formUuid] = [
-					...(draft.fieldOrder[formUuid] ?? []),
-				].reverse();
+			if (!formUuid) return;
+			reverseDisplayOrder(draft as unknown as BlueprintDoc, formUuid);
 		});
 		const diff = diffDocsToMutations(prev, next);
-		expect(diff.some((m) => m.kind === "moveField")).toBe(true);
+		expect(diff.some((m) => m.kind === "moveField" && "order" in m)).toBe(true);
 		assertRoundTrip(prev, next);
 	});
 
@@ -870,19 +1022,31 @@ describe("diffDocsToMutations — explicit cases", () => {
 			],
 		});
 		expect(prev.caseTypes).not.toBeNull();
-		const formUuid = prev.moduleOrder
-			.flatMap((m) => prev.formOrder[m] ?? [])
-			.at(0);
-		const next = produce(prev, (draft) => {
-			if (formUuid)
-				draft.fieldOrder[formUuid] = [
-					...(draft.fieldOrder[formUuid] ?? []),
-				].reverse();
+		const backfilled = produce(prev, (d) => {
+			backfillOrderKeys(d);
 		});
-		const diff = diffDocsToMutations(prev, next);
+		const formUuid = backfilled.moduleOrder
+			.flatMap((m) => backfilled.formOrder[m] ?? [])
+			.at(0);
+		const next = produce(backfilled, (draft) => {
+			if (!formUuid) return;
+			reverseDisplayOrder(draft as unknown as BlueprintDoc, formUuid);
+		});
+		const diff = diffDocsToMutations(backfilled, next);
 		expect(diff.some((m) => m.kind === "moveField")).toBe(true);
+		// No wholesale catalog re-pin on a purely structural edit.
 		expect(diff.some((m) => m.kind === "setCaseTypes")).toBe(false);
-		assertRoundTrip(prev, next);
+		expect(
+			diff.some(
+				(m) =>
+					m.kind === "addCaseProperty" ||
+					m.kind === "removeCaseProperty" ||
+					m.kind === "setCaseProperty" ||
+					m.kind === "declareCaseType" ||
+					m.kind === "retireCaseType",
+			),
+		).toBe(false);
+		assertRoundTrip(backfilled, next);
 	});
 
 	it("field kind convert (text → secret) reconciles remaining slots", () => {
@@ -1060,7 +1224,13 @@ describe("diffDocsToMutations — explicit cases", () => {
 		expect(diff.some((m) => m.kind === "setAppLogo" && m.logo === null)).toBe(
 			true,
 		);
-		expect(diff.some((m) => m.kind === "setCaseTypes")).toBe(true);
+		// The catalog change rides GRANULAR kinds now (declare the new type,
+		// retire the old) — never a wholesale `setCaseTypes` on the live path.
+		expect(diff.some((m) => m.kind === "setCaseTypes")).toBe(false);
+		expect(
+			diff.some((m) => m.kind === "declareCaseType" && m.caseType === "only"),
+		).toBe(true);
+		expect(diff.some((m) => m.kind === "retireCaseType")).toBe(true);
 		assertRoundTrip(prev, next);
 	});
 });

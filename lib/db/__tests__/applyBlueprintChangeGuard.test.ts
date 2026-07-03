@@ -1,68 +1,87 @@
 /**
- * The guarded (transactional) commit path of `applyBlueprintChange` —
- * the MCP surface's race protection. What must hold:
+ * The guarded commit path of `applyBlueprintChange` — the cross-store saga's
+ * wiring around the ONE Firestore chokepoint, `commitGuardedBatch` (in
+ * `apps.ts`). This file mocks `commitGuardedBatch` + `loadApp` and pins the
+ * saga's composition:
  *
- *   1. The committed doc is recomputed FROM THE FRESH stored blueprint
- *      (the transaction's read), not the caller's stale prospective —
- *      a concurrent committed batch survives the write.
- *   2. A batch the fresh doc's verdict rejects throws
- *      `BlueprintCommitRejectedError` and writes nothing.
- *   3. A rejection after the Postgres phase compensates the case-store
- *      work (the saga's existing contract, now reachable from the
- *      guard).
+ *   1. Every persist threads the unified writer's args verbatim — `batchId`,
+ *      `kind`, `runId` (when present), `actorUserId` (the caller's `userId`),
+ *      the guard's `mutations`, and any `mediaExpectations`.
+ *   2. The result surfaces `seq` + the writer's hydrated `committedDoc`.
+ *   3. A top-level `batchId` dedup hit (the latch already exists) short-circuits
+ *      the WHOLE saga — no Postgres, no `loadApp`, no commit — returning the
+ *      recorded `{ seq, basisToken }` with no `committedDoc`.
+ *   4. A rejection from the writer (`BlueprintCommitRejectedError` /
+ *      `CommitReauthError`) propagates and, after the Postgres phase ran,
+ *      compensates the case-store work.
  *
- * `updateAppForRunTransactional` is mocked to run the body against a
- * controllable "fresh" doc — the real Firestore transaction machinery is
- * a thin read/body/update wrapper; what this file pins is the
- * read-evaluate-write composition, with the REAL reducers + verdict
- * running inside the body.
+ * The deep read-evaluate-write behavior the writer itself owns (re-apply on the
+ * FRESH stored doc, the concurrent-delete guard, the fresh-doc re-verdict, the
+ * per-commit reauth, the legacy-doc hydration) is exercised against the REAL
+ * Firestore transaction in `commitGuardedBatch.integration.test.ts`.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
-import type { AppDoc } from "@/lib/db/types";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
+import { applyBlueprintChange } from "../applyBlueprintChange";
 import {
-	applyBlueprintChange,
 	BlueprintCommitRejectedError,
-} from "../applyBlueprintChange";
+	CommitReauthError,
+} from "../commitGuard";
 
-const {
-	loadAppMock,
-	updateAppMock,
-	updateAppForRunMock,
-	updateAppForRunTransactionalMock,
-	updateAppGuardedMutatingMock,
-} = vi.hoisted(() => ({
-	loadAppMock: vi.fn(),
-	updateAppMock: vi.fn(),
-	updateAppForRunMock: vi.fn(),
-	updateAppForRunTransactionalMock: vi.fn(),
-	updateAppGuardedMutatingMock: vi.fn(),
+const { loadAppMock, loadAppProjectIdMock, commitGuardedBatchMock } =
+	vi.hoisted(() => ({
+		loadAppMock: vi.fn(),
+		loadAppProjectIdMock: vi.fn(),
+		commitGuardedBatchMock: vi.fn(),
+	}));
+
+const { applySchemaChangeMock, dropSchemaMock, withSchemaContextMock } =
+	vi.hoisted(() => ({
+		applySchemaChangeMock: vi.fn(),
+		dropSchemaMock: vi.fn(),
+		withSchemaContextMock: vi.fn(),
+	}));
+
+const { reauthorizeActorForCommitMock } = vi.hoisted(() => ({
+	reauthorizeActorForCommitMock: vi.fn(),
 }));
 
-const { applySchemaChangeMock, withSchemaContextMock } = vi.hoisted(() => ({
-	applySchemaChangeMock: vi.fn(),
-	withSchemaContextMock: vi.fn(),
-}));
-
-const { getAssetsInTransactionMock } = vi.hoisted(() => ({
-	getAssetsInTransactionMock: vi.fn(),
+const { batchDedupRawGetMock } = vi.hoisted(() => ({
+	batchDedupRawGetMock: vi.fn(),
 }));
 
 vi.mock("@/lib/db/apps", () => ({
 	loadApp: loadAppMock,
-	updateApp: updateAppMock,
-	updateAppForRun: updateAppForRunMock,
-	updateAppForRunTransactional: updateAppForRunTransactionalMock,
-	updateAppGuardedMutating: updateAppGuardedMutatingMock,
+	loadAppProjectId: loadAppProjectIdMock,
+	commitGuardedBatch: commitGuardedBatchMock,
 }));
 
-vi.mock("@/lib/db/mediaAssets", () => ({
-	getAssetsInTransaction: getAssetsInTransactionMock,
-	loadAssetsByIds: vi.fn(),
+// The pre-DDL reauth is the shared `reauthorizeActorForCommit`; mock it so the
+// saga's authorization gate is a controllable seam (its own throw-behavior is
+// pinned in `commitGuard`'s tests). The real error classes stay real for the
+// propagation assertions below.
+vi.mock("@/lib/db/commitGuard", async () => {
+	const actual = (await vi.importActual("@/lib/db/commitGuard")) as Record<
+		string,
+		unknown
+	>;
+	return {
+		...actual,
+		reauthorizeActorForCommit: reauthorizeActorForCommitMock,
+	};
+});
+
+// The top-level dedup read is `docs.batchDedupRaw(appId, batchId).get()`. Stub
+// the firestore doc-ref factory so the non-transactional read is controllable
+// without a live Firestore.
+vi.mock("@/lib/db/firestore", () => ({
+	docs: {
+		batchDedupRaw: () => ({ get: batchDedupRawGetMock }),
+	},
 }));
 
 vi.mock("@/lib/case-store", async () => {
@@ -121,271 +140,76 @@ function minDoc(appName = "Test"): BlueprintDoc {
 	});
 }
 
-function freshAppDoc(blueprint: BlueprintDoc): AppDoc {
-	return {
-		blueprint: toPersistableDoc(blueprint),
-		owner: "user-1",
-		project_id: "project-1",
-		status: "complete",
-	} as unknown as AppDoc;
-}
-
-/** Drive the mock transaction: the body runs against `fresh`. The fake
- *  `tx` is inert — the body's only transactional read
- *  (`getAssetsInTransaction`) is itself mocked. */
-function armTransactionalWith(fresh: BlueprintDoc) {
-	updateAppForRunTransactionalMock.mockImplementation(
-		async (
-			_appId: string,
-			_runId: string,
-			body: (
-				doc: AppDoc,
-				tx: unknown,
-			) => PersistableDoc | Promise<PersistableDoc>,
-		) => body(freshAppDoc(fresh), {}),
-	);
-}
-
-/** Drive the tokenless guarded mutating commit (auto-save): the body runs
- *  against `fresh` and the mock returns a rotated basis token. */
-function armMutatingWith(fresh: BlueprintDoc) {
-	updateAppGuardedMutatingMock.mockImplementation(
-		async (
-			_appId: string,
-			body: (
-				doc: AppDoc,
-				tx: unknown,
-			) => PersistableDoc | Promise<PersistableDoc>,
-		) => {
-			await body(freshAppDoc(fresh), {});
-			return "token-next";
-		},
-	);
-}
-
 beforeEach(() => {
 	vi.clearAllMocks();
 	loadAppMock.mockImplementation(async () => null);
-	getAssetsInTransactionMock.mockResolvedValue(new Map());
+	// A null-project app: `reauthorizeActorForCommit(null, …)` is a no-op, and
+	// the in-txn owner check lives in `commitGuardedBatch` (mocked away here).
+	loadAppProjectIdMock.mockResolvedValue(null);
+	reauthorizeActorForCommitMock.mockResolvedValue(undefined);
+	// Default: no prior dedup latch — the saga proceeds to the guarded commit.
+	batchDedupRawGetMock.mockResolvedValue({ exists: false });
 	withSchemaContextMock.mockResolvedValue({
 		applySchemaChange: applySchemaChangeMock,
-		dropSchema: vi.fn(),
+		dropSchema: dropSchemaMock,
 	});
 });
 
-describe("applyBlueprintChange — guarded transactional commit", () => {
-	it("recomputes the committed doc from the FRESH blueprint, preserving a concurrent commit", async () => {
-		const stalePrior = minDoc("Original");
-		// A concurrent writer renamed the app AFTER the tool loaded its
-		// snapshot — the fresh stored doc carries "Renamed Concurrently"
-		// (same entities/uuids; only the concurrent edit differs).
-		const fresh: BlueprintDoc = {
-			...structuredClone(stalePrior),
-			appName: "Renamed Concurrently",
-		};
-		armTransactionalWith(fresh);
-
-		const target = Object.values(stalePrior.fields).find(
-			(fl) => fl.id === "village",
-		);
-		const mutations: Mutation[] = [
-			{
-				kind: "updateField",
-				uuid: target?.uuid,
-				targetKind: "text",
-				patch: { label: "Home village" },
-			} as Mutation,
-		];
-		// The tool's own (stale) candidate — built before the concurrent
-		// rename landed.
-		const staleProspective = toPersistableDoc(stalePrior);
-
-		loadAppMock.mockResolvedValue({ blueprint: staleProspective });
-
-		await applyBlueprintChange({
-			appId: "app-1",
-			userId: "user-1",
-			prospective: staleProspective,
-			runId: "run-1",
-			guard: { mutations },
-		});
-
-		expect(updateAppForRunTransactionalMock).toHaveBeenCalledTimes(1);
-		const committed =
-			await updateAppForRunTransactionalMock.mock.results[0]?.value;
-		// The concurrent rename SURVIVES (committed builds on fresh)…
-		expect(committed.appName).toBe("Renamed Concurrently");
-		// …and this batch's own edit landed on top of it.
-		const village = Object.values(
-			committed.fields as BlueprintDoc["fields"],
-		).find((fl) => fl.id === "village");
-		expect(village && "label" in village && village.label).toBe("Home village");
-		// The blind writers never ran.
-		expect(updateAppForRunMock).not.toHaveBeenCalled();
-		expect(updateAppMock).not.toHaveBeenCalled();
-	});
-
-	it("throws BlueprintCommitRejectedError when the fresh doc's verdict rejects, writing nothing", async () => {
-		const prior = minDoc();
-		armTransactionalWith(prior);
-		const target = Object.values(prior.fields).find(
-			(fl) => fl.id === "village",
-		);
-		const mutations: Mutation[] = [
-			{
-				kind: "updateField",
-				uuid: target?.uuid,
-				targetKind: "text",
-				// Unparseable XPath — soundness, rejected in every phase.
-				patch: { relevant: xp("if(") },
-			} as Mutation,
-		];
-		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
-
-		await expect(
-			applyBlueprintChange({
-				appId: "app-1",
-				userId: "user-1",
-				prospective: toPersistableDoc(prior),
-				runId: "run-1",
-				guard: { mutations },
-			}),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
-
-		expect(updateAppForRunMock).not.toHaveBeenCalled();
-		expect(updateAppMock).not.toHaveBeenCalled();
-	});
-
-	it("rejects (as a conflict) a mutation whose target a concurrent writer removed", async () => {
+describe("applyBlueprintChange — routes the guard through commitGuardedBatch", () => {
+	it("threads batchId + kind + runId + actorUserId + mutations to the writer and returns its seq + committedDoc", async () => {
 		const fresh = minDoc();
-		armTransactionalWith(fresh);
+		const committed: BlueprintDoc = { ...fresh, appName: "Renamed" };
+		commitGuardedBatchMock.mockResolvedValue({
+			seq: 7,
+			basisToken: "token-next",
+			committedDoc: committed,
+			deduped: false,
+		});
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(fresh) });
-		// A field uuid absent from the fresh doc — a peer deleted the field this
-		// edit targets. The reducer is total, so WITHOUT the targets-present
-		// guard this would silently no-op and the verdict would PASS (invisible
-		// data loss); the guard turns it into a surfaced conflict instead.
-		const mutations: Mutation[] = [
-			{
-				kind: "updateField",
-				uuid: "deleted-by-a-peer",
-				targetKind: "text",
-				patch: { label: "New label" },
-			} as Mutation,
-		];
 
-		const err = await applyBlueprintChange({
+		const mutations: Mutation[] = [{ kind: "setAppName", name: "Renamed" }];
+		const result = await applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
 			prospective: toPersistableDoc(fresh),
 			runId: "run-1",
+			batchId: "batch-uuid-1",
+			kind: "mcp",
 			guard: { mutations },
-		}).catch((e) => e);
-
-		expect(err).toBeInstanceOf(BlueprintCommitRejectedError);
-		// The conflict message, not a generic verdict finding.
-		expect((err as Error).message).toContain("removed by someone else");
-		expect(updateAppForRunMock).not.toHaveBeenCalled();
-		expect(updateAppMock).not.toHaveBeenCalled();
-	});
-
-	it("compensates the Postgres phase when the guarded commit rejects after schema work", async () => {
-		const prior = minDoc();
-		armTransactionalWith(prior);
-
-		// The prospective adds a NEW case type (schema-affecting → the saga
-		// runs the Postgres phase) AND the mutation batch is one the fresh
-		// verdict rejects, so the commit aborts after applySchemaChange ran.
-		const prospective = structuredClone(toPersistableDoc(prior));
-		prospective.caseTypes = [
-			...(prospective.caseTypes ?? []),
-			{ name: "household", properties: [{ name: "case_name", label: "N" }] },
-		];
-		const target = Object.values(prior.fields).find(
-			(fl) => fl.id === "village",
-		);
-		const mutations: Mutation[] = [
-			{
-				kind: "updateField",
-				uuid: target?.uuid,
-				targetKind: "text",
-				patch: { relevant: xp("if(") },
-			} as Mutation,
-		];
-		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
-
-		const dropSchemaMock = vi.fn();
-		withSchemaContextMock.mockResolvedValue({
-			applySchemaChange: applySchemaChangeMock,
-			dropSchema: dropSchemaMock,
 		});
 
-		await expect(
-			applyBlueprintChange({
-				appId: "app-1",
-				userId: "user-1",
-				prospective,
-				runId: "run-1",
-				guard: { mutations },
-			}),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
-
-		// Phase 1 ran for the added case type, and the rejection compensated
-		// it (added-in-prospective → dropSchema is the inverse).
-		expect(applySchemaChangeMock).toHaveBeenCalled();
-		expect(dropSchemaMock).toHaveBeenCalledWith({
+		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
+		const args = commitGuardedBatchMock.mock.calls[0]?.[0];
+		expect(args).toMatchObject({
 			appId: "app-1",
-			caseType: "household",
+			batchId: "batch-uuid-1",
+			runId: "run-1",
+			actorUserId: "user-1",
+			kind: "mcp",
+			mutations,
 		});
+		// The saga surfaces the writer's committed seq + hydrated doc.
+		expect(result.seq).toBe(7);
+		expect(result.basisToken).toBe("token-next");
+		expect(result.committedDoc).toBe(committed);
 	});
 
-	it("re-verifies media expectations inside the transaction and rejects a vanished asset", async () => {
-		const prior = minDoc();
-		armTransactionalWith(prior);
-		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
-		// The asset the tool's pre-commit verdict approved is GONE by the
-		// time the transaction reads it (a delete raced the attach).
-		getAssetsInTransactionMock.mockResolvedValue(new Map());
-
-		await expect(
-			applyBlueprintChange({
-				appId: "app-1",
-				userId: "user-1",
-				prospective: toPersistableDoc(prior),
-				runId: "run-1",
-				guard: {
-					mutations: [{ kind: "setAppLogo", logo: "asset-raced" } as Mutation],
-					mediaExpectations: [
-						{ assetId: "asset-raced", kind: "image", slot: "the app logo" },
-					],
-				},
-			}),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
-
-		expect(getAssetsInTransactionMock).toHaveBeenCalledWith(expect.anything(), [
-			"asset-raced",
-		]);
-		expect(updateAppForRunMock).not.toHaveBeenCalled();
-		expect(updateAppMock).not.toHaveBeenCalled();
-	});
-
-	it("commits when the transactional media re-check passes", async () => {
-		const prior = minDoc();
-		armTransactionalWith(prior);
-		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
-		getAssetsInTransactionMock.mockResolvedValue(
-			new Map([
-				[
-					"asset-live",
-					{ project_id: "project-1", status: "ready", kind: "image" },
-				],
-			]),
-		);
+	it("passes mediaExpectations through to the writer for a media-attaching batch", async () => {
+		const fresh = minDoc();
+		commitGuardedBatchMock.mockResolvedValue({
+			seq: 1,
+			basisToken: "t",
+			committedDoc: fresh,
+			deduped: false,
+		});
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(fresh) });
 
 		await applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
-			prospective: toPersistableDoc(prior),
-			runId: "run-1",
+			prospective: toPersistableDoc(fresh),
+			batchId: "batch-uuid-media",
+			kind: "autosave",
 			guard: {
 				mutations: [{ kind: "setAppLogo", logo: "asset-live" } as Mutation],
 				mediaExpectations: [
@@ -394,52 +218,529 @@ describe("applyBlueprintChange — guarded transactional commit", () => {
 			},
 		});
 
-		const committed =
-			await updateAppForRunTransactionalMock.mock.results[0]?.value;
-		expect(committed.logo).toBe("asset-live");
+		const args = commitGuardedBatchMock.mock.calls[0]?.[0];
+		expect(args?.mediaExpectations).toEqual([
+			{ assetId: "asset-live", kind: "image", slot: "the app logo" },
+		]);
+		// An autosave omits runId entirely (not `undefined`).
+		expect("runId" in (args ?? {})).toBe(false);
 	});
-});
 
-describe("applyBlueprintChange — guarded auto-save mutation commit", () => {
-	it("re-applies the delta on the FRESH doc (no runId) and returns the rotated token", async () => {
+	it("propagates a BlueprintCommitRejectedError from the writer (nothing swallowed)", async () => {
 		const fresh = minDoc();
-		armMutatingWith(fresh);
-
-		const result = await applyBlueprintChange({
-			appId: "app-1",
-			userId: "user-1",
-			priorBlueprint: toPersistableDoc(fresh),
-			guard: {
-				mutations: [{ kind: "setAppName", name: "Renamed" } as Mutation],
-			},
-		});
-
-		expect(updateAppGuardedMutatingMock).toHaveBeenCalledTimes(1);
-		expect(updateAppGuardedMutatingMock.mock.calls[0]?.[0]).toBe("app-1");
-		expect(result.basisToken).toBe("token-next");
-		// The blind writers + the run-scoped writer never ran — the tokenless
-		// guarded writer is the auto-save commit path.
-		expect(updateAppMock).not.toHaveBeenCalled();
-		expect(updateAppForRunMock).not.toHaveBeenCalled();
-		expect(updateAppForRunTransactionalMock).not.toHaveBeenCalled();
-	});
-
-	it("propagates a commit rejection without falling back to a blind write", async () => {
-		const rejection = new Error("commit rejected");
-		updateAppGuardedMutatingMock.mockRejectedValue(rejection);
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(fresh) });
+		commitGuardedBatchMock.mockRejectedValue(
+			new BlueprintCommitRejectedError("removed by someone else"),
+		);
 
 		await expect(
 			applyBlueprintChange({
 				appId: "app-1",
 				userId: "user-1",
-				priorBlueprint: toPersistableDoc(minDoc()),
+				priorBlueprint: toPersistableDoc(fresh),
+				batchId: "batch-uuid-2",
+				kind: "autosave",
 				guard: {
 					mutations: [{ kind: "setAppName", name: "Renamed" } as Mutation],
 				},
 			}),
-		).rejects.toBe(rejection);
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+	});
 
-		expect(updateAppMock).not.toHaveBeenCalled();
-		expect(updateAppForRunMock).not.toHaveBeenCalled();
+	it("propagates a terminal CommitReauthError from the writer", async () => {
+		const fresh = minDoc();
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(fresh) });
+		commitGuardedBatchMock.mockRejectedValue(
+			new CommitReauthError("You no longer have edit access."),
+		);
+
+		await expect(
+			applyBlueprintChange({
+				appId: "app-1",
+				userId: "user-1",
+				priorBlueprint: toPersistableDoc(fresh),
+				batchId: "batch-uuid-3",
+				kind: "autosave",
+				guard: {
+					mutations: [{ kind: "setAppName", name: "Renamed" } as Mutation],
+				},
+			}),
+		).rejects.toBeInstanceOf(CommitReauthError);
+	});
+});
+
+describe("applyBlueprintChange — top-level batchId dedup", () => {
+	it("short-circuits the whole saga on a pre-existing latch, doing zero commit / loadApp / Postgres work", async () => {
+		batchDedupRawGetMock.mockResolvedValue({
+			exists: true,
+			data: () => ({ seq: 42, basisToken: "prior-token" }),
+		});
+
+		const result = await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			prospective: toPersistableDoc(minDoc()),
+			batchId: "already-committed",
+			kind: "mcp",
+			guard: {
+				mutations: [{ kind: "setAppName", name: "Renamed" } as Mutation],
+			},
+		});
+
+		// The recorded seq/basis come straight off the latch — no committedDoc.
+		expect(result).toEqual({ seq: 42, basisToken: "prior-token" });
+		expect(result.committedDoc).toBeUndefined();
+		// Nothing downstream ran — not even the pre-DDL reauth.
+		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
+		expect(loadAppMock).not.toHaveBeenCalled();
+		expect(loadAppProjectIdMock).not.toHaveBeenCalled();
+		expect(reauthorizeActorForCommitMock).not.toHaveBeenCalled();
+		expect(withSchemaContextMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("applyBlueprintChange — reauth before any Postgres DDL", () => {
+	it("rejects a deauth'd caller BEFORE the migration-bearing Phase-1 DDL runs", async () => {
+		const prior = minDoc();
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
+		loadAppProjectIdMock.mockResolvedValue("proj-1");
+		// The shared reauth throws for a member who lost edit access.
+		reauthorizeActorForCommitMock.mockRejectedValue(
+			new CommitReauthError("You no longer have edit access."),
+		);
+
+		await expect(
+			applyBlueprintChange({
+				appId: "app-1",
+				userId: "user-1",
+				priorBlueprint: toPersistableDoc(prior),
+				// A rename hint would otherwise drive Phase-1 DDL — the reauth
+				// must fire first so no `case_type_schemas` mutation happens.
+				hint: {
+					kind: "rename",
+					caseType: "patient",
+					from: "village",
+					to: "hamlet",
+				},
+				batchId: "batch-reauth",
+				kind: "autosave",
+				guard: {
+					mutations: [{ kind: "setAppName", name: "x" } as Mutation],
+				},
+			}),
+		).rejects.toBeInstanceOf(CommitReauthError);
+
+		// The reauth resolved the Project and rejected before any store work.
+		expect(loadAppProjectIdMock).toHaveBeenCalledWith("app-1");
+		expect(reauthorizeActorForCommitMock).toHaveBeenCalledWith(
+			"proj-1",
+			"user-1",
+		);
+		expect(applySchemaChangeMock).not.toHaveBeenCalled();
+		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("applyBlueprintChange — Postgres saga around the guarded commit", () => {
+	it("compensates a MIGRATION-BEARING entry via applySchemaChange(prior) when the commit rejects", async () => {
+		const prior = minDoc();
+		// A rename hint drives the ONE migration-bearing Phase-1 call against the
+		// existing `patient` type. When the writer then rejects, the saga
+		// compensates by re-syncing the type from the CURRENT committed doc (a
+		// fresh `loadApp`, here the same `prior`) — no `change`, no `dropSchema`
+		// (the case-type-addition arm is gone; migration entries target an
+		// existing type).
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
+		applySchemaChangeMock.mockResolvedValue({
+			migrated: 0,
+			quarantined: 0,
+			skipped: 0,
+			failureReasons: [],
+		});
+		commitGuardedBatchMock.mockRejectedValue(
+			new BlueprintCommitRejectedError("rejected against the fresh doc"),
+		);
+
+		await expect(
+			applyBlueprintChange({
+				appId: "app-1",
+				userId: "user-1",
+				priorBlueprint: toPersistableDoc(prior),
+				runId: "run-1",
+				hint: {
+					kind: "rename",
+					caseType: "patient",
+					from: "village",
+					to: "hamlet",
+				},
+				batchId: "batch-uuid-4",
+				kind: "mcp",
+				guard: {
+					mutations: [{ kind: "setAppName", name: "x" } as Mutation],
+				},
+			}),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+
+		// Phase 1 forward-applied the rename `change`; the rejection compensated
+		// it with a schema-sync-only re-derive of the prior (no `change`, no
+		// `dropSchema`).
+		const forward = applySchemaChangeMock.mock.calls[0]?.[0];
+		expect(forward).toMatchObject({
+			appId: "app-1",
+			caseType: "patient",
+			change: { kind: "rename", from: "village", to: "hamlet" },
+		});
+		const compensation = applySchemaChangeMock.mock.calls[1]?.[0];
+		expect(compensation).toMatchObject({ appId: "app-1", caseType: "patient" });
+		expect(compensation.change).toBeUndefined();
+		expect(dropSchemaMock).not.toHaveBeenCalled();
+	});
+
+	it("compensates a migration entry whose forward apply THREW (Phase-A-committed-Phase-B-failed shape)", async () => {
+		// `applySchemaChange` is two-phase; an entry whose Phase A committed and
+		// whose Phase B then threw exits the forward loop un-recorded, yet its
+		// schema DID change. Compensate must still reconcile it — the fix
+		// iterates ALL migration entries, not just the ones that fully returned.
+		// Model that here: the FORWARD `applySchemaChange` throws, and
+		// compensate's re-sync (the 2nd call, no `change`) must still fire for
+		// the type.
+		const prior = minDoc();
+		loadAppMock.mockResolvedValue({
+			blueprint: toPersistableDoc(prior),
+			mutation_seq: 4,
+		});
+		applySchemaChangeMock
+			// Forward apply throws (Phase B failed after Phase A committed).
+			.mockRejectedValueOnce(new Error("phase B index DDL failed"))
+			// Compensate's re-sync succeeds.
+			.mockResolvedValueOnce({
+				migrated: 0,
+				quarantined: 0,
+				skipped: 0,
+				failureReasons: [],
+			});
+
+		await expect(
+			applyBlueprintChange({
+				appId: "app-1",
+				userId: "user-1",
+				priorBlueprint: toPersistableDoc(prior),
+				hint: {
+					kind: "rename",
+					caseType: "patient",
+					from: "village",
+					to: "hamlet",
+				},
+				batchId: "batch-phaseB-fail",
+				kind: "autosave",
+				guard: { mutations: [{ kind: "setAppName", name: "x" } as Mutation] },
+			}),
+		).rejects.toThrow("phase B index DDL failed");
+
+		// TWO calls: the forward (threw) + the compensating re-sync — compensate
+		// did NOT skip the type just because the forward never "succeeded".
+		expect(applySchemaChangeMock).toHaveBeenCalledTimes(2);
+		const compensation = applySchemaChangeMock.mock.calls[1]?.[0];
+		expect(compensation).toMatchObject({
+			appId: "app-1",
+			caseType: "patient",
+			syncedSeq: 4,
+		});
+		expect(compensation.change).toBeUndefined();
+		// The forward failed BEFORE the commit — never reached.
+		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
+	});
+
+	it("post-commit-sweeps every touched case type against the COMMITTED doc at the committed seq", async () => {
+		// An additive case-type addition — no `change` hint, so it does NOT run
+		// Phase-1 Postgres-first. It rides the post-commit sweep instead.
+		const prior = minDoc();
+		const prospective = structuredClone(toPersistableDoc(prior));
+		prospective.caseTypes = [
+			...(prospective.caseTypes ?? []),
+			{ name: "household", properties: [{ name: "case_name", label: "N" }] },
+		];
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
+		// The committed doc carries BOTH types — the sweep re-derives its schema.
+		const committed = structuredClone(prospective) as unknown as BlueprintDoc;
+		commitGuardedBatchMock.mockResolvedValue({
+			seq: 9,
+			basisToken: "t",
+			committedDoc: committed,
+			deduped: false,
+		});
+		applySchemaChangeMock.mockResolvedValue({
+			migrated: 0,
+			quarantined: 0,
+			skipped: 0,
+			failureReasons: [],
+		});
+
+		await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			prospective,
+			batchId: "batch-uuid-sweep",
+			kind: "autosave",
+			guard: {
+				mutations: [{ kind: "setAppName", name: "x" } as Mutation],
+			},
+		});
+
+		// No Phase-1 forward apply (additive), then ONE post-commit sweep of the
+		// added `household` type at `syncedSeq = 9` off the committed doc.
+		expect(applySchemaChangeMock).toHaveBeenCalledTimes(1);
+		expect(applySchemaChangeMock.mock.calls[0]?.[0]).toMatchObject({
+			appId: "app-1",
+			caseType: "household",
+			syncedSeq: 9,
+		});
+	});
+
+	it.each([
+		["deterministic (error-logged)", new Error("unschemable property")],
+		[
+			"transient (warn-logged)",
+			Object.assign(new Error("blip"), { code: "ECONNRESET" }),
+		],
+	])("never rethrows a post-commit sweep failure — %s — the commit result still returns", async (_label, sweepError) => {
+		// The commit already landed, so a sweep fault is never a 500 whatever
+		// its class; the severity split (deterministic → `error`, transient →
+		// `warn`) is a Sentry-visibility decision, not a control-flow one.
+		const prior = minDoc();
+		const prospective = structuredClone(toPersistableDoc(prior));
+		prospective.caseTypes = [
+			...(prospective.caseTypes ?? []),
+			{ name: "household", properties: [{ name: "case_name", label: "N" }] },
+		];
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
+		const committed = structuredClone(prospective) as unknown as BlueprintDoc;
+		commitGuardedBatchMock.mockResolvedValue({
+			seq: 3,
+			basisToken: "tok",
+			committedDoc: committed,
+			deduped: false,
+		});
+		// The sweep throws — it must NOT propagate.
+		applySchemaChangeMock.mockRejectedValue(sweepError);
+
+		const result = await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			prospective,
+			batchId: `batch-uuid-sweepfail-${_label}`,
+			kind: "autosave",
+			guard: {
+				mutations: [{ kind: "setAppName", name: "x" } as Mutation],
+			},
+		});
+
+		expect(result.seq).toBe(3);
+		expect(result.committedDoc).toBe(committed);
+	});
+
+	it("skips Postgres entirely for a non-case-type batch (fast path) — and runs NO saga-level reauth", async () => {
+		const fresh = minDoc();
+		commitGuardedBatchMock.mockResolvedValue({
+			seq: 2,
+			basisToken: "t",
+			committedDoc: fresh,
+			deduped: false,
+		});
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(fresh) });
+
+		await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			prospective: toPersistableDoc(fresh),
+			batchId: "batch-uuid-5",
+			kind: "autosave",
+			guard: {
+				mutations: [{ kind: "setAppName", name: "Renamed" } as Mutation],
+			},
+		});
+
+		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
+		expect(withSchemaContextMock).not.toHaveBeenCalled();
+		// No pre-DDL reauth on the fast path — `commitGuardedBatch`'s own reauth
+		// is the single gate (no Phase-1 DDL to protect), so the saga doesn't
+		// pay a second `loadAppProjectId` + `reauthorizeActorForCommit`.
+		expect(loadAppProjectIdMock).not.toHaveBeenCalled();
+		expect(reauthorizeActorForCommitMock).not.toHaveBeenCalled();
+	});
+
+	it("runs NO saga-level reauth on the ADDITIVE (post-commit-sweep) path", async () => {
+		// An additive case-type addition touches Postgres only AFTER the commit
+		// (the sweep), so there's no pre-commit DDL to protect — the saga must
+		// not double the reauth here either.
+		const prior = minDoc();
+		const prospective = structuredClone(toPersistableDoc(prior));
+		prospective.caseTypes = [
+			...(prospective.caseTypes ?? []),
+			{ name: "household", properties: [{ name: "case_name", label: "N" }] },
+		];
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
+		commitGuardedBatchMock.mockResolvedValue({
+			seq: 9,
+			basisToken: "t",
+			committedDoc: structuredClone(prospective) as unknown as BlueprintDoc,
+			deduped: false,
+		});
+		applySchemaChangeMock.mockResolvedValue({
+			migrated: 0,
+			quarantined: 0,
+			skipped: 0,
+			failureReasons: [],
+		});
+
+		await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			prospective,
+			batchId: "batch-additive-noreauth",
+			kind: "autosave",
+			guard: { mutations: [{ kind: "setAppName", name: "x" } as Mutation] },
+		});
+
+		expect(loadAppProjectIdMock).not.toHaveBeenCalled();
+		expect(reauthorizeActorForCommitMock).not.toHaveBeenCalled();
+	});
+
+	it("reauths BEFORE any applySchemaChange on the migration-bearing path", async () => {
+		// The migration path DOES reauth (it runs pre-commit Phase-1 DDL) — and
+		// the reauth must resolve before the FIRST `applySchemaChange`, or a
+		// deauth'd caller could mutate `case_type_schemas`.
+		const order: string[] = [];
+		const prior = minDoc();
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
+		loadAppProjectIdMock.mockImplementation(async () => {
+			order.push("loadAppProjectId");
+			return "proj-1";
+		});
+		reauthorizeActorForCommitMock.mockImplementation(async () => {
+			order.push("reauth");
+		});
+		applySchemaChangeMock.mockImplementation(async () => {
+			order.push("applySchemaChange");
+			return { migrated: 0, quarantined: 0, skipped: 0, failureReasons: [] };
+		});
+		commitGuardedBatchMock.mockImplementation(async () => {
+			order.push("commit");
+			return {
+				seq: 5,
+				basisToken: "t",
+				committedDoc: toPersistableDoc(prior) as unknown as BlueprintDoc,
+				deduped: false,
+			};
+		});
+
+		await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			priorBlueprint: toPersistableDoc(prior),
+			hint: {
+				kind: "rename",
+				caseType: "patient",
+				from: "village",
+				to: "hamlet",
+			},
+			batchId: "batch-order",
+			kind: "autosave",
+			guard: { mutations: [{ kind: "setAppName", name: "x" } as Mutation] },
+		});
+
+		// Reauth (loadAppProjectId → reauth) precedes the first applySchemaChange.
+		expect(order[0]).toBe("loadAppProjectId");
+		expect(order[1]).toBe("reauth");
+		expect(order.indexOf("reauth")).toBeLessThan(
+			order.indexOf("applySchemaChange"),
+		);
+		// [c5] the resolved projectId is threaded into commitGuardedBatch as
+		// `preauthorized`, and resolved EXACTLY ONCE (the saga's, not doubled by
+		// the commit) — so the commit skips its own redundant resolve + reauth.
+		expect(loadAppProjectIdMock).toHaveBeenCalledTimes(1);
+		expect(commitGuardedBatchMock.mock.calls[0]?.[0]).toMatchObject({
+			preauthorized: { projectId: "proj-1" },
+		});
+	});
+
+	it("skips the sweep on an IN-transaction dedup (deduped: true) — no clobbering with the stale seq/doc pair", async () => {
+		// `commitGuardedBatch`'s in-txn dedup returns the ORIGINAL `seq` with the
+		// CURRENT (peer-advanced) `committedDoc` — an inconsistent pair. The
+		// sweep MUST be skipped (it already ran at the original commit); syncing
+		// the newer schema at the stale seq would let a later stale-seq sweep
+		// pass the monotone gate and drop a peer's property.
+		const prior = minDoc();
+		const prospective = structuredClone(toPersistableDoc(prior));
+		prospective.caseTypes = [
+			...(prospective.caseTypes ?? []),
+			{ name: "household", properties: [{ name: "case_name", label: "N" }] },
+		];
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
+		commitGuardedBatchMock.mockResolvedValue({
+			seq: 4, // the ORIGINAL commit seq
+			basisToken: "t",
+			committedDoc: structuredClone(prospective) as unknown as BlueprintDoc,
+			deduped: true, // in-txn dedup hit
+		});
+		applySchemaChangeMock.mockResolvedValue({
+			migrated: 0,
+			quarantined: 0,
+			skipped: 0,
+			failureReasons: [],
+		});
+
+		const result = await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			prospective,
+			batchId: "batch-intxn-dedup",
+			kind: "autosave",
+			guard: { mutations: [{ kind: "setAppName", name: "x" } as Mutation] },
+		});
+
+		// The commit result surfaces (with its committedDoc), but the sweep was
+		// skipped entirely.
+		expect(result.seq).toBe(4);
+		expect(applySchemaChangeMock).not.toHaveBeenCalled();
+	});
+
+	it("skips a migration hint whose caseType is absent from the prospective (stale hint) — commit still proceeds", async () => {
+		// A hint targeting a retired / non-existent case type would make Phase-1
+		// `applySchemaChange` throw `CaseTypeNotInBlueprintError` and abort the
+		// whole write. The saga drops it (warn) so the otherwise-valid commit
+		// lands.
+		const prior = minDoc();
+		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
+		commitGuardedBatchMock.mockResolvedValue({
+			seq: 6,
+			basisToken: "t",
+			committedDoc: toPersistableDoc(prior) as unknown as BlueprintDoc,
+			deduped: false,
+		});
+
+		const result = await applyBlueprintChange({
+			appId: "app-1",
+			userId: "user-1",
+			priorBlueprint: toPersistableDoc(prior),
+			// `ghost` isn't a case type in the prospective — the hint is stale.
+			hint: {
+				kind: "rename",
+				caseType: "ghost",
+				from: "a",
+				to: "b",
+			},
+			batchId: "batch-stale-hint",
+			kind: "autosave",
+			guard: { mutations: [{ kind: "setAppName", name: "x" } as Mutation] },
+		});
+
+		// The stale migration hint never reached Phase-1 (no throw), and no
+		// pre-DDL reauth ran (no migration entry survived the filter), so the
+		// commit landed normally.
+		expect(result.seq).toBe(6);
+		expect(applySchemaChangeMock).not.toHaveBeenCalled();
+		expect(reauthorizeActorForCommitMock).not.toHaveBeenCalled();
+		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 	});
 });

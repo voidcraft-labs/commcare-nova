@@ -24,9 +24,12 @@
 
 import { z } from "zod";
 import { type BlueprintDoc, MODULE_ICON_SLUGS } from "@/lib/domain";
-import { setModuleMediaMutations } from "../../blueprintHelpers";
+import {
+	resolveModuleUuid,
+	setModuleMediaMutations,
+} from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import type { MutatingToolResult } from "../common";
+import { type MutatingToolResult, toToolErrorResult } from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import {
 	attachGuardedMutate,
@@ -70,7 +73,7 @@ export const setModuleMediaTool = {
 	): Promise<MutatingToolResult<SetModuleMediaResult>> {
 		const { moduleIndex, icon, audioLabel } = input;
 		try {
-			const moduleUuid = doc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid)
 				return moduleNotFoundResult<string>(
 					doc,
@@ -133,12 +136,7 @@ export const setModuleMediaTool = {
 				result: `Set media on module "${mod.name}": icon ${describeSlot(icon)}, audio label ${describeSlot(audioLabel)}.`,
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

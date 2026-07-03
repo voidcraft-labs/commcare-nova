@@ -23,6 +23,7 @@
  *
  * When a subscription fires, the controller classifies what changed:
  * - **Label/hint without refs, options, kind** → do nothing
+ * - **Field kind change (retype)** → drop the stale value, re-init the field
  * - **Expression field** → rebuild DAG, re-evaluate that field + cascade
  * - **Label/hint with hashtag refs** → re-evaluate resolved labels only
  * - **Field ID rename** → update paths, rebuild DAG, re-evaluate dependents
@@ -175,7 +176,21 @@ function collectFormUuids(
 function classifyChange(
 	current: Field,
 	previous: Field,
-): "none" | "expression" | "label_refs" | "id_rename" | "default_value" {
+):
+	| "none"
+	| "expression"
+	| "label_refs"
+	| "id_rename"
+	| "default_value"
+	| "kind_change" {
+	// Checked FIRST — before the id-first short-circuit and the
+	// expression/label fall-through. A `convertField` keeps the field's uuid
+	// and id, so a same-id retype otherwise classifies as `none`/`expression`
+	// and the stale value survives under the new kind. A combined retype+rename
+	// (kind AND id both differ) also routes here — `onKindChanged` rebuilds the
+	// path maps, so it subsumes `onIdRenamed`'s work.
+	if (current.kind !== previous.kind) return "kind_change";
+
 	if (current.id !== previous.id) return "id_rename";
 
 	// Expression-carrying keys live on most but not all variants. Reading
@@ -484,6 +499,7 @@ export class EngineController {
 	 *
 	 * classifyChange determines what happened:
 	 * - "none" → zero engine work
+	 * - "kind_change" → drop the stale value at the old path, re-init the field
 	 * - "expression" → rebuild DAG, evaluate field + cascade
 	 * - "label_refs" → re-evaluate resolved labels
 	 * - "id_rename" → update paths, rebuild DAG, re-evaluate dependents
@@ -507,6 +523,9 @@ export class EngineController {
 
 					switch (changeType) {
 						case "none":
+							return;
+						case "kind_change":
+							this.onKindChanged(uuid);
 							return;
 						case "expression":
 							this.onExpressionChanged(uuid);
@@ -589,6 +608,111 @@ export class EngineController {
 		if (!formUuid) return undefined;
 		const s = this.docStore.getState();
 		return buildEngineInput(s, formUuid);
+	}
+
+	/**
+	 * A field's kind changed (a remote `convertField` retype). Two shapes,
+	 * with opposite value semantics:
+	 *
+	 * - **Leaf retype** (e.g. text→secret, group→… never lands here): the
+	 *   answer is meaningless under the new kind — a text value is not a valid
+	 *   `int`/`date` — so the field's value is DROPPED and the field re-seeds
+	 *   empty (re-applying its new default, if any).
+	 * - **Container conversion** (group↔repeat): the container itself carries
+	 *   no value, and its descendants' in-progress answers are still valid —
+	 *   only their XForm paths shift (`/data/<c>/<child>` ↔ `/data/<c>[0]/<child>`
+	 *   as the `[0]` template segment appears/disappears). Those descendant
+	 *   values are RE-PATHED, not dropped, so a peer converting a group with
+	 *   answered children to a repeat doesn't silently lose them.
+	 *
+	 * Either way the path maps + DAG rebuild (the conversion, and any
+	 * co-incident rename, moves paths and rewires references), so this subsumes
+	 * `onIdRenamed`'s work. When the retyped field has no path in the rebuilt
+	 * tree (it was also removed in the same batch), it's cleaned up like a
+	 * removal rather than left in a stale half-state.
+	 */
+	private onKindChanged(uuid: string): void {
+		if (!this.engine) return;
+		const input = this.currentEngineInput();
+		if (!input) return;
+
+		const field = input.fields[uuid];
+		const isContainerConversion =
+			field?.kind === "group" || field?.kind === "repeat";
+
+		/* Snapshot old paths (container + every descendant) against the
+		 * PRE-rebuild maps — that's where the current values live. For a
+		 * container conversion these feed the descendant re-path below; for a
+		 * leaf retype only the field's own old path matters (dropped). */
+		const oldPath = this.uuidToPath.get(uuid);
+		const oldDescendantPaths = isContainerConversion
+			? new Map(
+					collectFormUuids(
+						uuid,
+						input.fieldOrder as unknown as Record<string, string[]>,
+					).map((d) => [d, this.uuidToPath.get(d)] as const),
+				)
+			: undefined;
+
+		/* A leaf retype drops its own stale value up front — `addFieldState`
+		 * only seeds `""` when the path is absent, so deleting is what makes the
+		 * re-init start empty. A container has no value of its own to drop. */
+		if (!isContainerConversion && oldPath) this.engine.deleteValue(oldPath);
+
+		/* Rebuild path maps + DAG — the conversion (and any co-incident rename)
+		 * moves paths and may rewire dependent references. */
+		const newTree = buildFieldTree(
+			input.formUuid,
+			input.fields,
+			input.fieldOrder,
+		);
+		const maps = buildPathMaps(newTree);
+		this.uuidToPath = maps.uuidToPath;
+		this.pathToUuid = maps.pathToUuid;
+		this.engine.rebuildDag(input);
+
+		const newPath = this.uuidToPath.get(uuid);
+
+		/* No path in the rebuilt tree → the field was also removed in this
+		 * batch. Clean it up like a removal so it isn't left stale-but-blank
+		 * with no engine value backing it. */
+		if (!newPath) {
+			this.onFieldsRemoved([uuid]);
+			return;
+		}
+
+		/* Re-path descendant values for a container conversion: move each
+		 * descendant's value + runtime state from its old path to its new
+		 * (reindexed) path so answered children survive. */
+		const affectedPaths = new Set<string>();
+		if (oldDescendantPaths && field) {
+			for (const [descendantUuid, oldDescendantPath] of oldDescendantPaths) {
+				const newDescendantPath = this.uuidToPath.get(descendantUuid);
+				if (!newDescendantPath) continue;
+				if (oldDescendantPath && oldDescendantPath !== newDescendantPath) {
+					this.engine.renamePath(oldDescendantPath, newDescendantPath);
+				}
+				affectedPaths.add(newDescendantPath);
+			}
+			/* Re-seed only the container's own shell state so its kind-specific
+			 * shape is right (a repeat carries `repeatCount`, a group doesn't);
+			 * `addFieldState` skips the value write for containers, leaving the
+			 * re-pathed descendant values intact. */
+			this.engine.addFieldState(newPath, field);
+		} else if (field) {
+			/* Leaf retype: re-seed the field's runtime state at the new path
+			 * under the new kind (empty value, new required flag, new default). */
+			this.engine.addFieldState(newPath, field);
+		}
+
+		/* Re-evaluate the converted field + its descendants + downstream
+		 * dependents, then sync the changed paths to the runtime store. */
+		affectedPaths.add(newPath);
+		for (const p of [...affectedPaths]) {
+			for (const dep of this.engine.getAffectedPaths(p)) affectedPaths.add(dep);
+		}
+		this.engine.evaluatePathsInto([...affectedPaths]);
+		this.syncPathsToStore([...affectedPaths]);
 	}
 
 	/** A field's expression changed. Rebuild DAG (sub-ms), then
@@ -707,7 +831,10 @@ export class EngineController {
 	private onFieldsRemoved(uuids: string[]): void {
 		if (!this.engine) return;
 
-		/* Remove states from the engine and runtime store */
+		/* Remove states from the engine and runtime store. `removeFieldState`
+		 * also drops the field's `DataInstance` value so the path-keyed engine
+		 * store and the value map stay consistent — a field re-added at the same
+		 * path seeds empty rather than resurrecting the removed answer. */
 		const runtimeUpdates: RuntimeStoreState = {};
 		for (const uuid of uuids) {
 			const path = this.uuidToPath.get(uuid);

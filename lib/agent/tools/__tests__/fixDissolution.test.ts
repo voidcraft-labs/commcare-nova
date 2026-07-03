@@ -37,17 +37,28 @@ import { addFieldsTool } from "../addFields";
 import { createFormTool } from "../createForm";
 import { updateModuleTool } from "../updateModule";
 
-/** Bare ctx stub — `recordMutations` is the persistence assertion surface. */
+/** Bare ctx stub — `recordMutations` is the persistence assertion surface. The
+ *  guarded writer returns `{ events, committedDoc }`; echo the passed
+ *  post-mutation doc as the committed doc so the tool's `newDoc` reflects it. */
 function makeCtx() {
-	const recordMutations = vi.fn().mockResolvedValue([]);
+	const recordMutations = vi.fn(async (_m: unknown, doc: unknown) => ({
+		events: [],
+		committedDoc: doc,
+	}));
+	const recordMutationStages = vi.fn(
+		async (stages: Array<{ doc: unknown }>) => ({
+			events: [],
+			committedDoc: stages[stages.length - 1]?.doc,
+		}),
+	);
 	const ctx: ToolExecutionContext = {
 		appId: "app-1",
 		userId: "user-1",
 		runId: "run-1",
 		recordMutations,
-		recordMutationStages: vi.fn().mockResolvedValue([]),
+		recordMutationStages,
 		recordConversation: vi.fn(),
-	};
+	} as unknown as ToolExecutionContext;
 	return { ctx, recordMutations };
 }
 
@@ -220,6 +231,34 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 			fixed.newDoc,
 		);
 		expect("message" in out.result).toBe(true);
+	});
+
+	it("updateModule setting a BRAND-NEW case_type declares it so the seeded Name column resolves", async () => {
+		// The catalog holds only "respondent"; "household" is brand new. With
+		// `ensureCatalogProperty`'s auto-mint gone, this surface must emit a
+		// `declareCaseType` — otherwise the seeded Name column's `case_name`
+		// can't resolve (`CASE_LIST_COLUMN_UNKNOWN_FIELD`) and the gate rejects,
+		// so the SA/MCP could not do what the builder gesture does.
+		const { ctx, recordMutations } = makeCtx();
+		const out = await updateModuleTool.execute(
+			{
+				moduleIndex: 0,
+				case_type: "household",
+				case_list_columns: [
+					{ kind: "plain", field: "case_name", header: "Name" } as never,
+				],
+			},
+			ctx,
+			caseTypelessDoc(),
+		);
+		expect("message" in out.result).toBe(true);
+		expect(recordMutations).toHaveBeenCalled();
+		// The new type landed in the catalog…
+		expect(
+			(out.newDoc.caseTypes ?? []).some((ct) => ct.name === "household"),
+		).toBe(true);
+		// …and the module carries it.
+		expect(Object.values(out.newDoc.modules)[0]?.caseType).toBe("household");
 	});
 });
 

@@ -20,14 +20,12 @@
  * group under the same id on admin surfaces.
  *
  * Fail-closed persistence: `recordMutations` awaits `saveBlueprint` before
- * resolving. This is the key divergence from `GenerationContext.emitMutations`,
- * which intentionally fires the save and-forgets — the SA has retry + fix
- * discipline that can recover from a missed intermediate save. The MCP
- * surface has no agent loop to retry, so we block the tool return on the
- * Firestore write. If the Firestore save rejects, `recordMutations`
- * propagates the rejection to its caller. This class does not swallow
- * persistence errors — callers are responsible for mapping them to their
- * surface's error shape.
+ * resolving — as does the chat `GenerationContext.recordMutations`, since both
+ * surfaces now await the inline guarded commit. The MCP-specific twist is that
+ * it has no agent loop to retry, so a rejected commit is terminal here: if the
+ * Firestore save rejects, `recordMutations` propagates the rejection to its
+ * caller. This class does not swallow persistence errors — callers are
+ * responsible for mapping them to their surface's error shape.
  *
  * The event log writer is fire-and-forget: `logWriter.logEvent(event)` queues
  * events but does not await persistence. Callers MUST `await logWriter.flush()`
@@ -39,6 +37,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type {
+	RecordMutationsResult,
 	StagedMutationBatch,
 	ToolExecutionContext,
 } from "@/lib/agent/toolExecutionContext";
@@ -127,16 +126,20 @@ export class McpContext implements ToolExecutionContext {
 		doc: BlueprintDoc,
 		stage?: string,
 		mediaExpectations?: readonly MediaAttachExpectation[],
-	): Promise<MutationEvent[]> {
-		if (mutations.length === 0) return [];
+	): Promise<RecordMutationsResult> {
+		if (mutations.length === 0) return { events: [], committedDoc: doc };
 		/* Persist FIRST, log second: the guarded transactional commit can
 		 * still reject (or throw on a transport fault), and an event log
 		 * that recorded a batch the blueprint never absorbed would make a
 		 * replay diverge from the persisted doc. */
-		await this.saveBlueprint(doc, mutations, mediaExpectations);
+		const committedDoc = await this.saveBlueprint(
+			doc,
+			mutations,
+			mediaExpectations,
+		);
 		const events = this.buildEnvelopes(mutations, stage);
 		for (const e of events) this.logWriter.logEvent(e);
-		return events;
+		return { events, committedDoc };
 	}
 
 	/**
@@ -161,17 +164,24 @@ export class McpContext implements ToolExecutionContext {
 	 */
 	async recordMutationStages(
 		stages: StagedMutationBatch[],
-	): Promise<MutationEvent[]> {
+	): Promise<RecordMutationsResult> {
 		const nonEmpty = stages.filter((s) => s.mutations.length > 0);
-		if (nonEmpty.length === 0) return [];
+		if (nonEmpty.length === 0) {
+			// Nothing to commit — the last stage's doc is the current state.
+			const current = stages[stages.length - 1]?.doc;
+			if (current === undefined) {
+				throw new Error("recordMutationStages called with no stages");
+			}
+			return { events: [], committedDoc: current };
+		}
 		const finalDoc = nonEmpty[nonEmpty.length - 1].doc;
 		const allMutations = nonEmpty.flatMap((s) => s.mutations);
-		await this.saveBlueprint(finalDoc, allMutations);
+		const committedDoc = await this.saveBlueprint(finalDoc, allMutations);
 		const events = nonEmpty.flatMap((s) =>
 			this.buildEnvelopes(s.mutations, s.stage),
 		);
 		for (const e of events) this.logWriter.logEvent(e);
-		return events;
+		return { events, committedDoc };
 	}
 
 	/** Build the `MutationEvent` envelopes for one batch under one stage
@@ -240,20 +250,22 @@ export class McpContext implements ToolExecutionContext {
 	 * Writing `run_id` on every mutation is load-bearing for the
 	 * sliding-window derivation in `lib/mcp/runId.ts` — the next MCP
 	 * tool call reads `app.run_id` + `app.updated_at` to decide whether
-	 * to continue this run or start a new one. The saga's `runId`
-	 * argument routes the Firestore commit through `updateAppForRun`
-	 * so the run id persists alongside the blueprint.
+	 * to continue this run or start a new one. The saga threads the
+	 * `runId` into `commitGuardedBatch` → `writeCommittedSnapshot`, so
+	 * the run id persists alongside the blueprint.
 	 */
 	private async saveBlueprint(
 		doc: BlueprintDoc,
 		mutations: Mutation[],
 		mediaExpectations?: readonly MediaAttachExpectation[],
-	): Promise<void> {
-		await applyBlueprintChange({
+	): Promise<BlueprintDoc> {
+		const result = await applyBlueprintChange({
 			appId: this.appId,
 			userId: this.userId,
 			prospective: toPersistableDoc(doc),
 			runId: this.runId,
+			batchId: crypto.randomUUID(),
+			kind: "mcp",
 			/* Guarded commit: the saga's Firestore write re-reads the stored
 			 * blueprint, re-applies this batch, and re-runs the validity
 			 * verdict inside a transaction — two concurrent gate-approved
@@ -265,6 +277,10 @@ export class McpContext implements ToolExecutionContext {
 			 * delete racing the attach serializes against this commit. */
 			guard: { mutations, ...(mediaExpectations && { mediaExpectations }) },
 		});
+		/* `committedDoc` is absent only on a TOP-LEVEL dedup hit (a client retry
+		 * of an already-committed batch); the doc the tool passed in IS that
+		 * committed state, so coalesce to it. */
+		return result.committedDoc ?? doc;
 	}
 }
 

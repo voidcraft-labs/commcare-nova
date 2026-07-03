@@ -11,6 +11,7 @@
 
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
+import { backfillOptionUuids, backfillOrderKeys } from "./order/backfill";
 
 /**
  * Rebuild the fieldParent reverse index from fieldOrder.
@@ -59,4 +60,39 @@ export function rebuildFieldParent(doc: BlueprintDoc): void {
 export function toPersistableDoc(doc: BlueprintDoc): PersistableDoc {
 	const { fieldParent: _fp, refIndex: _ri, ...persistable } = doc;
 	return persistable;
+}
+
+/**
+ * The single stored-blueprint → in-memory hydration chokepoint.
+ *
+ * Turn a persisted `PersistableDoc` (the on-disk shape: no derived
+ * `fieldParent`, and — on a LEGACY app — no `order` keys or select-option
+ * `uuid`s) into a working `BlueprintDoc`. EVERY boundary that reads a stored
+ * blueprint into a doc it will display, diff, mutate, or emit routes through
+ * here, so the hydration steps run identically everywhere. That structurally
+ * kills the asymmetric-hydration class: a boundary that backfilled and one
+ * that didn't produced docs that disagreed on an entity's `order` / option
+ * `uuid`, so a client's edit against a backfilled key replayed onto an
+ * un-backfilled server doc as a silent `findIndex` no-op.
+ *
+ * Deep-clones its input so hydration never mutates the caller's stored
+ * snapshot. Backfill runs BEFORE the parent rebuild (and before any reference
+ * index a caller adds after): it is deterministic + position-seeded, so a
+ * client and the server hydrating the SAME legacy doc produce byte-identical
+ * keys/uuids, and it is idempotent on an already-keyed doc.
+ *
+ * The reference index is deliberately NOT built here — it stays per-boundary:
+ * the guarded-commit fresh doc omits it (the verdict's candidate apply seeds
+ * one), while the chat / client / MCP paths call `ensureReferenceIndex` /
+ * `buildReferenceIndex` after hydrating.
+ */
+export function hydratePersistedBlueprint(
+	persisted: PersistableDoc,
+): BlueprintDoc {
+	const doc = structuredClone(persisted) as unknown as BlueprintDoc;
+	doc.fieldParent = {} as Record<Uuid, Uuid | null>;
+	backfillOrderKeys(doc);
+	backfillOptionUuids(doc);
+	rebuildFieldParent(doc);
+	return doc;
 }

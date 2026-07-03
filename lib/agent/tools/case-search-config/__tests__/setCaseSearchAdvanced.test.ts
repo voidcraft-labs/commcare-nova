@@ -29,13 +29,11 @@ import {
 } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
-	updateApp: vi.fn(() => Promise.resolve()),
-	updateAppForRun: vi.fn(() => Promise.resolve()),
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve()),
+	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
 }));
 
 beforeEach(() => {

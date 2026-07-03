@@ -21,9 +21,16 @@
 
 import { z } from "zod";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { addSearchInputsMutation } from "../../blueprintHelpers";
+import {
+	addSearchInputsMutation,
+	resolveModuleUuid,
+} from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { guardedMutate, type MutatingToolResult } from "../common";
+import {
+	guardedMutate,
+	type MutatingToolResult,
+	toToolErrorResult,
+} from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	moduleNotFoundResult,
@@ -70,7 +77,7 @@ export const addSearchInputsTool = {
 	): Promise<MutatingToolResult<AddSearchInputsResult>> {
 		const { moduleIndex, searchInputs } = input;
 		try {
-			const moduleUuid = doc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid)
 				return moduleNotFoundResult<AddSearchInputsSuccess>(
 					doc,
@@ -122,12 +129,7 @@ export const addSearchInputsTool = {
 				},
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

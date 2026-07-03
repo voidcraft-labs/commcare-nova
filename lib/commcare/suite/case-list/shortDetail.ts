@@ -78,6 +78,7 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { BlueprintDoc, Module } from "@/lib/domain";
 import { simplifyForEmission } from "@/lib/domain/predicate";
 import type { Predicate } from "@/lib/domain/predicate/types";
@@ -199,15 +200,16 @@ export function buildShortDetail(args: {
 	const fields: Element[] = [];
 	const strings: Record<string, string> = {};
 
-	// Walk every column in source-array order. Position is 1-based
-	// against the source array — the 1-based counter advances for
-	// every slot, including columns hidden from this surface, so the
-	// header-locale suffix matches CCHQ's
-	// `id_strings.py::detail_column_header_locale` convention which
-	// keys off `column.id` (the source-array index regardless of
-	// visibility).
-	for (let i = 0; i < config.columns.length; i++) {
-		const column = config.columns[i];
+	// Walk every column in DISPLAY order (`sort-by-(order, uuid)`, not array
+	// position — the array is a membership set). Position is 1-based against
+	// that sequence — the counter advances for every slot, including columns
+	// hidden from this surface, so the header-locale suffix matches CCHQ's
+	// `id_strings.py::detail_column_header_locale` convention which keys off
+	// the column's position. The SAME sort runs in `longDetail` + `sortKeys`,
+	// so the per-column index is consistent across the three emitters.
+	const sortedColumns = [...config.columns].sort(bySortKey);
+	for (let i = 0; i < sortedColumns.length; i++) {
+		const column = sortedColumns[i];
 		// Visibility filter: absent slot ≡ visible. The schema
 		// preserves the slot's presence so the editor can distinguish
 		// "user explicitly toggled off" from "user never toggled".

@@ -38,6 +38,13 @@ export class DataInstance {
 		return this.data.has(path);
 	}
 
+	/** Drop a path's value. Used when a field is retyped (its old value is
+	 *  stale under the new kind) or removed remotely, so a later re-seed at
+	 *  the same path starts empty rather than resurfacing the old answer. */
+	delete(path: string): void {
+		this.data.delete(path);
+	}
+
 	/** Get all paths matching a prefix. */
 	getPathsByPrefix(prefix: string): string[] {
 		const result: string[] = [];

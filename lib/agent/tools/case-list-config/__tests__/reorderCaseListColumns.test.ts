@@ -16,18 +16,17 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { bySortKey } from "@/lib/doc/order/compare";
 import { asUuid, type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { reorderCaseListColumnsTool } from "../reorderCaseListColumns";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
-	updateApp: vi.fn(() => Promise.resolve()),
-	updateAppForRun: vi.fn(() => Promise.resolve()),
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve()),
+	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
 }));
 
 beforeEach(() => {
@@ -69,8 +68,11 @@ describe("reorderCaseListColumns", () => {
 			doc,
 		);
 
+		// A reorder is an order-key change (membership array untouched) — assert
+		// the DISPLAY sequence (`sort-by-(order, uuid)`), not raw array position.
 		const cols = result.newDoc.modules[MOD_A]?.caseListConfig?.columns ?? [];
-		expect(cols.map((c) => c.uuid)).toEqual([C, A, B]);
+		expect([...cols].sort(bySortKey).map((c) => c.uuid)).toEqual([C, A, B]);
+		expect(result.mutations.every((m) => m.kind === "moveColumn")).toBe(true);
 	});
 
 	it("returns the new order in the structured result and the message", async () => {

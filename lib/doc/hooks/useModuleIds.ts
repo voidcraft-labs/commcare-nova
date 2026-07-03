@@ -10,48 +10,74 @@
 "use client";
 
 import { useMemo } from "react";
+import { bySortKey, sameSequenceByIdentity } from "@/lib/doc/order/compare";
 import type { Uuid } from "@/lib/doc/types";
 import type { Form, FormType, Module } from "@/lib/domain";
 import { isCaseFirstModule } from "@/lib/domain";
-import { useBlueprintDoc, useBlueprintDocShallow } from "./useBlueprintDoc";
+import {
+	useBlueprintDoc,
+	useBlueprintDocEq,
+	useBlueprintDocShallow,
+} from "./useBlueprintDoc";
 
-/** The raw moduleOrder array — reference-stable via Immer. */
+/**
+ * Module uuids in DISPLAY order (`sort-by-(order, uuid)`, not `moduleOrder`
+ * array position — a reorder leaves the array untouched and only changes a
+ * module's `order`). Reference-stable when the sorted uuid sequence is
+ * unchanged.
+ */
 export function useModuleIds(): Uuid[] {
-	return useBlueprintDoc((s) => s.moduleOrder);
-}
-
-/** Modules in moduleOrder sequence. Memoized. */
-export function useOrderedModules(): Module[] {
-	const { moduleOrder, modules } = useBlueprintDocShallow((s) => ({
-		moduleOrder: s.moduleOrder,
-		modules: s.modules,
-	}));
-	return useMemo(
-		() =>
-			moduleOrder
-				.map((uuid) => modules[uuid])
-				.filter((m): m is Module => m !== undefined),
-		[moduleOrder, modules],
+	return useBlueprintDocEq(
+		(s) =>
+			[...s.moduleOrder].sort((a, b) =>
+				bySortKey(s.modules[a] ?? {}, s.modules[b] ?? {}),
+			),
+		sameSequenceByIdentity,
 	);
 }
 
-/** Form uuids for a given module, in order. Reference-stable via Immer. */
-export function useFormIds(moduleUuid: Uuid): Uuid[] | undefined {
-	return useBlueprintDoc((s) => s.formOrder[moduleUuid]);
+/** Modules in DISPLAY sequence. Reference-stable when the sequence (by entity
+ *  reference) is unchanged. */
+export function useOrderedModules(): Module[] {
+	return useBlueprintDocEq(
+		(s) =>
+			[...s.moduleOrder]
+				.map((uuid) => s.modules[uuid])
+				.filter((m): m is Module => m !== undefined)
+				.sort(bySortKey),
+		sameSequenceByIdentity,
+	);
 }
 
-/** Forms for a given module in order. Memoized; empty array for unknown modules. */
+/** Form uuids for a given module, in DISPLAY order. Reference-stable when the
+ *  uuid sequence is unchanged; `undefined` for an unknown module. */
+export function useFormIds(moduleUuid: Uuid): Uuid[] | undefined {
+	return useBlueprintDocEq(
+		(s) => {
+			const order = s.formOrder[moduleUuid];
+			return order === undefined
+				? undefined
+				: [...order].sort((a, b) =>
+						bySortKey(s.forms[a] ?? {}, s.forms[b] ?? {}),
+					);
+		},
+		(a, b) =>
+			a === b ||
+			(a !== undefined && b !== undefined && sameSequenceByIdentity(a, b)),
+	);
+}
+
+/** Forms for a given module in DISPLAY sequence. Reference-stable when the
+ *  sequence (by entity reference) is unchanged; empty array for unknown
+ *  modules. */
 export function useOrderedForms(moduleUuid: Uuid): Form[] {
-	const { order, forms } = useBlueprintDocShallow((s) => ({
-		order: s.formOrder[moduleUuid],
-		forms: s.forms,
-	}));
-	return useMemo(
-		() =>
-			(order ?? [])
-				.map((uuid) => forms[uuid])
-				.filter((f): f is Form => f !== undefined),
-		[order, forms],
+	return useBlueprintDocEq(
+		(s) =>
+			(s.formOrder[moduleUuid] ?? [])
+				.map((uuid) => s.forms[uuid])
+				.filter((f): f is Form => f !== undefined)
+				.sort(bySortKey),
+		sameSequenceByIdentity,
 	);
 }
 

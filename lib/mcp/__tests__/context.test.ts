@@ -13,6 +13,13 @@
  *     the cross-store saga) must hold the returned promise open.
  *   - Empty batches short-circuit without touching the writer or the
  *     saga.
+ *
+ * Both `recordMutations` and `recordMutationStages` now return
+ * `{ events, committedDoc }` — the guarded writer's hydrated `nextDoc`.
+ * The saga mock resolves `{}` (no `committedDoc`), so `saveBlueprint`
+ * coalesces `result.committedDoc ?? doc` to the passed-in post-mutation
+ * doc; these tests read `.events` off the result and assert the coalesced
+ * `committedDoc` is that doc.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,8 +35,11 @@ import type { ProgressEmitter } from "../progress";
  * before `../context` resolves `@/lib/db/applyBlueprintChange`.
  * Individual tests tweak the implementation via `mockImplementationOnce`
  * as needed. */
+/* The saga mock resolves a `seq`-only result (a top-level dedup-shape return:
+ * no `committedDoc`), so `saveBlueprint` coalesces `result.committedDoc ?? doc`
+ * to the passed post-mutation doc — the shape these tests assert on. */
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn().mockResolvedValue({}),
+	applyBlueprintChange: vi.fn().mockResolvedValue({ seq: 0 }),
 }));
 
 /**
@@ -79,7 +89,7 @@ function mockDoc(): BlueprintDoc {
  * next. */
 beforeEach(() => {
 	vi.mocked(applyBlueprintChange).mockReset();
-	vi.mocked(applyBlueprintChange).mockResolvedValue({});
+	vi.mocked(applyBlueprintChange).mockResolvedValue({ seq: 0 });
 });
 
 describe("McpContext", () => {
@@ -96,12 +106,20 @@ describe("McpContext", () => {
 			{ kind: "setAppName", name: "x" },
 			{ kind: "setAppName", name: "y" },
 		];
-		const events = await ctx.recordMutations(muts, mockDoc(), "scaffold");
+		const doc = mockDoc();
+		const { events, committedDoc } = await ctx.recordMutations(
+			muts,
+			doc,
+			"scaffold",
+		);
 		expect(events).toHaveLength(2);
 		expect(events[0]?.seq).toBe(0);
 		expect(events[1]?.seq).toBe(1);
 		expect(events.every((e) => e.source === "mcp")).toBe(true);
 		expect(events.every((e) => e.stage === "scaffold")).toBe(true);
+		// The saga mock returns `{}` (no committedDoc → a top-level dedup-shape
+		// return), so `saveBlueprint` coalesces to the passed post-mutation doc.
+		expect(committedDoc).toBe(doc);
 		expect(
 			(logWriter.logEvent as ReturnType<typeof vi.fn>).mock.calls,
 		).toHaveLength(2);
@@ -115,7 +133,7 @@ describe("McpContext", () => {
 		vi.mocked(applyBlueprintChange).mockImplementationOnce(
 			() =>
 				new Promise((r) => {
-					resolveSave = () => r({});
+					resolveSave = () => r({ seq: 0 });
 				}),
 		);
 		const ctx = new McpContext({
@@ -158,7 +176,12 @@ describe("McpContext", () => {
 			logWriter,
 			progress: mockProgress(),
 		});
-		expect(await ctx.recordMutations([], mockDoc())).toEqual([]);
+		const doc = mockDoc();
+		const result = await ctx.recordMutations([], doc);
+		expect(result.events).toEqual([]);
+		// The empty-batch short-circuit surfaces the passed doc verbatim as the
+		// current committed state — no save, so nothing to hydrate from.
+		expect(result.committedDoc).toBe(doc);
 		expect(
 			(logWriter.logEvent as ReturnType<typeof vi.fn>).mock.calls,
 		).toHaveLength(0);
@@ -179,7 +202,7 @@ describe("McpContext", () => {
 		const midDoc = { ...mockDoc(), appName: "renamed" };
 		const finalDoc = { ...mockDoc(), appName: "patched" };
 
-		const events = await ctx.recordMutationStages([
+		const { events, committedDoc } = await ctx.recordMutationStages([
 			{ mutations: [renameMut], doc: midDoc, stage: "rename:0-0" },
 			{ mutations: [patchMut], doc: finalDoc, stage: "edit:0-0" },
 		]);
@@ -191,10 +214,16 @@ describe("McpContext", () => {
 		const args = vi.mocked(applyBlueprintChange).mock.calls[0]?.[0];
 		expect(args?.guard?.mutations).toEqual([renameMut, patchMut]);
 		expect(args?.prospective?.appName).toBe("patched");
+		// One batchId + kind:'mcp' for the whole staged sequence.
+		expect(args?.batchId).toEqual(expect.any(String));
+		expect(args?.kind).toBe("mcp");
 
 		// The envelopes keep each stage's own tag, in order.
 		expect(events.map((e) => e.stage)).toEqual(["rename:0-0", "edit:0-0"]);
 		expect(events.map((e) => e.seq)).toEqual([0, 1]);
+		// The saga mock returns no `committedDoc`, so the stages path coalesces
+		// to the FINAL stage's doc — what the tool continues against.
+		expect(committedDoc).toBe(finalDoc);
 	});
 
 	it("recordMutationStages logs nothing when the guarded save rejects", async () => {

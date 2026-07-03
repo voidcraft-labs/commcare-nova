@@ -15,6 +15,7 @@
  * `case_property_on`, `id`) directly.
  */
 
+import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
@@ -175,7 +176,7 @@ export function deriveCaseConfig(
 		repeatAncestor: string | undefined,
 		repeatAncestorPath: FormPath | undefined,
 	): void => {
-		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
+		for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
 			const field = doc.fields[fieldUuid];
 			if (!field) continue;
 

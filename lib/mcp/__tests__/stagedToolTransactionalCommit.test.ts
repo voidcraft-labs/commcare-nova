@@ -25,10 +25,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { editFieldTool } from "@/lib/agent/tools/editField";
-import {
-	applyBlueprintChange,
-	BlueprintCommitRejectedError,
-} from "@/lib/db/applyBlueprintChange";
+import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
+import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import type { LogWriter } from "@/lib/log/writer";
 import { McpContext } from "../context";
@@ -39,7 +37,7 @@ vi.mock("@/lib/db/applyBlueprintChange", async () => {
 	)) as Record<string, unknown>;
 	return {
 		...actual,
-		applyBlueprintChange: vi.fn().mockResolvedValue({}),
+		applyBlueprintChange: vi.fn().mockResolvedValue({ seq: 0 }),
 	};
 });
 
@@ -109,7 +107,7 @@ function makeMcpCtx() {
 
 beforeEach(() => {
 	vi.mocked(applyBlueprintChange).mockReset();
-	vi.mocked(applyBlueprintChange).mockResolvedValue({});
+	vi.mocked(applyBlueprintChange).mockResolvedValue({ seq: 0 });
 });
 
 describe("editField through McpContext — one transactional save per edit", () => {
@@ -154,7 +152,7 @@ describe("editField through McpContext — one transactional save per edit", () 
 		expect(new Set(stages)).toEqual(new Set(["rename:0-0", "edit:0-0"]));
 	});
 
-	it("a contention rejection surfaces as { error } with ZERO persisted prefix", async () => {
+	it("a contention rejection PROPAGATES out of the tool with ZERO persisted prefix", async () => {
 		const doc = minDoc();
 		const { ctx, logEvent } = makeMcpCtx();
 		// The fresh-doc re-verdict inside the transaction rejects — a
@@ -165,31 +163,33 @@ describe("editField through McpContext — one transactional save per edit", () 
 			),
 		);
 
-		const out = await editFieldTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "village",
-				updates: {
-					kind: "text",
-					id: "village_name",
-					label: "Home village",
-				} as never,
-			},
-			ctx,
-			doc,
-		);
+		// The tool's blanket catch re-throws `BlueprintCommitRejectedError` (via
+		// `toToolErrorResult`) rather than swallowing it into `{ error }` — it is
+		// the authoritative commit conflict. On the chat surface `wrapMutating`
+		// catches it (reload + continue); on MCP the `sharedToolAdapter`'s
+		// `toMcpErrorResult` maps it to the `invalid_input` wire envelope. Either
+		// way the RAW tool `execute` propagates it here.
+		await expect(
+			editFieldTool.execute(
+				{
+					moduleIndex: 0,
+					formIndex: 0,
+					fieldId: "village",
+					updates: {
+						kind: "text",
+						id: "village_name",
+						label: "Home village",
+					} as never,
+				},
+				ctx,
+				doc,
+			),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 
-		// The tool reports the rejection honestly…
-		expect("error" in out.result && out.result.error).toContain(
-			"This change wasn't applied",
-		);
-		expect(out.mutations).toEqual([]);
-		expect(out.newDoc).toBe(doc);
-		// …and "nothing was saved" is structurally true: the ONE
-		// transactional save was the call's only write, it never committed,
-		// and no envelope reached the event log — there is no committed
-		// rename for the agent to trip over on its corrected re-issue.
+		// "Nothing was saved" is structurally true: the ONE transactional save
+		// was the call's only write, it never committed, and no envelope reached
+		// the event log — there is no committed rename for the agent to trip over
+		// on its corrected re-issue.
 		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
 		expect(logEvent).not.toHaveBeenCalled();
 	});

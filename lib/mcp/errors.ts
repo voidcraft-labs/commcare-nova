@@ -40,7 +40,10 @@
 
 import type { ErrorType as AgentErrorType } from "@/lib/agent/errorClassifier";
 import { classifyError } from "@/lib/agent/errorClassifier";
-import { BlueprintCommitRejectedError } from "@/lib/db/applyBlueprintChange";
+import {
+	BlueprintCommitRejectedError,
+	CommitReauthError,
+} from "@/lib/db/commitGuard";
 import { log } from "@/lib/logger";
 import { McpAccessError } from "./ownership";
 import { McpScopeError } from "./scopes";
@@ -272,6 +275,30 @@ export function toMcpErrorResult(
 				{
 					type: "text",
 					text: JSON.stringify(payload("invalid_input", err.message)),
+				},
+			],
+		};
+	}
+
+	if (err instanceof CommitReauthError) {
+		/* The actor lost edit access mid-commit (removed from the app's Project,
+		 * or not the owner of a personal app) — a race against the boundary authz
+		 * gate. Terminal; nothing was written. Collapse to the SAME `not_found`
+		 * shape the ownership gate produces (IDOR hardening — a probing client
+		 * can't distinguish "removed" from "never had access"), logged at `warn`
+		 * as an expected authz outcome rather than the generic branch's `error`
+		 * (which would read it as a server fault). */
+		log.warn("[mcp] guarded commit reauth denied", {
+			userId: ctx?.userId ?? null,
+			appId: ctx?.appId ?? null,
+			message: err.message,
+		});
+		return {
+			isError: true,
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(payload("not_found", "App not found.")),
 				},
 			],
 		};

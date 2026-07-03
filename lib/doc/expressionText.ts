@@ -13,6 +13,7 @@
 
 import { parseXPathExpression } from "@/lib/commcare/xpath";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import {
 	fieldPathResolver,
@@ -78,7 +79,14 @@ export function resolveCloseFieldRef(
 ): Uuid | string {
 	if (ref.length === 0) return ref;
 	const find = (parentUuid: string): Uuid | undefined => {
-		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
+		// DISPLAY order (`sort-by-(order, uuid)`), not array position — the
+		// pre-order first-match must agree with the wire emitter's `findField`
+		// (which sorts the same way), so a close-field ref resolves to the same
+		// uuid at commit time and at emit time even when cousins share an id.
+		const ordered = [...(doc.fieldOrder[parentUuid] ?? [])].sort((a, b) =>
+			bySortKey(doc.fields[a] ?? {}, doc.fields[b] ?? {}),
+		);
+		for (const uuid of ordered) {
 			const field = doc.fields[uuid];
 			if (!field) continue;
 			if (field.id === ref) return field.uuid;

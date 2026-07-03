@@ -22,11 +22,17 @@ import type { UIMessageStreamWriter } from "ai";
 import { vi } from "vitest";
 import type { Session } from "@/lib/auth";
 import { type AccumulatorSeed, UsageAccumulator } from "@/lib/db/usage";
+import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { LogWriter } from "@/lib/log/writer";
 import { McpContext } from "@/lib/mcp/context";
 import type { ProgressEmitter } from "@/lib/mcp/progress";
 import { GenerationContext } from "../generationContext";
+import type {
+	RecordMutationsResult,
+	StagedMutationBatch,
+	ToolExecutionContext,
+} from "../toolExecutionContext";
 
 /**
  * Default accumulator seed. Tests that need a specific run config
@@ -50,6 +56,9 @@ export interface MakeTestContextOptions {
 	/** Override the appId passed into `GenerationContext`. Defaults to
 	 * "test-app" (matches `DEFAULT_SEED.appId`) when not supplied. */
 	appId?: string;
+	/** Whether the run holds an edit `run_lock` (enables the per-step lease
+	 * heartbeat). Defaults to `false` — a build-mode fixture. */
+	editLease?: boolean;
 }
 
 export interface TestContextHandles {
@@ -97,6 +106,8 @@ export function makeTestContext(
 		usage,
 		session,
 		appId: opts.appId ?? "test-app",
+		// Build-mode fixture by default (no edit run_lock, so no lease heartbeat).
+		editLease: opts.editLease ?? false,
 	});
 	return {
 		ctx,
@@ -192,4 +203,56 @@ export function makeMcpTestContext(
 		},
 		progress: progressStub as { notify: ReturnType<typeof vi.fn> },
 	};
+}
+
+/** Handles returned by `makeStubToolContext` — the stub ctx plus the vi.fn
+ *  spies on its two persistence methods, so a tool test can assert what the
+ *  tool persisted (mutations + stage) without a real `GenerationContext`. */
+export interface StubToolContextHandles {
+	ctx: ToolExecutionContext;
+	recordMutations: ReturnType<typeof vi.fn>;
+	recordMutationStages: ReturnType<typeof vi.fn>;
+	recordConversation: ReturnType<typeof vi.fn>;
+}
+
+/**
+ * A lightweight `ToolExecutionContext` stub for shared-tool tests that only
+ * exercise a tool body's mutation emission + returned `newDoc` — no Firestore,
+ * no guarded writer, no SSE writer.
+ *
+ * Both `recordMutations` and `recordMutationStages` return the
+ * `{ events, committedDoc }` shape the real writer surfaces, echoing the
+ * POST-mutation doc the caller passed (`recordMutations`' 2nd arg is
+ * `verdict.nextDoc`; the stages path takes the final stage's doc) as the
+ * committed doc. That models the no-concurrent-peer-edit case: the SA continues
+ * against exactly the doc its batch produced, which is what every single-surface
+ * tool test asserts. (Concurrent-merge behavior — the committed doc differing
+ * from the local candidate — is covered against the real writer in the
+ * `commitGuardedBatch` emulator suite and `generationContext-recordMutations`.)
+ */
+export function makeStubToolContext(
+	opts: { appId?: string; userId?: string; runId?: string } = {},
+): StubToolContextHandles {
+	const recordMutations = vi.fn(
+		async (
+			_mutations: Mutation[],
+			doc: BlueprintDoc,
+		): Promise<RecordMutationsResult> => ({ events: [], committedDoc: doc }),
+	);
+	const recordMutationStages = vi.fn(
+		async (stages: StagedMutationBatch[]): Promise<RecordMutationsResult> => ({
+			events: [],
+			committedDoc: stages[stages.length - 1]?.doc as BlueprintDoc,
+		}),
+	);
+	const recordConversation = vi.fn();
+	const ctx: ToolExecutionContext = {
+		appId: opts.appId ?? "test-app",
+		userId: opts.userId ?? "user-1",
+		runId: opts.runId ?? "run-1",
+		recordMutations,
+		recordMutationStages,
+		recordConversation,
+	};
+	return { ctx, recordMutations, recordMutationStages, recordConversation };
 }

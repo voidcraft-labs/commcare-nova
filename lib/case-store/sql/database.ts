@@ -168,6 +168,21 @@ export interface CaseTypeSchemasTable {
 	 * particular validator library.
 	 */
 	schema: JSONColumnType<JsonObject>;
+	/**
+	 * The `mutation_seq` this schema row was last synced from — the
+	 * monotone guard that makes concurrent additive case-type edits
+	 * converge. `applySchemaChange` UPSERTs with the incoming seq guarded
+	 * by `WHERE excluded.synced_seq >= case_type_schemas.synced_seq`, so a
+	 * stale lower-seq sync no-ops and a peer's concurrently-added property
+	 * is never clobbered by an in-flight older write.
+	 *
+	 * `ColumnType<string, number | undefined, number>`: node-postgres returns
+	 * `bigint`/`int8` as a STRING, so the SELECT type is `string` and a reader
+	 * coerces `Number(row.synced_seq)` — the type forces the coercion rather
+	 * than letting a bare `>=`/`+ 1` silently do string math. Insert is OPTIONAL
+	 * (defaults to 0 via the column DEFAULT); update supplies the seq.
+	 */
+	synced_seq: ColumnType<string, number | undefined, number>;
 }
 
 /**

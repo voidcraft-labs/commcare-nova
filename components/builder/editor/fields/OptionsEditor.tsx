@@ -23,7 +23,13 @@ import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { MediaSlot } from "@/components/builder/media/MediaSlot";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
-import type { CommitOutcome, Field, SelectOption } from "@/lib/domain";
+import { appendOrderKey } from "@/lib/doc/order/append";
+import {
+	asUuid,
+	type CommitOutcome,
+	type Field,
+	type SelectOption,
+} from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
 
@@ -186,9 +192,19 @@ function OptionsEditorWidget({
 
 	const addOption = useCallback(() => {
 		const num = draft.length + 1;
+		// Mint a stable `uuid` + an append `order` key: the auto-save diff keys
+		// options BY uuid (a uuid-less option is invisible to it) and orders by
+		// `order`, not array position. Place the new option after the last in
+		// DISPLAY order.
 		const next: DraftOption[] = [
 			...draft,
-			{ id: nextDraftId++, value: `option_${num}`, label: `Option ${num}` },
+			{
+				id: nextDraftId++,
+				uuid: asUuid(crypto.randomUUID()),
+				order: appendOrderKey(draft),
+				value: `option_${num}`,
+				label: `Option ${num}`,
+			},
 		];
 		setDraft(next);
 		commit(next);

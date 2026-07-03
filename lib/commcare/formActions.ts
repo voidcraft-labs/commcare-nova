@@ -24,6 +24,7 @@ import {
 	neverCondition,
 	RESERVED_CASE_PROPERTIES,
 } from "@/lib/commcare";
+import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
@@ -82,7 +83,7 @@ function findField(
 	fieldId: string,
 	prefix: FormPath = FormPath.root(),
 ): { field: Field; path: FormPath } | null {
-	for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
+	for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
 		const field = doc.fields[fieldUuid];
 		if (!field) continue;
 		const selfPath = prefix.child(field.id);
@@ -350,7 +351,7 @@ export function buildCaseReferencesLoad(
 	const load: Record<string, string[]> = {};
 
 	const walk = (parentUuid: Uuid, parentPath: FormPath): void => {
-		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
+		for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
 			const field = doc.fields[fieldUuid];
 			if (!field) continue;
 			const nodePath = parentPath.child(field.id);

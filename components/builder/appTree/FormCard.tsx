@@ -24,6 +24,7 @@ import {
 import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { PeerBadge } from "@/components/builder/PeerBadge";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
@@ -168,6 +169,7 @@ export const FormCard = memo(function FormCard({
 						{count} {count === 1 ? "field" : "fields"}
 					</span>
 				)}
+				<PeerBadge uuid={formId} />
 				{!locked && (
 					<TreeRowDelete label="Delete form" onDelete={handleDelete} />
 				)}

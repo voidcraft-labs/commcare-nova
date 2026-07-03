@@ -59,12 +59,15 @@ import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
 import { BARE_HASHTAG_PATTERN } from "@/lib/commcare/proseHashtags";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { FormPath } from "@/lib/commcare/xform/formPath";
+import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
+import { bySortKey } from "@/lib/doc/order/compare";
 import {
 	type BlueprintDoc,
 	type Field,
 	type FieldKind,
 	type Media,
 	reachableCaseTypes,
+	type SelectOption,
 	type Uuid,
 } from "@/lib/domain";
 
@@ -519,7 +522,7 @@ export function buildXForm(
 		);
 	};
 
-	for (const fieldUuid of doc.fieldOrder[formUuid] ?? []) {
+	for (const fieldUuid of orderedFieldUuids(doc, formUuid)) {
 		buildFieldParts(
 			doc,
 			fieldUuid,
@@ -622,9 +625,12 @@ function readOptions(
 	field: Field,
 ): Array<{ value: string; label: string; media?: Media }> | undefined {
 	const value = (field as unknown as Record<string, unknown>).options;
-	return Array.isArray(value)
-		? (value as Array<{ value: string; label: string; media?: Media }>)
-		: undefined;
+	if (!Array.isArray(value)) return undefined;
+	// Return options in DISPLAY (`sort-by-(order, uuid)`) order. Sorting HERE,
+	// at the one accessor, keeps the per-option index keys consistent between
+	// the itext-registration pass and the `<item>`-emission pass — sorting only
+	// one would dangle a `<label ref>`. `order` never reaches the wire.
+	return [...(value as SelectOption[])].sort(bySortKey);
 }
 
 /**
@@ -1113,7 +1119,7 @@ function buildContainer(
 		? nodePath.queryBoundIteration()
 		: nodePath;
 
-	for (const childUuid of doc.fieldOrder[fieldUuid] ?? []) {
+	for (const childUuid of orderedFieldUuids(doc, fieldUuid)) {
 		buildFieldParts(
 			doc,
 			childUuid,

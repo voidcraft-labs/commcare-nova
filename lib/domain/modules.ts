@@ -147,9 +147,14 @@ const columnCommonSlots = z
  *  required configuration on top. The `.strict()` on the base
  *  propagates through every `columnBase.extend({...})` chain below,
  *  so per-kind schemas reject unknown keys without restating
- *  `.strict()` on each arm. */
+ *  `.strict()` on each arm.
+ *
+ *  `order` is the column's absolute fractional sort key
+ *  (`lib/doc/order`): column sequence is `sort-by-(order, uuid)`, not
+ *  `columns` array position. Optional (legacy columns predate it,
+ *  backfilled at hydration); never reaches CommCare. */
 const columnBase = z
-	.object({ uuid: uuidSchema })
+	.object({ uuid: uuidSchema, order: z.string().optional() })
 	.extend(columnCommonSlots.shape)
 	.strict();
 
@@ -657,6 +662,11 @@ export type SearchInputMode = z.infer<typeof searchInputModeSchema>;
 const searchInputCommon = z
 	.object({
 		uuid: uuidSchema,
+		// Absolute fractional sort key (`lib/doc/order`): search-input
+		// sequence is `sort-by-(order, uuid)`, not `searchInputs` array
+		// position. Optional (legacy inputs predate it, backfilled at
+		// hydration); never reaches CommCare.
+		order: z.string().optional(),
 		name: z
 			.string()
 			.regex(
@@ -1190,6 +1200,11 @@ export const moduleSchema = z
 		uuid: uuidSchema,
 		id: z.string(), // semantic id (snake_case display slug)
 		name: z.string(),
+		// Absolute fractional sort key (`lib/doc/order`): module sequence is
+		// `sort-by-(order, uuid)`, not `moduleOrder` array position. Optional
+		// (legacy modules predate it, backfilled at hydration); never reaches
+		// CommCare.
+		order: z.string().optional(),
 		caseType: z.string().optional(),
 		caseListOnly: z.boolean().optional(),
 		purpose: z.string().optional(),

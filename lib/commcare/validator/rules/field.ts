@@ -131,6 +131,77 @@ function selectNoOptions(field: Field, ctx: FieldContext): ValidationError[] {
 	];
 }
 
+/**
+ * A select field with at least one but fewer than two options. `SELECT_NO_OPTIONS`
+ * owns the zero-option case (the schema-backed empty state); this rule catches
+ * the in-between state a granular `removeOption` can reach in place — the
+ * reducer drops an option without re-parsing the field through `fieldSchema`'s
+ * `.min(2)`, so the gate, not the schema, is the only layer that sees a select
+ * collapse to a single choice.
+ */
+function selectTooFewOptions(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	if (field.kind !== "single_select" && field.kind !== "multi_select")
+		return [];
+	const count = field.options?.length ?? 0;
+	if (count === 0 || count >= 2) return [];
+	const typeName =
+		field.kind === "single_select" ? "single-select" : "multi-select";
+	return [
+		validationError(
+			"SELECT_TOO_FEW_OPTIONS",
+			"field",
+			`Field "${field.id}" in "${ctx.formName}" is a ${typeName} field with only one option. A choice field needs at least two options so there's something to choose between. Add another option, or remove the field if a single fixed value is all you need.`,
+			{
+				moduleUuid: ctx.moduleUuid,
+				moduleName: ctx.moduleName,
+				formUuid: ctx.formUuid,
+				formName: ctx.formName,
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+			},
+		),
+	];
+}
+
+/**
+ * A field whose `case_property_on` names a case type absent from the catalog.
+ * Every authoring surface declares a type before a field writes to it (the
+ * `declareCaseType` chokepoint), so in steady state this never fires — it
+ * catches the concurrent-edit race where one member adds a field writing to a
+ * type a second member retires at the same instant: on the guarded re-apply
+ * the field is left pointing at a type that no longer exists, and rejecting
+ * the batch (a 409) is what keeps the doc valid by construction.
+ */
+function casePropertyOnUnknownType(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	const caseType = (field as { case_property_on?: string }).case_property_on;
+	if (!caseType) return [];
+	const declared =
+		ctx.doc.caseTypes?.some((ct) => ct.name === caseType) ?? false;
+	if (declared) return [];
+	return [
+		validationError(
+			"CASE_PROPERTY_ON_UNKNOWN_TYPE",
+			"field",
+			`Field "${field.id}" in "${ctx.formName}" saves to the case type "${caseType}", but no case type by that name exists. Declare the "${caseType}" case type (give a module that type, or add it to the data model) before saving to it, or point this field at an existing case type.`,
+			{
+				moduleUuid: ctx.moduleUuid,
+				moduleName: ctx.moduleName,
+				formUuid: ctx.formUuid,
+				formName: ctx.formName,
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+			},
+			{ caseType },
+		),
+	];
+}
+
 function hiddenNoValue(field: Field, ctx: FieldContext): ValidationError[] {
 	if (field.kind !== "hidden") return [];
 	if (field.calculate || field.default_value) return [];
@@ -554,6 +625,8 @@ function fixtureReferenceNotModeled(
 
 const FIELD_RULES = [
 	selectNoOptions,
+	selectTooFewOptions,
+	casePropertyOnUnknownType,
 	hiddenNoValue,
 	requiredOnHidden,
 	calculateOnVisibleInput,

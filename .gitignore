@@ -62,6 +62,7 @@ next-env.d.ts
 /e2e/.auth/
 /e2e/test-results/
 /e2e/playwright-report/
+/e2e/multiplayer-screenshots/
 /playwright/.cache/
 /test-results/
 /playwright-report/

@@ -217,6 +217,11 @@ export const formSchema = z
 		uuid: uuidSchema,
 		id: z.string(),
 		name: z.string(),
+		// Absolute fractional sort key (`lib/doc/order`): form sequence is
+		// `sort-by-(order, uuid)`, not `formOrder[module]` array position.
+		// Optional (legacy forms predate it, backfilled at hydration); never
+		// reaches CommCare.
+		order: z.string().optional(),
 		type: z.enum(FORM_TYPES),
 		purpose: z.string().optional(),
 		closeCondition: closeConditionSchema.optional(),

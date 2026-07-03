@@ -1,5 +1,6 @@
 "use client";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { MultiSelectField } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
@@ -27,7 +28,9 @@ export function SelectMultiField({
 	onChange,
 	onBlur,
 }: SelectMultiFieldProps) {
-	const options = field.options ?? [];
+	// DISPLAY order (`sort-by-(order, uuid)`, matching the wire `<item>` order),
+	// not `options` array position.
+	const options = [...(field.options ?? [])].sort(bySortKey);
 	const selected = new Set(state.value ? state.value.split(" ") : []);
 	const showError = state.touched && !state.valid;
 	const isEditMode = useEditMode() === "edit";

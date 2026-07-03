@@ -607,7 +607,7 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 				allFieldRegistryPaths,
 				NON_REFERENCE_FIELD_PATH_SET,
 			),
-		).toEqual(["id", "options[].value"]);
+		).toEqual(["id", "options[].order", "options[].value", "order"]);
 	});
 
 	it("form list is pinned", () => {
@@ -633,6 +633,7 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"icon",
 			"id",
 			"name",
+			"order",
 			"purpose",
 		]);
 	});
@@ -651,17 +652,20 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"caseListConfig.columns[].mapping[].assetId",
 			"caseListConfig.columns[].mapping[].label",
 			"caseListConfig.columns[].mapping[].value",
+			"caseListConfig.columns[].order",
 			"caseListConfig.columns[].pattern",
 			"caseListConfig.columns[].text",
 			"caseListConfig.icon",
 			"caseListConfig.searchInputs[].label",
 			"caseListConfig.searchInputs[].name",
+			"caseListConfig.searchInputs[].order",
 			"caseSearchConfig.searchButtonLabel",
 			"caseSearchConfig.searchScreenSubtitle",
 			"caseSearchConfig.searchScreenTitle",
 			"icon",
 			"id",
 			"name",
+			"order",
 			"purpose",
 		]);
 	});

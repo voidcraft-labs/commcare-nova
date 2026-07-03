@@ -24,16 +24,17 @@ import {
 	type Form,
 	type Module,
 } from "@/lib/domain";
-import { makeMcpTestContext, makeTestContext } from "../../__tests__/fixtures";
+import {
+	makeMcpTestContext,
+	makeStubToolContext,
+} from "../../__tests__/fixtures";
 import { addFieldsTool } from "../addFields";
 
 vi.mock("@/lib/db/apps", () => ({
-	updateApp: vi.fn(() => Promise.resolve()),
-	updateAppForRun: vi.fn(() => Promise.resolve()),
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve()),
+	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
 }));
 
 const MOD = asUuid("11111111-1111-1111-1111-111111111111");
@@ -101,7 +102,7 @@ beforeEach(() => {
 
 describe("addFields — identifier guard (chat surface)", () => {
 	it("rejects a duplicate sibling id and persists nothing", async () => {
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{ moduleIndex: 0, formIndex: 0, fields: [textItem("age")] },
@@ -117,7 +118,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 	});
 
 	it("names EVERY failing item, not just the first", async () => {
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
 				moduleIndex: 0,
@@ -135,7 +136,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 	});
 
 	it("rejects two in-batch fields landing on the same parent with the same id", async () => {
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{
@@ -153,7 +154,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 	});
 
 	it("rejects a duplicate against a group's existing children", async () => {
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
 				moduleIndex: 0,
@@ -168,7 +169,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 	});
 
 	it("accepts a cousin id (same id under a different parent) and persists", async () => {
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{
@@ -186,7 +187,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 	});
 
 	it("accepts a legal batch and persists it", async () => {
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{

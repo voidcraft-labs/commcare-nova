@@ -52,7 +52,7 @@
  */
 import { Firestore } from "@google-cloud/firestore";
 import { Command } from "commander";
-import { blueprintSnapshotFields } from "../lib/db/apps";
+import { appendSyntheticBatchTx } from "../lib/db/apps";
 import { mutationCommitVerdict } from "../lib/doc/commitVerdicts";
 import { toPersistableDoc } from "../lib/doc/fieldParent";
 import { collectAssetRefs, walkAssetRefs } from "../lib/domain/mediaRefs";
@@ -276,10 +276,10 @@ async function main() {
 					 * overwriting the repairs. Repairs only remove or rename —
 					 * never add an asset reference — so the writers' reverse-index
 					 * sync has nothing to add for this write. */
-					await appSnap.ref.update(
-						blueprintSnapshotFields(toPersistableDoc(working), {
-							basisToken: crypto.randomUUID(),
-						}),
+					await appendSyntheticBatchTx(
+						db,
+						appSnap.id,
+						toPersistableDoc(working),
 					);
 				}
 			}

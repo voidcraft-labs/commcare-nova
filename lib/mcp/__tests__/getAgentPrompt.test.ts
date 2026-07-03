@@ -147,6 +147,7 @@ function loadedFor(doc: BlueprintDoc): LoadedApp {
 			owner: "u1",
 			project_id: null,
 			app_name: doc.appName,
+			mutation_seq: 0,
 			connect_type: null,
 			module_count: doc.moduleOrder.length,
 			form_count: 0,

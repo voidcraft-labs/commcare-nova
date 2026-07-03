@@ -17,9 +17,17 @@
  * with each hydration mode and assert the flag transitions.
  */
 
-import { renderHook } from "@testing-library/react";
+import { cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { asUuid } from "@/lib/domain";
@@ -32,6 +40,43 @@ import {
 } from "@/lib/session/hooks";
 import { useBuilderSession } from "@/lib/session/provider";
 import type { ReplayChapter } from "@/lib/session/types";
+
+/* Mock `useAuth` (the presence layer reads it for the display name) so mounting
+ * the builder tree doesn't subscribe Better Auth's client session atom — its
+ * nanostores `onMount` schedules a `setTimeout(0) → fetchSession()` real fetch
+ * that the async-leak detector pins (a Timeout + a Promise). A static
+ * unauthenticated result is enough for these hydrator-lifecycle tests (with no
+ * resolved name, `presenceCanBeat` gates the heartbeat off — the leak-free path). */
+vi.mock("@/lib/auth/hooks/useAuth", () => ({
+	useAuth: () => ({
+		user: null,
+		isAuthenticated: false,
+		isAdmin: false,
+		isImpersonating: false,
+		isPending: false,
+		error: null,
+		signIn: () => {},
+		signOut: () => {},
+	}),
+}));
+
+/* happy-dom DEFINES `EventSource` (jsdom does not), so `ReconcilerProvider`'s
+ * `typeof EventSource === "undefined"` guard would otherwise let it open a REAL
+ * stream to `/api/apps/{id}/stream` against no server — happy-dom's EventSource
+ * leaves the connection attempt pending even after `.close()`, which the
+ * async-leak detector pins here (and hangs the pool). Stubbing it undefined puts
+ * the provider on its documented NON-BROWSER path (mount the reconciler state
+ * machine, no live stream) — exactly what these hydrator-lifecycle tests want, and
+ * `renderHook`'s unmount `cleanup()` tears the rest down. */
+beforeAll(() => {
+	vi.stubGlobal("EventSource", undefined);
+});
+afterAll(() => {
+	vi.unstubAllGlobals();
+});
+afterEach(() => {
+	cleanup();
+});
 
 /**
  * Minimal valid normalized doc for LoadAppHydrator tests.

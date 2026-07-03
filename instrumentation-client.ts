@@ -7,6 +7,15 @@ import * as Sentry from "@sentry/nextjs";
 Sentry.init({
 	dsn: "https://1c43ea684bc94e3c53926a2ca3ab9a51@o4511537737039872.ingest.us.sentry.io/4511537747918848",
 
+	/* Off on localhost — the E2E smoke suite drives the production bundle through
+	 * HeadlessChrome at http://localhost, and local dev runs there too; neither
+	 * should ship browser errors to PROD Sentry. A real deployment is never
+	 * localhost. (The server/edge configs gate on the Firestore emulator host,
+	 * which the browser can't read.) */
+	enabled:
+		typeof window !== "undefined" &&
+		!["localhost", "127.0.0.1"].includes(window.location.hostname),
+
 	// Add optional integrations for additional features
 	integrations: [Sentry.replayIntegration()],
 

@@ -118,6 +118,15 @@ export default defineConfig({
 				storageState: "e2e/.auth/state.json",
 			},
 		},
+		{
+			// Two-user real-time co-editing acceptance. NO project-level
+			// storageState — the spec opens its own `browser.newContext({
+			// storageState })` per user (Ada + Grace), each carrying that user's
+			// seeded session cookie (`e2e/.auth/state-mp-{a,b}.json`).
+			name: "multiplayer",
+			testMatch: /multiplayer\.spec\.ts/,
+			use: { ...devices["Desktop Chrome"] },
+		},
 	],
 	// Manage our own server only when smoke.sh is driving a localhost run.
 	// Against a deployed URL (or any already-running server) we test what's there.

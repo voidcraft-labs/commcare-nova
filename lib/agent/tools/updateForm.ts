@@ -40,9 +40,17 @@ import { z } from "zod";
 import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
 import type { BlueprintDoc, PostSubmitDestination } from "@/lib/domain";
 import { asUuid, USER_FACING_DESTINATIONS } from "@/lib/domain";
-import { resolveFormUuid, updateFormMutations } from "../blueprintHelpers";
+import {
+	resolveFormUuid,
+	resolveModuleUuid,
+	updateFormMutations,
+} from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { guardedMutate, type MutatingToolResult } from "./common";
+import {
+	guardedMutate,
+	type MutatingToolResult,
+	toToolErrorResult,
+} from "./common";
 import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import { buildConnectConfig } from "./shared/connectInput";
 import type {
@@ -245,7 +253,7 @@ export const updateFormTool = {
 					// ids, reject explicit-invalid ids (fail the call, write
 					// nothing). `existingIds` excludes this form's own ids so a
 					// re-patch of an unchanged id doesn't read as a self-conflict.
-					const moduleUuid = doc.moduleOrder[moduleIndex];
+					const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 					const moduleName = moduleUuid
 						? (doc.modules[moduleUuid]?.name ?? "module")
 						: "module";
@@ -321,18 +329,16 @@ export const updateFormTool = {
 				result: {
 					message: `Successfully updated form "${formAfter.name}" (${formAfter.type}, m${moduleIndex}-f${formIndex}). Changed: ${formChanges.join(", ")}.`,
 					summary: {
-						location: doc.modules[doc.moduleOrder[moduleIndex]]?.name,
+						location: (() => {
+							const mu = resolveModuleUuid(doc, moduleIndex);
+							return mu ? doc.modules[mu]?.name : undefined;
+						})(),
 						subject: formAfter.name,
 					} satisfies ToolCallSummary,
 				},
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

@@ -1,6 +1,7 @@
 import { produce } from "immer";
 import { describe, expect, it, vi } from "vitest";
 import { resolveDocExpressions, xp } from "@/lib/__tests__/docHelpers";
+import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { applyMutation } from "@/lib/doc/mutations";
 import type {
 	FieldRenameMeta,
@@ -721,6 +722,33 @@ describe("duplicateField", () => {
 			applyMutation(d, { kind: "duplicateField", uuid: Q("missing") });
 		});
 		expect(Object.keys(next.fields)).toHaveLength(0);
+	});
+
+	it("slots the clone right after the source in DISPLAY order", () => {
+		// Keyed siblings whose order keys land the clone by `order`, not array
+		// position. The clone's fresh key must sort strictly between the source
+		// and its next display-order sibling. The slot index is computed over the
+		// same keyed list `keysForSlot` receives (not a full-list position), so a
+		// keyless sibling can't shift the clone.
+		const start: BlueprintDoc = {
+			...docWithForm(),
+			fields: {
+				[Q("a")]: field_(Q("a"), "a", { order: "a" }),
+				[Q("b")]: field_(Q("b"), "b", { order: "b" }),
+				[Q("c")]: field_(Q("c"), "c", { order: "c" }),
+			},
+			fieldOrder: { [F("1")]: [Q("a"), Q("b"), Q("c")] },
+		};
+		const next = produce(resolveDocExpressions(start), (d) => {
+			applyMutation(d, { kind: "duplicateField", uuid: Q("b") });
+		});
+		const dupUuid = next.fieldOrder[F("1")].find(
+			(u) => u !== Q("a") && u !== Q("b") && u !== Q("c"),
+		) as Uuid;
+		expect(dupUuid).toBeDefined();
+		// Display order = sort by (order, uuid). The clone sits between b and c.
+		const displayed = orderedFieldUuids(next, F("1"));
+		expect(displayed).toEqual([Q("a"), Q("b"), dupUuid, Q("c")]);
 	});
 });
 

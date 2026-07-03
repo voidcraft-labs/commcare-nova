@@ -61,6 +61,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseProperty, CaseType, SearchInputDef } from "@/lib/domain";
 import {
 	ISO_DATE_PATTERN,
@@ -206,7 +207,7 @@ export function SearchInputForm({
 				Search inputs
 			</h3>
 			<div className="flex flex-col gap-4">
-				{searchInputs.map((input) => (
+				{[...searchInputs].sort(bySortKey).map((input) => (
 					<SearchInputRow
 						key={input.uuid}
 						input={input}

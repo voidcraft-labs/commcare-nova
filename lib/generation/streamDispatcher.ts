@@ -18,19 +18,33 @@
  *      panel will reflect the same info via the derived `agentError`,
  *      but a toast is the right UX for a stream-level failure.
  *
- *   3. **Whole-build completion** — `data-done`. Reconciles the doc
- *      against the final snapshot the route's drain-end finalize ships
- *      AND stamps `runCompletedAt` (the celebration signal).
+ *   3. **Whole-build completion** — `data-done`. Reseeds the reconciler's
+ *      confirmed baseline from the final snapshot the route's drain-end
+ *      finalize ships AND stamps `runCompletedAt` (the celebration signal).
  *      Stream-close lifecycle is owned by ChatContainer's chat-status
  *      effect via `endRun` — separate concern.
  *
  * `data-run-id` and `data-app-id` are handled inline in
  * ChatContainer's `onData` and never reach this dispatcher.
  *
+ * ## Reconciler integration
+ *
+ * When a reconciler is present (every live builder session), a chat
+ * `data-mutations` batch is REGISTERED in the reconciler
+ * (`registerChatBatch`) before it is applied to the store, so the batch's
+ * own durable-stream echo is recognized + dropped and `useAutoSave` doesn't
+ * re-PUT the SA's own edit (it is already in `localBase()`). `data-done`
+ * reseeds the reconciler's confirmed baseline from the carried `{ doc, seq }`
+ * instead of `docStore.load()` (the agent suppression bracket is still open).
+ * A brand-new build's reconciler is DORMANT (no app id yet): `registerChatBatch`
+ * / `onDataDone` no-op, and the mutations apply directly to the store — the
+ * reconciler activates on `data-app-id`.
+ *
  * Signal grid energy is injected BEFORE processing so the animation
  * responds to event arrival, not post-mutation.
  */
 
+import type { Reconciler } from "@/lib/collab/reconciler";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
@@ -68,12 +82,18 @@ function injectSignalEnergy(type: string): void {
  * @param data         - event payload — shape varies by event type
  * @param docStore     - the BlueprintDoc Zustand store
  * @param sessionStore - the BuilderSession Zustand store
+ * @param reconciler   - the session reconciler (null in replay); a chat batch
+ *                       registers in it and `data-done` reseeds it
+ * @param runId        - the active run id (from `data-run-id`) — the reconciler
+ *                       records it on the chat batch so its own echo is matched
  */
 export function applyStreamEvent(
 	type: string,
 	data: Record<string, unknown>,
 	docStore: BlueprintDocStoreApi,
 	sessionStore: BuilderSessionStoreApi,
+	reconciler: Reconciler | null,
+	runId: string | undefined,
 ): void {
 	injectSignalEnergy(type);
 
@@ -97,8 +117,35 @@ export function applyStreamEvent(
 	if (type === "data-mutations") {
 		const mutations = data.mutations as Mutation[] | undefined;
 		const events = data.events as MutationEvent[] | undefined;
+		const batchId = data.batchId as string | undefined;
+		const seq = data.seq as number | undefined;
 		if (mutations && mutations.length > 0) {
-			docStore.getState().applyMany(mutations);
+			/* Register the SA batch in the reconciler BEFORE applying it: once
+			 * it's in `sentPending`, `localBase()` folds it, so the store
+			 * subscriber that fires synchronously from `applyMany` sees an empty
+			 * `humanUncommitted` delta and doesn't re-PUT the SA's own edit. A
+			 * dormant new-build reconciler no-ops (no app id yet); its mutations
+			 * still apply directly to the store.
+			 *
+			 * `alreadyConfirmed` means the batch's /stream echo BEAT this chunk
+			 * (two independent transports) and already folded these mutations into
+			 * `displayed` — so `applyMany` here would apply them a SECOND time (the
+			 * non-dedup add reducers would splice a duplicated entity). Skip it. */
+			let alreadyConfirmed = false;
+			if (
+				reconciler &&
+				!reconciler.isDormant() &&
+				batchId !== undefined &&
+				seq !== undefined
+			) {
+				({ alreadyConfirmed } = reconciler.registerChatBatch({
+					batchId,
+					runId,
+					mutations,
+					seq,
+				}));
+			}
+			if (!alreadyConfirmed) docStore.getState().applyMany(mutations);
 		}
 		if (events && events.length > 0) {
 			sessionStore.getState().pushEvents(events);
@@ -131,10 +178,17 @@ export function applyStreamEvent(
 			 * Whole-build completion — the route's drain-end finalize
 			 * finished a build run. Two side-effects:
 			 *
-			 * 1. Reconcile the doc against the run's final persisted
-			 *    snapshot. Streaming may leave the doc slightly diverged
-			 *    from the server's canonical result. `load()` replaces the
-			 *    entire doc and clears + pauses undo history.
+			 * 1. Reseed the reconciler's confirmed baseline from the run's
+			 *    final persisted snapshot + committed seq. Streaming may leave
+			 *    the doc slightly diverged from the server's canonical result;
+			 *    `onDataDone` reseeds `confirmedDoc`/`baseSeq` via a suppressed
+			 *    `commitDoc` (NOT `load()`, which would trip the open-bracket
+			 *    assert — the agent suppression bracket is still open, closing
+			 *    only on stream-close via `endRun`). `onDataDone` is
+			 *    bracket-safe even for a still-dormant reconciler (a new build
+			 *    whose `data-app-id` hasn't activated it yet), so it is the ONE
+			 *    reconcile path — a `load()` fallback would crash on the open
+			 *    bracket. A null reconciler (replay) never emits `data-done`.
 			 *
 			 * 2. Stamp `runCompletedAt` — this, not stream-close, is the
 			 *    "a full build just finished" signal that drives the
@@ -148,8 +202,18 @@ export function applyStreamEvent(
 			 * concerns are orthogonal.
 			 */
 			const doc = data.doc as PersistableDoc | undefined;
+			const seq = data.seq as number | undefined;
 			if (doc) {
-				docStore.getState().load(doc);
+				if (reconciler) {
+					// `onDataDone` is bracket-safe even when the reconciler is still
+					// dormant (it reseeds via a suppressed `commitDoc`, never `load()`).
+					reconciler.onDataDone({ doc, seq: seq ?? 0 });
+				} else {
+					// No reconciler (replay only) — replay never emits `data-done`, but
+					// keep the `load()` path for that theoretical case. Replay mounts
+					// no agent bracket, so `load()` is safe there.
+					docStore.getState().load(doc);
+				}
 			}
 			sessionStore.getState().markRunCompleted();
 			return;
