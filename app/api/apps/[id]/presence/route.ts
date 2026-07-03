@@ -29,13 +29,21 @@ import {
 import { requireSession } from "@/lib/auth-utils";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { PRESENCE_TTL_MS } from "@/lib/db/constants";
-import { docs } from "@/lib/db/firestore";
+import { docs, runThrottledWrite } from "@/lib/db/firestore";
 import { locationSchema } from "@/lib/routing/types";
+
+/** The per-tab session id the client mints via `crypto.randomUUID()`. Shape-
+ *  pinned to a UUID because it is INTERPOLATED into the presence document
+ *  path (`{userId}:{sessionId}`): Firestore's `.doc()` treats `/` as a path
+ *  separator, so a freeform string could address nested junk paths (or throw
+ *  synchronously on an even segment count → a 500 any member could mint at
+ *  will from a heartbeat endpoint). */
+const sessionIdSchema = z.string().uuid();
 
 /** The client-supplied half of a presence upsert (`userId` is server-stamped). */
 const presenceBodySchema = z
 	.object({
-		sessionId: z.string().min(1),
+		sessionId: sessionIdSchema,
 		name: z.string(),
 		color: z.string(),
 		location: locationSchema,
@@ -43,9 +51,7 @@ const presenceBodySchema = z
 	.strict();
 
 /** The client-supplied half of a presence delete (`userId` is server-stamped). */
-const presenceDeleteSchema = z
-	.object({ sessionId: z.string().min(1) })
-	.strict();
+const presenceDeleteSchema = z.object({ sessionId: sessionIdSchema }).strict();
 
 export async function POST(
 	req: Request,
@@ -63,15 +69,20 @@ export async function POST(
 
 		const userId = session.user.id;
 		const { sessionId, name, color, location } = parsed.data;
-		await docs.presence(id, `${userId}:${sessionId}`).set({
-			userId,
-			sessionId,
-			name,
-			color,
-			location,
-			updatedAt: FieldValue.serverTimestamp(),
-			expireAt: Timestamp.fromMillis(Date.now() + PRESENCE_TTL_MS),
-		});
+		// A hot request-path write rides the write throttle (Firestore sheds
+		// commits outside its documented limits and the client owns the retry) —
+		// heartbeats from every member of a busy app land here every ~15s.
+		await runThrottledWrite(() =>
+			docs.presence(id, `${userId}:${sessionId}`).set({
+				userId,
+				sessionId,
+				name,
+				color,
+				location,
+				updatedAt: FieldValue.serverTimestamp(),
+				expireAt: Timestamp.fromMillis(Date.now() + PRESENCE_TTL_MS),
+			}),
+		);
 		return Response.json({ ok: true });
 	} catch (err) {
 		return handleApiError(
@@ -94,9 +105,9 @@ export async function DELETE(
 		const parsed = presenceDeleteSchema.safeParse(body);
 		if (!parsed.success) throw new ApiError("Invalid presence body", 400);
 
-		await docs
-			.presence(id, `${session.user.id}:${parsed.data.sessionId}`)
-			.delete();
+		await runThrottledWrite(() =>
+			docs.presence(id, `${session.user.id}:${parsed.data.sessionId}`).delete(),
+		);
 		return Response.json({ ok: true });
 	} catch (err) {
 		return handleApiError(

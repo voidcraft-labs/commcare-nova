@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import type { PresenceEntry, PresenceFrame } from "@/lib/collab/presenceTypes";
+import { serializePath } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
 
 // ── Cadence ─────────────────────────────────────────────────────────────
@@ -209,6 +210,33 @@ export interface Peer extends PresenceEntry {
 	readonly peerColor: PeerColor;
 }
 
+/** Resolve a roster entry's SERVER-STORED color id back to its palette entry —
+ *  the peer picked (and persists) its own color at heartbeat time, so honoring
+ *  it keeps every tab agreeing even across palette-hash changes; an unknown /
+ *  legacy id falls back to the deterministic `hashColor`. */
+function paletteColor(id: string, userId: string): PeerColor {
+	return PEER_PALETTE.find((c) => c.id === id) ?? hashColor(userId);
+}
+
+/** Content equality for two visible-peer lists, ignoring `updatedAt` (which
+ *  advances on every heartbeat) — the roster's ARRAY IDENTITY is a render
+ *  input for every `PeerBadge` up the tree, so an unchanged roster must keep
+ *  its previous identity instead of re-rendering the whole canvas per tick. */
+function samePeers(a: readonly Peer[], b: readonly Peer[]): boolean {
+	if (a.length !== b.length) return false;
+	return a.every((pa, i) => {
+		const pb = b[i];
+		return (
+			pa.userId === pb.userId &&
+			pa.sessionId === pb.sessionId &&
+			pa.name === pb.name &&
+			pa.color === pb.color &&
+			serializePath(pa.location).join("/") ===
+				serializePath(pb.location).join("/")
+		);
+	});
+}
+
 /**
  * Drive this tab's heartbeat and expose the live peer roster.
  *
@@ -335,31 +363,46 @@ export function usePresence(
 	}, [appId, canBeat, sessionId, postBeat]);
 
 	// Prompt heartbeat on a location change, debounced so a rapid sweep POSTs
-	// once. `location` is the intended trigger — the effect re-arms whenever the
-	// peer moves — and the beat sends it directly (the render's fresh value).
-	// Skips the initial render (the mount beat already carries it).
+	// once. Keyed on the SERIALIZED PATH, not the `location` object identity:
+	// `useLocation()` re-derives its object from the doc-store entity maps, so
+	// every doc mutation (a local keystroke, an SA batch, an inbound peer frame)
+	// mints a NEW Location even when the path is unchanged — an identity dep
+	// would re-arm this effect and POST a heartbeat per edit. Skips the initial
+	// render (the mount beat already carries it); the beat reads the ref for the
+	// freshest object at fire time.
+	const locationKey = serializePath(location).join("/");
 	const mountedRef = useRef(false);
 	useEffect(() => {
+		// `locationKey` is the re-arm trigger only — reading it keeps the dep
+		// honest; the beat reads the ref for the freshest Location object.
+		void locationKey;
 		if (!canBeat || !appId) return;
 		if (!mountedRef.current) {
 			mountedRef.current = true;
 			return;
 		}
 		const timer = setTimeout(
-			() => postBeat(location),
+			() => postBeat(beatInputRef.current.location),
 			LOCATION_HEARTBEAT_DEBOUNCE_MS,
 		);
 		return () => clearTimeout(timer);
-	}, [appId, canBeat, location, postBeat]);
+	}, [appId, canBeat, locationKey, postBeat]);
 
+	const lastPeersRef = useRef<Peer[]>([]);
 	return useMemo(() => {
 		// `tick` is a recompute trigger only — reading it keeps the memo honest.
 		void tick;
 		// Skew-corrected "now": server stamps compare against server-ish time.
 		const now = Date.now() + (clockOffsetRef.current ?? 0);
-		return visiblePeers(frame, self.userId, now).map((entry) => ({
+		const next = visiblePeers(frame, self.userId, now).map((entry) => ({
 			...entry,
-			peerColor: hashColor(entry.userId),
+			peerColor: paletteColor(entry.color, entry.userId),
 		}));
+		// Preserve the previous ARRAY IDENTITY when nothing user-visible changed
+		// (`updatedAt` advances on every 15s heartbeat, so a naive fresh array
+		// would re-render every PeerBadge/roster consumer per tick and frame).
+		if (samePeers(lastPeersRef.current, next)) return lastPeersRef.current;
+		lastPeersRef.current = next;
+		return next;
 	}, [frame, self.userId, tick]);
 }

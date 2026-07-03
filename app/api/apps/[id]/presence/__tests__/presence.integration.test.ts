@@ -33,6 +33,10 @@ vi.mock("@/lib/db/appAccess", () => ({
 const { POST, DELETE } = await import("../route");
 const { getDb, docs } = await import("@/lib/db/firestore");
 
+/** Per-tab session ids are shape-pinned to UUIDs (they ride the doc path). */
+const SESS_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const SESS_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
 const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
 
 const USER = "user-1";
@@ -100,7 +104,7 @@ describe.skipIf(!emulatorAvailable)(
 			const appId = await seedApp();
 			const res = await POST(
 				postReq(appId, {
-					sessionId: "sess-a",
+					sessionId: SESS_A,
 					name: "Ada",
 					color: "#abcdef",
 					location: { kind: "home" },
@@ -109,11 +113,11 @@ describe.skipIf(!emulatorAvailable)(
 			);
 			expect(res.status).toBe(200);
 
-			const snap = await docs.presence(appId, `${USER}:sess-a`).get();
+			const snap = await docs.presence(appId, `${USER}:${SESS_A}`).get();
 			expect(snap.exists).toBe(true);
 			const data = snap.data();
 			expect(data?.userId).toBe(USER);
-			expect(data?.sessionId).toBe("sess-a");
+			expect(data?.sessionId).toBe(SESS_A);
 			expect(data?.name).toBe("Ada");
 			expect(data?.location).toEqual({ kind: "home" });
 			expect(data?.expireAt).toBeDefined();
@@ -126,23 +130,23 @@ describe.skipIf(!emulatorAvailable)(
 				color: "#abcdef",
 				location: { kind: "home" },
 			};
-			await POST(postReq(appId, { ...base, sessionId: "sess-a" }), {
+			await POST(postReq(appId, { ...base, sessionId: SESS_A }), {
 				params: Promise.resolve({ id: appId }),
 			});
-			await POST(postReq(appId, { ...base, sessionId: "sess-b" }), {
-				params: Promise.resolve({ id: appId }),
-			});
-
-			await DELETE(deleteReq(appId, { sessionId: "sess-a" }), {
+			await POST(postReq(appId, { ...base, sessionId: SESS_B }), {
 				params: Promise.resolve({ id: appId }),
 			});
 
-			expect((await docs.presence(appId, `${USER}:sess-a`).get()).exists).toBe(
-				false,
-			);
-			expect((await docs.presence(appId, `${USER}:sess-b`).get()).exists).toBe(
-				true,
-			);
+			await DELETE(deleteReq(appId, { sessionId: SESS_A }), {
+				params: Promise.resolve({ id: appId }),
+			});
+
+			expect(
+				(await docs.presence(appId, `${USER}:${SESS_A}`).get()).exists,
+			).toBe(false);
+			expect(
+				(await docs.presence(appId, `${USER}:${SESS_B}`).get()).exists,
+			).toBe(true);
 		});
 
 		it("POST 404s when scope resolution denies (IDOR-safe)", async () => {
@@ -152,7 +156,7 @@ describe.skipIf(!emulatorAvailable)(
 
 			const res = await POST(
 				postReq(appId, {
-					sessionId: "sess-a",
+					sessionId: SESS_A,
 					name: "Ada",
 					color: "#abcdef",
 					location: { kind: "home" },
@@ -166,10 +170,29 @@ describe.skipIf(!emulatorAvailable)(
 			const appId = await seedApp();
 			const res = await POST(
 				postReq(appId, {
-					sessionId: "sess-a",
+					sessionId: SESS_A,
 					name: "Ada",
 					color: "#abcdef",
 					location: { kind: "not-a-real-kind" },
+				}),
+				{ params: Promise.resolve({ id: appId }) },
+			);
+			expect(res.status).toBe(400);
+		});
+
+		it("POST 400s a path-hostile sessionId (non-UUID rides the doc path)", async () => {
+			// `sessionId` is interpolated into the presence document path, and
+			// Firestore's `.doc()` treats `/` as a path separator — a freeform
+			// string could address nested junk paths or throw synchronously (a 500
+			// any member could mint at will from a heartbeat endpoint). The UUID
+			// shape pin rejects it at the boundary.
+			const appId = await seedApp();
+			const res = await POST(
+				postReq(appId, {
+					sessionId: "a/b",
+					name: "Ada",
+					color: "#abcdef",
+					location: { kind: "home" },
 				}),
 				{ params: Promise.resolve({ id: appId }) },
 			);
