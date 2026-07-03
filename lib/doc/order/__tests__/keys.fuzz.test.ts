@@ -210,9 +210,11 @@ describe("foreign trailing-zero keys (numeric-equality semantics)", () => {
 	// is a wire-open string — these shapes arrive via MCP / crafted PUTs and
 	// must not mint keys OUTSIDE the requested interval.
 	it("keyBetween treats a zero-key upper bound as the fraction 0 (degenerate)", () => {
-		expect(() => keyBetween(null, "0")).toThrow(/ordered interval/);
-		expect(() => keyBetween(null, "00")).toThrow(/ordered interval/);
-		expect(() => keyBetween("0", "00")).toThrow(/ordered interval/);
+		// A zero upper bound gets its own message — the defect is the bound, not
+		// an inverted interval, and a null lo has nothing wrong with it.
+		expect(() => keyBetween(null, "0")).toThrow(/numerically ZERO/);
+		expect(() => keyBetween(null, "00")).toThrow(/numerically ZERO/);
+		expect(() => keyBetween("0", "00")).toThrow(/numerically ZERO/);
 	});
 
 	it("keyBetween normalizes a trailing-zero lower bound and stays inside the raw interval", () => {

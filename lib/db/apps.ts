@@ -514,15 +514,16 @@ export async function createApp(
  * `appendSyntheticBatchTx` so they can't drift on which denormalized fields
  * ride along.
  *
- * `basisToken` rotates the optimistic-concurrency basis (see
- * `appDocSchema.blueprint_token`); a caller that omits it leaves the stored
- * token untouched.
+ * `basisToken` rotates the per-commit write-version fingerprint (see
+ * `appDocSchema.blueprint_token` — an ops record, not a concurrency compare);
+ * a caller that omits it leaves the stored token untouched.
  *
  * Module-private: `writeCommittedSnapshot` is its only `getDb()`-bound caller,
  * and `appendSyntheticBatchTx` (the migration twin, on a passed client) calls
- * it directly — an owner-run migration is exactly the external write a live
- * builder tab can't see, so it rotates the basis and a stale tab's next
- * auto-save 409s and reloads instead of silently overwriting the migration.
+ * it directly. A live tab learns about a migration through the stream's
+ * `kind: "migration"` reload sentinel (its next frame → reload), never
+ * through the token — `blueprint_token` is a write-version fingerprint with
+ * no reader.
  */
 function blueprintSnapshotFields(
 	doc: PersistedBlueprint,
@@ -904,7 +905,8 @@ export type CommitMoveResult =
  * cross-Project move (`lib/db/moveAppToProject.ts`). In one transaction over the
  * fresh app doc it repoints the blueprint's media refs onto the destination
  * copies (`assetIdMap`, built by the move's media step) and flips `project_id`,
- * so a co-editor's stale tab 409-reloads (rotated `blueprint_token`) and the
+ * so a co-editor's stale tab 409-reloads (its next PUT's in-transaction
+ * `project_id` compare rejects — see `commitGuardedBatch`) and the
  * blueprint never spends an instant referencing destination-absent media.
  *
  * Reads fresh and folds the remap into the same transaction (rather than routing

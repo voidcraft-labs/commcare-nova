@@ -108,10 +108,18 @@ export function keyBetween(a: string | null, b: string | null): string {
 	// strictly between the RAW bounds lexicographically (a mint never ends in
 	// the zero digit, and the only raw/canonical order divergence is a key
 	// against its own zero-extensions).
-	const lo =
-		a !== null && normalizedKey(a).length > 0 ? normalizedKey(a) : null;
+	const loNorm = a === null ? "" : normalizedKey(a);
+	const lo = loNorm.length > 0 ? loNorm : null;
 	const hi = b !== null && b.length > 0 ? normalizedKey(b) : null;
-	if (hi !== null && (hi.length === 0 || (lo !== null && lo >= hi))) {
+	if (hi !== null && hi.length === 0) {
+		throw new Error(
+			`keyBetween's upper bound "${b}" is numerically ZERO (trailing zero ` +
+				"digits carry no fractional value), and no key sorts strictly below " +
+				"the fraction 0. Compute the slot through keysForSlot, which widens " +
+				"past the zero-key run to a distinct bound before minting keys.",
+		);
+	}
+	if (lo !== null && hi !== null && lo >= hi) {
 		throw new Error(
 			`keyBetween needs an ordered interval, but got lo="${a}" >= hi="${b}" ` +
 				"(compared by numeric key value — trailing zero digits carry none). " +

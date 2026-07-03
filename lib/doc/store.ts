@@ -203,11 +203,24 @@ const EMPTY_DOC: BlueprintDoc = {
  */
 function overlayDoc(draft: Record<string, unknown>, next: object): void {
 	for (const key of Object.keys(draft)) {
-		if (typeof draft[key] === "function") continue;
-		if (key === "remoteFrameApplyInProgress") continue;
+		if (!isDocDataKey(key, draft[key])) continue;
 		if (!(key in next)) draft[key] = undefined;
 	}
 	Object.assign(draft, next);
+}
+
+/**
+ * Whether a store-state key is DOC DATA — as opposed to an action method or
+ * the store's own bookkeeping (`remoteFrameApplyInProgress`). The ONE
+ * definition every doc-shaped state walker uses: `overlayDoc` above (which
+ * must not blank the raised bookkeeping flag mid-bracket) and the
+ * reconciler's `normalizeConfirmed` (which must not let bookkeeping leak into
+ * `confirmedDoc`) — a future bookkeeping field handled in one but not the
+ * other would reopen exactly one of those two failure modes.
+ */
+export function isDocDataKey(key: string, value: unknown): boolean {
+	if (typeof value === "function") return false;
+	return key !== "remoteFrameApplyInProgress";
 }
 
 /**
@@ -357,8 +370,10 @@ export function createBlueprintDocStore() {
 						 * candidate's structure faithfully: assignments copy every
 						 * doc field (structural sharing keeps unchanged maps the
 						 * same reference), and optional doc keys the candidate
-						 * dropped (e.g. a cleared `logo`) are deleted — a plain
-						 * `Object.assign` would leave them stale.
+						 * dropped (e.g. a cleared `logo`) are BLANKED to
+						 * `undefined` — a plain `Object.assign` would leave them
+						 * stale, and a `delete` is resurrected by zustand's
+						 * shallow setState merge (see `overlayDoc`).
 						 *
 						 * Only the mutation hook's gate should call this; every
 						 * other writer routes through `applyMany` so the reducer

@@ -39,14 +39,12 @@ export async function GET(
 		const app = (await resolveAppAccess(id, session.user.id, "view")).app;
 		/* Return only the fields the client needs for hydration. Firestore Timestamp
 		 * objects on created_at/updated_at don't JSON-serialize cleanly, and the client
-		 * only needs the blueprint to hydrate the builder. `basis_token` is the
-		 * optimistic-save basis the builder echoes on its PUTs. */
+		 * only needs the blueprint to hydrate the builder. */
 		return Response.json({
 			blueprint: app.blueprint,
 			app_name: app.app_name,
 			status: app.status,
 			error_type: app.error_type,
-			basis_token: app.blueprint_token ?? null,
 			/* The durable mutation cursor the client keys recovery on — the head
 			 * `seq` of the `acceptedMutations` stream at load time. */
 			mutation_seq: app.mutation_seq,
@@ -120,11 +118,7 @@ export async function PUT(
 			kind: "autosave",
 			guard: { mutations: parsed.data.mutations },
 		});
-		return Response.json({
-			ok: true,
-			basisToken: result.basisToken,
-			seq: result.seq,
-		});
+		return Response.json({ ok: true, seq: result.seq });
 	} catch (err) {
 		if (err instanceof CommitReauthError) {
 			/* The actor lost edit access to this app (removed from its Project, or

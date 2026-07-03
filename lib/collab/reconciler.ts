@@ -65,7 +65,7 @@ import {
 } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
-import type { BlueprintDocStoreApi } from "@/lib/doc/store";
+import { type BlueprintDocStoreApi, isDocDataKey } from "@/lib/doc/store";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
 
@@ -328,8 +328,7 @@ function normalizeConfirmed(doc: BlueprintDoc): BlueprintDoc {
 	for (const [k, v] of Object.entries(
 		doc as unknown as Record<string, unknown>,
 	)) {
-		if (typeof v === "function") continue;
-		if (k === "remoteFrameApplyInProgress") continue;
+		if (!isDocDataKey(k, v)) continue;
 		clean[k] = v;
 	}
 	return clean as unknown as BlueprintDoc;
@@ -1071,6 +1070,12 @@ export function createReconciler(
 
 	function resumeRecovery(): void {
 		if (inert()) return;
+		// Drop any latch acquired DURING the suspend window first: a PUT/reload
+		// continuation resolving while the provider is suspended stores the
+		// inactive scheduler's no-op canceller, and `scheduleRetryLoop`'s
+		// "already scheduled" early-return would wedge on that stale truthy latch.
+		cancelRetry?.();
+		cancelRetry = undefined;
 		if (hasOutstandingRecovery()) scheduleRetryLoop();
 	}
 

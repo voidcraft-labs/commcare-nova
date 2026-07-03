@@ -304,23 +304,17 @@ export const appDocSchema = z.object({
 	/** Run ID of the generation/edit that last modified this app. */
 	run_id: z.string().nullable().default(null),
 	/**
-	 * Optimistic-concurrency basis for whole-doc blueprint overwrites.
+	 * Per-commit write-version fingerprint — a fresh random value stamped by
+	 * every guarded commit (`writeCommittedSnapshot`), the migration twin
+	 * (`appendSyntheticBatchTx`), and the `scripts/recover-app.ts` writer.
 	 *
-	 * Rotated (fresh random value) by every guarded commit — the one write
-	 * path chat, MCP, and the auto-save PUT now share (`commitGuardedBatch` →
-	 * `writeCommittedSnapshot` stamps a fresh `basisToken`) — plus the
-	 * `scripts/recover-app.ts` writer. The auto-save PUT echoes the token it
-	 * last observed; a mismatch means the stored doc advanced under it, and the
-	 * overwrite is rejected (`BlueprintBasisStaleError` → 409) instead of
-	 * silently erasing the other writer's work — the builder then reloads.
-	 *
-	 * The whole-doc token is the coarse basis; the fine-grained concurrency
-	 * ground truth is the durable `acceptedMutations` / `mutation_seq` stream
-	 * `commitGuardedBatch` advances per batch, which the client reconciler
-	 * consumes to dedup its own echoes and merge peers' commits without a
-	 * blind whole-doc overwrite.
-	 * Null on rows that predate the field and on never-committed apps; a null
-	 * basis matches a null stored token, so first saves need no backfill.
+	 * It carries NO concurrency role: nothing compares it. Concurrency is the
+	 * guarded commit's re-apply-on-fresh (`batchTargetsMissing` + the re-run
+	 * verdict) plus the durable `acceptedMutations` / `mutation_seq` stream the
+	 * client reconciler consumes — a stale tab reconciles through frames and
+	 * reloads, never through a token compare. The fingerprint is kept as an
+	 * ops/debugging record of "which write last touched this row". Null on
+	 * rows that predate the field and on never-committed apps.
 	 */
 	blueprint_token: z.string().nullable().default(null),
 	/**

@@ -158,9 +158,9 @@ function buildRuntime(
 			 * fine but silently stops receiving peer frames — the exact divergence
 			 * the stream exists to prevent. Reopen at the reconciler's confirmed
 			 * cursor with backoff; the route's replay + gap check reconcile
-			 * whatever was missed (a retention overrun reloads). A REVOKED member's
-			 * reopen just re-404s at ≤30s cadence until the tab notices (the next
-			 * PUT's 403 freezes the reconciler, which stops the reopens). */
+			 * whatever was missed (a retention overrun reloads). After a few
+			 * consecutive failures the timer body probes the app GET to tell a
+			 * revocation (stop) from an outage (keep retrying) — see below. */
 			if (es.readyState !== EventSource.CLOSED) return;
 			if (es !== eventSource) return; // superseded by a newer stream
 			if (!active || reconciler.getSnapshot().revoked) return;
@@ -177,14 +177,31 @@ function buildRuntime(
 				 * HTTP status, so a permanent 404 — access revoked while the stream
 				 * was DOWN, which the cadence `revoked` event can't deliver and a
 				 * VIEWER (who never PUTs) gets no 403 freeze for — looks identical to
-				 * a long deploy outage. Probe the app GET once: a denial answers the
-				 * IDOR-safe 404 (or 401/403) → revoke + stop reopening; anything else
-				 * (200, 5xx, network) keeps the backoff loop alive. */
+				 * a long deploy outage. Probe the app GET once. ONLY the IDOR-safe
+				 * 404 is terminal (a deterministic membership denial — the GET maps
+				 * every access denial to it): a 401 is TRANSIENT by the package
+				 * taxonomy (a lapsed/rotated session, or ANY swallowed auth-stack
+				 * fault — `getSessionSafe` nulls them all), so revoking on it would
+				 * irreversibly freeze every open tab over a seconds-long auth blip.
+				 * Anything else (200, 401, 5xx, network) keeps the backoff alive.
+				 * The response body (the whole blueprint) is cancelled unread —
+				 * only the status matters, and buffering it per tick would multiply
+				 * load on the exact backend that is struggling. */
 				if (streamRetryAttempt >= REOPEN_PROBE_AFTER) {
 					void fetch(`/api/apps/${appIdBox.current}`)
 						.then((res) => {
+							void res.body?.cancel();
 							if (!active || reconciler.getSnapshot().revoked) return;
-							if ([401, 403, 404].includes(res.status)) {
+							/* Re-check for a healthy replacement stream — a reload's
+							 * `resubscribe` may have landed while the probe was in
+							 * flight; reopening would churn it. */
+							if (
+								eventSource &&
+								eventSource.readyState !== EventSource.CLOSED
+							) {
+								return;
+							}
+							if (res.status === 404) {
 								reconciler.onRevoked();
 								return;
 							}
@@ -192,7 +209,15 @@ function buildRuntime(
 						})
 						.catch(() => {
 							// Network down — keep the backoff loop alive.
-							if (active) openStream(reconciler.getSnapshot().baseSeq);
+							const snap = reconciler.getSnapshot();
+							if (!active || snap.revoked) return;
+							if (
+								eventSource &&
+								eventSource.readyState !== EventSource.CLOSED
+							) {
+								return;
+							}
+							openStream(snap.baseSeq);
 						});
 					return;
 				}
