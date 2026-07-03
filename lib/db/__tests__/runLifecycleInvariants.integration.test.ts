@@ -731,11 +731,16 @@ describe.skipIf(!emulatorAvailable)("P9 run-lifecycle invariant matrix", () => {
 		await reapStaleGenerating(APP);
 		expect(await consumed(OWNER)).toBe(0);
 		expect((await readApp(APP))?.status).toBe("error");
+		// The zombie kept committing — the app's last committed batch is b1's
+		// (writeCommittedSnapshot stamps run_id per commit); the self-heal's
+		// run-specific gate keys on it.
+		await db.collection("apps").doc(APP).update({ run_id: "b1" });
 
-		// The surviving process finishes cleanly. Nothing re-claimed the app, so
-		// the completion flips the reaper's error back to complete — the
-		// dashboard and the celebration agree — without re-charging (the
-		// reaper's refund stands) and without touching the settled marker.
+		// The surviving process finishes cleanly. Nothing re-claimed the app,
+		// the row's content IS this run's commits, so the completion flips the
+		// reaper's error back to complete — the dashboard and the celebration
+		// agree — without re-charging (the reaper's refund stands) and without
+		// touching the settled marker.
 		await completeAndSettleRun(APP, "b1");
 		const app = await readApp(APP);
 		expect(app?.status).toBe("complete");
@@ -768,6 +773,42 @@ describe.skipIf(!emulatorAvailable)("P9 run-lifecycle invariant matrix", () => {
 		expect(app?.status).toBe("generating");
 		expect(runLeaseState(app as Partial<AppDoc>).mine("b2")).toBe(true);
 		expect(await consumed(MEMBER)).toBe(CREDITS_PER_BUILD);
+	});
+
+	it("a zombie's completion never flips ANOTHER reaped run's error row (run_id gate)", async () => {
+		const { claimRun, completeAndSettleRun, reapStaleGenerating } =
+			await import("../apps");
+		const { reserveCredits } = await import("../credits");
+		await seedApp(APP, { status: "complete" });
+		await seedCredits(OWNER);
+		await seedCredits(MEMBER);
+		// R1 is falsely reaped; R2 re-claims, commits last (run_id = b2), and is
+		// then hard-killed + reaped — the marker is runId-cleared AGAIN, so the
+		// reaper signature alone cannot tell whose reap this is.
+		await claimRun(APP, "build", "b1", OWNER);
+		await reserveCredits(OWNER, CREDITS_PER_BUILD, APP, "b1");
+		await db
+			.collection("apps")
+			.doc(APP)
+			.update({ updated_at: new Date(Date.now() - 60 * 60_000) });
+		await reapStaleGenerating(APP);
+		await claimRun(APP, "build", "b2", MEMBER);
+		await reserveCredits(MEMBER, CREDITS_PER_BUILD, APP, "b2");
+		await db
+			.collection("apps")
+			.doc(APP)
+			.update({
+				run_id: "b2",
+				updated_at: new Date(Date.now() - 60 * 60_000),
+			});
+		await reapStaleGenerating(APP);
+		expect((await readApp(APP))?.status).toBe("error");
+
+		// Zombie R1 finishes cleanly — but the row's content is R2's (run_id b2),
+		// so the self-heal must NOT flip R2's failure to complete.
+		await completeAndSettleRun(APP, "b1");
+		const app = await readApp(APP);
+		expect(app?.status).toBe("error");
 	});
 
 	it("refreshBuildLiveness re-arms updated_at only for the OWNING live build", async () => {

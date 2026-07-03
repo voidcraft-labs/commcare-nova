@@ -620,16 +620,18 @@ describe.skipIf(!emulatorAvailable)(
 			expect((await readApp())?.reservation).toMatchObject({ settled: false });
 		});
 
-		it("reapStaleReservation does NOT reap when the marker's runId doesn't match the lapsed lock (identity guard)", async () => {
+		it("reapStaleReservation reaps the ORPHAN shape — the marker's run differs from the lapsed lock's", async () => {
 			const { reapStaleReservation } = await import("../apps");
 			await seedCredits(OWNER, CREDITS_PER_EDIT);
 			await seedApp({
 				status: "complete",
-				// A lapsed lock from run X, but the marker was written by run Y — the
-				// two belong to different runs (a partial-write anomaly), so the refund
-				// must NOT run off a marker that isn't the lapsed lock's.
+				// Run Y hard-killed inside its own [claimRun, reserveCredits) window:
+				// its claim overwrote run X's lapsed lock (never the marker) and it
+				// died before its leftover-refund could hand X's hold back — leaving
+				// X's unsettled marker under Y's (now lapsed) lock. Both runs are
+				// dead; the hold must still reap or it strands for the whole month.
 				run_lock: {
-					runId: "lock-run-X",
+					runId: "taker-run-Y",
 					actorUserId: OWNER,
 					expireAt: lockExpiry(-1),
 				},
@@ -638,14 +640,16 @@ describe.skipIf(!emulatorAvailable)(
 					reserved: CREDITS_PER_EDIT,
 					settled: false,
 					userId: OWNER,
-					runId: "marker-run-Y",
+					runId: "prior-run-X",
 				},
 			});
 
 			await reapStaleReservation(APP_ID);
-			// The identity guard skipped it — nothing clawed back, marker still unsettled.
-			expect(await readConsumed(OWNER)).toBe(CREDITS_PER_EDIT);
-			expect((await readApp())?.reservation).toMatchObject({ settled: false });
+			// Refunded to the marker's charged actor, settled, lock released.
+			expect(await readConsumed(OWNER)).toBe(0);
+			const app = await readApp();
+			expect(app?.reservation).toMatchObject({ settled: true });
+			expect(app?.run_lock).toBeUndefined();
 		});
 
 		it("reapStaleReservation reaps a legacy marker with no runId (lenient on the absent field)", async () => {

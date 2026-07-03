@@ -168,14 +168,18 @@ export interface RunLease {
 	 */
 	reapableStrandedEdit: boolean;
 	/**
-	 * A hard-killed BUILD — the build reaper's target: `mode: "build"` (status
-	 * `generating`) that is neither live (its `updated_at` fell outside the window,
-	 * the process is dead) nor paused (an `askQuestions` build is alive, awaiting
-	 * the user). The build analogue of {@link reapableStrandedEdit}, so
-	 * `reapStaleGenerating` / `refundStaleGeneration` re-validate the SAME
-	 * derivation in-transaction (closing the TOCTOU where a fresh build re-claims
-	 * between the scan and the refund). NOT gated on the marker — a marker-less dead
-	 * build still reaps to `error` (its refund is then a no-op).
+	 * A hard-killed OR abandoned-paused BUILD — the build reaper's target:
+	 * `mode: "build"` (status `generating`) whose `updated_at` fell outside the
+	 * staleness window. `paused` is deliberately NOT excluded: a paused build has
+	 * no heartbeat, so an ABANDONED one (the user never answered, the tab closed)
+	 * drifts past the window and must be reaped or it would hold the app forever
+	 * — while a recently-paused build's clock is still fresh and a resumed one
+	 * re-arms it via `reacquireLease`. The build analogue of
+	 * {@link reapableStrandedEdit}, so `reapStaleGenerating` /
+	 * `refundStaleGeneration` re-validate the SAME derivation in-transaction
+	 * (closing the TOCTOU where a fresh build re-claims between the scan and the
+	 * refund). NOT gated on the marker — a marker-less dead build still reaps to
+	 * `error` (its refund is then a no-op).
 	 */
 	reapableStaleBuild: boolean;
 }
@@ -254,14 +258,19 @@ export function runLeaseState(
 	// A recently-paused edit whose lease is still future is NOT reaped (lock in the
 	// future), and its own resume `reacquireLease`s and renews. `awaiting_input` is
 	// NOT excluded here — the lapsed lease is the reap signal, paused or not.
+	// The marker and the lapsed lock need NOT belong to the same run: a second
+	// edit hard-killed inside its own [claimRun, reserveCredits) window leaves the
+	// PRIOR run's unsettled marker under ITS OWN lapsed lock (the claim overwrites
+	// the lock but never touches the marker, and the taker died before its
+	// reserveCredits leftover-refund could hand the prior hold back) — a same-run
+	// clause would make that orphan shape permanently unreapable. A lapsed lock
+	// plus an unsettled marker means BOTH runs are dead, whoever each was; the
+	// refund targets the marker's own charged actor.
 	const reapableStrandedEdit =
 		fresh.status === "complete" &&
 		markerSettleable &&
 		!!lock &&
-		lockExpired(lock, now) &&
-		// The lapsed lock and the marker must belong to the same dead run. Lenient on
-		// a legacy marker with no runId.
-		(!reservation?.runId || reservation.runId === lock.runId);
+		lockExpired(lock, now);
 
 	// A hard-killed OR abandoned-paused BUILD to reap: `generating` whose
 	// `updated_at` fell outside the staleness window. A LIVE non-paused build keeps

@@ -266,6 +266,19 @@ describe("runLeaseState — reapableStrandedEdit", () => {
 	it("true: complete + unsettled marker + a lapsed lock of the same run", () => {
 		expect(lease(strandedEdit).reapableStrandedEdit).toBe(true);
 	});
+	it("true: the ORPHAN shape — the marker's run differs from the lapsed lock's", () => {
+		// A taker hard-killed inside its own [claimRun, reserveCredits) window
+		// leaves the PRIOR run's unsettled marker under the taker's lapsed lock
+		// (the claim overwrites the lock, never the marker; the taker died before
+		// its leftover-refund could hand the hold back). Both runs are dead, so
+		// the hold must still reap — a same-run clause would strand it forever.
+		expect(
+			lease({
+				...strandedEdit,
+				run_lock: lockAt(-1, "run-taker"),
+			}).reapableStrandedEdit,
+		).toBe(true);
+	});
 	it("false: a LIVE edit (lease in the future) — never claw back a live hold", () => {
 		expect(
 			lease({ ...strandedEdit, run_lock: lockAt(5, RUN) }).reapableStrandedEdit,
@@ -298,15 +311,6 @@ describe("runLeaseState — reapableStrandedEdit", () => {
 				awaiting_input: true,
 				run_lock: lockAt(5, RUN),
 				reservation: marker({ settled: false, runId: RUN }),
-			}).reapableStrandedEdit,
-		).toBe(false);
-	});
-	it("false: marker runId ≠ lock runId (a partial-write anomaly, different runs)", () => {
-		expect(
-			lease({
-				...strandedEdit,
-				run_lock: lockAt(-1, "lock-X"),
-				reservation: marker({ settled: false, runId: "marker-Y" }),
 			}).reapableStrandedEdit,
 		).toBe(false);
 	});

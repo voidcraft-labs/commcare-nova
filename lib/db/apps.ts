@@ -1088,16 +1088,21 @@ export async function completeAndSettleRun(
 				 * finished cleanly. Without this, the run celebrates + emits
 				 * `data-done` over a row the dashboard shows as a FAILED build.
 				 * `reaperResolved` (settled marker, `runId` cleared) is the reaper's
-				 * signature, and `mode: "none"` + `status: "error"` proves nothing
-				 * re-claimed the freed app since (a re-claimant books a fresh marker
-				 * carrying its own runId / flips the status) — so flipping the
-				 * reaper's `error` back to `complete` clobbers nobody. The reaper's
-				 * refund stands: the finished build is kept free rather than
-				 * re-charged. */
+				 * signature, `mode: "none"` + `status: "error"` proves nothing holds
+				 * the freed app NOW, and `fresh.run_id === runId` proves the app's
+				 * LAST COMMITTED batch is THIS run's — the run-specific discriminator
+				 * the runId-cleared marker can't provide. Without it, a zombie whose
+				 * reaped marker was later JOINED by a second reaped run (re-claim +
+				 * hard-kill, marker runId-cleared again) would flip that OTHER run's
+				 * failure to `complete` over content that isn't its own; with it, the
+				 * heal fires only when the finished run's commits are what the row
+				 * actually holds. The reaper's refund stands: the finished build is
+				 * kept free rather than re-charged. */
 				if (
 					fresh.status === "error" &&
 					lease.mode === "none" &&
-					lease.reaperResolved
+					lease.reaperResolved &&
+					fresh.run_id === runId
 				) {
 					tx.set(
 						docs.appRaw(appId),
@@ -1866,22 +1871,25 @@ export async function reapStaleGenerating(appId: string): Promise<void> {
  * completed edit's KEPT charge is already `settled: true` and this no-ops on it.
  */
 export async function reapStaleReservation(appId: string): Promise<void> {
-	// Cheap out-of-transaction pre-filter off the RAW ref (converter-less — only
-	// the run-liveness leaves are needed, not the whole blueprint): skip the
-	// transaction entirely unless the row LOOKS reapable. The full guard is
-	// re-checked INSIDE `refundStaleReservation`'s transaction, so the "never reap
-	// a live hold" invariant is self-contained in the refund path (not dependent
-	// on this caller or `projectAppSummary`). This read only avoids opening a
-	// transaction on the common not-reapable row.
-	const data = (await docs.appRaw(appId).get()).data() as
-		| Partial<AppDoc>
-		| undefined;
-	// Reap ONLY a hard-killed EDIT — `runLeaseState().reapableStrandedEdit` is the
-	// single shared derivation (complete + non-paused + unsettled marker + a
-	// `run_lock` present-and-lapsed + marker/lock same run), so this pre-filter,
-	// `projectAppSummary`, and `refundStaleReservation`'s in-txn re-check can't drift.
-	if (!data || !runLeaseState(data).reapableStrandedEdit) return;
+	// The WHOLE body swallows its own faults — `claimRun`'s conflict-path nudge
+	// AWAITS this, and a transient Firestore fault escaping here would replace
+	// the RunConflictError the caller must rethrow.
 	try {
+		// Cheap out-of-transaction pre-filter off the RAW ref (converter-less —
+		// only the run-liveness leaves are needed, not the whole blueprint): skip
+		// the transaction entirely unless the row LOOKS reapable. The full guard
+		// is re-checked INSIDE `refundStaleReservation`'s transaction, so the
+		// "never reap a live hold" invariant is self-contained in the refund path
+		// (not dependent on this caller or `projectAppSummary`). This read only
+		// avoids opening a transaction on the common not-reapable row.
+		const data = (await docs.appRaw(appId).get()).data() as
+			| Partial<AppDoc>
+			| undefined;
+		// Reap ONLY a hard-killed EDIT — `runLeaseState().reapableStrandedEdit` is
+		// the single shared derivation (complete + unsettled marker + a `run_lock`
+		// present-and-lapsed), so this pre-filter, `projectAppSummary`, and
+		// `refundStaleReservation`'s in-txn re-check can't drift.
+		if (!data || !runLeaseState(data).reapableStrandedEdit) return;
 		await refundStaleReservation(appId);
 	} catch (err) {
 		log.error("[reapStaleReservation] reservation refund failed", err, {
@@ -2231,8 +2239,8 @@ function projectAppSummary(
 
 	/* Edit-only stranded-hold reap — an edit stays `complete`, so its
 	 * hard-killed 5-credit hold never enters the build staleness inference above.
-	 * `reapableStrandedEdit` is the single shared derivation (complete + non-paused
-	 * + unsettled marker + a `run_lock` present-and-lapsed + marker/lock same run):
+	 * `reapableStrandedEdit` is the single shared derivation (complete +
+	 * unsettled marker + a `run_lock` present-and-lapsed):
 	 * keying on the `run_lock`'s liveness horizon stops clawing back a LIVE long
 	 * edit that refreshed its lease, and requiring the lock be PRESENT excludes a
 	 * completed BUILD's kept-charge marker (a build has no `run_lock`). The reap
