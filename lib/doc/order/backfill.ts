@@ -9,7 +9,7 @@
 // so they never disagree about an entity's position or an option's identity.
 
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
-import { keyBetween } from "./keys";
+import { keyBetween, normalizedKey } from "./keys";
 
 /** An entity carrying the optional fractional `order` slot. */
 interface Ordered {
@@ -38,11 +38,15 @@ function fillOrder(items: Ordered[]): void {
 		const rawUpper = end < items.length ? (items[end].order as string) : null;
 		// A partially-keyed legacy doc can bound a keyless run by two keys whose
 		// ARRAY order disagrees with their KEY order (a reorder set keys without
-		// touching the array). There's no key between an inverted/equal pair, so
-		// append the run after `lower` (upper ≡ null) — deterministic, and keeps
-		// `keyBetween`'s ordered-interval precondition.
+		// touching the array). There's no key between an inverted/equal pair —
+		// judged by NUMERIC key value (trailing zeros carry none, and a
+		// foreign-authored zero key `"0"` is the fraction 0, below which nothing
+		// sorts) — so append the run after `lower` (upper ≡ null) instead:
+		// deterministic, and keeps `keyBetween`'s ordered-interval precondition.
 		const upper =
-			lower !== null && rawUpper !== null && lower >= rawUpper
+			rawUpper !== null &&
+			(normalizedKey(rawUpper).length === 0 ||
+				(lower !== null && normalizedKey(lower) >= normalizedKey(rawUpper)))
 				? null
 				: rawUpper;
 		assignRange(items, i, end, lower, upper);

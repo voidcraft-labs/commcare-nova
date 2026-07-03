@@ -204,3 +204,36 @@ describe("deriveKeyAtIndex / insertion sequences", () => {
 		expect(before < "V").toBe(true);
 	});
 });
+
+describe("foreign trailing-zero keys (numeric-equality semantics)", () => {
+	// Nova never mints a key ending in the zero digit, but every `order` slot
+	// is a wire-open string — these shapes arrive via MCP / crafted PUTs and
+	// must not mint keys OUTSIDE the requested interval.
+	it("keyBetween treats a zero-key upper bound as the fraction 0 (degenerate)", () => {
+		expect(() => keyBetween(null, "0")).toThrow(/ordered interval/);
+		expect(() => keyBetween(null, "00")).toThrow(/ordered interval/);
+		expect(() => keyBetween("0", "00")).toThrow(/ordered interval/);
+	});
+
+	it("keyBetween normalizes a trailing-zero lower bound and stays inside the raw interval", () => {
+		const k = keyBetween("A0", "B");
+		expect(k > "A0").toBe(true);
+		expect(k < "B").toBe(true);
+		const k2 = keyBetween("0", "1");
+		expect(k2 > "0").toBe(true);
+		expect(k2 < "1").toBe(true);
+	});
+
+	it("keysForSlot widens past a NUMERIC tie (zero-key floor and zero-extension twins)", () => {
+		// Drag-to-first against a foreign "0": nothing sorts strictly below the
+		// fraction 0, so the slot widens past the zero run — the mint lands
+		// after it and before the first distinct key, never outside.
+		const [first] = keysForSlot(["0", "5"], 0, 1);
+		expect(first > "0").toBe(true);
+		expect(first < "5").toBe(true);
+		// "A" and "A0" are the same fraction — the slot between them widens.
+		const [mid] = keysForSlot(["A", "A0", "B"], 1, 1);
+		expect(mid > "A0").toBe(true);
+		expect(mid < "B").toBe(true);
+	});
+});

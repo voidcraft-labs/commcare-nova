@@ -133,6 +133,23 @@ describe("backfillOrderKeys", () => {
 	});
 });
 
+describe("backfillOrderKeys — foreign zero keys stay total", () => {
+	it("appends a keyless run whose stored upper bound is a zero key", () => {
+		// A foreign-authored `"0"` is the fraction 0 — nothing sorts strictly
+		// below it, so the keyless run before it appends after `lower` instead
+		// of tripping keyBetween's ordered-interval precondition. Deterministic,
+		// so client and server still agree on the same doc.
+		const doc = hydrate();
+		(doc.forms.f2 as { order?: string }).order = "0";
+		expect(() => backfillOrderKeys(doc)).not.toThrow();
+		expect(doc.forms.f1.order).toBeDefined();
+		const again = hydrate();
+		(again.forms.f2 as { order?: string }).order = "0";
+		backfillOrderKeys(again);
+		expect(again.forms.f1.order).toBe(doc.forms.f1.order);
+	});
+});
+
 describe("backfillOptionUuids", () => {
 	it("mints stable uuids from (field uuid, option index)", () => {
 		const doc = hydrate();

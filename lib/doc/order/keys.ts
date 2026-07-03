@@ -33,6 +33,23 @@ function val(ch: string): number {
 }
 
 /**
+ * The canonical numeric form of a key: trailing zero digits carry no
+ * fractional value (`0.A0` ≡ `0.A`, `0.0` ≡ 0), so they are stripped before
+ * any interval comparison or bisection. Nova-minted keys never end in the
+ * zero digit, but every `order` slot is a wire-open string — an MCP client or
+ * crafted auto-save PUT can persist `"0"` or `"A0"`, and judging THOSE
+ * lexicographically against the numeric semantics mints keys OUTSIDE the
+ * requested interval (`keyBetween(null, "0")` would return `"0V"`, which
+ * sorts AFTER the `"0"` it was asked to precede — a drag-to-first that
+ * silently lands second, forever, including on the wire).
+ */
+export function normalizedKey(key: string): string {
+	let end = key.length;
+	while (end > 0 && key[end - 1] === "0") end--;
+	return key.slice(0, end);
+}
+
+/**
  * A key strictly greater than `0.tail` with an open upper bound (`< 1`).
  * Appending a single middle (non-zero) digit lands above `0.tail` because
  * of the extra digit, and below `1` because it is still a fractional part.
@@ -85,11 +102,19 @@ function keyBetweenStrict(a: string, b: string): string {
  * against it always has room to bisect.
  */
 export function keyBetween(a: string | null, b: string | null): string {
-	const lo = a && a.length > 0 ? a : null;
-	const hi = b && b.length > 0 ? b : null;
-	if (lo !== null && hi !== null && lo >= hi) {
+	// Compare + bisect over the CANONICAL forms — a trailing-zero bound
+	// (foreign-authored; Nova never mints one) is numerically identical to its
+	// stripped twin, and the mint against normalized bounds still sorts
+	// strictly between the RAW bounds lexicographically (a mint never ends in
+	// the zero digit, and the only raw/canonical order divergence is a key
+	// against its own zero-extensions).
+	const lo =
+		a !== null && normalizedKey(a).length > 0 ? normalizedKey(a) : null;
+	const hi = b !== null && b.length > 0 ? normalizedKey(b) : null;
+	if (hi !== null && (hi.length === 0 || (lo !== null && lo >= hi))) {
 		throw new Error(
-			`keyBetween needs an ordered interval, but got lo="${lo}" >= hi="${hi}". ` +
+			`keyBetween needs an ordered interval, but got lo="${a}" >= hi="${b}" ` +
+				"(compared by numeric key value — trailing zero digits carry none). " +
 				"Two display-adjacent siblings share an order key (a rested tie broken " +
 				"on uuid), so there is no key strictly between them. Compute the slot " +
 				"through keysForSlot, which widens past the whole tied run to a distinct " +
@@ -147,11 +172,20 @@ export function keysForSlot(
 	const lo = clamped > 0 ? sortedKeys[clamped - 1] : null;
 	let hiIndex = clamped;
 	let hi = hiIndex < sortedKeys.length ? sortedKeys[hiIndex] : null;
-	if (lo !== null && hi !== null && lo === hi) {
+	// A tie is NUMERIC key equality, so `"0"` vs `"00"` (and the zero-key floor
+	// against a null lo — nothing can sort strictly below the fraction 0) are
+	// ties too, not just byte-equal keys. Nova never mints such keys, but the
+	// `order` slots are wire-open, so a foreign-authored sibling must widen
+	// rather than hand `keyBetween` a numerically-degenerate interval.
+	const tied = lo === null ? "" : normalizedKey(lo);
+	if (hi !== null && normalizedKey(hi) === tied) {
 		// Widen past the tied run to the first strictly-greater key (null at
 		// the list end). `lo` stays the tied value, so the new run sorts after
 		// every equal-keyed sibling and before the first distinct one above.
-		while (hiIndex < sortedKeys.length && sortedKeys[hiIndex] === lo) {
+		while (
+			hiIndex < sortedKeys.length &&
+			normalizedKey(sortedKeys[hiIndex]) === tied
+		) {
 			hiIndex++;
 		}
 		hi = hiIndex < sortedKeys.length ? sortedKeys[hiIndex] : null;
