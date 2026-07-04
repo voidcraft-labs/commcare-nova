@@ -156,7 +156,6 @@ function loadedFor(doc: BlueprintDoc): LoadedApp {
 			deleted_at: null,
 			recoverable_until: null,
 			run_id: null,
-			blueprint_token: null,
 			created_at: new Date() as unknown as LoadedApp["app"]["created_at"],
 			updated_at: new Date() as unknown as LoadedApp["app"]["updated_at"],
 		},

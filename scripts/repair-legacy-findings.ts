@@ -36,12 +36,12 @@
  * A written blueprint lands in the expression-AST shape (the converter
  * runs as part of the load) — `migrate-expression-asts.ts` later reads
  * those slots as already current; event logs are untouched here and
- * convert in that script. The write goes through the app writers' own
- * snapshot-field shape (`lib/db/apps.ts::blueprintSnapshotFields` —
- * denormalized summary + `updated_at` + a ROTATED `blueprint_token`),
- * so a builder tab still open across the migration window gets a
- * stale-basis rejection on its next auto-save and reloads, instead of
- * silently overwriting the repairs with its pre-repair doc.
+ * convert in that script. The write goes through `appendSyntheticBatchTx`
+ * (`lib/db/apps.ts` — the app writers' own snapshot-field shape plus a
+ * `kind: "migration"` reload-sentinel stream entry), so a builder tab
+ * still open across the migration window reloads onto the repaired row,
+ * and any straggler auto-save is a mutation delta re-applied onto it by
+ * the guarded commit — never a silent overwrite with its pre-repair doc.
  *
  * Idempotent (a repaired app re-evaluates clean, so a re-run plans
  * nothing) and resumable per app (each app loads, repairs, and writes
@@ -270,12 +270,12 @@ async function main() {
 			if (changed) {
 				appsRepaired++;
 				if (apply) {
-					/* The app writers' snapshot-field shape with a ROTATED basis
-					 * token — a builder tab open across the migration window gets
-					 * a stale-basis rejection on its next auto-save instead of
-					 * overwriting the repairs. Repairs only remove or rename —
-					 * never add an asset reference — so the writers' reverse-index
-					 * sync has nothing to add for this write. */
+					/* The app writers' snapshot-field shape plus a `kind:
+					 * "migration"` reload-sentinel stream entry — a builder tab
+					 * open across the migration window reloads onto the repaired
+					 * row instead of overwriting the repairs. Repairs only remove
+					 * or rename — never add an asset reference — so the writers'
+					 * reverse-index sync has nothing to add for this write. */
 					await appendSyntheticBatchTx(
 						db,
 						appSnap.id,

@@ -134,7 +134,6 @@ beforeEach(() => {
 	// `committedDoc`-undefined result); commit-failure tests reject it.
 	commitGuardedBatchMock.mockResolvedValue({
 		seq: 1,
-		basisToken: "token-1",
 		committedDoc: undefined,
 		deduped: false,
 	});
@@ -244,7 +243,6 @@ describe("applyBlueprintChange — additive mutations", () => {
 		// re-derives its schema from the committed doc.
 		commitGuardedBatchMock.mockResolvedValueOnce({
 			seq: 4,
-			basisToken: "token-1",
 			committedDoc: committedDocFor(prospective),
 			deduped: false,
 		});
@@ -288,7 +286,6 @@ describe("applyBlueprintChange — additive mutations", () => {
 		loadAppMock.mockResolvedValueOnce(makeAppDoc(prior));
 		commitGuardedBatchMock.mockResolvedValueOnce({
 			seq: 4,
-			basisToken: "token-1",
 			committedDoc: committedDocFor(prospective),
 			deduped: false,
 		});
@@ -321,7 +318,6 @@ describe("applyBlueprintChange — additive mutations", () => {
 		const prospective = makeBlueprint([PATIENT]);
 		commitGuardedBatchMock.mockResolvedValueOnce({
 			seq: 4,
-			basisToken: "token-1",
 			committedDoc: committedDocFor(prospective),
 			deduped: false,
 		});

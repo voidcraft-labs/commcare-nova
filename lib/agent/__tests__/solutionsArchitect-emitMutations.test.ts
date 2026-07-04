@@ -70,7 +70,6 @@ const { commitGuardedBatchMock, loadAppMock, seedServerDoc } = vi.hoisted(
 				seq += 1;
 				return {
 					seq,
-					basisToken: `token-${seq}`,
 					committedDoc: serverDoc,
 					deduped: false,
 				};

@@ -10,7 +10,7 @@
  *   2. The result surfaces `seq` + the writer's hydrated `committedDoc`.
  *   3. A top-level `batchId` dedup hit (the latch already exists) short-circuits
  *      the WHOLE saga — no Postgres, no `loadApp`, no commit — returning the
- *      recorded `{ seq, basisToken }` with no `committedDoc`.
+ *      recorded `{ seq }` with no `committedDoc`.
  *   4. A rejection from the writer (`BlueprintCommitRejectedError` /
  *      `CommitReauthError`) propagates and, after the Postgres phase ran,
  *      compensates the case-store work.
@@ -161,7 +161,6 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 		const committed: BlueprintDoc = { ...fresh, appName: "Renamed" };
 		commitGuardedBatchMock.mockResolvedValue({
 			seq: 7,
-			basisToken: "token-next",
 			committedDoc: committed,
 			deduped: false,
 		});
@@ -190,7 +189,6 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 		});
 		// The saga surfaces the writer's committed seq + hydrated doc.
 		expect(result.seq).toBe(7);
-		expect(result.basisToken).toBe("token-next");
 		expect(result.committedDoc).toBe(committed);
 	});
 
@@ -198,7 +196,6 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 		const fresh = minDoc();
 		commitGuardedBatchMock.mockResolvedValue({
 			seq: 1,
-			basisToken: "t",
 			committedDoc: fresh,
 			deduped: false,
 		});
@@ -273,7 +270,7 @@ describe("applyBlueprintChange — top-level batchId dedup", () => {
 	it("short-circuits the whole saga on a pre-existing latch, doing zero commit / loadApp / Postgres work", async () => {
 		batchDedupRawGetMock.mockResolvedValue({
 			exists: true,
-			data: () => ({ seq: 42, basisToken: "prior-token" }),
+			data: () => ({ seq: 42 }),
 		});
 
 		const result = await applyBlueprintChange({
@@ -287,8 +284,8 @@ describe("applyBlueprintChange — top-level batchId dedup", () => {
 			},
 		});
 
-		// The recorded seq/basis come straight off the latch — no committedDoc.
-		expect(result).toEqual({ seq: 42, basisToken: "prior-token" });
+		// The recorded seq comes straight off the latch — no committedDoc.
+		expect(result).toEqual({ seq: 42 });
 		expect(result.committedDoc).toBeUndefined();
 		// Nothing downstream ran — not even the pre-DDL reauth.
 		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
@@ -465,7 +462,6 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		const committed = structuredClone(prospective) as unknown as BlueprintDoc;
 		commitGuardedBatchMock.mockResolvedValue({
 			seq: 9,
-			basisToken: "t",
 			committedDoc: committed,
 			deduped: false,
 		});
@@ -517,7 +513,6 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		const committed = structuredClone(prospective) as unknown as BlueprintDoc;
 		commitGuardedBatchMock.mockResolvedValue({
 			seq: 3,
-			basisToken: "tok",
 			committedDoc: committed,
 			deduped: false,
 		});
@@ -543,7 +538,6 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		const fresh = minDoc();
 		commitGuardedBatchMock.mockResolvedValue({
 			seq: 2,
-			basisToken: "t",
 			committedDoc: fresh,
 			deduped: false,
 		});
@@ -582,7 +576,6 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 		commitGuardedBatchMock.mockResolvedValue({
 			seq: 9,
-			basisToken: "t",
 			committedDoc: structuredClone(prospective) as unknown as BlueprintDoc,
 			deduped: false,
 		});
@@ -628,7 +621,6 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			order.push("commit");
 			return {
 				seq: 5,
-				basisToken: "t",
 				committedDoc: toPersistableDoc(prior) as unknown as BlueprintDoc,
 				deduped: false,
 			};
@@ -679,7 +671,6 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 		commitGuardedBatchMock.mockResolvedValue({
 			seq: 4, // the ORIGINAL commit seq
-			basisToken: "t",
 			committedDoc: structuredClone(prospective) as unknown as BlueprintDoc,
 			deduped: true, // in-txn dedup hit
 		});
@@ -714,7 +705,6 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 		commitGuardedBatchMock.mockResolvedValue({
 			seq: 6,
-			basisToken: "t",
 			committedDoc: toPersistableDoc(prior) as unknown as BlueprintDoc,
 			deduped: false,
 		});

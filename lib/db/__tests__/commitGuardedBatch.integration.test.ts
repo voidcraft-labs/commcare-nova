@@ -251,11 +251,9 @@ describe.skipIf(!emulatorAvailable)(
 			const appSnap = await docs.appRaw(appId).get();
 			const appData = appSnap.data() as {
 				mutation_seq: number;
-				blueprint_token: string;
 				blueprint: { fields: Record<string, { id: string; label?: string }> };
 			};
 			expect(appData.mutation_seq).toBe(1);
-			expect(appData.blueprint_token).toBe(result.basisToken);
 			const persistedVillage = Object.values(appData.blueprint.fields).find(
 				(fl) => fl.id === "village",
 			);
@@ -272,11 +270,10 @@ describe.skipIf(!emulatorAvailable)(
 			expect(stream?.kind).toBe("chat");
 			expect(stream?.mutations).toHaveLength(1);
 
-			// The idempotency latch records the seq + basis.
+			// The idempotency latch records the seq.
 			const latchSnap = await docs.batchDedup(appId, batchId).get();
 			expect(latchSnap.exists).toBe(true);
 			expect(latchSnap.data()?.seq).toBe(1);
-			expect(latchSnap.data()?.basisToken).toBe(result.basisToken);
 		});
 
 		it("refreshes the EDIT run_lock lease on a commit by the lock-holding run (a live long edit isn't barged)", async () => {
@@ -419,7 +416,7 @@ describe.skipIf(!emulatorAvailable)(
 			expect(first.seq).toBe(1);
 
 			// A second commit of the SAME batchId — even carrying different
-			// mutations — replays the latch: same seq/basis, deduped, no new write.
+			// mutations — replays the latch: same seq, deduped, no new write.
 			const replay = await commitGuardedBatch({
 				appId,
 				batchId,
@@ -429,7 +426,6 @@ describe.skipIf(!emulatorAvailable)(
 			});
 			expect(replay.deduped).toBe(true);
 			expect(replay.seq).toBe(first.seq);
-			expect(replay.basisToken).toBe(first.basisToken);
 
 			// The counter did NOT advance and only ONE stream entry exists — the
 			// replay wrote nothing.

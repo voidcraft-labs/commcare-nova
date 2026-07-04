@@ -25,13 +25,13 @@
  * `scan-expression-asts.ts` is the read-only twin. Idempotent:
  * a converted slot reads as already-current on a re-run.
  *
- * The blueprint write goes through the app writers' own snapshot-field
- * shape (`lib/db/apps.ts::blueprintSnapshotFields` — denormalized
- * summary + `updated_at` + a ROTATED `blueprint_token`), so a builder
- * tab still open across the migration window gets a stale-basis
- * rejection on its next auto-save and reloads, instead of blind-PUTting
- * its pre-AST doc back over the converted row (which the deployed
- * code's strict load gate would then refuse).
+ * The blueprint write goes through `appendSyntheticBatchTx`
+ * (`lib/db/apps.ts` — the app writers' own snapshot-field shape plus a
+ * `kind: "migration"` reload-sentinel stream entry), so a builder tab
+ * still open across the migration window reloads onto the converted
+ * row, and any straggler auto-save is a mutation delta re-applied onto
+ * it by the guarded commit — never a blind PUT of its pre-AST doc
+ * (which the deployed code's strict load gate would then refuse).
  *
  * One-time migration: the deployed code reads ONLY the AST shape, so
  * the owner runs this against production when deploying the
@@ -142,10 +142,10 @@ async function main() {
 				);
 				reportFailures("  ", result);
 				if (apply) {
-					/* The app writers' snapshot-field shape with a ROTATED basis
-					 * token — a builder tab open across the migration window gets
-					 * a stale-basis rejection on its next auto-save instead of
-					 * blind-PUTting its pre-AST doc back over the converted row.
+					/* The app writers' snapshot-field shape plus a `kind:
+					 * "migration"` reload-sentinel stream entry — a builder tab
+					 * open across the migration window reloads onto the converted
+					 * row instead of blind-PUTting its pre-AST doc back over it.
 					 * The conversion never adds an asset reference, so the
 					 * writers' media reverse-index sync has nothing to add. */
 					await appendSyntheticBatchTx(

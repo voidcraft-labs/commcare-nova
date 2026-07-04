@@ -175,15 +175,13 @@ export interface ApplyBlueprintChangeArgs {
 }
 
 /**
- * Result of `applyBlueprintChange`. `basisToken` is the freshly rotated
- * `blueprint_token` the client tracks as the latest server version; `seq` is
- * the `mutation_seq` the batch committed at. `committedDoc` is the hydrated
- * committed doc — absent only on a TOP-LEVEL dedup hit (which returns the
- * recorded seq/basis without paying the app-doc read; the in-txn dedup inside
- * {@link commitGuardedBatch} does supply it).
+ * Result of `applyBlueprintChange`. `seq` is the `mutation_seq` the batch
+ * committed at. `committedDoc` is the hydrated committed doc — absent only on
+ * a TOP-LEVEL dedup hit (which returns the recorded seq without paying the
+ * app-doc read; the in-txn dedup inside {@link commitGuardedBatch} does
+ * supply it).
  */
 export interface ApplyBlueprintChangeResult {
-	readonly basisToken?: string;
 	readonly seq: number;
 	readonly committedDoc?: BlueprintDoc;
 }
@@ -207,12 +205,12 @@ export async function applyBlueprintChange(
 	// already exists short-circuits the whole cross-store saga. The read is
 	// non-transactional — a batch that commits between here and the guarded
 	// write is still caught by `commitGuardedBatch`'s in-transaction latch. A
-	// hit returns the recorded seq/basis with no `committedDoc` (skips the
+	// hit returns the recorded seq with no `committedDoc` (skips the
 	// app-doc read); MCP/auto-save tolerate its absence on a dedup hit.
 	const dedup = await docs.batchDedupRaw(args.appId, args.batchId).get();
 	if (dedup.exists) {
-		const latch = dedup.data() as { seq: number; basisToken: string };
-		return { seq: latch.seq, basisToken: latch.basisToken };
+		const latch = dedup.data() as { seq: number };
+		return { seq: latch.seq };
 	}
 
 	const priorBlueprint = await resolvePriorBlueprint(args);
@@ -408,7 +406,6 @@ async function persistBlueprint(
 	});
 	return {
 		result: {
-			basisToken: commit.basisToken,
 			seq: commit.seq,
 			committedDoc: commit.committedDoc,
 		},

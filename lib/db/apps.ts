@@ -488,9 +488,6 @@ export async function createApp(
 			 * writes update existing fields rather than materializing them. */
 			deleted_at: null,
 			recoverable_until: null,
-			/* Auto-save basis starts null — a null basis matches a null stored
-			 * token, so the builder's first PUT passes without backfill. */
-			blueprint_token: null,
 			run_id: runId,
 			created_at: FieldValue.serverTimestamp(),
 			updated_at: FieldValue.serverTimestamp(),
@@ -514,23 +511,16 @@ export async function createApp(
  * `appendSyntheticBatchTx` so they can't drift on which denormalized fields
  * ride along.
  *
- * `basisToken` rotates the per-commit write-version fingerprint (see
- * `appDocSchema.blueprint_token` — an ops record, not a concurrency compare);
- * a caller that omits it leaves the stored token untouched.
- *
  * Module-private: `writeCommittedSnapshot` is its only `getDb()`-bound caller,
  * and `appendSyntheticBatchTx` (the migration twin, on a passed client) calls
  * it directly. A live tab learns about a migration through the stream's
- * `kind: "migration"` reload sentinel (its next frame → reload), never
- * through the token — `blueprint_token` is a write-version fingerprint with
- * no reader.
+ * `kind: "migration"` reload sentinel (its next frame → reload).
  */
 function blueprintSnapshotFields(
 	doc: PersistedBlueprint,
 	extra: {
 		status?: AppDoc["status"];
 		runId?: string;
-		basisToken?: string;
 	} = {},
 ) {
 	return {
@@ -539,16 +529,13 @@ function blueprintSnapshotFields(
 		updated_at: FieldValue.serverTimestamp(),
 		...(extra.status !== undefined && { status: extra.status }),
 		...(extra.runId !== undefined && { run_id: extra.runId }),
-		...(extra.basisToken !== undefined && {
-			blueprint_token: extra.basisToken,
-		}),
 	};
 }
 
 /**
  * The one `getDb()`-bound blueprint-snapshot write — the shared tail of every
- * guarded commit. On the caller's transaction: rotate the blueprint +
- * denormalized summary under `basisToken`, advance `mutation_seq` to the
+ * guarded commit. On the caller's transaction: replace the blueprint +
+ * denormalized summary, advance `mutation_seq` to the
  * caller's LITERAL `seq`, fold in `extraAppFields` (the cross-Project move's
  * `project_id` flip), append the durable `acceptedMutations/{seq}` stream entry
  * + the `batchDedup/{batchId}` idempotency latch (both TTL-stamped), and prune
@@ -568,16 +555,15 @@ function writeCommittedSnapshot(
 		mutations: Mutation[];
 		actorUserId: string;
 		kind: AcceptedMutationDoc["kind"];
-		basisToken: string;
 		extraAppFields?: Record<string, unknown>;
 	},
 ): void {
 	const nowMs = Date.now();
 	tx.update(docs.appRaw(args.appId), {
-		...blueprintSnapshotFields(args.committedDoc, {
-			basisToken: args.basisToken,
-			...(args.runId !== undefined && { runId: args.runId }),
-		}),
+		...blueprintSnapshotFields(
+			args.committedDoc,
+			args.runId !== undefined ? { runId: args.runId } : {},
+		),
 		mutation_seq: args.seq,
 		...args.extraAppFields,
 	});
@@ -593,7 +579,6 @@ function writeCommittedSnapshot(
 	});
 	tx.set(docs.batchDedup(args.appId, args.batchId), {
 		seq: args.seq,
-		basisToken: args.basisToken,
 		expireAt: Timestamp.fromMillis(nowMs + BATCH_DEDUP_TTL_MS),
 	});
 	// Count-bounded prune: drop the entry `RETENTION_COUNT` behind the head, so a
@@ -634,7 +619,6 @@ export interface CommitGuardedBatchArgs {
 /** Outcome of {@link commitGuardedBatch}. */
 export interface CommitGuardedBatchResult {
 	readonly seq: number;
-	readonly basisToken: string;
 	/**
 	 * The committed doc, fully hydrated (`fieldParent` + `refIndex`) — the
 	 * verdict's `nextDoc`, so chat/MCP consumers need no re-hydration.
@@ -655,7 +639,7 @@ export interface CommitGuardedBatchResult {
  * `owner` check. A caller that already resolved + reauthed (the migration saga)
  * passes `preauthorized` to skip this redundant pre-txn round trip; the in-txn
  * checks stay authoritative. Then one transaction: read the dedup latch + fresh app doc up
- * front; a dedup hit returns the recorded seq/basis + the current committed
+ * front; a dedup hit returns the recorded seq + the current committed
  * doc, writing nothing; reauth against the fresh doc (owner fallback, or the
  * fresh `project_id` must still equal the reauthed one — a concurrent move
  * rejects); re-check media expectations against the transaction's read set;
@@ -685,7 +669,6 @@ export async function commitGuardedBatch(
 		projectId = await loadAppProjectId(appId);
 		await reauthorizeActorForCommit(projectId, actorUserId);
 	}
-	const basisToken = crypto.randomUUID();
 
 	// The persistable is computed once inside the txn (for `writeCommittedSnapshot`)
 	// and carried out on this internal-only field so the post-commit
@@ -712,14 +695,13 @@ export async function commitGuardedBatch(
 			// returns `nextDoc` carrying both, so the dedup doc builds its refIndex
 			// too — via the same `buildReferenceIndex` the hydration boundaries use.
 			if (dedupSnap.exists) {
-				const latch = dedupSnap.data() as { seq: number; basisToken: string };
+				const latch = dedupSnap.data() as { seq: number };
 				const dedupedDoc = hydratePersistedBlueprint(
 					fresh.blueprint as PersistableDoc,
 				);
 				dedupedDoc.refIndex = buildReferenceIndex(dedupedDoc);
 				return {
 					seq: latch.seq,
-					basisToken: latch.basisToken,
 					committedDoc: dedupedDoc,
 					deduped: true,
 				};
@@ -812,12 +794,10 @@ export async function commitGuardedBatch(
 				mutations,
 				actorUserId,
 				kind,
-				basisToken,
 				...(refreshLease && { extraAppFields: refreshLease }),
 			});
 			return {
 				seq,
-				basisToken,
 				committedDoc: verdict.nextDoc,
 				deduped: false,
 				persistable,
@@ -851,7 +831,6 @@ export async function appendSyntheticBatchTx(
 	migratedDoc: PersistedBlueprint,
 ): Promise<void> {
 	const appRef = db.collection("apps").doc(appId);
-	const basisToken = crypto.randomUUID();
 	const batchId = crypto.randomUUID();
 	const nowMs = Date.now();
 	await db.runTransaction(async (tx) => {
@@ -864,7 +843,7 @@ export async function appendSyntheticBatchTx(
 		}
 		const seq = ((fresh.mutation_seq as number | undefined) ?? 0) + 1;
 		tx.update(appRef, {
-			...blueprintSnapshotFields(migratedDoc, { basisToken }),
+			...blueprintSnapshotFields(migratedDoc),
 			mutation_seq: seq,
 		});
 		tx.set(
@@ -881,7 +860,6 @@ export async function appendSyntheticBatchTx(
 		);
 		tx.set(appRef.collection("batchDedup").doc(batchId), {
 			seq,
-			basisToken,
 			expireAt: Timestamp.fromMillis(nowMs + BATCH_DEDUP_TTL_MS),
 		});
 	});
@@ -933,7 +911,6 @@ export async function commitAppProjectMove(
 		attemptedRealIds: ReadonlySet<string>;
 	},
 ): Promise<CommitMoveResult> {
-	const basisToken = crypto.randomUUID();
 	const batchId = crypto.randomUUID();
 	const result = await runThrottledTransaction<{
 		outcome: CommitMoveResult;
@@ -977,8 +954,9 @@ export async function commitAppProjectMove(
 		// Both success branches route the single `appRaw` write through
 		// `writeCommittedSnapshot`, advancing `mutation_seq` + appending the stream
 		// entry / dedup latch, so a source-Project co-editor's stale tab 409-reloads
-		// (rotated token) rather than blind-overwriting the flip. The move is a
-		// migration-class commit with an empty mutation delta.
+		// (its next PUT's in-transaction `project_id` compare rejects) rather than
+		// blind-overwriting the flip. The move is a migration-class commit with an
+		// empty mutation delta.
 		const seq = (fresh.mutation_seq ?? 0) + 1;
 		if (args.assetIdMap.size > 0) {
 			const remapped = remapAssetRefs(fresh.blueprint, args.assetIdMap);
@@ -990,7 +968,6 @@ export async function commitAppProjectMove(
 				mutations: [],
 				actorUserId: "migration",
 				kind: "migration",
-				basisToken,
 				extraAppFields: { project_id: args.toProjectId },
 			});
 			return { outcome: { kind: "moved" }, committed: remapped };
@@ -1005,7 +982,6 @@ export async function commitAppProjectMove(
 			mutations: [],
 			actorUserId: "migration",
 			kind: "migration",
-			basisToken,
 			extraAppFields: { project_id: args.toProjectId },
 		});
 		return { outcome: { kind: "moved" }, committed: null };

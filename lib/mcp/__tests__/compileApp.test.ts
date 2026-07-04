@@ -115,7 +115,6 @@ function fixtureAppDoc(overrides?: Partial<AppDoc>): AppDoc {
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
-		blueprint_token: null,
 		created_at: new Date() as unknown as AppDoc["created_at"],
 		updated_at: new Date() as unknown as AppDoc["updated_at"],
 		...overrides,

@@ -234,8 +234,7 @@ export const appDocSchema = z.object({
 	 * Monotonic per-app counter, advanced by exactly one on every committed
 	 * blueprint mutation batch. It is the per-app mutation stream's ordering
 	 * key, the client's recovery cursor, the export version boundary, and the
-	 * source for the Postgres `synced_seq` guard. `blueprint_token` keeps its
-	 * optimistic-concurrency role; clients key recovery on `mutation_seq`.
+	 * source for the Postgres `synced_seq` guard.
 	 * Defaults to 0 on rows that predate the field, and initializes on the
 	 * first committed write.
 	 */
@@ -303,20 +302,6 @@ export const appDocSchema = z.object({
 	recoverable_until: z.string().nullable().default(null),
 	/** Run ID of the generation/edit that last modified this app. */
 	run_id: z.string().nullable().default(null),
-	/**
-	 * Per-commit write-version fingerprint — a fresh random value stamped by
-	 * every guarded commit (`writeCommittedSnapshot`), the migration twin
-	 * (`appendSyntheticBatchTx`), and the `scripts/recover-app.ts` writer.
-	 *
-	 * It carries NO concurrency role: nothing compares it. Concurrency is the
-	 * guarded commit's re-apply-on-fresh (`batchTargetsMissing` + the re-run
-	 * verdict) plus the durable `acceptedMutations` / `mutation_seq` stream the
-	 * client reconciler consumes — a stale tab reconciles through frames and
-	 * reloads, never through a token compare. The fingerprint is kept as an
-	 * ops/debugging record of "which write last touched this row". Null on
-	 * rows that predate the field and on never-committed apps.
-	 */
-	blueprint_token: z.string().nullable().default(null),
 	/**
 	 * Durable credit-reservation marker for the refunding reaper.
 	 *
@@ -467,12 +452,10 @@ export type AcceptedMutationDoc = z.infer<typeof acceptedMutationSchema>;
  * `apps/{appId}/batchDedup/{batchId}`. The guarded writer reads it FIRST
  * inside the commit transaction: a hit short-circuits to the recorded `seq`
  * and writes nothing, so a client's retry of a not-yet-acked PUT never
- * double-commits. Carries the committed `seq` and the `basisToken`
- * (`blueprint_token`) the commit rotated to.
+ * double-commits.
  */
 export const batchDedupSchema = z.object({
 	seq: z.number().int().nonnegative(),
-	basisToken: z.string(),
 	/** TTL deadline (`now + BATCH_DEDUP_TTL_MS`). */
 	expireAt: timestamp,
 });

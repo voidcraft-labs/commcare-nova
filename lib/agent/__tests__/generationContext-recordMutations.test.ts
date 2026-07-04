@@ -29,7 +29,7 @@ import { makeMinimalDoc, makeTestContext } from "./fixtures";
 
 /* Both record methods await `commitGuardedBatch` (kind:'chat'). Mock the
  * unified writer at module scope so no Firestore transaction is touched;
- * each test tweaks the resolved `{ seq, basisToken, committedDoc, deduped }`
+ * each test tweaks the resolved `{ seq, committedDoc, deduped }`
  * via `mockResolvedValueOnce` / `mockRejectedValueOnce`. */
 vi.mock("@/lib/db/apps", () => ({
 	commitGuardedBatch: vi.fn(),
@@ -84,7 +84,6 @@ describe("GenerationContext.recordMutations", () => {
 		// doc so tests can distinguish "adopted committedDoc" from "kept DOC".
 		vi.mocked(commitGuardedBatch).mockResolvedValue({
 			seq: 1,
-			basisToken: "token-1",
 			committedDoc: committedDocFor("committed"),
 			deduped: false,
 		});
@@ -144,7 +143,6 @@ describe("GenerationContext.recordMutations", () => {
 	it("emits the data-mutations frame ONLY after the commit resolves (never before)", async () => {
 		let resolveCommit: (v: {
 			seq: number;
-			basisToken: string;
 			committedDoc: ReturnType<typeof committedDocFor>;
 			deduped: boolean;
 		}) => void = () => {};
@@ -163,7 +161,6 @@ describe("GenerationContext.recordMutations", () => {
 
 		resolveCommit({
 			seq: 3,
-			basisToken: "t",
 			committedDoc: committedDocFor("late"),
 			deduped: false,
 		});
@@ -237,7 +234,6 @@ describe("GenerationContext.recordMutations", () => {
 		const committed = committedDocFor("merged-peer-edit");
 		vi.mocked(commitGuardedBatch).mockResolvedValueOnce({
 			seq: 5,
-			basisToken: "t",
 			committedDoc: committed,
 			deduped: false,
 		});
@@ -323,7 +319,6 @@ describe("GenerationContext.recordMutations", () => {
 		const committed = committedDocFor("committed-latest");
 		vi.mocked(commitGuardedBatch).mockResolvedValueOnce({
 			seq: 9,
-			basisToken: "t",
 			committedDoc: committed,
 			deduped: false,
 		});
@@ -342,7 +337,6 @@ describe("GenerationContext.recordMutationStages", () => {
 		vi.mocked(commitGuardedBatch).mockReset();
 		vi.mocked(commitGuardedBatch).mockResolvedValue({
 			seq: 1,
-			basisToken: "token-1",
 			committedDoc: committedDocFor("committed"),
 			deduped: false,
 		});
@@ -358,7 +352,6 @@ describe("GenerationContext.recordMutationStages", () => {
 		const committed = committedDocFor("committed-final");
 		vi.mocked(commitGuardedBatch).mockResolvedValueOnce({
 			seq: 4,
-			basisToken: "t",
 			committedDoc: committed,
 			deduped: false,
 		});

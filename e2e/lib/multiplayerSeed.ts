@@ -315,7 +315,6 @@ export async function seedMultiplayerFixture(args: {
 		error_type: null,
 		deleted_at: null,
 		recoverable_until: null,
-		blueprint_token: null,
 		run_id: "mp-seed",
 		created_at: FieldValue.serverTimestamp(),
 		updated_at: FieldValue.serverTimestamp(),
