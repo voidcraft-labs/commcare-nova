@@ -581,7 +581,11 @@ export async function refundStaleGeneration(appId: string): Promise<void> {
 			appRef,
 			{
 				status: "error",
-				error_type: "internal",
+				/* An ABANDONED PAUSED build (still flagged `awaiting_input` at reap
+				 * time) didn't crash — it expired waiting for an answer. Label it
+				 * distinctly so the timeout bucket doesn't read as an internal fault
+				 * on the row; a hard-killed build keeps `internal`. */
+				error_type: appData.awaiting_input ? "paused_timeout" : "internal",
 				awaiting_input: FieldValue.delete(),
 				...settleField,
 			},

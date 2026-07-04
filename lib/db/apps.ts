@@ -1646,35 +1646,49 @@ export async function editRunLockHeldBy(
  * `run_lock.expireAt`; a build RE-ARMS `updated_at` (its staleness clock froze
  * during the pause). Also clears `awaiting_input` in the SAME transaction (the
  * resume is no longer paused), so the assert + lease-renew + un-pause commit as
- * one atomic write and a superseded resume touches nothing.
+ * one atomic write and a lost resume touches nothing.
  *
- * Returns whether this run still owns the paused run: `true` ⇒ ownership held +
- * lease renewed + pause cleared (proceed); `false` ⇒ superseded ⇒ touched
- * NOTHING (the caller bails). A thrown read bubbles; the caller decides fail-open
- * vs fail-closed.
+ * Returns the resume's standing so the route can tell the user the TRUTH about
+ * why a lost run was lost (the two causes read very differently to the person
+ * answering):
+ *  - `"owned"` — ownership held + lease renewed + pause cleared; proceed.
+ *  - `"superseded"` — ANOTHER run occupies the app now (`lease.present`): this
+ *    run was reaped and a co-member (or a fresh request) re-claimed the freed
+ *    app. "Someone else started working on this app" is accurate.
+ *  - `"released"` — NOTHING holds the app: the run's lease lapsed while the
+ *    user answered and a scan reaped it (refund + free), with no re-claim
+ *    since. On a personal Project this is the ONLY lost-resume shape — there
+ *    is no one else — so a takeover message here would always be false.
+ * Both lost shapes touched NOTHING (the caller bails). A thrown read bubbles;
+ * the caller decides fail-open vs fail-closed.
  */
+export type ReacquireOutcome = "owned" | "superseded" | "released";
+
 export async function reacquireLease(
 	appId: string,
 	runId: string,
 	mode: "build" | "edit",
-): Promise<boolean> {
+): Promise<ReacquireOutcome> {
 	return await runThrottledTransaction(getDb(), async (tx) => {
 		const snap = await tx.get(docs.appRaw(appId));
 		const fresh = (snap.exists ? snap.data() : undefined) as
 			| Partial<AppDoc>
 			| undefined;
-		if (!fresh) return false;
+		if (!fresh) return "released";
 		const lease = runLeaseState(fresh);
-		// Superseded — this paused run's lease lapsed while the user answered, it was
-		// REAPED, and the freed app was re-claimed by another run. Keyed on the
-		// RESUME's OWN mode (`ownedByResume`), NOT `lease.mine` off the doc's derived
-		// mode: a re-claim in the OTHER mode changes the derived `mode`, so `mine` would
-		// read the wrong discriminator (the marker's runId for a build vs the lock's for
-		// an edit). `ownedByResume` requires the app to STILL be in the shape the resume expects
-		// — an edit's lock (a reap cleared it / a re-claim overwrote it) or a
-		// paused-build shape (a reap flipped it / a re-claim cleared `awaiting_input`)
-		// — so a superseded run bails.
-		if (!lease.ownedByResume(runId, mode)) return false;
+		// Lost — this paused run's lease lapsed while the user answered and it was
+		// REAPED. Keyed on the RESUME's OWN mode (`ownedByResume`), NOT `lease.mine`
+		// off the doc's derived mode: a re-claim in the OTHER mode changes the derived
+		// `mode`, so `mine` would read the wrong discriminator (the marker's runId for
+		// a build vs the lock's for an edit). `ownedByResume` requires the app to
+		// STILL be in the shape the resume expects — an edit's lock (a reap cleared
+		// it / a re-claim overwrote it) or a paused-build shape (a reap flipped it /
+		// a re-claim cleared `awaiting_input`). The lost shapes split on whether a
+		// NEW run occupies the app (`present`: re-claimed → superseded) or the reap
+		// simply freed it (released) — the route's message honesty rides on this.
+		if (!lease.ownedByResume(runId, mode)) {
+			return lease.present ? "superseded" : "released";
+		}
 		if (mode === "edit") {
 			// Renew the edit lease (may have lapsed while paused) + un-pause, atomically.
 			tx.update(docs.appRaw(appId), {
@@ -1688,7 +1702,7 @@ export async function reacquireLease(
 				awaiting_input: false,
 			});
 		}
-		return true;
+		return "owned";
 	});
 }
 

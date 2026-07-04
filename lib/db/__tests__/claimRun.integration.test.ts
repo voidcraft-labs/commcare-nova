@@ -520,6 +520,31 @@ describe.skipIf(!emulatorAvailable)(
 			expect(await readConsumed(OWNER)).toBe(0);
 		});
 
+		it("an abandoned-pause build reap labels the row `paused_timeout`, a hard-kill reap `internal`", async () => {
+			const { refundStaleGeneration } = await import("../credits");
+			// Paused at reap time: the run expired waiting for an answer — not an
+			// internal fault, so the row must not read as a crash.
+			await seedApp({
+				status: "generating",
+				awaiting_input: true,
+				updated_at: Timestamp.fromMillis(
+					Date.now() - (MAX_GENERATION_MINUTES + 1) * 60_000,
+				),
+			});
+			await refundStaleGeneration(APP_ID);
+			expect((await readApp())?.error_type).toBe("paused_timeout");
+
+			// Hard-killed (never paused): the process died mid-run — `internal` stands.
+			await seedApp({
+				status: "generating",
+				updated_at: Timestamp.fromMillis(
+					Date.now() - (MAX_GENERATION_MINUTES + 1) * 60_000,
+				),
+			});
+			await refundStaleGeneration(APP_ID);
+			expect((await readApp())?.error_type).toBe("internal");
+		});
+
 		it("refundStaleReservation never reaps a RECENTLY-paused edit (paused + FUTURE lease) — its own resume can still renew", async () => {
 			const { refundStaleReservation } = await import("../credits");
 			// A paused edit whose lease is still in the future is alive — its own resume
@@ -921,8 +946,8 @@ describe.skipIf(!emulatorAvailable)(
 				},
 			});
 
-			// Owns it → true, and atomically re-arms updated_at + clears the pause.
-			expect(await reacquireLease(APP_ID, "build-run", "build")).toBe(true);
+			// Owns it → "owned", and atomically re-arms updated_at + clears the pause.
+			expect(await reacquireLease(APP_ID, "build-run", "build")).toBe("owned");
 			const app = await readApp();
 			expect(app?.awaiting_input).toBeFalsy();
 			expect(app?.status).toBe("generating");
@@ -946,12 +971,47 @@ describe.skipIf(!emulatorAvailable)(
 				},
 			});
 
-			expect(await reacquireLease(APP_ID, "edit-paused", "edit")).toBe(true);
+			expect(await reacquireLease(APP_ID, "edit-paused", "edit")).toBe("owned");
 			const app = await readApp();
 			expect(app?.awaiting_input).toBeFalsy();
 			// The lease was RE-STAMPED to a fresh future deadline — not left lapsed.
 			const lock = app?.run_lock as { expireAt: Timestamp };
 			expect(lock.expireAt.toDate().getTime()).toBeGreaterThan(Date.now());
+		});
+
+		it("reacquireLease distinguishes a timeout-RELEASED run from a takeover-SUPERSEDED one", async () => {
+			const { claimRun, reacquireLease } = await import("../apps");
+			const { refundStaleGeneration } = await import("../credits");
+			// A paused build reaped with NO re-claim: the app sits free (`error`,
+			// nothing holds it). The late answer must read "released" — on a personal
+			// Project this is the ONLY lost shape, and a takeover message would lie.
+			await seedCredits(OWNER, CREDITS_PER_BUILD);
+			await seedApp({
+				status: "generating",
+				awaiting_input: true,
+				updated_at: Timestamp.fromMillis(
+					Date.now() - (MAX_GENERATION_MINUTES + 1) * 60_000,
+				),
+				reservation: {
+					period,
+					reserved: CREDITS_PER_BUILD,
+					settled: false,
+					userId: OWNER,
+					runId: "late-answer",
+				},
+			});
+			await refundStaleGeneration(APP_ID);
+			expect(await reacquireLease(APP_ID, "late-answer", "build")).toBe(
+				"released",
+			);
+
+			// A co-member re-claims the freed app before the answer arrives: now a
+			// run really does occupy it, so the late answer reads "superseded".
+			await seedCredits(MEMBER, CREDITS_PER_BUILD);
+			await claimRun(APP_ID, "build", "taker", MEMBER);
+			expect(await reacquireLease(APP_ID, "late-answer", "build")).toBe(
+				"superseded",
+			);
 		});
 
 		// ── Per-step edit-lease heartbeat (refreshEditLease) ──────────────────

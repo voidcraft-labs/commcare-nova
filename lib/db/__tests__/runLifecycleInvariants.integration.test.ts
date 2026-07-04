@@ -248,7 +248,7 @@ describe.skipIf(!emulatorAvailable)("P9 run-lifecycle invariant matrix", () => {
 				"run_lock.expireAt": new Date(Date.now() - 1000),
 			});
 		// The resume re-acquires: still mine → renew the lease, don't get reaped.
-		expect(await reacquireLease(APP, "e1", "edit")).toBe(true);
+		expect(await reacquireLease(APP, "e1", "edit")).toBe("owned");
 		const app = await readApp(APP);
 		expect(app?.awaiting_input).toBeFalsy();
 		expect(runLeaseState(app ?? {}).live).toBe(true); // lease renewed → live
@@ -628,7 +628,7 @@ describe.skipIf(!emulatorAvailable)("P9 run-lifecycle invariant matrix", () => {
 			.set({ awaiting_input: true }, { merge: true });
 
 		// Its own answered-resume re-acquires cleanly (still owns the lock + marker).
-		expect(await reacquireLease(APP, "e1", "edit")).toBe(true);
+		expect(await reacquireLease(APP, "e1", "edit")).toBe("owned");
 		const app = await readApp(APP);
 		expect(app?.awaiting_input).toBeFalsy();
 		expect(runLeaseState(app ?? {}).mine("e1")).toBe(true);

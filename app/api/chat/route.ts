@@ -38,6 +38,7 @@ import {
 	hasActiveGeneration,
 	loadApp,
 	loadAppHolderName,
+	type ReacquireOutcome,
 	RunConflictError,
 	reacquireLease,
 	restoreRunState,
@@ -932,21 +933,36 @@ export async function POST(req: Request) {
 			 * common case, and the guarded per-commit writer stays the backstop. */
 			if (resumeMustCheckSupersede) {
 				const resumeMode = appReady ? "edit" : "build";
-				let stillHeld = true;
+				let reacquire: ReacquireOutcome = "owned";
 				try {
-					stillHeld = await reacquireLease(appId, effectiveRunId, resumeMode);
+					reacquire = await reacquireLease(appId, effectiveRunId, resumeMode);
 				} catch (err) {
 					log.error("[chat] resume reacquire failed", err, { appId });
 				}
-				if (!stillHeld) {
+				if (reacquire !== "owned") {
+					/* The two lost shapes read very differently to the person answering,
+					 * so tell the truth per shape: "superseded" means another run
+					 * actually holds the app now; "released" means the run simply timed
+					 * out waiting and a scan reaped it (refund + free) with no
+					 * re-claim — on a personal Project that is the ONLY lost shape, so
+					 * a takeover message there would always be false. */
 					ctx.emitError(
-						{
-							type: "generation_in_progress",
-							message:
-								"Someone else started working on this app while you were answering, so this request was superseded. Refresh to pick up their changes, then try again.",
-							recoverable: false,
-						},
-						"route:resume-superseded",
+						reacquire === "superseded"
+							? {
+									type: "generation_in_progress",
+									message:
+										"Someone else started working on this app while you were answering, so this request was superseded. Refresh to pick up their changes, then try again.",
+									recoverable: false,
+								}
+							: {
+									type: "run_released",
+									message:
+										"This run waited for your answer longer than its window allows, so it was released and its hold was refunded. Refresh to get the latest state, then send your answer again.",
+									recoverable: false,
+								},
+						reacquire === "superseded"
+							? "route:resume-superseded"
+							: "route:resume-released",
 					);
 					await finalizeRun(undefined, { heldApp: false });
 					return;
