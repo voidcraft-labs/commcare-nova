@@ -24,6 +24,15 @@ import { urlHost } from "./e2e/lib/url";
  */
 const BASE_URL = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const isCI = !!process.env.CI;
+/**
+ * Watch-mode knobs for the two-user multiplayer suite (`npm run mp:watch`):
+ * `MP_SLOWMO` inserts a pause (ms) between every Playwright action so a human
+ * can follow the run; `MP_MANUAL=1` registers the open-ended manual
+ * dual-session project (`npm run mp:manual`) — gated so a bare
+ * `playwright test` (CI's full-suite run) can never sit in its forever-wait.
+ */
+const MP_SLOWMO = Number(process.env.MP_SLOWMO ?? 0) || 0;
+const MP_MANUAL = process.env.MP_MANUAL === "1";
 const localHost = urlHost(BASE_URL);
 const isLocalTarget =
 	localHost === "localhost" || localHost === "127.0.0.1" || localHost === "::1";
@@ -125,8 +134,19 @@ export default defineConfig({
 			// seeded session cookie (`e2e/.auth/state-mp-{a,b}.json`).
 			name: "multiplayer",
 			testMatch: /multiplayer\.spec\.ts/,
-			use: { ...devices["Desktop Chrome"] },
+			use: {
+				...devices["Desktop Chrome"],
+				// slowMo is a browser-launch option, so it covers every context the
+				// spec opens (both users). Zero (the default) leaves CI untouched.
+				...(MP_SLOWMO > 0 && { launchOptions: { slowMo: MP_SLOWMO } }),
+			},
 		},
+		// The open-ended manual dual-session harness — registered ONLY under
+		// MP_MANUAL=1 (see `mp:manual`); its lone "test" waits until the human
+		// closes both windows, which must never run in an unattended suite.
+		...(MP_MANUAL
+			? [{ name: "mp-manual", testMatch: /mp-manual\.spec\.ts/ }]
+			: []),
 	],
 	// Manage our own server only when smoke.sh is driving a localhost run.
 	// Against a deployed URL (or any already-running server) we test what's there.
@@ -140,7 +160,16 @@ export default defineConfig({
 					// console, where the error guard would catch benign server logs —
 					// `next start` doesn't. `fumadocs-mdx` first generates the
 					// `@/.source/server` import `next build` needs (as typecheck does).
-					command: "npx fumadocs-mdx && next build && next start",
+					// SMOKE_REUSE_BUILD=1 skips straight to `next start` for a fast
+					// relaunch of the watch/manual modes over an UNCHANGED build — the
+					// human is iterating on their own usage, not on the code. Off by
+					// default (CI and plain runs always build fresh); a missing/dev-mode
+					// `.next` makes `next start` fail loudly, so it can't silently serve
+					// a stale or non-production artifact as green.
+					command:
+						process.env.SMOKE_REUSE_BUILD === "1"
+							? "next start"
+							: "npx fumadocs-mdx && next build && next start",
 					url: BASE_URL,
 					// Never reuse a stray server: a dev's own `npm run dev` on :3000
 					// points at REAL Firestore with a different secret, so reusing it

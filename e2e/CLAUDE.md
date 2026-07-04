@@ -54,6 +54,15 @@ the non-obvious ones.
     (`lib/errorGuard.ts`) — the single-`page` fixture can't cover two users. The
     revocation test does NOT guard Grace's page (a revoked stream + 404 presence
     POSTs are the expected consequence of losing access).
+  - **Human-viewable modes** ride the same stack + seed: `npm run mp:watch` runs
+    this suite headed with the two windows CDP-tiled half-screen (Ada left, Grace
+    right; `MP_TILE=1` → `lib/windowTiling.ts`, best-effort so it can't fail a
+    run) and `MP_SLOWMO` (default 400 ms) between actions; `npm run mp:manual`
+    opens the open-ended two-user session (`tests/mp-manual.spec.ts`, no error
+    guard, waits until both windows close) — its project registers ONLY under
+    `MP_MANUAL=1` so a bare/CI `playwright test` can't hit the forever-wait.
+    `SMOKE_REUSE_BUILD=1` skips the production rebuild on an unchanged-code
+    relaunch (never set it in CI).
   - The seed writes a shared `auth_organization` + two `auth_member` rows through
     Better Auth's own adapter (a direct create bypasses the invitation
     domain-gate, which fires only on the invitation API path), and the shared app

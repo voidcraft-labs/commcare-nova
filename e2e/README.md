@@ -62,6 +62,29 @@ emulator, seeds, then runs Playwright (which builds + starts the production serv
 `next build && next start`). It uses a throwaway `BETTER_AUTH_SECRET` and dummy OAuth
 creds — never production secrets.
 
+## See multiplayer in action (two windows, side by side)
+
+Both modes ride the same hermetic stack and seed as the smoke suite — no real GCP,
+no Google accounts (Ada and Grace are forged-cookie sessions in a shared Project):
+
+```bash
+npm run mp:watch     # WATCH the two-user acceptance suite run itself:
+                     # Ada's window on the left half of the screen, Grace's on the
+                     # right, ~400 ms between actions so you can follow along.
+                     # MP_SLOWMO=800 npm run mp:watch   → slower still
+
+npm run mp:manual    # DRIVE both users yourself: opens Ada (owner, LEFT) and
+                     # Grace (editor, RIGHT) logged into the same shared app,
+                     # tiled half-screen each, and stays alive until you close
+                     # both windows (or Ctrl-C). Edits, presence, follow, undo —
+                     # all live over the real SSE stream.
+```
+
+Each launch pays the production build (~2 min). Relaunching with **unchanged code**
+can skip it: `SMOKE_REUSE_BUILD=1 npm run mp:manual` serves the existing `.next`
+(`next start` fails loudly if there's no production build to reuse). Window tiling
+is Chromium-on-a-real-display niceness — headless or non-Chromium runs just skip it.
+
 ## Run against a live deployment (post-deploy prod probe)
 
 The credential-free `public` checks run against any URL — the cheapest thing that

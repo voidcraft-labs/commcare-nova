@@ -9,6 +9,7 @@ import {
 } from "@playwright/test";
 import { Pool } from "pg";
 import { attachErrorGuard } from "../lib/errorGuard";
+import { tileWindow } from "../lib/windowTiling";
 
 /**
  * Two-user real-time multiplayer acceptance + UI/UX verification — the feature's
@@ -82,6 +83,14 @@ interface UserPage {
 	close: () => Promise<void>;
 }
 
+/**
+ * Watch mode (`npm run mp:watch` → `MP_TILE=1`): tile Ada's window onto the
+ * left half of the screen and Grace's onto the right, with a natural
+ * window-sized viewport, so a human can watch both sides of every scenario
+ * at once. Off by default — CI and plain runs keep the fixed viewport.
+ */
+const TILED = process.env.MP_TILE === "1";
+
 /** Open a builder page for one seeded user, guarded, at a specific app screen. */
 async function openBuilder(
 	browser: Browser,
@@ -91,8 +100,12 @@ async function openBuilder(
 	const context = await browser.newContext({
 		storageState,
 		baseURL: mp.baseUrl,
+		...(TILED && { viewport: null }),
 	});
 	const page = await context.newPage();
+	if (TILED) {
+		await tileWindow(page, storageState === mp.stateFileA ? "left" : "right");
+	}
 	const guard = attachErrorGuard(page, mp.baseUrl);
 	await page.goto(`/build/${mp.appId}${subPath}`);
 	return {
