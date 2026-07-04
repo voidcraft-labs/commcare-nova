@@ -135,6 +135,13 @@ export default defineConfig({
 			name: "multiplayer",
 			testMatch: /multiplayer\.spec\.ts/,
 			use: {
+				// The tiled watch mode (`mp:watch`) deliberately KEEPS this fixed
+				// viewport: headed Chromium scales an emulated viewport down to fit
+				// a smaller window, so a half-screen window shows the whole 1280×720
+				// page shrunk — and every assertion runs against the exact geometry
+				// CI runs. (A `viewport: null` variant both conflicts with the
+				// preset's `deviceScaleFactor` and re-times the suite at whatever
+				// width the user's screen halves to.)
 				...devices["Desktop Chrome"],
 				// slowMo is a browser-launch option, so it covers every context the
 				// spec opens (both users). Zero (the default) leaves CI untouched.
@@ -166,10 +173,13 @@ export default defineConfig({
 					// default (CI and plain runs always build fresh); a missing/dev-mode
 					// `.next` makes `next start` fail loudly, so it can't silently serve
 					// a stale or non-production artifact as green.
+					// `npx` so the local binary resolves even when smoke.sh is invoked
+					// directly (outside an npm script, nothing puts node_modules/.bin
+					// on the PATH this command is spawned with).
 					command:
 						process.env.SMOKE_REUSE_BUILD === "1"
-							? "next start"
-							: "npx fumadocs-mdx && next build && next start",
+							? "npx next start"
+							: "npx fumadocs-mdx && npx next build && npx next start",
 					url: BASE_URL,
 					// Never reuse a stray server: a dev's own `npm run dev` on :3000
 					// points at REAL Firestore with a different secret, so reusing it

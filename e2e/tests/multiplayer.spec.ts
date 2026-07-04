@@ -85,9 +85,11 @@ interface UserPage {
 
 /**
  * Watch mode (`npm run mp:watch` → `MP_TILE=1`): tile Ada's window onto the
- * left half of the screen and Grace's onto the right, with a natural
- * window-sized viewport, so a human can watch both sides of every scenario
- * at once. Off by default — CI and plain runs keep the fixed viewport.
+ * left half of the screen and Grace's onto the right so a human can watch
+ * both sides of every scenario at once. The viewport stays the project's
+ * fixed 1280×720 — headed Chromium scales an emulated viewport to fit the
+ * smaller window, so the tiled windows show the whole page shrunk while the
+ * assertions run against the exact geometry CI runs.
  */
 const TILED = process.env.MP_TILE === "1";
 
@@ -100,7 +102,6 @@ async function openBuilder(
 	const context = await browser.newContext({
 		storageState,
 		baseURL: mp.baseUrl,
-		...(TILED && { viewport: null }),
 	});
 	const page = await context.newPage();
 	if (TILED) {
