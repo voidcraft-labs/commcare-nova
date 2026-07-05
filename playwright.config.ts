@@ -94,8 +94,11 @@ export default defineConfig({
 	// test mutates app rows, so parallel workers could race the app list.
 	workers: 1,
 	// Generous headroom for a full page load + assertions. `next start` serves
-	// pre-compiled routes, so this isn't covering a cold compile.
-	timeout: 90_000,
+	// pre-compiled routes, so this isn't covering a cold compile. Watch mode
+	// scales the budget with its action delay: slowMo pauses every real action
+	// (not expect-polls), and the op-heaviest scenario (revocation) runs ~40 of
+	// them — 60 × MP_SLOWMO is that with headroom. Zero when MP_SLOWMO unset.
+	timeout: 90_000 + 60 * MP_SLOWMO,
 	expect: { timeout: 15_000 },
 	reporter: isCI
 		? [

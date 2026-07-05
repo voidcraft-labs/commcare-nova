@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "@playwright/test";
-import { tileWindow } from "../lib/windowTiling";
+import { applyPageZoom, tileWindow } from "../lib/windowTiling";
 
 /**
  * Manual two-user session — NOT a test, a harness entry point.
@@ -50,11 +50,21 @@ test("manual two-user session — close BOTH windows (or Ctrl-C) to end", async 
 		const context = await browser.newContext({
 			storageState,
 			baseURL: mp.baseUrl,
-			// Let the page fill the half-screen window instead of a fixed 1280×720.
-			viewport: null,
+			// A fixed desktop viewport + CSS page zoom beats natural reflow here:
+			// half of a 13" screen is ~720 CSS px, where the desktop-oriented
+			// builder would be cramped — zoomed out, you drive the full desktop
+			// layout with native (un-emulated) input.
+			viewport: { width: 1280, height: 720 },
 		});
 		const page = await context.newPage();
-		await tileWindow(page, side);
+		const content = await tileWindow(page, side);
+		if (content) {
+			// Viewport = the real window content area (nothing clipped), zoom =
+			// width ratio (layout reflows back out to an effective ~1280 width).
+			await page.setViewportSize(content);
+			const zoom = Math.min(1, content.width / 1280);
+			if (zoom < 1) await applyPageZoom(page, zoom);
+		}
 		await page.goto(`/build/${mp.appId}`);
 		return page;
 	};

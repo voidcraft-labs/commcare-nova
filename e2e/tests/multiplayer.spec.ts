@@ -9,7 +9,7 @@ import {
 } from "@playwright/test";
 import { Pool } from "pg";
 import { attachErrorGuard } from "../lib/errorGuard";
-import { tileWindow } from "../lib/windowTiling";
+import { applyPageZoom, tileWindow } from "../lib/windowTiling";
 
 /**
  * Two-user real-time multiplayer acceptance + UI/UX verification — the feature's
@@ -86,12 +86,16 @@ interface UserPage {
 /**
  * Watch mode (`npm run mp:watch` → `MP_TILE=1`): tile Ada's window onto the
  * left half of the screen and Grace's onto the right so a human can watch
- * both sides of every scenario at once. The viewport stays the project's
- * fixed 1280×720 — headed Chromium scales an emulated viewport to fit the
- * smaller window, so the tiled windows show the whole page shrunk while the
- * assertions run against the exact geometry CI runs.
+ * both sides of every scenario at once. Two coupled adjustments make the
+ * whole builder visible in a half-window on a 13" screen: the viewport is
+ * resized to the ACTUAL window content area (so nothing is clipped), and a
+ * CSS page zoom of contentWidth/1280 reflows the layout back out to CI's
+ * effective 1280 width, rendered small. CSS zoom (not a device-metrics
+ * scale — that destabilizes the canvas's own scrolling) keeps input native
+ * and un-emulated; the headless CI run keeps the fixed viewport untouched.
  */
 const TILED = process.env.MP_TILE === "1";
+const TILE_WIDTH = 1280;
 
 /** Open a builder page for one seeded user, guarded, at a specific app screen. */
 async function openBuilder(
@@ -105,7 +109,15 @@ async function openBuilder(
 	});
 	const page = await context.newPage();
 	if (TILED) {
-		await tileWindow(page, storageState === mp.stateFileA ? "left" : "right");
+		const content = await tileWindow(
+			page,
+			storageState === mp.stateFileA ? "left" : "right",
+		);
+		if (content) {
+			await page.setViewportSize(content);
+			const zoom = Math.min(1, content.width / TILE_WIDTH);
+			if (zoom < 1) await applyPageZoom(page, zoom);
+		}
 	}
 	const guard = attachErrorGuard(page, mp.baseUrl);
 	await page.goto(`/build/${mp.appId}${subPath}`);

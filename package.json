@@ -20,7 +20,7 @@
 		"test:smoke": "bash scripts/smoke.sh",
 		"test:smoke:headed": "bash scripts/smoke.sh --headed",
 		"test:smoke:url": "playwright test --project=public",
-		"mp:watch": "MP_TILE=1 MP_SLOWMO=${MP_SLOWMO:-400} bash scripts/smoke.sh --project=multiplayer --headed",
+		"mp:watch": "MP_TILE=1 MP_SLOWMO=${MP_SLOWMO:-3000} bash scripts/smoke.sh --project=multiplayer --headed",
 		"mp:manual": "MP_MANUAL=1 bash scripts/smoke.sh --project=mp-manual --headed"
 	},
 	"dependencies": {

@@ -70,14 +70,17 @@ no Google accounts (Ada and Grace are forged-cookie sessions in a shared Project
 ```bash
 npm run mp:watch     # WATCH the two-user acceptance suite run itself:
                      # Ada's window on the left half of the screen, Grace's on the
-                     # right, ~400 ms between actions so you can follow along.
-                     # MP_SLOWMO=800 npm run mp:watch   → slower still
+                     # right, 3 s between actions so you can follow along.
+                     # MP_SLOWMO=1000 npm run mp:watch   → snappier
+                     # Each page is zoomed to fit its half-window (a device-metrics
+                     # scale), so the whole 1280×720 layout is visible even on a
+                     # 13" screen while assertions run at exact CI geometry.
 
 npm run mp:manual    # DRIVE both users yourself: opens Ada (owner, LEFT) and
                      # Grace (editor, RIGHT) logged into the same shared app,
-                     # tiled half-screen each, and stays alive until you close
-                     # both windows (or Ctrl-C). Edits, presence, follow, undo —
-                     # all live over the real SSE stream.
+                     # tiled half-screen each and zoomed to fit, and stays alive
+                     # until you close both windows (or Ctrl-C). Edits, presence,
+                     # follow, undo — all live over the real SSE stream.
 ```
 
 Each launch pays the production build (~2 min). Relaunching with **unchanged code**
