@@ -13,6 +13,10 @@
 
 import { xp } from "@/lib/__tests__/docHelpers";
 import {
+	backfillOptionUuids,
+	backfillOrderKeys,
+} from "@/lib/doc/order/backfill";
+import {
 	asUuid,
 	type BlueprintDoc,
 	type Field,
@@ -23,8 +27,8 @@ import type { AssetKind, MediaAssetStatus } from "@/lib/domain/multimedia";
 import {
 	type MakeMcpTestContextHandles,
 	makeMcpTestContext,
-	makeTestContext,
-	type TestContextHandles,
+	makeStubToolContext,
+	type StubToolContextHandles,
 } from "../../../__tests__/fixtures";
 
 // ── In-memory asset table behind the `@/lib/db/mediaAssets` mock ─────
@@ -144,7 +148,7 @@ export function makeMediaDoc(): BlueprintDoc {
 		kind: "hidden",
 		calculate: xp("0"),
 	} as Field;
-	return {
+	const doc: BlueprintDoc = {
 		appId: "test-app",
 		appName: "Clinic Intake",
 		connectType: null,
@@ -170,10 +174,18 @@ export function makeMediaDoc(): BlueprintDoc {
 			[HIDDEN_FIELD]: FORM_A,
 		},
 	};
+	// Mirror the production hydration boundary (`loadAppBlueprint`): backfill
+	// order keys + option uuids so a granular `updateOption` can key the option
+	// by uuid (a hand-built fixture lacks them otherwise).
+	backfillOrderKeys(doc);
+	backfillOptionUuids(doc);
+	return doc;
 }
 
-/** Bundle of doc + chat-side `GenerationContext`. */
-export interface MediaFixture extends TestContextHandles {
+/** Bundle of doc + a lightweight chat-surface `ToolExecutionContext` stub
+ *  (its `recordMutations` echoes the passed post-mutation doc as the committed
+ *  doc; the media-expectations arg still rides through for assertion). */
+export interface MediaFixture extends StubToolContextHandles {
 	doc: BlueprintDoc;
 }
 
@@ -184,7 +196,7 @@ export interface MediaMcpFixture extends MakeMcpTestContextHandles {
 
 /** Build a `{ doc, ctx, ... }` bundle for the chat surface. */
 export function makeMediaFixture(): MediaFixture {
-	return { ...makeTestContext(), doc: makeMediaDoc() };
+	return { ...makeStubToolContext(), doc: makeMediaDoc() };
 }
 
 /** Build a `{ doc, ctx, ... }` bundle for the MCP surface. */

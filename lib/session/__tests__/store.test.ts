@@ -261,7 +261,7 @@ function createConnectTestStores() {
 			],
 		}),
 	);
-	docStore.temporal.getState().resume();
+	docStore.getState().startTracking();
 
 	const sessionStore = createBuilderSessionStore();
 	sessionStore.getState()._setDocStore(docStore);
@@ -523,7 +523,7 @@ describe("BuilderSession connect stash", () => {
 		docStore
 			.getState()
 			.load(buildDoc({ appId: "empty-app", appName: "Empty" }));
-		docStore.temporal.getState().resume();
+		docStore.getState().startTracking();
 		const session = createBuilderSessionStore();
 		session.getState()._setDocStore(docStore);
 
@@ -632,7 +632,7 @@ describe("BuilderSession connect stash", () => {
  */
 function createTestDocStore() {
 	const ds = createBlueprintDocStore();
-	ds.temporal.getState().resume();
+	ds.getState().startTracking();
 	return ds;
 }
 
@@ -648,7 +648,7 @@ function createGenerationTestStores(withData = false) {
 				modules: [{ uuid: "mod-uuid", name: "Mod" }],
 			}),
 		);
-		docStore.temporal.getState().resume();
+		docStore.getState().startTracking();
 	}
 
 	const sessionStore = createBuilderSessionStore();

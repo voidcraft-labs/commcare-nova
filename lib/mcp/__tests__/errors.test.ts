@@ -20,7 +20,7 @@
 
 import { describe, expect, it } from "vitest";
 import { MESSAGES } from "@/lib/agent/errorClassifier";
-import { BlueprintCommitRejectedError } from "@/lib/db/applyBlueprintChange";
+import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import { toMcpErrorResult } from "../errors";
 import { McpAccessError } from "../ownership";
 import { McpScopeError, SCOPES } from "../scopes";

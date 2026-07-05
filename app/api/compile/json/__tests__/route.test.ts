@@ -74,10 +74,11 @@ function reqWith(body: unknown) {
 	} as unknown as Parameters<typeof POST>[0];
 }
 
-/** Mock `resolveAppAccess` to load `doc` for app owner `u1`. */
-function loadsDoc(doc: ReturnType<typeof validDoc>) {
+/** Mock `resolveAppAccess` to load `doc` for app owner `u1` at the given
+ *  committed `mutation_seq`. */
+function loadsDoc(doc: ReturnType<typeof validDoc>, mutationSeq = 13) {
 	vi.mocked(resolveAppAccess).mockResolvedValue({
-		app: { blueprint: doc, owner: "u1" },
+		app: { blueprint: doc, owner: "u1", mutation_seq: mutationSeq },
 	} as never);
 }
 
@@ -99,6 +100,9 @@ describe("POST /api/compile/json", () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toContain("application/json");
 		expect(res.headers.get("content-disposition")).toContain(".json");
+		// The seq rides out-of-band in the response header — the JSON body stays
+		// the byte-identical HQ-import artifact.
+		expect(res.headers.get("x-compiled-at-seq")).toBe("13");
 		expect(JSON.parse(await res.text())).toMatchObject({
 			name: "Vaccine Tracker",
 		});
@@ -123,6 +127,9 @@ describe("POST /api/compile/json", () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toContain("application/zip");
 		expect(res.headers.get("content-disposition")).toContain(".zip");
+		// The media-bearing shape carries the seq in the same header — the zip
+		// body (JSON + multimedia + README) stays byte-identical.
+		expect(res.headers.get("x-compiled-at-seq")).toBe("13");
 
 		const bundle = new AdmZip(Buffer.from(await res.arrayBuffer()));
 		const names = bundle.getEntries().map((e) => e.entryName);

@@ -33,9 +33,9 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCredentialsForUpload } from "@/lib/db/settings";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
+import type { PersistableDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { assetWirePaths, resolveMediaManifest } from "@/lib/media/manifest";
@@ -75,20 +75,19 @@ export async function POST(req: NextRequest) {
 		 * doc crosses the wire. Uploading to CommCare HQ PUBLISHES the app, so
 		 * it requires edit, not just view (matching the MCP upload tool); a
 		 * viewer can't push a shared app to HQ. An `AppAccessError` maps to 404.
-		 * `fieldParent` is derived on load; rebuild it so the expander sees a
-		 * full reverse index. Media resolves at the app's PROJECT scope (the
-		 * sharing boundary the assets live in) so a Project co-member can upload
-		 * a shared app. */
+		 * The shared hydration chokepoint rebuilds `fieldParent` and backfills
+		 * a legacy doc's `order`/option-`uuid`s, so the wire the expander emits
+		 * reflects the same display sequence the builder shows. Media resolves
+		 * at the app's PROJECT scope (the sharing boundary the assets live in)
+		 * so a Project co-member can upload a shared app. */
 		const { app, projectId } = await resolveAppAccess(
 			body.appId,
 			session.user.id,
 			"edit",
 		);
-		const docWithParent: BlueprintDoc = {
-			...(app.blueprint as PersistableDoc as BlueprintDoc),
-			fieldParent: {},
-		};
-		rebuildFieldParent(docWithParent);
+		const docWithParent = hydratePersistedBlueprint(
+			app.blueprint as PersistableDoc,
+		);
 
 		/* ── Resolve credentials + authorize the requested space ──────── */
 		const requested = body.domain.trim();

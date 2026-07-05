@@ -953,6 +953,23 @@ export class PostgresCaseStore implements CaseStore {
 	async applySchemaChange(
 		args: ApplySchemaChangeArgs,
 	): Promise<MigrationReport> {
+		// `change` (a per-row migration) and `syncedSeq` (the monotone additive
+		// gate) are mutually exclusive: the migration path runs pre-commit with
+		// no committed seq, the additive path carries a seq and no migration. If
+		// they combined, the coarse gate's whole-call `return` could silently
+		// skip a migration's per-row work on a stale seq — so reject the
+		// impossible state loudly rather than corrupt data.
+		if (args.change !== undefined && args.syncedSeq !== undefined) {
+			throw new Error(
+				compilerBugMessage({
+					where: "case-store.PostgresCaseStore.applySchemaChange",
+					invariant:
+						"`change` and `syncedSeq` are both set; a per-row migration and the monotone additive gate are mutually exclusive",
+					detail:
+						"`change` describes a per-row reshape (rename / retype / narrow-options) that runs pre-commit with no committed seq; `syncedSeq` is the monotone gate for an additive sync that carries a committed seq and no migration. Reaching this means a caller combined them — the coarse `synced_seq` gate could then skip the migration's per-row work on a stale seq. Hint: run the migration un-versioned (Phase 1) and let the post-commit sweep advance `synced_seq` additively.",
+				}),
+			);
+		}
 		const caseType = args.caseTypeSchemas.get(args.caseType);
 		if (caseType === undefined) {
 			throw new CaseTypeNotInBlueprintError(args.appId, args.caseType);
@@ -970,22 +987,76 @@ export class PostgresCaseStore implements CaseStore {
 			caseType.properties,
 		);
 
-		// Phase A: schema sync + per-row migration in one transaction.
+		// Monotone `synced_seq` gate — the coarse half. When the caller carries
+		// a `syncedSeq` (the multiplayer additive sync + heal), read the row's
+		// recorded seq: an incoming seq BELOW it is a stale sync a fresher
+		// concurrent writer already superseded, so the ENTIRE call no-ops
+		// (schema UPSERT + Phase-B index reconciliation both skipped). A
+		// `syncedSeq` call never carries a `change` (they're mutually exclusive
+		// — the throw above fires first), so there's no per-row migration to
+		// skip here. An absent row means "proceed" (first sync). node-postgres
+		// returns `bigint`/`int8` as a string, so coerce with `Number(...)`. The
+		// fine half is the guarded UPSERT SET below — a lost SELECT→UPSERT race
+		// re-converges on the next sync (perf-only, not a correctness gate).
+		if (args.syncedSeq !== undefined) {
+			const existing = await this.db
+				.selectFrom("case_type_schemas")
+				.select("synced_seq")
+				.where("app_id", "=", args.appId)
+				.where("case_type", "=", args.caseType)
+				.executeTakeFirst();
+			if (
+				existing !== undefined &&
+				args.syncedSeq < Number(existing.synced_seq)
+			) {
+				return { migrated: 0, quarantined: 0, skipped: 0, failureReasons: [] };
+			}
+		}
+
+		const incomingSeq = args.syncedSeq;
+
+		// Phase A: schema sync + per-row migration in one transaction. `won`
+		// records whether THIS call actually advanced the row — false only when
+		// the versioned fine-gate WHERE suppressed the UPSERT (a monotone
+		// loser). Phase B is gated on it below.
+		let won = true;
 		const report = await this.db.transaction().execute(async (trx) => {
-			// Step 1: schema regen + UPSERT. Always runs.
-			await trx
+			// Step 1: schema regen + UPSERT. Always runs. `RETURNING synced_seq`
+			// is the win signal: Postgres emits a row only when the statement
+			// actually inserted or updated, so a versioned loser (the DO UPDATE
+			// WHERE was false) returns NOTHING.
+			const upserted = await trx
 				.insertInto("case_type_schemas")
 				.values({
 					app_id: args.appId,
 					case_type: args.caseType,
 					schema: JSON.stringify(schema),
+					...(incomingSeq !== undefined && { synced_seq: incomingSeq }),
 				})
-				.onConflict((oc) =>
-					oc.columns(["app_id", "case_type"]).doUpdateSet({
-						schema: JSON.stringify(schema),
-					}),
-				)
-				.execute();
+				.onConflict((oc) => {
+					const conflict = oc.columns(["app_id", "case_type"]);
+					if (incomingSeq === undefined) {
+						return conflict.doUpdateSet({ schema: JSON.stringify(schema) });
+					}
+					// The fine half of the monotone gate — the UPSERT SET itself
+					// can't regress `synced_seq` even if a fresher writer landed
+					// between the coarse SELECT above and here. Omitted on the
+					// un-versioned path (a plain additive UPSERT always wins its
+					// own conflict).
+					return conflict
+						.doUpdateSet((eb) => ({
+							schema: JSON.stringify(schema),
+							synced_seq: eb.ref("excluded.synced_seq"),
+						}))
+						.where(
+							sql<boolean>`excluded.synced_seq >= case_type_schemas.synced_seq`,
+						);
+				})
+				.returning("synced_seq")
+				.executeTakeFirst();
+			// A versioned loser returns no row. The un-versioned path never has
+			// a suppressing WHERE, so it always returns a row (always a winner).
+			won = upserted !== undefined;
 
 			// Step 2: per-row migration. Additive blueprint mutations
 			// (no `change`) skip this — adding a property still emits
@@ -1024,11 +1095,23 @@ export class PostgresCaseStore implements CaseStore {
 		// and the heap scan sees clean rows. Failure leaves Phase A
 		// intact; the next call retries idempotently via the
 		// `indisvalid`-aware catalog diff.
-		await this.syncExpressionIndexes({
-			appId: args.appId,
-			caseType: args.caseType,
-			desired: desiredIndexes,
-		});
+		//
+		// SKIPPED for a monotone loser (`won === false`): the fine-gate WHERE
+		// suppressed its schema UPSERT, so the row carries the WINNER's schema,
+		// not this call's `desiredIndexes`. Running Phase B here would diff the
+		// loser's OLDER desired set against the live index set (which already
+		// has the winner's new-property index) and `DROP` the winner's live
+		// index — a self-inflicted seq-scan regression. The winner ran (or will
+		// run) Phase B with the correct desired set. (The coarse-gate no-op
+		// earlier already returns before reaching Phase B; this closes the
+		// narrower fine-gate-loser window.)
+		if (won) {
+			await this.syncExpressionIndexes({
+				appId: args.appId,
+				caseType: args.caseType,
+				desired: desiredIndexes,
+			});
+		}
 
 		return report;
 	}

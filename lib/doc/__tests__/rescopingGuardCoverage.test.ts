@@ -23,6 +23,7 @@ import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
 import { scopeOfMutations } from "@/lib/commcare/validator/scopeOfMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { backfillOptionUuids } from "@/lib/doc/order/backfill";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc, type Field } from "@/lib/domain";
 
@@ -631,10 +632,281 @@ const GUARD_COVERAGE = {
 		],
 		fullScope: true,
 	},
+
+	// ── Granular case-type catalog (all re-scope to FULL) ────────────
+	declareCaseType: {
+		neverGates:
+			"declares a bare new case type — introduces no finding on its own; a catalog edit re-scopes to full, so no entity-keyed narrowing can go stale",
+	},
+	addCaseProperty: {
+		neverGates:
+			"appends a property to a declared type — introduces no finding on its own; full-scoped",
+	},
+	setCaseProperty: {
+		neverGates:
+			"replaces a property by name — introduces no finding on its own; full-scoped",
+	},
+	removeCaseProperty: {
+		neverGates:
+			"drops a catalog property — a stranded reference is the REFERENCING entity's finding, caught under the full scope; full-scoped",
+	},
+	setCaseTypeMeta: {
+		neverGates:
+			"sets a type's parent_type/relationship — introduces no finding on its own; full-scoped",
+	},
+	retireCaseType: {
+		// Retire the type a field still writes to — its `case_property_on` now
+		// names an absent type, the exact concurrent-retirement race.
+		build: () => {
+			const doc = buildDoc({
+				appName: "Retire",
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [{ name: "case_name", label: "Name" }],
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								name: "Register",
+								type: "registration",
+								fields: [
+									f({
+										kind: "text",
+										id: "case_name",
+										label: "Name",
+										case_property_on: "patient",
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			return { doc, batch: [{ kind: "retireCaseType", caseType: "patient" }] };
+		},
+		expectCodes: ["CASE_PROPERTY_ON_UNKNOWN_TYPE"],
+		fullScope: true,
+	},
+
+	// ── Case-list collections ────────────────────────────────────────
+	addColumn: {
+		build: () => {
+			const doc = richDoc();
+			return {
+				doc,
+				batch: [
+					{
+						kind: "addColumn",
+						moduleUuid: asUuid("mod-patients"),
+						column: {
+							uuid: asUuid("col-ghost"),
+							kind: "plain",
+							field: "ghost",
+							header: "Ghost",
+							order: "V",
+						},
+					},
+				],
+			};
+		},
+		expectCodes: ["CASE_LIST_COLUMN_UNKNOWN_FIELD"],
+	},
+	updateColumn: {
+		build: () => {
+			const doc = richDoc();
+			const col = patientsColumn(doc);
+			return {
+				doc,
+				batch: [
+					{
+						kind: "updateColumn",
+						moduleUuid: asUuid("mod-patients"),
+						uuid: col.uuid,
+						column: {
+							uuid: col.uuid,
+							kind: "plain",
+							field: "ghost",
+							header: "Ghost",
+						},
+					},
+				],
+			};
+		},
+		expectCodes: ["CASE_LIST_COLUMN_UNKNOWN_FIELD"],
+	},
+	removeColumn: {
+		build: () => {
+			const doc = richDoc();
+			const col = patientsColumn(doc);
+			return {
+				doc,
+				batch: [
+					{
+						kind: "removeColumn",
+						moduleUuid: asUuid("mod-patients"),
+						uuid: col.uuid,
+					},
+				],
+			};
+		},
+		// Dropping the only column leaves a case module without a list to render.
+		expectCodes: ["MISSING_CASE_LIST_COLUMNS"],
+	},
+	moveColumn: {
+		neverGates:
+			"reorders a case-list column (order-key only) — no rule reads column position",
+		build: () => {
+			const doc = richDoc();
+			const col = patientsColumn(doc);
+			return {
+				doc,
+				batch: [
+					{
+						kind: "moveColumn",
+						moduleUuid: asUuid("mod-patients"),
+						uuid: col.uuid,
+						order: "V",
+					},
+				],
+			};
+		},
+	},
+	addSearchInput: {
+		neverGates:
+			"adds a bare simple search input on a known property — introduces no finding; module-scoped",
+		build: () => {
+			const doc = richDoc();
+			return {
+				doc,
+				batch: [
+					{
+						kind: "addSearchInput",
+						moduleUuid: asUuid("mod-patients"),
+						searchInput: {
+							uuid: asUuid("si-new"),
+							kind: "simple",
+							name: "name_q",
+							label: "Name",
+							type: "text",
+							property: "case_name",
+							order: "V",
+						},
+					},
+				],
+			};
+		},
+	},
+	updateSearchInput: {
+		neverGates:
+			"replaces a search input by uuid — a bare simple input on a known property introduces no finding; module-scoped",
+	},
+	removeSearchInput: {
+		neverGates:
+			"drops a search input by uuid — removing a search surface introduces no finding on its own; module-scoped",
+	},
+	moveSearchInput: {
+		neverGates:
+			"reorders a search input (order-key only) — no rule reads search-input position",
+	},
+	setCaseListMeta: {
+		neverGates:
+			"sets the case-list-link icon (media only) — introduces no finding; module-scoped",
+		build: () => {
+			const doc = richDoc();
+			return {
+				doc,
+				batch: [
+					{
+						kind: "setCaseListMeta",
+						uuid: asUuid("mod-patients"),
+						patch: { icon: asUuid("asset-1") },
+					},
+				],
+			};
+		},
+	},
+
+	// ── Select options ───────────────────────────────────────────────
+	addOption: {
+		neverGates:
+			"appends a select option — introduces no finding on its own; form-scoped",
+	},
+	updateOption: {
+		neverGates:
+			"replaces a select option by uuid — content edits introduce no finding on their own; form-scoped",
+	},
+	moveOption: {
+		neverGates:
+			"reorders a select option (order-key only) — no rule reads option position",
+	},
+	removeOption: {
+		// Dropping a select to ONE option is the sub-2 state the in-place option
+		// reducer reaches without a `.min(2)` re-parse — the gate catches it.
+		build: () => {
+			const doc = buildDoc({
+				appName: "Opt",
+				modules: [
+					{
+						name: "M",
+						forms: [
+							{
+								name: "F",
+								type: "survey",
+								fields: [
+									f({
+										kind: "single_select",
+										id: "color",
+										label: "Color",
+										options: [
+											{ value: "r", label: "Red" },
+											{ value: "g", label: "Green" },
+										],
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			backfillOptionUuids(doc);
+			const field = byId(doc, "color");
+			const options = (field as { options: Array<{ uuid: string }> }).options;
+			return {
+				doc,
+				batch: [
+					{
+						kind: "removeOption",
+						fieldUuid: field.uuid,
+						uuid: asUuid(options[0].uuid),
+					},
+				],
+			};
+		},
+		expectCodes: ["SELECT_TOO_FEW_OPTIONS"],
+	},
 } satisfies Record<Mutation["kind"], Coverage>;
 
+/** The single case-list column the rich Patients module is born with. */
+function patientsColumn(doc: BlueprintDoc): {
+	uuid: ReturnType<typeof asUuid>;
+} {
+	const col = doc.modules[asUuid("mod-patients")]?.caseListConfig?.columns[0];
+	if (!col) throw new Error("fixture missing Patients case-list column");
+	return col;
+}
+
 describe("re-scoping guard coverage — every mutation kind is decided", () => {
-	for (const [kind, coverage] of Object.entries(GUARD_COVERAGE)) {
+	for (const [kind, coverage] of Object.entries(GUARD_COVERAGE) as Array<
+		[string, Coverage]
+	>) {
 		if ("neverGates" in coverage) {
 			it(`${kind}: cannot introduce a gated finding (${coverage.neverGates})`, () => {
 				if (!coverage.build) return;

@@ -1,11 +1,11 @@
 /**
  * Form-row card in the AppTree sidebar.
  *
- * Renders the form header (type icon, name, optional Connect marker,
- * field count) plus — when expanded — the nested list of top-level
- * FieldRows for the form's fields. Subscribes by UUID to exactly
- * this form's entity, its field-order array, and its field-count
- * derivation, so unrelated form edits do not re-render this card.
+ * Renders the form header (type icon, name, optional Connect marker)
+ * plus — when expanded — the nested list of top-level FieldRows for
+ * the form's fields. Subscribes by UUID to exactly this form's entity
+ * and its field-order array, so unrelated form edits do not re-render
+ * this card.
  *
  * Field-label reference chips resolve through the shared `ReferenceProvider`
  * (each FieldRow against its own form), so no per-form icon map is threaded
@@ -24,10 +24,10 @@ import {
 import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { PeerBadge } from "@/components/builder/PeerBadge";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
-import { useFormDescendantCount } from "@/lib/doc/hooks/useFieldIconMap";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
 import type { Uuid } from "@/lib/domain";
@@ -67,11 +67,6 @@ export const FormCard = memo(function FormCard({
 	 *  when the form has no children entry, so downstream `.length`
 	 *  checks work without an existence guard. */
 	const fieldUuids = useOrderedFields(formId);
-
-	/** Recursive descendant count — drives the "N fields" badge. Walks every
-	 *  nested group so grouped fields are counted the same as top-level
-	 *  ones. */
-	const count = useFormDescendantCount(formId);
 
 	/** Boolean selection — URL-driven via useIsFormSelected.
 	 *  Only this form + the previously selected re-render on change. */
@@ -131,7 +126,7 @@ export const FormCard = memo(function FormCard({
 					<span className="w-3.5 shrink-0" />
 				)}
 				<div className="flex-1 min-w-0">
-					<div className="flex items-center gap-2">
+					<div className="flex items-center gap-2 min-w-0">
 						{form.icon ? (
 							// Form menu-tile icon, shown on the tree row too.
 							// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
@@ -163,14 +158,12 @@ export const FormCard = memo(function FormCard({
 						)}
 					</div>
 				</div>
-				{hasFields && (
-					<span className="text-xs text-nova-text-muted shrink-0">
-						{count} {count === 1 ? "field" : "fields"}
-					</span>
-				)}
 				{!locked && (
 					<TreeRowDelete label="Delete form" onDelete={handleDelete} />
 				)}
+				{/* Outermost on every row type — one constant right-edge offset
+				 *  (the hover-delete fades in just inboard). */}
+				<PeerBadge uuid={formId} />
 			</TreeItemRow>
 
 			{hasFields && !isCollapsed && (

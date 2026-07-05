@@ -46,6 +46,7 @@ npm run dev          # boots local case-store Postgres (compose.yaml) + migratio
 npm run build / lint / format / test
 npm run test:leaks   # full suite under the async-leak detector (CI scopes it to PR-changed tests via --changed)
 npm run test:smoke   # Playwright UI smoke (Firestore emulator + local Postgres + seeded session) — see e2e/CLAUDE.md
+npm run mp:watch     # watch the multiplayer suite live (2-user halves, then a 4-user quadrant storm); mp:manual = drive all four users yourself
 npm run typecheck    # fumadocs-mdx + tsc --noEmit
 npm run db:migrate               # apply case-store migrations (Kysely Migrator) against NOVA_DB_LOCAL_URL
 npx tsx scripts/test-schema.ts   # verify SA tool-input schemas are API-accepted

@@ -23,16 +23,47 @@
  * regress and only show up in production logs.
  */
 
+import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { applyMutations } from "@/lib/doc/mutations";
 import type { Field, Form, Module } from "@/lib/domain";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
 import { makeTestContext } from "./fixtures";
 
+/* The SA commits every batch through `commitGuardedBatch` (kind:'chat'). Mock
+ * it to re-apply the batch onto a TRACKED server doc and return the hydrated
+ * result — mirroring the real writer, so the SA's working doc advances across
+ * serialized tool calls exactly as it would against Firestore. `__seedServerDoc`
+ * seeds the tracked doc to the SA's initial doc per test. */
+const { commitGuardedBatchMock, seedServerDoc } = vi.hoisted(() => {
+	let serverDoc: unknown = null;
+	let seq = 0;
+	return {
+		seedServerDoc: (doc: unknown) => {
+			serverDoc = doc;
+			seq = 0;
+		},
+		commitGuardedBatchMock: vi.fn(async (args: { mutations: unknown[] }) => {
+			// biome-ignore lint/suspicious/noExplicitAny: test re-applies onto the tracked doc.
+			serverDoc = produce(serverDoc as any, (draft: any) => {
+				// biome-ignore lint/suspicious/noExplicitAny: mutation union threaded verbatim.
+				applyMutations(draft, args.mutations as any);
+			});
+			seq += 1;
+			return {
+				seq,
+				committedDoc: serverDoc,
+				deduped: false,
+			};
+		}),
+	};
+});
+
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
-	updateAppForRun: vi.fn(() => Promise.resolve()),
+	commitGuardedBatch: commitGuardedBatchMock,
 }));
 
 const MOD = asUuid("11111111-1111-1111-1111-111111111111");
@@ -104,7 +135,9 @@ describe("solutionsArchitect — tool execution serializer", () => {
 	});
 
 	it("serializes parallel mutating tools so neither write to the SA's working doc is lost", async () => {
-		const sa = createSolutionsArchitect(ctx, makeDoc(), false);
+		const doc = makeDoc();
+		seedServerDoc(doc);
+		const sa = createSolutionsArchitect(ctx, doc, false);
 
 		// Fire two `addFields` execute callbacks without awaiting between
 		// them — this matches what the AI SDK does when the model emits
@@ -142,7 +175,9 @@ describe("solutionsArchitect — tool execution serializer", () => {
 		// [addFields, getForm] would otherwise let `getForm` race past
 		// `addFields` and report stale state, which is the read-side
 		// equivalent of the write-side data-loss race.
-		const sa = createSolutionsArchitect(ctx, makeDoc(), false);
+		const doc = makeDoc();
+		seedServerDoc(doc);
+		const sa = createSolutionsArchitect(ctx, doc, false);
 
 		const inFlightWrite = runTool(sa, "addFields", {
 			moduleIndex: 0,

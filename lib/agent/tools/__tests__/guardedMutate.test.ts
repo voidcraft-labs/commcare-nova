@@ -70,10 +70,28 @@ function minDoc(): BlueprintDoc {
 
 /** Bare `ToolExecutionContext` stub — `recordMutations` (single-batch
  *  tools) and `recordMutationStages` (multi-stage tools) are the
- *  assertion surfaces; nothing here touches Firestore. */
+ *  assertion surfaces; nothing here touches Firestore. Both return the
+ *  `{ events, committedDoc }` shape the guarded writer surfaces, echoing
+ *  the passed post-mutation doc as the committed doc (the real writer's
+ *  hydrated `nextDoc` — here with no concurrent peer edit to merge). */
 function makeCtx() {
-	const recordMutations = vi.fn().mockResolvedValue([]);
-	const recordMutationStages = vi.fn().mockResolvedValue([]);
+	const recordMutations = vi.fn(
+		async (
+			_mutations: Mutation[],
+			doc: BlueprintDoc,
+			_stage?: string,
+			_mediaExpectations?: unknown,
+		) => ({
+			events: [],
+			committedDoc: doc,
+		}),
+	);
+	const recordMutationStages = vi.fn(
+		async (stages: Array<{ doc: BlueprintDoc }>) => ({
+			events: [],
+			committedDoc: stages[stages.length - 1]?.doc,
+		}),
+	);
 	const ctx: ToolExecutionContext = {
 		appId: "app-1",
 		userId: "user-1",
@@ -81,7 +99,7 @@ function makeCtx() {
 		recordMutations,
 		recordMutationStages,
 		recordConversation: vi.fn(),
-	};
+	} as unknown as ToolExecutionContext;
 	return { ctx, recordMutations, recordMutationStages };
 }
 

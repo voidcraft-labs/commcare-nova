@@ -38,7 +38,7 @@
 // live surface's gate.
 //
 // Surfaces: chat runs the verdict as a pre-commit read (the run owns its
-// doc between the read and the fire-and-forget save). MCP re-runs the
+// doc between the read and the inline guarded commit). MCP re-runs the
 // per-asset judgment INSIDE the transactional commit — the expectations
 // ride `guardedMutate` → `recordMutations` → `applyBlueprintChange`'s
 // guard, and `describeMediaExpectationFailures` is re-applied to rows

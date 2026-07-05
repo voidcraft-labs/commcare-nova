@@ -183,6 +183,17 @@ interface AccumulatorRunConfig {
 	/** Input-context composition for the finalize log — see `AccumulatorSeed`. */
 	sentMessageCount: number;
 	sentMessageChars: number;
+	/**
+	 * Credit-reservation context — see `AccumulatorSeed`. Seed-only until P9's
+	 * serialize-with-wait path, where a conflicting run reserves INSIDE the
+	 * stream (after the poll-wait + `claimRun`), so the accumulator — built
+	 * before the stream with no reservation context on that path — must be told
+	 * the reservation once it lands, or the flush-time refund/settle targets the
+	 * wrong period (or misfires entirely). All three travel together.
+	 */
+	didReserve: boolean;
+	reservedAmount: number;
+	chargePeriod: string;
 }
 
 /**
@@ -389,8 +400,10 @@ export class UsageAccumulator {
 				// The marker (period + amount) lives on the app doc, co-committed with
 				// the debit at reserve time, so the refund reads it from there — and
 				// settles it atomically, so the reaper can never double-refund a hold
-				// this live flush already returned.
-				await refundReservation(this.seed.appId);
+				// this live flush already returned. Passing `runId` ownership-gates it:
+				// a run that was reaped mid-flight + its app re-claimed must not claw the
+				// new run's live marker (its `reserveCredits` overwrote `runId`).
+				await refundReservation(this.seed.appId, this.seed.runId);
 			} catch (err) {
 				/* The refund was owed but its transaction did not commit. Record it so
 				 * the route leaves the row reapable (rather than flipping to a status the

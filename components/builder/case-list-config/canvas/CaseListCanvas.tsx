@@ -31,6 +31,7 @@ import {
 	useReorderableList,
 } from "@/components/builder/shared/useReorderableList";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseListConfig, Column } from "@/lib/domain";
 import { renderColumnCell } from "../columnCellRenderer";
 import { summarizeFilter } from "../predicateSummary";
@@ -84,7 +85,11 @@ export function CaseListCanvas({
 	generateSampleData,
 }: CaseListCanvasProps) {
 	const containerKey = useId();
-	const columns = config.columns;
+	// DISPLAY order (`sort-by-(order, uuid)`, the same sequence the wire +
+	// preview show), not `columns` array position — render, the reorder drag's
+	// from/to indices, and the sort badges all key off this so an SA/MCP
+	// `moveColumn` reflects here and a subsequent drag computes correct indices.
+	const columns = [...config.columns].sort(bySortKey);
 	const selectedColumnUuid =
 		selection?.type === "column" ? selection.uuid : null;
 

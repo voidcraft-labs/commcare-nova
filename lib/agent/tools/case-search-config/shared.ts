@@ -222,7 +222,7 @@ export const setCaseSearchDisplayBodySchema = z
 /**
  * Pick the existing `caseSearchConfig` off a module. Returns
  * `undefined` when absent; the tools handle the rebuild over
- * `existing ?? {}`. Mirrors `snapshotCaseListConfig`.
+ * `existing ?? {}`.
  */
 export function snapshotCaseSearchConfig(
 	mod: Module,

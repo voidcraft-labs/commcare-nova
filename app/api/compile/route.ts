@@ -21,14 +21,19 @@ import { prepareCompileRequest } from "./prepareCompileRequest";
  */
 export async function POST(req: NextRequest) {
 	try {
-		const { doc, assets } = await prepareCompileRequest(req, {
+		const { doc, assets, compiledAtSeq } = await prepareCompileRequest(req, {
 			boundaryErrorVerb: "compile",
 		});
 
 		// Compile is always media-ON — the archive bundles whatever the manifest
-		// resolved (an empty manifest simply emits no media artifacts).
+		// resolved (an empty manifest simply emits no media artifacts). The
+		// blueprint's `mutation_seq` stamps the profile's `cc-content-version` so
+		// the archive names the exact document version it was built from.
 		const hqJson = expandDoc(doc, { assets });
-		const buffer = compileCcz(hqJson, doc.appName, doc, { assets });
+		const buffer = compileCcz(hqJson, doc.appName, doc, {
+			assets,
+			compiledAtSeq,
+		});
 
 		// Stream the freshly-built archive straight back to the caller. The
 		// download filename is sanitized because `appName` is user-controlled

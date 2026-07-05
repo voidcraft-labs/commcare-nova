@@ -19,15 +19,26 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { removeModuleTool } from "../removeModule";
 
 function makeCtx() {
-	const recordMutations = vi.fn().mockResolvedValue([]);
+	// The guarded writer returns `{ events, committedDoc }`; echo the passed
+	// post-mutation doc as the committed doc so the tool's `newDoc` reflects it.
+	const recordMutations = vi.fn(async (_m: unknown, doc: unknown) => ({
+		events: [],
+		committedDoc: doc,
+	}));
+	const recordMutationStages = vi.fn(
+		async (stages: Array<{ doc: unknown }>) => ({
+			events: [],
+			committedDoc: stages[stages.length - 1]?.doc,
+		}),
+	);
 	const ctx: ToolExecutionContext = {
 		appId: "app-1",
 		userId: "user-1",
 		runId: "run-1",
 		recordMutations,
-		recordMutationStages: vi.fn().mockResolvedValue([]),
+		recordMutationStages,
 		recordConversation: vi.fn(),
-	};
+	} as unknown as ToolExecutionContext;
 	return { ctx, recordMutations };
 }
 
@@ -113,7 +124,7 @@ describe("removeModule", () => {
 		expect(recordMutations).toHaveBeenCalledTimes(1);
 		expect(out.mutations).toEqual([
 			{ kind: "removeModule", uuid: expect.any(String) },
-			{ kind: "setCaseTypes", caseTypes: [record("patient")] },
+			{ kind: "retireCaseType", caseType: "visit" },
 		]);
 		expect(out.newDoc.moduleOrder).toHaveLength(1);
 		expect(out.newDoc.caseTypes).toEqual([record("patient")]);

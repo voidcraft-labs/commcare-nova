@@ -62,6 +62,35 @@ emulator, seeds, then runs Playwright (which builds + starts the production serv
 `next build && next start`). It uses a throwaway `BETTER_AUTH_SECRET` and dummy OAuth
 creds — never production secrets.
 
+## See multiplayer in action (tiled windows, live)
+
+Both modes ride the same hermetic stack and seed as the smoke suite — no real GCP,
+no Google accounts (Ada, Grace, Katherine, and Alan are forged-cookie sessions in
+one shared Project):
+
+```bash
+npm run mp:watch     # WATCH the acceptance suite run itself, 3 s between actions:
+                     # the two-user matrix runs in side-by-side halves, then the
+                     # FOUR-user co-editing storm runs in screen QUADRANTS — a
+                     # four-writer disjoint storm, same-slot convergence, crowd
+                     # undo isolation, and an offline member catching up on a
+                     # three-writer burst. MP_SLOWMO=1000 npm run mp:watch → snappier.
+                     # Each page zooms (CSS) to fit its tile, so the whole desktop
+                     # layout stays visible even on a 13" screen.
+
+npm run mp:manual    # DRIVE all four members yourself: Ada (owner, top-left),
+                     # Grace (top-right), Katherine (bottom-left), Alan
+                     # (bottom-right) logged into the same shared app, one screen
+                     # quadrant each, alive until you close every window (or
+                     # Ctrl-C). Edits, presence, follow, undo — all live over the
+                     # real SSE stream.
+```
+
+Each launch pays the production build (~2 min). Relaunching with **unchanged code**
+can skip it: `SMOKE_REUSE_BUILD=1 npm run mp:manual` serves the existing `.next`
+(`next start` fails loudly if there's no production build to reuse). Window tiling
+is Chromium-on-a-real-display niceness — headless or non-Chromium runs just skip it.
+
 ## Run against a live deployment (post-deploy prod probe)
 
 The credential-free `public` checks run against any URL — the cheapest thing that

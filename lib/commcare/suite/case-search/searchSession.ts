@@ -10,6 +10,7 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseListConfig, CaseSearchConfig } from "@/lib/domain";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import { validateCaseType } from "../../identifierValidation";
@@ -159,8 +160,10 @@ export function buildSearchSession(args: {
 		);
 	}
 
+	// `<prompt>`s render in DISPLAY order (`sort-by-(order, uuid)`); the
+	// instance accumulation below is order-independent (a Set).
 	const promptEmission = buildSearchPrompts(
-		caseListConfig.searchInputs,
+		[...caseListConfig.searchInputs].sort(bySortKey),
 		moduleId,
 	);
 

@@ -15,6 +15,7 @@
 import { getAuthDb } from "@/lib/auth/db";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import { loadApp, loadAppProjectId } from "./apps";
+import { projectRoleFor } from "./projectMembership";
 import type { AppDoc } from "./types";
 
 export type AppAccessReason = "not_found" | "not_member" | "insufficient_role";
@@ -45,21 +46,6 @@ export interface ProjectAccess {
 	readonly projectId: string;
 	readonly role: string;
 	readonly actorUserId: string;
-}
-
-/** The caller's role in `organizationId`, or null if they aren't a member. */
-async function projectRoleFor(
-	userId: string,
-	organizationId: string,
-): Promise<string | null> {
-	const db = await getAuthDb();
-	const row = await db
-		.selectFrom("auth_member")
-		.select("role")
-		.where("userId", "=", userId)
-		.where("organizationId", "=", organizationId)
-		.executeTakeFirst();
-	return row?.role ?? null;
 }
 
 /**

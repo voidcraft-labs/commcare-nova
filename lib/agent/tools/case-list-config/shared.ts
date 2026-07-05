@@ -32,10 +32,8 @@
 
 import { z } from "zod";
 import {
-	type CaseListConfig,
 	type Column,
 	columnSchema,
-	type Module,
 	type SearchInputDef,
 	searchInputDefSchema,
 	type Uuid,
@@ -55,7 +53,9 @@ export { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 // both surfaces. Same approach for the search-input tools.
 //
 // Each arm comes from `columnSchema.options` / `searchInputDefSchema.options`
-// with `uuid` omitted. Destructuring per-arm preserves the TS-inferred
+// with `uuid` and `order` omitted — both are tool-owned (uuid minted on add /
+// carried on update; the fractional `order` sort key is computed by the
+// gesture/diff layer, never authored by the SA). Destructuring per-arm preserves the TS-inferred
 // per-arm shape so the discriminated union retypes cleanly — the
 // `Iterable<ZodObject>.map(...)` form drops the per-arm narrowing into
 // a non-callable union TS can't dispatch through `omit`.
@@ -75,18 +75,19 @@ const [
 ] = columnSchema.options;
 
 /**
- * Per-arm `Column` schema with the `uuid` slot omitted. Surface the SA
- * passes when adding or updating a column — the uuid is owned by the
- * tool (minted on add, looked up by `columnUuid` on update).
+ * Per-arm `Column` schema with the `uuid` and `order` slots omitted.
+ * Surface the SA passes when adding or updating a column — the uuid is owned
+ * by the tool (minted on add, looked up by `columnUuid` on update) and the
+ * fractional `order` sort key is computed by the gesture/diff layer.
  */
 export const columnInputSchema = z.discriminatedUnion("kind", [
-	plainColumnArm.omit({ uuid: true }),
-	dateColumnArm.omit({ uuid: true }),
-	phoneColumnArm.omit({ uuid: true }),
-	idMappingColumnArm.omit({ uuid: true }),
-	imageMapColumnArm.omit({ uuid: true }),
-	intervalColumnArm.omit({ uuid: true }),
-	calculatedColumnArm.omit({ uuid: true }),
+	plainColumnArm.omit({ uuid: true, order: true }),
+	dateColumnArm.omit({ uuid: true, order: true }),
+	phoneColumnArm.omit({ uuid: true, order: true }),
+	idMappingColumnArm.omit({ uuid: true, order: true }),
+	imageMapColumnArm.omit({ uuid: true, order: true }),
+	intervalColumnArm.omit({ uuid: true, order: true }),
+	calculatedColumnArm.omit({ uuid: true, order: true }),
 ]);
 export type ColumnInput = z.infer<typeof columnInputSchema>;
 
@@ -94,12 +95,12 @@ const [simpleSearchInputArm, advancedSearchInputArm] =
 	searchInputDefSchema.options;
 
 /**
- * Per-arm `SearchInputDef` schema with the `uuid` slot omitted. Mirrors
- * `columnInputSchema` for the search-input add / update tools.
+ * Per-arm `SearchInputDef` schema with the `uuid` and `order` slots omitted.
+ * Mirrors `columnInputSchema` for the search-input add / update tools.
  */
 export const searchInputDefInputSchema = z.discriminatedUnion("kind", [
-	simpleSearchInputArm.omit({ uuid: true }),
-	advancedSearchInputArm.omit({ uuid: true }),
+	simpleSearchInputArm.omit({ uuid: true, order: true }),
+	advancedSearchInputArm.omit({ uuid: true, order: true }),
 ]);
 export type SearchInputDefInput = z.infer<typeof searchInputDefInputSchema>;
 
@@ -181,40 +182,6 @@ export function newUuid(): Uuid {
  * value into the branded `Uuid`-typed mutation builders.
  */
 export const uuidInputSchema = z.string().min(1);
-
-// ── Snapshot helper ─────────────────────────────────────────────────
-
-/**
- * Pick the existing `caseListConfig` off the supplied module entity,
- * falling back to an empty config when the module has none. Read by
- * every case-list-config tool — the atomic-op mutation builders in
- * `lib/agent/blueprintHelpers.ts` and the wholesale `setCaseListFilter`
- * tool — before applying a slot-specific patch so the surrounding
- * slots survive the edit.
- *
- * Three-slot empty fallback: `columns` and `searchInputs` start as
- * empty arrays, `filter` is OMITTED rather than `undefined`. The
- * schema treats absence as "no filter," and a literal `filter:
- * undefined` would round-trip as an explicit clear at the reducer's
- * `Object.assign`. The non-empty path preserves the live `filter`
- * reference when present and leaves the key absent otherwise.
- *
- * Returns live array references — callers that mutate must copy
- * first. The case-list-config consumers all do: the atomic builders
- * either spread (`[...base.columns, column]`) or thread through
- * `replaceByUuid` / `removeByUuid` / `reorderByUuid`, each of which
- * slices internally before splicing; `setCaseListFilter` destructures
- * into a fresh object before patching. No consumer mutates in place.
- */
-export function snapshotCaseListConfig(mod: Module): CaseListConfig {
-	const config = mod.caseListConfig;
-	if (config === undefined) return { columns: [], searchInputs: [] };
-	return {
-		columns: config.columns,
-		searchInputs: config.searchInputs,
-		...(config.filter !== undefined && { filter: config.filter }),
-	};
-}
 
 // ── Uuid-keyed array helpers ────────────────────────────────────────
 //

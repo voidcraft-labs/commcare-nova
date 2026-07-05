@@ -380,20 +380,30 @@ describe("credit policy — pure helpers and constants", () => {
 describe("reserveCredits", () => {
 	const USER = "user-reserve-test";
 	const APP = "app-reserve-test";
+	const RUN = "run-reserve-test";
 
 	beforeEach(() => {
 		txGet.mockReset();
 		txSet.mockReset();
 		runTransactionMock.mockReset();
 		// Default driver: run the closure exactly once with the spy-backed tx.
+		// `reserveCredits` reads TWO docs — the credit-month `ref` (the scripted
+		// balance the cases drive) AND the app `appRef` (to refund a leftover
+		// unsettled marker before overwriting). Route the app read to a fixed
+		// no-marker snapshot so a case's `txGet` script still describes the CREDIT
+		// doc alone; the leftover-refund path has its own dedicated cases below.
+		const routedGet = async (readRef: unknown) =>
+			readRef === appRef
+				? { exists: true, data: () => ({ owner: USER }) }
+				: txGet(readRef);
 		runTransactionMock.mockImplementation(
 			async (
 				closure: (tx: {
-					get: typeof txGet;
+					get: typeof routedGet;
 					set: typeof txSet;
 				}) => Promise<void>,
 			) => {
-				await closure({ get: txGet, set: txSet });
+				await closure({ get: routedGet, set: txSet });
 			},
 		);
 	});
@@ -424,7 +434,7 @@ describe("reserveCredits", () => {
 		txGet.mockResolvedValue({ exists: false, data: () => undefined });
 		const { reserveCredits } = await import("../credits");
 
-		const result = await reserveCredits(USER, CREDITS_PER_BUILD, APP);
+		const result = await reserveCredits(USER, CREDITS_PER_BUILD, APP, RUN);
 
 		expect(setPayload()).toEqual({
 			allowance: MONTHLY_CREDIT_ALLOWANCE,
@@ -434,21 +444,52 @@ describe("reserveCredits", () => {
 		});
 		// The marker is co-written onto the app doc in the same transaction, so a
 		// committed charge always carries the record the reaper refunds against.
-		expect(markerPayload()).toEqual({
-			reservation: {
-				period: getCurrentPeriod(),
-				reserved: CREDITS_PER_BUILD,
-				settled: false,
-				// The charged actor is recorded so a refund returns the hold to
-				// the user who ran it, not `app.owner`.
-				userId: USER,
-			},
+		// The marker actively CLEARS `expireAt` with `FieldValue.delete()` (not
+		// just omits it): liveness is the `run_lock`'s SINGLE horizon, so the marker
+		// carries none of its own — and a `merge:true` deep-merge would otherwise
+		// let a fresh marker inherit a legacy marker's stale `expireAt`. The delete
+		// scrubs it.
+		const marker = markerPayload().reservation as Record<string, unknown>;
+		expect(marker).toMatchObject({
+			period: getCurrentPeriod(),
+			reserved: CREDITS_PER_BUILD,
+			settled: false,
+			// The charged actor is recorded so a refund returns the hold to
+			// the user who ran it, not `app.owner`.
+			userId: USER,
+			// The run that booked it — the per-run identity a paused-BUILD resume and
+			// the stale-edit reaper check.
+			runId: RUN,
 		});
+		// `expireAt` is the delete sentinel — the field is scrubbed on commit; the
+		// marker never carries a second liveness horizon of its own.
+		expect(marker.expireAt).toStrictEqual(FieldValue.delete());
 		// The booked period is the genuine current period; reserved echoes cost.
 		expect(result).toEqual({
 			period: getCurrentPeriod(),
 			reserved: CREDITS_PER_BUILD,
 		});
+	});
+
+	it("also clears expireAt on an EDIT marker — one liveness horizon (the run_lock), not a marker-side one", async () => {
+		// Single-horizon: an EDIT marker no longer carries its own
+		// `expireAt` either (the divergent second horizon that clawed back a live
+		// long edit is gone). The edit reaper keys on the `run_lock`, so the marker
+		// scrubs `expireAt` exactly as the build case does.
+		txGet.mockResolvedValue({ exists: false, data: () => undefined });
+		const { reserveCredits } = await import("../credits");
+
+		await reserveCredits(USER, CREDITS_PER_EDIT, APP, RUN);
+
+		const marker = markerPayload().reservation as Record<string, unknown>;
+		expect(marker).toMatchObject({
+			period: getCurrentPeriod(),
+			reserved: CREDITS_PER_EDIT,
+			settled: false,
+			userId: USER,
+		});
+		// Same as the build case: the edit marker scrubs its own `expireAt`.
+		expect(marker.expireAt).toStrictEqual(FieldValue.delete());
 	});
 
 	it("increments consumed on an existing affordable doc, preserving allowance and bonus", async () => {
@@ -463,7 +504,7 @@ describe("reserveCredits", () => {
 		});
 		const { reserveCredits } = await import("../credits");
 
-		const result = await reserveCredits(USER, CREDITS_PER_BUILD, APP);
+		const result = await reserveCredits(USER, CREDITS_PER_BUILD, APP, RUN);
 
 		expect(setPayload()).toEqual({
 			allowance: 2000,
@@ -489,7 +530,7 @@ describe("reserveCredits", () => {
 		});
 		const { reserveCredits } = await import("../credits");
 
-		await reserveCredits(USER, CREDITS_PER_BUILD, APP);
+		await reserveCredits(USER, CREDITS_PER_BUILD, APP, RUN);
 
 		expect(setPayload()).toMatchObject({ consumed: 2000 });
 	});
@@ -505,7 +546,7 @@ describe("reserveCredits", () => {
 		const { OutOfCreditsError, reserveCredits } = await import("../credits");
 
 		await expect(
-			reserveCredits(USER, CREDITS_PER_BUILD, APP),
+			reserveCredits(USER, CREDITS_PER_BUILD, APP, RUN),
 		).rejects.toBeInstanceOf(OutOfCreditsError);
 		expect(txSet).not.toHaveBeenCalled();
 	});
@@ -542,22 +583,29 @@ describe("reserveCredits", () => {
 				data: () => ({ allowance: 2000, consumed: 2000, bonus: 0 }),
 			});
 		// Drive the closure twice, mirroring Firestore's real retry loop when a
-		// concurrent writer commits between our read and our set.
+		// concurrent writer commits between our read and our set. The app-ref read
+		// (leftover-marker check) routes to a fixed no-marker snapshot so the two
+		// scripted `txGet` snapshots describe the CREDIT doc's re-read across the
+		// abort/retry, not the app read.
+		const routedGet = async (readRef: unknown) =>
+			readRef === appRef
+				? { exists: true, data: () => ({ owner: USER }) }
+				: txGet(readRef);
 		runTransactionMock.mockImplementationOnce(
 			async (
 				closure: (tx: {
-					get: typeof txGet;
+					get: typeof routedGet;
 					set: typeof txSet;
 				}) => Promise<void>,
 			) => {
-				await closure({ get: txGet, set: txSet });
-				await closure({ get: txGet, set: txSet });
+				await closure({ get: routedGet, set: txSet });
+				await closure({ get: routedGet, set: txSet });
 			},
 		);
 		const { OutOfCreditsError, reserveCredits } = await import("../credits");
 
 		await expect(
-			reserveCredits(USER, CREDITS_PER_BUILD, APP),
+			reserveCredits(USER, CREDITS_PER_BUILD, APP, RUN),
 		).rejects.toBeInstanceOf(OutOfCreditsError);
 		// Attempt 1 booked the charge AND co-wrote the marker (two sets); attempt 2
 		// re-read the depleted balance and rejected before writing. Under Firestore's
@@ -604,6 +652,7 @@ function payloadForRef(target: unknown): Record<string, unknown> {
 describe("refundReservation", () => {
 	const APP = "app-refund-test";
 	const OWNER = "user-refund-test";
+	const RUN = "run-refund-test";
 	const PERIOD = "2026-06";
 
 	beforeEach(installTransactionDriver);
@@ -636,7 +685,7 @@ describe("refundReservation", () => {
 		);
 		const { refundReservation } = await import("../credits");
 
-		await refundReservation(APP);
+		await refundReservation(APP, RUN);
 
 		expect(payloadForRef(ref)).toEqual({
 			consumed: 250 - CREDITS_PER_BUILD,
@@ -664,7 +713,7 @@ describe("refundReservation", () => {
 		);
 		const { refundReservation } = await import("../credits");
 
-		await refundReservation(APP);
+		await refundReservation(APP, RUN);
 
 		expect(payloadForRef(ref)).toMatchObject({ consumed: 0 });
 	});
@@ -686,7 +735,7 @@ describe("refundReservation", () => {
 		});
 		const { refundReservation } = await import("../credits");
 
-		await refundReservation(APP);
+		await refundReservation(APP, RUN);
 
 		expect(txSet).not.toHaveBeenCalled();
 	});
@@ -701,7 +750,7 @@ describe("refundReservation", () => {
 		});
 		const { refundReservation } = await import("../credits");
 
-		await refundReservation(APP);
+		await refundReservation(APP, RUN);
 
 		expect(txSet).not.toHaveBeenCalled();
 	});
@@ -716,7 +765,7 @@ describe("refundReservation", () => {
 		);
 		const { refundReservation } = await import("../credits");
 
-		await refundReservation(APP);
+		await refundReservation(APP, RUN);
 
 		expect(txSet.mock.calls.find(([setRef]) => setRef === ref)).toBeUndefined();
 		expect(payloadForRef(appRef)).toEqual({

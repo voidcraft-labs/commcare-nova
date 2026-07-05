@@ -47,7 +47,7 @@ import {
 	setFieldMediaMutations,
 } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import type { MutatingToolResult } from "../common";
+import { type MutatingToolResult, toToolErrorResult } from "../common";
 import {
 	attachGuardedMutate,
 	brandMediaBundle,
@@ -179,12 +179,7 @@ export const attachFieldMediaTool = {
 				result: `${verb} ${slots} ${slot} media on field "${fieldId}".`,
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

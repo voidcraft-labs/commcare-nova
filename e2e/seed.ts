@@ -26,6 +26,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { betterAuth } from "better-auth";
+import type { Pool } from "pg";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import {
@@ -35,6 +36,7 @@ import {
 import { createApp } from "@/lib/db/apps";
 import { getDb } from "@/lib/db/firestore";
 import { DELETE_APP_COUNT } from "./lib/config";
+import { MP_SEED, seedMultiplayerFixture } from "./lib/multiplayerSeed";
 import { buildSessionStorageState } from "./lib/session";
 
 /** Stable identifiers the tests assert against (mirrored in `authed.spec.ts`). */
@@ -49,6 +51,8 @@ export const SEED = {
 const AUTH_DIR = path.join(process.cwd(), "e2e", ".auth");
 const STATE_FILE = path.join(AUTH_DIR, "state.json");
 const SEED_FILE = path.join(AUTH_DIR, "seed.json");
+/** The two-user multiplayer fixture manifest (`multiplayer.spec.ts` reads it). */
+const MULTIPLAYER_FILE = path.join(AUTH_DIR, "multiplayer.json");
 
 function requireEnv(name: string): string {
 	const value = process.env[name];
@@ -58,6 +62,47 @@ function requireEnv(name: string): string {
 		);
 	}
 	return value;
+}
+
+/**
+ * Delete the seed's OWN auth rows (idempotency for the persistent local
+ * Postgres volume). Scoped to the exact fixed ids/slug this seed creates —
+ * children (sessions, members) before parents (users, organizations) for FK
+ * order — so a re-run starts clean without a blanket truncate that could
+ * disturb another suite sharing the pool. A fresh CI volume deletes nothing.
+ */
+async function clearSeedAuthRows(pool: Pool): Promise<void> {
+	const userIds = [
+		SEED.userId,
+		MP_SEED.userA.id,
+		MP_SEED.userB.id,
+		MP_SEED.userC.id,
+		MP_SEED.userD.id,
+	];
+	// Every org this seed touches: the shared multiplayer Project + the personal
+	// Project `ensurePersonalProject` mints for the single-user seed. Deleting
+	// the org (not just its membership) lets `ensurePersonalProject` recreate it
+	// WITH its owner membership — deleting only the membership would strand the
+	// org and leave the re-run's user unable to resolve app scope.
+	const orgSlugs = [
+		`mp-shared-${MP_SEED.userA.id}`,
+		...userIds.map((id) => `personal-${id}`),
+	];
+	await pool.query(`DELETE FROM auth_session WHERE "userId" = ANY($1)`, [
+		userIds,
+	]);
+	await pool.query(`DELETE FROM auth_member WHERE "userId" = ANY($1)`, [
+		userIds,
+	]);
+	await pool.query(
+		`DELETE FROM auth_member WHERE "organizationId" IN
+		(SELECT id FROM auth_organization WHERE slug = ANY($1))`,
+		[orgSlugs],
+	);
+	await pool.query(`DELETE FROM auth_organization WHERE slug = ANY($1)`, [
+		orgSlugs,
+	]);
+	await pool.query(`DELETE FROM auth_user WHERE id = ANY($1)`, [userIds]);
 }
 
 async function main(): Promise<void> {
@@ -85,6 +130,15 @@ async function main(): Promise<void> {
 	const pool = await getCaseStorePool();
 	const auth = betterAuth({ ...authMigrateOptions(pool), secret });
 	const ctx = await auth.$context;
+
+	// The case-store Postgres volume PERSISTS across local runs (compose named
+	// volume), so a re-run re-inserting the seed's FIXED-id rows would 23505 on
+	// the primary key. Delete this seed's own rows first (children before
+	// parents for FK order) so every run starts from a clean slate — scoped to
+	// the exact ids/emails/slug the seed owns, never a blanket truncate that
+	// could disturb a concurrent suite. A fresh CI volume no-ops these deletes.
+	await clearSeedAuthRows(pool);
+
 	await ctx.adapter.create({
 		model: "user",
 		forceAllowId: true,
@@ -145,8 +199,21 @@ async function main(): Promise<void> {
 		JSON.stringify({ ...SEED, openAppId, deleteAppIds, baseUrl }, null, 2),
 	);
 
+	// Two-user shared-Project fixture for the multiplayer acceptance spec —
+	// reuses the same Better Auth instance (adapter + secret) and the same
+	// cookie signer, and writes a `complete` shared app both members co-edit.
+	const multiplayer = await seedMultiplayerFixture({
+		ctx,
+		secret,
+		baseUrl,
+		authDir: AUTH_DIR,
+		writeFile,
+		pathJoin: path.join,
+	});
+	await writeFile(MULTIPLAYER_FILE, JSON.stringify(multiplayer, null, 2));
+
 	console.log(
-		`[seed] user=${SEED.userId} openApp=${openAppId} deleteApps=${deleteAppIds.length}\n[seed] wrote ${path.relative(process.cwd(), STATE_FILE)} + ${path.relative(process.cwd(), SEED_FILE)}`,
+		`[seed] user=${SEED.userId} openApp=${openAppId} deleteApps=${deleteAppIds.length}\n[seed] wrote ${path.relative(process.cwd(), STATE_FILE)} + ${path.relative(process.cwd(), SEED_FILE)}\n[seed] multiplayer app=${multiplayer.appId} project=shared users=${multiplayer.userA.id},${multiplayer.userB.id}`,
 	);
 
 	// Release both clients so the process exits promptly — the Firestore gRPC

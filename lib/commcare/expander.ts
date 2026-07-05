@@ -37,6 +37,7 @@ import { buildMultimediaMap } from "@/lib/commcare/multimedia/bundle";
 import { buildLogoRefs } from "@/lib/commcare/multimedia/logoEntry";
 import { buildNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
+import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
@@ -45,7 +46,6 @@ import {
 	isXPathExpression,
 	printXPath,
 	type Uuid,
-	type XPathPrintableDoc,
 	xpathPrintContext,
 } from "@/lib/domain";
 import { buildConnectSlugMap } from "./connectSlugs";
@@ -67,10 +67,10 @@ import { buildXForm } from "./xform/builder";
  * that fails upload.
  */
 function translateFormLinks(
-	doc: XPathPrintableDoc,
+	doc: BlueprintDoc,
 	links: FormLink[],
-	moduleOrder: Uuid[],
-	formOrder: Record<Uuid, Uuid[]>,
+	sortedModuleUuids: Uuid[],
+	sortedFormOrder: Record<string, Uuid[]>,
 ): HqFormLink[] {
 	// AST-stored conditions/datums project to text here — the HQ wire
 	// shape speaks strings, and identity leaves resolve to current names.
@@ -82,6 +82,12 @@ function translateFormLinks(
 		if (isXPathExpression(value)) return printXPath(value, ctx);
 		return undefined;
 	};
+	// The target's `moduleIndex` / `formIndex` are the SORTED menu positions —
+	// the same `orderedModule/FormUuids` sequences the suite's `<command>` ids
+	// (`m{i}-f{j}`) are emitted in — so a `form_links` navigation target resolves
+	// to the right command after a module/form reorder, NOT the raw array slot.
+	// `expandDoc` already computed these once for the whole export; reuse them
+	// rather than re-sorting per form / per link.
 	const out: HqFormLink[] = [];
 	for (const link of links) {
 		const target = link.target;
@@ -94,10 +100,10 @@ function translateFormLinks(
 			name: datum.name,
 			xpath: project(datum.xpath) ?? "",
 		}));
+		const moduleIndex = sortedModuleUuids.indexOf(target.moduleUuid);
+		if (moduleIndex < 0) continue;
 		if (target.type === "form") {
-			const moduleIndex = moduleOrder.indexOf(target.moduleUuid);
-			if (moduleIndex < 0) continue;
-			const formIndex = (formOrder[target.moduleUuid] ?? []).indexOf(
+			const formIndex = (sortedFormOrder[target.moduleUuid] ?? []).indexOf(
 				target.formUuid,
 			);
 			if (formIndex < 0) continue;
@@ -107,8 +113,6 @@ function translateFormLinks(
 				...(datums !== undefined && { datums }),
 			});
 		} else {
-			const moduleIndex = moduleOrder.indexOf(target.moduleUuid);
-			if (moduleIndex < 0) continue;
 			out.push({
 				...(condition !== undefined && { condition }),
 				target: { type: "module", moduleIndex },
@@ -154,11 +158,23 @@ export function expandDoc(
 	// expander uses this to activate `parent_select` on the child
 	// module so CommCare prompts for a parent case before creating the
 	// child. Case list columns never affect this — they're presentation.
+	// The canonical module + per-module form sequences are DISPLAY order
+	// (`sort-by-(order, uuid)`), NOT `moduleOrder`/`formOrder` array position —
+	// a reorder leaves the arrays untouched. Every index this expander assigns
+	// (`mIdx`, the menu/command order, the form-link target `m{i}-f{j}`) is into
+	// these sorted sequences; the compiler walks the SAME sorted order in
+	// lockstep, so the indices agree.
+	const sortedModuleUuids = orderedModuleUuids(doc);
+	const sortedFormOrder: Record<string, Uuid[]> = {};
+	for (const moduleUuid of sortedModuleUuids) {
+		sortedFormOrder[moduleUuid] = orderedFormUuids(doc, moduleUuid);
+	}
+
 	const childCaseParents = new Map<string, number>();
 	if (doc.caseTypes) {
 		for (const ct of doc.caseTypes) {
 			if (!ct.parent_type) continue;
-			const parentIdx = doc.moduleOrder.findIndex(
+			const parentIdx = sortedModuleUuids.findIndex(
 				(mUuid) => doc.modules[mUuid].caseType === ct.parent_type,
 			);
 			if (parentIdx !== -1) childCaseParents.set(ct.name, parentIdx);
@@ -169,9 +185,9 @@ export function expandDoc(
 	// on a child module references its parent module's id, so building
 	// every module in a single pass requires the id table before the
 	// `.map()` runs. Generating here also keeps id allocation ordered
-	// with `doc.moduleOrder` so reads into this array by `parentIdx` are
-	// always consistent with the module we're currently emitting.
-	const moduleUniqueIds = doc.moduleOrder.map(() => genHexId());
+	// with the sorted module sequence so reads into this array by `parentIdx`
+	// are always consistent with the module we're currently emitting.
+	const moduleUniqueIds = sortedModuleUuids.map(() => genHexId());
 
 	// Resolve the per-form Connect configs for emission. `buildConnectSlugMap`
 	// is a typed pass-through — connect ids are already valid + unique + ≤50
@@ -181,9 +197,9 @@ export function expandDoc(
 	// config so their data paths agree. Empty for non-Connect apps.
 	const connectSlugs = buildConnectSlugMap(doc);
 
-	const modules = doc.moduleOrder.map((moduleUuid, mIdx) => {
+	const modules = sortedModuleUuids.map((moduleUuid, mIdx) => {
 		const mod = doc.modules[moduleUuid];
-		const formUuids = doc.formOrder[moduleUuid] ?? [];
+		const formUuids = sortedFormOrder[moduleUuid] ?? [];
 
 		// A module "has cases" when it owns a case type AND either runs as
 		// a case-list-only module (no forms) or carries at least one
@@ -225,8 +241,8 @@ export function expandDoc(
 				? translateFormLinks(
 						doc,
 						form.formLinks,
-						doc.moduleOrder,
-						doc.formOrder,
+						sortedModuleUuids,
+						sortedFormOrder,
 					)
 				: [];
 

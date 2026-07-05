@@ -40,14 +40,20 @@ import { log } from "@/lib/logger";
 import { delay } from "@/lib/utils/delay";
 import { firestoreClientOptions } from "./firestoreClientOptions";
 import {
+	type AcceptedMutationDoc,
 	type AppDoc,
+	acceptedMutationSchema,
 	appDocSchema,
+	type BatchDedupDoc,
+	batchDedupSchema,
 	type CreditGrantDoc,
 	type CreditMonthDoc,
 	creditGrantDocSchema,
 	creditMonthDocSchema,
 	type MediaAssetDoc,
 	mediaAssetDocSchema,
+	type PresenceDoc,
+	presenceDocSchema,
 	type RunSummaryDoc,
 	runSummaryDocSchema,
 	type ThreadDoc,
@@ -251,6 +257,17 @@ const runSummaryConverter = zodConverter(runSummaryDocSchema);
 const threadConverter = zodConverter(threadDocSchema);
 const userSettingsConverter = zodConverter(userSettingsDocSchema);
 const mediaAssetConverter = zodConverter(mediaAssetDocSchema);
+const batchDedupConverter = zodConverter(batchDedupSchema);
+
+/**
+ * Exported so the relay route (`getListenDb()`-bound `onSnapshot`) can apply
+ * the same Zod converter the `getDb()`-bound collection helpers do — the
+ * listen client is constructed separately, so it needs the standalone
+ * converter rather than only the bound collection helper.
+ */
+export const acceptedMutationConverter = zodConverter(acceptedMutationSchema);
+/** Exported for the same listen-client reason as `acceptedMutationConverter`. */
+export const presenceConverter = zodConverter(presenceDocSchema);
 
 // ── Collection Helpers ─────────────────────────────────────────────
 
@@ -337,6 +354,48 @@ export const collections = {
 	 */
 	mediaAssets: (): CollectionReference<MediaAssetDoc> =>
 		getDb().collection("mediaAssets").withConverter(mediaAssetConverter),
+
+	/**
+	 * Per-app durable mutation stream: `apps/{appId}/acceptedMutations/{seq}`.
+	 *
+	 * Takes an EXPLICIT client so the relay route can build its listen query on
+	 * the gRPC `getListenDb()` (whose `preferRest: false` is what makes
+	 * `onSnapshot` fire) rather than the REST-preferring `getDb()`, on which a
+	 * listen silently never fires in prod. Defaults to `getDb()` for ordinary
+	 * read/write callers.
+	 */
+	acceptedMutations: (
+		appId: string,
+		db: Firestore = getDb(),
+	): CollectionReference<AcceptedMutationDoc> =>
+		db
+			.collection("apps")
+			.doc(appId)
+			.collection("acceptedMutations")
+			.withConverter(acceptedMutationConverter),
+
+	/**
+	 * Per-app live presence roster: `apps/{appId}/presence/{userId}:{sessionId}`.
+	 * Explicit client param for the same listen-vs-REST reason as
+	 * `acceptedMutations`.
+	 */
+	presence: (
+		appId: string,
+		db: Firestore = getDb(),
+	): CollectionReference<PresenceDoc> =>
+		db
+			.collection("apps")
+			.doc(appId)
+			.collection("presence")
+			.withConverter(presenceConverter),
+
+	/** Per-app batch idempotency latches: `apps/{appId}/batchDedup/{batchId}`. */
+	batchDedup: (appId: string): CollectionReference<BatchDedupDoc> =>
+		getDb()
+			.collection("apps")
+			.doc(appId)
+			.collection("batchDedup")
+			.withConverter(batchDedupConverter),
 };
 
 // ── Document Helpers ───────────────────────────────────────────────
@@ -408,4 +467,45 @@ export const docs = {
 	/** Direct reference: `mediaAssets/{assetId}` */
 	mediaAsset: (assetId: string): DocumentReference<MediaAssetDoc> =>
 		collections.mediaAssets().doc(assetId),
+
+	/**
+	 * Direct reference: `apps/{appId}/acceptedMutations/{seq}`. The doc id is
+	 * the zero-padded `seq` (`String(seq).padStart(12, '0')`) so lexicographic
+	 * doc-id ordering matches numeric `seq` ordering — a range scan / prune by
+	 * doc id is the same as by `seq`.
+	 */
+	acceptedMutation: (
+		appId: string,
+		seq: number,
+	): DocumentReference<AcceptedMutationDoc> =>
+		collections.acceptedMutations(appId).doc(String(seq).padStart(12, "0")),
+
+	/**
+	 * Direct reference: `apps/{appId}/presence/{presenceId}` where
+	 * `presenceId = `${userId}:${sessionId}`` (minted by the caller).
+	 */
+	presence: (
+		appId: string,
+		presenceId: string,
+	): DocumentReference<PresenceDoc> =>
+		collections.presence(appId).doc(presenceId),
+
+	/** Direct reference: `apps/{appId}/batchDedup/{batchId}` (converter-applied, for the in-txn `set`). */
+	batchDedup: (
+		appId: string,
+		batchId: string,
+	): DocumentReference<BatchDedupDoc> =>
+		collections.batchDedup(appId).doc(batchId),
+
+	/**
+	 * RAW (converter-less) reference to a batch-dedup doc, for the in-transaction
+	 * dedup READ. A `withConverter` `tx.get()` routes the snapshot through
+	 * `batchDedupSchema.parse`, which throws inside the transaction on a partial
+	 * doc — same parse-on-read hazard the credit-reservation `creditMonthRaw`
+	 * guards against. The dedup read reads raw and branches on `snap.exists`.
+	 * `withConverter(null)` strips the converter from the same path
+	 * `collections.batchDedup` owns, so the path stays single-sourced.
+	 */
+	batchDedupRaw: (appId: string, batchId: string): DocumentReference =>
+		collections.batchDedup(appId).doc(batchId).withConverter(null),
 };

@@ -205,6 +205,300 @@ describe("EngineController", () => {
 		});
 	});
 
+	describe("kind change (remote retype)", () => {
+		it("re-initializes the value on a same-id retype — no stale value resurfaces", async () => {
+			const store = createLoadedStore();
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+
+			/* A user (or a peer) typed into the text field before the retype. */
+			ctrl.onValueChange(Q1_UUID, "typed answer");
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe("typed answer");
+
+			/* A remote `convertField` retypes the field (uuid + id preserved).
+			 * The stale text value is meaningless under the new kind. */
+			store
+				.getState()
+				.applyMany([{ kind: "convertField", uuid: Q1_UUID, toKind: "secret" }]);
+
+			await new Promise((r) => setTimeout(r, 10));
+
+			/* The value is dropped and the field re-seeds empty — a same-id
+			 * retype must not leave the old answer in place. */
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
+		});
+
+		it("re-applies the new field's default value on retype", async () => {
+			const groupUuid = asUuid("dddddddd-0001-0001-0001-000000000001");
+			const doc = makeDoc(
+				{
+					[groupUuid]: {
+						uuid: groupUuid,
+						id: "container",
+						kind: "group",
+						label: "Container",
+					},
+				},
+				{ [FORM_UUID]: [groupUuid] },
+			);
+			const store = createLoadedStore(doc);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+
+			/* group → repeat is a valid convert target; the retype must not throw
+			 * and the container's state re-inits at the new kind. */
+			store
+				.getState()
+				.applyMany([
+					{ kind: "convertField", uuid: groupUuid, toKind: "repeat" },
+				]);
+
+			await new Promise((r) => setTimeout(r, 10));
+
+			/* A repeat carries a `repeatCount` — its presence proves the field
+			 * was re-seeded under the new kind rather than left as a group. */
+			expect(ctrl.store.getState()[groupUuid].repeatCount).toBe(1);
+		});
+
+		it("preserves answered child values across a group→repeat conversion (re-path, not drop)", async () => {
+			const groupUuid = asUuid("dddddddd-0002-0002-0002-000000000001");
+			const childAUuid = asUuid("dddddddd-0002-0002-0002-000000000002");
+			const childBUuid = asUuid("dddddddd-0002-0002-0002-000000000003");
+			const doc = makeDoc(
+				{
+					[groupUuid]: {
+						uuid: groupUuid,
+						id: "container",
+						kind: "group",
+						label: "Container",
+					},
+					[childAUuid]: {
+						uuid: childAUuid,
+						id: "child_a",
+						kind: "text",
+						label: "Child A",
+					},
+					[childBUuid]: {
+						uuid: childBUuid,
+						id: "child_b",
+						kind: "text",
+						label: "Child B",
+					},
+				},
+				{
+					[FORM_UUID]: [groupUuid],
+					[groupUuid]: [childAUuid, childBUuid],
+				},
+			);
+			const store = createLoadedStore(doc);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+
+			/* Both children answered while the container is still a group
+			 * (child paths `/data/container/child_*`). */
+			ctrl.onValueChange(childAUuid, "answer A");
+			ctrl.onValueChange(childBUuid, "answer B");
+			expect(ctrl.getPath(childAUuid)).toBe("/data/container/child_a");
+
+			/* A peer converts the group to a repeat — the child paths gain the
+			 * `[0]` template segment. The in-progress answers must survive. */
+			store
+				.getState()
+				.applyMany([
+					{ kind: "convertField", uuid: groupUuid, toKind: "repeat" },
+				]);
+			await new Promise((r) => setTimeout(r, 10));
+
+			/* Children re-pathed to the reindexed repeat template, values intact. */
+			expect(ctrl.getPath(childAUuid)).toBe("/data/container[0]/child_a");
+			expect(ctrl.store.getState()[childAUuid].value).toBe("answer A");
+			expect(ctrl.store.getState()[childBUuid].value).toBe("answer B");
+		});
+
+		it("preserves answered child values across a repeat→group conversion", async () => {
+			const repeatUuid = asUuid("dddddddd-0003-0003-0003-000000000001");
+			const childUuid = asUuid("dddddddd-0003-0003-0003-000000000002");
+			const doc = makeDoc(
+				{
+					[repeatUuid]: {
+						uuid: repeatUuid,
+						id: "container",
+						kind: "repeat",
+						label: "Container",
+						repeat_mode: "user_controlled",
+					},
+					[childUuid]: {
+						uuid: childUuid,
+						id: "child",
+						kind: "text",
+						label: "Child",
+					},
+				},
+				{
+					[FORM_UUID]: [repeatUuid],
+					[repeatUuid]: [childUuid],
+				},
+			);
+			const store = createLoadedStore(doc);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+
+			/* Child answered while the container is a repeat (template `[0]`). */
+			ctrl.onValueChange(childUuid, "answer");
+			expect(ctrl.getPath(childUuid)).toBe("/data/container[0]/child");
+
+			/* Convert the repeat back to a group — the `[0]` segment drops. */
+			store
+				.getState()
+				.applyMany([
+					{ kind: "convertField", uuid: repeatUuid, toKind: "group" },
+				]);
+			await new Promise((r) => setTimeout(r, 10));
+
+			expect(ctrl.getPath(childUuid)).toBe("/data/container/child");
+			expect(ctrl.store.getState()[childUuid].value).toBe("answer");
+		});
+
+		it("a converted group→repeat's child value reaches computeSubmissionMutation at the reindexed path", async () => {
+			/* A registration form whose primary case type is `patient`. The group
+			 * holds a case-property child; after group→repeat the child's value
+			 * must survive the re-path so the submission mutation carries it (not
+			 * an empty reindexed path). `note` writes the module's OWN case type,
+			 * so it stays in the primary's `properties` — the walk reads it at the
+			 * reindexed `/data/container[0]/note`, proving submit sees the value. */
+			const patientCaseType: CaseType = {
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: "Name", data_type: "text" },
+					{ name: "note", label: "Note", data_type: "text" },
+				],
+			};
+			const moduleUuid = asUuid("eeeeeeee-0001-0001-0001-000000000001");
+			const formUuid = asUuid("eeeeeeee-0002-0002-0002-000000000001");
+			const nameUuid = asUuid("eeeeeeee-0003-0003-0003-000000000001");
+			const groupUuid = asUuid("eeeeeeee-0004-0004-0004-000000000001");
+			const noteUuid = asUuid("eeeeeeee-0005-0005-0005-000000000001");
+			const doc: PersistableDoc = {
+				appId: "test-app",
+				appName: "Test App",
+				connectType: null,
+				caseTypes: [patientCaseType],
+				modules: {
+					[moduleUuid]: {
+						uuid: moduleUuid,
+						id: "patients",
+						name: "Patients",
+						caseType: "patient",
+					},
+				},
+				forms: {
+					[formUuid]: {
+						uuid: formUuid,
+						id: "register",
+						name: "Register",
+						type: "registration",
+					},
+				},
+				fields: {
+					[nameUuid]: {
+						uuid: nameUuid,
+						id: "case_name",
+						kind: "text",
+						label: "Name",
+						case_property_on: "patient",
+					},
+					[groupUuid]: {
+						uuid: groupUuid,
+						id: "container",
+						kind: "group",
+						label: "Container",
+					},
+					[noteUuid]: {
+						uuid: noteUuid,
+						id: "note",
+						kind: "text",
+						label: "Note",
+						case_property_on: "patient",
+					},
+				},
+				moduleOrder: [moduleUuid],
+				formOrder: { [moduleUuid]: [formUuid] },
+				fieldOrder: {
+					[formUuid]: [nameUuid, groupUuid],
+					[groupUuid]: [noteUuid],
+				},
+			};
+			const store = createBlueprintDocStore();
+			store.getState().load(doc);
+			store.temporal.getState().resume();
+
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(formUuid);
+
+			ctrl.onValueChange(nameUuid, "Alice");
+			ctrl.onValueChange(noteUuid, "in-progress note");
+
+			store
+				.getState()
+				.applyMany([
+					{ kind: "convertField", uuid: groupUuid, toKind: "repeat" },
+				]);
+			await new Promise((r) => setTimeout(r, 10));
+
+			/* The child value survived the re-path — the walk reads it at the
+			 * reindexed `/data/container[0]/note`. `note` targets the module's own
+			 * case type, so it lands in the primary's `properties` (the child-case
+			 * fan-out is only for fields writing a DIFFERENT case type); the point
+			 * is the value is present, not dropped. */
+			const mutation = ctrl.computeSubmissionMutation({
+				caseTypes: [patientCaseType],
+			});
+			expect(mutation.kind).toBe("registration");
+			if (mutation.kind === "registration") {
+				expect(mutation.primary.properties.note).toBe("in-progress note");
+				expect(mutation.primary.caseName).toBe("Alice");
+			}
+		});
+	});
+
+	describe("field removal drops the value", () => {
+		it("clears the value on remote delete, and a re-add seeds empty", async () => {
+			const store = createLoadedStore();
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+
+			/* Someone typed an answer, then the field is removed remotely. */
+			ctrl.onValueChange(Q1_UUID, "answer before delete");
+			store.getState().applyMany([{ kind: "removeField", uuid: Q1_UUID }]);
+			await new Promise((r) => setTimeout(r, 10));
+			expect(ctrl.store.getState()[Q1_UUID]).toBe(DEFAULT_RUNTIME_STATE);
+
+			/* Re-adding a field at the SAME id/path must start empty — the delete
+			 * dropped the DataInstance value, so `addFieldState` seeds `""`
+			 * rather than resurrecting the pre-delete answer. */
+			store.getState().applyMany([
+				{
+					kind: "addField",
+					parentUuid: FORM_UUID,
+					field: {
+						uuid: Q1_UUID,
+						id: "name",
+						kind: "text",
+						label: "Name",
+					},
+				},
+			]);
+			await new Promise((r) => setTimeout(r, 10));
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
+		});
+	});
+
 	describe("deactivate", () => {
 		it("clears runtime store and subscriptions", () => {
 			const store = createLoadedStore();

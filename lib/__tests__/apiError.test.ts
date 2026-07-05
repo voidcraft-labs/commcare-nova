@@ -9,12 +9,27 @@
  * never called, proving the oversized body was never materialized.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// The logger's `error` mirrors to Sentry, so `handleApiError`'s "don't
+// log.error a client abort" contract is asserted by spying on it. `warn` stays
+// Cloud-Logging-only.
+const { logErrorMock, logWarnMock } = vi.hoisted(() => ({
+	logErrorMock: vi.fn(),
+	logWarnMock: vi.fn(),
+}));
+vi.mock("@/lib/logger", () => ({
+	log: { error: logErrorMock, warn: logWarnMock, info: vi.fn() },
+}));
+
 import {
+	ApiError,
 	BLUEPRINT_REQUEST_MAX_BYTES,
 	CHAT_REQUEST_MAX_BYTES,
 	CLIENT_ERROR_MAX_BYTES,
 	declaredBodyTooLarge,
+	handleApiError,
+	isClientAbort,
 	OAUTH_REVOKE_MAX_BYTES,
 	readJsonBody,
 } from "../apiError";
@@ -90,6 +105,103 @@ describe("declaredBodyTooLarge", () => {
 		// Chunked (no Content-Length) can't be judged here — the post-buffer byte
 		// check in `readJsonBody` is what actually bounds it.
 		expect(declaredBodyTooLarge(fakeReq({}), 4096)).toBe(false);
+	});
+});
+
+describe("isClientAbort", () => {
+	it("recognizes every client-disconnect error shape", () => {
+		// The shapes a browser disconnect surfaces as across Node / undici.
+		expect(isClientAbort(new Error("aborted"))).toBe(true);
+		expect(isClientAbort(new Error("request aborted by the client"))).toBe(
+			true,
+		);
+		expect(
+			isClientAbort(
+				new DOMException("The operation was aborted.", "AbortError"),
+			),
+		).toBe(true);
+		expect(
+			isClientAbort(Object.assign(new Error("x"), { name: "AbortError" })),
+		).toBe(true);
+		expect(
+			isClientAbort(Object.assign(new Error("x"), { code: "ABORT_ERR" })),
+		).toBe(true);
+		expect(
+			isClientAbort(
+				Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+			),
+		).toBe(true);
+	});
+
+	it("does NOT match a genuine server error", () => {
+		expect(isClientAbort(new Error("auth store unreachable"))).toBe(false);
+		// A fault that merely MENTIONS an abort mid-message is a real server
+		// error — a substring match here would 499 it out of Sentry's sight.
+		expect(
+			isClientAbort(new Error("transaction aborted due to contention")),
+		).toBe(false);
+		expect(isClientAbort(new Error("10 ABORTED: too much contention"))).toBe(
+			false,
+		);
+		expect(isClientAbort(new ApiError("nope", 400))).toBe(false); // ApiError has its own path
+		expect(isClientAbort(undefined)).toBe(false);
+		expect(isClientAbort("aborted")).toBe(false); // a bare string is not an Error
+	});
+});
+
+describe("handleApiError — client-abort vs genuine error", () => {
+	beforeEach(() => {
+		logErrorMock.mockReset();
+		logWarnMock.mockReset();
+	});
+
+	/* Drive handleApiError and DRAIN the response body: these cases assert
+	 * status + the log spies, never the body, so the `NextResponse.json` stream
+	 * would otherwise leak an async resource (the async-leak gate flags it). */
+	async function handled(err: ApiError | Error): Promise<Response> {
+		const res = handleApiError(err);
+		await res.text();
+		return res;
+	}
+
+	it("a client abort → 499, WARN (Cloud-Logging-only), never log.error → Sentry", async () => {
+		const res = await handled(new Error("aborted"));
+		expect(res.status).toBe(499);
+		// The single most common /stream event must never reach Sentry.
+		expect(logErrorMock).not.toHaveBeenCalled();
+		expect(logWarnMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("an ECONNRESET disconnect → 499, no log.error", async () => {
+		const err = Object.assign(new Error("read ECONNRESET"), {
+			code: "ECONNRESET",
+		});
+		const res = await handled(err);
+		expect(res.status).toBe(499);
+		expect(logErrorMock).not.toHaveBeenCalled();
+	});
+
+	it("a GENUINE unhandled error still 500s AND log.errors (→ Sentry)", async () => {
+		const res = await handled(new Error("auth store unreachable"));
+		expect(res.status).toBe(500);
+		expect(logErrorMock).toHaveBeenCalledTimes(1);
+		expect(logWarnMock).not.toHaveBeenCalled();
+	});
+
+	it("an ApiError uses its own status and never logs (abort short-circuit doesn't swallow it)", async () => {
+		const res = await handled(new ApiError("Bad request", 400));
+		expect(res.status).toBe(400);
+		expect(logErrorMock).not.toHaveBeenCalled();
+		expect(logWarnMock).not.toHaveBeenCalled();
+	});
+
+	it("an AppAccessError still maps to 404 without logging", async () => {
+		const err = Object.assign(new Error("not_member"), {
+			name: "AppAccessError",
+		});
+		const res = await handled(err);
+		expect(res.status).toBe(404);
+		expect(logErrorMock).not.toHaveBeenCalled();
 	});
 });
 

@@ -28,6 +28,7 @@ import {
 	useReorderableList,
 } from "@/components/builder/shared/useReorderableList";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseSearchConfig, CaseType, SearchInputDef } from "@/lib/domain";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
@@ -68,15 +69,24 @@ export function SearchCanvas({
 	const panelSelected = selection?.type === "search-panel";
 	const selectedInputUuid = selection?.type === "input" ? selection.uuid : null;
 
+	// DISPLAY order (`sort-by-(order, uuid)`), not array position — the render,
+	// the `resolved` parallel array, and the reorder drag's indices all key off
+	// this so an SA/MCP `moveSearchInput` reflects here and a drag computes
+	// correct from/to indices.
+	const orderedInputs = useMemo(
+		() => [...searchInputs].sort(bySortKey),
+		[searchInputs],
+	);
+
 	const resolved = useMemo(
-		() => resolveRows(searchInputs, caseTypes, currentCaseType),
-		[searchInputs, caseTypes, currentCaseType],
+		() => resolveRows(orderedInputs, caseTypes, currentCaseType),
+		[orderedInputs, caseTypes, currentCaseType],
 	);
 
 	const { pendingDrop } = useReorderableList<SearchInputDef>({
 		containerKey,
 		containerKind: "search-canvas-inputs",
-		items: searchInputs,
+		items: orderedInputs,
 		onReorder: onReorderInputs,
 	});
 
@@ -125,12 +135,12 @@ export function SearchCanvas({
 				)}
 
 				<div className="mt-2 space-y-1">
-					{searchInputs.length === 0 && (
+					{orderedInputs.length === 0 && (
 						<p className="px-1 py-2 text-xs text-nova-text-muted">
 							No search fields yet — the app goes straight to the list.
 						</p>
 					)}
-					{searchInputs.map((input, i) => {
+					{orderedInputs.map((input, i) => {
 						const hasError =
 							resolved[i] !== undefined && rowHasStructuralError(resolved[i]);
 						return (

@@ -18,6 +18,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import tablerId from "@iconify-icons/tabler/id";
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseListConfig } from "@/lib/domain";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import { renderColumnCell } from "../columnCellRenderer";
@@ -50,7 +51,8 @@ export function DetailCanvas({
 	addDisabledReason,
 	generate,
 }: DetailCanvasProps) {
-	const columns = config.columns;
+	// DISPLAY order (`sort-by-(order, uuid)`), not array position.
+	const columns = [...config.columns].sort(bySortKey);
 	const selectedColumnUuid =
 		selection?.type === "column" ? selection.uuid : null;
 

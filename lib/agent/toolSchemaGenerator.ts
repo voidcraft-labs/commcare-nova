@@ -222,14 +222,20 @@ const calculateField = () =>
 	z.string().optional().describe(FIELD_DOCS.calculate);
 const defaultValueField = () =>
 	z.string().optional().describe(FIELD_DOCS.default_value);
-// The SA's option shape omits the `media` slot. `selectOptionSchema`
-// carries an optional per-option `media` reference, but the
-// field-mutation tools expose neither the asset library nor an upload
+// The SA's option shape omits `media`, `uuid`, and `order`.
+// `selectOptionSchema` carries an optional per-option `media` reference, but
+// the field-mutation tools expose neither the asset library nor an upload
 // affordance, so the agent can't mint or validate an asset id here —
-// exposing the slot would only let the model write a dangling
-// reference into the doc. Option media is set through the dedicated
-// media tools, not the generic field-mutation tools.
-const saOptionSchema = selectOptionSchema.omit({ media: true });
+// exposing the slot would only let the model write a dangling reference into
+// the doc. Option media is set through the dedicated media tools. `uuid`
+// (the option's stable identity) and `order` (its fractional sort key) are
+// likewise tool/gesture-computed, never authored: backfill mints the uuid
+// from `(field uuid, option index)` and the diff layer computes the key.
+const saOptionSchema = selectOptionSchema.omit({
+	media: true,
+	uuid: true,
+	order: true,
+});
 
 const optionsField = () =>
 	z.array(saOptionSchema).optional().describe(FIELD_DOCS.options);

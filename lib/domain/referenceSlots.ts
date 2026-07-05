@@ -768,12 +768,15 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 > = {
 	uuid: "identity",
 	id: "declaration",
+	order: "config",
 	kind: "discriminator",
 	repeat_mode: "discriminator",
 	label_media: "media",
 	hint_media: "media",
 	help_media: "media",
 	validate_msg_media: "media",
+	"options[].uuid": "identity",
+	"options[].order": "config",
 	"options[].value": "data-literal",
 	"options[].media": "media",
 };
@@ -783,6 +786,7 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 > = {
 	uuid: "identity",
 	id: "declaration",
+	order: "config",
 	name: "display-text",
 	type: "discriminator",
 	purpose: "display-text",
@@ -809,6 +813,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 > = {
 	uuid: "identity",
 	id: "declaration",
+	order: "config",
 	name: "display-text",
 	caseListOnly: "config",
 	purpose: "display-text",
@@ -817,6 +822,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.icon": "media",
 	"caseListConfig.audioLabel": "media",
 	"caseListConfig.columns[].uuid": "identity",
+	"caseListConfig.columns[].order": "config",
 	"caseListConfig.columns[].kind": "discriminator",
 	"caseListConfig.columns[].header": "display-text",
 	"caseListConfig.columns[].pattern": "config",
@@ -832,6 +838,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].display": "discriminator",
 	"caseListConfig.columns[].text": "display-text",
 	"caseListConfig.searchInputs[].uuid": "identity",
+	"caseListConfig.searchInputs[].order": "config",
 	"caseListConfig.searchInputs[].kind": "discriminator",
 	"caseListConfig.searchInputs[].name": "declaration",
 	"caseListConfig.searchInputs[].label": "display-text",

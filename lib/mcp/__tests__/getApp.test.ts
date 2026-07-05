@@ -123,6 +123,7 @@ function mockAppDoc(
 		project_id: null,
 		app_name: blueprint.appName,
 		blueprint: blueprint as unknown as BlueprintDoc,
+		mutation_seq: 0,
 		connect_type: null,
 		module_count: blueprint.moduleOrder.length,
 		form_count: Object.values(blueprint.formOrder).reduce(
@@ -137,7 +138,6 @@ function mockAppDoc(
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
-		blueprint_token: null,
 		// Tool doesn't read timestamps — any placeholder works; casting through
 		// `unknown` avoids pulling in the Firestore Admin SDK just to fabricate
 		// real `Timestamp` instances in a unit test.

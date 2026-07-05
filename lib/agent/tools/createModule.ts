@@ -49,6 +49,8 @@
  */
 
 import { z } from "zod";
+import { orderedModuleUuids } from "@/lib/doc/fieldWalk";
+import { sequenceOrderKeys } from "@/lib/doc/order/append";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CaseType, ConnectConfig } from "@/lib/domain";
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
@@ -65,7 +67,11 @@ import {
 	newUuid,
 	stampColumnUuid,
 } from "./case-list-config/shared";
-import { guardedMutate, type MutatingToolResult } from "./common";
+import {
+	guardedMutate,
+	type MutatingToolResult,
+	toToolErrorResult,
+} from "./common";
 import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import { buildConnectConfig } from "./shared/connectInput";
 import {
@@ -200,14 +206,35 @@ export const createModuleTool = {
 						},
 					};
 				}
-				const mergedCaseTypes = [
-					...(doc.caseTypes ?? []),
-					case_type_record as CaseType,
-				];
+				const record = case_type_record as CaseType;
+				const mergedCaseTypes = [...(doc.caseTypes ?? []), record];
+				/* Granular catalog emission keyed by `(type, property)` name — a
+				 * `declareCaseType` for the new type, `setCaseTypeMeta` for its
+				 * ancestry, then one `addCaseProperty` per declared property — so a
+				 * co-member's concurrent catalog add to a DIFFERENT type merges
+				 * (a wholesale `setCaseTypes` would clobber it). */
 				recordMutations.push({
-					kind: "setCaseTypes",
-					caseTypes: mergedCaseTypes,
+					kind: "declareCaseType",
+					caseType: record.name,
 				});
+				if (
+					record.parent_type !== undefined ||
+					record.relationship !== undefined
+				) {
+					recordMutations.push({
+						kind: "setCaseTypeMeta",
+						caseType: record.name,
+						parent_type: record.parent_type ?? null,
+						relationship: record.relationship ?? null,
+					});
+				}
+				for (const property of record.properties) {
+					recordMutations.push({
+						kind: "addCaseProperty",
+						caseType: record.name,
+						property,
+					});
+				}
 				/* The field assembly's catalog defaulting reads
 				 * `doc.caseTypes`; thread the merged catalog through so this
 				 * call's own fields seed from the record landing with it. */
@@ -219,9 +246,14 @@ export const createModuleTool = {
 			// mutations apply. Downstream consumers that need the index read
 			// it from the post-mutation `moduleOrder`.
 			const moduleUuid = asUuid(crypto.randomUUID());
-			const columns = (case_list_columns ?? []).map((c) =>
-				stampColumnUuid(c, newUuid()),
-			);
+			// Stamp each born column with a uuid AND an ascending `order` key —
+			// a member born keyless would sort ahead of (or behind) a later keyed
+			// sibling until a reload's backfill, so mint the key at construction.
+			const columnKeys = sequenceOrderKeys((case_list_columns ?? []).length);
+			const columns = (case_list_columns ?? []).map((c, i) => ({
+				...stampColumnUuid(c, newUuid()),
+				order: columnKeys[i],
+			}));
 			const mutations = [
 				...recordMutations,
 				...addModuleMutations(doc, {
@@ -244,6 +276,11 @@ export const createModuleTool = {
 			// same slug. No exclusion — none of this call's forms exist in the
 			// doc yet.
 			const takenConnectIds = collectConnectIds(doc);
+			// The module + all its forms land in ONE batch, so none of these
+			// forms is in `doc` yet — pre-mint a sequential `order` run here
+			// (they can't derive keys off each other) and hand each form its key.
+			const formKeys = sequenceOrderKeys((forms ?? []).length);
+			let formIdx = 0;
 			for (const formInput of forms ?? []) {
 				const formUuid = asUuid(crypto.randomUUID());
 				// Assembled BEFORE the connect block so the block's XPath
@@ -322,6 +359,7 @@ export const createModuleTool = {
 							uuid: formUuid,
 							name: formInput.name,
 							type: formInput.type,
+							order: formKeys[formIdx],
 							...(formInput.purpose !== undefined && {
 								purpose: formInput.purpose,
 							}),
@@ -338,6 +376,7 @@ export const createModuleTool = {
 				mutations.push(...assembly.mutations);
 				fieldCount += assembly.mutations.length;
 				skipped.push(...assembly.skipped);
+				formIdx += 1;
 			}
 
 			const commit = await guardedMutate(ctx, doc, mutations, "module:create");
@@ -351,7 +390,10 @@ export const createModuleTool = {
 			}
 			const newDoc = commit.newDoc;
 
-			const newModIndex = newDoc.moduleOrder.length - 1;
+			// The SA addresses modules by DISPLAY index (`sort-by-(order, uuid)`),
+			// so report the new module's SORTED position — not its `moduleOrder`
+			// array slot, which a born order key need not land last.
+			const newModIndex = orderedModuleUuids(newDoc).indexOf(moduleUuid);
 			const formCount = (forms ?? []).length;
 			const structureNote =
 				formCount > 0
@@ -375,12 +417,7 @@ export const createModuleTool = {
 				},
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

@@ -15,11 +15,13 @@
 		"typecheck": "fumadocs-mdx && tsc --noEmit",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"test:leaks": "vitest run --detect-async-leaks",
+		"test:leaks": "vitest run --detect-async-leaks --pool=forks --testTimeout=30000",
 		"test:integration": "node_modules/.bin/firebase emulators:exec --only firestore --project demo-test 'GOOGLE_CLOUD_PROJECT=demo-test ./node_modules/.bin/vitest run --no-file-parallelism integration.test.ts'",
 		"test:smoke": "bash scripts/smoke.sh",
 		"test:smoke:headed": "bash scripts/smoke.sh --headed",
-		"test:smoke:url": "playwright test --project=public"
+		"test:smoke:url": "playwright test --project=public",
+		"mp:watch": "MP_TILE=1 MP_SLOWMO=${MP_SLOWMO:-3000} bash scripts/smoke.sh --project=multiplayer --headed",
+		"mp:manual": "MP_MANUAL=1 bash scripts/smoke.sh --project=mp-manual --headed"
 	},
 	"dependencies": {
 		"@ai-sdk/anthropic": "^4.0.0-beta.42",

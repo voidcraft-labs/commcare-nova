@@ -38,6 +38,7 @@
 //     stay consistent with the suite-XML side via the shared
 //     `PROMPT_ATTRIBUTE_MAPPINGS` table.
 
+import { bySortKey } from "@/lib/doc/order/compare";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
@@ -274,7 +275,11 @@ function projectSortElements(mod: Module, doc: BlueprintDoc): SortElement[] {
 	// a positional lookup into `detail_columns[column_index]`; the
 	// index must reference the calc column's position in the full
 	// column list, not a calc-only subsequence.
-	const columns = mod.caseListConfig?.columns ?? [];
+	// DISPLAY order (`sort-by-(order, uuid)`) — the same sequence
+	// `projectCaseListForHq` emits the detail columns in, so the positional
+	// `detail_columns[column_index]` lookup the calc-sort field encodes resolves
+	// to the right column.
+	const columns = [...(mod.caseListConfig?.columns ?? [])].sort(bySortKey);
 	const columnIndexByUuid = new Map<string, number>();
 	for (let i = 0; i < columns.length; i++) {
 		columnIndexByUuid.set(columns[i].uuid, i);
@@ -429,7 +434,9 @@ function projectSearchProperties(
 	searchInputs: ReadonlyArray<SearchInputDef>,
 ): CaseSearchProperty[] {
 	const out: CaseSearchProperty[] = [];
-	for (const input of searchInputs) {
+	// DISPLAY order (`sort-by-(order, uuid)`) — the search prompts render in
+	// this sequence.
+	for (const input of [...searchInputs].sort(bySortKey)) {
 		if (input.kind === "simple") {
 			out.push(projectSimpleSearchInput(input));
 		}
@@ -630,7 +637,9 @@ export function projectCaseListForHq(
 ): CaseListHqProjection {
 	const caseListConfig = mod.caseListConfig;
 	const caseSearchConfig = mod.caseSearchConfig;
-	const allColumns = caseListConfig?.columns ?? [];
+	// DISPLAY order (`sort-by-(order, uuid)`), shared with `projectSortElements`
+	// so the calc-sort positional index lines up.
+	const allColumns = [...(caseListConfig?.columns ?? [])].sort(bySortKey);
 
 	const shortColumns = allColumns.map((c) =>
 		projectColumnForDetail(c, "short", assets),

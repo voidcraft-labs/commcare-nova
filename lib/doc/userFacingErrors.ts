@@ -270,6 +270,10 @@ const USER_MESSAGE_BY_CODE: Partial<
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_NO_OPTIONS: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with no choices yet. Add at least one.`,
+	SELECT_TOO_FEW_OPTIONS: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with only one choice. Add another so there's something to pick between.`,
+	CASE_PROPERTY_ON_UNKNOWN_TYPE: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} saves to the ${q(det(e, "caseType", "case type"))} case type, but no case type by that name exists. Add that case type, or point the field at one that does.`,
 	HIDDEN_NO_VALUE: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is hidden but has no value, so it'll always stay blank. Give it a default or a calculated value.`,
 	REQUIRED_ON_HIDDEN: (e) =>

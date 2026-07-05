@@ -1,5 +1,6 @@
 "use client";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { SingleSelectField } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
@@ -26,7 +27,9 @@ export function SelectOneField({
 	onChange,
 	onBlur,
 }: SelectOneFieldProps) {
-	const options = field.options ?? [];
+	// DISPLAY order (`sort-by-(order, uuid)`, the same sequence the wire XForm
+	// emits its `<item>`s in), not `options` array position.
+	const options = [...(field.options ?? [])].sort(bySortKey);
 	const showError = state.touched && !state.valid;
 	const isEditMode = useEditMode() === "edit";
 

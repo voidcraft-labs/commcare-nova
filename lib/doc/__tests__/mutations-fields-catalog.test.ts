@@ -138,7 +138,11 @@ describe("addField catalog sync", () => {
 		expect(catalogProps(next, "patient")).toEqual([declared]);
 	});
 
-	it("creates the case-type entry when the type is undeclared", () => {
+	it("does NOT create the case-type entry when the type is undeclared (declaration is explicit)", () => {
+		// A field writing to an UNDECLARED type no longer auto-creates it — the
+		// reducer keeps declaration explicit (the chokepoint prepends
+		// `declareCaseType`) so a concurrent declaration can't be clobbered. The
+		// commit gate's `CASE_PROPERTY_ON_UNKNOWN_TYPE` adjudicates the residue.
 		const start = docWithForms(null);
 		const next = apply(
 			start,
@@ -147,15 +151,10 @@ describe("addField catalog sync", () => {
 				field_(Q("a"), "age", { kind: "int", case_property_on: "patient" }),
 			),
 		);
-		expect(next.caseTypes).toEqual([
-			{
-				name: "patient",
-				properties: [{ name: "age", label: "age", data_type: "int" }],
-			},
-		]);
+		expect(next.caseTypes).toBeNull();
 	});
 
-	it("appends a new type entry without touching declared siblings", () => {
+	it("does NOT mint an undeclared type, leaving declared siblings untouched", () => {
 		const start = docWithForms([{ name: "household", properties: [] }]);
 		const next = apply(
 			start,
@@ -164,10 +163,8 @@ describe("addField catalog sync", () => {
 				field_(Q("a"), "age", { kind: "int", case_property_on: "patient" }),
 			),
 		);
-		expect(next.caseTypes?.map((ct) => ct.name)).toEqual([
-			"household",
-			"patient",
-		]);
+		// Only the pre-declared "household" survives — "patient" is NOT created.
+		expect(next.caseTypes?.map((ct) => ct.name)).toEqual(["household"]);
 		expect(catalogProps(next, "household")).toEqual([]);
 	});
 
@@ -375,7 +372,9 @@ describe("moveField catalog sync", () => {
 
 describe("removeField — catalog is never pruned", () => {
 	it("keeps the pair after its only writer is removed", () => {
-		const start = docWithForms(null);
+		// "patient" declared up front — the writer's catalog sync appends "age"
+		// to it (the reducer no longer mints the type), then removal leaves it.
+		const start = docWithForms([{ name: "patient", properties: [] }]);
 		const next = apply(
 			start,
 			addField(
@@ -393,7 +392,8 @@ describe("removeField — catalog is never pruned", () => {
 
 describe("renameField interplay", () => {
 	it("the rename cascade moves the synced entry instead of duplicating it", () => {
-		const start = docWithForms(null);
+		// "patient" declared up front so the writer's catalog sync appends "age".
+		const start = docWithForms([{ name: "patient", properties: [] }]);
 		const next = apply(
 			start,
 			addField(
@@ -450,7 +450,12 @@ describe("acceptance — a writer-introduced property validates without setCaseT
 	 */
 	function scaffold(): BlueprintDoc {
 		return buildDoc({
-			caseTypes: null,
+			// "patient" is DECLARED (empty properties) — the reducer no longer
+			// auto-creates the type, so the writer's catalog sync appends "age" to
+			// THIS existing type. Pre-sync the ref `#patient/age` is still invalid
+			// (the property is absent); landing the writer makes it resolve, all
+			// without a `setCaseTypes`.
+			caseTypes: [{ name: "patient", properties: [] }],
 			modules: [
 				{
 					name: "Patients",

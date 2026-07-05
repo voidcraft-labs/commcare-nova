@@ -857,11 +857,18 @@ export function planReferenceIndexMaintenance(
 
 	switch (mut.kind) {
 		// App-level slots are never indexed (the case-type catalog is
-		// root-level data the planner reads directly).
+		// root-level data the planner reads directly), so the catalog kinds —
+		// wholesale and granular alike — are no-ops here.
 		case "setAppName":
 		case "setConnectType":
 		case "setAppLogo":
 		case "setCaseTypes":
+		case "declareCaseType":
+		case "retireCaseType":
+		case "addCaseProperty":
+		case "setCaseProperty":
+		case "removeCaseProperty":
+		case "setCaseTypeMeta":
 			break;
 		case "addModule":
 			carriers.add(mut.module.uuid);
@@ -998,6 +1005,33 @@ export function planReferenceIndexMaintenance(
 		case "convertField":
 		case "setFieldMedia":
 			carriers.add(mut.kind === "setFieldMedia" ? mut.fieldUuid : mut.uuid);
+			break;
+		// Case-list collection edits re-derive the OWNING MODULE's reference
+		// slots exactly as `updateModule` does — the module's calc-column /
+		// search-input AST edges + the always-on filter live on the module
+		// carrier, so a re-extract of the module keeps the index current (a
+		// later rename must find these edges, so they cannot be stubbed away).
+		case "addColumn":
+		case "updateColumn":
+		case "removeColumn":
+		case "moveColumn":
+		case "addSearchInput":
+		case "updateSearchInput":
+		case "removeSearchInput":
+		case "moveSearchInput":
+			carriers.add(mut.moduleUuid);
+			break;
+		case "setCaseListMeta":
+			carriers.add(mut.uuid);
+			break;
+		// Option edits re-derive the OWNING FIELD's reference slots exactly as
+		// `updateField` does — an option label's `#<type>/<prop>` prose edges
+		// live on the field carrier.
+		case "addOption":
+		case "updateOption":
+		case "removeOption":
+		case "moveOption":
+			carriers.add(mut.fieldUuid);
 			break;
 		case "updateField": {
 			carriers.add(mut.uuid);

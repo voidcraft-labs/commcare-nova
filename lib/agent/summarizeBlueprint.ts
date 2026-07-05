@@ -6,7 +6,13 @@
  * domain-vocabulary view of an app.
  */
 
-import { countFieldsUnder } from "@/lib/doc/fieldWalk";
+import {
+	countFieldsUnder,
+	orderedFieldUuids,
+	orderedFormUuids,
+	orderedModuleUuids,
+} from "@/lib/doc/fieldWalk";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type {
 	BlueprintDoc,
 	Column,
@@ -42,7 +48,7 @@ function summarizeField(
 		pieces[0] += ` → ${field.case_property_on}`;
 	}
 	if (isContainer(field)) {
-		const children = doc.fieldOrder[uuid] ?? [];
+		const children = orderedFieldUuids(doc, uuid);
 		const childLines = children
 			.map((c) => summarizeField(doc, c, `${indent}  `))
 			.filter((s): s is string => typeof s === "string");
@@ -75,7 +81,7 @@ function summarizeForm(
 			`    close_condition: ${closeFieldId} ${op} "${form.closeCondition.answer}"`,
 		);
 	}
-	const topLevelFields = doc.fieldOrder[formUuid] ?? [];
+	const topLevelFields = orderedFieldUuids(doc, formUuid);
 	const fieldSummary =
 		topLevelFields.length > 0
 			? topLevelFields
@@ -108,13 +114,13 @@ function summarizeCaseList(mod: Module): string | undefined {
 	const lines: string[] = ["    case_list:"];
 	if (config.columns.length > 0) {
 		lines.push("      columns:");
-		for (const col of config.columns) {
+		for (const col of [...config.columns].sort(bySortKey)) {
 			lines.push(`        - ${formatColumn(col)}`);
 		}
 	}
 	if (config.searchInputs.length > 0) {
 		lines.push("      search_inputs:");
-		for (const input of config.searchInputs) {
+		for (const input of [...config.searchInputs].sort(bySortKey)) {
 			lines.push(`        - ${formatSearchInput(input)}`);
 		}
 	}
@@ -208,7 +214,7 @@ function summarizeModule(
 	if (caseList) sections.push(caseList);
 	const caseSearch = summarizeCaseSearch(mod);
 	if (caseSearch) sections.push(caseSearch);
-	const formUuids = doc.formOrder[moduleUuid] ?? [];
+	const formUuids = orderedFormUuids(doc, moduleUuid);
 	const forms = formUuids
 		.map((fUuid, fi) => summarizeForm(doc, fUuid, fi))
 		.join("\n");
@@ -238,8 +244,9 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 
 	lines.push("");
 	lines.push("**Structure:**");
-	for (let i = 0; i < doc.moduleOrder.length; i++) {
-		const moduleUuid = doc.moduleOrder[i];
+	const moduleUuids = orderedModuleUuids(doc);
+	for (let i = 0; i < moduleUuids.length; i++) {
+		const moduleUuid = moduleUuids[i];
 		if (!moduleUuid) continue;
 		lines.push(summarizeModule(doc, moduleUuid, i));
 	}

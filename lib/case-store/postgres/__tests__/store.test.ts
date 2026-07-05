@@ -1907,3 +1907,243 @@ describe("PostgresCaseStore — int property range validation", () => {
 		).rejects.toBeInstanceOf(CasePropertiesValidationError);
 	});
 });
+
+// ---------------------------------------------------------------
+// The monotone `synced_seq` gate — concurrent additive convergence
+// ---------------------------------------------------------------
+//
+// `applySchemaChange` gates on `syncedSeq` so concurrent additive
+// case-type edits converge instead of one clobbering the other. The
+// coarse SELECT skips the WHOLE call for a stale lower seq; the fine
+// UPSERT-SET guard keeps the row monotone even under a SELECT→UPSERT
+// race. These probe `case_type_schemas` directly for the recorded
+// `synced_seq` + schema shape.
+
+describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
+	const SEQ_APP = "app-synced-seq";
+
+	async function readRow(caseType: string): Promise<{
+		syncedSeq: number | null;
+		properties: string[];
+	}> {
+		const res = await dbHandle.pool.query<{
+			synced_seq: string;
+			schema: { properties?: Record<string, unknown> };
+		}>(
+			"SELECT synced_seq, schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
+			[SEQ_APP, caseType],
+		);
+		const row = res.rows[0];
+		if (row === undefined) return { syncedSeq: null, properties: [] };
+		return {
+			syncedSeq: Number(row.synced_seq),
+			properties: Object.keys(row.schema.properties ?? {}),
+		};
+	}
+
+	function patientWith(props: string[]): CaseType {
+		return {
+			name: "patient",
+			properties: props.map((name) => ({
+				name,
+				label: name,
+				data_type: "text" as const,
+			})),
+		};
+	}
+
+	it("records the incoming syncedSeq on a first sync and advances it on a forward sync", async () => {
+		const store = makeStore(SEQ_APP);
+		await store.applySchemaChange({
+			appId: SEQ_APP,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
+			),
+			syncedSeq: 3,
+		});
+		expect(await readRow("patient")).toEqual({
+			syncedSeq: 3,
+			properties: ["name"],
+		});
+
+		// Forward sync (seq 7 > 3) adds `village` and advances the seq.
+		await store.applySchemaChange({
+			appId: SEQ_APP,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint([patientWith(["name", "village"])], SEQ_APP),
+			),
+			syncedSeq: 7,
+		});
+		const forward = await readRow("patient");
+		expect(forward.syncedSeq).toBe(7);
+		expect(forward.properties).toEqual(["name", "village"]);
+	});
+
+	it("fully no-ops a stale lower-seq sync — schema row AND its expression index untouched", async () => {
+		const store = makeStore(SEQ_APP);
+		// Land the fresher two-property state at seq 5.
+		await store.applySchemaChange({
+			appId: SEQ_APP,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint([patientWith(["name", "village"])], SEQ_APP),
+			),
+			syncedSeq: 5,
+		});
+		const indexesBefore = await readPropertyIndexes(
+			dbHandle.pool,
+			SEQ_APP,
+			"patient",
+		);
+		expect(indexesBefore).toHaveLength(2);
+
+		// A stale sync at seq 2 with only the OLDER one-property schema must
+		// no-op the whole call — the row keeps its seq-5 shape and both
+		// expression indexes survive (the Phase-B index-DDL skip is part of
+		// the full-call no-op).
+		await store.applySchemaChange({
+			appId: SEQ_APP,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
+			),
+			syncedSeq: 2,
+		});
+		expect(await readRow("patient")).toEqual({
+			syncedSeq: 5,
+			properties: ["name", "village"],
+		});
+		const indexesAfter = await readPropertyIndexes(
+			dbHandle.pool,
+			SEQ_APP,
+			"patient",
+		);
+		expect(indexesAfter.map((i) => i.name)).toEqual(
+			indexesBefore.map((i) => i.name),
+		);
+	});
+
+	it("a fine-gate loser does NOT drop the winner's live index (Phase B win-gate)", async () => {
+		// The [C1] bug: a losing concurrent additive sync whose fine-gate WHERE
+		// suppresses its schema UPSERT would still run Phase B with its OWN
+		// older desired set and DROP the winner's new-property index. Race a
+		// WINNER (seq 3, adds `village` → a second index) against a LOSER (seq
+		// 2, only `name`). Whatever the interleaving, the winner's `village`
+		// index must survive: if the loser wins the coarse SELECT race it hits
+		// the fine-gate (2 < 3) → `won=false` → Phase B skipped; if it loses the
+		// coarse race it no-ops earlier. Both orderings preserve the index —
+		// WITHOUT the win-gate the fine-gate ordering would drop it.
+		const store = makeStore(SEQ_APP);
+		// Shared prior at seq 1: just `name`.
+		await store.applySchemaChange({
+			appId: SEQ_APP,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
+			),
+			syncedSeq: 1,
+		});
+
+		const winner = store.applySchemaChange({
+			appId: SEQ_APP,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint([patientWith(["name", "village"])], SEQ_APP),
+			),
+			syncedSeq: 3,
+		});
+		const loser = store.applySchemaChange({
+			appId: SEQ_APP,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
+			),
+			syncedSeq: 2,
+		});
+		await Promise.all([winner, loser]);
+
+		// The winner's seq-3 two-property schema stands, and BOTH the `name` and
+		// `village` expression indexes are live — the loser's Phase B never
+		// dropped `village`.
+		const row = await readRow("patient");
+		expect(row.syncedSeq).toBe(3);
+		expect(row.properties.sort()).toEqual(["name", "village"]);
+		const indexes = await readPropertyIndexes(
+			dbHandle.pool,
+			SEQ_APP,
+			"patient",
+		);
+		expect(indexes).toHaveLength(2);
+	});
+
+	it("converges two concurrent additive adds — each peer's property survives the merge", async () => {
+		const store = makeStore(SEQ_APP);
+		// The shared prior state at seq 1: `patient` with just `name`.
+		await store.applySchemaChange({
+			appId: SEQ_APP,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(
+				buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
+			),
+			syncedSeq: 1,
+		});
+
+		// Peer A commits `village` at seq 2; peer B commits `age` at seq 3.
+		// Under the durable stream, B's commit is the later seq and its
+		// blueprint already carries BOTH properties (it committed onto A's
+		// state). The two post-commit sweeps arrive in either order:
+		//   - A's sweep (seq 2, {name, village}) then B's (seq 3, {name,
+		//     village, age}): B wins, all three land.
+		//   - B's sweep (seq 3, all three) then A's (seq 2, {name, village}):
+		//     A is now STALE (2 < 3) and no-ops — B's three-property state
+		//     survives. This is the convergence the monotone gate guarantees.
+		const bState = buildCaseTypeMap(
+			buildSimpleBlueprint([patientWith(["name", "village", "age"])], SEQ_APP),
+		);
+		const aState = buildCaseTypeMap(
+			buildSimpleBlueprint([patientWith(["name", "village"])], SEQ_APP),
+		);
+		// Apply B (fresher) first, then A (stale) — the harder ordering.
+		await store.applySchemaChange({
+			appId: SEQ_APP,
+			caseType: "patient",
+			caseTypeSchemas: bState,
+			syncedSeq: 3,
+		});
+		await store.applySchemaChange({
+			appId: SEQ_APP,
+			caseType: "patient",
+			caseTypeSchemas: aState,
+			syncedSeq: 2,
+		});
+
+		// Both peers' properties survive — the stale seq-2 sync didn't drop
+		// `age`. The row reflects the fresher seq-3 state.
+		const merged = await readRow("patient");
+		expect(merged.syncedSeq).toBe(3);
+		expect(merged.properties.sort()).toEqual(["age", "name", "village"]);
+	});
+
+	it("throws when `change` and `syncedSeq` are both set (mutually exclusive)", async () => {
+		// A per-row migration (`change`) runs pre-commit un-versioned; the
+		// additive gate (`syncedSeq`) carries a committed seq and no migration.
+		// Combining them could let the coarse gate skip a migration's per-row
+		// work on a stale seq, so the implementation rejects the impossible
+		// state loudly rather than corrupt data.
+		const store = makeStore(SEQ_APP);
+		await expect(
+			store.applySchemaChange({
+				appId: SEQ_APP,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(
+					buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
+				),
+				property: "name",
+				change: { kind: "rename", from: "old", to: "name" },
+				syncedSeq: 3,
+			}),
+		).rejects.toThrow(/mutually exclusive|change.*syncedSeq/i);
+	});
+});

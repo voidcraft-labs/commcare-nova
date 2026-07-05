@@ -15,9 +15,16 @@
 
 import { z } from "zod";
 import type { BlueprintDoc, CaseSearchConfig } from "@/lib/domain";
-import { updateModuleMutations } from "../../blueprintHelpers";
+import {
+	resolveModuleUuid,
+	updateModuleMutations,
+} from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { guardedMutate, type MutatingToolResult } from "../common";
+import {
+	guardedMutate,
+	type MutatingToolResult,
+	toToolErrorResult,
+} from "../common";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
@@ -72,7 +79,7 @@ export const setCaseSearchDisplayTool = {
 	): Promise<MutatingToolResult<SetCaseSearchDisplayResult>> {
 		const { moduleIndex } = input;
 		try {
-			const moduleUuid = doc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid)
 				return moduleNotFoundResult<SetCaseSearchDisplaySuccess>(
 					doc,
@@ -134,12 +141,7 @@ export const setCaseSearchDisplayTool = {
 				},
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

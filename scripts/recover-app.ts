@@ -101,15 +101,15 @@ async function main() {
 		return;
 	}
 
-	/* Write. Rotating `blueprint_token` makes any open builder tab's next
-	 * auto-save bounce (409 → reload) instead of blind-overwriting the
-	 * recovered state — recovery is exactly the out-of-window write the
-	 * basis exists to surface. */
+	/* Write. Nothing here protects open builder tabs: an open tab's next
+	 * auto-save is a MUTATION DELTA re-applied onto whatever this recovery
+	 * wrote (the guarded commit's re-apply-on-fresh), so run a recovery while
+	 * the app's members are offline, or their next edits will layer onto the
+	 * recovered state. */
 	await ref.set(
 		{
 			status: "complete",
 			error_type: null,
-			blueprint_token: crypto.randomUUID(),
 			updated_at: FieldValue.serverTimestamp(),
 		},
 		{ merge: true },
