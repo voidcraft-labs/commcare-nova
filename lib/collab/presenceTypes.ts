@@ -16,6 +16,9 @@ export interface PresenceEntry {
 	readonly userId: string;
 	readonly sessionId: string;
 	readonly name: string;
+	/** Avatar URL (server-stamped from the peer's session), or null — the
+	 *  roster renders the photo with the palette color as ring + fallback. */
+	readonly image: string | null;
 	readonly color: string;
 	readonly location: Location;
 	/** Epoch ms of the last heartbeat — a stale entry (> ~2× heartbeat) hides. */

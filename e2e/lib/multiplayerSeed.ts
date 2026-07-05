@@ -72,11 +72,18 @@ export const MP_SEED = {
 		id: "mp-user-ada",
 		email: "ada@dimagi.com",
 		name: "Ada Lovelace",
+		/* Ada carries a profile PHOTO (a self-contained data-URL portrait) and
+		 * Grace none, so a two-user session exercises BOTH presence-avatar
+		 * paths at once: her peers see the photo ringed in her palette hue,
+		 * Grace's see initials on hers. */
+		image:
+			"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><rect width='64' height='64' fill='%234c1d95'/><circle cx='32' cy='25' r='11' fill='%23ddd6fe'/><path d='M10 64a22 15 0 0 1 44 0z' fill='%23ddd6fe'/></svg>",
 	},
 	userB: {
 		id: "mp-user-grace",
 		email: "grace@dimagi.com",
 		name: "Grace Hopper",
+		image: null,
 	},
 	/** The shared Project both users co-own/edit. */
 	projectName: "Multiplayer Test Project",
@@ -230,7 +237,7 @@ export async function seedMultiplayerFixture(args: {
 				name: u.name,
 				email: u.email,
 				emailVerified: true,
-				image: null,
+				image: u.image,
 				role: "user",
 				banned: false,
 				createdAt: now,

@@ -98,6 +98,7 @@ function projectPresence(doc: PresenceDoc): PresenceEntry {
 		userId: doc.userId,
 		sessionId: doc.sessionId,
 		name: doc.name,
+		image: doc.image ?? null,
 		color: doc.color,
 		location: doc.location,
 		updatedAt: doc.updatedAt.toMillis(),

@@ -475,6 +475,13 @@ export const presenceDocSchema = z.object({
 	sessionId: z.string(),
 	/** Display name, denormalized from `auth_user` so the roster needs no join. */
 	name: z.string(),
+	/**
+	 * Avatar URL (the Google profile photo), or null when the account has
+	 * none. Stamped SERVER-SIDE from the heartbeat's session — never
+	 * client-asserted — so a peer can't wear someone else's face. The roster
+	 * renders it with the palette color as ring + fallback.
+	 */
+	image: z.string().nullable().default(null),
 	/** Stable per-user avatar/marker color (`hash(userId) → palette`). */
 	color: z.string(),
 	/** Where this session is in the builder — a peer's avatar follows this. */

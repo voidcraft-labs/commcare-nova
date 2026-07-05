@@ -29,6 +29,7 @@ function entry(
 	return {
 		sessionId: `${over.userId}-tab`,
 		name: over.userId,
+		image: null,
 		color: "violet",
 		location: { kind: "home" },
 		updatedAt: NOW,
@@ -127,6 +128,18 @@ describe("visiblePeers — ordering", () => {
 			"charlie",
 		]);
 	});
+
+	it("carries the server-stamped avatar through (photo peers render their photo)", () => {
+		const frame: PresenceEntry[] = [
+			entry({ userId: "ada", image: "https://lh3.googleusercontent.com/a" }),
+			entry({ userId: "grace" }),
+		];
+		const peers = visiblePeers(frame, "self", NOW);
+		expect(peers.map((p) => p.image)).toEqual([
+			"https://lh3.googleusercontent.com/a",
+			null,
+		]);
+	});
 });
 
 describe("visiblePeers — the real /stream wire shape (updatedAt is epoch millis)", () => {
@@ -148,6 +161,7 @@ describe("visiblePeers — the real /stream wire shape (updatedAt is epoch milli
 			userId,
 			sessionId,
 			name: userId,
+			image: null,
 			color: "violet",
 			location: { kind: "home" },
 			updatedAt: atMs,
@@ -188,6 +202,7 @@ describe("visiblePeers — the real /stream wire shape (updatedAt is epoch milli
 			userId: "crashed",
 			sessionId: "crashed-tab",
 			name: "crashed",
+			image: null,
 			color: "violet",
 			location: { kind: "home" },
 			updatedAt: rawTs, // an OBJECT, not millis — the bug
@@ -254,6 +269,7 @@ describe("estimateClockOffset", () => {
 		userId,
 		sessionId: `${userId}-s1`,
 		name: userId,
+		image: null,
 		color: "violet",
 		location: { kind: "home" },
 		updatedAt,

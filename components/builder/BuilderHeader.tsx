@@ -86,6 +86,11 @@ export function BuilderHeader({
 			<div className="flex items-center gap-1 justify-self-end">
 				{showToolbar && (
 					<>
+						{/* Who-else-is-here avatars — first in the cluster with their own
+						 *  divider (the Google-Docs arrangement: people, then actions).
+						 *  Shown for editors AND viewers (a viewer still sees who's
+						 *  editing); renders nothing in a solo session. */}
+						<PresenceRoster />
 						{/* Edit affordances — hidden for a view-only member. Preview +
 						 *  Export stay (a viewer may preview and download the app);
 						 *  HQ upload inside Export stays gated server-side. */}
@@ -128,14 +133,6 @@ export function BuilderHeader({
 							commcareAvailableDomains={commcareAvailableDomains}
 						/>
 					</>
-				)}
-				{/* Who-else-is-here avatars — shown for editors AND viewers (a
-				 *  viewer still sees who's editing), rendered only once a usable
-				 *  blueprint exists. Renders nothing in a solo session. */}
-				{showToolbar && (
-					<div className="mx-1">
-						<PresenceRoster />
-					</div>
 				)}
 				<div className="ml-1">
 					<AccountMenu />

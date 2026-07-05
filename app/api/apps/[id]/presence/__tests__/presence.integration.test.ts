@@ -121,6 +121,32 @@ describe.skipIf(!emulatorAvailable)(
 			expect(data?.name).toBe("Ada");
 			expect(data?.location).toEqual({ kind: "home" });
 			expect(data?.expireAt).toBeDefined();
+			// No image on the session → stored as an explicit null.
+			expect(data?.image).toBeNull();
+		});
+
+		it("POST stamps the avatar from the SESSION, never the body (a client can't wear someone else's face)", async () => {
+			const appId = await seedApp();
+			requireSessionMock.mockResolvedValue({
+				user: { id: USER, image: "https://lh3.googleusercontent.com/a/ada" },
+			} as never);
+			// A body-supplied `image` isn't even accepted: the strict body schema
+			// 400s an unknown key (pinned by the malformed-body test below), so the
+			// session is structurally the ONLY avatar source.
+			const res = await POST(
+				postReq(appId, {
+					sessionId: SESS_A,
+					name: "Ada",
+					color: "#abcdef",
+					location: { kind: "home" },
+				}),
+				{ params: Promise.resolve({ id: appId }) },
+			);
+			expect(res.status).toBe(200);
+			const data = (
+				await docs.presence(appId, `${USER}:${SESS_A}`).get()
+			).data();
+			expect(data?.image).toBe("https://lh3.googleusercontent.com/a/ada");
 		});
 
 		it("keeps two tabs' sessions distinct; DELETE removes only the named session", async () => {

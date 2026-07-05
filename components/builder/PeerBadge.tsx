@@ -17,17 +17,20 @@
 
 "use client";
 
+import Image from "next/image";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { PeerColor } from "@/lib/collab/presence";
 import { usePeersAt } from "@/lib/collab/usePeersAt";
 import { getInitials } from "@/lib/utils";
 
 /**
- * The colored initials-dot cluster for peers on entity `uuid`. Renders nothing
- * — no wrapper element at all — when no peer occupies it, so an entity mounting
- * a `PeerBadge` pays no layout cost while solo. Kept compact (a horizontal
- * overlap of small dots) so it rides in a row's trailing gutter or a tile
- * corner without reflow. `className` positions the cluster at the call site.
+ * The colored marker-dot cluster for peers on entity `uuid` — the peer's
+ * photo (ringed in their palette hue) when their account has one, initials
+ * on their palette fill otherwise. Renders nothing — no wrapper element at
+ * all — when no peer occupies it, so an entity mounting a `PeerBadge` pays
+ * no layout cost while solo. Kept compact (a horizontal overlap of small
+ * dots) so it rides in a row's trailing gutter or a tile corner without
+ * reflow. `className` positions the cluster at the call site.
  */
 export function PeerBadge({
 	uuid,
@@ -50,11 +53,23 @@ export function PeerBadge({
 					key={peer.userId}
 					content={`${peer.name || "A collaborator"} is here`}
 				>
-					<span
-						className={`flex items-center justify-center w-4 h-4 rounded-full ring-1 ring-nova-void text-[8px] font-bold text-nova-void ${peer.peerColor.bg}`}
-					>
-						{getInitials(peer.name)}
-					</span>
+					{peer.image ? (
+						<Image
+							src={peer.image}
+							alt=""
+							width={16}
+							height={16}
+							referrerPolicy="no-referrer"
+							unoptimized
+							className={`w-4 h-4 rounded-full object-cover ring-1 ${peer.peerColor.ring}`}
+						/>
+					) : (
+						<span
+							className={`flex items-center justify-center w-4 h-4 rounded-full ring-1 ring-nova-void text-[8px] font-bold text-nova-void ${peer.peerColor.bg}`}
+						>
+							{getInitials(peer.name)}
+						</span>
+					)}
 				</Tooltip>
 			))}
 		</span>

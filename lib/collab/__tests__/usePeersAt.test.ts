@@ -23,6 +23,7 @@ function peer(userId: string, location: Location): Peer {
 		userId,
 		sessionId: `${userId}-tab`,
 		name: userId,
+		image: null,
 		color: hashColor(userId).id,
 		location,
 		updatedAt: 0,
