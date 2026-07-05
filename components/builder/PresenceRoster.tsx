@@ -146,16 +146,14 @@ function AvatarFace({ peer, size }: { peer: Peer; size: "lg" | "md" | "sm" }) {
  * The hover profile card — a two-zone glass surface whose ONE accent is the
  * peer's own palette hue, echoed exactly twice so the person's color reads
  * as their identity across the card: the avatar ring and the live-status
- * pulse dot. The "Click to follow" affordance deliberately does NOT wear the
- * peer hue — the palest palette entries render as plain white there, erasing
- * the action signal — it uses the theme's actionable-text violet instead.
+ * pulse dot. No "click to follow" caption — the affordance speaks through
+ * the button semantics (cursor, aria-label, hover lift), Docs-style.
  *
  *   ┌──────────────────────────────┐
  *   │ ◉  Ada Lovelace              │  identity: face + name + email
  *   │    ada@dimagi.com            │  (email in the app's identifier mono)
  *   ├──────────────────────────────┤
- *   │ ● Editing a field   Click to │  live status (heartbeat-true pulse)
- *   │                     follow   │  + the one action the avatar does
+ *   │ ● Editing a field            │  live status (heartbeat-true pulse)
  *   └──────────────────────────────┘
  *
  * Built on the Tooltip primitives directly (hover/focus semantics, a
@@ -195,19 +193,14 @@ function PeerHoverCard({
 								)}
 							</div>
 						</div>
-						<div className="flex items-center justify-between gap-3 border-t border-white/[0.06] bg-white/[0.03] px-3 py-2">
-							<span className="flex min-w-0 items-center gap-1.5 text-[11px] text-nova-text-secondary">
-								{/* Heartbeat-true: presence IS a live signal, so the dot
-								 *  breathes (and holds still under reduced motion). */}
-								<span
-									className={`h-1.5 w-1.5 shrink-0 rounded-full ${peer.peerColor.bg} animate-pulse motion-reduce:animate-none`}
-								/>
-								<span className="truncate first-letter:uppercase">
-									{whereLabel(peer.location)}
-								</span>
-							</span>
-							<span className="shrink-0 text-[11px] font-medium text-nova-violet-bright">
-								Click to follow
+						<div className="flex items-center gap-1.5 border-t border-white/[0.06] bg-white/[0.03] px-3 py-2 text-[11px] text-nova-text-secondary">
+							{/* Heartbeat-true: presence IS a live signal, so the dot
+							 *  breathes (and holds still under reduced motion). */}
+							<span
+								className={`h-1.5 w-1.5 shrink-0 rounded-full ${peer.peerColor.bg} animate-pulse motion-reduce:animate-none`}
+							/>
+							<span className="min-w-0 truncate first-letter:uppercase">
+								{whereLabel(peer.location)}
 							</span>
 						</div>
 					</BaseTooltip.Popup>

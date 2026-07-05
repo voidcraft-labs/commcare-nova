@@ -62,25 +62,28 @@ emulator, seeds, then runs Playwright (which builds + starts the production serv
 `next build && next start`). It uses a throwaway `BETTER_AUTH_SECRET` and dummy OAuth
 creds — never production secrets.
 
-## See multiplayer in action (two windows, side by side)
+## See multiplayer in action (tiled windows, live)
 
 Both modes ride the same hermetic stack and seed as the smoke suite — no real GCP,
-no Google accounts (Ada and Grace are forged-cookie sessions in a shared Project):
+no Google accounts (Ada, Grace, Katherine, and Alan are forged-cookie sessions in
+one shared Project):
 
 ```bash
-npm run mp:watch     # WATCH the two-user acceptance suite run itself:
-                     # Ada's window on the left half of the screen, Grace's on the
-                     # right, 3 s between actions so you can follow along.
-                     # MP_SLOWMO=1000 npm run mp:watch   → snappier
-                     # Each page is zoomed to fit its half-window (a device-metrics
-                     # scale), so the whole 1280×720 layout is visible even on a
-                     # 13" screen while assertions run at exact CI geometry.
+npm run mp:watch     # WATCH the acceptance suite run itself, 3 s between actions:
+                     # the two-user matrix runs in side-by-side halves, then the
+                     # FOUR-user co-editing storm runs in screen QUADRANTS — a
+                     # four-writer disjoint storm, same-slot convergence, crowd
+                     # undo isolation, and an offline member catching up on a
+                     # three-writer burst. MP_SLOWMO=1000 npm run mp:watch → snappier.
+                     # Each page zooms (CSS) to fit its tile, so the whole desktop
+                     # layout stays visible even on a 13" screen.
 
-npm run mp:manual    # DRIVE both users yourself: opens Ada (owner, LEFT) and
-                     # Grace (editor, RIGHT) logged into the same shared app,
-                     # tiled half-screen each and zoomed to fit, and stays alive
-                     # until you close both windows (or Ctrl-C). Edits, presence,
-                     # follow, undo — all live over the real SSE stream.
+npm run mp:manual    # DRIVE all four members yourself: Ada (owner, top-left),
+                     # Grace (top-right), Katherine (bottom-left), Alan
+                     # (bottom-right) logged into the same shared app, one screen
+                     # quadrant each, alive until you close every window (or
+                     # Ctrl-C). Edits, presence, follow, undo — all live over the
+                     # real SSE stream.
 ```
 
 Each launch pays the production build (~2 min). Relaunching with **unchanged code**

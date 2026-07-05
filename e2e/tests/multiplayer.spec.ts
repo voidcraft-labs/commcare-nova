@@ -9,19 +9,22 @@ import {
 } from "@playwright/test";
 import { Pool } from "pg";
 import { attachErrorGuard } from "../lib/errorGuard";
-import { applyPageZoom, tileWindow } from "../lib/windowTiling";
+import { applyPageZoom, type TileSlot, tileWindow } from "../lib/windowTiling";
 
 /**
- * Two-user real-time multiplayer acceptance + UI/UX verification — the feature's
- * end-to-end gate.
+ * Real-time multiplayer acceptance + UI/UX verification — the feature's
+ * end-to-end gate, in two blocks: the TWO-user matrix (the mechanism) and the
+ * FOUR-user co-editing storm (the crowd-scale proof — see that describe's own
+ * header).
  *
- * Two users who are BOTH members of one shared Project (Ada, the owner; Grace,
- * an editor — seeded by `e2e/lib/multiplayerSeed.ts` into a two-module, four-field
- * app), each in their own browser context carrying that user's session cookie,
- * co-edit the SAME shared app. Every test drives the REAL transport (two
- * contexts, live propagation over the SSE stream + guarded writer + reconciler),
- * and each captures a screenshot to `e2e/multiplayer-screenshots/` so the UI/UX
- * can be eyeballed, not just asserted.
+ * All four users are members of one shared Project (Ada, the owner; Grace,
+ * Katherine, and Alan, editors — seeded by `e2e/lib/multiplayerSeed.ts` into a
+ * two-module, four-field app), each in their own browser context carrying that
+ * user's session cookie, co-editing the SAME shared app. Every test drives the
+ * REAL transport (per-user contexts, live propagation over the SSE stream +
+ * guarded writer + reconciler), and each captures a screenshot to
+ * `e2e/multiplayer-screenshots/` so the UI/UX can be eyeballed, not just
+ * asserted.
  *
  * The matrix (each an `expect.poll`/auto-waiting assertion — never a fixed sleep):
  *   1. Presence (bidirectional) + live co-edit — each peer appears in the other's
@@ -63,8 +66,12 @@ interface MultiplayerManifest {
 	fieldFourUuid: string;
 	userA: { id: string; email: string; name: string };
 	userB: { id: string; email: string; name: string };
+	userC: { id: string; email: string; name: string };
+	userD: { id: string; email: string; name: string };
 	stateFileA: string;
 	stateFileB: string;
+	stateFileC: string;
+	stateFileD: string;
 	baseUrl: string;
 }
 
@@ -97,11 +104,15 @@ interface UserPage {
 const TILED = process.env.MP_TILE === "1";
 const TILE_WIDTH = 1280;
 
-/** Open a builder page for one seeded user, guarded, at a specific app screen. */
+/** Open a builder page for one seeded user, guarded, at a specific app screen.
+ *  In watch mode the window tiles to `slot` — the two-user tests default to
+ *  half-screens (Ada left, everyone else right); the four-user tests pass
+ *  explicit quadrants. */
 async function openBuilder(
 	browser: Browser,
 	storageState: string,
 	subPath: string,
+	slot?: TileSlot,
 ): Promise<UserPage> {
 	const context = await browser.newContext({
 		storageState,
@@ -111,7 +122,7 @@ async function openBuilder(
 	if (TILED) {
 		const content = await tileWindow(
 			page,
-			storageState === mp.stateFileA ? "left" : "right",
+			slot ?? (storageState === mp.stateFileA ? "left" : "right"),
 		);
 		if (content) {
 			await page.setViewportSize(content);
@@ -127,6 +138,36 @@ async function openBuilder(
 		assertNoErrors: guard.assertNoErrors,
 		close: () => context.close(),
 	};
+}
+
+/**
+ * Open all FOUR seeded members at once (Ada, Grace, Katherine, Alan), one
+ * quadrant each in watch mode, each at their own screen. The four-user
+ * scenarios drive four concurrent writers through the guarded commit — the
+ * strongest local proof that a real co-editing crowd merges instead of
+ * clobbering.
+ */
+async function openCrew(
+	browser: Browser,
+	subPaths: readonly [string, string, string, string],
+): Promise<UserPage[]> {
+	const states = [
+		mp.stateFileA,
+		mp.stateFileB,
+		mp.stateFileC,
+		mp.stateFileD,
+	] as const;
+	const slots: readonly TileSlot[] = [
+		"top-left",
+		"top-right",
+		"bottom-left",
+		"bottom-right",
+	];
+	return Promise.all(
+		states.map((state, i) =>
+			openBuilder(browser, state, subPaths[i], slots[i]),
+		),
+	);
 }
 
 /**
@@ -605,6 +646,335 @@ test.describe("two-user multiplayer builder", () => {
 			await pool.end().catch(() => {});
 			await ada.close();
 			await grace.close();
+		}
+	});
+});
+
+/**
+ * FOUR-user co-editing storm — the crowd-scale proof.
+ *
+ * Two users show the mechanism works; four concurrent editors show it holds
+ * under a crowd: a simultaneous four-writer disjoint storm merges everywhere,
+ * same-slot contention CONVERGES (last write wins, no split-brain) while
+ * bystanders' edits survive, one member's undo in the crowd reverts only
+ * their own edit, and an offline member catches up on a three-writer burst.
+ * All four members are seeded editors of the shared Project; in watch mode
+ * each takes a quadrant of the screen.
+ *
+ * Runs AFTER the two-user suite (serial file order) — the revocation test
+ * restores Grace's membership in its `finally`, so the crew is whole again
+ * here. Same cumulative-marker discipline: every test asserts values IT set.
+ */
+test.describe("four-user co-editing storm", () => {
+	test.beforeAll(() => {
+		mp = JSON.parse(
+			readFileSync(
+				path.join(process.cwd(), "e2e", ".auth", "multiplayer.json"),
+				"utf8",
+			),
+		);
+		mkdirSync(SHOTS_DIR, { recursive: true });
+	});
+
+	test("presence quorum + a simultaneous four-writer disjoint storm merges everywhere", async ({
+		browser,
+	}) => {
+		const [ada, grace, kat, alan] = await openCrew(browser, [
+			`/${mp.moduleUuid}`,
+			`/${mp.formUuid}`,
+			`/${mp.formUuid}/${mp.fieldTwoUuid}`,
+			`/${mp.formUuid}/${mp.fieldOneUuid}`,
+		]);
+		try {
+			// Quorum: every member sees the other THREE in their roster.
+			const crew = [
+				{ up: ada, name: mp.userA.name },
+				{ up: grace, name: mp.userB.name },
+				{ up: kat, name: mp.userC.name },
+				{ up: alan, name: mp.userD.name },
+			];
+			for (const viewer of crew) {
+				for (const other of crew) {
+					if (other === viewer) continue;
+					await expect(followButton(viewer.up.page, other.name)).toBeVisible({
+						timeout: 30_000,
+					});
+				}
+			}
+
+			// Four disjoint writers fire back-to-back: module rename, form rename,
+			// and two different field-id edits — four concurrent guarded commits.
+			const moduleName = "Intake (storm)";
+			const formName = "Registration (storm)";
+			const villageId = "village_storm";
+			const fullNameId = "full_name_storm";
+			await titleInput(ada.page).click();
+			await titleInput(ada.page).fill(moduleName);
+			await titleInput(grace.page).click();
+			await titleInput(grace.page).fill(formName);
+			await fieldIdInput(kat.page).click();
+			await fieldIdInput(kat.page).fill(villageId);
+			await fieldIdInput(alan.page).click();
+			await fieldIdInput(alan.page).fill(fullNameId);
+			await titleInput(ada.page).press("Enter");
+			await titleInput(grace.page).press("Enter");
+			await fieldIdInput(kat.page).press("Enter");
+			await fieldIdInput(alan.page).press("Enter");
+
+			// ALL FOUR edits land on ALL FOUR screens. Names show in every tree;
+			// the field ids are asserted on their editor's inspector plus a
+			// cross-check from another member navigating there.
+			for (const { up } of crew) {
+				await expect(up.page.getByText(moduleName).first()).toBeVisible({
+					timeout: 30_000,
+				});
+				await expect(up.page.getByText(formName).first()).toBeVisible({
+					timeout: 30_000,
+				});
+			}
+			await expect(fieldIdInput(kat.page)).toHaveValue(villageId);
+			await expect(fieldIdInput(alan.page)).toHaveValue(fullNameId);
+			await ada.page.goto(
+				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldTwoUuid}`,
+			);
+			await expect(fieldIdInput(ada.page)).toHaveValue(villageId, {
+				timeout: 20_000,
+			});
+			await grace.page.goto(
+				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldOneUuid}`,
+			);
+			await expect(fieldIdInput(grace.page)).toHaveValue(fullNameId, {
+				timeout: 20_000,
+			});
+			await alan.page.screenshot({
+				path: path.join(SHOTS_DIR, "10-four-storm-alan-view.png"),
+			});
+
+			for (const { up } of crew) up.assertNoErrors();
+		} finally {
+			await Promise.all([
+				ada.close(),
+				grace.close(),
+				kat.close(),
+				alan.close(),
+			]);
+		}
+	});
+
+	test("same-slot contention converges with no split-brain while a bystander's edit survives", async ({
+		browser,
+	}) => {
+		const [ada, grace, kat, alan] = await openCrew(browser, [
+			`/${mp.formUuid}`,
+			`/${mp.formUuid}`,
+			`/${mp.formUuid}/${mp.fieldTwoUuid}`,
+			`/${mp.moduleUuid}`,
+		]);
+		try {
+			await expect(titleInput(ada.page)).toBeVisible({ timeout: 20_000 });
+			await expect(titleInput(grace.page)).toBeVisible({ timeout: 20_000 });
+
+			// Ada and Grace race the SAME slot (the form title); Katherine edits a
+			// field id concurrently (the bystander whose edit must survive).
+			const adaName = "Registration (ada-race)";
+			const graceName = "Registration (grace-race)";
+			const bystanderId = "village_bystander";
+			await titleInput(ada.page).click();
+			await titleInput(ada.page).fill(adaName);
+			await titleInput(grace.page).click();
+			await titleInput(grace.page).fill(graceName);
+			await fieldIdInput(kat.page).click();
+			await fieldIdInput(kat.page).fill(bystanderId);
+			await titleInput(ada.page).press("Enter");
+			await titleInput(grace.page).press("Enter");
+			await fieldIdInput(kat.page).press("Enter");
+
+			// CONVERGENCE: both racers settle on ONE of the two values — the same
+			// one — with no split-brain (each screen showing its own write forever).
+			await expect
+				.poll(
+					async () => {
+						const a = await titleInput(ada.page).inputValue();
+						const g = await titleInput(grace.page).inputValue();
+						if (a !== g) return null;
+						return a === adaName || a === graceName ? a : null;
+					},
+					{ timeout: 30_000 },
+				)
+				.not.toBeNull();
+			const winner = await titleInput(ada.page).inputValue();
+			// The loser's screen shows the winner too (fold, not stale local echo),
+			// and a fourth member's fresh view agrees.
+			await expect(alan.page.getByText(winner).first()).toBeVisible({
+				timeout: 20_000,
+			});
+
+			// The bystander's disjoint edit survived the race on every side.
+			await expect(fieldIdInput(kat.page)).toHaveValue(bystanderId);
+			await alan.page.goto(
+				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldTwoUuid}`,
+			);
+			await expect(fieldIdInput(alan.page)).toHaveValue(bystanderId, {
+				timeout: 20_000,
+			});
+			await ada.page.screenshot({
+				path: path.join(SHOTS_DIR, "11-contention-converged.png"),
+			});
+
+			ada.assertNoErrors();
+			grace.assertNoErrors();
+			kat.assertNoErrors();
+			alan.assertNoErrors();
+		} finally {
+			await Promise.all([
+				ada.close(),
+				grace.close(),
+				kat.close(),
+				alan.close(),
+			]);
+		}
+	});
+
+	test("one member's undo in a crowd reverts only their own edit", async ({
+		browser,
+	}) => {
+		const [ada, grace, kat, alan] = await openCrew(browser, [
+			`/${mp.moduleUuid}`,
+			`/${mp.formUuid}`,
+			`/${mp.formUuid}/${mp.fieldTwoUuid}`,
+			`/${mp.formUuid}/${mp.fieldOneUuid}`,
+		]);
+		try {
+			// Alan edits field one; capture the pre-edit value for the undo assert.
+			// (He stays put — a goto would remount the builder and reset the
+			// temporal undo stack, per the two-user undo test.)
+			const alanId = fieldIdInput(alan.page);
+			await expect(alanId).toBeVisible({ timeout: 20_000 });
+			const alanStart = await alanId.inputValue();
+			const alanEdited = "full_name_crowd_undo";
+			await alanId.click();
+			await alanId.fill(alanEdited);
+			await alanId.press("Enter");
+			await expect(alanId).toHaveValue(alanEdited);
+
+			// The other three edit disjoint slots — remote frames Alan's reconciler
+			// folds through his undo stack (`rebaseHistory`) before he undoes.
+			const moduleName = "Intake (crowd)";
+			const formName = "Registration (crowd)";
+			const villageId = "village_crowd";
+			await titleInput(ada.page).click();
+			await titleInput(ada.page).fill(moduleName);
+			await titleInput(ada.page).press("Enter");
+			await titleInput(grace.page).click();
+			await titleInput(grace.page).fill(formName);
+			await titleInput(grace.page).press("Enter");
+			await fieldIdInput(kat.page).click();
+			await fieldIdInput(kat.page).fill(villageId);
+			await fieldIdInput(kat.page).press("Enter");
+
+			// Alan SEES the crowd's edits before undoing (the frames folded in).
+			await expect(alan.page.getByText(moduleName).first()).toBeVisible({
+				timeout: 30_000,
+			});
+			await expect(alan.page.getByText(formName).first()).toBeVisible({
+				timeout: 30_000,
+			});
+
+			// Alan undoes — only HIS field-one edit reverts, everywhere.
+			const undoButton = alan.page.getByRole("button", { name: "Undo" });
+			await expect(undoButton).toBeEnabled({ timeout: 20_000 });
+			await undoButton.click();
+			await expect(alanId).toHaveValue(alanStart, { timeout: 20_000 });
+			await grace.page.goto(
+				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldOneUuid}`,
+			);
+			await expect(fieldIdInput(grace.page)).toHaveValue(alanStart, {
+				timeout: 20_000,
+			});
+
+			// The crowd's edits are untouched by Alan's undo.
+			await expect(fieldIdInput(kat.page)).toHaveValue(villageId);
+			await expect(alan.page.getByText(moduleName).first()).toBeVisible();
+			await expect(alan.page.getByText(formName).first()).toBeVisible();
+			await alan.page.screenshot({
+				path: path.join(SHOTS_DIR, "12-crowd-undo-alan.png"),
+			});
+
+			ada.assertNoErrors();
+			grace.assertNoErrors();
+			kat.assertNoErrors();
+			alan.assertNoErrors();
+		} finally {
+			await Promise.all([
+				ada.close(),
+				grace.close(),
+				kat.close(),
+				alan.close(),
+			]);
+		}
+	});
+
+	test("an offline member catches up on a three-writer burst", async ({
+		browser,
+	}) => {
+		const [ada, grace, kat, alan] = await openCrew(browser, [
+			`/${mp.moduleUuid}`,
+			`/${mp.formUuid}`,
+			`/${mp.moduleUuid}`,
+			`/${mp.formUuid}/${mp.fieldTwoUuid}`,
+		]);
+		try {
+			// Katherine watches the module screen, then drops offline.
+			await expect(titleInput(kat.page)).toBeVisible({ timeout: 20_000 });
+			await kat.context.setOffline(true);
+
+			// Three writers edit while she's dark.
+			const moduleName = "Intake (burst)";
+			const formName = "Registration (burst)";
+			const villageId = "village_burst";
+			await titleInput(ada.page).click();
+			await titleInput(ada.page).fill(moduleName);
+			await titleInput(ada.page).press("Enter");
+			await titleInput(grace.page).click();
+			await titleInput(grace.page).fill(formName);
+			await titleInput(grace.page).press("Enter");
+			await fieldIdInput(alan.page).click();
+			await fieldIdInput(alan.page).fill(villageId);
+			await fieldIdInput(alan.page).press("Enter");
+			await expect(titleInput(ada.page)).toHaveValue(moduleName);
+			await expect(titleInput(grace.page)).toHaveValue(formName);
+			await expect(fieldIdInput(alan.page)).toHaveValue(villageId);
+
+			// She reconnects and catches up on ALL THREE — the stream replays the
+			// missed frames in order, no manual reload.
+			await kat.context.setOffline(false);
+			await expect(titleInput(kat.page)).toHaveValue(moduleName, {
+				timeout: 30_000,
+			});
+			await expect(kat.page.getByText(formName).first()).toBeVisible({
+				timeout: 20_000,
+			});
+			await kat.page.goto(
+				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldTwoUuid}`,
+			);
+			await expect(fieldIdInput(kat.page)).toHaveValue(villageId, {
+				timeout: 20_000,
+			});
+			await kat.page.screenshot({
+				path: path.join(SHOTS_DIR, "13-burst-catchup-katherine.png"),
+			});
+
+			ada.assertNoErrors();
+			grace.assertNoErrors();
+			kat.assertNoErrors();
+			alan.assertNoErrors();
+		} finally {
+			await Promise.all([
+				ada.close(),
+				grace.close(),
+				kat.close(),
+				alan.close(),
+			]);
 		}
 	});
 });

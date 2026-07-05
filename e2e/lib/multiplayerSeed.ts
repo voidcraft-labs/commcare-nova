@@ -59,33 +59,49 @@ interface AuthContext {
 
 /**
  * Stable identifiers the spec asserts against (mirrors the SEED pattern). Every
- * uuid is FIXED so both users deep-link to the same entity and the spec targets
+ * uuid is FIXED so every user deep-links to the same entity and the spec targets
  * it without a doc round-trip. The app is deliberately RICH enough to exercise
  * the whole multiplayer matrix from ONE fixture:
  *   - module 1 "Intake" (survey) with THREE fields (two text + one single_select
  *     with options) → disjoint-edit merge (A edits field 1, B edits field 2),
  *     field reorder, option edits, and live-highlight (select a field);
  *   - module 2 "Follow-up" (survey, one field) → follow / cross-screen presence.
+ *
+ * FOUR members share the Project (Ada owner; Grace, Katherine, Alan editors)
+ * — the four-user storm scenarios need four concurrent writers, and the
+ * quadrant watch/manual modes tile one window per member. The user ids are
+ * chosen so all four hash to DISTINCT palette hues (periwinkle / lavender /
+ * iris / violet), and two carry profile photos while two don't, so a session
+ * always shows both presence-avatar paths.
  */
 export const MP_SEED = {
 	userA: {
-		id: "mp-user-ada",
+		id: "mp-user-ada", // palette: periwinkle
 		email: "ada@dimagi.com",
 		name: "Ada Lovelace",
-		/* Ada carries a profile PHOTO (a self-contained data-URL portrait) and
-		 * Grace none, so a two-user session exercises BOTH presence-avatar
-		 * paths at once: her peers see the photo ringed in her palette hue,
-		 * Grace's see initials on hers. */
 		image:
 			"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><rect width='64' height='64' fill='%234c1d95'/><circle cx='32' cy='25' r='11' fill='%23ddd6fe'/><path d='M10 64a22 15 0 0 1 44 0z' fill='%23ddd6fe'/></svg>",
 	},
 	userB: {
-		id: "mp-user-grace",
+		id: "mp-user-grace", // palette: lavender
 		email: "grace@dimagi.com",
 		name: "Grace Hopper",
 		image: null,
 	},
-	/** The shared Project both users co-own/edit. */
+	userC: {
+		id: "mp-user-katherine-g", // palette: iris
+		email: "katherine@dimagi.com",
+		name: "Katherine Johnson",
+		image:
+			"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><rect width='64' height='64' fill='%23713f12'/><circle cx='32' cy='25' r='11' fill='%23fef3c7'/><path d='M10 64a22 15 0 0 1 44 0z' fill='%23fef3c7'/></svg>",
+	},
+	userD: {
+		id: "mp-user-alan", // palette: violet
+		email: "alan@dimagi.com",
+		name: "Alan Turing",
+		image: null,
+	},
+	/** The shared Project all four users co-own/edit. */
 	projectName: "Multiplayer Test Project",
 	appName: "Multiplayer — Co-Edit Me",
 
@@ -137,8 +153,12 @@ export interface MultiplayerManifest {
 	fieldFourUuid: string;
 	userA: { id: string; email: string; name: string };
 	userB: { id: string; email: string; name: string };
+	userC: { id: string; email: string; name: string };
+	userD: { id: string; email: string; name: string };
 	stateFileA: string;
 	stateFileB: string;
+	stateFileC: string;
+	stateFileD: string;
 	baseUrl: string;
 }
 
@@ -228,12 +248,14 @@ export async function seedMultiplayerFixture(args: {
 	const now = new Date();
 
 	// ── Users + sessions (Postgres, via the adapter) ──────────────────────
-	const tokens: Record<"userA" | "userB", string> = {
+	const tokens: Record<"userA" | "userB" | "userC" | "userD", string> = {
 		userA: randomBytes(32).toString("hex"),
 		userB: randomBytes(32).toString("hex"),
+		userC: randomBytes(32).toString("hex"),
+		userD: randomBytes(32).toString("hex"),
 	};
 	const expiresAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
-	for (const key of ["userA", "userB"] as const) {
+	for (const key of ["userA", "userB", "userC", "userD"] as const) {
 		const u = MP_SEED[key];
 		await ctx.adapter.create({
 			model: "user",
@@ -265,10 +287,11 @@ export async function seedMultiplayerFixture(args: {
 		});
 	}
 
-	// ── Shared Project + both memberships (Postgres, via the adapter) ──────
+	// ── Shared Project + all four memberships (Postgres, via the adapter) ──
 	// A direct adapter create bypasses the invitation domain-gate hook (that
-	// hook fires only on the invitation API path), so both members are written
-	// straight in. Ada `owner`, Grace `editor` — each holds `edit` on the app.
+	// hook fires only on the invitation API path), so the members are written
+	// straight in. Ada `owner`; Grace, Katherine, and Alan `editor` — each
+	// holds `edit` on the app, so all four are concurrent writers.
 	const org = await ctx.adapter.create<never, { id: string }>({
 		model: "organization",
 		data: {
@@ -289,15 +312,17 @@ export async function seedMultiplayerFixture(args: {
 			createdAt: now,
 		},
 	});
-	await ctx.adapter.create({
-		model: "member",
-		data: {
-			organizationId: projectId,
-			userId: MP_SEED.userB.id,
-			role: "editor",
-			createdAt: now,
-		},
-	});
+	for (const editor of [MP_SEED.userB, MP_SEED.userC, MP_SEED.userD]) {
+		await ctx.adapter.create({
+			model: "member",
+			data: {
+				organizationId: projectId,
+				userId: editor.id,
+				role: "editor",
+				createdAt: now,
+			},
+		});
+	}
 
 	// ── The shared app (Firestore emulator) ───────────────────────────────
 	// Minted directly with the populated blueprint + its denormalized counts —
@@ -333,25 +358,23 @@ export async function seedMultiplayerFixture(args: {
 		updated_at: FieldValue.serverTimestamp(),
 	});
 
-	// ── Emit two storageStates + the manifest ─────────────────────────────
-	const stateFileA = pathJoin(authDir, "state-mp-a.json");
-	const stateFileB = pathJoin(authDir, "state-mp-b.json");
-	await writeFile(
-		stateFileA,
-		JSON.stringify(
-			buildSessionStorageState({ token: tokens.userA, secret, baseUrl }),
-			null,
-			2,
-		),
-	);
-	await writeFile(
-		stateFileB,
-		JSON.stringify(
-			buildSessionStorageState({ token: tokens.userB, secret, baseUrl }),
-			null,
-			2,
-		),
-	);
+	// ── Emit four storageStates + the manifest ────────────────────────────
+	const stateFiles = {
+		userA: pathJoin(authDir, "state-mp-a.json"),
+		userB: pathJoin(authDir, "state-mp-b.json"),
+		userC: pathJoin(authDir, "state-mp-c.json"),
+		userD: pathJoin(authDir, "state-mp-d.json"),
+	} as const;
+	for (const key of ["userA", "userB", "userC", "userD"] as const) {
+		await writeFile(
+			stateFiles[key],
+			JSON.stringify(
+				buildSessionStorageState({ token: tokens[key], secret, baseUrl }),
+				null,
+				2,
+			),
+		);
+	}
 
 	return {
 		appId,
@@ -370,8 +393,12 @@ export async function seedMultiplayerFixture(args: {
 		fieldFourUuid: asUuid(MP_SEED.fieldFourUuid),
 		userA: MP_SEED.userA,
 		userB: MP_SEED.userB,
-		stateFileA,
-		stateFileB,
+		userC: MP_SEED.userC,
+		userD: MP_SEED.userD,
+		stateFileA: stateFiles.userA,
+		stateFileB: stateFiles.userB,
+		stateFileC: stateFiles.userC,
+		stateFileD: stateFiles.userD,
 		baseUrl,
 	};
 }

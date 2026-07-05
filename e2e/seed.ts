@@ -72,7 +72,13 @@ function requireEnv(name: string): string {
  * disturb another suite sharing the pool. A fresh CI volume deletes nothing.
  */
 async function clearSeedAuthRows(pool: Pool): Promise<void> {
-	const userIds = [SEED.userId, MP_SEED.userA.id, MP_SEED.userB.id];
+	const userIds = [
+		SEED.userId,
+		MP_SEED.userA.id,
+		MP_SEED.userB.id,
+		MP_SEED.userC.id,
+		MP_SEED.userD.id,
+	];
 	// Every org this seed touches: the shared multiplayer Project + the personal
 	// Project `ensurePersonalProject` mints for the single-user seed. Deleting
 	// the org (not just its membership) lets `ensurePersonalProject` recreate it

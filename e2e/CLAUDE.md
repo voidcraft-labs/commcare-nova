@@ -35,11 +35,17 @@ the non-obvious ones.
   `data-testid`, prefer it for the gate.
 - **Specs live in `e2e/tests/**` only** — Vitest excludes that dir; everything else
   under `e2e/` (helpers, `seed.ts`) is plain TS and importable by Vitest.
-- **The `multiplayer` project drives TWO users** across the whole real-time
-  matrix. `multiplayer.spec.ts` opens two members of one shared Project (Ada
-  `owner`, Grace `editor` — seeded by `lib/multiplayerSeed.ts` into a two-module,
-  four-field app), each in its OWN `browser.newContext({ storageState })`, and
-  drives eight scenarios over the real SSE stream + guarded writer + reconciler:
+- **The `multiplayer` project drives FOUR seeded users** in two blocks:
+  the two-user matrix (the mechanism) and a four-user co-editing storm (the
+  crowd-scale proof — simultaneous four-writer disjoint storm, same-slot
+  contention convergence, crowd undo isolation, offline catch-up on a
+  three-writer burst). `multiplayer.spec.ts` opens members of one shared
+  Project (Ada `owner`; Grace, Katherine, Alan `editor` — seeded by
+  `lib/multiplayerSeed.ts` into a two-module, four-field app; user ids are
+  chosen so all four hash to DISTINCT palette hues, and two carry avatar
+  photos), each in its OWN `browser.newContext({ storageState })`. The
+  two-user block drives eight scenarios over the real SSE stream + guarded
+  writer + reconciler:
   bidirectional presence + live co-edit; disjoint-edit merge (no clobber);
   presence marker + live-highlight; follow-a-peer; offline→reconnect catch-up
   (`context.setOffline`); reorder merge (Field-actions → Move Down); undo
@@ -55,14 +61,15 @@ the non-obvious ones.
     revocation test does NOT guard Grace's page (a revoked stream + 404 presence
     POSTs are the expected consequence of losing access).
   - **Human-viewable modes** ride the same stack + seed: `npm run mp:watch` runs
-    this suite headed with the two windows CDP-tiled half-screen (Ada left, Grace
-    right; `MP_TILE=1` → `lib/windowTiling.ts`, best-effort so it can't fail a
-    run) and `MP_SLOWMO` (default 400 ms) between actions; `npm run mp:manual`
-    opens the open-ended two-user session (`tests/mp-manual.spec.ts`, no error
-    guard, waits until both windows close) — its project registers ONLY under
-    `MP_MANUAL=1` so a bare/CI `playwright test` can't hit the forever-wait.
-    `SMOKE_REUSE_BUILD=1` skips the production rebuild on an unchanged-code
-    relaunch (never set it in CI).
+    this suite headed with windows CDP-tiled (`MP_TILE=1` → `lib/windowTiling.ts`,
+    best-effort so it can't fail a run) — halves for the two-user block, screen
+    QUADRANTS for the four-user block — with `MP_SLOWMO` (default 3000 ms)
+    between actions and a CSS page zoom fitting each tile; `npm run mp:manual`
+    opens the open-ended FOUR-user quadrant session (`tests/mp-manual.spec.ts`,
+    no error guard, waits until every window closes) — its project registers
+    ONLY under `MP_MANUAL=1` so a bare/CI `playwright test` can't hit the
+    forever-wait. `SMOKE_REUSE_BUILD=1` skips the production rebuild on an
+    unchanged-code relaunch (never set it in CI).
   - The seed writes a shared `auth_organization` + two `auth_member` rows through
     Better Auth's own adapter (a direct create bypasses the invitation
     domain-gate, which fires only on the invitation API path), and the shared app

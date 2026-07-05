@@ -24,9 +24,19 @@ import type { CDPSession, Page } from "@playwright/test";
  * swallowed into a single warn (returning undefined: don't zoom what didn't
  * tile).
  */
+/** Where a window lands: the two half-screen slots (two-user sessions) or
+ *  the four quadrants (four-user sessions). */
+export type TileSlot =
+	| "left"
+	| "right"
+	| "top-left"
+	| "top-right"
+	| "bottom-left"
+	| "bottom-right";
+
 export async function tileWindow(
 	page: Page,
-	side: "left" | "right",
+	slot: TileSlot,
 ): Promise<{ width: number; height: number } | undefined> {
 	try {
 		const cdp = await page.context().newCDPSession(page);
@@ -42,28 +52,32 @@ export async function tileWindow(
 		});
 		const work = await pollWindowBounds(cdp, page, windowId, "maximized");
 
-		const half = Math.floor(work.width / 2);
+		const halfW = Math.floor(work.width / 2);
+		const halfH = Math.floor(work.height / 2);
+		const onRight = slot === "right" || slot.endsWith("-right");
+		const isQuadrant = slot !== "left" && slot !== "right";
+		const onBottom = slot.startsWith("bottom");
+		const bounds = {
+			left: onRight ? work.left + halfW : work.left,
+			top: onBottom ? work.top + halfH : work.top,
+			width: halfW,
+			height: isQuadrant ? halfH : work.height,
+		};
 		await cdp.send("Browser.setWindowBounds", {
 			windowId,
 			bounds: { windowState: "normal" },
 		});
 		await cdp.send("Browser.setWindowBounds", {
 			windowId,
-			bounds: {
-				left: side === "left" ? work.left : work.left + half,
-				top: work.top,
-				width: half,
-				height: work.height,
-				windowState: "normal",
-			},
+			bounds: { ...bounds, windowState: "normal" },
 		});
 		await cdp.detach().catch(() => undefined);
 
 		// Approximate browser chrome (tab strip + toolbar) eats ~96px of height.
-		return { width: half, height: Math.max(200, work.height - 96) };
+		return { width: bounds.width, height: Math.max(200, bounds.height - 96) };
 	} catch (err) {
 		console.warn(
-			`[windowTiling] could not tile the ${side} window (headless, or a non-Chromium browser?): ${err instanceof Error ? err.message : String(err)}`,
+			`[windowTiling] could not tile the ${slot} window (headless, or a non-Chromium browser?): ${err instanceof Error ? err.message : String(err)}`,
 		);
 		return undefined;
 	}
