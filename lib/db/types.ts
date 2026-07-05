@@ -482,6 +482,12 @@ export const presenceDocSchema = z.object({
 	 * renders it with the palette color as ring + fallback.
 	 */
 	image: z.string().nullable().default(null),
+	/**
+	 * Account email, stamped SERVER-SIDE from the heartbeat's session (same
+	 * authoritative-source rule as `image`). Shown on the roster's hover
+	 * profile card so co-members can tell same-named collaborators apart.
+	 */
+	email: z.string().default(""),
 	/** Stable per-user avatar/marker color (`hash(userId) → palette`). */
 	color: z.string(),
 	/** Where this session is in the builder — a peer's avatar follows this. */

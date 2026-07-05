@@ -412,6 +412,7 @@ describe.skipIf(!emulatorAvailable)(
 			expect(Object.keys(entry ?? {}).sort()).toEqual(
 				[
 					"color",
+					"email",
 					"image",
 					"location",
 					"name",

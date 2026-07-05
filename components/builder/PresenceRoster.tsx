@@ -85,7 +85,10 @@ export function PresenceRoster() {
 	const overflow = capped ? peers.slice(MAX_AVATARS - 1) : [];
 
 	return (
-		<div className="flex items-center pr-3 mr-2 border-r border-nova-border">
+		/* `border-bright` matches the app's other structural vertical divider
+		 * (the sidebar edge) — the plain border token reads too faint as a
+		 * 1px standalone line. */
+		<div className="flex items-center pr-3 mr-2 border-r border-nova-border-bright">
 			<div className="flex items-center -space-x-1.5">
 				{shown.map((peer) => (
 					<PeerAvatar
@@ -103,19 +106,20 @@ export function PresenceRoster() {
 }
 
 /** The avatar face: photo when the peer has one, initials on their palette
- *  fill otherwise — shared by the roster circles and the overflow rows. */
-function AvatarFace({ peer, size }: { peer: Peer; size: "md" | "sm" }) {
-	const box = size === "md" ? "w-7 h-7" : "w-5 h-5";
+ *  fill otherwise — shared by the roster circles, the profile card, and the
+ *  overflow rows. */
+function AvatarFace({ peer, size }: { peer: Peer; size: "lg" | "md" | "sm" }) {
+	const box = size === "lg" ? "w-9 h-9" : size === "md" ? "w-7 h-7" : "w-5 h-5";
 	if (peer.image) {
 		return (
 			<Image
 				src={peer.image}
 				alt=""
-				width={28}
-				height={28}
+				width={36}
+				height={36}
 				referrerPolicy="no-referrer"
 				unoptimized
-				className={`${box} rounded-full object-cover`}
+				className={`${box} rounded-full object-cover shrink-0`}
 			/>
 		);
 	}
@@ -124,18 +128,39 @@ function AvatarFace({ peer, size }: { peer: Peer; size: "md" | "sm" }) {
 		 * line-height the line box towers over the glyphs and flex centers
 		 * the box, leaving the letters riding high of the circle's midline. */
 		<span
-			className={`${box} rounded-full flex items-center justify-center ${size === "md" ? "text-[11px]" : "text-[9px]"} font-semibold leading-none text-nova-void ${peer.peerColor.bg}`}
+			className={`${box} shrink-0 rounded-full flex items-center justify-center ${size === "sm" ? "text-[9px]" : size === "md" ? "text-[11px]" : "text-xs"} font-semibold leading-none text-nova-void ${peer.peerColor.bg}`}
 		>
 			{getInitials(peer.name)}
 		</span>
 	);
 }
 
+/** The hover profile card — who this is (bigger face, name, email) plus the
+ *  one thing the avatar DOES (clicking jumps to their screen). */
+function PeerProfileCard({ peer }: { peer: Peer }) {
+	return (
+		<div className="flex items-center gap-2.5 py-0.5 pr-1 text-left">
+			<AvatarFace peer={peer} size="lg" />
+			<div className="min-w-0">
+				<div className="text-sm font-medium text-nova-text truncate">
+					{peer.name || "Collaborator"}
+				</div>
+				{peer.email && (
+					<div className="text-xs text-nova-text-muted truncate">
+						{peer.email}
+					</div>
+				)}
+				<div className="text-xs text-nova-text-muted mt-1">
+					{whereLabel(peer.location)} — click to jump there
+				</div>
+			</div>
+		</div>
+	);
+}
+
 function PeerAvatar({ peer, onFollow }: { peer: Peer; onFollow: () => void }) {
 	return (
-		<Tooltip
-			content={`Follow ${peer.name || "collaborator"} — ${whereLabel(peer.location)}`}
-		>
+		<Tooltip content={<PeerProfileCard peer={peer} />}>
 			<button
 				type="button"
 				onClick={onFollow}
@@ -184,6 +209,11 @@ function OverflowChip({
 										<span className="block truncate">
 											{peer.name || "Collaborator"}
 										</span>
+										{peer.email && (
+											<span className="block truncate text-xs text-nova-text-muted">
+												{peer.email}
+											</span>
+										)}
 										<span className="block text-xs text-nova-text-muted">
 											{whereLabel(peer.location)}
 										</span>

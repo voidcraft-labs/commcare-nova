@@ -89,27 +89,33 @@ export const MP_SEED = {
 	projectName: "Multiplayer Test Project",
 	appName: "Multiplayer — Co-Edit Me",
 
+	/* Entity uuids are FIXED (deep-linkable, greppable in traces) but REAL
+	 * v4 literals, exactly the shape production mints — a watch/manual
+	 * session's URLs look like any real app's, with no fixture-flavored
+	 * `mp-` vocabulary leaking into a demo. The named constants + labels
+	 * carry the readability instead. */
+
 	/** Module 1 — the survey both users co-edit (rename + field edits + reorder). */
-	moduleUuid: "mp-module-intake",
+	moduleUuid: "7f9d3b2a-4c61-4e8f-9a05-1b2c3d4e5f60",
 	moduleName: "Intake",
-	formUuid: "mp-form-registration",
+	formUuid: "2a8e5c17-93d4-42b6-8f1e-6a7b8c9d0e1f",
 	formName: "Registration",
 	/** Field 1 (text) — A renames its label; B observes it live. */
-	fieldOneUuid: "mp-field-fullname",
+	fieldOneUuid: "c4b1d9e6-7a25-4f38-b06c-2d3e4f5a6b7c",
 	fieldOneLabel: "Full name",
 	/** Field 2 (text) — B renames its label DISJOINTLY while A edits field 1. */
-	fieldTwoUuid: "mp-field-village",
+	fieldTwoUuid: "9e6f2d8b-5c41-47a9-83d7-4e5f6a7b8c9d",
 	fieldTwoLabel: "Village",
 	/** Field 3 (single_select) — carries options for the option-edit scenario. */
-	fieldThreeUuid: "mp-field-status",
+	fieldThreeUuid: "5d7a4e91-2b68-4c5f-a2e8-6f7a8b9c0d1e",
 	fieldThreeLabel: "Status",
 
 	/** Module 2 — a distinct screen for follow / cross-screen presence. */
-	moduleTwoUuid: "mp-module-followup",
+	moduleTwoUuid: "e1c8f6a3-9d47-4b2e-95f0-8a9b0c1d2e3f",
 	moduleTwoName: "Follow-up",
-	formTwoUuid: "mp-form-visit",
+	formTwoUuid: "6b3e9d25-1f84-4a7c-bd39-0c1d2e3f4a5b",
 	formTwoName: "Visit",
-	fieldFourUuid: "mp-field-notes",
+	fieldFourUuid: "48a2c7e0-6d93-4f16-8b5a-2e3f4a5b6c7d",
 	fieldFourLabel: "Notes",
 } as const;
 

@@ -125,14 +125,18 @@ describe.skipIf(!emulatorAvailable)(
 			expect(data?.image).toBeNull();
 		});
 
-		it("POST stamps the avatar from the SESSION, never the body (a client can't wear someone else's face)", async () => {
+		it("POST stamps avatar + email from the SESSION, never the body (a client can't wear someone else's identity)", async () => {
 			const appId = await seedApp();
 			requireSessionMock.mockResolvedValue({
-				user: { id: USER, image: "https://lh3.googleusercontent.com/a/ada" },
+				user: {
+					id: USER,
+					image: "https://lh3.googleusercontent.com/a/ada",
+					email: "ada@dimagi.com",
+				},
 			} as never);
-			// A body-supplied `image` isn't even accepted: the strict body schema
-			// 400s an unknown key (pinned by the malformed-body test below), so the
-			// session is structurally the ONLY avatar source.
+			// A body-supplied `image`/`email` isn't even accepted: the strict body
+			// schema 400s an unknown key (pinned by the malformed-body test below),
+			// so the session is structurally the ONLY identity source.
 			const res = await POST(
 				postReq(appId, {
 					sessionId: SESS_A,
@@ -147,6 +151,7 @@ describe.skipIf(!emulatorAvailable)(
 				await docs.presence(appId, `${USER}:${SESS_A}`).get()
 			).data();
 			expect(data?.image).toBe("https://lh3.googleusercontent.com/a/ada");
+			expect(data?.email).toBe("ada@dimagi.com");
 		});
 
 		it("keeps two tabs' sessions distinct; DELETE removes only the named session", async () => {

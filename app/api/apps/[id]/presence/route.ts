@@ -77,9 +77,10 @@ export async function POST(
 				userId,
 				sessionId,
 				name,
-				/* Avatar stamped from the SESSION (authoritative), never the body —
-				 * a client can't wear someone else's face. */
+				/* Avatar + email stamped from the SESSION (authoritative), never
+				 * the body — a client can't wear someone else's face or address. */
 				image: session.user.image ?? null,
+				email: session.user.email ?? "",
 				color,
 				location,
 				updatedAt: FieldValue.serverTimestamp(),

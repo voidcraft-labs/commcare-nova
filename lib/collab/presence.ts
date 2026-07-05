@@ -236,6 +236,7 @@ function samePeers(a: readonly Peer[], b: readonly Peer[]): boolean {
 			pa.sessionId === pb.sessionId &&
 			pa.name === pb.name &&
 			pa.image === pb.image &&
+			pa.email === pb.email &&
 			pa.color === pb.color &&
 			serializePath(pa.location).join("/") ===
 				serializePath(pb.location).join("/")
