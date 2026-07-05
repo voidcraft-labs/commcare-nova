@@ -43,10 +43,15 @@ export const PRESENCE_STALE_MS = HEARTBEAT_MS * 2;
 /**
  * The peer-color palette — five self-contained hue token pairs (a fill `bg`
  * that carries dark text + a border/ring accent), so a peer reads consistently
- * across the roster avatar and every canvas marker. The five are the theme's
- * light accents (violet-bright / emerald / amber / rose / orchid), which as
- * fills take dark text per the theme contrast rules; each entry names the CSS
- * token it derives from.
+ * across the roster avatar and every canvas marker. The five are drawn from
+ * the XPath editor's syntax family (violet-bright / periwinkle / iris /
+ * orchid / lavender — the theme's violet-monochrome identity), NEVER the
+ * semantic success/warning/error hues, which the theme reserves for meaning
+ * (a rose peer would read as "something's wrong"). All are light fills that
+ * take dark text per the theme contrast rules; each entry names the CSS token
+ * it derives from. A presence row stored under a RETIRED palette id resolves
+ * through the `hashColor` fallback in `paletteColor`, so renaming an entry
+ * never strands a live roster (rows also TTL out within minutes).
  */
 export interface PeerColor {
 	/** Stable id, used as the map key + a debugging handle. */
@@ -67,28 +72,28 @@ export const PEER_PALETTE: readonly PeerColor[] = [
 		text: "text-nova-violet-bright",
 	},
 	{
-		id: "emerald",
-		bg: "bg-nova-emerald",
-		ring: "ring-nova-emerald",
-		text: "text-nova-emerald",
+		id: "periwinkle",
+		bg: "bg-nova-periwinkle",
+		ring: "ring-nova-periwinkle",
+		text: "text-nova-periwinkle",
 	},
 	{
-		id: "amber",
-		bg: "bg-nova-amber",
-		ring: "ring-nova-amber",
-		text: "text-nova-amber",
-	},
-	{
-		id: "rose",
-		bg: "bg-nova-rose",
-		ring: "ring-nova-rose",
-		text: "text-nova-rose",
+		id: "iris",
+		bg: "bg-nova-iris",
+		ring: "ring-nova-iris",
+		text: "text-nova-iris",
 	},
 	{
 		id: "orchid",
 		bg: "bg-nova-orchid",
 		ring: "ring-nova-orchid",
 		text: "text-nova-orchid",
+	},
+	{
+		id: "lavender",
+		bg: "bg-nova-lavender",
+		ring: "ring-nova-lavender",
+		text: "text-nova-lavender",
 	},
 ] as const;
 
