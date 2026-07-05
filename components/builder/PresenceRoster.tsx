@@ -120,8 +120,11 @@ function AvatarFace({ peer, size }: { peer: Peer; size: "md" | "sm" }) {
 		);
 	}
 	return (
+		/* `leading-none` centers the CAPS optically: with the inherited
+		 * line-height the line box towers over the glyphs and flex centers
+		 * the box, leaving the letters riding high of the circle's midline. */
 		<span
-			className={`${box} rounded-full flex items-center justify-center ${size === "md" ? "text-[11px]" : "text-[9px]"} font-semibold text-nova-void ${peer.peerColor.bg}`}
+			className={`${box} rounded-full flex items-center justify-center ${size === "md" ? "text-[11px]" : "text-[9px]"} font-semibold leading-none text-nova-void ${peer.peerColor.bg}`}
 		>
 			{getInitials(peer.name)}
 		</span>
@@ -158,7 +161,7 @@ function OverflowChip({
 		<Menu.Root>
 			<Menu.Trigger
 				aria-label={`${peers.length} more collaborators`}
-				className="flex items-center justify-center w-7 h-7 rounded-full ring-2 ring-nova-border ring-offset-1 ring-offset-nova-void bg-nova-surface text-[11px] font-semibold text-nova-text cursor-pointer transition-transform hover:scale-110 hover:z-10 focus-visible:outline-none focus-visible:ring-nova-text"
+				className="flex items-center justify-center w-7 h-7 rounded-full ring-2 ring-nova-border ring-offset-1 ring-offset-nova-void bg-nova-surface text-[11px] font-semibold leading-none text-nova-text cursor-pointer transition-transform hover:scale-110 hover:z-10 focus-visible:outline-none focus-visible:ring-nova-text"
 			>
 				+{peers.length}
 			</Menu.Trigger>

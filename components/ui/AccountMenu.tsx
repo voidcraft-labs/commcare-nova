@@ -75,8 +75,11 @@ function UserAvatar({
 		);
 	}
 	return (
+		/* `leading-none` centers the CAPS optically — with the inherited
+		 * line-height the line box towers over the glyphs, so flex centers
+		 * the box and the letters ride high of the circle's midline. */
 		<span
-			className={`${s.box} rounded-full bg-nova-surface ${s.text} font-semibold text-nova-text flex items-center justify-center ${s.border}`}
+			className={`${s.box} rounded-full bg-nova-surface ${s.text} font-semibold leading-none text-nova-text flex items-center justify-center ${s.border}`}
 		>
 			{getInitials(user.name)}
 		</span>

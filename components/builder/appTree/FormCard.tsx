@@ -132,7 +132,7 @@ export const FormCard = memo(function FormCard({
 					<span className="w-3.5 shrink-0" />
 				)}
 				<div className="flex-1 min-w-0">
-					<div className="flex items-center gap-2">
+					<div className="flex items-center gap-2 min-w-0">
 						{form.icon ? (
 							// Form menu-tile icon, shown on the tree row too.
 							// biome-ignore lint/performance/noImgElement: session-authed proxy; next/image can't carry the cookie auth
@@ -169,10 +169,12 @@ export const FormCard = memo(function FormCard({
 						{count} {count === 1 ? "field" : "fields"}
 					</span>
 				)}
-				<PeerBadge uuid={formId} />
 				{!locked && (
 					<TreeRowDelete label="Delete form" onDelete={handleDelete} />
 				)}
+				{/* Outermost on every row type — one constant right-edge offset
+				 *  (the hover-delete fades in just inboard). */}
+				<PeerBadge uuid={formId} />
 			</TreeItemRow>
 
 			{hasFields && !isCollapsed && (

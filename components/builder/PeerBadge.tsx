@@ -65,7 +65,7 @@ export function PeerBadge({
 						/>
 					) : (
 						<span
-							className={`flex items-center justify-center w-4 h-4 rounded-full ring-1 ring-nova-void text-[8px] font-bold text-nova-void ${peer.peerColor.bg}`}
+							className={`flex items-center justify-center w-4 h-4 rounded-full ring-1 ring-nova-void text-[8px] font-bold leading-none text-nova-void ${peer.peerColor.bg}`}
 						>
 							{getInitials(peer.name)}
 						</span>
