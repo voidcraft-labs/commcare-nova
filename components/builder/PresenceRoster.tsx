@@ -102,11 +102,13 @@ export function PresenceRoster() {
 			</div>
 			{/* People/actions divider. `border-bright` matches the app's other
 			 *  structural vertical divider (the sidebar edge — the plain token
-			 *  reads too faint as a standalone line). The margins are OPTICAL:
-			 *  the last avatar's ring+offset overhangs its box ~3px, and the
-			 *  settings glyph sits ~13px inside its 44px hit target (+ the
-			 *  header's 4px gap), so ml-5 lands ~17px of visible space on BOTH
-			 *  sides of the line. */}
+			 *  reads too faint as a standalone line). The spacing is OPTICAL and
+			 *  balances at ~17px per side: left, ml-5 minus the last avatar's
+			 *  ~3px ring+offset overhang; right, the header's 4px gap plus a
+			 *  13px leading inset EVERY possible neighbor presents — the
+			 *  settings glyph's inset inside its 44px hit target, and the
+			 *  matching pl/ml on the SaveIndicator and View-only badge. Keep
+			 *  those three in step or the line drifts off-center. */}
 			<span aria-hidden className="ml-5 h-6 w-px bg-nova-border-bright" />
 		</div>
 	);
