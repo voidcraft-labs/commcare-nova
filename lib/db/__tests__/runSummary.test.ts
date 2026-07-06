@@ -40,7 +40,8 @@ const { txGet, txSet, runTransactionMock, docRef } = vi.hoisted(() => {
 	};
 });
 
-vi.mock("../firestore", () => ({
+vi.mock("../firestore", async () => ({
+	...(await import("./throttlePassthrough")).throttlePassthrough,
 	getDb: () => ({
 		collection: () => ({
 			doc: () => ({

@@ -32,6 +32,8 @@ import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
+import { PresenceProvider } from "@/lib/collab/PresenceProvider";
+import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { replayEventsSync } from "@/lib/log/replay";
@@ -58,7 +60,9 @@ export function BuilderProvider({
 	children,
 	replay,
 	initialDoc,
-	initialSaveBasis,
+	canEdit = true,
+	baseSeq,
+	userId,
 }: {
 	buildId: string;
 	children: ReactNode;
@@ -67,10 +71,17 @@ export function BuilderProvider({
 	 *  in the provider so the first render sees populated entities. Firestore
 	 *  now persists the normalized `BlueprintDoc` shape directly. */
 	initialDoc?: PersistableDoc;
-	/** The app doc's `blueprint_token` at server load — the auto-save
-	 *  optimistic basis the builder echoes on its PUTs. Omitted for new
-	 *  builds and replay (nothing to save against yet). */
-	initialSaveBasis?: string | null;
+	/** Whether the viewing user holds `edit` on the app's Project (the build
+	 *  page's server-resolved role). Defaults `true` for new builds. A viewer
+	 *  (`false`) gets the read-only builder; see `useCanEdit`. */
+	canEdit?: boolean;
+	/** The app's `mutation_seq` at server load — the reconciler's `baseSeq`
+	 *  recovery cursor. Omitted for new builds (reconciler mounts dormant at 0)
+	 *  and replay (no reconciler). */
+	baseSeq?: number;
+	/** The session user id — the reconciler's echo classification keys on it.
+	 *  Omitted only in replay (no reconciler mounts). */
+	userId?: string;
 }) {
 	return (
 		<BuilderProviderInner
@@ -78,7 +89,9 @@ export function BuilderProvider({
 			buildId={buildId}
 			replay={replay}
 			initialDoc={initialDoc}
-			initialSaveBasis={initialSaveBasis}
+			canEdit={canEdit}
+			baseSeq={baseSeq}
+			userId={userId}
 		>
 			{children}
 		</BuilderProviderInner>
@@ -97,13 +110,17 @@ function BuilderProviderInner({
 	children,
 	replay,
 	initialDoc,
-	initialSaveBasis,
+	canEdit,
+	baseSeq,
+	userId,
 }: {
 	buildId: string;
 	children: ReactNode;
 	replay?: ReplayInit;
 	initialDoc?: PersistableDoc;
-	initialSaveBasis?: string | null;
+	canEdit: boolean;
+	baseSeq?: number;
+	userId?: string;
 }) {
 	/* Pre-compute session store init so `derivePhase` returns the correct
 	 * phase on the very first render — `Loading` for existing apps and
@@ -113,37 +130,62 @@ function BuilderProviderInner({
 	const sessionInit = useState(() => ({
 		loading: hasExistingData,
 		appId: buildId === "new" ? undefined : buildId,
-		saveBasis: initialSaveBasis ?? null,
+		canEdit,
 	}))[0];
+
+	/* The builder provider stack below the two stores. In non-replay mode it
+	 * is wrapped in `ReconcilerProvider` (which reads both stores + owns the
+	 * single reconciler + EventSource); replay mounts no reconciler. */
+	const inner = (
+		<ScrollRegistryProvider>
+			<EditGuardProvider>
+				<InspectorProvider>
+					<BuilderFormEngineProvider>
+						<SyncBridge />
+						{/* LocationRecoveryEffect assumes a `/build/{id}/{...path}`
+						 *  URL shape (it slices the first two segments as the
+						 *  base path). Replay mounts at `/build/replay/{id}`
+						 *  where segment[1] is the literal "replay", not the
+						 *  app id — running the effect there would treat
+						 *  "replay" as the id and strip the real id on
+						 *  recovery. Replay is read-only + scoped to its own
+						 *  route, so stale-ref stripping doesn't apply. */}
+						{replay ? null : <LocationRecoveryEffect />}
+						{replay ? <ReplayHydrator replay={replay} /> : null}
+						{!replay && initialDoc ? <LoadAppHydrator /> : null}
+						{children}
+					</BuilderFormEngineProvider>
+				</InspectorProvider>
+			</EditGuardProvider>
+		</ScrollRegistryProvider>
+	);
 
 	return (
 		<BlueprintDocProvider
 			appId={buildId === "new" ? undefined : buildId}
 			initialDoc={initialDoc}
 			startTracking={Boolean(initialDoc || replay)}
+			canEdit={canEdit}
 		>
 			<BuilderSessionProvider init={sessionInit}>
-				<ScrollRegistryProvider>
-					<EditGuardProvider>
-						<InspectorProvider>
-							<BuilderFormEngineProvider>
-								<SyncBridge />
-								{/* LocationRecoveryEffect assumes a `/build/{id}/{...path}`
-								 *  URL shape (it slices the first two segments as the
-								 *  base path). Replay mounts at `/build/replay/{id}`
-								 *  where segment[1] is the literal "replay", not the
-								 *  app id — running the effect there would treat
-								 *  "replay" as the id and strip the real id on
-								 *  recovery. Replay is read-only + scoped to its own
-								 *  route, so stale-ref stripping doesn't apply. */}
-								{replay ? null : <LocationRecoveryEffect />}
-								{replay ? <ReplayHydrator replay={replay} /> : null}
-								{!replay && initialDoc ? <LoadAppHydrator /> : null}
-								{children}
-							</BuilderFormEngineProvider>
-						</InspectorProvider>
-					</EditGuardProvider>
-				</ScrollRegistryProvider>
+				{replay ? (
+					inner
+				) : (
+					<ReconcilerProvider
+						appId={buildId === "new" ? undefined : buildId}
+						baseSeq={baseSeq ?? 0}
+						userId={userId ?? ""}
+					>
+						{/* The presence layer rides the reconciler's single
+						 *  EventSource (`subscribePresence`) and reads `useLocation`,
+						 *  so it mounts inside the reconciler + below the stores.
+						 *  It reads the LIVE app id from the session store (not
+						 *  `buildId`), so a new build's creator heartbeats the instant
+						 *  the SA mints the app. Replay mounts neither reconciler nor
+						 *  presence. */}
+						<PresenceProvider userId={userId ?? ""}>{inner}</PresenceProvider>
+					</ReconcilerProvider>
+				)}
 			</BuilderSessionProvider>
 		</BlueprintDocProvider>
 	);

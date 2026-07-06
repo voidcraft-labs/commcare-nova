@@ -696,13 +696,30 @@ export class FormEngine {
 	 * Remove a single field's runtime state from the engine without rebuilding
 	 * existing state.
 	 *
-	 * Clears the field's runtime state from the store. The DataInstance
-	 * retains the path (harmless — unused paths don't affect evaluation).
-	 * The DAG should be rebuilt externally (via rebuildDag) AFTER removal
-	 * so dependents can re-evaluate against the missing reference.
+	 * Clears the field's runtime state from the store AND drops its
+	 * `DataInstance` value, so the path-keyed engine store and the value map
+	 * stay consistent — a field re-added at the same path later seeds empty
+	 * (`addFieldState` only writes `""` when `!instance.has(path)`) rather than
+	 * resurrecting the removed answer. The DAG should be rebuilt externally
+	 * (via rebuildDag) AFTER removal so dependents can re-evaluate against the
+	 * missing reference.
 	 */
 	removeFieldState(path: string): void {
+		this.instance.delete(path);
 		this.store.setState({ [path]: DEFAULT_ENGINE_STATE });
+	}
+
+	/**
+	 * Drop a path's `DataInstance` value AND reset its runtime state to the
+	 * frozen default. Used when a field is retyped (`onKindChanged`): the old
+	 * value is stale under the new kind, so it's cleared before `addFieldState`
+	 * re-seeds the field, which only writes `""` when `!instance.has(path)`.
+	 */
+	deleteValue(path: string): void {
+		this.instance.delete(path);
+		if (this.store.getState()[path]) {
+			this.store.setState({ [path]: DEFAULT_ENGINE_STATE });
+		}
 	}
 
 	/**

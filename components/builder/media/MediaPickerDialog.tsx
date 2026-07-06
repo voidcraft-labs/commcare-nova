@@ -80,6 +80,13 @@ export interface MediaPickerDialogProps {
 	 */
 	kinds: readonly AssetKind[];
 	/**
+	 * The app this picker authors for, so the server resolves the app's Project
+	 * as the tenant for the Library tab and inline uploads. The builder media
+	 * slots pass it; the standalone file manager and chat composer (no app
+	 * context) omit it, so the server falls back to the active Project.
+	 */
+	appId?: string;
+	/**
 	 * Pick handler — fires when a library item is chosen (or an inline upload
 	 * completes), after which the dialog closes. OMITTED by the standalone file
 	 * manager (the account-menu "Files" entry): with no carrier to pick into,
@@ -139,6 +146,7 @@ export function MediaPickerDialog({
 	open,
 	onOpenChange,
 	kinds,
+	appId,
 	onPick,
 	onUploadStart,
 	onAssetsLoaded,
@@ -164,6 +172,7 @@ export function MediaPickerDialog({
 					<PickerBody
 						manage={manage}
 						kinds={kinds}
+						appId={appId}
 						onPick={(asset) => {
 							// Never called in manage mode — library clicks preview there.
 							onPick?.(asset);
@@ -195,6 +204,7 @@ export function MediaPickerDialog({
 function PickerBody({
 	manage,
 	kinds,
+	appId,
 	onPick,
 	onUploadStart,
 	onAssetsLoaded,
@@ -204,6 +214,7 @@ function PickerBody({
 }: {
 	manage: boolean;
 	kinds: readonly AssetKind[];
+	appId?: string;
 	onPick: (asset: MediaAssetView) => void;
 	onUploadStart?: (file: File, kind: AssetKind) => void;
 	onAssetsLoaded?: (assets: MediaAssetView[]) => void;
@@ -263,7 +274,7 @@ function PickerBody({
 		addUploaded,
 		removeAsset,
 		updateAsset,
-	} = useMediaLibrary(libraryKinds);
+	} = useMediaLibrary(libraryKinds, appId);
 
 	// Surface each loaded page to the caller (the builder slots record the
 	// rows for the attach budget check). The consumer's merge is
@@ -389,6 +400,7 @@ function PickerBody({
 						kinds={kinds}
 						onUploaded={manage ? onManagedUpload : commit}
 						onUploadStart={onUploadStart}
+						appId={appId}
 					/>
 				) : (
 					<LibraryTab
@@ -500,17 +512,21 @@ function UploadTab({
 	kinds,
 	onUploaded,
 	onUploadStart,
+	appId,
 }: {
 	kinds: readonly AssetKind[];
 	onUploaded: (asset: MediaAssetView) => void;
 	/** Delegate a validated file to the caller's staged flow instead of
 	 *  uploading inline — see `MediaPickerDialogProps.onUploadStart`. */
 	onUploadStart?: (file: File, kind: AssetKind) => void;
+	/** Scopes an inline upload to this app's Project (the chat composer); the
+	 *  account-menu file manager omits it (uploads to the active Project). */
+	appId?: string;
 }) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [dragging, setDragging] = useState(false);
 	const [kindError, setKindError] = useState<string | null>(null);
-	const { upload, status } = useMediaUpload();
+	const { upload, status } = useMediaUpload(appId);
 	const { nounPhrase, accept } = useMemo(() => describeKinds(kinds), [kinds]);
 
 	const handleFile = async (file: File | undefined) => {

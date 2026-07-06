@@ -13,14 +13,22 @@
 import { useContext, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
+import { useReconcilerContext } from "@/lib/collab/context";
+import {
+	describeIntroducedErrors,
+	mutationCommitVerdict,
+} from "@/lib/doc/commitVerdicts";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { flattenFieldRefs } from "@/lib/doc/navigation";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import { asUuid } from "@/lib/doc/types";
+import { asUuid, type BlueprintDoc } from "@/lib/doc/types";
 import { findFieldElement, flashUndoHighlight } from "@/lib/routing/domQueries";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
+import { showToast } from "@/lib/ui/toastStore";
 
 /**
  * Undo / redo with scroll + flash affordance. Both actions are no-ops
@@ -47,8 +55,55 @@ import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
  *   restored correctly regardless. The `!flashEl` bail fires only when the
  *   selected field itself has no DOM node (e.g. a redo that removed it).
  */
+/**
+ * Collaborative undo/redo gate — the pure decision the hook runs before it
+ * mutates.
+ *
+ * A remote frame folds the past AND future undo stacks (`rebaseHistory`), so a
+ * recorded undo/redo target carries peers' committed changes and could
+ * reintroduce a validator finding against the current merged doc. The gate must
+ * verdict the EXACT delta the reconciler will PUT after `temporal.undo()`:
+ * `dispatchHumanBatch` computes `diff(localBase(), displayed-after-undo)`, and
+ * after the undo `displayed === rebasedTarget`, so the PUT batch is
+ * `diff(localBase, rebasedTarget)`. The gate verdicts that same batch against
+ * `localBase` (the confirmed⊕sentPending base the server re-applies onto), so a
+ * gate pass guarantees the PUT can't 409 on a finding the gate didn't see — the
+ * clean Elm-message refusal, never a surprise conflict-reload.
+ *
+ * `localBase` is the reconciler's `localBase()`; it equals `displayed` when
+ * there is no reconciler (replay) or no un-acked pending. On a finding it
+ * returns `{ ok: false, message }` (the caller refuses — no `temporal.undo`, no
+ * PUT); on a pass, `{ ok: true }` and the caller restores + lets autosave emit
+ * the one PUT.
+ *
+ * Pure of React + the store so it is exercised as a state model. `targetState`
+ * is the recorded temporal state (`pastStates[last]` / `futureStates[last]`).
+ */
+export function undoRedoGateVerdict(
+	displayed: BlueprintDoc,
+	targetState: Partial<BlueprintDoc>,
+	localBase: BlueprintDoc,
+): { ok: true } | { ok: false; message: string } {
+	// The recorded state carries the full doc data; merge it over the current
+	// displayed doc so derived slots (fieldParent/refIndex) and any unrecorded
+	// key stay coherent — this is the doc the store lands on after the restore.
+	const rebasedTarget = { ...displayed, ...targetState } as BlueprintDoc;
+	// The delta the reconciler will PUT: from the confirmed⊕pending base to the
+	// undo target — NOT `diff(displayed, target)`, which is a different batch
+	// whenever `sentPending` is non-empty and would let the gate approve a
+	// transition whose real PUT it never verdicted.
+	const batch = diffDocsToMutations(
+		toPersistableDoc(localBase) as BlueprintDoc,
+		toPersistableDoc(rebasedTarget) as BlueprintDoc,
+	);
+	const verdict = mutationCommitVerdict(localBase, batch);
+	if (verdict.ok) return { ok: true };
+	return { ok: false, message: describeIntroducedErrors(verdict.introduced) };
+}
+
 export function useUndoRedo(): { undo: () => void; redo: () => void } {
 	const docStore = useContext(BlueprintDocContext);
+	const reconcilerCtx = useReconcilerContext();
 	const { scrollTo } = useScrollIntoView();
 	const loc = useLocation();
 	const activeFieldId = useActiveFieldId();
@@ -58,14 +113,35 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 		function run(action: "undo" | "redo"): void {
 			if (!docStore) return;
 			const temporal = docStore.temporal.getState();
-			const canDo =
-				action === "undo"
-					? temporal.pastStates.length > 0
-					: temporal.futureStates.length > 0;
-			if (!canDo) return;
+			const stack =
+				action === "undo" ? temporal.pastStates : temporal.futureStates;
+			if (stack.length === 0) return;
+
+			/* Collaborative undo/redo GATE-BEFORE-MUTATING (see `undoRedoGateVerdict`).
+			 * Peek the state undo/redo would restore and run the commit verdict on the
+			 * SAME delta the reconciler will PUT — `diff(localBase(), rebasedTarget)` —
+			 * so a gate pass can't 409-surprise; on a finding REFUSE (apply nothing —
+			 * no `temporal.undo/redo`, no PUT) and show the reason. On a pass, restore
+			 * WITHOUT a suppression bracket so `useAutoSave`'s leading edge fires
+			 * exactly one PUT of that diff. `localBase()` falls back to the displayed
+			 * doc with no reconciler (replay) or no un-acked pending. */
+			const displayed = docStore.getState();
+			const localBase = reconcilerCtx?.reconciler.localBase() ?? displayed;
+			const target = stack[stack.length - 1] as Partial<BlueprintDoc>;
+			const verdict = undoRedoGateVerdict(displayed, target, localBase);
+			if (!verdict.ok) {
+				showToast(
+					"warning",
+					action === "undo" ? "Can't undo" : "Can't redo",
+					verdict.message,
+				);
+				return;
+			}
 
 			/* flushSync so the restored entities commit to the DOM before
-			 * we query it for the scroll/flash target. */
+			 * we query it for the scroll/flash target. `temporal.undo/redo` fires
+			 * the store subscriber synchronously, so `useAutoSave`'s leading edge
+			 * emits the single PUT — the undo handler itself never PUTs. */
 			flushSync(() => {
 				if (action === "undo") temporal.undo();
 				else temporal.redo();
@@ -105,7 +181,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 			undo: () => run("undo"),
 			redo: () => run("redo"),
 		};
-	}, [docStore, scrollTo, loc, activeFieldId, setFocusHint]);
+	}, [docStore, reconcilerCtx, scrollTo, loc, activeFieldId, setFocusHint]);
 }
 
 /**

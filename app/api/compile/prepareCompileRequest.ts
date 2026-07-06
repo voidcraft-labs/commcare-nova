@@ -5,17 +5,18 @@ import {
 	readJsonBody,
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { resolveAppAccess } from "@/lib/db/appAccess";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 
 /**
  * Everything the two CommCare export routes need once their shared front half
- * has run: the validated blueprint and its resolved media manifest. (The owner
- * id stays internal — it scopes the boundary gate and manifest here, and
- * neither route needs it again, so it isn't surfaced.)
+ * has run: the validated blueprint and its resolved media manifest. (The
+ * app's project id stays internal — it scopes the boundary gate and manifest
+ * here, and neither route needs it again, so it isn't surfaced.)
  */
 export interface PreparedCompileRequest {
 	/** The validated blueprint with its derived `fieldParent` index rebuilt. */
@@ -27,14 +28,22 @@ export interface PreparedCompileRequest {
 	 * emission boundary.
 	 */
 	assets: Awaited<ReturnType<typeof resolveMediaManifest>>;
+	/**
+	 * The `mutation_seq` the loaded blueprint committed at — read off the SAME
+	 * `resolveAppAccess` snapshot that carries `app.blueprint`, so the seq and
+	 * the doc it stamps can't drift. Each export names the exact document
+	 * version it emitted (the `.ccz` profile's `cc-content-version`, the JSON
+	 * export's `X-Compiled-At-Seq` header).
+	 */
+	compiledAtSeq: number;
 }
 
 /**
  * The shared front half of the two CommCare export routes — `/api/compile`
  * (`.ccz`) and `/api/compile/json` (HQ JSON). Both must authenticate, parse and
  * validate the posted `BlueprintDoc`, rebuild its derived `fieldParent` index,
- * run the zero-tolerance boundary gate, and resolve the owner's media manifest
- * BEFORE they diverge on how they emit (package an archive vs. expand to
+ * run the zero-tolerance boundary gate, and resolve the app's project media
+ * manifest BEFORE they diverge on how they emit (package an archive vs. expand to
  * JSON). That whole preamble lives here so the two routes can't drift on the
  * gate ordering, the schema-error shape, or the manifest options.
  *
@@ -48,30 +57,33 @@ export async function prepareCompileRequest(
 	{ boundaryErrorVerb }: { boundaryErrorVerb: "compile" | "export" },
 ): Promise<PreparedCompileRequest> {
 	const session = await requireSession(req);
-	// Cap the body before materializing it — a blueprint is one ~1 MiB-bounded
-	// Firestore doc, so 2 MB rejects only the pathological without ever
-	// touching a real export.
+	// The client sends only the app id — the blueprint loads server-side, so no
+	// whole doc crosses the wire. (The auto-save persists edits within ~1s, and
+	// an export is an on-demand action well after the last edit, so the loaded
+	// doc is the current one.)
 	const body = await readJsonBody(req, BLUEPRINT_REQUEST_MAX_BYTES);
-	const doc = (body as { doc?: unknown } | null)?.doc;
-
-	if (!doc) {
-		throw new ApiError("doc is required", 400);
+	const appId = (body as { appId?: unknown } | null)?.appId;
+	if (typeof appId !== "string") {
+		throw new ApiError("appId is required", 400);
 	}
 
-	const parsedDoc = blueprintDocSchema.safeParse(doc);
-	if (!parsedDoc.success) {
-		throw new ApiError(
-			"Invalid doc",
-			400,
-			parsedDoc.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
-		);
-	}
+	// Membership gate (view) + load the persisted blueprint in one read. An
+	// `AppAccessError` (absent / non-member) maps to 404 — the IDOR-safe
+	// not-found posture.
+	const { app, projectId } = await resolveAppAccess(
+		appId,
+		session.user.id,
+		"view",
+	);
 
-	// `fieldParent` is derived, not persisted; rebuild it from
-	// `moduleOrder`/`formOrder`/`fieldOrder` before any expand/compile walk
-	// can traverse the doc.
-	const docWithParent: BlueprintDoc = { ...parsedDoc.data, fieldParent: {} };
-	rebuildFieldParent(docWithParent);
+	// The shared hydration chokepoint: fieldParent rebuilt + the
+	// deterministic `order`/option-`uuid` backfill a legacy stored doc needs,
+	// so the wire the compiler emits reflects the SAME display sequence the
+	// builder shows (a partially-keyed legacy doc otherwise sorts keyed-ahead-
+	// of-keyless and the export order diverges from the canvas).
+	const docWithParent = hydratePersistedBlueprint(
+		app.blueprint as PersistableDoc,
+	);
 
 	// The transaction-boundary gate — zero tolerance, before any expensive
 	// work. Every finding (soundness, completeness, media-state) rejects the
@@ -79,10 +91,7 @@ export async function prepareCompileRequest(
 	// never leave for a device or CommCare HQ, and a stale media reference
 	// would otherwise make the media-ON `expandDoc` throw `requireAssetRef`
 	// → opaque 500.
-	const violations = await collectBoundaryViolations(
-		docWithParent,
-		session.user.id,
-	);
+	const violations = await collectBoundaryViolations(docWithParent, projectId);
 	if (violations.length > 0) {
 		// The concise builder copy on the detail lines — this is a
 		// user-facing failure. (The SA's compile path reads the verbose
@@ -94,11 +103,11 @@ export async function prepareCompileRequest(
 		);
 	}
 
-	// Resolve the manifest (rows + bytes) for this owner. A media-free doc
-	// resolves to an empty manifest at no byte cost.
-	const assets = await resolveMediaManifest(docWithParent, session.user.id, {
+	// Resolve the manifest (rows + bytes) at the app's project scope. A
+	// media-free doc resolves to an empty manifest at no byte cost.
+	const assets = await resolveMediaManifest(docWithParent, projectId, {
 		withBytes: true,
 	});
 
-	return { doc: docWithParent, assets };
+	return { doc: docWithParent, assets, compiledAtSeq: app.mutation_seq };
 }

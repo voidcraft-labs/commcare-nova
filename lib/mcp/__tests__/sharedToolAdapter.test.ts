@@ -26,6 +26,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { MutatingToolResult } from "@/lib/agent/tools/common";
+import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { Mutation } from "@/lib/doc/types";
@@ -44,6 +45,14 @@ import { makeFakeServer } from "./fakeServer";
  * `@/lib/db/apps` + `@/lib/log/writer`. */
 vi.mock("@/lib/db/apps", () => ({
 	loadApp: vi.fn(),
+}));
+
+/* The membership gate runs inside `loadAppBlueprint` via `resolveAppAccess`.
+ * Mock it (keeping the real `AppAccessError` so the adapter's instanceof check
+ * holds) so the adapter tests drive allow/deny without touching the auth DB. */
+vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
+	resolveAppAccess: vi.fn(),
 }));
 
 /* `vi.mock` is hoisted above imports, so its factory can't close over
@@ -164,8 +173,10 @@ function latestFlushSpy(): ReturnType<typeof vi.fn> {
 function buildLoadedApp(overrides: Partial<AppDoc> = {}): AppDoc {
 	return {
 		owner: "u1",
+		project_id: null,
 		app_name: "Test",
 		blueprint: mockBlueprint() as unknown as BlueprintDoc,
+		mutation_seq: 0,
 		connect_type: null,
 		module_count: 0,
 		form_count: 0,
@@ -177,7 +188,6 @@ function buildLoadedApp(overrides: Partial<AppDoc> = {}): AppDoc {
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
-		blueprint_token: null,
 		created_at: new Date() as unknown as AppDoc["created_at"],
 		updated_at: new Date() as unknown as AppDoc["updated_at"],
 		...overrides,
@@ -186,11 +196,18 @@ function buildLoadedApp(overrides: Partial<AppDoc> = {}): AppDoc {
 
 beforeEach(() => {
 	vi.mocked(loadApp).mockReset();
+	vi.mocked(resolveAppAccess).mockReset();
 	LogWriterMock.instances = [];
-	/* Default: app loads owned by the caller with an empty blueprint —
-	 * `loadAppBlueprint` ownership-gates internally on `app.owner ===
-	 * userId`. Tests override `loadApp` to drive the failure paths. */
+	/* Default: the app loads with an empty blueprint and the caller passes the
+	 * membership gate. Tests override `loadApp` (absent row) or `resolveAppAccess`
+	 * (non-member / under-privileged) to drive the failure paths. */
 	vi.mocked(loadApp).mockResolvedValue(buildLoadedApp());
+	vi.mocked(resolveAppAccess).mockResolvedValue({
+		app: buildLoadedApp(),
+		projectId: "proj-test",
+		role: "owner",
+		actorUserId: "u1",
+	});
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -210,7 +227,7 @@ describe("registerSharedTool — read tools", () => {
 			},
 		};
 		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "echo_tool", readTool, toolCtx);
+		registerSharedTool(server, "echo_tool", readTool, toolCtx, "edit");
 
 		const out = (await capture()({ app_id: "a1", q: "x" }, {})) as {
 			content: Array<{ type: "text"; text: string }>;
@@ -267,7 +284,7 @@ describe("registerSharedTool — mutating tools", () => {
 
 		try {
 			const { server, capture } = makeFakeServer();
-			registerSharedTool(server, "mut_tool", writeTool, toolCtx);
+			registerSharedTool(server, "mut_tool", writeTool, toolCtx, "edit");
 
 			const out = (await capture()({ app_id: "a1", val: "y" }, {})) as {
 				content: Array<{ type: "text"; text: string }>;
@@ -304,7 +321,7 @@ describe("registerSharedTool — ownership failure", () => {
 		};
 
 		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "any", anyTool, toolCtx);
+		registerSharedTool(server, "any", anyTool, toolCtx, "edit");
 
 		const out = (await capture()({ app_id: "ghost" }, {})) as {
 			isError: true;
@@ -331,7 +348,7 @@ describe("registerSharedTool — logWriter flush on error", () => {
 		};
 
 		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "boom_tool", throwingTool, toolCtx);
+		registerSharedTool(server, "boom_tool", throwingTool, toolCtx, "edit");
 
 		const out = (await capture()({ app_id: "a1" }, {})) as {
 			isError: true;
@@ -371,7 +388,7 @@ describe("registerSharedTool — app_id stripping", () => {
 		};
 
 		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "i_tool", introspectTool, toolCtx);
+		registerSharedTool(server, "i_tool", introspectTool, toolCtx, "edit");
 
 		await capture()({ app_id: "a1", payload: "p" }, {});
 
@@ -429,6 +446,7 @@ describe("registerSharedTool — real read tool integration (searchBlueprint)", 
 			"search_blueprint",
 			searchBlueprintTool,
 			toolCtx,
+			"view",
 		);
 
 		const out = (await capture()({ app_id: "a1", query: "any" }, {})) as {
@@ -467,12 +485,19 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 		 * it — the spy therefore must remain uncalled. */
 		const { McpContext } = await import("../context");
 		const originalRecord = McpContext.prototype.recordMutations;
-		const recordSpy = vi.fn().mockResolvedValue([]);
-		McpContext.prototype.recordMutations = recordSpy;
+		// The guarded writer returns `{ events, committedDoc }`; echo the passed
+		// post-mutation doc as the committed doc for the happy path (the
+		// gate-rejection cases never invoke this spy).
+		const recordSpy = vi.fn(async (_muts: unknown, doc: unknown) => ({
+			events: [],
+			committedDoc: doc,
+		}));
+		McpContext.prototype.recordMutations =
+			recordSpy as unknown as typeof originalRecord;
 
 		try {
 			const { server, capture } = makeFakeServer();
-			registerSharedTool(server, "add_fields", addFieldsTool, toolCtx);
+			registerSharedTool(server, "add_fields", addFieldsTool, toolCtx, "edit");
 
 			const out = (await capture()(
 				{
@@ -512,8 +537,10 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 		const { blueprint } = mockBlueprintWithForm();
 		vi.mocked(loadApp).mockResolvedValueOnce({
 			owner: "u1",
+			project_id: null,
 			app_name: blueprint.appName,
 			blueprint: blueprint as unknown as BlueprintDoc,
+			mutation_seq: 0,
 			connect_type: null,
 			module_count: blueprint.moduleOrder.length,
 			form_count: Object.values(blueprint.formOrder).reduce(
@@ -525,19 +552,25 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 			deleted_at: null,
 			recoverable_until: null,
 			run_id: null,
-			blueprint_token: null,
 			created_at: new Date() as unknown as AppDoc["created_at"],
 			updated_at: new Date() as unknown as AppDoc["updated_at"],
 		});
 
 		const { McpContext } = await import("../context");
 		const originalRecord = McpContext.prototype.recordMutations;
-		const recordSpy = vi.fn().mockResolvedValue([]);
-		McpContext.prototype.recordMutations = recordSpy;
+		// The guarded writer returns `{ events, committedDoc }`; echo the passed
+		// post-mutation doc as the committed doc for the happy path (the
+		// gate-rejection cases never invoke this spy).
+		const recordSpy = vi.fn(async (_muts: unknown, doc: unknown) => ({
+			events: [],
+			committedDoc: doc,
+		}));
+		McpContext.prototype.recordMutations =
+			recordSpy as unknown as typeof originalRecord;
 
 		try {
 			const { server, capture } = makeFakeServer();
-			registerSharedTool(server, "add_fields", addFieldsTool, toolCtx);
+			registerSharedTool(server, "add_fields", addFieldsTool, toolCtx, "edit");
 
 			const out = (await capture()(
 				{
@@ -591,12 +624,19 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 
 		const { McpContext } = await import("../context");
 		const originalRecord = McpContext.prototype.recordMutations;
-		const recordSpy = vi.fn().mockResolvedValue([]);
-		McpContext.prototype.recordMutations = recordSpy;
+		// The guarded writer returns `{ events, committedDoc }`; echo the passed
+		// post-mutation doc as the committed doc for the happy path (the
+		// gate-rejection cases never invoke this spy).
+		const recordSpy = vi.fn(async (_muts: unknown, doc: unknown) => ({
+			events: [],
+			committedDoc: doc,
+		}));
+		McpContext.prototype.recordMutations =
+			recordSpy as unknown as typeof originalRecord;
 
 		try {
 			const { server, capture } = makeFakeServer();
-			registerSharedTool(server, "add_fields", addFieldsTool, toolCtx);
+			registerSharedTool(server, "add_fields", addFieldsTool, toolCtx, "edit");
 
 			const out = (await capture()(
 				{
@@ -633,34 +673,22 @@ describe("registerSharedTool — IDOR byte-parity regression lock", () => {
 			},
 		};
 
-		/* Case 1: row exists but owned by another user (not_owner).
-		 * `loadAppBlueprint` throws `McpAccessError("not_owner")`;
-		 * `toMcpErrorResult` collapses to `"not_found"` on the wire. */
-		vi.mocked(loadApp).mockResolvedValueOnce({
-			owner: "someone-else",
-			app_name: "Test",
-			blueprint: mockBlueprint() as unknown as BlueprintDoc,
-			connect_type: null,
-			module_count: 0,
-			form_count: 0,
-			status: "complete",
-			error_type: null,
-			deleted_at: null,
-			recoverable_until: null,
-			run_id: null,
-			blueprint_token: null,
-			created_at: new Date() as unknown as AppDoc["created_at"],
-			updated_at: new Date() as unknown as AppDoc["updated_at"],
-		});
+		/* Case 1: the row exists but the caller isn't a member (the
+		 * membership gate rejects). `loadAppBlueprint` maps the resolver's
+		 * `AppAccessError` to `McpAccessError("not_owner")`; `toMcpErrorResult`
+		 * collapses it to `"not_found"` on the wire. */
+		vi.mocked(resolveAppAccess).mockRejectedValueOnce(
+			new AppAccessError("not_member"),
+		);
 		const { server: sA, capture: capA } = makeFakeServer();
-		registerSharedTool(sA, "any", anyTool, toolCtx);
+		registerSharedTool(sA, "any", anyTool, toolCtx, "edit");
 		const notOwnerResult = await capA()({ app_id: "probe-id" }, {});
 
 		/* Case 2: row missing (not_found). Envelope shape must be
 		 * identical — same text, same `error_type`, same layout. */
 		vi.mocked(loadApp).mockResolvedValueOnce(null);
 		const { server: sB, capture: capB } = makeFakeServer();
-		registerSharedTool(sB, "any", anyTool, toolCtx);
+		registerSharedTool(sB, "any", anyTool, toolCtx, "edit");
 		const notFoundResult = await capB()({ app_id: "probe-id" }, {});
 
 		/* Identical serialization proves there's no wire signal a

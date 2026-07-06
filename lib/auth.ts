@@ -27,20 +27,29 @@ import { apiKey } from "@better-auth/api-key";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
-import { admin, jwt } from "better-auth/plugins";
+import { admin, jwt, organization } from "better-auth/plugins";
 import { novaMcpPlugin } from "@/app/api/mcp/auth-plugin";
+// Custom "Projects" roles + access control, shared with the client config.
+import { ac, MEMBERSHIP_LIMIT, PROJECT_ROLES } from "./auth/projectRoles";
+import { ensurePersonalProject } from "./auth/provisionProject";
 import { SIGN_IN_ERROR } from "./auth-errors";
 import { forwardBetterAuthLog } from "./auth-logger";
 import { NOVA_API_KEY_PREFIX, NOVA_API_KEY_SCOPES } from "./auth-public";
 // Shared `auth_`-prefixed table names — single-sourced so the runtime config
 // here and the migrator (`lib/auth-migrate-options.ts`) can't diverge.
-import { AUTH_TABLE_NAMES } from "./auth-schema-shared";
+import { AUTH_TABLE_NAMES, ORGANIZATION_SCHEMA } from "./auth-schema-shared";
 // The shared Cloud SQL pool. Better Auth runs its own Kysely on this ONE pool
 // (not a second) so the per-instance connection budget holds — see
 // `lib/case-store/postgres/connection.ts::enforceConnectionBudget`.
 import { getCaseStorePool } from "./case-store/postgres/connection";
 import { MCP_RESOURCE_URL } from "./hostnames";
 import { log } from "./logger";
+import {
+	INVITE_ALLOWED_DOMAINS,
+	isInvitableEmail,
+	isPersonalProjectMetadata,
+	PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
+} from "./projects/invitePolicy";
 
 /**
  * OAuth scopes Nova's authorization server can grant.
@@ -114,16 +123,17 @@ export { NOVA_API_KEY_PREFIX, NOVA_API_KEY_SCOPES };
  * would be a security failure; and adding or removing a domain is a
  * deliberate decision that warrants a code review, not an ops tweak.
  *
- * The set is kept lowercase so the comparison in `databaseHooks` below
- * can lowercase the incoming email and use a single straight `Set.has`
- * check — Google emails are case-preserving but case-insensitive for
- * matching, so a user signing in as `User@Dimagi.com` must hit the
- * same allowlist entry as `user@dimagi.com`.
+ * SINGLE-SOURCED from `INVITE_ALLOWED_DOMAINS` (`lib/projects/invitePolicy`):
+ * sign-in and Project invitations gate on the SAME dimagi domains — an
+ * invitee who couldn't sign in would be a dead invite — so the two security
+ * allowlists can't drift. The values are lowercase so the comparison in
+ * `databaseHooks` below can lowercase the incoming email and use a single
+ * straight `Set.has` check (Google emails are case-preserving but
+ * case-insensitive for matching).
  */
-const ALLOWED_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
-	"dimagi.com",
-	"dimagi-ai.com",
-]);
+const ALLOWED_EMAIL_DOMAINS: ReadonlySet<string> = new Set(
+	INVITE_ALLOWED_DOMAINS,
+);
 
 /**
  * Creates the Better Auth instance. Async because it acquires the shared
@@ -200,6 +210,9 @@ async function createAuth() {
 			"/api-key/update",
 			"/api-key/list",
 			"/api-key/get",
+			/* Organization endpoints are permission-gated by the access-control
+			 * roles (`lib/auth/projectRoles.ts`); invitations are additionally
+			 * domain-gated by the `beforeCreateInvitation` hook. */
 		],
 
 		/**
@@ -426,6 +439,35 @@ async function createAuth() {
 							});
 						}
 						return { data: user };
+					},
+				},
+			},
+			/**
+			 * Stamp the user's active Project on every new session.
+			 *
+			 * Provisions the personal Project on first sign-in (idempotent) and
+			 * sets `activeOrganizationId` so the very first session already has a
+			 * tenancy scope. Wrapped so a provisioning failure NEVER blocks
+			 * sign-in — throwing here would abort session creation and lock the
+			 * user out; on failure we log and leave the session unstamped, and the
+			 * read-path fallback self-heals on a later request.
+			 */
+			session: {
+				create: {
+					before: async (session) => {
+						try {
+							const activeOrganizationId = await ensurePersonalProject(
+								session.userId,
+							);
+							return { data: { ...session, activeOrganizationId } };
+						} catch (err) {
+							log.error(
+								"[auth] personal-Project provisioning failed at session create",
+								err,
+								{ userId: session.userId },
+							);
+							return;
+						}
 					},
 				},
 			},
@@ -693,6 +735,96 @@ async function createAuth() {
 				references: "user",
 				// `auth_`-prefix the api-key table.
 				schema: { apikey: { modelName: AUTH_TABLE_NAMES.apikey } },
+			}),
+
+			/**
+			 * Organization plugin — Nova's "Projects" tenancy (shared app spaces).
+			 *
+			 * Surfaced to users as "Projects"; the tables stay `auth_organization*`
+			 * (the persistence name is decoupled from the product noun — "project
+			 * space" already means a CommCare HQ domain elsewhere). Custom roles
+			 * (`viewer`/`editor`/`admin`/`owner` over an `app` resource) live in
+			 * `lib/auth/projectRoles.ts` and are mirrored on the client
+			 * (`lib/auth-client.ts`) so client-side permission checks match the
+			 * server. Teams and dynamic access control stay OFF — flat Projects
+			 * with static roles.
+			 *
+			 * The schema-only mirror in `lib/auth-migrate-options.ts` is what makes
+			 * the migrate Job create `auth_organization` / `auth_member` /
+			 * `auth_invitation` and add `auth_session.activeOrganizationId` — keep
+			 * the two plugin registrations in sync.
+			 *
+			 * No invitation email is sent — invites are discovered in-app (the
+			 * home-page banner + the Invitations page); `afterCreateInvitation`
+			 * only records an audit line.
+			 */
+			organization({
+				ac,
+				roles: PROJECT_ROLES,
+				creatorRole: "owner",
+				allowUserToCreateOrganization: true,
+				membershipLimit: MEMBERSHIP_LIMIT,
+				teams: { enabled: false },
+				schema: ORGANIZATION_SCHEMA,
+				organizationHooks: {
+					/* Domain-gate every invitation at creation: a Project may only
+					 * invite dimagi addresses. This is the enforced control behind
+					 * `isInvitableEmail` — belt-and-suspenders over the sign-in
+					 * allowlist (a non-allowlisted invitee could never accept, but
+					 * rejecting up front keeps the members UI + audit honest).
+					 * Throwing an `APIError` aborts the create with a 400. */
+					beforeCreateInvitation: async ({ invitation, organization }) => {
+						if (!isInvitableEmail(invitation.email)) {
+							throw new APIError("BAD_REQUEST", {
+								message: `Invitations are limited to ${INVITE_ALLOWED_DOMAINS.join(" and ")} email addresses.`,
+							});
+						}
+						/* A personal Project is private and accepts no invitations at
+						 * all — collaboration happens by moving an app into a shared
+						 * Project. The members UI renders a read-only "can't be shared"
+						 * panel; this is the wire-level enforcement (a crafted request
+						 * can't escape it). `organization.metadata` carries the personal
+						 * flag (set by `ensurePersonalProject`). */
+						if (isPersonalProjectMetadata(organization.metadata)) {
+							throw new APIError("BAD_REQUEST", {
+								message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
+							});
+						}
+					},
+					/* The role-change twin: a personal Project is private, so no role is
+					 * assignable on it — reject every role change. (It may still hold a
+					 * guest grandfathered in under the old viewer/editor policy; the owner
+					 * REMOVES such a guest from the members panel rather than re-roling
+					 * them, since the Project is private now.) */
+					beforeUpdateMemberRole: async ({ organization }) => {
+						if (isPersonalProjectMetadata(organization.metadata)) {
+							throw new APIError("BAD_REQUEST", {
+								message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
+							});
+						}
+					},
+					/* Close the acceptance side: `beforeCreateInvitation` blocks NEW
+					 * invites to a personal Project, but a PENDING invite created under
+					 * the old viewer/editor policy could still be accepted and grant
+					 * access to a now-private space. Reject acceptance too, so a stale
+					 * invite can never turn into membership. */
+					beforeAcceptInvitation: async ({ organization }) => {
+						if (isPersonalProjectMetadata(organization.metadata)) {
+							throw new APIError("BAD_REQUEST", {
+								message: PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
+							});
+						}
+					},
+					/* No invitation email is sent — invites are discovered in-app (the
+					 * home-page banner + the Invitations page). This hook only records
+					 * an audit line as each invite is created. */
+					afterCreateInvitation: async ({ invitation, organization }) => {
+						log.info("[auth] organization invitation created", {
+							organizationId: organization.id,
+							email: invitation.email,
+						});
+					},
+				},
 			}),
 			novaMcpPlugin(),
 		],

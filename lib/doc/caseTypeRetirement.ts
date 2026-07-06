@@ -39,6 +39,11 @@
  */
 
 import {
+	orderedFieldUuids,
+	orderedFormUuids,
+	orderedModuleUuids,
+} from "@/lib/doc/fieldWalk";
+import {
 	findContainingForm,
 	findFieldParent,
 } from "@/lib/doc/mutations/helpers";
@@ -211,19 +216,13 @@ function planRetirement(
 		};
 	}
 
-	const remaining = (doc.caseTypes ?? []).filter((ct) => ct.name !== displaced);
 	return {
 		kind: "retire",
 		caseType: displaced,
-		mutations: [
-			{
-				kind: "setCaseTypes",
-				// An emptied catalog stores as `null`, the same shape a fresh
-				// app is born with — `[]` and `null` read identically but the
-				// doc keeps one canonical spelling.
-				caseTypes: remaining.length > 0 ? remaining : null,
-			},
-		],
+		// Granular `retireCaseType` keyed by name (the reducer canonicalizes an
+		// emptied catalog to `null`), so a concurrent edit to a DIFFERENT type
+		// merges rather than being clobbered by a wholesale `setCaseTypes`.
+		mutations: [{ kind: "retireCaseType", caseType: displaced }],
 	};
 }
 
@@ -310,12 +309,13 @@ function findCaseTypeReferences(
 	 * and sorted before their descriptions render. A carrier that can't
 	 * be placed (not reachable through the order arrays) is skipped —
 	 * the walk this lookup replaced never visited those either. */
+	const scanIndex = buildCarrierScanIndex(doc);
 	const placed: CarrierPlacement[] = [];
 	for (const carrierUuid of referencingCarrierUuids(
 		doc,
 		caseTypeTargetKey(caseType),
 	)) {
-		const placement = placeCarrier(doc, carrierUuid as Uuid);
+		const placement = placeCarrier(doc, carrierUuid as Uuid, scanIndex);
 		if (!placement) continue;
 		if (placement.moduleUuid === opts.excludeModuleUuid) continue;
 		placed.push(placement);
@@ -369,17 +369,55 @@ function compareRanks(a: readonly number[], b: readonly number[]): number {
 	return a.length - b.length;
 }
 
+/** A form's DISPLAY position within the app: its owning module's uuid +
+ *  sorted module index + the form's sorted index within that module. */
+interface FormPosition {
+	moduleUuid: Uuid;
+	moduleIndex: number;
+	formIndex: number;
+}
+
+/** Sorted-position lookups built ONCE per scan and threaded through every
+ *  `placeCarrier` call, so a heavily-referenced type doesn't re-sort the whole
+ *  module list (and each module's forms) per referencing carrier. */
+interface CarrierScanIndex {
+	moduleIndex: ReadonlyMap<Uuid, number>;
+	formPosition: ReadonlyMap<Uuid, FormPosition>;
+}
+
+/** Walk the sorted module + form sequences ONCE, indexing every module's and
+ *  form's DISPLAY position (`sort-by-(order, uuid)`). */
+function buildCarrierScanIndex(doc: BlueprintDoc): CarrierScanIndex {
+	const moduleIndex = new Map<Uuid, number>();
+	const formPosition = new Map<Uuid, FormPosition>();
+	const moduleUuids = orderedModuleUuids(doc);
+	for (let mi = 0; mi < moduleUuids.length; mi++) {
+		const moduleUuid = moduleUuids[mi];
+		moduleIndex.set(moduleUuid, mi);
+		const formUuids = orderedFormUuids(doc, moduleUuid);
+		for (let fi = 0; fi < formUuids.length; fi++) {
+			formPosition.set(formUuids[fi], {
+				moduleUuid,
+				moduleIndex: mi,
+				formIndex: fi,
+			});
+		}
+	}
+	return { moduleIndex, formPosition };
+}
+
 function placeCarrier(
 	doc: BlueprintDoc,
 	uuid: Uuid,
+	index: CarrierScanIndex,
 ): CarrierPlacement | undefined {
 	if (doc.modules[uuid]) {
-		const moduleIndex = doc.moduleOrder.indexOf(uuid);
-		if (moduleIndex === -1) return undefined;
+		const moduleIndex = index.moduleIndex.get(uuid);
+		if (moduleIndex === undefined) return undefined;
 		return { uuid, moduleUuid: uuid, rank: [moduleIndex, -1] };
 	}
 	if (doc.forms[uuid]) {
-		const position = formPosition(doc, uuid);
+		const position = index.formPosition.get(uuid);
 		if (!position) return undefined;
 		return {
 			uuid,
@@ -388,8 +426,9 @@ function placeCarrier(
 		};
 	}
 	if (doc.fields[uuid]) {
-		// Climb to the containing form collecting each level's sibling
-		// index — the depth-first rank within the form.
+		// Climb to the containing form collecting each level's DISPLAY (sorted)
+		// sibling index — the depth-first rank within the form. Sequence is
+		// `sort-by-(order, uuid)`, not array position.
 		const childIndices: number[] = [];
 		let cursor: Uuid = uuid;
 		const seen = new Set<Uuid>();
@@ -397,9 +436,11 @@ function placeCarrier(
 			seen.add(cursor);
 			const parent = findFieldParent(doc, cursor);
 			if (!parent) return undefined;
-			childIndices.unshift(parent.index);
+			childIndices.unshift(
+				orderedFieldUuids(doc, parent.parentUuid).indexOf(cursor),
+			);
 			if (doc.forms[parent.parentUuid]) {
-				const position = formPosition(doc, parent.parentUuid);
+				const position = index.formPosition.get(parent.parentUuid);
 				if (!position) return undefined;
 				return {
 					uuid,
@@ -409,17 +450,6 @@ function placeCarrier(
 			}
 			cursor = parent.parentUuid;
 		}
-	}
-	return undefined;
-}
-
-function formPosition(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-): { moduleUuid: Uuid; moduleIndex: number; formIndex: number } | undefined {
-	for (const [moduleIndex, moduleUuid] of doc.moduleOrder.entries()) {
-		const formIndex = (doc.formOrder[moduleUuid] ?? []).indexOf(formUuid);
-		if (formIndex !== -1) return { moduleUuid, moduleIndex, formIndex };
 	}
 	return undefined;
 }

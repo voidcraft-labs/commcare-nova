@@ -1,28 +1,21 @@
 /**
- * `reapStaleGenerating` ordering tests.
+ * `reapStaleGenerating` delegation tests.
  *
- * The reaper does two things to a dead `generating` build — refund its stranded
- * credit hold and flip it to `error` — and the ORDER plus the failure handling
- * are the whole contract:
- *
- *   - The refund runs BEFORE the status flip. A process death between them must
- *     leave the row still `generating` (reapable), so the next list/concurrency
- *     scan retries the refund. Flipping first would close the reapable window
- *     with the hold still booked and strand it forever.
- *   - A refund FAILURE returns early WITHOUT flipping status, for the same
- *     reason: leave the row reapable so the refund is retried, rather than
- *     marking it done with credits still held.
- *
- * The refund's own correctness (cross-doc atomicity, idempotency via the marker)
- * lives in `credits.test.ts`; here we mock `refundReservation` and observe only
- * the sequencing against the `failApp` status write.
+ * The reaper delegates the whole reap — refund the stranded hold + flip
+ * `generating → error` — to `refundStaleGeneration`, which does both in ONE
+ * transaction with the staleness re-validated inside it (the build analogue of
+ * `refundStaleReservation`; its in-txn correctness lives in the emulator invariant
+ * matrix). `reapStaleGenerating`'s remaining contract is thin: delegate, and
+ * SWALLOW a transient throw (leaving the row untouched — since the refund + flip
+ * are one atomic commit, a failure means neither happened, so the next scan
+ * retries). Here we mock `refundStaleGeneration` and observe only that delegation.
  */
 
 import { Timestamp } from "@google-cloud/firestore";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-	refundReservationMock,
+	refundStaleGenerationMock,
 	appSetMock,
 	appMock,
 	appRawMock,
@@ -37,17 +30,17 @@ const {
 	const txUpdateMock = vi.fn();
 	const txSetMock = vi.fn();
 	return {
-		refundReservationMock: vi.fn(),
+		refundStaleGenerationMock: vi.fn(),
 		appSetMock,
-		// `failApp` writes status via `docs.app(appId).set(...)`; the spy lets us
-		// see whether (and with what) the status flip fired.
+		// `setAwaitingInput` writes via `docs.app(appId).set(...)`; the spy lets the
+		// setAwaitingInput suite below see what it wrote.
 		appMock: vi.fn().mockReturnValue({ set: appSetMock }),
 		appRawMock: vi.fn().mockReturnValue({ id: "raw-ref" }),
 		creditMonthRawMock: vi.fn().mockReturnValue({ id: "credit-ref" }),
 		txGetMock,
 		txUpdateMock,
 		txSetMock,
-		// `claimBuildRun` runs a transaction; the fake runs the body
+		// `claimRun` runs a transaction; the fake runs the body
 		// against the `tx` spies so tests control the fresh read(s) and
 		// observe the conditional flip + the stale arm's credit write.
 		getDbMock: vi.fn().mockReturnValue({
@@ -57,8 +50,11 @@ const {
 	};
 });
 
-vi.mock("../credits", () => ({ refundReservation: refundReservationMock }));
-vi.mock("../firestore", () => ({
+vi.mock("../credits", () => ({
+	refundStaleGeneration: refundStaleGenerationMock,
+}));
+vi.mock("../firestore", async () => ({
+	...(await import("./throttlePassthrough")).throttlePassthrough,
 	docs: {
 		app: appMock,
 		appRaw: appRawMock,
@@ -72,35 +68,28 @@ vi.mock("../firestore", () => ({
 
 describe("reapStaleGenerating", () => {
 	beforeEach(() => {
-		refundReservationMock.mockReset();
-		appSetMock.mockClear().mockResolvedValue(undefined);
-		appMock.mockClear().mockReturnValue({ set: appSetMock });
+		refundStaleGenerationMock.mockReset();
 	});
 
-	it("refunds the stranded hold by appId, THEN flips the app to error", async () => {
-		refundReservationMock.mockResolvedValue(undefined);
+	it("delegates the reap (refund + flip, one atomic txn) to refundStaleGeneration", async () => {
+		refundStaleGenerationMock.mockResolvedValue(undefined);
 		const { reapStaleGenerating } = await import("../apps");
 
 		await reapStaleGenerating("app-1");
 
-		expect(refundReservationMock).toHaveBeenCalledWith("app-1");
-		// The status flip fired once, to `error`, via a merge write — and only
-		// after the awaited refund resolved.
-		expect(appSetMock).toHaveBeenCalledTimes(1);
-		const [payload, options] = appSetMock.mock.calls[0];
-		expect(payload).toMatchObject({ status: "error" });
-		expect(options).toEqual({ merge: true });
+		// The whole reap — refund the stranded hold + flip generating→error, with the
+		// staleness re-validated in the same txn — lives in `refundStaleGeneration`.
+		expect(refundStaleGenerationMock).toHaveBeenCalledWith("app-1");
 	});
 
-	it("leaves the app generating (no status flip) when the refund fails, so the next scan retries", async () => {
-		refundReservationMock.mockRejectedValue(new Error("firestore down"));
+	it("SWALLOWS a transient throw — the row is untouched, so the next scan retries", async () => {
+		refundStaleGenerationMock.mockRejectedValue(new Error("firestore down"));
 		const { reapStaleGenerating } = await import("../apps");
 
-		await reapStaleGenerating("app-1");
-
-		// A refund failure must NOT flip status — flipping before the refund landed
-		// would close the reapable window and strand the hold forever.
-		expect(appSetMock).not.toHaveBeenCalled();
+		// A throw must not escape (fire-and-forget at the call sites). The refund +
+		// flip are one commit, so a failure means neither happened — the row stays
+		// `generating` for the next scan to retry, no partial state to clean up.
+		await expect(reapStaleGenerating("app-1")).resolves.toBeUndefined();
 	});
 });
 
@@ -135,7 +124,13 @@ describe("setAwaitingInput", () => {
 	});
 });
 
-describe("claimBuildRun", () => {
+describe("claimRun (build mode)", () => {
+	/** Invoke the generalized `claimRun` in build mode with the run/actor ids
+	 *  the route threads. */
+	const claimBuild = async (appId: string) => {
+		const { claimRun } = await import("../apps");
+		return claimRun(appId, "build", "run-1", "user-1");
+	};
 	beforeEach(() => {
 		txGetMock.mockReset();
 		txUpdateMock.mockReset();
@@ -167,10 +162,17 @@ describe("claimBuildRun", () => {
 		txGetMock.mockResolvedValue(
 			snapshotWith({ status: "error", error_type: "model_error" }),
 		);
-		const { claimBuildRun } = await import("../apps");
-		const claim = await claimBuildRun("app-1");
+		const claim = await claimBuild("app-1");
 
-		expect(claim).toEqual({ from: "error", errorType: "model_error" });
+		// The prior snapshot captures the EXACT displaced shape for a faithful
+		// bail-out restore — including the original `error_type` classification.
+		expect(claim.mode).toBe("build");
+		expect(claim.prior).toMatchObject({
+			status: "error",
+			error_type: "model_error",
+			awaiting_input: false,
+			run_lock: null,
+		});
 		expect(txUpdateMock).toHaveBeenCalledTimes(1);
 		const [, payload] = txUpdateMock.mock.calls[0];
 		expect(payload).toMatchObject({ status: "generating", error_type: null });
@@ -186,178 +188,72 @@ describe("claimBuildRun", () => {
 		// doc. The claim reports what it moved the app out of so a pre-stream
 		// bail-out can restore `complete` rather than failing a working app.
 		txGetMock.mockResolvedValue(snapshotWith({ status: "complete" }));
-		const { claimBuildRun } = await import("../apps");
-		const claim = await claimBuildRun("app-1");
+		const claim = await claimBuild("app-1");
 
-		expect(claim).toEqual({ from: "complete" });
+		expect(claim.mode).toBe("build");
+		expect(claim.prior).toMatchObject({
+			status: "complete",
+			error_type: null,
+			awaiting_input: false,
+			run_lock: null,
+		});
 		expect(txUpdateMock).toHaveBeenCalledTimes(1);
 		const [, payload] = txUpdateMock.mock.calls[0];
 		expect(payload).toMatchObject({ status: "generating", error_type: null });
 	});
 
-	it("settles a displaced KEPT charge's marker in the claim transaction", async () => {
-		// The displaced `complete` run kept its charge, so its marker sits
-		// unsettled — safe while the app is at rest, lethal once this claim
-		// flips the row to `generating`: a hard kill between the claim and
-		// the new run's `reserveCredits` would hand the reaper an unsettled
-		// marker for a charge that was KEPT, and the refund would un-book it.
-		// Settling at claim time closes that window.
+	it("NEVER touches the reservation marker — the claim only writes liveness fields", async () => {
+		// Descoped model: a claim never mutates a prior run's marker. A displaced
+		// HARD-KILLED run's stranded hold is handed back by THIS run's own
+		// `reserveCredits` leftover-refund, not by the claim. So a claim on a stale
+		// `generating` row with an unsettled marker writes NO credit doc and NO
+		// reservation field — just the liveness flip.
 		txGetMock.mockResolvedValue(
-			snapshotWith({
-				status: "complete",
-				reservation: { period: "2026-05", reserved: 100, settled: false },
-			}),
-		);
-		const { claimBuildRun } = await import("../apps");
-		await claimBuildRun("app-1");
-
-		const [, payload] = txUpdateMock.mock.calls[0];
-		expect(payload.reservation).toEqual({
-			period: "2026-05",
-			reserved: 100,
-			settled: true,
-		});
-		// A kept charge settles WITHOUT a refund — no credit doc is touched.
-		expect(txSetMock).not.toHaveBeenCalled();
-	});
-
-	it("leaves an already-settled marker untouched", async () => {
-		// A displaced `error` run's marker was settled by its refund; the
-		// claim has nothing to do and writes no reservation field at all
-		// (`reserveCredits` overwrites it fresh either way).
-		txGetMock.mockResolvedValue(
-			snapshotWith({
-				status: "error",
-				error_type: "internal",
-				reservation: { period: "2026-05", reserved: 100, settled: true },
-			}),
-		);
-		const { claimBuildRun } = await import("../apps");
-		await claimBuildRun("app-1");
-
-		const [, payload] = txUpdateMock.mock.calls[0];
-		expect(payload).not.toHaveProperty("reservation");
-	});
-
-	it("leaves a displaced PAUSED run's unsettled marker untouched — it is a live hold, not a kept charge", async () => {
-		// The displaced paused run is restorable-ALIVE: a bail-out re-flags
-		// it, a later free continuation resumes it, and a failed resume
-		// refunds off exactly this marker (the route's post-flush
-		// `refundReservation`). Settling it here would foreclose that refund.
-		txGetMock.mockResolvedValue(
-			snapshotWith({
-				status: "generating",
-				awaiting_input: true,
-				reservation: { period: "2026-05", reserved: 100, settled: false },
-			}),
-		);
-		const { claimBuildRun } = await import("../apps");
-		const claim = await claimBuildRun("app-1");
-
-		expect(claim).toEqual({ from: "paused" });
-		const [, payload] = txUpdateMock.mock.calls[0];
-		expect(payload).not.toHaveProperty("reservation");
-		expect(txSetMock).not.toHaveBeenCalled();
-	});
-
-	it("claims a build PAUSED on questions, clearing the pause flag in the same transaction", async () => {
-		// A paused build (`generating` + `awaiting_input`) has no live
-		// process — a fresh chargeable instruction may take over its window.
-		// The flag clears inside the claim so two such POSTs arbitrate on the
-		// compare-and-flip: the loser's re-read sees a live `generating`
-		// (flag gone) and throws.
-		txGetMock.mockResolvedValue(
-			snapshotWith({ status: "generating", awaiting_input: true }),
-		);
-		const { claimBuildRun } = await import("../apps");
-		const claim = await claimBuildRun("app-1");
-
-		expect(claim).toEqual({ from: "paused" });
-		expect(txUpdateMock).toHaveBeenCalledTimes(1);
-		const [, payload] = txUpdateMock.mock.calls[0];
-		expect(payload).toMatchObject({
-			status: "generating",
-			awaiting_input: false,
-		});
-	});
-
-	it("fails the second same-app contender — a LIVE generating row is owned", async () => {
-		// Two near-simultaneous POSTs share ONE row, and the concurrency
-		// check excludes the contender's own appId — so the compare inside
-		// this transaction is the only arbitration between them. The loser's
-		// fresh read sees the winner's `generating` (its `updated_at` inside
-		// the staleness window) and must throw with nothing written (the
-		// route 429s it), or two SA loops would interleave their saves on
-		// one app.
-		txGetMock.mockResolvedValue(
-			snapshotWith({ status: "generating", updated_at: freshClock() }),
-		);
-		const { claimBuildRun, BuildRunConflictError } = await import("../apps");
-
-		await expect(claimBuildRun("app-1")).rejects.toBeInstanceOf(
-			BuildRunConflictError,
-		);
-		expect(txUpdateMock).not.toHaveBeenCalled();
-	});
-
-	it("displaces a STALE generating row — refunds its stranded hold and claims in one transaction", async () => {
-		// A hard-killed run the reapers never scanned (a retry POST runs no
-		// list scan, and the concurrency check excludes this appId) would
-		// otherwise 429 forever. The claim settles it exactly as
-		// `reapStaleGenerating` would — refund off the unsettled marker,
-		// classification `internal` — and takes the window in the same
-		// transaction.
-		txGetMock
-			.mockResolvedValueOnce(
-				snapshotWith({
-					owner: "user-1",
-					status: "generating",
-					updated_at: staleClock(),
-					reservation: { period: "2026-05", reserved: 100, settled: false },
-				}),
-			)
-			// The credit doc the marker points at.
-			.mockResolvedValueOnce(snapshotWith({ consumed: 150 }));
-		const { claimBuildRun } = await import("../apps");
-		const claim = await claimBuildRun("app-1");
-
-		// Reports the shape the reaper would have left, so a bail-out
-		// restore lands the row at `error`/`internal` — never back to a
-		// phantom live run.
-		expect(claim).toEqual({ from: "error", errorType: "internal" });
-		expect(creditMonthRawMock).toHaveBeenCalledWith("user-1", "2026-05");
-		expect(txSetMock).toHaveBeenCalledTimes(1);
-		const [, refundPayload, refundOpts] = txSetMock.mock.calls[0];
-		expect(refundPayload).toMatchObject({ consumed: 50 });
-		expect(refundOpts).toEqual({ merge: true });
-		const [, payload] = txUpdateMock.mock.calls[0];
-		expect(payload).toMatchObject({ status: "generating" });
-		expect(payload.reservation).toEqual({
-			period: "2026-05",
-			reserved: 100,
-			settled: true,
-		});
-	});
-
-	it("displaces a stale row with a SETTLED marker without refunding — the hold was already resolved", async () => {
-		// Composition with the claim-window settle rule: a row stranded
-		// between a previous claim and its `reserveCredits` carries a
-		// settled marker (the displaced charge was kept), so this
-		// displacement refunds nothing.
-		txGetMock.mockResolvedValueOnce(
 			snapshotWith({
 				owner: "user-1",
 				status: "generating",
 				updated_at: staleClock(),
-				reservation: { period: "2026-05", reserved: 100, settled: true },
+				reservation: { period: "2026-05", reserved: 100, settled: false },
 			}),
 		);
-		const { claimBuildRun } = await import("../apps");
-		const claim = await claimBuildRun("app-1");
+		const claim = await claimBuild("app-1");
 
-		expect(claim).toEqual({ from: "error", errorType: "internal" });
+		expect(claim.mode).toBe("build");
+		// No credit-doc touch and no reservation field in the liveness write.
 		expect(creditMonthRawMock).not.toHaveBeenCalled();
 		expect(txSetMock).not.toHaveBeenCalled();
 		expect(txUpdateMock).toHaveBeenCalledTimes(1);
+		const [, payload] = txUpdateMock.mock.calls[0];
+		expect(payload).toMatchObject({ status: "generating" });
+		expect(payload).not.toHaveProperty("reservation");
+	});
+
+	it("fails a claim on a PAUSED app — a paused run BLOCKS (no takeover)", async () => {
+		// Descoped model: a paused run is NO LONGER a claimable takeover. Its
+		// `awaiting_input` shape makes `lease.paused` true, so the busy check throws
+		// with nothing written; the route serializes-with-wait until the paused run
+		// completes or its lease lapses and it is reaped.
+		txGetMock.mockResolvedValue(
+			snapshotWith({ status: "generating", awaiting_input: true }),
+		);
+		const { RunConflictError } = await import("../apps");
+
+		await expect(claimBuild("app-1")).rejects.toBeInstanceOf(RunConflictError);
+		expect(txUpdateMock).not.toHaveBeenCalled();
+		expect(txSetMock).not.toHaveBeenCalled();
+	});
+
+	it("fails a claim on a LIVE generating row — a live run BLOCKS", async () => {
+		// Two near-simultaneous POSTs share ONE row; the compare inside this
+		// transaction is the arbitration. The loser's fresh read sees the winner's
+		// `generating` inside the staleness window (live) and throws with nothing
+		// written (the route serializes-with-wait), or two SA loops would interleave.
+		txGetMock.mockResolvedValue(
+			snapshotWith({ status: "generating", updated_at: freshClock() }),
+		);
+		const { RunConflictError } = await import("../apps");
+
+		await expect(claimBuild("app-1")).rejects.toBeInstanceOf(RunConflictError);
+		expect(txUpdateMock).not.toHaveBeenCalled();
 	});
 });

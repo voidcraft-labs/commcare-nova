@@ -16,6 +16,7 @@ export type ErrorType =
 	| "stream_broken"
 	| "out_of_credits"
 	| "generation_in_progress"
+	| "run_released"
 	| "internal";
 
 export interface ClassifiedError {
@@ -40,6 +41,8 @@ export const MESSAGES: Record<ErrorType, string> = {
 		"You're out of credits for this month — they refresh on the 1st.",
 	generation_in_progress:
 		"You already have a build in progress. Please wait for it to finish before starting another.",
+	run_released:
+		"This run waited for your answer longer than its window allows, so it was released and its hold was refunded. Send your answer again to continue.",
 	internal: "Something went wrong during generation.",
 };
 

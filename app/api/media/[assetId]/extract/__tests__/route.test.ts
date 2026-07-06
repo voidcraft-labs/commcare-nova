@@ -21,29 +21,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
 import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { MediaAssetOwnershipError } from "@/lib/db/mediaAssets";
-import { asAssetId, EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
+import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { readTextObject } from "@/lib/storage/media";
 import { GET, POST } from "../route";
 
 const {
 	requireSessionMock,
-	loadAssetForOwnerMock,
+	userInProjectMock,
+	loadAssetByIdMock,
 	ensureStoredExtractMock,
 	readTextObjectMock,
 	getMonthlyUsageMock,
 } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
-	loadAssetForOwnerMock: vi.fn(),
+	userInProjectMock: vi.fn(() => Promise.resolve(true)),
+	loadAssetByIdMock: vi.fn(),
 	ensureStoredExtractMock: vi.fn(),
 	readTextObjectMock: vi.fn(),
 	getMonthlyUsageMock: vi.fn(),
 }));
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: requireSessionMock }));
+vi.mock("@/lib/db/appAccess", () => ({ userInProject: userInProjectMock }));
 vi.mock("@/lib/db/mediaAssets", () => ({
-	loadAssetForOwner: loadAssetForOwnerMock,
-	MediaAssetOwnershipError: class extends Error {},
+	loadAssetById: loadAssetByIdMock,
 }));
 vi.mock("@/lib/agent/documentExtractionStore", () => ({
 	ensureStoredExtract: ensureStoredExtractMock,
@@ -68,12 +69,13 @@ function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	return {
 		id: "asset-1",
 		owner: "user-1",
+		project_id: "project-1",
 		contentHash: "a".repeat(64),
 		mimeType: "application/pdf",
 		extension: ".pdf",
 		sizeBytes: 1234,
 		kind: "pdf",
-		gcsObjectKey: "users/user-1/aaaa.pdf",
+		gcsObjectKey: "projects/project-1/aaaa.pdf",
 		originalFilename: "form.pdf",
 		status: "ready",
 		// biome-ignore lint/suspicious/noExplicitAny: Timestamp is irrelevant to these tests
@@ -123,6 +125,7 @@ async function readNdjson(res: Response): Promise<{
 beforeEach(() => {
 	vi.clearAllMocks();
 	requireSessionMock.mockResolvedValue({ user: { id: "user-1" } });
+	userInProjectMock.mockResolvedValue(true);
 	// Default: comfortably under the spend cap so the gate is transparent to the
 	// mapping tests. The spend-gate test overrides this.
 	getMonthlyUsageMock.mockResolvedValue({ cost_estimate: 0 });
@@ -130,7 +133,7 @@ beforeEach(() => {
 
 describe("POST extract (streamed result)", () => {
 	it("ends a ready result with a `done` line carrying the extract metadata", async () => {
-		loadAssetForOwnerMock.mockResolvedValue(docAsset());
+		loadAssetByIdMock.mockResolvedValue(docAsset());
 		ensureStoredExtractMock.mockResolvedValue({
 			status: "ready",
 			text: "EXTRACT BODY",
@@ -156,7 +159,7 @@ describe("POST extract (streamed result)", () => {
 	it("streams the store's onProgress as `progress` lines before the `done` line", async () => {
 		// The whole point of streaming: the store's per-chunk `onProgress` becomes
 		// `progress` wire lines the client maps to signal-grid energy.
-		loadAssetForOwnerMock.mockResolvedValue(docAsset());
+		loadAssetByIdMock.mockResolvedValue(docAsset());
 		ensureStoredExtractMock.mockImplementation(
 			async (opts: { onProgress?: (n: number) => void }) => {
 				opts.onProgress?.(5);
@@ -179,7 +182,7 @@ describe("POST extract (streamed result)", () => {
 		// The store returns extract TEXT only; the route re-reads the asset doc for
 		// the title/summary it persisted, so the caller can refresh a staged
 		// snapshot the instant extraction finishes (chip preview shows them at once).
-		loadAssetForOwnerMock.mockResolvedValue(
+		loadAssetByIdMock.mockResolvedValue(
 			docAsset({
 				extract: {
 					status: "ready",
@@ -210,7 +213,7 @@ describe("POST extract (streamed result)", () => {
 	});
 
 	it("ends an in-flight result with a `done` line at status extracting", async () => {
-		loadAssetForOwnerMock.mockResolvedValue(docAsset());
+		loadAssetByIdMock.mockResolvedValue(docAsset());
 		ensureStoredExtractMock.mockResolvedValue({ status: "extracting" });
 
 		const res = await POST(req(), ctx());
@@ -220,7 +223,7 @@ describe("POST extract (streamed result)", () => {
 	});
 
 	it("ends a failed result with a `done` line at status failed (the bytes are kept)", async () => {
-		loadAssetForOwnerMock.mockResolvedValue(docAsset());
+		loadAssetByIdMock.mockResolvedValue(docAsset());
 		ensureStoredExtractMock.mockResolvedValue({
 			status: "failed",
 			reason: "model exploded",
@@ -231,7 +234,7 @@ describe("POST extract (streamed result)", () => {
 	});
 
 	it("rejects a non-document kind with 400 (no extraction attempted)", async () => {
-		loadAssetForOwnerMock.mockResolvedValue(docAsset({ kind: "image" }));
+		loadAssetByIdMock.mockResolvedValue(docAsset({ kind: "image" }));
 		const res = await POST(req(), ctx());
 		expect(res.status).toBe(400);
 		expect(ensureStoredExtract).not.toHaveBeenCalled();
@@ -239,7 +242,7 @@ describe("POST extract (streamed result)", () => {
 	});
 
 	it("rejects a still-uploading (pending) document with 409", async () => {
-		loadAssetForOwnerMock.mockResolvedValue(docAsset({ status: "pending" }));
+		loadAssetByIdMock.mockResolvedValue(docAsset({ status: "pending" }));
 		const res = await POST(req(), ctx());
 		expect(res.status).toBe(409);
 		expect(ensureStoredExtract).not.toHaveBeenCalled();
@@ -247,19 +250,18 @@ describe("POST extract (streamed result)", () => {
 	});
 
 	it("404s a missing asset", async () => {
-		loadAssetForOwnerMock.mockResolvedValue(null);
+		loadAssetByIdMock.mockResolvedValue(null);
 		const res = await POST(req(), ctx());
 		expect(res.status).toBe(404);
 		await drainBody(res);
 	});
 
-	it("404s a foreign-owned asset so ids stay non-enumerable", async () => {
-		// loadAssetForOwner THROWS for a row owned by someone else; the route's
-		// catch maps that to a 404 — identical to not-found — so a caller can't
-		// distinguish "isn't yours" from "doesn't exist".
-		loadAssetForOwnerMock.mockRejectedValue(
-			new MediaAssetOwnershipError(asAssetId("asset-1"), "user-2", "user-1"),
-		);
+	it("404s a foreign-Project asset so ids stay non-enumerable", async () => {
+		// The row exists but the caller isn't a member of its Project
+		// (`userInProject` → false); the route maps that to a 404 — identical to
+		// not-found — so a caller can't distinguish "isn't yours" from "doesn't exist".
+		loadAssetByIdMock.mockResolvedValue(docAsset());
+		userInProjectMock.mockResolvedValue(false);
 		const res = await POST(req(), ctx());
 		expect(res.status).toBe(404);
 		expect(ensureStoredExtract).not.toHaveBeenCalled();
@@ -270,7 +272,7 @@ describe("POST extract (streamed result)", () => {
 		// A user at/over the monthly actual-cost backstop must not keep triggering
 		// paid extractions. The gate fires AFTER the document guards (the asset is
 		// fine) but BEFORE the store call, so no model work happens.
-		loadAssetForOwnerMock.mockResolvedValue(docAsset());
+		loadAssetByIdMock.mockResolvedValue(docAsset());
 		getMonthlyUsageMock.mockResolvedValue({
 			cost_estimate: ACTUAL_COST_BACKSTOP_USD,
 		}); // at the backstop
@@ -285,7 +287,7 @@ describe("POST extract (streamed result)", () => {
 		// Matching the chat route: if we can't verify usage we can't rule out being
 		// over cap, so the gate rejects rather than risk uncapped spend. No
 		// extraction is attempted.
-		loadAssetForOwnerMock.mockResolvedValue(docAsset());
+		loadAssetByIdMock.mockResolvedValue(docAsset());
 		getMonthlyUsageMock.mockRejectedValue(new Error("firestore down"));
 
 		const res = await POST(req(), ctx());
@@ -297,7 +299,7 @@ describe("POST extract (streamed result)", () => {
 
 describe("GET extract", () => {
 	it("returns the stored extract text as markdown when ready", async () => {
-		loadAssetForOwnerMock.mockResolvedValue(
+		loadAssetByIdMock.mockResolvedValue(
 			docAsset({
 				extract: {
 					status: "ready",
@@ -318,17 +320,16 @@ describe("GET extract", () => {
 	});
 
 	it("404s when the document has no current-version extract", async () => {
-		loadAssetForOwnerMock.mockResolvedValue(docAsset()); // no extract field
+		loadAssetByIdMock.mockResolvedValue(docAsset()); // no extract field
 		const res = await GET(req(), ctx());
 		expect(res.status).toBe(404);
 		expect(readTextObject).not.toHaveBeenCalled();
 		await drainBody(res);
 	});
 
-	it("404s a foreign-owned asset so ids stay non-enumerable", async () => {
-		loadAssetForOwnerMock.mockRejectedValue(
-			new MediaAssetOwnershipError(asAssetId("asset-1"), "user-2", "user-1"),
-		);
+	it("404s a foreign-Project asset so ids stay non-enumerable", async () => {
+		loadAssetByIdMock.mockResolvedValue(docAsset());
+		userInProjectMock.mockResolvedValue(false);
 		const res = await GET(req(), ctx());
 		expect(res.status).toBe(404);
 		expect(readTextObject).not.toHaveBeenCalled();
@@ -338,7 +339,7 @@ describe("GET extract", () => {
 	it("?meta=1 returns the header title/summary as JSON without reading the body", async () => {
 		// The preview's fallback for a frozen-ref message attachment: a cheap
 		// asset-doc read, never the GCS extract text.
-		loadAssetForOwnerMock.mockResolvedValue(
+		loadAssetByIdMock.mockResolvedValue(
 			docAsset({
 				extract: {
 					status: "ready",
@@ -365,7 +366,7 @@ describe("GET extract", () => {
 	});
 
 	it("?meta=1 omits title/summary for a not-yet-extracted document", async () => {
-		loadAssetForOwnerMock.mockResolvedValue(docAsset()); // no extract field
+		loadAssetByIdMock.mockResolvedValue(docAsset()); // no extract field
 		const res = await GET(req("?meta=1"), ctx());
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual({ status: null });

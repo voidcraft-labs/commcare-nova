@@ -7,10 +7,11 @@
  *  - **SSE (`UIMessageStreamWriter`)** — live wire to the interactive builder.
  *    `emit()` is a pure pass-through for lifecycle/error events (`data-phase`,
  *    `data-fix-attempt`, `data-error`, `data-done`, …). Doc-mutating events
- *    go through `emitMutations`, which owns both the SSE payload and the
- *    matching event-log writes.
+ *    go through `commitBatch`, which commits the batch through the unified
+ *    guarded writer and only THEN owns the SSE payload + matching event-log
+ *    writes.
  *  - **Event log (`LogWriter`)** — Firestore-backed append-only event stream.
- *    `emitMutations` writes one `MutationEvent` per mutation; `emitConversation`
+ *    `commitBatch` writes one `MutationEvent` per mutation; `emitConversation`
  *    writes one `ConversationEvent` per assistant/tool/user artifact. The log
  *    powers admin inspection and future replay. It is strictly supplemental —
  *    the blueprint snapshot on `AppDoc` is still authoritative.
@@ -22,9 +23,9 @@
  *
  * Implements `ToolExecutionContext` — the narrow interface extracted tool
  * modules consume. `recordMutations` + `recordConversation` are the
- * surface-neutral entry points; `emitMutations` + `emitConversation` are
- * the chat-surface implementations (with SSE fan-out) that the interface
- * methods delegate to.
+ * surface-neutral entry points; `commitBatch` (the guarded commit + SSE
+ * fan-out) and `emitConversation` are the chat-surface implementations the
+ * interface methods delegate to.
  *
  * Sub-generation prompts/outputs (from `generate`, `streamGenerate`,
  * `extractDocumentStructured`) are intentionally NOT persisted in the event log — only
@@ -52,9 +53,14 @@ import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { classifyError as classifyValidityError } from "@/lib/commcare/validator/gate";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { updateAppForRun } from "@/lib/db/apps";
+import {
+	commitGuardedBatch,
+	refreshBuildLiveness,
+	refreshEditLease,
+} from "@/lib/db/apps";
+import { CommitReauthError } from "@/lib/db/commitGuard";
+import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { UsageAccumulator } from "@/lib/db/usage";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import type {
@@ -65,6 +71,7 @@ import type {
 } from "@/lib/log/types";
 import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
+import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 import { MODEL_DEFAULT, type ReasoningEffort } from "@/lib/models";
 import type {
 	ExtractDocumentStructuredOpts,
@@ -73,9 +80,19 @@ import type {
 import { type ClassifiedError, classifyError } from "./errorClassifier";
 import { streamObjectWith } from "./subGeneration";
 import type {
+	RecordMutationsResult,
 	StagedMutationBatch,
 	ToolExecutionContext,
 } from "./toolExecutionContext";
+
+/**
+ * Debounce for the per-step run-lease heartbeat — a live run refreshes its
+ * liveness horizon at most this often (a third of the edit lease), so many fast
+ * agent steps write a few times per lease rather than once per step, while
+ * keeping the horizon comfortably fresh: ~5 min against an edit's 15-min
+ * `run_lock` lease AND against a build's 10-min `updated_at` staleness window.
+ */
+const LEASE_HEARTBEAT_INTERVAL_MS = (MAX_RUN_MINUTES / 3) * 60_000;
 
 /** Log AI SDK warnings to the console if present. */
 export function logWarnings(
@@ -112,9 +129,9 @@ export function thinkingProviderOptions(effort: ReasoningEffort) {
  *
  * `appId` is required — the chat route creates the app doc via `createApp`
  * before constructing the context (Firestore-down = 503, not an orphaned
- * build). Every `GenerationContext` instance has a target app to persist
- * against, so `saveBlueprint` can persist the post-mutation doc threaded
- * in by each caller — the same shape as `McpContext`.
+ * build). Every `GenerationContext` has a target app because each tool batch
+ * commits inline through `commitGuardedBatch(appId, …)` — the same shape as
+ * `McpContext`.
  */
 interface GenerationContextOptions {
 	apiKey: string;
@@ -129,6 +146,15 @@ interface GenerationContextOptions {
 	/** Firestore app id. The chat route creates the app doc before this
 	 * constructor runs so every context has a valid target app. */
 	appId: string;
+	/**
+	 * True when this run holds an EDIT `run_lock` (an edit-mode run: a chargeable
+	 * edit that claimed, or an edit resume) — it selects WHICH horizon the
+	 * per-step + wall-clock heartbeats refresh: the edit `run_lock` lease
+	 * (`refreshEditLease`), or, when `false`, a BUILD's `updated_at` staleness
+	 * clock (`refreshBuildLiveness`) — so neither mode's live run lapses and is
+	 * reaped mid-run during a long no-commit stretch.
+	 */
+	editLease: boolean;
 }
 
 /**
@@ -187,10 +213,11 @@ export class GenerationContext implements ToolExecutionContext {
 	 * uniqueness is needed.
 	 */
 	private seq = 0;
-	/** The most recent post-mutation doc snapshot this run persisted —
-	 * what the route's drain-end finalize reads (`latestPersistedDoc`)
-	 * and `warnIfEditRunIncomplete` evaluates after the drain. Absent
-	 * until the first mutation batch lands (a read-only turn). */
+	/** The latest COMMITTED doc — the guarded writer's `result.committedDoc`,
+	 * which may carry a peer's concurrent edit merged in (the SA continues
+	 * against it). Read by the route's drain-end finalize (`latestPersistedDoc`)
+	 * for `data-done` + the case-store sync, and by `warnIfEditRunIncomplete`.
+	 * Absent until the first mutation batch commits (a read-only turn). */
 	private _latestDoc: BlueprintDoc | undefined;
 	/* Flipped true when the SA emits an `askQuestions` tool-call — the client-side
 	 * tool with no `execute` that HALTS the agent loop to await the user's answer.
@@ -198,11 +225,33 @@ export class GenerationContext implements ToolExecutionContext {
 	 * so the refunding reaper doesn't mistake a live build paused on a question for
 	 * a hard-killed one and refund its still-live hold. */
 	private _pausedOnInput = false;
-	/** Tail of the run's intermediate-save chain — see `saveBlueprint` for why
-	 * the saves serialize and `drainIntermediateSaves` for who awaits the
-	 * tail. Always settled (every link catches), so awaiting it never
-	 * throws. */
-	private saveChain: Promise<void> = Promise.resolve();
+	/** The `mutation_seq` the run's most recent batch committed at — the head
+	 * of the durable `acceptedMutations` stream. The route stamps it on
+	 * `data-done` so a reconnecting client knows the run's terminal cursor.
+	 * Absent until the first mutation batch lands. */
+	private _latestSeq: number | undefined;
+	/** Set when a guarded commit threw `CommitReauthError` — the actor lost
+	 * edit access mid-run. Load-bearing for finalization: a tool `execute()`
+	 * throw becomes a NON-fatal AI-SDK chunk, so the route can't key run
+	 * failure on it; it reads this flag after the drain and routes the run
+	 * through `failRun` (refund, never keep the charge) instead. TERMINAL — a
+	 * reload can't restore access, so it's never cleared within a run. */
+	private _reauthError: CommitReauthError | undefined;
+	/** Which liveness horizon the heartbeats refresh: an edit `run_lock` lease,
+	 * or (false) a build's `updated_at` staleness clock.
+	 * See {@link GenerationContextOptions.editLease}. */
+	private readonly editLease: boolean;
+	/** Epoch-ms of the last run-lease heartbeat, for debounce — the per-step
+	 * refresh and the wall-clock timer share it, so a run with many fast steps
+	 * (or a step landing right after a timer tick) writes a few times per lease,
+	 * not on every signal. */
+	private lastLeaseRefreshMs = 0;
+	/** The wall-clock lease-heartbeat interval handle. Guarantees a run doing a
+	 * single long model turn with NO intermediate step-finish still refreshes its
+	 * horizon (the step-fired refresh alone can't cover a no-step stretch).
+	 * Started by `startRunLeaseHeartbeat`, cleared by `stopRunLeaseHeartbeat` in
+	 * the route's finalize — an uncleared interval is an async leak. */
+	private leaseHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
 	constructor(opts: GenerationContextOptions) {
 		this.anthropic = createAnthropic({ apiKey: opts.apiKey });
@@ -219,6 +268,7 @@ export class GenerationContext implements ToolExecutionContext {
 		this.usage = opts.usage;
 		this.session = opts.session;
 		this.appId = opts.appId;
+		this.editLease = opts.editLease;
 	}
 
 	/** Get the Anthropic model provider for a given model ID. The SA always
@@ -266,53 +316,6 @@ export class GenerationContext implements ToolExecutionContext {
 	 */
 	get runId(): string {
 		return this.usage.runId;
-	}
-
-	/**
-	 * Fire-and-forget save of the SA's current doc snapshot to Firestore.
-	 *
-	 * Called by `emitMutations` after every mutation batch so the app
-	 * document's `updated_at` advances during generation. This lets the
-	 * staleness check in `listApps()` distinguish "still actively
-	 * generating" from "process died" — without this, `updated_at ===
-	 * created_at` for the entire run.
-	 *
-	 * Writes `run_id` on every intermediate save (via `updateAppForRun`
-	 * rather than `updateApp`) so the app doc's run_id reflects the
-	 * current chat run while it's in flight. Without this, an edit run
-	 * that mutates the doc leaves
-	 * `app.run_id` stuck at a prior run's id, and the MCP
-	 * surface's sliding-window run derivation (see
-	 * `lib/mcp/runId.ts`) would attach subsequent MCP events to a
-	 * closed chat run within the inactivity window.
-	 *
-	 * `doc` is the post-mutation blueprint, threaded in by the caller.
-	 * Chat stays fire-and-forget because the SA's fix-retry discipline
-	 * covers missed intermediate saves and we don't want to block the
-	 * SSE stream on Firestore latency. Errors are logged; no rejection
-	 * ever propagates out of this method. `McpContext.saveBlueprint`
-	 * mirrors the same strip via the shared `toPersistableDoc` helper
-	 * but awaits the write (its fail-closed contract has no agent loop
-	 * to retry).
-	 *
-	 * Saves CHAIN onto each other (fire-and-forget relative to the
-	 * stream, sequential relative to one another) rather than racing as
-	 * independent RPCs. Two reasons:
-	 *  - independent writes carry no ordering guarantee, so save N could
-	 *    land after save N+1 and regress the stored snapshot mid-run;
-	 *  - the chain tail is what the route's drain-end build finalize
-	 *    awaits (`drainIntermediateSaves`), so by the time the app flips
-	 *    `complete`, every one of this run's saves has SETTLED — `status:
-	 *    complete` can never point at a blueprint the run hadn't finished
-	 *    persisting (a state a closed-tab drained run would never heal).
-	 * The persistable snapshot is taken eagerly, before the chain link
-	 * runs, so a deferred write persists the doc as it was at call time.
-	 */
-	private saveBlueprint(doc: BlueprintDoc): void {
-		const persistable = toPersistableDoc(doc);
-		this.saveChain = this.saveChain
-			.then(() => updateAppForRun(this.appId, persistable, this.usage.runId))
-			.catch((err) => log.error("[intermediate-save] failed", err));
 	}
 
 	/**
@@ -428,131 +431,155 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * Emit a fine-grained mutation batch to the client stream and the
-	 * event log, and persist the post-mutation doc snapshot to Firestore.
-	 *
-	 * This is the ONLY sanctioned way for the SA (or its validation loop)
-	 * to tell the client that the doc has changed. The mutations payload
-	 * is the same `Mutation[]` the SA applied to its own internal doc via
-	 * `applyMutations` on an Immer draft — the client applies the
-	 * identical array via `docStore.applyMany(mutations)`.
-	 *
-	 * `doc` is the POST-mutation blueprint — callers apply the mutations
-	 * on their working doc FIRST, then thread the resulting value in
-	 * here. The persisted snapshot is exactly that value. Matches the
-	 * semantic on `McpContext.recordMutations` so a shared tool body can
-	 * invoke the interface method uniformly on either surface.
+	 * Build the `MutationEvent` envelopes for one batch — PURE: it allocates
+	 * from the per-request `seq` counter and returns the array, writing nothing
+	 * (no commit, no SSE, no log). `commitBatch` owns the side effects: it
+	 * commits the batch through the guarded writer, then emits ONE
+	 * `data-mutations` SSE event carrying the raw `mutations` (for
+	 * `docStore.applyMany`, preserving zundo grouping) alongside these
+	 * envelopes, and logs one `MutationEvent` per mutation.
 	 *
 	 * The optional `stage` string is a semantic tag for the log
 	 * (`"scaffold"`, `"module:0"`, `"form:0-1"`, `"rename:0-0"`). It's
-	 * stamped on every MutationEvent envelope — both log and SSE see the
-	 * same tag, so lifecycle derivations over the client buffer match
-	 * replay derivations over the persisted log.
-	 *
-	 * Writes, in order:
-	 * 1. Build MutationEvent envelopes — same values on the wire + log.
-	 * 2. SSE — one `data-mutations` event carrying both the raw
-	 *    `mutations` (for `docStore.applyMany`, preserving zundo grouping)
-	 *    AND the `events` envelope array (for the session events buffer).
-	 * 3. Firestore intermediate save — advances `updated_at` on the app
-	 *    doc so listApps can distinguish in-progress from orphaned runs.
-	 *    Fire-and-forget; this method does not await the Firestore write.
-	 * 4. Event log — one `MutationEvent` per mutation, reusing the same
-	 *    envelopes that went out on SSE.
-	 *
-	 * Returns the built envelopes so callers can forward them to
-	 * downstream metadata without rebuilding. No-op on empty batches,
-	 * returning `[]`.
+	 * stamped on every envelope — both log and SSE see the same tag, so
+	 * lifecycle derivations over the client buffer match replay derivations
+	 * over the persisted log.
 	 */
-	emitMutations(
+	private buildEnvelopes(
 		mutations: Mutation[],
-		doc: BlueprintDoc,
 		stage?: string,
 	): MutationEvent[] {
-		if (mutations.length === 0) return [];
-
-		/* Build MutationEvent envelopes once; the same values ship on SSE
-		 * (client pushes to the events buffer) and on the log writer.
-		 * `seq` is allocated monotonically per envelope — contiguous with
-		 * conversation events emitted in the same run. */
-		const events: MutationEvent[] = mutations.map((mutation) => ({
+		return mutations.map((mutation) => ({
 			kind: "mutation",
 			runId: this.usage.runId,
 			ts: Date.now(),
 			seq: this.seq++,
 			actor: "agent",
-			/* Inline `source: "chat"` so the envelope we ship on SSE
-			 * (via `data-mutations` → session events buffer) is
-			 * schema-valid. LogWriter re-stamps it on the way to
-			 * Firestore regardless; this is the client-facing value. */
+			/* Inline `source: "chat"` so the SSE envelope is schema-valid;
+			 * `LogWriter` re-stamps it authoritatively on the way to Firestore. */
 			source: "chat",
 			/* Include `stage` whenever the caller explicitly passed a value —
-			 * empty-string is a valid stage. Mirrors McpContext.recordMutations. */
+			 * empty-string is a valid stage. */
 			...(stage !== undefined && { stage }),
 			mutation,
 		}));
+	}
 
+	/**
+	 * Commit one batch through the unified guarded writer, then — AFTER the
+	 * commit resolves — emit the `data-mutations` SSE event and log the
+	 * envelopes. Awaited-inline: the SA's `serial()` mutex serializes tool
+	 * bodies, so the commit that lands here always builds on the previous one's
+	 * committed doc, and `consumeStream()` resolving implies every commit
+	 * settled. A rejection (`commitGuardedBatch` throws) propagates BEFORE
+	 * anything is emitted, so the client never sees a batch the doc didn't
+	 * absorb. The `data-mutations` payload carries the committed `seq` +
+	 * `batchId` so the client reconciler can dedup its own echoes + advance its
+	 * cursor. `_latestDoc` becomes the writer's committed `nextDoc` (a
+	 * concurrent peer edit merged in), which the next tool body builds on.
+	 *
+	 * A `CommitReauthError` (the actor lost edit access mid-run) is stashed on
+	 * `_reauthError` before RE-THROWING: the tool + SA still see the failure and
+	 * stop committing, but the throw becomes a non-fatal AI-SDK chunk, so the
+	 * flag is how the route's finalize learns to `failRun` instead of falsely
+	 * completing (and keeping the charge). Any other error rethrows unchanged.
+	 *
+	 * `mediaExpectations` forwards to the guarded commit so a media attach is
+	 * re-verified against asset rows read INSIDE the transaction — the same
+	 * in-txn re-check MCP performs — closing the window where a peer deletes the
+	 * asset between the pre-commit verdict and this commit.
+	 */
+	private async commitBatch(
+		mutations: Mutation[],
+		events: MutationEvent[],
+		stage: string | undefined,
+		mediaExpectations?: readonly MediaAttachExpectation[],
+	): Promise<RecordMutationsResult> {
+		const batchId = crypto.randomUUID();
+		let result: Awaited<ReturnType<typeof commitGuardedBatch>>;
+		try {
+			result = await commitGuardedBatch({
+				appId: this.appId,
+				batchId,
+				runId: this.usage.runId,
+				mutations,
+				actorUserId: this.session.user.id,
+				kind: "chat",
+				...(mediaExpectations !== undefined && { mediaExpectations }),
+			});
+		} catch (err) {
+			if (err instanceof CommitReauthError) this._reauthError = err;
+			throw err;
+		}
+		this._latestDoc = result.committedDoc;
+		this._latestSeq = result.seq;
 		this.writer.write({
 			type: "data-mutations",
 			data: {
 				mutations,
 				events,
+				seq: result.seq,
+				batchId,
 				...(stage !== undefined && { stage }),
 			},
 			transient: true,
 		});
-		/* Fire-and-forget intermediate save advances `updated_at` so the
-		 * staleness detector distinguishes "still generating" from "process
-		 * died". The caller owns the doc shape; we just persist whatever
-		 * post-mutation snapshot they handed us. */
-		this._latestDoc = doc;
-		this.saveBlueprint(doc);
-		/* Event log — write the same envelopes we just sent on SSE. */
 		for (const e of events) this.logWriter.logEvent(e);
-		return events;
+		return { events, committedDoc: result.committedDoc };
 	}
 
 	/**
-	 * ToolExecutionContext implementation. Delegates to `emitMutations`,
-	 * which takes `doc` directly and persists it via `saveBlueprint`.
-	 * The chat surface's intermediate save is fire-and-forget (SA
-	 * fix-retry discipline covers missed saves), so the returned promise
-	 * resolves as soon as the synchronous SSE write + log enqueue
-	 * complete — matching the interface's asynchronous signature while
-	 * preserving the chat surface's "don't block the stream on
-	 * Firestore" invariant.
+	 * ToolExecutionContext implementation. AWAITS the inline guarded commit
+	 * (`commitBatch` → `commitGuardedBatch`) and returns its committed doc, so a
+	 * tool body sees the writer's `nextDoc` (a concurrent peer edit merged in),
+	 * never its own local candidate. Both the inline await here AND the SA's
+	 * `serial()` mutex around tool bodies are load-bearing: the mutex is what
+	 * makes each commit build on the previous one's committed doc, and the await
+	 * is what lets `consumeStream()` resolving imply every commit settled —
+	 * removing either reintroduces lost concurrent edits and unsettled writes at
+	 * drain end. A rejection propagates (the batch is not emitted).
 	 *
-	 * The `async` keyword is load-bearing for the interface's
-	 * `Promise<MutationEvent[]>` return type; the body is synchronous
-	 * because `emitMutations` is synchronous and `saveBlueprint` is
-	 * fire-and-forget. No `await` appears inside this method by design.
+	 * `mediaExpectations` (present when the batch attaches a media reference)
+	 * rides into the guarded commit for the in-transaction re-verification.
 	 */
 	async recordMutations(
 		mutations: Mutation[],
 		doc: BlueprintDoc,
 		stage?: string,
-	): Promise<MutationEvent[]> {
-		return this.emitMutations(mutations, doc, stage);
+		mediaExpectations?: readonly MediaAttachExpectation[],
+	): Promise<RecordMutationsResult> {
+		if (mutations.length === 0) return { events: [], committedDoc: doc };
+		const events = this.buildEnvelopes(mutations, stage);
+		return this.commitBatch(mutations, events, stage, mediaExpectations);
 	}
 
 	/**
-	 * ToolExecutionContext implementation. The chat surface's save is
-	 * fire-and-forget per stage (the SA's retry discipline covers a missed
-	 * intermediate save), so "one save for the whole sequence" needs no
-	 * special handling here — each stage emits its own SSE batch + log
-	 * envelopes under its own tag, and the last stage's snapshot is the
-	 * one that settles on Firestore. The atomicity contract this method
-	 * exists for lives on the MCP implementation, whose transactional
-	 * write can reject (`McpContext.recordMutationStages`).
+	 * ToolExecutionContext implementation. Concatenates the non-empty stages and
+	 * AWAITS ONE guarded commit for the whole sequence (one `batchId`, one `seq`),
+	 * preserving editField's convert→rename→patch atomicity — a rejection commits
+	 * zero of the stages. Per-stage envelopes keep their own tags for the log /
+	 * replay chapters. Like `recordMutations`, the inline await is load-bearing.
 	 */
 	async recordMutationStages(
 		stages: StagedMutationBatch[],
-	): Promise<MutationEvent[]> {
-		const events: MutationEvent[] = [];
-		for (const s of stages) {
-			events.push(...this.emitMutations(s.mutations, s.doc, s.stage));
+	): Promise<RecordMutationsResult> {
+		const nonEmpty = stages.filter((s) => s.mutations.length > 0);
+		if (nonEmpty.length === 0) {
+			// Nothing to commit — the last stage's doc is the current state.
+			const current = stages[stages.length - 1]?.doc;
+			if (current === undefined) {
+				throw new Error("recordMutationStages called with no stages");
+			}
+			return { events: [], committedDoc: current };
 		}
-		return events;
+		// ONE commit for the whole sequence (one batchId, one seq) — preserves
+		// editField's convert→rename→patch atomicity. Per-stage envelopes keep
+		// their own tags for the log / replay chapters.
+		const allMutations = nonEmpty.flatMap((s) => s.mutations);
+		const events = nonEmpty.flatMap((s) =>
+			this.buildEnvelopes(s.mutations, s.stage),
+		);
+		return this.commitBatch(allMutations, events, undefined);
 	}
 
 	/**
@@ -586,16 +613,26 @@ export class GenerationContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * Await the run's intermediate-save chain. The route's drain-end
-	 * build finalize calls this BEFORE flipping the app `complete`: the
-	 * drain runs after every tool body settled, so every save the run
-	 * issued precedes this await — once it resolves, no own-save is still
-	 * in flight, and `status: complete` can never land ahead of the
-	 * blueprint it describes (see `saveBlueprint`). The chain never
-	 * rejects, so this await can only delay, not fail.
+	 * The `mutation_seq` the run's most recent batch committed at, or
+	 * `undefined` for a run that landed no mutations. The route's drain-end
+	 * finalize stamps it on `data-done` so a reconnecting client knows the
+	 * run's terminal stream cursor. No save chain to drain any more — every
+	 * commit is awaited inline through `commitGuardedBatch`, so by the time the
+	 * SA stream is consumed, every batch has already settled durably.
 	 */
-	async drainIntermediateSaves(): Promise<void> {
-		await this.saveChain;
+	latestCommittedSeq(): number | undefined {
+		return this._latestSeq;
+	}
+
+	/**
+	 * The `CommitReauthError` a guarded commit threw when the actor lost edit
+	 * access mid-run, or `undefined` if none did. The route's drain-end finalize
+	 * reads it and routes the run through `failRun` (a deauthorized run must
+	 * refund, not keep the charge) — a tool `execute()` throw alone becomes a
+	 * non-fatal AI-SDK chunk that can't fail the run.
+	 */
+	reauthError(): CommitReauthError | undefined {
+		return this._reauthError;
 	}
 
 	/**
@@ -644,8 +681,68 @@ export class GenerationContext implements ToolExecutionContext {
 	 *
 	 * `label` is used only for the warning-log prefix; not persisted.
 	 */
+	/**
+	 * Refresh the run's LIVENESS HORIZON off SA activity — the shared beat both
+	 * the per-step (`handleAgentStep`) and the wall-clock timer
+	 * (`startRunLeaseHeartbeat`) fire, so a live run never lapses whether it
+	 * commits often, does a long read-only stretch, or sits in a single long
+	 * model turn with no step-finish. Per mode: an EDIT refreshes its `run_lock`
+	 * lease; a BUILD re-arms its `updated_at` staleness clock — a live build
+	 * with no commit for over `MAX_GENERATION_MINUTES` (long planning, document
+	 * extraction, an SA loop whose rejected tool calls persist nothing) would
+	 * otherwise be reaped mid-run: refunded + flipped to `error` out from under
+	 * a build that then finishes and celebrates over an `error` row. Debounced
+	 * to at most once per `LEASE_HEARTBEAT_INTERVAL_MS` across BOTH signals.
+	 * Both refreshers are ownership-gated through the one liveness reader, so a
+	 * run superseded mid-way never re-arms the taker's horizon. Fire-and-forget
+	 * — a miss just risks an earlier lapse and the next beat retries.
+	 */
+	private beatRunLease(): void {
+		const nowMs = Date.now();
+		if (nowMs - this.lastLeaseRefreshMs < LEASE_HEARTBEAT_INTERVAL_MS) return;
+		this.lastLeaseRefreshMs = nowMs;
+		const refresh = this.editLease ? refreshEditLease : refreshBuildLiveness;
+		refresh(this.appId, this.runId).catch((err) =>
+			log.error("[generation] run-lease heartbeat failed", err, {
+				appId: this.appId,
+			}),
+		);
+	}
+
+	/**
+	 * Start the wall-clock lease heartbeat — the guarantee that a single long
+	 * no-step model turn can't let the run's liveness horizon lapse (the
+	 * per-step beat alone can't cover a stretch with no step-finish). The route
+	 * calls this once the run is live and MUST call
+	 * {@link stopRunLeaseHeartbeat} in its finalize (an uncleared interval
+	 * leaks — and a PAUSED run must stop beating, or an abandoned pause would
+	 * never lapse for the reapers). `.unref()` so the interval never keeps the
+	 * process alive.
+	 */
+	startRunLeaseHeartbeat(): void {
+		if (this.leaseHeartbeatTimer) return;
+		this.leaseHeartbeatTimer = setInterval(
+			() => this.beatRunLease(),
+			LEASE_HEARTBEAT_INTERVAL_MS,
+		);
+		this.leaseHeartbeatTimer.unref?.();
+	}
+
+	/** Stop the wall-clock lease heartbeat. Idempotent; MUST run in the route's
+	 * finalize so the interval is cleared (an uncleared timer is an async leak,
+	 * and a paused/finalized run must stop re-arming its liveness horizon). */
+	stopRunLeaseHeartbeat(): void {
+		if (this.leaseHeartbeatTimer) {
+			clearInterval(this.leaseHeartbeatTimer);
+			this.leaseHeartbeatTimer = undefined;
+		}
+	}
+
 	handleAgentStep(step: AgentStep, label: string): void {
 		logWarnings(`runAgent:${label}`, step.warnings);
+		// Refresh the run's liveness horizon off SA activity (debounced) — the
+		// cheap early beat; the wall-clock timer covers a long no-step turn.
+		this.beatRunLease();
 		const { usage } = step;
 		if (!usage) return;
 

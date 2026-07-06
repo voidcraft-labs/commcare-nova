@@ -13,6 +13,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
+import { useCanEdit } from "@/lib/session/hooks";
 import type { SampleDataAction } from "./useSampleData";
 
 export function GenerateSampleDataButton({
@@ -25,6 +26,10 @@ export function GenerateSampleDataButton({
 	readonly className?: string;
 }) {
 	const running = generate.status.kind === "running";
+	/* Generating sample data WRITES case rows (an edit-gated server action), so
+	 * a view-only member doesn't get the affordance — it would only error. */
+	const canEdit = useCanEdit();
+	if (!canEdit) return null;
 	return (
 		<>
 			<button

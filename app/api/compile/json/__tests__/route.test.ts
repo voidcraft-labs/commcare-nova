@@ -8,8 +8,8 @@
  * `get_form_path` to `jr://file/commcare/<hash><ext>` and matches against
  * the imported app's refs) + a README for the two-step manual import.
  *
- * Boundaries mocked; the real `blueprintDocSchema` runs against a
- * `buildDoc` fixture.
+ * Boundaries mocked: `requireSession`, `resolveAppAccess` (loads the
+ * blueprint server-side), the boundary gate, manifest, and expand.
  */
 
 import AdmZip from "adm-zip";
@@ -18,12 +18,14 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
+import { resolveAppAccess } from "@/lib/db/appAccess";
 import { asAssetId } from "@/lib/domain/multimedia";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
+vi.mock("@/lib/db/appAccess", () => ({ resolveAppAccess: vi.fn() }));
 vi.mock("@/lib/media/boundaryValidation", () => ({
 	collectBoundaryViolations: vi.fn(),
 }));
@@ -32,7 +34,7 @@ vi.mock("@/lib/commcare/expander", () => ({ expandDoc: vi.fn() }));
 
 const SESSION = { user: { id: "u1" } };
 
-/** A schema-valid blueprint the route's `safeParse` accepts. */
+/** The blueprint `resolveAppAccess` loads server-side. */
 function validDoc() {
 	const { fieldParent: _fieldParent, ...doc } = buildDoc({
 		appName: "Vaccine Tracker",
@@ -72,8 +74,17 @@ function reqWith(body: unknown) {
 	} as unknown as Parameters<typeof POST>[0];
 }
 
+/** Mock `resolveAppAccess` to load `doc` for app owner `u1` at the given
+ *  committed `mutation_seq`. */
+function loadsDoc(doc: ReturnType<typeof validDoc>, mutationSeq = 13) {
+	vi.mocked(resolveAppAccess).mockResolvedValue({
+		app: { blueprint: doc, owner: "u1", mutation_seq: mutationSeq },
+	} as never);
+}
+
 beforeEach(() => {
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
+	loadsDoc(validDoc());
 	vi.mocked(collectBoundaryViolations).mockResolvedValue([]);
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
 	vi.mocked(expandDoc).mockReturnValue({
@@ -84,11 +95,14 @@ beforeEach(() => {
 
 describe("POST /api/compile/json", () => {
 	it("returns a plain JSON file for a media-free app", async () => {
-		const res = await POST(reqWith({ doc: validDoc() }));
+		const res = await POST(reqWith({ appId: "a1" }));
 
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toContain("application/json");
 		expect(res.headers.get("content-disposition")).toContain(".json");
+		// The seq rides out-of-band in the response header — the JSON body stays
+		// the byte-identical HQ-import artifact.
+		expect(res.headers.get("x-compiled-at-seq")).toBe("13");
 		expect(JSON.parse(await res.text())).toMatchObject({
 			name: "Vaccine Tracker",
 		});
@@ -108,11 +122,14 @@ describe("POST /api/compile/json", () => {
 			new Map([[asset.assetId, asset]]),
 		);
 
-		const res = await POST(reqWith({ doc: validDoc() }));
+		const res = await POST(reqWith({ appId: "a1" }));
 
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toContain("application/zip");
 		expect(res.headers.get("content-disposition")).toContain(".zip");
+		// The media-bearing shape carries the seq in the same header — the zip
+		// body (JSON + multimedia + README) stays byte-identical.
+		expect(res.headers.get("x-compiled-at-seq")).toBe("13");
 
 		const bundle = new AdmZip(Buffer.from(await res.arrayBuffer()));
 		const names = bundle.getEntries().map((e) => e.entryName);
@@ -150,7 +167,7 @@ describe("POST /api/compile/json", () => {
 			),
 		]);
 
-		const res = await POST(reqWith({ doc: validDoc() }));
+		const res = await POST(reqWith({ appId: "a1" }));
 		// Read the body (asserting the message + closing the response
 		// stream — an unread error body leaks under the async-leak gate).
 		const body = (await res.json()) as { error: string; details?: string[] };

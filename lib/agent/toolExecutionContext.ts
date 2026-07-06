@@ -28,6 +28,18 @@ import type {
 } from "@/lib/log/types";
 import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 
+/**
+ * What a mutation-recording commit returns: the event envelopes it logged, plus
+ * the fully-hydrated committed doc (the guarded writer's `nextDoc`). The chat SA
+ * adopts `committedDoc` as its working doc so it always builds on what actually
+ * landed (a concurrent peer edit merged in); MCP coalesces it with the
+ * post-mutation doc it already holds on a top-level dedup hit.
+ */
+export interface RecordMutationsResult {
+	readonly events: MutationEvent[];
+	readonly committedDoc: BlueprintDoc;
+}
+
 export interface ToolExecutionContext {
 	/** Current app id. Every tool operates against one app. */
 	readonly appId: string;
@@ -57,19 +69,17 @@ export interface ToolExecutionContext {
 	 * `mediaExpectations` carries the media attach verdict's per-asset
 	 * requirements when the batch attaches asset references (see
 	 * `lib/media/attachVerdicts.ts`). The tool has already run the
-	 * pre-commit verdict; a surface whose save is transactional (MCP)
-	 * re-applies the per-asset judgment to rows read INSIDE the same
-	 * transaction that re-verdicts the batch, so the asset state the
-	 * commit relies on can't be raced out from under it. The chat surface
-	 * ignores it — its run owns the doc between the pre-commit read and
-	 * the fire-and-forget save.
+	 * pre-commit verdict; BOTH surfaces then re-apply the per-asset judgment
+	 * to rows read INSIDE the guarded transaction that re-verdicts the batch,
+	 * so a peer deleting the asset between the pre-commit read and the commit
+	 * can't strand a dangling reference (it surfaces here, not at export).
 	 */
 	recordMutations(
 		mutations: Mutation[],
 		doc: BlueprintDoc,
 		stage?: string,
 		mediaExpectations?: readonly MediaAttachExpectation[],
-	): Promise<MutationEvent[]>;
+	): Promise<RecordMutationsResult>;
 
 	/**
 	 * Persist a multi-stage mutation sequence as ONE save. The stages keep
@@ -84,7 +94,9 @@ export interface ToolExecutionContext {
 	 * Callers pass stages with non-empty `mutations`; each stage's `doc`
 	 * is the blueprint AFTER that stage applied to the previous one's.
 	 */
-	recordMutationStages(stages: StagedMutationBatch[]): Promise<MutationEvent[]>;
+	recordMutationStages(
+		stages: StagedMutationBatch[],
+	): Promise<RecordMutationsResult>;
 
 	/** Persist a conversation event (assistant text/reasoning, tool
 	 * call/result, user message, error). */

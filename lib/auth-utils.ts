@@ -10,7 +10,6 @@
  * present on valid sessions, no custom session fields needed.
  */
 
-import { isValidIP, normalizeIP } from "@better-auth/core/utils/ip";
 import * as Sentry from "@sentry/nextjs";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -19,7 +18,9 @@ import { cache } from "react";
 import { ApiError } from "./apiError";
 import { getAuth, type Session } from "./auth";
 import { getAuthDb } from "./auth/db";
+import { ensurePersonalProject } from "./auth/provisionProject";
 import { isUserActive } from "./db/api-keys";
+import { AppAccessError, resolveProjectAccess } from "./db/appAccess";
 import { log } from "./logger";
 
 /**
@@ -105,30 +106,10 @@ function identifySentryUser(session: Session): void {
 
 // ── Caller IP ───────────────────────────────────────────────────────
 
-/**
- * Extract the caller's IP from a `Headers` object for audit-log
- * payloads. Reads the proxy-stamped `x-nova-client-ip` header that
- * `proxy.ts` populates from `X-Forwarded-For`'s trusted suffix; the
- * proxy strips any client-supplied value first, so anything reaching
- * here under that name is guaranteed proxy-derived (the leftmost
- * spoofable region of XFF cannot reach this code path). `isValidIP`
- * rejects anything that isn't a parseable IPv4/IPv6 address (defends
- * against an upstream regression that lets a malformed value through),
- * and `normalizeIP` collapses equivalent representations so log
- * queries pivot on one canonical form. Returns `"unknown"` when the
- * header is absent (proxy didn't run for this request — tests, dev
- * paths bypassing the middleware) or the value fails validation.
- *
- * The Headers parameter lets the same helper serve route handlers
- * (passing `req.headers`) and Server Components / Server Actions
- * (passing `await headers()`) — the async vs sync seam stays at the
- * call site, where it belongs.
- */
-export function callerIpFromHeaders(reqHeaders: Headers): string {
-	const trusted = reqHeaders.get("x-nova-client-ip");
-	if (!trusted || !isValidIP(trusted)) return "unknown";
-	return normalizeIP(trusted);
-}
+// Re-exported from the dependency-free `@/lib/callerIp` leaf: the MCP
+// API-key route imports the helper directly from there to avoid dragging
+// this barrel's heavy Better Auth + DB-pool graph into the request path.
+export { callerIpFromHeaders } from "./callerIp";
 
 // ── Anthropic-key resolution for chat-API routes ────────────────────
 
@@ -314,6 +295,47 @@ export const getSession = cache(async (): Promise<Session | null> => {
 		return null;
 	}
 });
+
+/**
+ * The caller's active Project id for tenancy-scoped reads (the app list, etc.).
+ *
+ * Prefers the session's stamped `activeOrganizationId` (set at session create),
+ * falling back to the user's personal Project — self-healing for sessions
+ * minted before Projects shipped, which never got the stamp. The fallback is a
+ * cheap indexed get-or-create, so it's safe to call per request.
+ *
+ * `cache()`-wrapped (like `getSession`) so the layout + page both calling it in
+ * one render pass share a single resolution — keyed on the `session` object,
+ * which `getSession`'s own cache keeps stable within a request.
+ */
+export const resolveActiveProjectId = cache(
+	async function resolveActiveProjectId(session: Session): Promise<string> {
+		const active = session.session.activeOrganizationId;
+		if (active) {
+			/* Re-check membership: `organization.setActive` lets a user stamp a shared
+			 * Project active, and a later removal leaves that stale stamp on their
+			 * session until it's re-minted. Don't let it grant list/create access to a
+			 * Project they've left — fall through to their personal one. */
+			try {
+				await resolveProjectAccess(session.user.id, active, "view");
+				return active;
+			} catch (err) {
+				if (!(err instanceof AppAccessError)) throw err;
+				// The stamped active Project is no longer accessible — membership
+				// was revoked since the session was minted. Fall through to the
+				// personal Project (secure: correctly scoped), but LOG it:
+				// otherwise the user's shared apps silently vanish from their list
+				// with no trace. The stale stamp clears on the next session
+				// re-mint; the Project switcher reflects the active Project.
+				log.warn(
+					"[auth] active Project no longer accessible — falling back to personal",
+					{ userId: session.user.id, staleProjectId: active },
+				);
+			}
+		}
+		return ensurePersonalProject(session.user.id);
+	},
+);
 
 /**
  * Require an authenticated session in a Server Component.

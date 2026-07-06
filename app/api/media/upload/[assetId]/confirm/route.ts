@@ -4,7 +4,7 @@
  * Called by the browser after the signed-PUT step completes. The
  * server:
  *
- *   1. loads the `pending` row (rejects if foreign owner or missing)
+ *   1. loads the `pending` row (rejects if the caller isn't a Project member, or it's missing)
  *   2. downloads the bytes from the pending GCS object once
  *   3. runs the validation pipeline against the stored bytes
  *   4. on failure: deletes the pending GCS object AND the Firestore row,
@@ -22,13 +22,13 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
+import { userInProject } from "@/lib/db/appAccess";
 import {
 	confirmAssetReady,
 	deleteAsset as deleteAssetRow,
-	findReadyAssetByOwnerAndHash,
+	findReadyAssetByProjectAndHash,
 	hasOtherAssetForGcsObjectKey,
-	loadAssetForOwner,
-	MediaAssetOwnershipError,
+	loadAssetById,
 	type MediaAssetRecord,
 	toWireMediaAsset,
 } from "@/lib/db/mediaAssets";
@@ -55,15 +55,14 @@ export async function POST(
 		const { assetId: rawAssetId } = await params;
 		const assetId = asAssetId(rawAssetId);
 
-		const asset = await loadAssetForOwner(session.user.id, assetId).catch(
-			(err: unknown) => {
-				if (err instanceof MediaAssetOwnershipError) {
-					return null;
-				}
-				throw err;
-			},
-		);
-		if (!asset) {
+		// Owner-agnostic load, then authorize by Project membership. A
+		// non-member reads as the same 404 a missing row does, so asset ids
+		// stay non-enumerable.
+		const asset = await loadAssetById(assetId);
+		if (
+			!asset ||
+			!(await userInProject(session.user.id, asset.project_id, "edit"))
+		) {
 			throw new ApiError(
 				"We couldn't find the upload you're trying to confirm. It may have been cleaned up after timing out — try uploading again.",
 				404,
@@ -92,7 +91,7 @@ export async function POST(
 		}
 		const cap = ASSET_SIZE_CAPS_BYTES[asset.kind];
 		if (storedSize > cap) {
-			await deleteRejectedUpload(session.user.id, asset);
+			await deleteRejectedUpload(asset);
 			const capMb = (cap / 1024 / 1024).toFixed(0);
 			const actualMb = (storedSize / 1024 / 1024).toFixed(2);
 			throw new ApiError(
@@ -120,7 +119,7 @@ export async function POST(
 			// Drop this attempt's bytes + row so the upload pathway
 			// returns to a clean state. The object delete is guarded
 			// against legacy/shared rows before touching GCS.
-			await deleteRejectedUpload(session.user.id, asset);
+			await deleteRejectedUpload(asset);
 			throw new ApiError(result.message, 400);
 		}
 
@@ -131,12 +130,12 @@ export async function POST(
 		// shows the same asset twice. Simultaneous double-confirm can
 		// still leave two ready rows, but both point at identical final
 		// bytes and the deletion path checks for shared object keys.
-		const sibling = await findReadyAssetByOwnerAndHash(
-			session.user.id,
+		const sibling = await findReadyAssetByProjectAndHash(
+			asset.project_id,
 			asset.contentHash,
 		);
 		if (sibling && sibling.id !== assetId) {
-			await deleteRejectedUpload(session.user.id, asset);
+			await deleteRejectedUpload(asset);
 			return NextResponse.json({ ok: true, asset: toWireMediaAsset(sibling) });
 		}
 
@@ -147,7 +146,7 @@ export async function POST(
 		// the filename. The validated extension is authoritative for the key
 		// (and the row below), so the stored object isn't mis-suffixed.
 		const finalGcsObjectKey = gcsObjectKeyFor(
-			session.user.id,
+			asset.project_id,
 			result.validated.contentHash,
 			result.validated.extension,
 		);
@@ -212,12 +211,8 @@ export async function POST(
  * points at the same key, remove only this Firestore row and leave bytes
  * intact for the sibling.
  */
-async function deleteRejectedUpload(
-	owner: string,
-	asset: MediaAssetRecord,
-): Promise<void> {
+async function deleteRejectedUpload(asset: MediaAssetRecord): Promise<void> {
 	const shared = await hasOtherAssetForGcsObjectKey(
-		owner,
 		asset.gcsObjectKey,
 		asset.id,
 	).catch((err: unknown) => {

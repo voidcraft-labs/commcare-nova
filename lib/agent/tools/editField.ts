@@ -39,11 +39,14 @@
 import { z } from "zod";
 import { parseXPathForField } from "@/lib/doc/expressionText";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
+import { reconciledOptions } from "@/lib/doc/order/options";
+import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
 	FieldKind,
 	FieldPatchFor,
+	SelectOption,
 	Uuid,
 	XPathExpression,
 } from "@/lib/domain";
@@ -64,6 +67,7 @@ import {
 	guardedMutateStages,
 	type MutatingToolResult,
 	type StagedMutationBatch,
+	toToolErrorResult,
 } from "./common";
 import type {
 	MutationSuccess,
@@ -116,6 +120,7 @@ type EditUpdatesPatch = Omit<
 function editPatchToFieldPatch(
 	updates: EditUpdatesPatch,
 	parseExpr: (text: string) => XPathExpression,
+	existingOptions: readonly SelectOption[] | undefined,
 ): FieldPatchFor<FieldKind> {
 	const patch: Record<string, unknown> = {};
 	// Plain scalars: SA passes a new value, `null` to clear, or omits to
@@ -158,7 +163,18 @@ function editPatchToFieldPatch(
 		}
 	}
 	if (updates.options !== undefined) {
-		patch.options = updates.options;
+		// The SA's wholesale replacement is uuid/order-less (identity is off its
+		// wire — `saOptionSchema` omits both). Reconcile against the field's
+		// CURRENT options so surviving values keep their uuid and every option
+		// lands keyed: a uuid-less option committed mid-session is INVISIBLE to
+		// the per-uuid option diff (and `options` sits in the generic-patch
+		// skip-set), so a collaborator's next edit to it would silently never
+		// persist until a reload's backfill. A `null` passes through verbatim
+		// (a clear — the commit gate then rejects the sub-2 candidate).
+		patch.options =
+			updates.options === null
+				? null
+				: reconciledOptions(updates.options, existingOptions);
 	}
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
@@ -377,8 +393,26 @@ export const editFieldTool = {
 					fieldUpdates as EditUpdatesPatch,
 					(text) =>
 						parseXPathForField(workingDoc, afterRename.field.uuid, text),
+					(afterRename.field as { options?: SelectOption[] }).options,
 				);
 				if (Object.keys(patch).length > 0) {
+					// Declaration chokepoint: a patch RE-TARGETING `case_property_on`
+					// to a type absent from the catalog declares it FIRST (a stage of
+					// its own, so the type exists before the field's catalog sync
+					// runs) — the reducer no longer auto-creates the type.
+					const nextType = (patch as { case_property_on?: unknown })
+						.case_property_on;
+					if (typeof nextType === "string" && nextType.length > 0) {
+						const declMuts = declareCaseTypeMutations(workingDoc, nextType);
+						if (declMuts.length > 0) {
+							workingDoc = applyToDoc(workingDoc, declMuts);
+							stages.push({
+								mutations: declMuts,
+								doc: workingDoc,
+								stage: `edit:${moduleIndex}-${formIndex}`,
+							});
+						}
+					}
 					// `afterRename.field.kind` is the kind after any
 					// just-applied conversion — pass it as `targetKind` so
 					// the mutation discriminates against the post-convert
@@ -440,7 +474,12 @@ export const editFieldTool = {
 			return {
 				kind: "mutate" as const,
 				mutations: allMutations,
-				newDoc: workingDoc,
+				// The SA continues against the guarded writer's committed doc (a
+				// peer's concurrent edit re-applied onto the fresh stored doc merged
+				// in), NOT the tool's local `workingDoc` — every other mutating tool
+				// returns `commit.newDoc` for the same reason. The message strings
+				// above read `workingDoc` only for this call's own display values.
+				newDoc: commit.newDoc,
 				result: {
 					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.`,
 					summary: {
@@ -450,12 +489,7 @@ export const editFieldTool = {
 				},
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

@@ -55,6 +55,7 @@ import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
+import { useCanEdit } from "@/lib/session/hooks";
 import {
 	isDraggableFieldData,
 	isUuidInSubtree,
@@ -156,6 +157,7 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 		renderPreview,
 	} = options;
 	const docStore = useContext(BlueprintDocContext);
+	const canEdit = useCanEdit();
 
 	const ref = useRef<HTMLDivElement | null>(null);
 	const [isDraggingSelf, setIsDraggingSelf] = useState(false);
@@ -178,8 +180,10 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 
 		const cleanups: Array<() => void> = [];
 
+		// View-only Project members register no drag source, so no row can be
+		// picked up (and the reorder monitor never fires).
 		// Drag source — only when this row is itself draggable.
-		if (draggableUuid !== null) {
+		if (draggableUuid !== null && canEdit) {
 			cleanups.push(
 				draggable({
 					element: el,
@@ -260,6 +264,7 @@ export function useRowDnd(options: UseRowDndOptions): UseRowDndReturn {
 		return combine(...cleanups);
 	}, [
 		docStore,
+		canEdit,
 		draggableUuid,
 		cycleTargetContainerUuid,
 		buildDropData,

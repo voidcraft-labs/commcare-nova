@@ -21,6 +21,10 @@ export {
 	CaseTypeNotInBlueprintError,
 	SchemaNotSyncedError,
 } from "./errors";
+export { withProjectContext, withSchemaContext } from "./projectContext";
+// Cross-tenant case re-tenant — the case-store half of moving an app between
+// Projects. The db-injectable `*On` twin stays package-private (harness only).
+export { retenantAppCases } from "./retenant";
 // JSONB value types — consumed by callers reading `CaseRow.properties`.
 export type {
 	JsonObject,
@@ -41,8 +45,8 @@ export type {
 	MigrationReport,
 	QueryArgs,
 	ResetSampleDataArgs,
+	SchemaCaseStore,
 	SchemaChangeKind,
 	SortKey,
 } from "./store";
 export { buildCaseTypeMap } from "./store";
-export { withOwnerContext } from "./withOwnerContext";

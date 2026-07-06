@@ -27,7 +27,7 @@
 // The term compiler does NOT emit a tenant filter; the outer-query
 // layer (predicate compiler, case-list query) owns it.
 // `compileRelationPath` enforces it on every joined `cases` row.
-// `appId` / `ownerId` are on the context so the field shape stays
+// `appId` / `projectId` are on the context so the field shape stays
 // uniform for forwarding into `compileRelationPath`.
 //
 // `AliasableExpression<unknown>` is the public return type so
@@ -102,10 +102,10 @@ export interface TermBindings {
  */
 export interface TermCompileContext {
 	db: Kysely<Database>;
-	/** First half of the `(app_id, owner_id)` tenant pair — forwarded to `compileRelationPath`. */
+	/** First half of the `(app_id, project_id)` tenant pair — forwarded to `compileRelationPath`. */
 	appId: string;
-	/** Second half. `null` admits HQ-imported cases pre-assignment. */
-	ownerId: string | null;
+	/** Second half — the bound Project (tenant). Non-null; forwarded to `compileRelationPath`. */
+	projectId: string;
 	/** The outer query's alias for `cases`. Property reads emit `<anchorAlias>.<col>`. */
 	anchorAlias: string;
 	/**
@@ -269,7 +269,7 @@ function compileNonSelfViaPropertyRef(args: {
 	const compiledPath = compileRelationPath(via, {
 		db: ctx.db,
 		appId: ctx.appId,
-		ownerId: ctx.ownerId,
+		projectId: ctx.projectId,
 		anchorAlias,
 		relationPathDepth: ctx.relationPathDepth ?? 0,
 	});

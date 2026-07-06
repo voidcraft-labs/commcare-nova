@@ -20,9 +20,16 @@
 
 import { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
-import { reorderColumnsMutation } from "../../blueprintHelpers";
+import {
+	reorderColumnsMutation,
+	resolveModuleUuid,
+} from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { guardedMutate, type MutatingToolResult } from "../common";
+import {
+	guardedMutate,
+	type MutatingToolResult,
+	toToolErrorResult,
+} from "../common";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
@@ -65,7 +72,7 @@ export const reorderCaseListColumnsTool = {
 		const { moduleIndex, columnUuids: rawColumnUuids } = input;
 		const columnUuids = rawColumnUuids.map(asUuid);
 		try {
-			const moduleUuid = doc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid)
 				return moduleNotFoundResult<ReorderCaseListColumnsSuccess>(
 					doc,
@@ -117,12 +124,7 @@ export const reorderCaseListColumnsTool = {
 				},
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

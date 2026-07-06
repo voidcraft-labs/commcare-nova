@@ -22,7 +22,7 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
  */
 export async function POST(req: NextRequest) {
 	try {
-		const { doc, assets } = await prepareCompileRequest(req, {
+		const { doc, assets, compiledAtSeq } = await prepareCompileRequest(req, {
 			boundaryErrorVerb: "export",
 		});
 
@@ -38,12 +38,18 @@ export async function POST(req: NextRequest) {
 		// member preserves the app's real name.
 		const appName = sanitizeFilename(doc.appName);
 
+		// The HQ-import body (plain JSON, or the zip bundle) stays byte-identical
+		// — it's the artifact the user hands to HQ, and HQ's importer owns its
+		// version slots. The blueprint's `mutation_seq` rides out-of-band in the
+		// `X-Compiled-At-Seq` response header so the export still names its
+		// document version without perturbing the body.
 		if (!hasMedia) {
 			// Media-free: the plain JSON file.
 			return new NextResponse(JSON.stringify(hqJson, null, 2), {
 				headers: {
 					"Content-Type": "application/json",
 					"Content-Disposition": `attachment; filename="${appName}.json"`,
+					"X-Compiled-At-Seq": String(compiledAtSeq),
 				},
 			});
 		}
@@ -56,6 +62,7 @@ export async function POST(req: NextRequest) {
 			headers: {
 				"Content-Type": "application/zip",
 				"Content-Disposition": `attachment; filename="${appName}.zip"`,
+				"X-Compiled-At-Seq": String(compiledAtSeq),
 			},
 		});
 	} catch (err) {

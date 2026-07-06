@@ -24,24 +24,23 @@ import type { BlueprintDoc, ConnectConfig, Form, Module } from "@/lib/domain";
 import { asUuid, expressionSource, formExpressionSource } from "@/lib/domain";
 import { addFieldsTool } from "../../tools/addFields";
 import { updateFormTool } from "../../tools/updateForm";
-import { makeMcpTestContext, makeTestContext } from "../fixtures";
+import { makeMcpTestContext, makeStubToolContext } from "../fixtures";
 
-/* Mock the apps module so chat-side `saveBlueprint`'s fire-and-forget
- * `updateAppForRun` call resolves cleanly. `completeApp` is mocked the
- * same way for the SA's success-path persistence. */
+/* Mock the apps module so importing it doesn't reach Firestore.
+ * `completeApp` is stubbed for the SA's success-path status flip; the chat
+ * ctx here is a `makeStubToolContext`, so its guarded commit never touches
+ * this module. */
 vi.mock("@/lib/db/apps", () => ({
-	updateApp: vi.fn(() => Promise.resolve()),
-	updateAppForRun: vi.fn(() => Promise.resolve()),
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 
 /* Mock the cross-store saga so `McpContext.recordMutations` — which
  * routes through `applyBlueprintChange` for the awaited blueprint
  * write — doesn't try to reach Firestore + Postgres. The chat surface
- * doesn't go through the saga (its intermediate save stays
- * fire-and-forget), so this mock only matters for the MCP path. */
+ * doesn't go through the saga (it commits inline through
+ * `commitGuardedBatch`), so this mock only matters for the MCP path. */
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve()),
+	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
 }));
 
 // ── Uuid constants ──────────────────────────────────────────────────────
@@ -151,7 +150,7 @@ describe("shared tool modules drive uniform behavior across surfaces", () => {
 		 * surface-specific code path. */
 		const doc = makeFixtureDoc();
 
-		const { ctx: chatCtx } = makeTestContext();
+		const { ctx: chatCtx } = makeStubToolContext();
 		const chatResult = await addFieldsTool.execute(
 			ADD_FIELDS_INPUT,
 			chatCtx,
@@ -204,7 +203,7 @@ describe("addFields add-path pipeline", () => {
 		const escapedValidate = ". &gt; 0 and . &lt; 150";
 		const expectedValidate = ". > 0 and . < 150";
 
-		const batchCtx = makeTestContext().ctx;
+		const batchCtx = makeStubToolContext().ctx;
 		const { mutations: batchMuts } = await addFieldsTool.execute(
 			{
 				moduleIndex: 0,
@@ -240,7 +239,7 @@ describe("addFields add-path pipeline", () => {
 		 * the anchor's index. Seed three fields, then insert two before the
 		 * middle one and assert the resulting order. */
 		const doc = makeFixtureDoc();
-		const seedCtx = makeTestContext().ctx;
+		const seedCtx = makeStubToolContext().ctx;
 		const { newDoc: seeded } = await addFieldsTool.execute(
 			{
 				moduleIndex: 0,
@@ -255,7 +254,7 @@ describe("addFields add-path pipeline", () => {
 			doc,
 		);
 
-		const ctx = makeTestContext().ctx;
+		const ctx = makeStubToolContext().ctx;
 		const { newDoc: final } = await addFieldsTool.execute(
 			{
 				moduleIndex: 0,
@@ -285,7 +284,7 @@ describe("addFields add-path pipeline", () => {
 		const doc = makeFixtureDoc();
 
 		// Seed two groups to nest under.
-		const seedCtx = makeTestContext().ctx;
+		const seedCtx = makeStubToolContext().ctx;
 		const { newDoc: docWithGroups, mutations: groupMuts } =
 			await addFieldsTool.execute(
 				{
@@ -308,7 +307,7 @@ describe("addFields add-path pipeline", () => {
 			return m.field.uuid;
 		};
 
-		const ctx = makeTestContext().ctx;
+		const ctx = makeStubToolContext().ctx;
 		const { mutations } = await addFieldsTool.execute(
 			{
 				moduleIndex: 0,
@@ -349,7 +348,7 @@ describe("addFields add-path pipeline", () => {
 		// recurses into containers) would then silently drop the field. The
 		// guard must land it at the form root instead.
 		const doc = makeFixtureDoc();
-		const seedCtx = makeTestContext().ctx;
+		const seedCtx = makeStubToolContext().ctx;
 		const { newDoc: seeded } = await addFieldsTool.execute(
 			{
 				moduleIndex: 0,
@@ -360,7 +359,7 @@ describe("addFields add-path pipeline", () => {
 			doc,
 		);
 
-		const ctx = makeTestContext().ctx;
+		const ctx = makeStubToolContext().ctx;
 		const { mutations } = await addFieldsTool.execute(
 			{
 				moduleIndex: 0,
@@ -390,7 +389,7 @@ describe("updateFormTool partial connect-config updates", () => {
 		 * treated as "clear" — wiping the pre-existing sub-config. The
 		 * fix only writes keys the SA explicitly provided. */
 		const doc = makeDocWithFullConnect();
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 
 		const result = await updateFormTool.execute(
 			{
@@ -437,7 +436,7 @@ describe("updateFormTool partial connect-config updates", () => {
 		 * independently. Running both directions catches asymmetric
 		 * regressions where only one half of the fix was applied. */
 		const doc = makeDocWithFullConnect();
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 
 		const result = await updateFormTool.execute(
 			{
@@ -492,7 +491,7 @@ describe("updateFormTool connect-id validity", () => {
 		 * NOTHING — never silently sanitize. The SA gets one diagnostic and
 		 * re-issues. */
 		const doc = makeDocWithFullConnect();
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 
 		const result = await updateFormTool.execute(
 			{
@@ -518,7 +517,7 @@ describe("updateFormTool connect-id validity", () => {
 
 	it("fails the call when an explicit connect id is over the length limit", async () => {
 		const doc = makeDocWithFullConnect();
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 		const result = await updateFormTool.execute(
 			{
 				moduleIndex: 0,
@@ -540,7 +539,7 @@ describe("updateFormTool connect-id validity", () => {
 		 * reject it (learn_module accumulated before assessment is checked) →
 		 * `{ error }`, zero mutations, nothing written. */
 		const doc = makeDocWithFullConnect();
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 		const result = await updateFormTool.execute(
 			{
 				moduleIndex: 0,
@@ -563,7 +562,7 @@ describe("updateFormTool connect-id validity", () => {
 		 * valid, unique id STORED on the doc — visible to the SA on the
 		 * next read, not conjured at emit. */
 		const doc = makeDeliverDocWithoutConnect();
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 		const result = await updateFormTool.execute(
 			{
 				moduleIndex: 0,
@@ -607,7 +606,7 @@ describe("updateFormTool deliver_unit", () => {
 		 * the agent layer would produce `<bind … calculate=""/>` which CCHQ
 		 * rejects). */
 		const doc = makeDeliverDocWithoutConnect();
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 
 		const result = await updateFormTool.execute(
 			{
@@ -654,7 +653,7 @@ describe("updateFormTool deliver_unit", () => {
 				} as Form,
 			},
 		};
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 
 		const result = await updateFormTool.execute(
 			{
@@ -692,7 +691,7 @@ describe("updateFormTool deliver_unit", () => {
 		 * the doc verbatim; the wire emitter's `||` fallback only
 		 * activates on absence/empty, so a non-empty SA value wins. */
 		const doc = makeDeliverDocWithoutConnect();
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 
 		const result = await updateFormTool.execute(
 			{
@@ -731,7 +730,7 @@ describe("updateFormTool deliver_unit", () => {
 		 * independently optional; setting one doesn't force the
 		 * other. */
 		const doc = makeDeliverDocWithoutConnect();
-		const { ctx } = makeTestContext();
+		const { ctx } = makeStubToolContext();
 
 		const result = await updateFormTool.execute(
 			{

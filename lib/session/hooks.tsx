@@ -9,7 +9,8 @@
  */
 "use client";
 
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
+import { useStore } from "zustand";
 import type {
 	NovaMessageMetadata,
 	NovaUIMessage,
@@ -28,8 +29,13 @@ import {
 	deriveStatusMessage,
 	deriveValidationAttempt,
 } from "./lifecycle";
-import { useBuilderSession, useBuilderSessionShallow } from "./provider";
+import {
+	BuilderSessionContext,
+	useBuilderSession,
+	useBuilderSessionShallow,
+} from "./provider";
 import type { EditScrollMemory, SidebarKind } from "./store";
+import { createBuilderSessionStore } from "./store";
 import type {
 	GenerationError,
 	GenerationStage,
@@ -327,6 +333,28 @@ export function useAppId(): string | undefined {
 /** Generic loading flag for async operations outside of agent writes. */
 export function useIsLoading(): boolean {
 	return useBuilderSession((s) => s.loading);
+}
+
+/* Provider-optional fallback for `useCanEdit`. A builder leaf (a form-canvas
+ * insertion point, an inline title) is rendered both inside the builder AND in
+ * standalone preview-screen unit tests with no `BuilderSessionProvider`. Outside
+ * a session there's no shared-app role to honor, so editing is unrestricted —
+ * this module-level store reads `canEdit: true` (the factory default) and is
+ * never written, so every fallback consumer shares one stable, editable store. */
+const FALLBACK_SESSION_STORE = createBuilderSessionStore();
+
+/** Whether this session's user may edit the app — `true` for new builds and
+ *  for editor/admin/owner Project members, `false` for viewers. Drives the
+ *  read-only builder experience: every edit affordance hides or disables on
+ *  `false`, and `useAutoSave` refuses to PUT, so a viewer's stray local
+ *  change never reaches the server (which would reject the write as a 404).
+ *
+ *  Provider-optional: a builder leaf rendered outside a `BuilderSessionProvider`
+ *  (a standalone preview, a unit test) reads `true` from the fallback rather
+ *  than throwing — read-only is a concept that only exists inside a session. */
+export function useCanEdit(): boolean {
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	return useStore(store, (s) => s.canEdit);
 }
 
 // ── Replay ───────────────────────────────────────────────────────────────

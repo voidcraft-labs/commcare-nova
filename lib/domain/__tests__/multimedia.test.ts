@@ -112,29 +112,29 @@ describe("EXTENSION_FOR_MIME_TYPE", () => {
 });
 
 describe("gcsObjectKeyFor", () => {
-	it("namespaces by owner so cross-tenant probing is closed", () => {
+	it("namespaces by project so cross-tenant probing is closed", () => {
 		const hash = "a".repeat(64);
-		const a = gcsObjectKeyFor("user-1", hash, ".png");
-		const b = gcsObjectKeyFor("user-2", hash, ".png");
-		expect(a).toBe(`users/user-1/${hash}.png`);
-		expect(b).toBe(`users/user-2/${hash}.png`);
+		const a = gcsObjectKeyFor("project-1", hash, ".png");
+		const b = gcsObjectKeyFor("project-2", hash, ".png");
+		expect(a).toBe(`projects/project-1/${hash}.png`);
+		expect(b).toBe(`projects/project-2/${hash}.png`);
 		expect(a).not.toBe(b);
 	});
 
-	it("dedupes (owner, hash) inside the same namespace", () => {
+	it("dedupes (project, hash) inside the same namespace", () => {
 		const hash = "f".repeat(64);
-		const a = gcsObjectKeyFor("user-1", hash, ".png");
-		const b = gcsObjectKeyFor("user-1", hash, ".png");
+		const a = gcsObjectKeyFor("project-1", hash, ".png");
+		const b = gcsObjectKeyFor("project-1", hash, ".png");
 		expect(a).toBe(b);
 	});
 
-	it("includes the extension so a single owner can host distinct formats at the same hash", () => {
+	it("includes the extension so a single project can host distinct formats at the same hash", () => {
 		// Hash collisions across formats are vanishingly improbable but
 		// the path layout doesn't rely on that — it carries the extension
 		// explicitly so the bucket layout would survive the impossible.
 		const hash = "0".repeat(64);
-		expect(gcsObjectKeyFor("u", hash, ".png")).not.toBe(
-			gcsObjectKeyFor("u", hash, ".jpg"),
+		expect(gcsObjectKeyFor("p", hash, ".png")).not.toBe(
+			gcsObjectKeyFor("p", hash, ".jpg"),
 		);
 	});
 });

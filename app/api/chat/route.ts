@@ -16,20 +16,32 @@ import {
 	resolveAttachments,
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
-import { resolveAnthropicKey } from "@/lib/auth-utils";
+import { resolveActiveProjectId, resolveAnthropicKey } from "@/lib/auth-utils";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
-	BuildRunConflictError,
-	type ClaimedBuildRun,
-	claimBuildRun,
-	completeApp,
+	AppAccessError,
+	resolveAppAccess,
+	resolveProjectAccess,
+} from "@/lib/db/appAccess";
+import {
+	type ClaimedRun,
+	claimRun,
+	clearRunLock,
+	clearRunLockAndSettle,
+	completeAndSettleRun,
 	createApp,
+	editRunLockHeldBy,
 	failApp,
 	hasActiveGeneration,
-	loadAppOwner,
+	loadApp,
+	loadAppHolderName,
+	type ReacquireOutcome,
+	RunConflictError,
+	reacquireLease,
+	restoreRunState,
 	setAwaitingInput,
 } from "@/lib/db/apps";
 import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
@@ -37,14 +49,17 @@ import {
 	getCurrentCreditBalance,
 	OutOfCreditsError,
 	type Reservation,
-	refundReservation,
 	reserveCredits,
+	settleAndRelease,
 } from "@/lib/db/credits";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
-import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { SA_MODEL } from "@/lib/models";
@@ -57,6 +72,14 @@ import { isFatalStreamErrorChunk } from "./streamFailure";
  * Vercel-platform hint the runtime does not enforce. Kept so the value isn't
  * misread as a 5-minute cap that does not exist here. */
 export const maxDuration = 300;
+
+/* Serialize-with-wait poll cadence + ceiling. A conflicting SA request opens
+ * its SSE stream and polls `claimRun` every `CLAIM_WAIT_POLL_MS` until the
+ * holder releases, up to `CLAIM_WAIT_MAX_MS`; past that it emits a friendly
+ * "still busy" and ends (the user retries). The ceiling is well under Cloud
+ * Run's per-request timeout so a waiter never itself trips the platform kill. */
+const CLAIM_WAIT_POLL_MS = 750;
+const CLAIM_WAIT_MAX_MS = 120_000;
 
 // ── Route Handler ──────────────────────────────────────────────────────
 
@@ -206,7 +229,7 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const { doc, runId, lastResponseAt, appReady } = parsed.data;
+	const { runId, lastResponseAt, appReady } = parsed.data;
 
 	/* Stable per-request run identifier. Every event envelope (mutation or
 	 * conversation) carries this value; the client echoes it back on follow-up
@@ -226,20 +249,76 @@ export async function POST(req: Request) {
 	 */
 	let appId = parsed.data.appId;
 	let appCreated = false;
-	/* Set when this POST claimed an existing app's build-run window
-	 * (`claimBuildRun` flipped it to `generating`). Carries the shape the
-	 * claim moved the app out of, so the pre-stream rejection arms below
-	 * can put the row back exactly where the claim found it — failing a
-	 * previously-`complete` app to `error` over a rejected request would
-	 * brick a working app. */
-	let claimedRun: ClaimedBuildRun | undefined;
-	/* Set when this POST may be resuming a paused build WITHOUT claiming
-	 * (a free continuation / an edit). The actual clear runs after every
-	 * pre-stream bail-out gate has passed — see the branch that sets it. */
-	let clearPauseFlagAfterGates = false;
+	/* The persisted app doc for an EXISTING-app request — captured off the
+	 * authorization read below so the SA's working doc seeds from the saved
+	 * blueprint with no extra Firestore fetch. Undefined for a new build (no
+	 * app exists yet); the seed falls back to the empty doc there. */
+	let loadedApp:
+		| Awaited<ReturnType<typeof resolveAppAccess>>["app"]
+		| undefined;
+	/* The app's Project — the media tenant. Set in BOTH branches below (the
+	 * active Project for a new build, the app's Project for an existing one) and
+	 * used to scope chat-attachment resolution (`resolveAttachments`) to the
+	 * Project the documents live in. */
+	let projectId: string | undefined;
+	/* Set when this POST claimed an existing app's run window (`claimRun` —
+	 * a build flipped to `generating`, or an edit's `run_lock`). Carries the
+	 * shape the claim moved the app out of, so the post-claim bail-out arms
+	 * (concurrency, out-of-credits, reservation failure) can put the row back
+	 * exactly where the claim found it — failing a previously-`complete` app to
+	 * `error` over a rejected request would brick a working app. Set either
+	 * pre-stream (the free / first-claim path) or inside `execute` (after the
+	 * serialize-with-wait poll loop). */
+	let claimedRun: ClaimedRun | undefined;
+	/* Set when the pre-stream claim CONFLICTED — another run holds the app. The
+	 * route does NOT 429; it opens the SSE stream and, inside `execute`, emits a
+	 * "busy" conversation event, polls until the holder releases, then claims +
+	 * gates + runs. A conversation event / stream write can only happen inside
+	 * `execute`, which is why the whole post-`claimRun` sequence moves there on a
+	 * conflict. The non-conflict path keeps its pre-stream gating unchanged. */
+	let waitForClaim = false;
+	/* The SA mode this chargeable POST claims as: `build` (no app yet / a
+	 * build-mode instruction) flips `status`; `edit` (an existing built app)
+	 * takes a `run_lock`. Only set for a chargeable existing-app claim. */
+	let claimMode: "build" | "edit" | undefined;
+	/* Set when this POST is a free-continuation resume (build OR edit): it must
+	 * re-acquire (confirm ownership + renew the lease) the paused run it's resuming
+	 * before running, or bail — the paused run's lease can lapse while the user
+	 * answers and be REAPED, freeing the app for another run. Done inside `execute`
+	 * (needs `ctx`), uniform across both paused shapes via `reacquireLease`. */
+	let resumeMustCheckSupersede = false;
 	if (!appId) {
+		/* New builds land in the caller's active Project (shared resolver: the
+		 * session's stamped activeOrganizationId, self-healing to the personal
+		 * Project for pre-Projects sessions). Creating an app is a WRITE, so the
+		 * caller must hold the active Project at EDIT — a viewer in a shared
+		 * Project must not create apps there (resolveActiveProjectId only proves
+		 * membership). An AppAccessError is a permission denial (403), not a save
+		 * failure. */
 		try {
-			appId = await createApp(userId, effectiveRunId);
+			projectId = await resolveActiveProjectId(keyResult.session);
+			await resolveProjectAccess(userId, projectId, "edit");
+		} catch (err) {
+			if (err instanceof AppAccessError) {
+				return Response.json(
+					{
+						error: "You don't have permission to create apps in this Project.",
+						type: "forbidden",
+					},
+					{ status: 403 },
+				);
+			}
+			log.error("[chat] active-Project resolution failed", err);
+			return Response.json(
+				{
+					error: "Unable to save app. Please try again shortly.",
+					type: "internal",
+				},
+				{ status: 503 },
+			);
+		}
+		try {
+			appId = await createApp(userId, projectId, effectiveRunId);
 			appCreated = true;
 		} catch (err) {
 			log.error("[chat] app creation failed", err);
@@ -252,205 +331,237 @@ export async function POST(req: Request) {
 			);
 		}
 	} else {
-		/* Verify ownership — apps are a root-level collection, so the path no
-		 * longer scopes writes to the authenticated user. Without this check,
-		 * a crafted request with another user's appId would overwrite their app. */
-		const owner = await loadAppOwner(appId);
-		if (owner !== userId) {
-			return Response.json(
-				{ error: "App not found", type: "not_found" },
-				{ status: 404 },
-			);
-		}
-		if (!parsed.data.appReady && chargeable) {
-			/* EVERY chargeable BUILD-mode POST against an existing app claims
-			 * the run window HERE — awaited, BEFORE the concurrency check
-			 * below, the same write-then-check ordering `createApp` uses (the
-			 * durable `generating` row is the lock; do not reorder). One
-			 * mechanism for every shape the row can be in: a retry of a
-			 * failed build (`error`), a new instruction into a finished one
-			 * (`complete` — e.g. the reply after a purely conversational
-			 * first turn), and a fresh instruction into a build paused on
-			 * questions (`generating` + `awaiting_input`). The claim is what
-			 * puts the run under the liveness machinery: the concurrency
-			 * guard, the staleness reaper's reservation refund for a
-			 * hard-killed run, and the list failure inference.
-			 *
-			 * The claim itself is the same-app lock: `hasActiveGeneration`
-			 * below excludes this appId (so a run isn't blocked by its own
-			 * row), which means it can never arbitrate between two POSTs on
-			 * the SAME app — the transactional compare-and-flip inside
-			 * `claimBuildRun` is what fails the loser. */
-			try {
-				claimedRun = await claimBuildRun(appId);
-			} catch (err) {
-				if (err instanceof BuildRunConflictError) {
-					/* Lost the claim race — another POST owns this row's run now.
-					 * 429 without touching the row: failing the app here would
-					 * kill the winner's live lock. */
-					return Response.json(
-						{
-							error: MESSAGES.generation_in_progress,
-							type: "generation_in_progress",
-						},
-						{ status: 429 },
-					);
-				}
-				log.error("[chat] build-run claim write failed", err, { appId });
+		/* Project-membership gate (edit) — apps are a root-level collection, so
+		 * the path doesn't scope writes; without this a crafted request with
+		 * another Project's appId could drive a build against it. The same
+		 * authorization read yields the persisted app doc, so the SA's working
+		 * doc seeds from `loadedApp.blueprint` below without a second fetch. */
+		try {
+			const access = await resolveAppAccess(appId, userId, "edit");
+			loadedApp = access.app;
+			projectId = access.projectId;
+		} catch (err) {
+			if (err instanceof AppAccessError) {
 				return Response.json(
-					{
-						error: "Unable to start this build. Please try again shortly.",
-						type: "internal",
-					},
-					{ status: 503 },
+					{ error: "App not found", type: "not_found" },
+					{ status: 404 },
 				);
 			}
+			throw err;
+		}
+		if (chargeable) {
+			/* EVERY chargeable POST against an existing app claims the run window
+			 * — a BUILD-mode instruction (`!appReady`) flips the row to
+			 * `generating`; an EDIT (`appReady`) takes a `run_lock` without
+			 * touching status. The claim is the per-app serialization lock:
+			 * `hasActiveGeneration` below excludes this appId (so a run isn't
+			 * blocked by its own row), so it can't arbitrate two POSTs on the SAME
+			 * app — the transactional compare-and-flip inside `claimRun` is what
+			 * serializes them, across BOTH modes (a build waits on a live edit-lock
+			 * and vice versa, and on a PAUSED run of either mode — a paused run blocks
+			 * a claim). A build claim covers every FREE shape the row can be in: a
+			 * retry of a failed build (`error`), a new instruction into a finished one
+			 * (`complete`), or a hard-killed `generating` row past its window.
+			 *
+			 * On a CONFLICT the route does not 429 — it defers the whole
+			 * claim/gate/run sequence into `execute` behind a poll-wait
+			 * (`waitForClaim`), so a second collaborator's request serializes
+			 * behind the holder instead of bouncing. A NON-conflicting claim
+			 * (free / first) proceeds through the pre-stream gating below,
+			 * unchanged. */
+			claimMode = parsed.data.appReady ? "edit" : "build";
+			try {
+				claimedRun = await claimRun(appId, claimMode, effectiveRunId, userId);
+			} catch (err) {
+				if (err instanceof RunConflictError) {
+					/* The app is held — wait inside the stream (below), don't reject. */
+					waitForClaim = true;
+				} else {
+					log.error("[chat] run claim write failed", err, { appId });
+					return Response.json(
+						{
+							error: "Unable to start this run. Please try again shortly.",
+							type: "internal",
+						},
+						{ status: 503 },
+					);
+				}
+			}
 		} else {
-			/* A free continuation or an edit against an existing app — if it's
-			 * resuming a build that paused on an `askQuestions` round, the pause
-			 * flag must clear so a resume that then hard-kills becomes reapable
-			 * again. The clear itself runs AFTER the last pre-stream bail-out
-			 * gate (below the reservation block): clearing here would leave a
-			 * 429'd/503'd request's paused run as an unflagged `generating` row
-			 * the reaper kills ten minutes later — refunding and erroring a
-			 * build that is still politely waiting on its questions. (A
-			 * chargeable build POST took the claim branch above, whose
-			 * transaction already cleared the flag — and whose bail-outs
-			 * restore it.) */
-			clearPauseFlagAfterGates = true;
+			/* A free continuation (an answered-`askQuestions` auto-resend) resuming a
+			 * PAUSED run (build OR edit). It must re-acquire that run before
+			 * proceeding — a paused run's lease lapses while the user answers (no
+			 * heartbeat during a pause), so it may have been REAPED and the freed app
+			 * claimed by another run; resuming blindly would start a second SA loop on
+			 * an app this POST no longer owns. The re-acquire (uniform across both
+			 * shapes via `reacquireLease`) runs inside `execute` where `ctx` can emit
+			 * the bail; on success it renews the lease + clears the pause flag in one
+			 * txn — a superseded resume touches nothing (a pre-stream clear would
+			 * unflag / re-pause an app this POST no longer owns). */
+			resumeMustCheckSupersede = true;
 		}
 	}
 
 	/**
-	 * Put a claimed run window back where `claimBuildRun` found it — the
-	 * pre-stream bail-out arms (concurrency 429, out-of-credits,
-	 * reservation failure) call this so a rejected request leaves the app
-	 * exactly as it was. Fire-and-forget like `failApp`: a rejection
-	 * response must not block on Firestore, and a dropped restore degrades
-	 * to the reaper settling the still-`generating` row (refund-first).
-	 */
-	const restoreClaimedRun = (
-		claim: ClaimedBuildRun,
-		reason: ErrorType,
-	): void => {
-		switch (claim.from) {
-			case "error":
-				/* Write back the DISPLACED classification — the row's original
-				 * failure (model_error, …) is what the user retried, and the
-				 * bail-out's own reason describes this rejected request, not
-				 * that build. The fallback covers a legacy row that reached
-				 * `error` with no classification recorded. */
-				failApp(appId, claim.errorType ?? reason);
-				return;
-			case "complete":
-				completeApp(appId).catch((err) =>
-					log.error("[chat] claimed-run restore to complete failed", err, {
-						appId,
-					}),
-				);
-				return;
-			case "paused":
-				void setAwaitingInput(appId, true);
-				return;
-		}
+	 * Put a claimed run window back where `claimRun` found it — the bail-out arms
+	 * (concurrency, out-of-credits, reservation failure) call this so a rejected
+	 * request leaves the app EXACTLY as it was, whatever the claim moved out of (a
+	 * plain `complete` / `error` app, or a hard-killed `generating` row — a claim
+	 * only ever runs on a FREE app). `restoreRunState` writes the captured `prior`
+	 * snapshot back verbatim — a faithful revert, not a lossy from-enum
+	 * reconstruction. Fire-and-forget like `failApp`: a rejection must not block on
+	 * Firestore, and a dropped revert degrades to the reaper settling the still-held
+	 * row (refund-first). */
+	const restoreClaimedRun = (claim: ClaimedRun): void => {
+		void restoreRunState(appId, claim.prior);
 	};
 
-	// Concurrency guard — only one generation at a time per user. Prevents
-	// concurrent requests from racing past the credit gate and works across
-	// Cloud Run instances because the check is Firestore-based.
-	//
-	// Runs AFTER createApp so the new doc acts as a lock. If another build
-	// is already in progress, we fail the just-created doc and return 429.
-	// Retries on the same app pass through (excludeAppId).
-	try {
-		const inFlight = await hasActiveGeneration(userId, appId);
-		if (inFlight) {
-			if (!parsed.data.appId) {
-				failApp(appId, "generation_in_progress");
-			} else if (claimedRun) {
-				restoreClaimedRun(claimedRun, "generation_in_progress");
-			}
-			return Response.json(
-				{
-					error: MESSAGES.generation_in_progress,
-					type: "generation_in_progress",
-				},
-				{ status: 429 },
-			);
-		}
-	} catch (err) {
-		log.error("[chat] concurrency check failed", err);
-		// Fail open — if we can't check, let the request through rather than
-		// blocking users due to a transient Firestore read error. The credit
-		// gate's fast-fail read above already fails closed for budget protection,
-		// and the reservation transaction below is the true no-overshoot guard.
-	}
-
-	/* Reserve the credits for this run — the transactional no-overshoot guard.
-	 *
-	 * Placement is load-bearing: this runs AFTER every pre-stream rejection point
-	 * (createApp's 503, the ownership 404, the concurrency 429) and BEFORE the
-	 * accumulator/stream are constructed. So a successful reservation is never
-	 * followed by an early return that would leak the booked charge — the only
-	 * returns past this point are this block's own catch arms, which fire only
-	 * when the transaction THREW (rolled back, nothing booked). Everything else
-	 * runs inside the stream, where `flush()` refunds a failed or no-op run.
-	 *
-	 * Unlike the fast-fail balance read above (which can race a concurrent run),
-	 * the reservation reads-checks-debits atomically, closing the cross-app
-	 * concurrent-new-run race that `hasActiveGeneration` (per-app, fail-open)
-	 * does not. A free continuation never reserves. */
+	/* The credit reservation this run booked — set by `runPostClaimGate` below
+	 * (pre-stream on the free/first path, or inside `execute` after the
+	 * serialize-with-wait poll loop). Threaded into the accumulator so a failed
+	 * or no-op run refunds the exact charge against the exact month. */
 	let reservation: Reservation | undefined;
-	if (chargeable) {
-		try {
-			reservation = await reserveCredits(userId, cost, appId);
-		} catch (err) {
-			if (err instanceof OutOfCreditsError) {
-				// Lost the rare race: passed the fast-fail balance read, then a
-				// concurrent reservation depleted the balance before this debit. Fail
-				// the just-created build doc — and put a claimed run window back
-				// where the claim found it (its `generating` was this POST's own
-				// lock write, now pointing at a run that never starts). An ordinary
-				// existing-app request stays untouched.
-				if (appCreated) {
-					failApp(appId, "out_of_credits");
-				} else if (claimedRun) {
-					restoreClaimedRun(claimedRun, "out_of_credits");
+
+	/**
+	 * The post-`claimRun` gate: the cross-app concurrency check + the
+	 * transactional credit reservation, run in that order AFTER the run window is
+	 * claimed. Returns `null` on success (having set `reservation`), or a bail
+	 * descriptor when a gate rejects — the caller surfaces it (a pre-stream
+	 * `Response.json`, or an in-`execute` error data event) and, either way, this
+	 * has already restored the claimed run window so a rejected request leaves the
+	 * app exactly as it was.
+	 *
+	 * Shared by both paths because the serialize-with-wait flow moves the whole
+	 * post-claim sequence inside `execute` (a stream write can only happen there),
+	 * while the non-conflict path keeps it pre-stream — the gate logic must be
+	 * identical on both.
+	 */
+	const runPostClaimGate = async (): Promise<{
+		type: "generation_in_progress" | "out_of_credits" | "internal";
+		message: string;
+		status: number;
+	} | null> => {
+		// Cross-app concurrency guard — a NEW/retry BUILD only (`chargeable &&
+		// !appReady`). It enforces "one build at a time per user" via
+		// `hasActiveGeneration`, which queries `status === 'generating'` (only builds
+		// set it) across Cloud Run instances. Gated by BOTH:
+		//  - `!appReady` (build, not edit): an EDIT serializes PER-APP via its
+		//    `run_lock`, NOT per-user, so a user editing app B must NOT be blocked by
+		//    their own live BUILD on app A. Intended policy: edit one app while
+		//    building another.
+		//  - `chargeable` (a fresh instruction, not a free continuation): a paused-BUILD
+		//    RESUME is `!appReady` too, but it claims/reserves NOTHING new — it
+		//    continues a run that already passed this cap. Gating on `chargeable`
+		//    keeps a resume from being 429'd by the user's own live build elsewhere
+		//    (a bare `!appReady` gate would reject exactly that).
+		// Runs AFTER the claim so the durable claimed window acts as the lock;
+		// retries on the same app pass through (excludeAppId). A held-app WAITER
+		// reaches here only once the prior holder released, so its own fresh claim is
+		// what this now guards.
+		if (chargeable && !appReady) {
+			try {
+				const inFlight = await hasActiveGeneration(userId, appId);
+				if (inFlight) {
+					if (appCreated) {
+						failApp(appId, "generation_in_progress");
+					} else if (claimedRun) {
+						restoreClaimedRun(claimedRun);
+					}
+					return {
+						type: "generation_in_progress",
+						message: MESSAGES.generation_in_progress,
+						status: 429,
+					};
 				}
-				return Response.json(
-					{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
-					{ status: 429 },
-				);
+			} catch (err) {
+				log.error("[chat] concurrency check failed", err);
+				// Fail open — if we can't check, let the request through rather than
+				// blocking users due to a transient Firestore read error. The credit
+				// gate's fast-fail read above already fails closed for budget
+				// protection, and the reservation transaction below is the true
+				// no-overshoot guard.
 			}
-			// Any other failure is infrastructure (Firestore down / transaction
-			// contention exhausted). Fail closed — never silently skip the charge
-			// and let an uncharged generation through. A claimed run window is
-			// put back first — leaving it `generating` would hand a working app
-			// to the reaper (which would settle it to `error`) over a request
-			// that never ran.
-			if (claimedRun) {
-				restoreClaimedRun(claimedRun, "internal");
-			}
-			log.error("[chat] credit reservation failed", err);
-			return Response.json(
-				{
-					error: "Unable to reserve credits. Please try again shortly.",
+		}
+
+		/* Reserve the credits for this run — the transactional no-overshoot guard.
+		 *
+		 * Placement is load-bearing: this runs AFTER every rejection point (the
+		 * concurrency guard just above) so a successful reservation is never
+		 * followed by an early return that would leak the booked charge. A failed
+		 * or no-op run refunds through the accumulator's `flush()`.
+		 *
+		 * Unlike the fast-fail balance read above (which can race a concurrent
+		 * run), the reservation reads-checks-debits atomically, closing the
+		 * cross-app concurrent-new-run race that `hasActiveGeneration` (per-app,
+		 * fail-open) does not. A free continuation never reserves. */
+		if (chargeable) {
+			try {
+				reservation = await reserveCredits(userId, cost, appId, effectiveRunId);
+			} catch (err) {
+				if (err instanceof OutOfCreditsError) {
+					// Lost the rare race: passed the fast-fail balance read, then a
+					// concurrent reservation depleted the balance before this debit.
+					// Fail the just-created build doc — and put a claimed run window
+					// back where the claim found it. An ordinary existing-app request
+					// with no claim stays untouched.
+					if (appCreated) {
+						failApp(appId, "out_of_credits");
+					} else if (claimedRun) {
+						restoreClaimedRun(claimedRun);
+					}
+					return {
+						type: "out_of_credits",
+						message: MESSAGES.out_of_credits,
+						status: 429,
+					};
+				}
+				// Any other failure is infrastructure (Firestore down / transaction
+				// contention exhausted). Fail closed — never silently skip the charge
+				// and let an uncharged generation through. A claimed run window is put
+				// back first — leaving it held would hand a working app to the reaper
+				// over a request that never ran.
+				if (claimedRun) {
+					restoreClaimedRun(claimedRun);
+				}
+				log.error("[chat] credit reservation failed", err);
+				/* The user-facing message must not read as a balance problem — this
+				 * arm is infrastructure, and a credits framing would send the user
+				 * chasing their allowance instead of retrying. It also asserts
+				 * NOTHING about the charge: the transaction usually rolled back,
+				 * but an ambiguous RPC outcome can leave the debit applied. */
+				return {
 					type: "internal",
-				},
-				{ status: 503 },
+					message:
+						"That message didn't go through. Please try again in a moment.",
+					status: 503,
+				};
+			}
+		}
+		return null;
+	};
+
+	/* Non-conflict path: the claim already succeeded pre-stream (a free / first
+	 * claim), so run the concurrency + reservation gate pre-stream too, exactly
+	 * as before, and bail with a `Response.json` on rejection. On a CONFLICT
+	 * (`waitForClaim`), this whole sequence is DEFERRED into `execute` behind the
+	 * poll-wait — skip it here. */
+	if (!waitForClaim) {
+		const bail = await runPostClaimGate();
+		if (bail) {
+			return Response.json(
+				{ error: bail.message, type: bail.type },
+				{ status: bail.status },
 			);
 		}
 	}
 
-	/* Every pre-stream bail-out gate has passed — a request that reaches
-	 * here WILL run. Only now may an unclaimed resume clear the pause flag:
-	 * the flag (not the timestamp) is what spares a paused build from the
-	 * reaper, so it must survive any rejection above. The run re-sets it if
-	 * it pauses on a question again; a no-op for an ordinary edit (the
-	 * field is absent). Fire-and-forget — see `setAwaitingInput`. */
-	if (clearPauseFlagAfterGates) {
-		void setAwaitingInput(appId, false);
-	}
+	/* The paused-run resume's pause-flag clear does NOT happen pre-stream — it
+	 * moves INSIDE `execute`, folded into `reacquireLease`'s success transaction,
+	 * for BOTH modes. A SUPERSEDED resume (of either shape) must touch NOTHING on
+	 * an app a co-member now owns: clearing `awaiting_input` there could flip the
+	 * co-member's own live pause into a blocking lock, or unflag a run this POST
+	 * doesn't own. `reacquireLease` clears the flag only on the owns-it branch, in
+	 * the same txn that renews the lease. */
 
 	/* Two collaborators replace the legacy EventLogger:
 	 *
@@ -480,12 +591,25 @@ export async function POST(req: Request) {
 		moduleCount: 0,
 		/* Reservation context for the refund branch in `flush()`. All three travel
 		 * together (a chargeable turn that reserved) or all absent (a free
-		 * continuation, which never reserves). `reservation` is set iff `chargeable`
-		 * succeeded above, so its `period` is present exactly when `didReserve` is. */
-		didReserve: chargeable,
-		reservedAmount: chargeable ? cost : undefined,
-		chargePeriod: reservation?.period,
+		 * continuation, which never reserves). On the NON-conflict path `reservation`
+		 * is already set (the pre-stream gate ran), so seed it here. On the
+		 * serialize-with-wait path the reservation lands INSIDE `execute` (after the
+		 * poll loop + `claimRun`), so seed nothing now and set all three via
+		 * `usage.configureRun` there — seeding a `didReserve` with no `chargePeriod`
+		 * would leave the flush's refund gate half-armed. */
+		didReserve: waitForClaim ? undefined : chargeable,
+		reservedAmount: waitForClaim ? undefined : chargeable ? cost : undefined,
+		chargePeriod: waitForClaim ? undefined : reservation?.period,
 	});
+
+	/* POST-scope mirror of the execute-local `finalized` latch, readable by the
+	 * `onFinish` net (a sibling scope that can't see execute's closure). Set true
+	 * whenever `finalizeRun` runs to completion; `onFinish`'s stranded-lock release
+	 * fires ONLY when this stayed false — i.e. the prelude threw before any
+	 * `finalizeRun`. A run that DID finalize (clean / failed / paused) already made
+	 * the correct lock decision (a paused edit deliberately KEEPS its lock), so
+	 * `onFinish` must not second-guess it. */
+	let finalizeRan = false;
 
 	/* No `req.signal` disconnect handling: the run is no longer tied to the
 	 * browser connection. The agent loop is drained server-side (see the execute
@@ -519,34 +643,6 @@ export async function POST(req: Request) {
 				});
 			}
 
-			/* Build the SA's working doc. The client ships the persistable
-			 * slice (no `fieldParent`) on wire; we deep-clone so in-flight
-			 * mutations never leak back into the request body, then rebuild
-			 * the reverse-parent index the SA's mutation helpers rely on.
-			 * Brand-new builds get the empty doc stamped with the Firestore
-			 * `appId` that `createApp` just minted. */
-			const sessionDoc: BlueprintDoc = doc
-				? structuredClone({ ...doc, fieldParent: {} })
-				: {
-						appId,
-						appName: "",
-						connectType: null,
-						caseTypes: null,
-						modules: {},
-						forms: {},
-						fields: {},
-						moduleOrder: [],
-						formOrder: {},
-						fieldOrder: {},
-						fieldParent: {},
-					};
-			rebuildFieldParent(sessionDoc);
-			/* Hydrate the reference index alongside — the SA's tool layer
-			 * answers "who references / declares X" through it (retirement
-			 * planning, rename verdicts, the rename cascade) from the first
-			 * tool call. */
-			ensureReferenceIndex(sessionDoc);
-
 			const ctx = new GenerationContext({
 				apiKey: keyResult.apiKey,
 				writer,
@@ -554,7 +650,366 @@ export async function POST(req: Request) {
 				usage,
 				session: keyResult.session,
 				appId,
+				/* An EDIT run (chargeable claim OR free-continuation resume) holds a
+				 * `run_lock`, so it heartbeats the lease off SA activity. A BUILD holds
+				 * via `status` (no lock) → no heartbeat. `appReady` is the build-vs-edit
+				 * signal. */
+				editLease: !!appReady,
 			});
+
+			/* Latch so the refund toast fires at most once per run. */
+			let refundSignalled = false;
+			/* Finalize-once guard — see `finalizeRun`. */
+			let finalized = false;
+
+			/**
+			 * The single authoritative finalization — the charge-vs-refund credit
+			 * decision plus persistence — run exactly once on the run's TRUE terminal
+			 * state.
+			 *
+			 * Driven by the agent drain completing (below), NOT by an SDK callback: a
+			 * model error surfaces as a UIMessage error chunk rather than a thrown
+			 * rejection, and a zero-step error fires no agent callback at all, so
+			 * keying finalize on the drain is what guarantees it runs (and the request
+			 * never hangs waiting on a callback that never fires). A failed run marks
+			 * itself failed and FLUSHES (handing the reservation back; actual $ still
+			 * accrues so the backstop sees retry-spam), and only THEN flips the app to
+			 * `error` — and only if the refund actually committed, so a stranded refund
+			 * leaves the build `generating` for the reaper to retry. Idempotent via this
+			 * guard and the accumulator's own `_finalized` latch.
+			 *
+			 * Settle/release is threaded on `paused` (`ctx.pausedOnInput()`): a run
+			 * that PAUSED on `askQuestions` is alive (a later POST resumes it), so its
+			 * kept charge must NOT be settled and an edit's `run_lock` must NOT be
+			 * released — its marker is a live hold the resume's failure funnel may
+			 * still refund. A clean, non-paused completion settles the kept charge (so
+			 * the status-agnostic edit reaper can't claw it back) and releases an
+			 * edit's lock (so the next serialize-with-wait waiter proceeds). A FAILED
+			 * run releases the edit lock UNCONDITIONALLY (a failed edit routes here
+			 * without entering the clean editing arm, so gating release on clean
+			 * completion would strand the lock) — except a paused hold, which never
+			 * reaches the failure funnel from a pause.
+			 */
+			const finalizeRun = async (
+				failure?: { type: ErrorType },
+				opts?: { paused?: boolean; heldApp?: boolean },
+			): Promise<void> => {
+				if (finalized) return;
+				finalized = true;
+				finalizeRan = true;
+				/* Stop the wall-clock lease heartbeat the moment the run reaches a
+				 * terminal state — the run is no longer live, so it must stop extending
+				 * its own liveness horizon (a clean edit is about to release the lock; a
+				 * paused run deliberately lets its horizon ride until resume — the
+				 * heartbeat MUST stop here or an abandoned pause would never lapse for
+				 * the reapers). Idempotent. Clearing the interval here is what keeps it
+				 * from leaking. */
+				ctx.stopRunLeaseHeartbeat();
+				const paused = opts?.paused ?? false;
+				/* Whether THIS POST owns the run holding the app. False only on the
+				 * serialize-with-wait early returns (a timed-out waiter, or a
+				 * post-claim gate bail that already released the claim): such a POST
+				 * holds nothing — the app is still held by ANOTHER run — so it must
+				 * NOT touch the reservation marker or `run_lock` (settling/clearing
+				 * would break the true holder's refund + strand its lock). It still
+				 * flushes usage + drains the log (below), both no-ops for a POST that
+				 * reserved nothing. Every other terminal path — the drain-end finally,
+				 * `failRun`, the paused arm — is a POST that owns or continues the
+				 * holding run, so it defaults true. */
+				const heldApp = opts?.heldApp ?? true;
+				if (failure) usage.markRunFailed();
+				await usage.flush();
+				await logWriter.flush();
+				if (failure && heldApp) {
+					/* Failed-run terminal write — refund + settle the marker AND (for an
+					 * EDIT) release the `run_lock`, ATOMICALLY (`settleAndRelease`). `flush`
+					 * above already refunded a hold THIS POST booked; this settles a hold an
+					 * EARLIER POST booked (askQuestions: an earlier chargeable POST reserves,
+					 * a free continuation fails here) — it reads the hold off the marker, so
+					 * it settles whichever POST booked it. Idempotent when flush already
+					 * settled it. The atomicity is load-bearing: the `run_lock` is
+					 * released ONLY inside the same commit that settles the marker, so
+					 * "lock cleared + marker unsettled" (the state that stranded credits) is
+					 * impossible — if the txn throws NOTHING changed (the lock stays for the
+					 * reaper) and `settled` reports `false`. A build passes `releaseLock:
+					 * false` (it has no lock). A failure never reaches here paused. */
+					let refundSettled = true;
+					try {
+						({ settled: refundSettled } = await settleAndRelease(
+							appId,
+							effectiveRunId,
+							{ releaseLock: !!appReady },
+						));
+					} catch (err) {
+						refundSettled = false;
+						log.error("[chat] failed-run settle+release failed", err, {
+							appId,
+						});
+					}
+					/* Flip to `error` only for a BUILD (the app is `generating`). A failed
+					 * EDIT must NOT flip its already-`complete` app to `error`: that would
+					 * brick a working app over a transient model error (the build page
+					 * redirects non-`complete` apps; the list hides the open-link for
+					 * `error`), leaving the user no path back to a blueprint that is fine on
+					 * disk. The failed edit's hold is settled + lock released above; the
+					 * error surfaces via the conversation event (`failRun`); the app stays
+					 * open. `refundSettled` gates the build flip: an uncommitted settle
+					 * leaves the build `generating` for the reaper to retry (mirroring
+					 * `reapStaleGenerating`'s refund-before-flip). */
+					if (refundSettled && !appReady) {
+						failApp(appId, failure.type);
+					}
+				} else if (!failure && !paused && heldApp && appReady) {
+					/* Clean, non-paused EDIT completion — release the `run_lock` AND
+					 * settle the kept charge in ONE transaction (`clearRunLockAndSettle`).
+					 * The atomicity is load-bearing: clearing the lock is what makes the
+					 * edit claimable, so settling in the same commit closes the window
+					 * where a run landing between a separate release + settle would see
+					 * the still-unsettled marker and (per the unconditional leftover
+					 * refund) claw back this edit's KEPT charge. Settles whatever hold is
+					 * on the marker (the askQuestions flow is multi-POST). Best-effort: a
+					 * failure logs and the reaper stays the backstop.
+					 *
+					 * A clean BUILD completion is NOT handled here — `completeAndSettleRun`
+					 * in the drain-end build-finalize block already flipped status→complete
+					 * AND settled atomically (a build has no `run_lock` to release), for the
+					 * same window-closing reason. */
+					try {
+						await clearRunLockAndSettle(appId, effectiveRunId);
+					} catch (err) {
+						log.error("[chat] edit clean release+settle failed", err, {
+							appId,
+						});
+					}
+				}
+			};
+
+			/**
+			 * Classify + surface a generation error, then finalize the run as failed —
+			 * the single failure funnel for both an init/build throw and a streamed
+			 * model error. Emits the classified error as a conversation event and, on a
+			 * chargeable run, the optimistic `data-credit-refund` toast (the
+			 * authoritative decrement lands in `flush()` inside `finalizeRun`).
+			 */
+			const failRun = async (error: unknown, source: string): Promise<void> => {
+				const classified = classifyError(error);
+				ctx.emitError(classified, source);
+				if (chargeable && !refundSignalled) {
+					refundSignalled = true;
+					writer.write({
+						type: "data-credit-refund",
+						data: { amount: cost },
+						transient: true,
+					});
+				}
+				await finalizeRun(classified);
+			};
+
+			/* Serialize-with-wait — the pre-stream claim CONFLICTED (another run
+			 * holds this app). Rather than 429, poll `claimRun` until the holder
+			 * releases (or the wait times out), then run the post-claim gate that
+			 * the non-conflict path already ran pre-stream. This whole
+			 * post-`claimRun` sequence lives inside the stream (a conversation event
+			 * / error can only be written here). A successful claim sets `claimedRun`
+			 * + `reservation`, so the rest of `execute` runs exactly as the
+			 * non-conflict path does. */
+			if (waitForClaim && claimMode) {
+				const holderName = await loadAppHolderName(appId);
+				/* User-visible busy indicator: a non-fatal (recoverable) conversation
+				 * event the client toasts + shows in the signal panel, so the waiter
+				 * sees WHY nothing is happening yet. `recoverable: true` renders it as
+				 * a warning, not an error — the request hasn't failed, it's queued
+				 * behind the holder. (A `data-phase` pulse was tried here but no client
+				 * reducer renders it — this conversation event IS the busy signal.) */
+				ctx.emitError(
+					{
+						type: "generation_in_progress",
+						message: `Waiting — ${holderName}'s request is running on this app. Only one request runs at a time; yours will start automatically when theirs finishes.`,
+						recoverable: true,
+					},
+					"route:serialize-wait",
+				);
+
+				const deadline = Date.now() + CLAIM_WAIT_MAX_MS;
+				let claimError: unknown;
+				while (Date.now() < deadline) {
+					await new Promise((r) => setTimeout(r, CLAIM_WAIT_POLL_MS));
+					try {
+						claimedRun = await claimRun(
+							appId,
+							claimMode,
+							effectiveRunId,
+							userId,
+						);
+						break;
+					} catch (err) {
+						if (err instanceof RunConflictError) continue; // still held — keep waiting
+						claimError = err;
+						break;
+					}
+				}
+
+				if (!claimedRun) {
+					/* Timed out still-busy, or the claim write itself faulted. Emit a
+					 * friendly close and end — nothing was claimed or reserved, so
+					 * there is no window to restore and no charge to refund. The
+					 * `finally` still flushes (a no-op refund) + drains the log. */
+					if (claimError) {
+						log.error("[chat] serialize-wait claim write failed", claimError, {
+							appId,
+						});
+					}
+					ctx.emitError(
+						{
+							type: claimError ? "internal" : "generation_in_progress",
+							message: claimError
+								? "Couldn't start your request just now. Please try again shortly."
+								: `Still busy — ${holderName}'s request is taking a while. Please try again in a moment.`,
+							recoverable: false,
+						},
+						"route:serialize-wait-timeout",
+					);
+					/* Held nothing (never won the claim) — flush + log only, and do NOT
+					 * touch the marker/lock (the app is still held by the OTHER run). */
+					await finalizeRun(undefined, { heldApp: false });
+					return;
+				}
+
+				/* Won the claim after waiting — run the deferred concurrency +
+				 * reservation gate. On a bail, surface it as a fatal conversation
+				 * event and end. The gate already RESTORED the claimed window
+				 * (`restoreClaimedRun`), so this POST no longer holds the app —
+				 * `heldApp: false` keeps the finalize from re-touching it. */
+				const bail = await runPostClaimGate();
+				if (bail) {
+					ctx.emitError(
+						{ type: bail.type, message: bail.message, recoverable: false },
+						"route:serialize-wait-gate",
+					);
+					await finalizeRun(undefined, { heldApp: false });
+					return;
+				}
+
+				/* Reservation landed inside the stream on this path — tell the
+				 * accumulator so the flush-time refund/settle targets the right
+				 * period (the seed left these unset for the wait path). A free
+				 * continuation never reaches here (it doesn't claim), so `chargeable`
+				 * is the didReserve signal. */
+				usage.configureRun({
+					didReserve: chargeable,
+					...(chargeable ? { reservedAmount: cost } : {}),
+					...(reservation ? { chargePeriod: reservation.period } : {}),
+				});
+
+				/* A held app may have advanced while we waited (the prior holder
+				 * committed batches), so re-read the persisted blueprint for the SA's
+				 * seed rather than trusting the pre-wait `loadedApp`. */
+				try {
+					const fresh = await loadApp(appId);
+					if (fresh) loadedApp = fresh;
+				} catch (err) {
+					log.error("[chat] serialize-wait blueprint reload failed", err, {
+						appId,
+					});
+				}
+			}
+
+			/* Paused-run resume re-acquire — UNIFORM across both modes. A
+			 * free-continuation resume of a paused run (build OR edit) must still OWN
+			 * that run AND renew its liveness horizon before proceeding: a paused run's
+			 * lease lapses while the user answers (no heartbeat during a pause), so it
+			 * may have been REAPED and the freed app claimed by another run.
+			 * `reacquireLease` does BOTH atomically — asserts ownership
+			 * (`runLeaseState().ownedByResume`, keyed on the resume's own mode), and on
+			 * success re-establishes the mode's horizon (edit → renew
+			 * `run_lock.expireAt`; build → re-arm `updated_at`) AND clears
+			 * `awaiting_input` in the SAME transaction, so a resume RENEWS its lease
+			 * rather than proceeding on an already-lapsed one and being reaped mid-run.
+			 * If superseded (returns `false`), it touched NOTHING and we BAIL gracefully
+			 * rather than start a second SA loop on an app it no longer owns.
+			 * Nothing was claimed/reserved on this free continuation, so
+			 * `heldApp: false` keeps the finalize from touching the holder's state. A
+			 * transient failure fails OPEN (proceed): the solo-editor resume is the
+			 * common case, and the guarded per-commit writer stays the backstop. */
+			if (resumeMustCheckSupersede) {
+				const resumeMode = appReady ? "edit" : "build";
+				let reacquire: ReacquireOutcome = "owned";
+				try {
+					reacquire = await reacquireLease(appId, effectiveRunId, resumeMode);
+				} catch (err) {
+					log.error("[chat] resume reacquire failed", err, { appId });
+				}
+				if (reacquire !== "owned") {
+					/* The two lost shapes read very differently to the person answering,
+					 * so tell the truth per shape: "superseded" means another run
+					 * actually holds the app now; "released" means the run simply timed
+					 * out waiting and a scan reaped it (refund + free) with no
+					 * re-claim — on a personal Project that is the ONLY lost shape, so
+					 * a takeover message there would always be false. */
+					ctx.emitError(
+						reacquire === "superseded"
+							? {
+									type: "generation_in_progress",
+									message:
+										"Someone else started working on this app while you were answering, so this request was superseded. Refresh to pick up their changes, then try again.",
+									recoverable: false,
+								}
+							: {
+									type: "run_released",
+									message:
+										"This run waited for your answer longer than its window allows, so it was released and its hold was refunded. Refresh to get the latest state, then send your answer again.",
+									recoverable: false,
+								},
+						reacquire === "superseded"
+							? "route:resume-superseded"
+							: "route:resume-released",
+					);
+					await finalizeRun(undefined, { heldApp: false });
+					return;
+				}
+				/* `reacquireLease` already cleared `awaiting_input` + renewed the lease
+				 * in its transaction (only when ownership held), so a superseded resume
+				 * never touched the app a co-member now owns. No separate pause-clear. */
+			}
+
+			/* Build the SA's working doc. For an existing app the seed is the
+			 * SAVED blueprint (`loadedApp.blueprint`, the persistable slice with
+			 * no `fieldParent`), loaded off the authorization read above — never
+			 * shipped per-turn from the client. We deep-clone so in-flight
+			 * mutations never touch the loaded doc, then rebuild the
+			 * reverse-parent index the SA's mutation helpers rely on.
+			 *
+			 * Freshness: the saved blueprint is current at send time without any
+			 * flush primitive. The mutation-only auto-save persists builder edits
+			 * within ~1.3s of the edit settling, and a chat send follows
+			 * message-typing (longer than that), so a typed send always reads a
+			 * settled doc. A code path that fires a chat turn programmatically
+			 * IMMEDIATELY after an edit (with no typing in between) would be the
+			 * one case that could outrun the auto-save and need a flush.
+			 *
+			 * Brand-new builds get the empty doc stamped with the Firestore
+			 * `appId` that `createApp` just minted. */
+			const sessionDoc: BlueprintDoc = hydratePersistedBlueprint(
+				loadedApp
+					? (loadedApp.blueprint as PersistableDoc)
+					: {
+							appId,
+							appName: "",
+							connectType: null,
+							caseTypes: null,
+							modules: {},
+							forms: {},
+							fields: {},
+							moduleOrder: [],
+							formOrder: {},
+							fieldOrder: {},
+						},
+			);
+			/* Hydrate the reference index alongside — the SA's tool layer
+			 * answers "who references / declares X" through it (retirement
+			 * planning, rename verdicts, the rename cascade) from the first
+			 * tool call. */
+			ensureReferenceIndex(sessionDoc);
 
 			/* Persist the current request's user message as the first
 			 * conversation event of the run. Emitting through the context
@@ -608,89 +1063,6 @@ export async function POST(req: Request) {
 				);
 			}
 
-			/* Latch so the refund toast fires at most once per run. */
-			let refundSignalled = false;
-			/* Finalize-once guard — see `finalizeRun`. */
-			let finalized = false;
-
-			/**
-			 * The single authoritative finalization — the charge-vs-refund credit
-			 * decision plus persistence — run exactly once on the run's TRUE terminal
-			 * state.
-			 *
-			 * Driven by the agent drain completing (below), NOT by an SDK callback: a
-			 * model error surfaces as a UIMessage error chunk rather than a thrown
-			 * rejection, and a zero-step error fires no agent callback at all, so
-			 * keying finalize on the drain is what guarantees it runs (and the request
-			 * never hangs waiting on a callback that never fires). A failed run marks
-			 * itself failed and FLUSHES (handing the reservation back; actual $ still
-			 * accrues so the backstop sees retry-spam), and only THEN flips the app to
-			 * `error` — and only if the refund actually committed, so a stranded refund
-			 * leaves the build `generating` for the reaper to retry. Idempotent via this
-			 * guard and the accumulator's own `_finalized` latch.
-			 */
-			const finalizeRun = async (failure?: {
-				type: ErrorType;
-			}): Promise<void> => {
-				if (finalized) return;
-				finalized = true;
-				if (failure) usage.markRunFailed();
-				await usage.flush();
-				await logWriter.flush();
-				if (failure) {
-					/* Settle the run's reservation off the durable marker, THEN flip to
-					 * `error`. `flush` above refunds a hold THIS POST booked, but a
-					 * multi-POST run's hold may have been booked by an EARLIER POST
-					 * (askQuestions: an earlier chargeable POST reserves, then a free
-					 * continuation fails here), and `refundReservation` reads the hold off
-					 * the marker so it settles it no matter which POST booked it.
-					 * Idempotent: a no-op when flush already settled it or there is nothing
-					 * to settle. Flip to `error` only once the hold is settled; a refund
-					 * that did not commit leaves the build `generating` for the reaper to
-					 * retry (mirroring `reapStaleGenerating`'s refund-before-flip). */
-					let refundSettled = true;
-					try {
-						await refundReservation(appId);
-					} catch (err) {
-						refundSettled = false;
-						log.error("[chat] failed-run reservation refund failed", err, {
-							appId,
-						});
-					}
-					/* Flip to `error` only for a BUILD (the app is `generating`). A failed
-					 * EDIT must NOT flip its already-`complete` app to `error`: that would
-					 * brick a working app over a transient model error (the build page
-					 * redirects non-`complete` apps; the list hides the open-link for
-					 * `error`), leaving the user no path back to a blueprint that is fine on
-					 * disk. The failed edit still refunds its hold (above) and surfaces the
-					 * error via the conversation event (`failRun`); the app stays open. */
-					if (refundSettled && !appReady) {
-						failApp(appId, failure.type);
-					}
-				}
-			};
-
-			/**
-			 * Classify + surface a generation error, then finalize the run as failed —
-			 * the single failure funnel for both an init/build throw and a streamed
-			 * model error. Emits the classified error as a conversation event and, on a
-			 * chargeable run, the optimistic `data-credit-refund` toast (the
-			 * authoritative decrement lands in `flush()` inside `finalizeRun`).
-			 */
-			const failRun = async (error: unknown, source: string): Promise<void> => {
-				const classified = classifyError(error);
-				ctx.emitError(classified, source);
-				if (chargeable && !refundSignalled) {
-					refundSignalled = true;
-					writer.write({
-						type: "data-credit-refund",
-						data: { amount: cost },
-						transient: true,
-					});
-				}
-				await finalizeRun(classified);
-			};
-
 			try {
 				/* Two orthogonal decisions:
 				 *
@@ -726,6 +1098,17 @@ export async function POST(req: Request) {
 				});
 
 				const sa = createSolutionsArchitect(ctx, sessionDoc, editing);
+
+				/* Start the wall-clock run-lease heartbeat now the run is live — an
+				 * edit refreshes its `run_lock` lease, a build re-arms its `updated_at`
+				 * staleness clock. It guarantees a run that sits in a single long model
+				 * turn (or a long no-commit stretch) with no intermediate step-finish
+				 * still refreshes its liveness horizon, so a LIVE run can't lapse and
+				 * be reaped mid-run. Stopped in `finalizeRun` (the finally always runs
+				 * it — a paused run must stop beating so an abandoned pause lapses for
+				 * the reapers); the timer is `.unref()`ed so it never keeps the process
+				 * alive. */
+				ctx.startRunLeaseHeartbeat();
 
 				/* The messages to actually send the SA this turn. `selectMessagesToSend`
 				 * applies the one-shot trim (expired-cache edit → only the last user
@@ -765,7 +1148,11 @@ export async function POST(req: Request) {
 				}
 				const preparedMessages = await resolveAttachments(
 					messagesToSend,
-					userId,
+					// The app's Project scopes attachment resolution — a chat document
+					// lives in the Project it was uploaded under (the composer stamps
+					// it). Set in both the new-build + existing-app branches above;
+					// `loadedApp.project_id` is the existing-app fallback.
+					projectId ?? loadedApp?.project_id ?? "",
 					ctx,
 					// Pulse the signal grid with real read progress while a
 					// not-yet-extracted document is read here. `transient` keeps these
@@ -909,11 +1296,20 @@ export async function POST(req: Request) {
 				 * state even if forwarding broke off early when the client left. */
 				await drained;
 
-				if (sawFatalError) {
+				/* A guarded commit that threw `CommitReauthError` (the actor lost
+				 * edit access mid-run) is a FATAL run failure that must take
+				 * precedence over the clean-completion writers (`completeAndSettleRun` / `clearRunLockAndSettle`) / `awaiting_input` / the edit arm — a
+				 * deauthorized run must refund and end in `error`, never report
+				 * success and keep its charge. The AI SDK turns the tool `execute()`
+				 * throw into a NON-fatal chunk (so `sawFatalError` stays false), which
+				 * is why the context flag, not the stream, carries the signal. */
+				const reauthErr = ctx.reauthError();
+				if (sawFatalError || reauthErr) {
 					await failRun(
-						pendingError ??
+						reauthErr ??
+							pendingError ??
 							new Error("The generation stream ended in an error."),
-						"route:stream",
+						reauthErr ? "route:reauth" : "route:stream",
 					);
 				} else if (ctx.pausedOnInput()) {
 					/* The run paused on an `askQuestions` round (awaiting the user's
@@ -930,28 +1326,32 @@ export async function POST(req: Request) {
 					 * warn is how one would surface in production. */
 					ctx.warnIfEditRunIncomplete();
 					/* An edit run can land case-type records (`createModule` with
-					 * `case_type_record`), and the chat surface's fire-and-forget
-					 * saves never touch Postgres — so sync the case-store schemas
+					 * `case_type_record`), and the chat surface's inline guarded
+					 * commits never touch Postgres — so sync the case-store schemas
 					 * here, the same "any case-store action after a commit sees a
-					 * synced schema" contract the build arm holds. Idempotent
-					 * upsert; `materializeCaseStoreSchemas` retries transient
-					 * failures internally, so a Postgres blip here usually still
-					 * lands the sync rather than leaving a stale/missing row. If it
-					 * STILL fails it's log-only — the edit itself succeeded, and the
-					 * case-store consumers self-heal at the point of use: a MISSING
-					 * (`SchemaNotSyncedError`) or STALE-drift
-					 * (`CasePropertiesValidationError` with an `additionalProperty`)
-					 * row on sample-populate / form submit / live preview
-					 * re-materializes the persisted blueprint and retries once
-					 * (`withSchemaHeal` in the case-data-binding actions). */
+					 * synced schema" contract the build arm holds. Idempotent upsert;
+					 * `materializeCaseStoreSchemas` swallows a TRANSIENT blip and
+					 * RETHROWS a DETERMINISTIC fault. Unlike the build arm, an edit
+					 * does NOT fail the run on that throw: the edit's blueprint already
+					 * committed (awaited, durable) and its 5-credit charge stands, so a
+					 * deterministic schema fault is logged at `error` (Sentry-visible)
+					 * but the run stays successful — the case-store consumers self-heal
+					 * a MISSING (`SchemaNotSyncedError`) / STALE-drift
+					 * (`CasePropertiesValidationError` with `additionalProperty`) row at
+					 * the point of use (`withSchemaHeal`). */
 					const editDoc = ctx.latestPersistedDoc();
 					if (editDoc) {
+						// Every commit was awaited inline through `commitGuardedBatch`,
+						// so `latestPersistedDoc()` is already durable — no save chain
+						// to drain. `syncedSeq` is the committed seq of THAT doc (feeds
+						// the monotone `synced_seq` gate, so a concurrent additive sync
+						// converges rather than clobbers).
+						const editSeq = ctx.latestCommittedSeq();
 						try {
-							await ctx.drainIntermediateSaves();
 							await materializeCaseStoreSchemas({
 								appId,
-								userId,
 								blueprint: toPersistableDoc(editDoc),
+								...(editSeq !== undefined && { syncedSeq: editSeq }),
 							});
 						} catch (error) {
 							log.error("[chat] edit-run case-store sync failed", error, {
@@ -962,21 +1362,26 @@ export async function POST(req: Request) {
 				} else {
 					/* BUILD finalization — the drain ended cleanly, so the run is
 					 * done and the app is at rest. There is no finishing tool: the
-					 * route owns the three finishing moves, in this order.
+					 * route owns the two finishing moves, in this order.
 					 *
-					 *  1. Drain the run's chained intermediate saves, so the stored
-					 *     blueprint is the run's final snapshot before anything
-					 *     signals "finished".
-					 *  2. Materialize the case-store schemas for whatever the run
+					 *  1. Materialize the case-store schemas for whatever the run
 					 *     persisted (awaited) — a user-initiated case-store action
 					 *     sub-second after the celebration (sample-data populate,
 					 *     form submit, live preview) must see a synced Postgres
 					 *     schema. The case-store consumers don't gate on status, so
-					 *     this MUST precede `data-done`.
-					 *  3. Flip `generating → complete` (status-only — the blueprint
-					 *     was already persisted by the chained saves, so this write
-					 *     can't blind-overwrite a concurrent editor) and emit
-					 *     `data-done`, the celebration + doc-reconciliation signal.
+					 *     this MUST precede `data-done`. Every commit was awaited
+					 *     inline through `commitGuardedBatch`, so the stored blueprint
+					 *     is already the run's final snapshot — no save chain to drain.
+					 *  2. Flip `generating → complete` AND settle the kept charge in
+					 *     ONE transaction (`completeAndSettleRun`), then emit `data-done`,
+					 *     the celebration + doc-reconciliation signal. The atomicity is
+					 *     load-bearing: status→complete is what makes the build claimable,
+					 *     so settling in the same commit closes the window where an edit
+					 *     POST landing between a separate flip + settle would claw back the
+					 *     build's KEPT charge via the unconditional leftover refund. The
+					 *     flip is still status-only for the blueprint (already persisted by
+					 *     the guarded commits), so it can't blind-overwrite a concurrent
+					 *     editor.
 					 *
 					 * A run that persisted nothing (a purely conversational build
 					 * turn) still flips to complete — an empty app is at rest and
@@ -989,19 +1394,28 @@ export async function POST(req: Request) {
 					 * `error`, the reservation refunds, the user sees the classified
 					 * error). */
 					try {
-						await ctx.drainIntermediateSaves();
 						const finalDoc = ctx.latestPersistedDoc();
+						const finalSeq = ctx.latestCommittedSeq();
 						if (finalDoc) {
+							// `syncedSeq` is the committed seq of THIS doc — feeds the
+							// monotone `synced_seq` gate so a concurrent additive sync
+							// converges. `materializeCaseStoreSchemas` swallows a
+							// TRANSIENT per-type blip (`warn`; the point-of-use
+							// `withSchemaHeal` closes the gap) but RETHROWS a
+							// DETERMINISTIC fault — that throw funnels through the
+							// `failRun` below, so a build never completes-and-charges
+							// over a permanently-unusable schema.
 							await materializeCaseStoreSchemas({
 								appId,
-								userId,
 								blueprint: toPersistableDoc(finalDoc),
+								...(finalSeq !== undefined && { syncedSeq: finalSeq }),
 							});
 						}
-						await completeApp(appId);
+						await completeAndSettleRun(appId, effectiveRunId);
 						if (finalDoc) {
 							ctx.emit("data-done", {
 								doc: toPersistableDoc(finalDoc),
+								seq: finalSeq,
 								success: true,
 							});
 						}
@@ -1019,17 +1433,57 @@ export async function POST(req: Request) {
 				 * `flush()` still refunds a zero-cost run on its own gating). On a failed
 				 * run this is a no-op — `failRun` already finalized. Awaited so the
 				 * response can't resolve before persistence lands; Cloud Run can kill the
-				 * container the instant the final byte is written. */
-				await finalizeRun();
+				 * container the instant the final byte is written.
+				 *
+				 * Thread `paused`: a run that paused on `askQuestions` is alive (a later
+				 * POST resumes it), so its kept charge must NOT settle and its edit
+				 * `run_lock` must NOT release here — its marker is a live hold the
+				 * resume's failure funnel may still refund, and its lock is held for the
+				 * resume. `ctx.pausedOnInput()` is the same signal the paused arm above
+				 * keys on. */
+				await finalizeRun(undefined, { paused: ctx.pausedOnInput() });
 			}
 		},
 		onFinish() {
-			/* Last-resort safety net for a throw in the execute prelude (before the
-			 * try) that skips `finalizeRun`. The execute block's awaited `finally`
-			 * is the primary finalize path; this fire-and-forget flush only matters
-			 * if the prelude itself threw. Idempotent. */
-			void usage.flush();
-			void logWriter.flush();
+			/* Last-resort safety net for a throw in the execute PRELUDE (before the
+			 * main try) that skips `finalizeRun` — e.g. the `hydratePersistedBlueprint`
+			 * / `ensureReferenceIndex` seed build. The execute block's awaited
+			 * `finally` is the primary finalize path; this only matters if the prelude
+			 * itself threw. Idempotent. (The lease heartbeat is started only AFTER the
+			 * prelude, inside the main try whose `finally` always runs `finalizeRun` →
+			 * `stopRunLeaseHeartbeat`, so a prelude throw that lands here never leaves
+			 * a timer running.) */
+			void (async () => {
+				/* Flush FIRST: a prelude-throw edit's `flush()` refunds+SETTLES its
+				 * marker (zero-cost run), so the run-lock release below never leaves the
+				 * app lock-absent-while-unsettled — the same "clear the lock only once
+				 * the marker is settled" invariant the failure funnel upholds. Awaited
+				 * (not fire-and-forget) so the settle precedes the clear. */
+				await usage.flush().catch(() => {});
+				void logWriter.flush();
+				/* A prelude throw AFTER an EDIT claimed the `run_lock` would otherwise
+				 * strand that lock until its 15-min lease — locking the whole shared app
+				 * for every other member (RunConflictError → the 120s wait → "still
+				 * busy"). Release it, but ONLY when `finalizeRun` never ran (the
+				 * prelude-throw case) — a run that DID finalize already made the right
+				 * lock decision, and a PAUSED edit deliberately keeps its lock. Also
+				 * gated on this run STILL holding the lock (its `runId`): a
+				 * superseded/taken-over app now carries a co-member's lock this must not
+				 * touch. Gated on `claimedRun.mode === "edit"` so a build or a lock-less
+				 * run pays no extra read. The flush above already settled the marker, so
+				 * this release can't strand the hold. */
+				if (!finalizeRan && claimedRun?.mode === "edit") {
+					try {
+						if (await editRunLockHeldBy(appId, effectiveRunId)) {
+							void clearRunLock(appId);
+						}
+					} catch (err) {
+						log.error("[chat] onFinish run-lock release check failed", err, {
+							appId,
+						});
+					}
+				}
+			})();
 		},
 		onError: (error) => {
 			// Safety net — a model error is surfaced to the user as an error

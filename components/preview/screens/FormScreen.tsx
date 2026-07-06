@@ -32,7 +32,12 @@ import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import { useAppId, useBuilderIsReady, useEditMode } from "@/lib/session/hooks";
+import {
+	useAppId,
+	useBuilderIsReady,
+	useCanEdit,
+	useEditMode,
+} from "@/lib/session/hooks";
 import { FormLayoutProvider } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
 
@@ -119,6 +124,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
 	const appId = useAppId();
+	/* A viewer may preview the running app but not WRITE case data (submit a
+	 * form, generate sample cases) — those server actions are edit-gated, so
+	 * disable their controls rather than let a viewer hit a server error.
+	 * (Distinct from the `canEdit` below, which is preview-vs-edit MODE.) */
+	const mayWriteCaseData = useCanEdit();
 	const caseTypes = useCaseTypes();
 
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
@@ -148,7 +158,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	});
 	const { generate: autoGenerate } = useSampleData({
 		appId: appId ?? "",
-		caseType: mod?.caseType,
+		caseType: caseTypes.find((ct) => ct.name === mod?.caseType),
 		onDone: autoCases.reload,
 	});
 	const autoRow =
@@ -453,7 +463,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							<button
 								type="button"
 								onClick={autoGenerate.run}
-								disabled={autoGenerate.status.kind === "running"}
+								disabled={
+									autoGenerate.status.kind === "running" || !mayWriteCaseData
+								}
 								className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
 							>
 								<Icon
@@ -480,7 +492,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							<button
 								type="button"
 								onClick={handleSubmit}
-								disabled={submitStatus.kind === "running" || caseMissing}
+								disabled={
+									submitStatus.kind === "running" ||
+									caseMissing ||
+									!mayWriteCaseData
+								}
 								className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white hover:brightness-110 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
 							>
 								{submitStatus.kind === "running" && (

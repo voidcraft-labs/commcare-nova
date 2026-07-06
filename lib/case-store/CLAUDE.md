@@ -7,7 +7,7 @@ JS evaluator, no parity tests.
 
 ## Public surface — barrel
 
-External consumers import from the `@/lib/case-store` barrel: the `CaseStore` interface, row/arg/result types, the `withOwnerContext` factory (the ONLY production constructor — it binds the owner id at the request boundary), the typed error classes, and JSONB value types. The implementation, sample generator, and test harness stay package-private; tests reach them via subpath.
+External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / `SchemaCaseStore` interfaces, row/arg/result types, the two production constructors (`withProjectContext(projectId, actorUserId)` — the tenant-bound reads/writes store; `withSchemaContext()` — the tenant-free, app-scoped schema-ops store), the typed error classes, and JSONB value types. The implementation, sample generator, and test harness stay package-private; tests reach them via subpath.
 
 **One deliberate exception:** the connection layer's `getCaseStorePool()` (subpath `@/lib/case-store/postgres/connection`) is a runtime export the auth layer (`lib/auth.ts`, `lib/auth/db.ts`) imports so Better Auth runs on the SAME `pg.Pool` — one pool per instance is what keeps the connection budget (`enforceConnectionBudget`) intact. Do not route it through the barrel or "tidy" it back to tests-only; the pool-sharing the budget depends on is the reason it's exposed.
 
@@ -20,24 +20,49 @@ duplication, no `InMemoryCaseStore`, no per-session lifecycle.
 that write or replace real rows; the user toggles between
 authoring and running modes against one shared row set.
 
-## Tenant scoping is structural — `(app_id, owner_id)` pair
+## Tenant scoping is structural — `(app_id, project_id)`; `owner_id` is a second axis
 
-Every `CaseStore` instance carries an owner id resolved at the
-request boundary. The factory `withOwnerContext(userId)` is the
-single construction path; every method internally adds
-`WHERE owner_id = <bound userId>` to the underlying query so a
-new method on the interface inherits the filter automatically.
-
-The compiler stack (`./sql/`) handles the JOIN-side filter on
-every `cases` row inside relation walks (see
+Case data is shared at **Project** scope. Every tenant-bound
+`CaseStore` carries a Project id resolved (and membership-gated) at
+the request boundary; `withProjectContext(projectId, actorUserId)`
+is the construction path, and every read/write internally adds
+`WHERE project_id = <bound>` so a new method inherits the filter
+automatically. The compiler stack (`./sql/`) handles the JOIN-side
+`project_id` filter on every `cases` row inside relation walks (see
 `./sql/compileRelationPath.ts`); `PostgresCaseStore` owns the
-outer-scan filter on every method's underlying SELECT / UPDATE /
-DELETE. The two halves combine to make cross-tenant reads
-structurally impossible.
+outer-scan filter on every method. The two halves combine to make
+cross-Project reads structurally impossible.
+
+`owner_id` is the **CommCare case-owner** — a SEPARATE axis written
+on every insert (the acting user today), reserved for future
+location-/group-based access carving. It is never a tenant filter and
+never to be repurposed/dropped. The two axes are orthogonal:
+`project_id` (tenant / sharing) × `owner_id` (case ownership).
+
+**Schema changes are the deliberate exception — app-scoped,
+tenant-free.** `applySchemaChange` / `dropSchema` (the
+`SchemaCaseStore` slice, built by `withSchemaContext()`) migrate
+EVERY member's rows of an app's case type, so their per-row
+migrations filter `(app_id, case_type)` ONLY — no `project_id` /
+`owner_id`. The schema-write callers (the cross-store saga, the
+chat-completion materialize, the point-of-use heal) therefore bind
+no tenant.
+
+**Re-tenanting is the second, narrower exception — `retenant.ts`.**
+`retenantAppCases({appId, toProjectId})` is the ONE write that crosses
+the tenant boundary on purpose: it rewrites `cases.project_id` for an
+app's rows when that app moves between Projects
+(`lib/db/moveAppToProject.ts`). It keys on `app_id` alone and moves
+every row not already in the destination, so it reconciles the rows to
+wherever the app doc committed — the move flips the doc FIRST, then runs
+this, so the doc is the source of truth and the cases follow it
+(idempotent + crash-convergent). It is a standalone barrel export, not a
+`CaseStore` method, so the single-tenant invariant of the bound store
+stays intact; only `cases` carries `project_id`, so it is the whole job.
 
 ## Typed error contract
 
-User-domain errors (`./errors.ts`) carry `instanceof` discrimination so routes map them to typed result arms. Non-obvious rules: `CaseNotFoundError`'s message deliberately does NOT distinguish "outside the bound owner's tenant" from "never existed" — tenant boundaries stay structural, never message-leaked. `CasePropertiesValidationError`'s structured `failures` surface in the response body, but the `(appId, caseType)` pair stays server-log-only. All classes use `readonly name = "<ClassName>"` initializers so the literal name survives bundler transforms. Every other throw in the package is an internal-invariant violation using the formatters at `lib/domain/predicate/errors.ts`.
+User-domain errors (`./errors.ts`) carry `instanceof` discrimination so routes map them to typed result arms. Non-obvious rules: `CaseNotFoundError`'s message deliberately does NOT distinguish "outside the bound Project" from "never existed" — tenant boundaries stay structural, never message-leaked. `CasePropertiesValidationError`'s structured `failures` surface in the response body, but the `(appId, caseType)` pair stays server-log-only. All classes use `readonly name = "<ClassName>"` initializers so the literal name survives bundler transforms. Every other throw in the package is an internal-invariant violation using the formatters at `lib/domain/predicate/errors.ts`.
 
 ## TypeScript validates writes — there is no in-database trigger
 
@@ -68,6 +93,41 @@ architecture.
 
 Phase A commits when both steps succeed and rolls back atomically
 on failure. The schema row + data are always consistent.
+
+### The monotone `synced_seq` gate
+
+`case_type_schemas.synced_seq` records the `mutation_seq` a row was
+last synced from. When a caller passes `syncedSeq`,
+`applySchemaChange` gates on it in two halves so concurrent additive
+edits converge instead of clobbering each other:
+
+- **Coarse (a SELECT before Phase A):** read the row's recorded
+  `synced_seq` (`Number(...)` — pg returns `int8` as a string; an
+  absent row means "proceed"). If the incoming seq is LOWER, the
+  ENTIRE call no-ops — schema UPSERT + Phase-B index DDL skipped. A
+  stale sync never rewinds a fresher row.
+- **Fine (the UPSERT SET):** the conflict `doUpdateSet` guards
+  `synced_seq = excluded.synced_seq` with
+  `WHERE excluded.synced_seq >= case_type_schemas.synced_seq`, so
+  the UPSERT itself can't regress the row even if a fresher writer
+  landed between the coarse SELECT and here. The UPSERT `RETURNING`s
+  its row, which Postgres emits only when it actually inserted or
+  updated — so a fine-gate LOSER (the WHERE was false) returns no
+  row, and Phase B is SKIPPED for it. Without that skip, the loser
+  would diff its OLDER desired index set against the winner's live
+  set and `DROP` the winner's new-property index. A lost SELECT→UPSERT
+  race then re-converges on the next sync (perf-only, not a
+  correctness gate).
+
+`syncedSeq` is mutually exclusive with `change` — the additive gate
+carries a seq and no per-row migration; a migration runs pre-commit
+un-versioned. The implementation throws when both are set (so the
+whole-call no-op can never silently skip a migration's per-row work).
+
+Absent `syncedSeq` (the pre-multiplayer path and the migration
+saga's Postgres-first forward apply — which runs before its own
+committed seq exists): a plain un-versioned UPSERT that always wins
+its own conflict.
 
 ### Phase B (no transaction; runs after Phase A commits)
 
@@ -118,14 +178,32 @@ to a sequential scan over the case-type partition.
 The chat-completion boundary calls `applySchemaChange` once per
 case type via the sibling helper at
 `lib/db/materializeCaseStoreSchemas.ts` to close the gap the SA's
-fire-and-forget chat-side `saveBlueprint` leaves open (the
-freshly-generated case types have no `case_type_schemas` row
-until that helper lands). The two awaited blueprint-write
-boundaries (auto-save PUT, MCP tool calls) route through the
-sibling saga at `lib/db/applyBlueprintChange.ts` instead — saga
-for awaited writes (compensation on Firestore failure),
-materialize-helper for chat completion (pure additive, no
-compensation needed).
+inline chat-side commits leave open (the freshly-generated case
+types have no `case_type_schemas` row until that helper lands).
+Its failure contract splits on fault class (`lib/db/schemaSyncRetry.ts`
+`isTransientDbError`): each per-type sync retries a TRANSIENT blip,
+then **swallows** a still-transient terminal (`warn`; the
+point-of-use `withSchemaHeal` re-syncs on recovery) but **RETHROWS**
+a DETERMINISTIC fault (an identifier collision, a
+`CaseTypeNotInBlueprintError`) — a real bug that would fail
+identically on every heal, so the chat BUILD arm routes it through
+`failRun` (refund + classified error) rather than complete-and-charge
+a permanently-unusable app; the EDIT arm error-logs it (the edit
+already committed + charged). Both the materialize and the heal pass
+`syncedSeq` (the `mutation_seq` of the EXACT blueprint they
+materialize — `ctx.latestCommittedSeq()` for the drain-end,
+`app.mutation_seq` off the same `loadApp` snapshot for the heal) so
+the monotone `synced_seq` gate converges them with a concurrent
+additive sync.
+
+The two awaited blueprint-write boundaries (auto-save PUT, MCP tool
+calls) route through the sibling saga at
+`lib/db/applyBlueprintChange.ts`, whose sync splits by change kind:
+**migration-bearing** entries (a `change` reshape) stay
+Postgres-first + `compensate()` pre-commit (recoverable), while
+**additive** entries ride a single post-commit sweep of the
+committed doc at the committed seq (`syncedSeq`), which converges
+concurrent additive edits via the same monotone gate.
 
 ### Pre-flight identifier validation runs BEFORE Phase A
 
@@ -170,7 +248,9 @@ The flipbook's running-app screens read case data through the
 binding helpers at `lib/preview/engine/caseDataBindingHelpers.ts`
 (pure helpers accepting a `CaseStore`) plus the Server Actions
 at `lib/preview/engine/caseDataBinding.ts` (resolve session
-server-side, construct `withOwnerContext`, route through). The
+server-side, then `gatedCaseStore` — membership-gate the app's
+Project and construct a `withProjectContext` store — and route
+through). The
 `pickBlueprintDoc` projection in the helpers package strips
 function values off the doc-store state before the wire crosses
 into a Server Action so React's RSC serializer accepts it.

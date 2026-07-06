@@ -129,15 +129,17 @@ describe("listApps", () => {
 		expect(apps.map((a) => a.id)).toEqual(["a", "b", "c"]);
 	});
 
-	it("excludes an awaiting_input (paused) build from staleness reaping", async () => {
-		/* A build paused on an askQuestions round is generating + awaiting_input
-		 * with a stale updated_at, yet must stay 'generating' (NOT projected to
-		 * 'error'): a live paused build's hold must never be refunded by the reaper.
-		 * A stale generating build WITHOUT the flag is a hard kill, projected
-		 * 'error'. Both share the same stale timestamp, so the ONLY difference is the
-		 * flag — pinning that the flag, not the staleness, is what spares the row. */
+	it("reaps a stale build regardless of awaiting_input, but spares a FRESH paused build", async () => {
+		/* Descoped model: the reaper keys on the LAPSED CLOCK, not `awaiting_input`.
+		 * A paused build has no heartbeat, so an ABANDONED one (stale `updated_at`)
+		 * must be reaped (a paused run BLOCKS a claim, so it can't hold forever) →
+		 * projected 'error'. A RECENTLY-paused build (fresh `updated_at`) is alive
+		 * (its own resume can still renew) → stays 'generating'. A stale generating
+		 * build WITHOUT the flag is a hard kill, also reaped. So the FRESH clock, not
+		 * the flag, is what spares a row. */
 		const stale = Timestamp.fromDate(new Date("2020-01-01T00:00:00Z"));
-		const generatingDoc = (id: string, awaiting: boolean) =>
+		const fresh = Timestamp.fromDate(new Date());
+		const generatingDoc = (id: string, awaiting: boolean, updated: Timestamp) =>
 			makeDoc(id, {
 				app_name: `App ${id}`,
 				connect_type: null,
@@ -147,11 +149,15 @@ describe("listApps", () => {
 				awaiting_input: awaiting,
 				error_type: null,
 				created_at: stale,
-				updated_at: stale,
+				updated_at: updated,
 			});
 		getMock.mockResolvedValueOnce({
-			docs: [generatingDoc("paused", true), generatingDoc("killed", false)],
-			size: 2,
+			docs: [
+				generatingDoc("freshPaused", true, fresh),
+				generatingDoc("abandonedPaused", true, stale),
+				generatingDoc("killed", false, stale),
+			],
+			size: 3,
 		});
 
 		const { listApps } = await import("../apps");
@@ -161,7 +167,8 @@ describe("listApps", () => {
 		});
 
 		const statusById = Object.fromEntries(apps.map((a) => [a.id, a.status]));
-		expect(statusById.paused).toBe("generating"); // alive, skipped
+		expect(statusById.freshPaused).toBe("generating"); // alive (fresh), skipped
+		expect(statusById.abandonedPaused).toBe("error"); // lease lapsed, reaped
 		expect(statusById.killed).toBe("error"); // hard kill, reaped
 	});
 
@@ -280,5 +287,54 @@ describe("listApps", () => {
 				cursor: seed.nextCursor,
 			}),
 		).rejects.toThrow(/Cursor was minted/);
+	});
+});
+
+describe("listAppsAcrossProjects", () => {
+	beforeEach(() => {
+		selectMock.mockClear();
+		getMock.mockReset();
+		(queryMock.where as ReturnType<typeof vi.fn>).mockClear();
+		(queryMock.orderBy as ReturnType<typeof vi.fn>).mockClear();
+		(queryMock.limit as ReturnType<typeof vi.fn>).mockClear();
+		(queryMock.startAfter as ReturnType<typeof vi.fn>).mockClear();
+	});
+
+	it("scopes the scan to the membership set via where('project_id', 'in', ids) — the cross-Project MCP enumeration", async () => {
+		/* The headless MCP enumeration spans every Project the caller is a
+		 * member of. A list scope is an `in` disjunction (not `==`), so the one
+		 * query covers them all while Firestore applies the global orderBy +
+		 * limit + cursor over the merged result. The soft-delete filter still
+		 * binds at the query layer, identical to the single-Project path. */
+		getMock.mockResolvedValueOnce({ docs: [], size: 0 });
+
+		const { listAppsAcrossProjects } = await import("../apps");
+		await listAppsAcrossProjects(["proj-a", "proj-b"], {
+			limit: 50,
+			sort: "updated_desc",
+		});
+
+		const whereCalls = (queryMock.where as ReturnType<typeof vi.fn>).mock.calls;
+		expect(whereCalls).toContainEqual([
+			"project_id",
+			"in",
+			["proj-a", "proj-b"],
+		]);
+		expect(whereCalls).toContainEqual(["deleted_at", "==", null]);
+	});
+
+	it("returns an empty page WITHOUT querying when the caller belongs to no Projects", async () => {
+		/* An empty membership set can't be an `in` filter (Firestore rejects
+		 * `in []`), and there's nothing to scan anyway — short-circuit to an
+		 * empty page so a not-yet-provisioned account reads as "no apps" rather
+		 * than throwing. No Firestore call must be issued. */
+		const { listAppsAcrossProjects } = await import("../apps");
+		const result = await listAppsAcrossProjects([], {
+			limit: 50,
+			sort: "updated_desc",
+		});
+
+		expect(result).toEqual({ apps: [] });
+		expect(getMock).not.toHaveBeenCalled();
 	});
 });

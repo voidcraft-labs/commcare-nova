@@ -1,35 +1,58 @@
 /**
  * Cross-store saga for blueprint writes — orchestrates Firestore
  * (the blueprint document) and Postgres (the case-store schema +
- * row population) so the two stores never drift after a partial
- * failure.
+ * row population) so the two stores never drift under concurrency.
  *
- * ## The drift the saga prevents
+ * ## The two-arm sync
  *
- * The Firestore blueprint and the Postgres `case_type_schemas`
- * row are independent commit boundaries. Without orchestration,
- * a property rename that lands in Firestore but fails the Postgres
- * schema sync leaves the blueprint pointing at a property the
- * runtime validator rejects — exports / writes fail until manual
- * recovery. The saga inverts the order so Postgres commits first;
- * a Firestore-commit failure then runs a compensating
- * `applySchemaChange` against the prior blueprint state to revert
- * Postgres to its pre-mutation shape. The compensation is
- * idempotent because `applySchemaChange` re-derives the schema +
- * index DDL from its input snapshot.
+ * Concurrent additive case-type edits must both materialize
+ * without either losing a per-row migration. The sync splits
+ * `classifyCaseTypeChanges`'s entries by change kind:
+ *
+ *   - **Migration-bearing** entries (a `change` hint — a rename /
+ *     retype / narrow-options reshape, single-actor by nature):
+ *     run Postgres-first + `compensate()` BEFORE the commit,
+ *     derived from the client prospective. The per-row migration
+ *     is recoverable — a failure runs a compensating
+ *     `applySchemaChange` derived from the CURRENT committed doc
+ *     (a fresh `loadApp`), seq-guarded, so it restores the schema
+ *     row + index DDL without dropping a concurrent peer's
+ *     committed property.
+ *   - **Additive** entries (a property/type add, no `change`):
+ *     run a single POST-COMMIT sweep against the COMMITTED doc.
+ *     After `commitGuardedBatch` returns, sync every case type the
+ *     classify entries name at `syncedSeq = the committed seq`.
+ *     The monotone `synced_seq` guard makes two concurrently-added
+ *     properties converge — the sweep re-derives the full schema
+ *     from `committedDoc`, so a peer's concurrently-committed
+ *     property is picked up rather than clobbered, and a stale
+ *     lower-seq sync fully no-ops.
+ *
+ * The additive sweep is additive-only (no per-row migration,
+ * nothing to compensate). A sweep failure logs at `warn` and
+ * returns success — it is idempotent and re-derivable via the
+ * next save / the point-of-use heal.
  *
  * ## Saga shape
  *
  *   1. Compute the prospective new blueprint state in memory.
- *   2. Diff prior vs. prospective via `classifyCaseTypeChanges`.
- *   3. For each schema-affecting entry, call `applySchemaChange`
- *      with the prospective snapshot. On any failure, run
- *      compensating calls against the prior snapshot for every
- *      already-applied entry (in original order) and rethrow.
- *   4. Commit the new blueprint to Firestore.
- *   5. On Firestore commit failure, run compensating
- *      `applySchemaChange` calls against the prior snapshot for
- *      every entry the saga issued in step 3 and rethrow.
+ *   2. Diff prior vs. prospective via `classifyCaseTypeChanges` and
+ *      partition into migration-bearing vs. additive entries.
+ *   3. If there ARE migration-bearing entries, reauthorize the actor
+ *      against the app's Project BEFORE running their Phase-1 DDL — a
+ *      deauth'd caller must not mutate `case_type_schemas` before
+ *      `commitGuardedBatch`'s own reauth would reject. A pure additive
+ *      / non-case-type commit runs no pre-commit DDL, so it skips this
+ *      gate and relies on `commitGuardedBatch`'s reauth alone.
+ *   4. Run the MIGRATION-BEARING entries Postgres-first against the
+ *      prospective; a mid-loop failure compensates the already-applied
+ *      ones and rethrows.
+ *   5. Commit the new blueprint to Firestore (`commitGuardedBatch`).
+ *      On failure, compensate every migration-bearing entry from the
+ *      current committed doc (seq-guarded) and rethrow.
+ *   6. Unless the commit deduped, sweep every touched case type
+ *      against the committed doc at the committed seq (post-commit,
+ *      swallow + warn).
  *
  * The saga is a no-op fast path for purely non-case-type
  * mutations (module name edits, form text edits, field UI
@@ -42,12 +65,11 @@
  *   - `app/api/apps/[id]/route.ts` PUT (auto-save).
  *   - `lib/mcp/context.ts` `recordMutations` (MCP tool calls).
  *
- * The chat-side intermediate save (`generationContext.saveBlueprint`)
- * stays fire-and-forget by design — the SA's fix-retry discipline
- * covers missed intermediate saves and SSE latency must not block
- * on Firestore. The chat route's drain-end finalize re-syncs the
- * case-store schemas for whatever the run persisted, so the chat
- * path needs no per-save saga.
+ * The chat surface does NOT route through this saga: each tool batch
+ * commits inline through `commitGuardedBatch` directly (awaited), and
+ * the chat route's drain-end finalize re-syncs the case-store schemas
+ * in one pass for whatever the run persisted — so the chat path needs
+ * no per-save saga.
  *
  * ## Loading the prior state
  *
@@ -62,13 +84,10 @@
  * path costs the saga's internal load.
  */
 
-import type { CaseStore } from "@/lib/case-store";
-import { buildCaseTypeMap, withOwnerContext } from "@/lib/case-store";
-import {
-	describeIntroducedErrors,
-	mutationCommitVerdict,
-} from "@/lib/doc/commitVerdicts";
-import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
+import { produce } from "immer";
+import type { SchemaCaseStore } from "@/lib/case-store";
+import { buildCaseTypeMap, withSchemaContext } from "@/lib/case-store";
+import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -76,32 +95,25 @@ import type {
 	PersistedBlueprint,
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
-import {
-	describeMediaExpectationFailures,
-	type MediaAttachExpectation,
-} from "@/lib/media/attachVerdicts";
-import {
-	loadApp,
-	updateApp,
-	updateAppForRun,
-	updateAppForRunTransactional,
-	updateAppGuardedByBasis,
-} from "./apps";
+import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
+import { commitGuardedBatch, loadApp, loadAppProjectId } from "./apps";
 import {
 	type CaseTypeChangeEntry,
 	classifyCaseTypeChanges,
 	type SchemaChangeHint,
 } from "./classifyCaseTypeChanges";
-import { getAssetsInTransaction } from "./mediaAssets";
+import { reauthorizeActorForCommit } from "./commitGuard";
+import { docs } from "./firestore";
+import { isTransientDbError } from "./schemaSyncRetry";
+import type { AcceptedMutationDoc } from "./types";
 
 /**
  * Arguments for `applyBlueprintChange`.
  *
- * `runId` discriminates the two persisted-write helpers: present
- * routes through `updateAppForRun` (writes `run_id` alongside the
- * blueprint, used by MCP tool calls inside their sliding-window
- * run); absent routes through `updateApp` (auto-save's plain
- * blueprint write).
+ * `runId` distinguishes a run-scoped write from a standalone one; it rides the
+ * durable stream entry. Every path routes the Firestore write through the one
+ * guarded commit ({@link commitGuardedBatch}) — the transactional
+ * read-evaluate-write below — after the Postgres schema saga.
  *
  * `hint` carries optional explicit per-row migration intent —
  * rename / retype / narrow-options. The classifier emits the
@@ -119,26 +131,33 @@ import { getAssetsInTransaction } from "./mediaAssets";
 export interface ApplyBlueprintChangeArgs {
 	readonly appId: string;
 	readonly userId: string;
-	readonly prospective: PersistedBlueprint;
+	/**
+	 * The whole prospective doc — supplied by the chat build/edit + MCP
+	 * paths. The guarded MUTATION path (auto-save) omits it and sends
+	 * `guard.mutations` instead; the saga derives the prospective by
+	 * replaying those on the prior for the case-type diff.
+	 */
+	readonly prospective?: PersistedBlueprint;
 	readonly runId?: string;
+	/** Client-minted idempotency key for this whole change — pairs with the
+	 *  `batchDedup/{batchId}` latch. A top-level dedup hit short-circuits the
+	 *  Postgres saga; {@link commitGuardedBatch}'s in-txn latch is the durable
+	 *  guard. */
+	readonly batchId: string;
+	/** Which write path is committing — stamped on the durable stream entry. */
+	readonly kind: AcceptedMutationDoc["kind"];
 	readonly hint?: SchemaChangeHint;
 	readonly priorBlueprint?: PersistableDoc;
 	/**
-	 * Guarded-commit mode (the MCP surface): instead of overwriting the
-	 * blueprint with `prospective` blind, the Firestore commit becomes a
-	 * transactional read-evaluate-write — re-apply `mutations` to the
-	 * FRESH stored blueprint and re-run the validity verdict against it
-	 * before writing. A concurrent committed batch therefore can't be
-	 * silently erased (the recomputed doc builds ON the fresh state),
-	 * and a batch the fresh verdict rejects throws
-	 * {@link BlueprintCommitRejectedError} with nothing written.
-	 * Requires `runId` (the guarded writer persists it alongside).
-	 *
-	 * `prospective` still drives the Postgres schema diff: the entry set
-	 * derives from the mutations, so on the rare commit race the synced
-	 * schema can momentarily trail the recomputed blueprint — the next
-	 * successful save re-syncs, the same eventual-consistency posture the
-	 * saga already documents for per-row migrations.
+	 * Guarded MUTATION commit: the Firestore write is a transactional
+	 * read-evaluate-write — re-apply `mutations` onto the FRESH stored
+	 * blueprint and re-run the validity verdict before writing. A
+	 * concurrent committed batch can't be erased (the recomputed doc
+	 * builds ON the fresh state — the non-destructive merge), and a batch
+	 * the fresh verdict rejects throws `BlueprintCommitRejectedError`
+	 * with nothing written. With `runId` it routes through the run-scoped
+	 * writer (MCP tool calls); without one, through the tokenless
+	 * auto-save writer that rotates + returns the basis token.
 	 */
 	readonly guard?: {
 		readonly mutations: Mutation[];
@@ -148,74 +167,69 @@ export interface ApplyBlueprintChangeArgs {
 		 * the transaction itself — joining its read set — so an asset
 		 * delete racing the attach serializes against this commit instead
 		 * of leaving a dangling reference. A failed expectation throws
-		 * {@link BlueprintCommitRejectedError} with the same
-		 * person-to-person message the pre-commit verdict produces.
+		 * `BlueprintCommitRejectedError` with the same person-to-person
+		 * message the pre-commit verdict produces.
 		 */
 		readonly mediaExpectations?: readonly MediaAttachExpectation[];
 	};
-	/**
-	 * Optimistic-basis mode (the browser auto-save PUT): the Firestore
-	 * commit becomes a transactional compare-and-overwrite — the stored
-	 * `blueprint_token` must equal `token` (the basis the client's doc
-	 * snapshot was built on) or the write throws
-	 * {@link BlueprintBasisStaleError} with nothing written, so a blind
-	 * whole-doc save can't erase a write the client never saw (another
-	 * tab, an MCP commit). On success the token rotates; the new value
-	 * rides back on the result so the client advances its basis.
-	 * Mutually exclusive with `guard` (mutation-bearing writers re-verdict
-	 * instead of comparing a basis).
-	 */
-	readonly basis?: {
-		readonly token: string | null;
-	};
 }
 
 /**
- * Result of `applyBlueprintChange`. `basisToken` is present only on the
- * basis-guarded path — the freshly rotated token the client echoes on
- * its next save.
+ * Result of `applyBlueprintChange`. `seq` is the `mutation_seq` the batch
+ * committed at. `committedDoc` is the hydrated committed doc — absent only on
+ * a TOP-LEVEL dedup hit (which returns the recorded seq without paying the
+ * app-doc read; the in-txn dedup inside {@link commitGuardedBatch} does
+ * supply it).
  */
 export interface ApplyBlueprintChangeResult {
-	readonly basisToken?: string;
-}
-
-/**
- * Thrown by the guarded commit when the validity verdict — re-run inside
- * the Firestore transaction against the freshly read blueprint — rejects
- * the batch. Carries the person-to-person findings as its message; the
- * MCP tool's catch returns it in the standard `{ error }` envelope, the
- * same shape an optimistic gate rejection produces.
- */
-export class BlueprintCommitRejectedError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = "BlueprintCommitRejectedError";
-	}
+	readonly seq: number;
+	readonly committedDoc?: BlueprintDoc;
 }
 
 /**
  * Run the cross-store saga and persist the prospective blueprint.
  *
- * Throws on any unrecoverable failure (Postgres schema sync
- * failure with no recovery, Firestore commit failure with
- * compensation completed). On Postgres failure, the saga
- * compensates the partial Postgres work and rethrows. On
- * Firestore failure, the saga compensates the entire Postgres
- * work and rethrows. Either way, the database state on return is
- * "exactly the prior state" — the caller can retry without
- * worrying about half-applied writes.
+ * Throws on any unrecoverable failure of the migration-bearing arm
+ * (its Postgres schema sync failing with no recovery, or a
+ * Firestore commit failure after its compensation completed). On
+ * either, the migration-bearing Postgres work is compensated back
+ * to the prior state and the original error rethrows — the caller
+ * can retry without half-applied writes. The additive post-commit
+ * sweep never throws (swallow + warn); an additive gap self-heals
+ * on the next save.
  */
 export async function applyBlueprintChange(
 	args: ApplyBlueprintChangeArgs,
 ): Promise<ApplyBlueprintChangeResult> {
+	// Top-level idempotency: a re-delivered batch (a client retry) whose latch
+	// already exists short-circuits the whole cross-store saga. The read is
+	// non-transactional — a batch that commits between here and the guarded
+	// write is still caught by `commitGuardedBatch`'s in-transaction latch. A
+	// hit returns the recorded seq with no `committedDoc` (skips the
+	// app-doc read); MCP/auto-save tolerate its absence on a dedup hit.
+	const dedup = await docs.batchDedupRaw(args.appId, args.batchId).get();
+	if (dedup.exists) {
+		const latch = dedup.data() as { seq: number };
+		return { seq: latch.seq };
+	}
+
 	const priorBlueprint = await resolvePriorBlueprint(args);
-	/* Read-only widening for the case-type diff below — the same single
-	 * seam `resolvePriorBlueprint` documents. The double hop steps the
-	 * walled `PersistedBlueprint` back up to `PersistableDoc` first; a
-	 * direct cast can't compile because the wall's `never` slots don't
-	 * overlap `BlueprintDoc`'s required `fieldParent`. */
-	const prospectiveBlueprint =
-		args.prospective as PersistableDoc as BlueprintDoc;
+	/* The prospective doc drives the case-type diff below. The whole-doc
+	 * paths supply it directly (the double hop steps the walled
+	 * `PersistedBlueprint` back up to `PersistableDoc`; a direct cast can't
+	 * compile because the wall's `never` slots don't overlap `BlueprintDoc`'s
+	 * required `fieldParent`). The guarded MUTATION path sends no whole doc —
+	 * derive it by replaying the mutations on the prior. The Firestore commit
+	 * re-applies on the FRESH doc, so a concurrent writer can make this
+	 * prior-based derivation momentarily trail; only `caseTypes` is read from
+	 * it (for the Postgres diff), and the next save re-syncs — the same
+	 * eventual consistency the per-row migrations already document. */
+	const prospectiveBlueprint: BlueprintDoc =
+		args.prospective !== undefined
+			? (args.prospective as PersistableDoc as BlueprintDoc)
+			: produce(priorBlueprint, (draft) => {
+					applyMutations(draft, args.guard?.mutations ?? []);
+				});
 
 	const entries = classifyCaseTypeChanges({
 		prior: priorBlueprint,
@@ -223,25 +237,71 @@ export async function applyBlueprintChange(
 		hint: args.hint,
 	});
 
-	// Fast path — pure non-case-type mutation, skip Postgres
-	// entirely and commit Firestore directly.
+	// Fast path — pure non-case-type mutation, skip Postgres entirely and
+	// commit Firestore directly. `commitGuardedBatch`'s own reauth is the
+	// single gate here (no pre-commit DDL to protect).
 	if (entries.length === 0) {
-		return await persistBlueprint(args);
+		return (await persistBlueprint(args)).result;
 	}
 
-	const store = await withOwnerContext(args.userId);
+	// Tenant-free schema store: the saga only ever calls
+	// `applySchemaChange` / `dropSchema`, both app-scoped, so it binds no
+	// Project. (The media-expectation re-check inside the Firestore
+	// transaction below scopes to the fresh app doc's `project_id`.)
+	const store = await withSchemaContext();
 
-	// Build the case-type schema map once at the boundary; the
-	// case-store's `applySchemaChange` reads from it directly. Each
-	// loop iteration shares the same prospective map.
+	// The migration-bearing entries run Postgres-first + compensate; the
+	// additive ones ride the post-commit sweep. `change !== undefined` is the
+	// discriminator the classifier stamps for an explicit per-row reshape. A
+	// hint whose `caseType` isn't in the prospective (a stale / retired-type
+	// hint) is dropped — running it would throw `CaseTypeNotInBlueprintError`
+	// and abort an otherwise-valid write; the sweep (or the next save) still
+	// covers whatever the committed doc holds.
 	const prospectiveSchemas = buildCaseTypeMap(prospectiveBlueprint);
+	const migrationEntries = entries.filter((entry) => {
+		if (entry.change === undefined) return false;
+		if (!prospectiveSchemas.has(entry.caseType)) {
+			log.warn(
+				"[applyBlueprintChange] migration hint targets a case type absent from the prospective blueprint — skipping",
+				{ appId: args.appId, caseType: entry.caseType },
+			);
+			return false;
+		}
+		return true;
+	});
 
-	// Phase 1: forward apply each change against Postgres. Track
-	// which entries succeeded so a failure mid-loop compensates
-	// only the ones that actually landed.
-	const applied: CaseTypeChangeEntry[] = [];
+	// Reauthorize BEFORE the migration-bearing Phase-1 DDL — ONLY when there is
+	// such DDL to protect. The saga applies that DDL before
+	// `commitGuardedBatch`'s own in-txn reauth would fire, so a caller
+	// deauthorized mid-window must be rejected here or they'd mutate
+	// `case_type_schemas` (and, if the compensating call also failed, leave
+	// store drift). For a pure additive / non-case-type commit there is no
+	// pre-commit DDL, so `commitGuardedBatch`'s reauth is the single gate — no
+	// second `loadAppProjectId` + `projectRoleFor` round trip on the hot path.
+	//
+	// When it DOES run, the resolved `projectId` is threaded into the commit as
+	// `preauthorized` so `commitGuardedBatch` doesn't re-run the identical
+	// resolve + reauth for the same actor moments later.
+	let preauthorized: { projectId: string | null } | undefined;
+	if (migrationEntries.length > 0) {
+		const projectId = await loadAppProjectId(args.appId);
+		await reauthorizeActorForCommit(projectId, args.userId);
+		preauthorized = { projectId };
+	}
+
+	// Phase 1: forward-apply each MIGRATION-BEARING change against Postgres,
+	// derived from the client prospective. The additive entries are NOT applied
+	// here — they wait for the post-commit sweep of the committed doc.
+	//
+	// On any failure, compensate over ALL `migrationEntries` (not just the ones
+	// whose `applySchemaChange` fully returned): `applySchemaChange` is
+	// two-phase, so an entry whose Phase A committed and whose Phase B then
+	// threw exits this loop UN-recorded, yet its schema DID change. Compensate
+	// is idempotent (it re-derives each type from the fresh committed doc), so
+	// re-syncing a type whose Phase A rolled back is a harmless no-op while a
+	// Phase-A-committed / Phase-B-failed type is correctly reconciled.
 	try {
-		for (const entry of entries) {
+		for (const entry of migrationEntries) {
 			await store.applySchemaChange({
 				appId: args.appId,
 				caseType: entry.caseType,
@@ -249,21 +309,37 @@ export async function applyBlueprintChange(
 				...(entry.property !== undefined && { property: entry.property }),
 				...(entry.change !== undefined && { change: entry.change }),
 			});
-			applied.push(entry);
 		}
 	} catch (forwardErr) {
-		await compensate(args.appId, store, applied, priorBlueprint);
+		await compensate(args.appId, store, migrationEntries);
 		throw forwardErr;
 	}
 
-	// Phase 2: commit Firestore. On failure, compensate every
-	// already-applied Postgres entry against the prior blueprint.
+	// Phase 2: commit Firestore. On failure, compensate every migration-bearing
+	// type from the current committed doc (seq-guarded).
+	let result: ApplyBlueprintChangeResult;
+	let deduped: boolean;
 	try {
-		return await persistBlueprint(args);
+		({ result, deduped } = await persistBlueprint(args, preauthorized));
 	} catch (commitErr) {
-		await compensate(args.appId, store, applied, priorBlueprint);
+		await compensate(args.appId, store, migrationEntries);
 		throw commitErr;
 	}
+
+	// Phase 3: post-commit sweep. Sync every case type the classify entries
+	// name against the COMMITTED doc at the committed seq — this covers a
+	// peer's concurrently-committed property (via the monotone `synced_seq`
+	// merge) AND advances a migration-bearing type's `synced_seq` (its per-row
+	// work already ran in Phase 1). Skipped on ANY dedup: a deduped commit
+	// pairs the batch's ORIGINAL `seq` with the CURRENT (peer-advanced) doc,
+	// and it already swept at that original commit — sweeping the newer schema
+	// at the stale seq would let a later stale-seq sweep pass the monotone gate
+	// and clobber a peer's property. (`committedDoc` is also absent on a
+	// top-level dedup, so the guard covers both dedup shapes.)
+	if (!deduped) {
+		await sweepCommittedSchemas(store, args.appId, result, entries);
+	}
+	return result;
 }
 
 /**
@@ -296,162 +372,193 @@ async function resolvePriorBlueprint(
 }
 
 /**
- * Commit the prospective blueprint to Firestore. Routes through the
- * guarded transactional writer when a `guard` is supplied (MCP tool
- * calls), the basis-compare writer when a `basis` is supplied (the
- * auto-save PUT), `updateAppForRun` when only a `runId` is supplied, and
- * `updateApp` otherwise.
+ * Commit the blueprint through the unified guarded writer. Every caller of the
+ * saga now supplies a `guard` (the whole-doc non-guard path is gone); the
+ * transactional re-apply-on-fresh + re-verdict + concurrent-delete guard +
+ * media re-check + durable stream + dedup latch + `mutation_seq` advance all
+ * live in {@link commitGuardedBatch}. `run_id` (MCP) rides along; auto-save
+ * omits it. Returns the public result PLUS `deduped` — the post-commit sweep
+ * gates on it, because an IN-transaction dedup pairs the batch's ORIGINAL
+ * `seq` with the CURRENT (peer-advanced) doc, an inconsistent pair the sweep
+ * must not sync from (it already swept at the original commit).
+ *
+ * `preauthorized` (the migration path only) forwards the `projectId` the saga
+ * already resolved + reauthed so `commitGuardedBatch` skips the redundant
+ * second resolve + role check for the same actor.
  */
 async function persistBlueprint(
 	args: ApplyBlueprintChangeArgs,
-): Promise<ApplyBlueprintChangeResult> {
-	if (args.guard !== undefined && args.runId !== undefined) {
-		const { mutations, mediaExpectations } = args.guard;
-		await updateAppForRunTransactional(
-			args.appId,
-			args.runId,
-			async (fresh, tx) => {
-				/* Re-apply against the FRESH stored blueprint and re-run the
-				 * verdict inside the transaction. Firestore re-runs this body on
-				 * contention, so the verdict always holds against the doc the
-				 * write replaces.
-				 *
-				 * Cost shape: the fresh doc carries no reference index (it never
-				 * persists), so the verdict's candidate apply seeds one from
-				 * scratch — an O(doc) extraction pass per transaction attempt,
-				 * on top of the verdict's own validation. That bracketing cost
-				 * is the accepted price of re-deriving everything from the doc
-				 * the write actually replaces; the reference LOOKUPS the verdict
-				 * and reducers make stay O(1) against the seeded index. */
-				/* Media re-check FIRST: it is the transaction's only extra read,
-				 * and Firestore forbids reads after the first write. Reading the
-				 * asset rows through `tx` puts them in the transaction's read
-				 * set, so the rows the judgment approved are the rows this
-				 * commit serializes against. Same judgment as the tool's
-				 * pre-commit verdict — only the read moves into the transaction. */
-				if (mediaExpectations !== undefined && mediaExpectations.length > 0) {
-					const rows = await getAssetsInTransaction(
-						tx,
-						mediaExpectations.map((e) => e.assetId),
-					);
-					const failure = describeMediaExpectationFailures(
-						mediaExpectations,
-						rows,
-						args.userId,
-					);
-					if (failure !== null) {
-						throw new BlueprintCommitRejectedError(failure);
-					}
-				}
-				const freshDoc: BlueprintDoc = {
-					...(fresh.blueprint as PersistableDoc),
-					fieldParent: {},
-				} as BlueprintDoc;
-				rebuildFieldParent(freshDoc);
-				const verdict = mutationCommitVerdict(freshDoc, mutations);
-				if (!verdict.ok) {
-					throw new BlueprintCommitRejectedError(
-						describeIntroducedErrors(verdict.introduced),
-					);
-				}
-				return toPersistableDoc(verdict.nextDoc);
-			},
-		);
-		return {};
+	preauthorized?: { projectId: string | null },
+): Promise<{ result: ApplyBlueprintChangeResult; deduped: boolean }> {
+	if (args.guard === undefined) {
+		throw new Error("[applyBlueprintChange] a persist requires a `guard`");
 	}
-	if (args.basis !== undefined) {
-		const basisToken = await updateAppGuardedByBasis(
-			args.appId,
-			args.prospective,
-			args.basis.token,
-		);
-		return { basisToken };
-	}
-	if (args.runId !== undefined) {
-		await updateAppForRun(args.appId, args.prospective, args.runId);
-	} else {
-		await updateApp(args.appId, args.prospective);
-	}
-	return {};
+	const { mutations, mediaExpectations } = args.guard;
+	const commit = await commitGuardedBatch({
+		appId: args.appId,
+		batchId: args.batchId,
+		...(args.runId !== undefined && { runId: args.runId }),
+		mutations,
+		actorUserId: args.userId,
+		kind: args.kind,
+		...(mediaExpectations !== undefined && { mediaExpectations }),
+		...(preauthorized !== undefined && { preauthorized }),
+	});
+	return {
+		result: {
+			seq: commit.seq,
+			committedDoc: commit.committedDoc,
+		},
+		deduped: commit.deduped,
+	};
 }
 
 /**
- * Run compensating case-store calls against the prior blueprint
- * state for every already-applied entry.
+ * Post-commit additive sweep — sync the touched case types against the
+ * COMMITTED doc at the committed seq.
  *
- * Two compensation arms based on whether the case type existed
- * in the prior blueprint:
+ * Runs after `commitGuardedBatch`, so it syncs the schema Firestore actually
+ * holds (never the prior-derived prospective, which a concurrent writer can
+ * make trail). Scoped to the case types `classifyCaseTypeChanges` named — a
+ * non-case-type commit already took the `entries.length === 0` fast path and
+ * never reaches here. `syncedSeq = result.seq` feeds the monotone
+ * `synced_seq` guard: a peer's concurrently-committed property survives the
+ * merge, and a stale lower-seq sync of the same type fully no-ops.
  *
- *   - **Case-type already existed in prior** — call
- *     `applySchemaChange(prior)` to regenerate the prior schema
- *     + emit the prior index DDL diff. Re-derives Postgres
- *     state from the prior snapshot.
- *   - **Case-type was added in prospective** (absent from prior)
- *     — call `dropSchema` to DELETE the `case_type_schemas` row
- *     + drop every per-property index. Routing through
- *     `applySchemaChange(prior)` here would throw
- *     `CaseTypeNotInBlueprintError` because the prior blueprint
- *     has no `caseTypes` entry to derive a schema from; the
- *     direct DROP is the only path that honors the saga's
- *     "exactly the prior state" contract.
+ * Additive-only — no per-row migration. It re-derives EVERY touched type,
+ * including a migration-bearing one: Phase 1 synced that type from the
+ * PROSPECTIVE (pre-commit, un-versioned), so the sweep is what advances its
+ * `synced_seq` AND picks up a property a peer concurrently added to the same
+ * type. That means a migration type pays one redundant `readLiveIndexSet`
+ * catalog read here even when its own index set is unchanged — accepted: the
+ * Phase-B diff emits ZERO `CREATE/DROP INDEX` when the set matches, so it's a
+ * single indexed catalog query, and skipping it would risk missing a peer's
+ * concurrent additive index.
  *
- * The compensation re-derives the `case_type_schemas` row + the
- * per-property indexes from the prior snapshot. Per-row
- * migrations are NOT inverted: rows already retyped stay in their
- * new JSONB shape, and rows already moved to `cases_quarantine`
- * stay quarantined. The eventual-consistency model is acceptable
- * here because the next successful `applyBlueprintChange` call
- * (typically the user's retry of the same edit) re-syncs the
- * schema against the rows that already migrated. The author's
- * "apps are always in a valid state" lock holds at the schema
- * row + index DDL layer; per-row migration outcomes are durable
- * regardless of whether the surrounding saga commits.
+ * The caller gates this on `!deduped` (a deduped commit already swept at its
+ * original commit, and its `(seq, doc)` pair is inconsistent). Each per-type
+ * sync is a SINGLE attempt then a swallow — deliberately NO retry: this runs on
+ * the already-committed auto-save PUT / MCP response thread, so a sustained blip
+ * across N types must not block the user-facing response by up to N×backoff.
+ * The swallow is never rethrown (the commit already landed) but splits severity
+ * like the build materialize: a transient blip is `warn` (self-heals via the
+ * point-of-use `withSchemaHeal`), a deterministic fault is `error` (a real bug
+ * worth Sentry — unreachable today). The retry lives only on the non-user-facing
+ * drain-end `materializeCaseStoreSchemas`, where a stale schema is hit
+ * immediately by a post-build sample-data action.
+ */
+async function sweepCommittedSchemas(
+	store: SchemaCaseStore,
+	appId: string,
+	result: ApplyBlueprintChangeResult,
+	entries: readonly CaseTypeChangeEntry[],
+): Promise<void> {
+	if (result.committedDoc === undefined) return;
+	const committedSchemas = buildCaseTypeMap(result.committedDoc);
+	// One sync per DISTINCT touched case type — the classifier can emit several
+	// entries for one type (one property added and one retyped), but the sweep
+	// re-derives that type's whole schema once regardless.
+	const touched = new Set(entries.map((entry) => entry.caseType));
+	for (const caseType of touched) {
+		// A type the entries name but the committed doc dropped (a concurrent
+		// retire) has no schema to derive — skip rather than throw.
+		if (!committedSchemas.has(caseType)) continue;
+		try {
+			await store.applySchemaChange({
+				appId,
+				caseType,
+				caseTypeSchemas: committedSchemas,
+				syncedSeq: result.seq,
+			});
+		} catch (sweepErr) {
+			// Never rethrown — the commit already landed, so a sweep failure is
+			// not a 500. But split severity like the build materialize: a
+			// DETERMINISTIC fault (an unschemable property — trigger unreachable
+			// today, Zod gates names + SHA-256 index names) is a real bug worth
+			// surfacing to Sentry (`error`); a transient blip self-heals via the
+			// point-of-use `withSchemaHeal`, so it's `warn` only.
+			const message = `[applyBlueprintChange] post-commit schema sweep failed for caseType=${caseType}`;
+			if (isTransientDbError(sweepErr)) {
+				log.warn(message, { appId, seq: result.seq, error: sweepErr });
+			} else {
+				log.error(message, sweepErr, { appId, seq: result.seq });
+			}
+		}
+	}
+}
+
+/**
+ * Reconcile Postgres back to the CURRENT committed state after a
+ * migration-bearing forward-apply or Firestore commit failed.
  *
- * Try/catch isolation per call: a compensation failure logs and
- * continues so one failure doesn't mask another's signal. The
- * saga rethrows the original forward error regardless — the
- * caller sees the root cause, and the operator-facing log
- * captures any compensation gaps.
+ * `compensate` receives EVERY migration-bearing entry the saga tried (the
+ * additive ones ride the post-commit sweep, which self-heals rather than
+ * compensating) — not just the ones whose `applySchemaChange` fully returned.
+ * `applySchemaChange` is two-phase, so an entry whose Phase A committed and
+ * whose Phase B then threw would be un-recorded by a "track successes" list,
+ * yet its schema DID change; covering every entry closes that gap, and
+ * re-syncing a type whose Phase A rolled back is a harmless no-op.
+ *
+ * Phase 1's un-versioned UPSERT overwrote each affected type's schema with M's
+ * (now-uncommitted) prospective. Reverting to M's PRIOR snapshot would be
+ * wrong under concurrency: a peer who committed a new property to the same type
+ * mid-window (and swept it) would lose that property, because M's prior
+ * predates the peer's commit. So instead re-derive from a FRESH `loadApp` — the
+ * CURRENT committed doc, which carries the peer's committed property and NOT
+ * M's failed change — and apply it seq-guarded at the current `mutation_seq`
+ * (the same monotone gate the sweep uses), so no committed property is ever
+ * dropped by a failed migration and a still-newer concurrent write isn't
+ * clobbered either.
+ *
+ * Schema-sync-only (no `change`): the per-row migration already ran in Phase 1
+ * and is NOT inverted — rows already retyped stay in their new JSONB shape,
+ * rows already quarantined stay quarantined. That eventual-consistency is
+ * acceptable: the fresh-doc schema mirrors what's stored, and a subsequent
+ * successful write re-syncs against the migrated rows. The "apps are always
+ * valid" lock holds at the schema-row + index layer.
+ *
+ * If the fresh `loadApp` returns null (the app was concurrently deleted) there
+ * is nothing to reconcile. Per-call try/catch isolation: one compensation
+ * failure logs and continues. The saga rethrows the original forward error
+ * regardless.
  */
 async function compensate(
 	appId: string,
-	store: CaseStore,
-	applied: readonly CaseTypeChangeEntry[],
-	priorBlueprint: BlueprintDoc,
+	store: SchemaCaseStore,
+	entries: readonly CaseTypeChangeEntry[],
 ): Promise<void> {
-	if (applied.length === 0) return;
-	// Build the prior schema map once for the loop; every entry's
-	// presence-check + applySchemaChange call reads from the same
-	// snapshot.
-	const priorSchemas = buildCaseTypeMap(priorBlueprint);
-	for (const entry of applied) {
+	if (entries.length === 0) return;
+	// The CURRENT committed state — reflects any concurrent peer's committed
+	// additions and excludes M's failed change. `mutation_seq` is the seq that
+	// state is at, so the seq-guarded re-sync converges with the monotone gate.
+	const current = await loadApp(appId);
+	if (current === null) {
+		log.error(
+			"[applyBlueprintChange] compensation skipped — app document missing",
+			undefined,
+			{ appId },
+		);
+		return;
+	}
+	const currentSchemas = buildCaseTypeMap(current.blueprint);
+	const currentSeq = current.mutation_seq;
+	// Distinct types only — the classifier can emit several entries per type.
+	const touched = new Set(entries.map((entry) => entry.caseType));
+	for (const caseType of touched) {
+		// A type dropped from the current committed doc (a concurrent retire)
+		// has no schema to derive — skip. Otherwise re-sync it seq-guarded so a
+		// peer's committed property survives and a stale re-sync no-ops.
+		if (!currentSchemas.has(caseType)) continue;
 		try {
-			if (priorSchemas.has(entry.caseType)) {
-				// Case type existed in prior — re-sync the schema for
-				// the prior state. The per-row migration ran in Phase
-				// 1, so passing `change` again would attempt a second
-				// migration against rows that already migrated.
-				// Schema-sync-only against the prior blueprint is the
-				// inverse: it regenerates the prior JSON Schema + emits
-				// the prior index DDL diff.
-				await store.applySchemaChange({
-					appId,
-					caseType: entry.caseType,
-					caseTypeSchemas: priorSchemas,
-				});
-			} else {
-				// Case type was added in prospective — drop the schema
-				// row + per-property indexes directly. Routing through
-				// `applySchemaChange(prior)` here would throw
-				// `CaseTypeNotInBlueprintError` (prior blueprint has no
-				// matching `caseTypes` entry to derive a schema from);
-				// `dropSchema` is the structural inverse for the case-
-				// type-addition arm.
-				await store.dropSchema({ appId, caseType: entry.caseType });
-			}
+			await store.applySchemaChange({
+				appId,
+				caseType,
+				caseTypeSchemas: currentSchemas,
+				syncedSeq: currentSeq,
+			});
 		} catch (compensateErr) {
 			log.error(
-				`[applyBlueprintChange] compensation failed for caseType=${entry.caseType}`,
+				`[applyBlueprintChange] compensation failed for caseType=${caseType}`,
 				compensateErr,
 				{ appId },
 			);

@@ -145,7 +145,9 @@ function loadedFor(doc: BlueprintDoc): LoadedApp {
 		doc,
 		app: {
 			owner: "u1",
+			project_id: null,
 			app_name: doc.appName,
+			mutation_seq: 0,
 			connect_type: null,
 			module_count: doc.moduleOrder.length,
 			form_count: 0,
@@ -154,7 +156,6 @@ function loadedFor(doc: BlueprintDoc): LoadedApp {
 			deleted_at: null,
 			recoverable_until: null,
 			run_id: null,
-			blueprint_token: null,
 			created_at: new Date() as unknown as LoadedApp["app"]["created_at"],
 			updated_at: new Date() as unknown as LoadedApp["app"]["updated_at"],
 		},

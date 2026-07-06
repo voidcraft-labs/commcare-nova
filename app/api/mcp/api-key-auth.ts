@@ -14,7 +14,7 @@
 
 import { getAuth } from "@/lib/auth";
 import { NOVA_API_KEY_PREFIX, NOVA_MCP_FLOOR_SCOPES } from "@/lib/auth-public";
-import { callerIpFromHeaders } from "@/lib/auth-utils";
+import { callerIpFromHeaders } from "@/lib/callerIp";
 import { isUserActive } from "@/lib/db/api-keys";
 import { log } from "@/lib/logger";
 import type { ToolContext } from "@/lib/mcp/types";

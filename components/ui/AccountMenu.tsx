@@ -23,16 +23,7 @@ import { type AuthUser, useAuth } from "@/lib/auth/hooks/useAuth";
 import { useCreditBalance } from "@/lib/credits/useCreditBalance";
 import { ASSET_KINDS } from "@/lib/domain/multimedia";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
-
-/**
- * Extract up to two initials from a display name.
- * Falls back to "?" if the name is empty.
- */
-function getInitials(name: string): string {
-	const parts = name.trim().split(/\s+/);
-	if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-	return parts[0]?.[0]?.toUpperCase() ?? "?";
-}
+import { getInitials } from "@/lib/utils";
 
 /**
  * Credit-gauge gradient. The argument is the fraction of the month's credits
@@ -84,8 +75,11 @@ function UserAvatar({
 		);
 	}
 	return (
+		/* `leading-none` centers the CAPS optically — with the inherited
+		 * line-height the line box towers over the glyphs, so flex centers
+		 * the box and the letters ride high of the circle's midline. */
 		<span
-			className={`${s.box} rounded-full bg-nova-surface ${s.text} font-semibold text-nova-text flex items-center justify-center ${s.border}`}
+			className={`${s.box} rounded-full bg-nova-surface ${s.text} font-semibold leading-none text-nova-text flex items-center justify-center ${s.border}`}
 		>
 			{getInitials(user.name)}
 		</span>

@@ -103,6 +103,17 @@ steps:
   # reset can't silently drop back to scale-to-zero (which exposes the cold
   # boot on every idle return). Keep it explicit.
   #
+  # `--no-cpu-throttling` (CPU always allocated) is REQUIRED, not tuning: the
+  # Cloud SQL connector refreshes its short-lived ephemeral mTLS certificate on
+  # a BACKGROUND timer, and Cloud Run's default request-scoped CPU throttling
+  # starves that timer between requests. On a low-traffic service the idle gaps
+  # are long enough that the refresh's TLS handshake to `sqladmin.googleapis.com`
+  # dies mid-flight (ECONNRESET) and the cert lapses — after which every new DB
+  # connection is rejected with SSL alert 42 (bad certificate) until the instance
+  # restarts. Auth and case data both ride this connector, so a lapse takes down
+  # sign-in, not just case reads. Allocating CPU always keeps the refresh cycle
+  # alive. See cloud-sql-nodejs-connector issues #285 / #379.
+  #
   # `--startup-probe` points at `/warmup` (see `app/(app)/warmup/page.tsx`):
   # a new instance only takes traffic once it has rendered a page, which
   # forces the multi-second lazy load of the server module graph to happen
@@ -128,6 +139,7 @@ steps:
       - --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$COMMIT_SHA
       - --region=us-central1
       - --min-instances=1
+      - --no-cpu-throttling
       - --startup-probe=httpGet.path=/warmup,httpGet.port=8080,initialDelaySeconds=0,timeoutSeconds=10,periodSeconds=10,failureThreshold=24
 
 options:

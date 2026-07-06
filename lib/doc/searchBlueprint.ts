@@ -15,6 +15,11 @@ import {
 	expressionSourceEntries,
 	isContainer,
 } from "@/lib/domain";
+import {
+	orderedFieldUuids,
+	orderedFormUuids,
+	orderedModuleUuids,
+} from "./fieldWalk";
 
 /**
  * A single match from `searchBlueprint`. The surface preserves the
@@ -67,8 +72,13 @@ export function searchBlueprint(
 	const results: SearchResult[] = [];
 	const q = query.toLowerCase();
 
-	for (let mIdx = 0; mIdx < doc.moduleOrder.length; mIdx++) {
-		const moduleUuid = doc.moduleOrder[mIdx];
+	// DISPLAY order (`sort-by-(order, uuid)`) — the reported `moduleIndex` /
+	// `formIndex` are the SAME sorted positions the SA's positional resolvers
+	// and `summarizeBlueprint` speak, so a search hit's "Module N" addresses
+	// the entity another tool call reaches by index N.
+	const moduleUuids = orderedModuleUuids(doc);
+	for (let mIdx = 0; mIdx < moduleUuids.length; mIdx++) {
+		const moduleUuid = moduleUuids[mIdx];
 		const mod = doc.modules[moduleUuid];
 		if (!mod) continue;
 
@@ -143,7 +153,7 @@ export function searchBlueprint(
 			}
 		}
 
-		const formUuids = doc.formOrder[moduleUuid] ?? [];
+		const formUuids = orderedFormUuids(doc, moduleUuid);
 		for (let fIdx = 0; fIdx < formUuids.length; fIdx++) {
 			const formUuid = formUuids[fIdx];
 			const form = doc.forms[formUuid];
@@ -177,7 +187,9 @@ function searchFields(
 	results: SearchResult[],
 	pathPrefix: string,
 ): void {
-	const order = doc.fieldOrder[parentUuid] ?? [];
+	// Visual (display) sequence, so the surfaced result list matches form
+	// layout and any reported field ordering agrees with the wire/preview.
+	const order = orderedFieldUuids(doc, parentUuid);
 	for (const uuid of order) {
 		const field = doc.fields[uuid];
 		if (!field) continue;

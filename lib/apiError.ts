@@ -66,6 +66,13 @@ export const BLUEPRINT_REQUEST_MAX_BYTES = 2 * 1024 * 1024;
 export const CHAT_REQUEST_MAX_BYTES = 16 * 1024 * 1024;
 export const CLIENT_ERROR_MAX_BYTES = 32 * 1024;
 export const OAUTH_REVOKE_MAX_BYTES = 16 * 1024;
+/**
+ * `PRESENCE_REQUEST_MAX_BYTES` — the presence heartbeat body (a `sessionId`,
+ * `name`, `color`, and a `Location`) is a few hundred bytes; 16 KB accepts
+ * every valid one and keeps this hot per-tab endpoint from buffering
+ * multi-MB bodies.
+ */
+export const PRESENCE_REQUEST_MAX_BYTES = 16 * 1024;
 
 /**
  * The cheap declared-size gate shared by every body-capped route: a request
@@ -122,11 +129,48 @@ export async function readJsonBody(
 }
 
 /**
+ * Whether an error is a CLIENT-INITIATED request abort (a disconnect), not a
+ * server fault. When a browser closes a connection — a tab close, a navigation,
+ * an `EventSource.close()` on a long-lived SSE stream — the request's socket is
+ * destroyed and any in-flight await against it (reading the body, a stream write)
+ * rejects. Node surfaces that as `Error: aborted` (the HTTP server's
+ * `abortIncoming`) or an `ECONNRESET`; the fetch/undici layer as a `DOMException`
+ * / `Error` named `AbortError` (code `ABORT_ERR`).
+ *
+ * A disconnect is EXPECTED for every route (and is the single most common event
+ * on the `/stream` SSE relay), so it must NOT reach `log.error` — which mirrors
+ * to Sentry (`lib/logger.ts`) and would flood the issue stream on every routine
+ * close. The server never intentionally aborts its own request in a way that
+ * should log, so an abort-shaped error is always a client disconnect. A GENUINE
+ * mid-request server error (an auth-store fault, a Firestore blip, a bug) matches
+ * NONE of these and still logs + 500s.
+ */
+export function isClientAbort(err: unknown): boolean {
+	if (err instanceof DOMException && err.name === "AbortError") return true;
+	if (err instanceof Error) {
+		if (err.name === "AbortError") return true;
+		const code = (err as { code?: unknown }).code;
+		if (code === "ABORT_ERR" || code === "ECONNRESET") return true;
+		// The message shapes are matched ANCHORED, never by substring: Node's
+		// http server surfaces a destroyed request socket as exactly `aborted`
+		// (`abortIncoming`), and the body-reading layer as `request aborted…`.
+		// A substring match would misclassify a genuine server fault that merely
+		// MENTIONS an abort — a store's "transaction aborted on contention", a
+		// gRPC "…ABORTED…" passthrough — as a 499 disconnect, hiding a real
+		// mid-request failure from Sentry behind a WARN.
+		if (err.message === "aborted") return true;
+		if (err.message.startsWith("request aborted")) return true;
+	}
+	return false;
+}
+
+/**
  * Converts an error into a consistent JSON error response.
  *
  * - `ApiError`  -> uses its status and details directly
- * - `Error`     -> 500 with the error message
- * - anything else -> 500 with a generic message
+ * - a CLIENT ABORT (disconnect) -> `499`, logged at WARN (Cloud-Logging-only)
+ * - `AppAccessError` -> 404 (IDOR-safe not-found)
+ * - anything else -> 500 with a generic message, logged at ERROR (→ Sentry)
  *
  * Response shape: `{ error: string, details?: string[] }`
  */
@@ -137,6 +181,28 @@ export function handleApiError(err: ApiError | Error): NextResponse {
 			body.details = err.details;
 		}
 		return NextResponse.json(body, { status: err.status });
+	}
+
+	/* A client disconnect (tab close / navigation / `EventSource.close()`) — the
+	 * request aborted, so any await against it rejected. This is EXPECTED, not a
+	 * server fault: return a terminal `499 Client Closed Request` and log at WARN
+	 * (Cloud-Logging-only), NEVER `log.error` → Sentry (a disconnect is the single
+	 * most common `/stream` event; logging it at error floods the issue stream).
+	 * The client is already gone, so the status/body is moot. */
+	if (isClientAbort(err)) {
+		log.warn("[apiError] client aborted request", { err: err.message });
+		return NextResponse.json(
+			{ error: "Client closed request" },
+			{ status: 499 },
+		);
+	}
+
+	/* Membership denial (`lib/db/appAccess` `AppAccessError`) → 404 — the IDOR-safe
+	 * not-found posture every app surface shares (a denial must be wire-
+	 * indistinguishable from a missing id). Matched by name to avoid pulling the
+	 * db/auth graph into this lightweight error util. */
+	if (err.name === "AppAccessError") {
+		return NextResponse.json({ error: "App not found" }, { status: 404 });
 	}
 
 	// Standard Error — return a generic message to avoid leaking internal

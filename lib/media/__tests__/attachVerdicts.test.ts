@@ -29,7 +29,7 @@ import {
 
 interface MockRow {
 	id: string;
-	owner: string;
+	project_id: string;
 	status: "pending" | "ready";
 	kind: string;
 	sizeBytes: number;
@@ -39,12 +39,14 @@ const { rows, loadAssetsByIdsMock } = vi.hoisted(() => {
 	const rows = new Map<string, MockRow>();
 	return {
 		rows,
-		loadAssetsByIdsMock: vi.fn(async (owner: string, ids: readonly string[]) =>
-			[...new Set(ids)]
-				.map((id) => rows.get(id))
-				.filter(
-					(row): row is MockRow => row !== undefined && row.owner === owner,
-				),
+		loadAssetsByIdsMock: vi.fn(
+			async (ids: readonly string[], projectId: string) =>
+				[...new Set(ids)]
+					.map((id) => rows.get(id))
+					.filter(
+						(row): row is MockRow =>
+							row !== undefined && row.project_id === projectId,
+					),
 		),
 	};
 });
@@ -56,7 +58,7 @@ vi.mock("@/lib/db/mediaAssets", () => ({
 function seed(id: string, overrides: Partial<Omit<MockRow, "id">> = {}): void {
 	rows.set(id, {
 		id,
-		owner: "user-1",
+		project_id: "project-1",
 		status: "ready",
 		kind: "image",
 		sizeBytes: 1024,
@@ -94,7 +96,7 @@ describe("mediaAttachVerdict", () => {
 	it("passes a ready, owned, kind-matched asset", async () => {
 		seed("a1");
 		const verdict = await mediaAttachVerdict({
-			owner: "user-1",
+			projectId: "project-1",
 			doc: emptyDoc(),
 			expectations: [imageExpectation("a1")],
 		});
@@ -103,7 +105,7 @@ describe("mediaAttachVerdict", () => {
 
 	it("fails a missing asset, pointing at the slot and the library", async () => {
 		const verdict = await mediaAttachVerdict({
-			owner: "user-1",
+			projectId: "project-1",
 			doc: emptyDoc(),
 			expectations: [imageExpectation("a-gone")],
 		});
@@ -114,24 +116,24 @@ describe("mediaAttachVerdict", () => {
 		expect(verdict.error).toContain("library");
 	});
 
-	it("reads a foreign-owned asset as missing (no ownership leak)", async () => {
-		seed("a-foreign", { owner: "someone-else" });
+	it("reads a foreign-Project asset as missing (no cross-tenant leak)", async () => {
+		seed("a-foreign", { project_id: "project-2" });
 		const verdict = await mediaAttachVerdict({
-			owner: "user-1",
+			projectId: "project-1",
 			doc: emptyDoc(),
 			expectations: [imageExpectation("a-foreign")],
 		});
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
 		expect(verdict.error).toContain("library");
-		expect(verdict.error).not.toContain("someone-else");
+		expect(verdict.error).not.toContain("project-2");
 		expect(verdict.error).not.toMatch(/own|belong/i);
 	});
 
 	it("fails a pending asset with the still-uploading message", async () => {
 		seed("a-pending", { status: "pending" });
 		const verdict = await mediaAttachVerdict({
-			owner: "user-1",
+			projectId: "project-1",
 			doc: emptyDoc(),
 			expectations: [imageExpectation("a-pending")],
 		});
@@ -143,7 +145,7 @@ describe("mediaAttachVerdict", () => {
 	it("fails a kind mismatch naming both kinds", async () => {
 		seed("a-audio", { kind: "audio" });
 		const verdict = await mediaAttachVerdict({
-			owner: "user-1",
+			projectId: "project-1",
 			doc: emptyDoc(),
 			expectations: [imageExpectation("a-audio")],
 		});
@@ -157,7 +159,7 @@ describe("mediaAttachVerdict", () => {
 		// One ready row whose recorded size alone exceeds the 200 MB budget.
 		seed("a-huge", { sizeBytes: 201 * 1024 * 1024 });
 		const verdict = await mediaAttachVerdict({
-			owner: "user-1",
+			projectId: "project-1",
 			doc: emptyDoc(),
 			expectations: [imageExpectation("a-huge")],
 		});
@@ -175,7 +177,7 @@ describe("mediaAttachVerdict", () => {
 			expectations.push(imageExpectation(id));
 		}
 		const verdict = await mediaAttachVerdict({
-			owner: "user-1",
+			projectId: "project-1",
 			doc: emptyDoc(),
 			expectations,
 		});
@@ -190,7 +192,7 @@ describe("mediaAttachVerdict", () => {
 		const doc = emptyDoc();
 		doc.logo = asAssetId("a-existing");
 		const verdict = await mediaAttachVerdict({
-			owner: "user-1",
+			projectId: "project-1",
 			doc,
 			// The new ref alone is under budget; existing + new is over.
 			expectations: [
@@ -204,7 +206,7 @@ describe("mediaAttachVerdict", () => {
 
 	it("short-circuits on zero expectations without reading the asset table", async () => {
 		const verdict = await mediaAttachVerdict({
-			owner: "user-1",
+			projectId: "project-1",
 			doc: emptyDoc(),
 			expectations: [],
 		});
@@ -216,9 +218,15 @@ describe("mediaAttachVerdict", () => {
 describe("describeMediaExpectationFailures", () => {
 	it("reports every failed expectation, one line each, and null when all hold", () => {
 		const table = new Map<string, MediaExpectationRow>([
-			["ok", { owner: "user-1", status: "ready", kind: "image" }],
-			["pending", { owner: "user-1", status: "pending", kind: "image" }],
-			["wrong-kind", { owner: "user-1", status: "ready", kind: "video" }],
+			["ok", { project_id: "project-1", status: "ready", kind: "image" }],
+			[
+				"pending",
+				{ project_id: "project-1", status: "pending", kind: "image" },
+			],
+			[
+				"wrong-kind",
+				{ project_id: "project-1", status: "ready", kind: "video" },
+			],
 		]);
 		const failures = describeMediaExpectationFailures(
 			[
@@ -228,7 +236,7 @@ describe("describeMediaExpectationFailures", () => {
 				{ assetId: "absent", kind: "image", slot: "slot D" },
 			],
 			table,
-			"user-1",
+			"project-1",
 		);
 		expect(failures).not.toBeNull();
 		const lines = (failures ?? "").split("\n");
@@ -241,7 +249,7 @@ describe("describeMediaExpectationFailures", () => {
 			describeMediaExpectationFailures(
 				[{ assetId: "ok", kind: "image", slot: "slot A" }],
 				table,
-				"user-1",
+				"project-1",
 			),
 		).toBeNull();
 	});

@@ -24,8 +24,9 @@ import {
 	type NovaUIMessage,
 } from "@/lib/chat/attachmentRefs";
 import { extractThread } from "@/lib/chat/threadUtils";
+import type { ReconcilerContextValue } from "@/lib/collab/context";
+import { useReconcilerContext } from "@/lib/collab/context";
 import { saveThread } from "@/lib/db/threads";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
@@ -34,6 +35,7 @@ import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	derivePhase,
+	useCanEdit,
 	useInReplayMode,
 	useReplayMessages,
 } from "@/lib/session/hooks";
@@ -74,6 +76,7 @@ function createChatInstance(
 	sessionStoreRef: { current: BuilderSessionStoreApi | null },
 	runIdRef: { current: string | undefined },
 	lastResponseAtRef: { current: string | undefined },
+	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 ): Chat<NovaUIMessage> {
 	return new Chat<NovaUIMessage>({
 		// Validates any message metadata the SDK parses on the client. Outbound
@@ -88,11 +91,9 @@ function createChatInstance(
 				if (!session) return {};
 				const sessionState = session.getState();
 				const hasData = (doc?.moduleOrder.length ?? 0) > 0;
-				/* Send the normalized doc directly — the route converts to the
-				 * SA's wire format server-side. The derived state (fieldParent
-				 * + the reference index) is omitted from the wire payload
-				 * (matches Firestore's persistence contract). */
-				const wireDoc = doc && hasData ? toPersistableDoc(doc) : undefined;
+				/* The blueprint is NEVER sent — the route loads the persisted doc
+				 * server-side off the authorization read. We send only the `appId`;
+				 * `hasData` still feeds the `appReady` phase derivation below. */
 				/* `appReady` gates whether the server strips generation tools
 				 * (editing mode) vs exposes them (build mode). We use the
 				 * derived phase as the single source of truth — Ready or
@@ -115,7 +116,6 @@ function createChatInstance(
 				const appReady =
 					phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
 				return {
-					doc: wireDoc,
 					runId: runIdRef.current,
 					appId: sessionState.appId,
 					lastResponseAt: lastResponseAtRef.current,
@@ -131,6 +131,13 @@ function createChatInstance(
 			};
 			if (type === "data-run-id") {
 				runIdRef.current = data.runId as string;
+				/* Set the reconciler's active run id BEFORE any frame can arrive,
+				 * so a chat frame carrying this user's actorId + this runId is
+				 * classified as a self-echo (and a runId-less peer-tab frame stays
+				 * remote). */
+				reconcilerCtxRef.current?.reconciler.setSelfActiveRunId(
+					data.runId as string,
+				);
 				return;
 			}
 			if (type === "data-credit-refund") {
@@ -160,12 +167,24 @@ function createChatInstance(
 			 * URL without any further checks. Edit requests never emit this
 			 * event, so the handler never runs for them. */
 			if (type === "data-app-id") {
-				sessionApi.getState().setAppId(data.appId as string);
-				window.history.replaceState({}, "", `/build/${data.appId as string}`);
+				const newAppId = data.appId as string;
+				sessionApi.getState().setAppId(newAppId);
+				window.history.replaceState({}, "", `/build/${newAppId}`);
+				/* Activate the dormant new-build reconciler: seed it at
+				 * `{ appId, baseSeq: 0, baseDoc: current doc }` and open the stream
+				 * at cursor 0, so subsequent chat batches + human edits reconcile. */
+				reconcilerCtxRef.current?.activate(newAppId);
 				return;
 			}
 
-			applyStreamEvent(type, data, docApi, sessionApi);
+			applyStreamEvent(
+				type,
+				data,
+				docApi,
+				sessionApi,
+				reconcilerCtxRef.current?.reconciler ?? null,
+				runIdRef.current,
+			);
 		},
 	});
 }
@@ -190,7 +209,12 @@ export function ChatContainer({
 }: ChatContainerProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
+	const reconcilerCtx = useReconcilerContext();
 	const inReplayMode = useInReplayMode();
+	/* Viewers (view-only Project members) get a read-only conversation — the
+	 * SA is the edit mechanism, so the composer hides exactly as it does in
+	 * replay. The write paths reject their edits server-side regardless. */
+	const canEdit = useCanEdit();
 	/** Replay messages — derived on read from the session store's event
 	 *  log + cursor. ReplayController writes the cursor; this hook
 	 *  projects the events into `UIMessage[]`. */
@@ -201,6 +225,11 @@ export function ChatContainer({
 	docStoreRef.current = docStore;
 	const sessionStoreRef = useRef(sessionApi);
 	sessionStoreRef.current = sessionApi;
+	/* The reconciler context (reconciler + activation), read through a ref so
+	 * the Chat callbacks always see the latest without recreating the Chat
+	 * instance. Null in replay (no reconciler mounts). */
+	const reconcilerCtxRef = useRef(reconcilerCtx);
+	reconcilerCtxRef.current = reconcilerCtx;
 	const runIdRef = useRef<string | undefined>(undefined);
 	/** Whether the SSE transport was open on the previous render — used
 	 *  to detect `ready`→`streaming` and `streaming`→`ready` transitions
@@ -226,6 +255,7 @@ export function ChatContainer({
 			sessionStoreRef,
 			runIdRef,
 			lastResponseAtRef,
+			reconcilerCtxRef,
 		),
 	);
 
@@ -239,6 +269,7 @@ export function ChatContainer({
 				sessionStoreRef,
 				runIdRef,
 				lastResponseAtRef,
+				reconcilerCtxRef,
 			),
 		);
 	}
@@ -283,6 +314,19 @@ export function ChatContainer({
 			sessionApi.getState().beginRun();
 		} else if (!streamOpen && wasOpen) {
 			sessionApi.getState().endRun();
+			/* The run is over — clear the reconciler's active run id. Every batch
+			 * the run committed is registered (`batchId ∈ awaitingEcho` covers its
+			 * late echoes), so the runId fallback is no longer needed — and leaving
+			 * it set would misclassify a LATER same-user frame that carries the
+			 * same run id (MCP's deriveRunId continues the app's stored run_id
+			 * inside a sliding window) as a self-echo, skipping its apply/rebase. */
+			reconcilerCtxRef.current?.reconciler.setSelfActiveRunId(undefined);
+			// A fresh build mounts with undo paused (it generates first). When the
+			// run ends the app is live/editable, so release the store's one-time
+			// birth pause — this is what makes undo work after a build without a
+			// page reload. Idempotent: a no-op once tracking is already live, so
+			// calling it on every run-end is safe.
+			docStoreRef.current?.getState().startTracking();
 			if (status === "ready") {
 				lastResponseAtRef.current = new Date().toISOString();
 			}
@@ -379,7 +423,12 @@ export function ChatContainer({
 			status={inReplayMode ? "ready" : status}
 			onSend={handleSend}
 			addToolOutput={addToolOutput}
-			readOnly={inReplayMode}
+			readOnly={inReplayMode || !canEdit}
+			readOnlyNotice={
+				!canEdit && !inReplayMode
+					? "You have view-only access to this app. Ask a Project admin for edit access to make changes."
+					: undefined
+			}
 			isExistingApp={isExistingApp}
 		>
 			{!inReplayMode && children}

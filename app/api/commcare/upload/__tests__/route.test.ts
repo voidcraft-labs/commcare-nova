@@ -9,10 +9,10 @@
  * getting errors, but forgetting to return and 500ing anyway).
  *
  * Boundaries are mocked: `requireSession` (so `req` is never read beyond
- * `json()`), credentials/manifest/import/expand, and the boundary gate
- * itself. A stub `NextRequest` carries the body via `json()`. The route
- * runs the REAL `blueprintDocSchema`, so the fixture doc is schema-valid
- * (built via `buildDoc`).
+ * `json()`), `resolveAppAccess` (loads the blueprint server-side from the
+ * posted `appId`), credentials/manifest/import/expand, and the boundary gate
+ * itself. A stub `NextRequest` carries the body via `json()`. The loaded
+ * fixture doc is schema-valid (built via `buildDoc`).
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,12 +21,14 @@ import { requireSession } from "@/lib/auth-utils";
 import { importApp, uploadAppMediaBundle } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
+import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { collectBoundaryViolations } from "@/lib/media/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
+vi.mock("@/lib/db/appAccess", () => ({ resolveAppAccess: vi.fn() }));
 vi.mock("@/lib/db/settings", () => ({
 	getCredentialsForUpload: vi.fn(),
 }));
@@ -62,10 +64,9 @@ const SESSION = { user: { id: "u1" } };
 const DOMAIN = "acme";
 
 /**
- * A schema-valid blueprint the route's `safeParse` accepts. The
- * persistable wire shape (`blueprintDocSchema`) is strict and excludes
- * `fieldParent` (the route rebuilds it), so strip it off the in-memory
- * `buildDoc` output before sending it as the request body.
+ * The blueprint `resolveAppAccess` loads server-side. The persistable wire
+ * shape (`blueprintDocSchema`) excludes the derived `fieldParent` (the route
+ * rebuilds it), so strip it off the in-memory `buildDoc` output.
  */
 function validDoc() {
 	const { fieldParent: _fieldParent, ...doc } = buildDoc({
@@ -148,8 +149,17 @@ function reqWith(body: unknown) {
 	} as unknown as Parameters<typeof POST>[0];
 }
 
+/** Mock `resolveAppAccess` to load `doc` for app owner `u1` in `project-1`. */
+function loadsDoc(doc: ReturnType<typeof validDoc>) {
+	vi.mocked(resolveAppAccess).mockResolvedValue({
+		app: { blueprint: doc, owner: "u1" },
+		projectId: "project-1",
+	} as never);
+}
+
 beforeEach(() => {
 	vi.mocked(requireSession).mockReset();
+	vi.mocked(resolveAppAccess).mockReset();
 	vi.mocked(getCredentialsForUpload).mockReset();
 	vi.mocked(collectBoundaryViolations).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
@@ -158,6 +168,7 @@ beforeEach(() => {
 	vi.mocked(uploadAppMediaBundle).mockReset();
 
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
+	loadsDoc(validDoc());
 	// Successful credential + target-space resolution (`{ ok: true }`) so
 	// control passes the credential gate and reaches the media gate. The
 	// requested-space authorization lives inside `getCredentialsForUpload`,
@@ -191,7 +202,7 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		]);
 
 		const res = await POST(
-			reqWith({ domain: DOMAIN, appName: "T", doc: validDoc() }),
+			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
 		);
 		const body = (await res.json()) as { error: string; details?: string[] };
 
@@ -217,7 +228,7 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		);
 
 		const res = await POST(
-			reqWith({ domain: DOMAIN, appName: "T", doc: validDoc() }),
+			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
 		);
 		// Drain the response body — an unread `NextResponse.json` stream is a
 		// dangling async resource the leak detector flags; reading it also lets
@@ -228,9 +239,12 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		expect(body.appId).toBe("hq-1");
 		// Default bundle result is a clean match → no warnings.
 		expect(body.warnings).toEqual([]);
+		// Uploading PUBLISHES the app, so the membership gate is EDIT, not view
+		// (a viewer can't push a shared app to HQ).
+		expect(resolveAppAccess).toHaveBeenCalledWith("a1", "u1", "edit");
 		expect(collectBoundaryViolations).toHaveBeenCalledWith(
 			expect.objectContaining({ appName: "Vaccine Tracker" }),
-			"u1",
+			"project-1",
 		);
 		expect(importApp).toHaveBeenCalledTimes(1);
 		expect(uploadAppMediaBundle).toHaveBeenCalledTimes(1);
@@ -245,7 +259,7 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		});
 		// Default manifest is empty → no media to ship.
 		const res = await POST(
-			reqWith({ domain: DOMAIN, appName: "T", doc: validDoc() }),
+			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
 		);
 		await res.json();
 
@@ -263,6 +277,7 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		// The doc references asset `a1` as a field's label image; the manifest
 		// resolves it to a wire path, and HQ reports THAT path unmatched. The
 		// route must name where the media lives, not just count it.
+		loadsDoc(docWithFieldImage("a1"));
 		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
 			new Map([["a1", { wirePath: "commcare/img.png" } as never]]) as never,
 		);
@@ -277,7 +292,7 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		});
 
 		const res = await POST(
-			reqWith({ domain: DOMAIN, appName: "T", doc: docWithFieldImage("a1") }),
+			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
 		);
 		const body = (await res.json()) as { warnings: string[] };
 
@@ -299,6 +314,7 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		// The logo image is used nowhere else, so HQ reports it unmatched by
 		// design (logos aren't in its bulk-match set). The route explains it
 		// gently rather than telling the user to "re-upload".
+		loadsDoc({ ...validDoc(), logo: "logoA" } as ReturnType<typeof validDoc>);
 		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
 			new Map([["logoA", { wirePath: "commcare/logo.png" } as never]]) as never,
 		);
@@ -313,11 +329,7 @@ describe("POST /api/commcare/upload — boundary gate", () => {
 		});
 
 		const res = await POST(
-			reqWith({
-				domain: DOMAIN,
-				appName: "T",
-				doc: { ...validDoc(), logo: "logoA" },
-			}),
+			reqWith({ domain: DOMAIN, appName: "T", appId: "a1" }),
 		);
 		const body = (await res.json()) as { warnings: string[] };
 

@@ -26,6 +26,7 @@ import {
 import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { PeerBadge } from "@/components/builder/PeerBadge";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useModule as useModuleDoc } from "@/lib/doc/hooks/useEntity";
@@ -140,8 +141,8 @@ export const ModuleCard = memo(function ModuleCard({
 							/>
 						</div>
 					)}
-					<div>
-						<h3 className="font-medium text-sm">
+					<div className="min-w-0">
+						<h3 className="font-medium text-sm truncate">
 							{nameIndices ? (
 								<HighlightedText text={mod.name} indices={nameIndices} />
 							) : (
@@ -149,15 +150,22 @@ export const ModuleCard = memo(function ModuleCard({
 							)}
 						</h3>
 						{mod.caseType && (
-							<span className="text-xs text-nova-text-muted font-mono">
+							<span className="block truncate text-xs text-nova-text-muted font-mono">
 								{mod.caseType}
 							</span>
 						)}
 					</div>
 				</div>
-				{!locked && (
-					<TreeRowDelete label="Delete module" onDelete={handleDelete} />
-				)}
+				{/* Trailing cluster — the peer marker is the OUTERMOST element on
+				 *  every tree-row type, so it sits at one constant offset from the
+				 *  right edge whatever other meta (count, hover-delete) a row
+				 *  carries; the delete fades in just inboard of it. */}
+				<div className="flex items-center gap-1.5 shrink-0">
+					{!locked && (
+						<TreeRowDelete label="Delete module" onDelete={handleDelete} />
+					)}
+					<PeerBadge uuid={moduleUuid} />
+				</div>
 			</TreeItemRow>
 
 			{!isCollapsed && (

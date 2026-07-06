@@ -52,6 +52,12 @@ function dispatchMutation(
 		case "setConnectType":
 		case "setCaseTypes":
 		case "setAppLogo":
+		case "declareCaseType":
+		case "retireCaseType":
+		case "addCaseProperty":
+		case "setCaseProperty":
+		case "removeCaseProperty":
+		case "setCaseTypeMeta":
 			applyAppMutation(draft, mut);
 			return;
 		case "addModule":
@@ -60,6 +66,15 @@ function dispatchMutation(
 		case "renameModule":
 		case "updateModule":
 		case "setModuleMedia":
+		case "addColumn":
+		case "updateColumn":
+		case "removeColumn":
+		case "moveColumn":
+		case "addSearchInput":
+		case "updateSearchInput":
+		case "removeSearchInput":
+		case "moveSearchInput":
+		case "setCaseListMeta":
 			applyModuleMutation(draft, mut);
 			return;
 		case "addForm":
@@ -78,6 +93,10 @@ function dispatchMutation(
 		case "updateField":
 		case "convertField":
 		case "setFieldMedia":
+		case "addOption":
+		case "updateOption":
+		case "removeOption":
+		case "moveOption":
 			return applyFieldMutation(draft, mut);
 		default:
 			assertNever(mut, "applyMutation");

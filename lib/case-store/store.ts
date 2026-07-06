@@ -1,15 +1,21 @@
 // lib/case-store/store.ts
 //
-// The `CaseStore` interface and its row / arg / result types — the
-// type contracts the implementation (`./postgres/store.ts`) and the
-// factory (`./withOwnerContext.ts`) both depend on. This module
-// imports from neither.
+// The `CaseStore` / `SchemaCaseStore` interfaces and their row / arg /
+// result types — the type contracts the implementation
+// (`./postgres/store.ts`) and the factories (`./projectContext.ts`)
+// both depend on. This module imports from neither.
 //
-// Architectural contract: one interface, one implementation, with
-// structural tenant scoping enforced by the `withOwnerContext`
-// factory binding the request's owner id at construction time so
-// every method's underlying query inherits the
-// `WHERE owner_id = <bound userId>` filter automatically.
+// Architectural contract: two interfaces, one implementation.
+// `SchemaCaseStore` is the tenant-FREE schema-change slice (app-scoped
+// `applySchemaChange` / `dropSchema`); `CaseStore extends
+// SchemaCaseStore` adds the tenant-bound read/write surface.
+// `withProjectContext(projectId, actorUserId)` binds the Project at
+// construction so every read/write inherits the
+// `WHERE project_id = <bound>` filter automatically and every insert
+// stamps the new case's `owner_id = <actor>` (the CommCare case-owner —
+// the reserved axis future location-based access carves on, distinct
+// from the Project tenant filter); `withSchemaContext()` binds no
+// tenant, for the schema-only callers.
 //
 // Methods take their narrow dependency directly: predicate / sort /
 // calculated-column compilation needs the case-type schema map; the
@@ -49,15 +55,21 @@ export type CalculatedColumn = Extract<Column, { kind: "calculated" }>;
 // uuidv7()`). Deriving from the table interface keeps these row
 // types in lockstep with the schema.
 
-/** The shape of a `cases` row as Postgres returns it. */
-export type CaseRow = Selectable<CasesTable>;
+/**
+ * The shape of a `cases` row as Postgres returns it. `project_id` is
+ * omitted — it is the tenant key, never surfaced on a row (no consumer
+ * reads it; the store binds it). `owner_id` stays — it is the CommCare
+ * case-owner (the future location-access axis), a real row field.
+ */
+export type CaseRow = Omit<Selectable<CasesTable>, "project_id">;
 
 /**
  * The shape an `insert` accepts. `case_id` is optional (omitting
- * it lets Postgres's `DEFAULT uuidv7()` fire). `owner_id` and
- * `app_id` are omitted — `PostgresCaseStore` fills them from the
- * bound owner and the top-level `appId` argument, and callers
- * cannot override.
+ * it lets Postgres's `DEFAULT uuidv7()` fire). `app_id`, `project_id`,
+ * and `owner_id` are omitted — `PostgresCaseStore` fills `app_id` from
+ * the top-level argument, `project_id` from the bound Project, and
+ * `owner_id` (the CommCare case-owner) from the bound actor; callers
+ * cannot override the tenant key or the case-owner.
  *
  * `properties` widens to `JsonObject | string`. The implementation
  * parses + validates + re-stringifies either shape before the write
@@ -66,7 +78,7 @@ export type CaseRow = Selectable<CasesTable>;
  */
 export type CaseInsert = Omit<
 	Insertable<CasesTable>,
-	"app_id" | "owner_id" | "properties"
+	"app_id" | "project_id" | "owner_id" | "properties"
 > & {
 	properties: JsonObject | string;
 };
@@ -275,6 +287,23 @@ export type SchemaChangeKind =
  *
  * `property` is required when `change` is present and ignored
  * otherwise.
+ *
+ * `syncedSeq` (the `mutation_seq` this schema state derives from)
+ * arms the monotone `synced_seq` guard: a sync whose `syncedSeq`
+ * is LOWER than the row's recorded value is stale — a concurrent
+ * writer already landed a fresher schema — so the ENTIRE call
+ * no-ops (schema UPSERT + index DDL skipped). A forward sync
+ * (higher or equal) UPSERTs and records the new `synced_seq`, so
+ * two concurrently-added properties both survive. Absent: no guard —
+ * the plain additive UPSERT (the pre-multiplayer path; the
+ * migration-saga forward apply, which runs before its own committed
+ * seq exists).
+ *
+ * `change` and `syncedSeq` are MUTUALLY EXCLUSIVE — a per-row
+ * migration runs pre-commit (un-versioned); the additive gate
+ * carries a seq and no migration. The implementation throws when
+ * both are set, because the coarse gate's whole-call no-op could
+ * otherwise silently skip a migration's per-row work on a stale seq.
  */
 export interface ApplySchemaChangeArgs {
 	appId: string;
@@ -282,6 +311,7 @@ export interface ApplySchemaChangeArgs {
 	caseTypeSchemas: ReadonlyMap<string, CaseType>;
 	property?: string;
 	change?: SchemaChangeKind;
+	syncedSeq?: number;
 }
 
 /**
@@ -328,11 +358,73 @@ export interface ResetSampleDataArgs {
 }
 
 /**
- * The storage contract every consumer of case data binds against.
- * Construction is via the `withOwnerContext(userId)` factory —
- * there is no other constructor.
+ * The tenant-free slice of the store: schema-change operations that
+ * are APP-scoped (they apply to every row of an app's case type
+ * regardless of which member created it), so they bind no Project.
+ * `withSchemaContext()` returns this narrow type; callers that only
+ * sync schemas (the cross-store saga, the chat-completion materialize,
+ * the point-of-use heal) take it so they CANNOT reach a tenant-bound
+ * read/write without a Project.
  */
-export interface CaseStore {
+export interface SchemaCaseStore {
+	/**
+	 * Sync the case-type's JSON Schema with the supplied prospective
+	 * `caseTypeSchemas` map, optionally running a per-row migration.
+	 *
+	 * Two-phase shape — Phase A is one Kysely transaction that
+	 * UPSERTs `case_type_schemas` and runs the optional per-row
+	 * migration (`rename` / `retype` / `narrow-options`); Phase B
+	 * runs after Phase A commits and emits the per-property
+	 * expression-index `CREATE INDEX CONCURRENTLY` /
+	 * `DROP INDEX CONCURRENTLY` diff. Phase B cannot share the
+	 * Phase A transaction because non-CONCURRENTLY index builds
+	 * scan dead tuples produced by per-row quarantine inserts +
+	 * deletes earlier in the same transaction, and CONCURRENTLY
+	 * index builds reject any outer transaction.
+	 *
+	 * Phase B failure leaves the next call's diff to converge —
+	 * INVALID indexes flow through both `drops` and `creates` so a
+	 * retry rebuilds them from scratch. Recovery is idempotent.
+	 *
+	 * App-scoped: the schema row + per-row migration cover all of the
+	 * app's rows for the case type, across every member — a schema
+	 * change is an app-wide event, not a per-tenant one.
+	 */
+	applySchemaChange(args: ApplySchemaChangeArgs): Promise<MigrationReport>;
+
+	/**
+	 * Drop the `case_type_schemas` row + every per-property
+	 * expression index for `(appId, caseType)`. Used by the cross-
+	 * store saga's compensation path to revert a case-type-addition
+	 * Phase 1 commit when the Firestore commit fails: the prior
+	 * blueprint has no `caseTypes` entry for this case type, so
+	 * `applySchemaChange(prior)` cannot run (it would throw
+	 * `CaseTypeNotInBlueprintError`); a direct DROP is the only
+	 * way to honor the saga's "exactly the prior state" contract.
+	 *
+	 * Idempotent on every absence path — the schema row DELETE is
+	 * a no-op when missing, and the per-property index drops use
+	 * `IF EXISTS`. Calling against a non-existent case type is
+	 * safe.
+	 *
+	 * Mirrors `applySchemaChange`'s two-phase shape: the schema-
+	 * row DELETE runs in Phase A; the index drops run in Phase B
+	 * via `DROP INDEX CONCURRENTLY IF EXISTS` so the index drops
+	 * cannot run inside an outer transaction (Postgres rejects
+	 * CONCURRENTLY index DDL inside a transaction).
+	 */
+	dropSchema(args: { appId: string; caseType: string }): Promise<void>;
+}
+
+/**
+ * The full storage contract every consumer of case DATA binds
+ * against — the tenant-bound read/write surface plus the schema
+ * operations it inherits from {@link SchemaCaseStore}. Construction
+ * is via the `withProjectContext(projectId, actorUserId)` factory,
+ * which binds the Project the reads/writes scope to and the actor
+ * stamped as each new row's `owner_id`.
+ */
+export interface CaseStore extends SchemaCaseStore {
 	/**
 	 * Predicate-driven SELECT with optional inline calculated-column
 	 * projection. Default ordering (when `sort` is absent) is
@@ -357,7 +449,7 @@ export interface CaseStore {
 	/**
 	 * Predicate-driven `COUNT(*)`. Returns the row population the
 	 * `(appId, caseType, predicate?)` triple resolves to, scoped to
-	 * the bound owner. The case-list authoring surface's Filters
+	 * the bound Project. The case-list authoring surface's Filters
 	 * section uses this to render a "N cases pass this filter"
 	 * counter without paying for a full `query` round-trip — the
 	 * predicate compiles through the same `compilePredicate` stack
@@ -404,7 +496,7 @@ export interface CaseStore {
 	 * Update a case row. JSONB-merges the patch into `properties`,
 	 * re-validates against the schema, stamps `modified_on = now()`,
 	 * re-derives `case_indices` if `parent_case_id` changed. Throws
-	 * `CaseNotFoundError` when the bound owner cannot see the row.
+	 * `CaseNotFoundError` when the bound Project cannot see the row.
 	 */
 	update(args: {
 		appId: string;
@@ -437,50 +529,6 @@ export interface CaseStore {
 		caseId: string;
 		via: RelationPath;
 	}): Promise<CaseRow[]>;
-
-	/**
-	 * Sync the case-type's JSON Schema with the supplied prospective
-	 * `caseTypeSchemas` map, optionally running a per-row migration.
-	 *
-	 * Two-phase shape — Phase A is one Kysely transaction that
-	 * UPSERTs `case_type_schemas` and runs the optional per-row
-	 * migration (`rename` / `retype` / `narrow-options`); Phase B
-	 * runs after Phase A commits and emits the per-property
-	 * expression-index `CREATE INDEX CONCURRENTLY` /
-	 * `DROP INDEX CONCURRENTLY` diff. Phase B cannot share the
-	 * Phase A transaction because non-CONCURRENTLY index builds
-	 * scan dead tuples produced by per-row quarantine inserts +
-	 * deletes earlier in the same transaction, and CONCURRENTLY
-	 * index builds reject any outer transaction.
-	 *
-	 * Phase B failure leaves the next call's diff to converge —
-	 * INVALID indexes flow through both `drops` and `creates` so a
-	 * retry rebuilds them from scratch. Recovery is idempotent.
-	 */
-	applySchemaChange(args: ApplySchemaChangeArgs): Promise<MigrationReport>;
-
-	/**
-	 * Drop the `case_type_schemas` row + every per-property
-	 * expression index for `(appId, caseType)`. Used by the cross-
-	 * store saga's compensation path to revert a case-type-addition
-	 * Phase 1 commit when the Firestore commit fails: the prior
-	 * blueprint has no `caseTypes` entry for this case type, so
-	 * `applySchemaChange(prior)` cannot run (it would throw
-	 * `CaseTypeNotInBlueprintError`); a direct DROP is the only
-	 * way to honor the saga's "exactly the prior state" contract.
-	 *
-	 * Idempotent on every absence path — the schema row DELETE is
-	 * a no-op when missing, and the per-property index drops use
-	 * `IF EXISTS`. Calling against a non-existent case type is
-	 * safe.
-	 *
-	 * Mirrors `applySchemaChange`'s two-phase shape: the schema-
-	 * row DELETE runs in Phase A; the index drops run in Phase B
-	 * via `DROP INDEX CONCURRENTLY IF EXISTS` so the index drops
-	 * cannot run inside an outer transaction (Postgres rejects
-	 * CONCURRENTLY index DDL inside a transaction).
-	 */
-	dropSchema(args: { appId: string; caseType: string }): Promise<void>;
 
 	/**
 	 * Generate `count` sample rows for `caseType` and bulk-insert

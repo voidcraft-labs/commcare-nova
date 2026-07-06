@@ -33,7 +33,7 @@ import AdmZip from "adm-zip";
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { makeTestContext } from "@/lib/agent/__tests__/fixtures";
+import { makeStubToolContext } from "@/lib/agent/__tests__/fixtures";
 import { addCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "@/lib/agent/tools/case-list-config/addSearchInputs";
 import { removeCaseListColumnTool } from "@/lib/agent/tools/case-list-config/removeCaseListColumn";
@@ -52,6 +52,7 @@ import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { buildSortDirectives } from "@/lib/commcare/suite/case-list/sortKeys";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { bySortKey } from "@/lib/doc/order/compare";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -334,7 +335,8 @@ function buildFixtureDoc(): BlueprintDoc {
  */
 function buildStore(): CaseStore {
 	return new PostgresCaseStore({
-		ownerId: OWNER_ID,
+		projectId: OWNER_ID,
+		actorUserId: OWNER_ID,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
@@ -364,7 +366,7 @@ describe("schema parse", () => {
 
 describe("SA tool path — column atomic ops", () => {
 	it("threads uuids through add → update → reorder → remove", async () => {
-		const { ctx } = makeTestContext({ appId: APP_ID });
+		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		// Single case-typed module — every SA tool invocation here
 		// targets `moduleIndex: 0`. The `f` helper auto-stamps field
 		// uuids; explicit case-list slot is omitted so the first
@@ -496,7 +498,7 @@ describe("SA tool path — column atomic ops", () => {
 	});
 
 	it("returns Elm-style error when an update targets an unknown column uuid", async () => {
-		const { ctx } = makeTestContext({ appId: APP_ID });
+		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		const doc = buildDoc({
 			appId: APP_ID,
 			modules: [{ name: "Patients", caseType: "patient" }],
@@ -776,7 +778,7 @@ describe("calc-column comparator-type fallback", () => {
 
 describe("SearchInputDef discriminated round-trip", () => {
 	it("converts simple → advanced → simple via updateSearchInput, preserving uuid + common slots", async () => {
-		const { ctx } = makeTestContext({ appId: APP_ID });
+		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		const baseDoc = buildDoc({
 			appId: APP_ID,
 			modules: [{ name: "Patients", caseType: "patient" }],
@@ -1119,7 +1121,7 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 		// below (preview, wire emitter) keep their priority +
 		// source-index ordering for LEGACY docs that already carry a
 		// collision — covered by the sibling tests in this describe.
-		const { ctx } = makeTestContext({ appId: APP_ID });
+		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		const startDoc = buildDoc({
 			appId: APP_ID,
 			modules: [
@@ -1498,7 +1500,7 @@ function collectColumns(doc: BlueprintDoc): Column[] {
 	const moduleUuid = doc.moduleOrder[0];
 	const mod = doc.modules[moduleUuid];
 	if (!mod?.caseListConfig) return [];
-	return [...mod.caseListConfig.columns];
+	return [...mod.caseListConfig.columns].sort(bySortKey);
 }
 
 /**

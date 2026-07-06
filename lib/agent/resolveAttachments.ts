@@ -114,7 +114,7 @@ async function ensureExtract(
 
 /**
  * Resolve ONE ref to a single model-ready part. Self-contained + failure-safe:
- * any error (missing/foreign asset, decode/extract failure) resolves to a
+ * any error (missing/out-of-Project asset, decode/extract failure) resolves to a
  * placeholder text part rather than throwing, so a bad attachment never breaks
  * the turn and the SA always learns it was present.
  */
@@ -193,7 +193,7 @@ async function resolveRef(
  */
 export async function resolveAttachments(
 	messages: NovaUIMessage[],
-	ownerId: string,
+	projectId: string,
 	condenser: AttachmentCondenser,
 	/** Live read-progress (output char deltas) forwarded to each document's
 	 *  extraction, so the chat route can pulse the signal grid while the SEND-time
@@ -208,8 +208,8 @@ export async function resolveAttachments(
 	}
 	if (ids.size === 0) return messages;
 
-	// One owner-gated batch load; a foreign/missing id is simply absent from the
-	// map (→ placeholder), never leaked. A TOTAL load failure (a Firestore
+	// One Project-gated batch load; an out-of-Project/missing id is simply absent
+	// from the map (→ placeholder), never leaked. A TOTAL load failure (a Firestore
 	// outage) must not throw out of here — that would fail the whole turn from a
 	// spot outside the route's try/finally, losing the usage + log flush and
 	// breaking the never-drop invariant. Degrade to an empty map so every ref
@@ -217,10 +217,10 @@ export async function resolveAttachments(
 	// learns an attachment was present, and the run completes + flushes normally.
 	let records: MediaAssetRecord[] = [];
 	try {
-		records = await loadAssetsByIds(ownerId, [...ids]);
+		records = await loadAssetsByIds([...ids], projectId);
 	} catch (err) {
 		log.error("[resolveAttachments] batch asset load failed", {
-			ownerId,
+			projectId,
 			count: ids.size,
 			err,
 		});

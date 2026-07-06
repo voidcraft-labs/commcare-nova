@@ -21,7 +21,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
+import type { CaseListConfig, CaseType } from "@/lib/domain";
 import {
 	loadCaseDataAction,
 	loadCasesAction,
@@ -33,7 +33,10 @@ import type {
 	LoadCasesResult,
 	PopulateSampleCasesResult,
 } from "@/lib/preview/engine/caseDataBindingTypes";
-import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
+import {
+	type SearchInputValues,
+	searchInputValuesToWire,
+} from "@/lib/preview/engine/runtimeBindings";
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
 
 /**
@@ -53,14 +56,21 @@ type LoadingState<T extends { kind: string }> =
  * the table). `undefined` for either id keeps the hook in `idle`
  * — same shape `useFormEngine` uses for `formUuid`.
  *
- * Optional `blueprint` + `caseListConfig` thread through to the
- * Server Action so calc-arm columns surface materialized values
- * on each row's `calculated[uuid]` slot. Per-column sort directives
- * order the rows the same way CCHQ would; the optional `filter`
- * narrows the population. Hooks bound to the running-app case
- * list pass both; hooks loading raw rows for non-list-view consumers
- * (case-loading form lookups) leave them undefined and get the
- * unchanged shape.
+ * Optional `caseListConfig` threads through to the Server Action so
+ * calc-arm columns surface materialized values on each row's
+ * `calculated[uuid]` slot. Per-column sort directives order the rows
+ * the same way CCHQ would; the optional `filter` narrows the
+ * population. Hooks bound to the running-app case list pass it; hooks
+ * loading raw rows for non-list-view consumers (case-loading form
+ * lookups) leave it undefined and get the unchanged shape.
+ *
+ * Optional `caseTypes` is the live case-type catalog — the slice the
+ * SQL compiler reads to cast `caseListConfig`'s predicate/sort/calc.
+ * It travels with the config in the same call so the schemas stay
+ * consistent with it (a property rename reaches both together), and a
+ * fresh-reference `caseTypes` re-fires the load the instant the schema
+ * changes. It is plain JSON, so the call stays off the multipart wire.
+ * Raw-row consumers leave it undefined.
  *
  * Optional `inputValues` carries the per-input runtime-search bag
  * the running-app `SearchInputForm` builds as the user types. A
@@ -68,14 +78,16 @@ type LoadingState<T extends { kind: string }> =
  * so the case-list re-queries against the AND-composed
  * `(filter, runtime-predicate)` shape. Callers that never mount
  * the search form leave it undefined and `readCases` short-circuits
- * to the existing filter-only path.
+ * to the existing filter-only path. It is a `Map` here and crosses
+ * the wire as a plain object (`searchInputValuesToWire`) so the
+ * Server Action call stays a plain-JSON body rather than multipart.
  */
 export function useCases(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
-	blueprint?: BlueprintDoc;
 	caseListConfig?: CaseListConfig;
 	inputValues?: SearchInputValues;
+	caseTypes?: readonly CaseType[];
 }): {
 	state: LoadingState<LoadCasesResult>;
 	/** A reload is in flight while settled data stays on screen.
@@ -88,7 +100,7 @@ export function useCases(args: {
 	 *  not merely until the write returned. */
 	reload: () => Promise<void>;
 } {
-	const { appId, caseType, blueprint, caseListConfig, inputValues } = args;
+	const { appId, caseType, caseListConfig, inputValues, caseTypes } = args;
 	return useReloadableResource<LoadingState<LoadCasesResult>>({
 		prepare: () =>
 			!appId || !caseType
@@ -98,9 +110,11 @@ export function useCases(args: {
 							loadCasesAction({
 								appId,
 								caseType,
-								blueprint,
 								caseListConfig,
-								inputValues,
+								caseTypes,
+								inputValues: inputValues
+									? searchInputValuesToWire(inputValues)
+									: undefined,
 							}),
 					},
 		loading: { kind: "loading" },
@@ -109,7 +123,7 @@ export function useCases(args: {
 			message: err instanceof Error ? err.message : "Failed to load cases.",
 		}),
 		keepStale: (prev) => prev.kind === "rows" || prev.kind === "empty",
-		deps: [appId, caseType, blueprint, caseListConfig, inputValues],
+		deps: [appId, caseType, caseListConfig, inputValues, caseTypes],
 	});
 }
 
@@ -160,29 +174,27 @@ export function useCaseData(args: {
 /**
  * Curried action callback for the "Generate sample data" button.
  * The hook owns no loading state — the consuming component owns
- * pressed-state and toast UX.
+ * pressed-state and toast UX. A fresh closure per render is fine for
+ * a one-shot button callback, so it is intentionally not memoized.
  *
- * NOT wrapped in `useCallback` — the typical caller passes a
- * fresh-per-render `blueprint` projection
- * (`pickBlueprintDoc(docApi.getState())`), so `useCallback` would
- * invalidate every render and the memoization would be
- * structurally empty.
+ * `caseType` is the live `CaseType` definition (the generator reads
+ * its property declarations), passed straight through — the hook never
+ * ships the whole blueprint.
  */
 export function usePopulateSampleCases(args: {
 	appId: string | undefined;
-	caseType: string | undefined;
-	blueprint: BlueprintDoc | undefined;
+	caseType: CaseType | undefined;
 }): () => Promise<PopulateSampleCasesResult> {
-	const { appId, caseType, blueprint } = args;
+	const { appId, caseType } = args;
 
 	return async () => {
-		if (!appId || !caseType || !blueprint) {
+		if (!appId || !caseType) {
 			return {
 				kind: "error",
-				message: "App, case type, or blueprint not yet available.",
+				message: "App or case type not yet available.",
 			};
 		}
-		return populateSampleCasesAction(appId, caseType, blueprint);
+		return populateSampleCasesAction(appId, caseType);
 	};
 }
 
@@ -194,27 +206,24 @@ export function usePopulateSampleCases(args: {
  * The consuming component owns pressed-state, the confirmation
  * dialog, and toast UX.
  *
- * Not wrapped in `useCallback` for the same reason
- * `usePopulateSampleCases` isn't: the typical caller passes a
- * fresh-per-render `blueprint` projection
- * (`pickBlueprintDoc(docApi.getState())`), so memoizing would
- * invalidate every render and the memoization would be structurally
- * empty.
+ * Not memoized for the same reason `usePopulateSampleCases` isn't —
+ * a fresh closure per render is fine for a one-shot button callback —
+ * and it likewise passes the live `CaseType` definition straight
+ * through, never the whole blueprint.
  */
 export function useResetSampleCases(args: {
 	appId: string | undefined;
-	caseType: string | undefined;
-	blueprint: BlueprintDoc | undefined;
+	caseType: CaseType | undefined;
 }): () => Promise<PopulateSampleCasesResult> {
-	const { appId, caseType, blueprint } = args;
+	const { appId, caseType } = args;
 
 	return async () => {
-		if (!appId || !caseType || !blueprint) {
+		if (!appId || !caseType) {
 			return {
 				kind: "error",
-				message: "App, case type, or blueprint not yet available.",
+				message: "App or case type not yet available.",
 			};
 		}
-		return resetSampleCasesAction(appId, caseType, blueprint);
+		return resetSampleCasesAction(appId, caseType);
 	};
 }

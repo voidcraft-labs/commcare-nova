@@ -33,6 +33,7 @@
  */
 
 import { z } from "zod";
+import { loadAppProjectId } from "@/lib/db/apps";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type AssetId,
@@ -224,6 +225,25 @@ export function resolveIconInput(
 }
 
 /**
+ * Resolve the Project an SA media tool operates in — the app's Project (media's
+ * tenant). Throws a consistent, actionable error when the app carries no
+ * Project; every app has one post-migration, so a missing one is an internal
+ * inconsistency, not a user action. The read tools (`listMediaAssets` /
+ * `removeMediaAsset`) let it propagate to the tool runner; `attachGuardedMutate`
+ * resolves inline because it reports the failure in its `{ ok: false }`
+ * contract rather than throwing.
+ */
+export async function requireToolProjectId(appId: string): Promise<string> {
+	const projectId = await loadAppProjectId(appId);
+	if (!projectId) {
+		throw new Error(
+			`Couldn't find the Project for app "${appId}". The app row may be missing its project_id.`,
+		);
+	}
+	return projectId;
+}
+
+/**
  * The one commit path for the attach tools: run the at-source asset
  * verdict over `expectations` (exists / owned / ready / kind-matched /
  * inside the export ceiling — `lib/media/attachVerdicts.ts`), then the
@@ -243,8 +263,19 @@ export async function attachGuardedMutate(
 	expectations: readonly MediaAttachExpectation[],
 ): Promise<GuardedMutateOutcome> {
 	if (expectations.length > 0) {
+		/* The attach verdict scopes to the app's Project (media's tenant), so an
+		 * asset must belong to THIS app's Project to attach — resolved from the
+		 * app the tool operates on. */
+		const projectId = await loadAppProjectId(ctx.appId);
+		if (!projectId) {
+			return {
+				ok: false,
+				error:
+					"This app has no Project, so its media can't be verified. Reload and try again.",
+			};
+		}
 		const verdict = await mediaAttachVerdict({
-			owner: ctx.userId,
+			projectId,
 			doc,
 			expectations,
 		});

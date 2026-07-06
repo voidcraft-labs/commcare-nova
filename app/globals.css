@@ -71,6 +71,15 @@
 	--nova-rose: #d4708f;
 	--nova-orchid: #cda0d4;
 
+	/* Peer-presence hues, drawn from the XPath editor's syntax family (the
+	   violet-monochrome identity) so decorative peer colors never borrow the
+	   semantic success/warning/error hues above. All light enough to carry
+	   dark text (text-nova-void) at AA. --nova-orchid doubles as one (it IS
+	   the XPath string color). */
+	--nova-periwinkle: #928fd6;
+	--nova-iris: #7e79b9;
+	--nova-lavender: #dfdeed;
+
 	--nova-glow-violet: 0 0 40px rgba(139, 92, 246, 0.15);
 
 	/* Z-index layers — single source of truth for stacking order */
@@ -148,6 +157,9 @@
 	--color-nova-amber: var(--nova-amber);
 	--color-nova-rose: var(--nova-rose);
 	--color-nova-orchid: var(--nova-orchid);
+	--color-nova-periwinkle: var(--nova-periwinkle);
+	--color-nova-iris: var(--nova-iris);
+	--color-nova-lavender: var(--nova-lavender);
 	--color-pv-bg: var(--pv-bg);
 	--color-pv-surface: var(--pv-surface);
 	--color-pv-elevated: var(--pv-elevated);

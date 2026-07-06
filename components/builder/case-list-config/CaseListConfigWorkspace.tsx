@@ -37,6 +37,8 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule } from "@/lib/doc/hooks/useEntity";
+import { appendOrderKey, sequenceOrderKeys } from "@/lib/doc/order/append";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { Uuid } from "@/lib/doc/types";
 import type {
 	CaseListConfig,
@@ -59,6 +61,7 @@ import { FilterInspectorBody } from "./inspector/FilterInspectorBody";
 import { ListPanelInspectorBody } from "./inspector/ListPanelInspectorBody";
 import { SearchInputEditor } from "./inspector/SearchInputEditor";
 import { SearchPanelInspectorBody } from "./inspector/SearchPanelInspectorBody";
+import { withPreservedIdentity } from "./preserveIdentity";
 import { seedColumn, seedSearchInput } from "./seeds";
 import { resolveSortedColumns, sortPositionByUuid } from "./sortPriority";
 import { useCaseListPreview } from "./useCaseListPreview";
@@ -85,6 +88,13 @@ const PROPERTYLESS_HINT = "Define case-type properties first.";
 /** Stable empty config for modules whose `caseListConfig` slot is
  *  still absent — first edit persists the seeded shape. */
 const EMPTY_CONFIG: CaseListConfig = { columns: [], searchInputs: [] };
+
+/** Re-key a reordered sequence so each item's `order` reflects the new order —
+ *  the auto-save diff reads the order key, not array position. */
+function resequence<T extends { order?: string }>(items: readonly T[]): T[] {
+	const keys = sequenceOrderKeys(items.length);
+	return items.map((item, i) => ({ ...item, order: keys[i] }));
+}
 
 // ── Top-level component ───────────────────────────────────────────
 
@@ -162,7 +172,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 	 * user's case store, then reloads the live canvases. */
 	const sampleData = useSampleData({
 		appId,
-		caseType,
+		caseType: caseTypes.find((ct) => ct.name === caseType),
 		onDone: reloadPreview,
 	});
 
@@ -195,9 +205,12 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		(ct?.properties.length ?? 0) === 0 ? PROPERTYLESS_HINT : undefined;
 
 	const replaceColumn = (uuid: string, next: Column) => {
+		// Carry the existing `uuid` + `order` forward — see `withPreservedIdentity`.
 		updateConfig({
 			...config,
-			columns: config.columns.map((c) => (c.uuid === uuid ? next : c)),
+			columns: config.columns.map((c) =>
+				c.uuid === uuid ? withPreservedIdentity(c, next) : c,
+			),
 		});
 	};
 	const removeColumn = (uuid: string) => {
@@ -214,18 +227,25 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		// canvas looks right; this one is presentable as it lands.
 		const seed = seedColumn(config, ct, slots);
 		if (seed === undefined) return;
-		updateConfig({ ...config, columns: [...config.columns, seed] });
-		setSel({ type: "column", uuid: seed.uuid });
+		// Append after the last column in DISPLAY order — the absolute `order`
+		// key is what the auto-save diff reads, not the array position.
+		const seeded = { ...seed, order: appendOrderKey(config.columns) };
+		updateConfig({ ...config, columns: [...config.columns, seeded] });
+		setSel({ type: "column", uuid: seeded.uuid });
 	};
 	const reorderColumns = (next: readonly Column[]) => {
-		updateConfig({ ...config, columns: [...next] });
+		// Re-key the whole sequence so the `order` keys reflect the new order —
+		// the diff detects a reorder by an order-key change, not array position,
+		// so a key-less shuffle would be silently dropped on save.
+		updateConfig({ ...config, columns: resequence(next) });
 	};
 
 	const replaceInput = (uuid: string, next: SearchInputDef) => {
+		// Carry the existing `uuid` + `order` forward — see `withPreservedIdentity`.
 		updateConfig({
 			...config,
 			searchInputs: config.searchInputs.map((s) =>
-				s.uuid === uuid ? next : s,
+				s.uuid === uuid ? withPreservedIdentity(s, next) : s,
 			),
 		});
 	};
@@ -243,11 +263,12 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		// must work the moment it lands.
 		const seed = seedSearchInput(config, ct);
 		if (seed === undefined) return;
-		updateConfig({ ...config, searchInputs: [...config.searchInputs, seed] });
-		setSel({ type: "input", uuid: seed.uuid });
+		const seeded = { ...seed, order: appendOrderKey(config.searchInputs) };
+		updateConfig({ ...config, searchInputs: [...config.searchInputs, seeded] });
+		setSel({ type: "input", uuid: seeded.uuid });
 	};
 	const reorderInputs = (next: readonly SearchInputDef[]) => {
-		updateConfig({ ...config, searchInputs: [...next] });
+		updateConfig({ ...config, searchInputs: resequence(next) });
 	};
 
 	// `currentCaseType` is required below. When the module has no case
@@ -405,8 +426,11 @@ function resolveInspector(args: ResolveInspectorArgs): {
 
 	switch (sel.type) {
 		case "column": {
-			const index = config.columns.findIndex((c) => c.uuid === sel.uuid);
-			const column = config.columns[index];
+			// DISPLAY position (`sort-by-(order, uuid)`) for the "Column N of M"
+			// kicker, not array position.
+			const sortedCols = [...config.columns].sort(bySortKey);
+			const index = sortedCols.findIndex((c) => c.uuid === sel.uuid);
+			const column = sortedCols[index];
 			if (column === undefined) return null;
 			const title =
 				column.kind === "calculated"
@@ -422,8 +446,8 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							onChange={(next) => args.replaceColumn(column.uuid, next)}
 							caseTypes={args.caseTypes}
 							currentCaseType={args.caseType}
-							sortedColumnCount={resolveSortedColumns(config.columns).length}
-							sortPriorityPosition={sortPositionByUuid(config.columns).get(
+							sortedColumnCount={resolveSortedColumns(sortedCols).length}
+							sortPriorityPosition={sortPositionByUuid(sortedCols).get(
 								column.uuid,
 							)}
 							onEditSortOrder={args.onSelectListPanel}
@@ -437,8 +461,11 @@ function resolveInspector(args: ResolveInspectorArgs): {
 			};
 		}
 		case "input": {
-			const index = config.searchInputs.findIndex((s) => s.uuid === sel.uuid);
-			const input = config.searchInputs[index];
+			// DISPLAY position + DISPLAY-ordered siblings (`sort-by-(order, uuid)`),
+			// not array position.
+			const sortedInputs = [...config.searchInputs].sort(bySortKey);
+			const index = sortedInputs.findIndex((s) => s.uuid === sel.uuid);
+			const input = sortedInputs[index];
 			if (input === undefined) return null;
 			return {
 				kicker: `Search field ${index + 1} of ${config.searchInputs.length}`,
@@ -447,7 +474,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 					<SearchInputEditor
 						value={input}
 						index={index}
-						siblings={config.searchInputs}
+						siblings={sortedInputs}
 						caseTypes={args.caseTypes}
 						currentCaseType={args.caseType}
 						onChange={(next) => args.replaceInput(input.uuid, next)}

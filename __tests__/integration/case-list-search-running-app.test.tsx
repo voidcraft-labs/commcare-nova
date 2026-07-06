@@ -236,6 +236,7 @@ import {
 	resetSampleCases,
 	seedSampleCases,
 } from "@/lib/preview/engine/caseDataBindingHelpers";
+import { searchInputValuesFromWire } from "@/lib/preview/engine/runtimeBindings";
 
 // ── Fixture builders ─────────────────────────────────────────────
 
@@ -399,7 +400,8 @@ function buildFixtureDoc(): BlueprintDoc {
  */
 function buildStore(): CaseStore {
 	return new PostgresCaseStore({
-		ownerId: OWNER_ID,
+		projectId: OWNER_ID,
+		actorUserId: OWNER_ID,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
@@ -488,37 +490,32 @@ beforeEach(async () => {
 			readCases(store, {
 				appId: args.appId,
 				caseType: args.caseType,
-				caseTypeSchemas: buildCaseTypeMap(args.blueprint),
+				// The real action builds the schema map from the live catalog
+				// the client sends in `caseTypes`.
+				caseTypeSchemas:
+					args.caseTypes && args.caseTypes.length > 0
+						? new Map(args.caseTypes.map((ct) => [ct.name, ct]))
+						: undefined,
 				caseListConfig: args.caseListConfig,
-				inputValues: args.inputValues,
+				// The bag crosses the wire as a plain object; rehydrate to the
+				// `Map` `readCases` consumes, exactly as the action does.
+				inputValues: args.inputValues
+					? searchInputValuesFromWire(args.inputValues)
+					: undefined,
 			}),
 	);
 	vi.mocked(loadCaseDataAction).mockImplementation((appId, caseType, caseId) =>
 		readCaseData(store, { appId, caseType, caseId }),
 	);
+	// The actions take the live `CaseType` definition straight from the
+	// client and use it directly.
 	vi.mocked(populateSampleCasesAction).mockImplementation(
-		async (appId, caseType, blueprint): Promise<PopulateSampleCasesResult> => {
-			const ct = blueprint.caseTypes?.find((c) => c.name === caseType);
-			if (!ct) {
-				return {
-					kind: "missing-case-type",
-					caseType,
-				};
-			}
-			return seedSampleCases(store, { appId, caseType: ct });
-		},
+		async (appId, caseType): Promise<PopulateSampleCasesResult> =>
+			seedSampleCases(store, { appId, caseType }),
 	);
 	vi.mocked(resetSampleCasesAction).mockImplementation(
-		async (appId, caseType, blueprint): Promise<PopulateSampleCasesResult> => {
-			const ct = blueprint.caseTypes?.find((c) => c.name === caseType);
-			if (!ct) {
-				return {
-					kind: "missing-case-type",
-					caseType,
-				};
-			}
-			return resetSampleCases(store, { appId, caseType: ct });
-		},
+		async (appId, caseType): Promise<PopulateSampleCasesResult> =>
+			resetSampleCases(store, { appId, caseType }),
 	);
 	vi.mocked(submitFormAction).mockImplementation(
 		async (mutation, appId): Promise<SubmissionResult> => {

@@ -106,7 +106,7 @@ function makeCtx(
 	return {
 		db,
 		appId: APP_ID,
-		ownerId: OWNER_ID,
+		projectId: OWNER_ID,
 		anchorAlias: "c",
 		caseTypeSchemas: SCHEMAS,
 		bindings: {},
@@ -132,7 +132,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 					case_id: PATIENT_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 					properties: JSON.stringify({ name: "Alice" }),
 				}),
 			)
@@ -144,7 +144,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 			.selectFrom("cases as c")
 			.select(["c.case_id"])
 			.where("c.app_id", "=", APP_ID)
-			.where("c.owner_id", "=", OWNER_ID)
+			.where("c.project_id", "=", OWNER_ID)
 			.where(sql<boolean>`${left} = ${right}`)
 			.execute();
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
@@ -158,7 +158,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 					case_id: PATIENT_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 					properties: JSON.stringify({ age: 30 }),
 				}),
 			)
@@ -172,7 +172,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 			.selectFrom("cases as c")
 			.select(["c.case_id"])
 			.where("c.app_id", "=", APP_ID)
-			.where("c.owner_id", "=", OWNER_ID)
+			.where("c.project_id", "=", OWNER_ID)
 			.where(sql<boolean>`${left} > ${right}`)
 			.execute();
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
@@ -186,7 +186,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 					case_id: PATIENT_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 					properties: JSON.stringify({ bmi: 22.5 }),
 				}),
 			)
@@ -198,7 +198,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 			.selectFrom("cases as c")
 			.select(["c.case_id"])
 			.where("c.app_id", "=", APP_ID)
-			.where("c.owner_id", "=", OWNER_ID)
+			.where("c.project_id", "=", OWNER_ID)
 			.where(sql<boolean>`${left} > ${right}`)
 			.execute();
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
@@ -214,7 +214,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 					case_id: PATIENT_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 					properties: JSON.stringify({ dob: "2000-06-15" }),
 				}),
 			)
@@ -226,7 +226,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 			.selectFrom("cases as c")
 			.select(["c.case_id"])
 			.where("c.app_id", "=", APP_ID)
-			.where("c.owner_id", "=", OWNER_ID)
+			.where("c.project_id", "=", OWNER_ID)
 			.where(sql<boolean>`${left} > ${right}`)
 			.execute();
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
@@ -252,7 +252,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 					case_id: PATIENT_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 					properties: JSON.stringify({ appointment_at: "09:00:00" }),
 				}),
 			)
@@ -264,7 +264,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 			.selectFrom("cases as c")
 			.select(["c.case_id"])
 			.where("c.app_id", "=", APP_ID)
-			.where("c.owner_id", "=", OWNER_ID)
+			.where("c.project_id", "=", OWNER_ID)
 			.where(sql<boolean>`${left} > ${right}`)
 			.execute();
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
@@ -287,7 +287,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 					case_id: PATIENT_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 					properties: JSON.stringify({
 						registered_at: "2026-01-01T12:00:00Z",
 					}),
@@ -304,7 +304,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 			.selectFrom("cases as c")
 			.select(["c.case_id"])
 			.where("c.app_id", "=", APP_ID)
-			.where("c.owner_id", "=", OWNER_ID)
+			.where("c.project_id", "=", OWNER_ID)
 			.where(sql<boolean>`${left} > ${right}`)
 			.execute();
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
@@ -328,7 +328,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 					case_id: PATIENT_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 					properties: JSON.stringify({ color: "red" }),
 				}),
 			)
@@ -340,7 +340,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 			.selectFrom("cases as c")
 			.select(["c.case_id"])
 			.where("c.app_id", "=", APP_ID)
-			.where("c.owner_id", "=", OWNER_ID)
+			.where("c.project_id", "=", OWNER_ID)
 			.where(sql<boolean>`${left} = ${right}`)
 			.execute();
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
@@ -370,7 +370,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 					case_id: PATIENT_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 					properties: JSON.stringify({ home_location: wireFormPoint }),
 				}),
 			)
@@ -382,7 +382,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 			.selectFrom("cases as c")
 			.select(["c.case_id"])
 			.where("c.app_id", "=", APP_ID)
-			.where("c.owner_id", "=", OWNER_ID)
+			.where("c.project_id", "=", OWNER_ID)
 			.where(sql<boolean>`${left} = ${right}`)
 			.execute();
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
@@ -407,7 +407,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 					case_id: PATIENT_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 					properties: JSON.stringify({ tags: ["urgent", "review"] }),
 				}),
 			)
@@ -418,7 +418,7 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 			.selectFrom("cases as c")
 			.select(["c.case_id"])
 			.where("c.app_id", "=", APP_ID)
-			.where("c.owner_id", "=", OWNER_ID)
+			.where("c.project_id", "=", OWNER_ID)
 			.where(sql<boolean>`${left} @> '["urgent"]'::jsonb`)
 			.execute();
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
@@ -444,7 +444,7 @@ describe("compileTerm — round-trip — prop (reserved scalar columns)", () => 
 					case_id: PATIENT_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 					properties: JSON.stringify({}),
 				}),
 			)
@@ -456,7 +456,7 @@ describe("compileTerm — round-trip — prop (reserved scalar columns)", () => 
 			.selectFrom("cases as c")
 			.select(["c.case_id"])
 			.where("c.app_id", "=", APP_ID)
-			.where("c.owner_id", "=", OWNER_ID)
+			.where("c.project_id", "=", OWNER_ID)
 			.where(sql<boolean>`${left} = ${right}`)
 			.execute();
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
@@ -484,14 +484,14 @@ describe("compileTerm — round-trip — prop (non-self via)", () => {
 					case_id: PATIENT_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 					properties: JSON.stringify({}),
 				}),
 				makeCaseRow({
 					case_id: HOUSEHOLD_CASE_ID,
 					case_type: "household",
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 					properties: JSON.stringify({ size: 5 }),
 				}),
 			])
@@ -511,7 +511,7 @@ describe("compileTerm — round-trip — prop (non-self via)", () => {
 		const compiledPath = compileRelationPath(via, {
 			db,
 			appId: APP_ID,
-			ownerId: OWNER_ID,
+			projectId: OWNER_ID,
 			anchorAlias: "c",
 		});
 		if (compiledPath.kind !== "joined") {
@@ -535,7 +535,7 @@ describe("compileTerm — round-trip — prop (non-self via)", () => {
 					),
 			)
 			.where("c.app_id", "=", APP_ID)
-			.where("c.owner_id", "=", OWNER_ID)
+			.where("c.project_id", "=", OWNER_ID)
 			.where(sql<boolean>`${sizeExpr} = ${five}`)
 			.select(["c.case_id"])
 			.execute();
@@ -566,7 +566,7 @@ describe("compileTerm — round-trip — Postgres-strict null semantics", () => 
 					case_id: PATIENT_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
-					owner_id: OWNER_ID,
+					project_id: OWNER_ID,
 					// Note: `name` key is intentionally absent from
 					// the JSONB document below. The Postgres-strict
 					// rule says absent ≠ empty-string.
@@ -581,7 +581,7 @@ describe("compileTerm — round-trip — Postgres-strict null semantics", () => 
 			.selectFrom("cases as c")
 			.select(["c.case_id"])
 			.where("c.app_id", "=", APP_ID)
-			.where("c.owner_id", "=", OWNER_ID)
+			.where("c.project_id", "=", OWNER_ID)
 			.where(sql<boolean>`${left} = ${empty}`)
 			.execute();
 		expect(rows).toEqual([]);

@@ -13,6 +13,10 @@
  * design. A caller who wants "most-recent first without search" should
  * use `list_apps` instead.
  *
+ * Scope matches `list_apps`: every Project the caller is a member of
+ * (`enumerableProjectIds`), so an app in a shared Project that the
+ * caller can open by id is findable here too.
+ *
  * Returns the same entry shape as `list_apps` so downstream renderers
  * (markdown tables, card grids, etc.) work identically across the two
  * surfaces; only the ordering contract differs.
@@ -20,12 +24,13 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { searchApps } from "@/lib/db/apps";
+import { searchAppsAcrossProjects } from "@/lib/db/apps";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
+import { enumerableProjectIds } from "../ownership";
 import type { ToolContext } from "../types";
 import { toEntry } from "./listApps";
 
@@ -71,11 +76,12 @@ export const searchAppsInputSchema = {
 /**
  * Register the `search_apps` tool on an `McpServer`.
  *
- * Thin adapter: delegates to the DB-layer `searchApps` which composes
- * on top of `listApps` internally and runs Fuse.js over each in-memory
- * page. The MCP tool's responsibility is shaping the wire response —
- * same `{apps, next_cursor?}` envelope as `list_apps` so clients don't
- * branch on which tool they invoked.
+ * Thin adapter: resolves the caller's member-of-Project scope, then
+ * delegates to the DB-layer `searchAppsAcrossProjects`, which scans
+ * those Projects and runs Fuse.js over the in-memory page. The MCP
+ * tool's responsibility is shaping the wire response — same `{apps,
+ * next_cursor?}` envelope as `list_apps` so clients don't branch on
+ * which tool they invoked.
  */
 export function registerSearchApps(server: McpServer, ctx: ToolContext): void {
 	server.registerTool(
@@ -87,12 +93,19 @@ export function registerSearchApps(server: McpServer, ctx: ToolContext): void {
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
-				const { apps, nextCursor } = await searchApps(ctx.userId, {
-					query: args.query,
-					limit: args.limit,
-					status: args.status,
-					cursor: args.cursor,
-				});
+				/* Search across every Project the caller is a member of — the same
+				 * reachability the ownership gate grants the by-id tools, so a
+				 * shared-Project app the caller remembers by name is findable. */
+				const projectIds = await enumerableProjectIds(ctx.userId);
+				const { apps, nextCursor } = await searchAppsAcrossProjects(
+					projectIds,
+					{
+						query: args.query,
+						limit: args.limit,
+						status: args.status,
+						cursor: args.cursor,
+					},
+				);
 
 				/* Mirror `list_apps`'s wire shape exactly so downstream
 				 * renderers branch only on `apps.length` / `next_cursor`,

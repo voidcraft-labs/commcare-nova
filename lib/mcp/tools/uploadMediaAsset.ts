@@ -18,8 +18,8 @@
  * between a claim and the store (validate.ts documents the MCP path skips
  * it).
  *
- * After a clean validation the tool dedups against the user's library
- * (same `(owner, contentHash)` probe the HTTP path uses): a re-upload of
+ * After a clean validation the tool dedups against the Project library
+ * (same `(project_id, contentHash)` probe the HTTP path uses): a re-upload of
  * bytes already present returns the existing `ready` asset's id without
  * re-storing. On a miss it writes the GCS object, creates the asset row,
  * and flips it to `ready` with the validated dimensions / duration —
@@ -33,10 +33,11 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import {
 	confirmAssetReady,
 	createPendingAsset,
-	findReadyAssetByOwnerAndHash,
+	findReadyAssetByProjectAndHash,
 } from "@/lib/db/mediaAssets";
 import {
 	ASSET_SIZE_CAPS_BYTES,
@@ -66,8 +67,9 @@ const MAX_INLINE_BASE64_CHARS = Math.ceil(MAX_INLINE_UPLOAD_BYTES / 3) * 4;
  * so the wire surface is byte-identical to an inline shape — the object
  * wrapper exists only to give the schema an exported, testable identity.
  *
- * No `app_id` slot: the upload targets the user's library (resolved from
- * `ctx.userId`), not a specific app.
+ * No `app_id` slot: the upload targets the caller's personal Project
+ * library (resolved from `ctx.userId` via `ensurePersonalProject`), not a
+ * specific app.
  */
 export const uploadMediaAssetInputSchema = z
 	.object({
@@ -153,14 +155,20 @@ export function registerUploadMediaAsset(
 				}
 				const validated = result.validated;
 
-				/* Dedup against the user's library on the validated content
+				/* The MCP upload is app-less, so it lands in the caller's
+				 * personal Project — the tenancy + access gate every read
+				 * site authorizes against (mirrors `create_app`'s
+				 * `ensurePersonalProject`). */
+				const project = await ensurePersonalProject(ctx.userId);
+
+				/* Dedup against the Project library on the validated content
 				 * hash. A re-upload of bytes already present as a `ready`
 				 * asset returns that asset's id and skips the store entirely
 				 * — same dedup the HTTP initiate route does, just after
 				 * validation instead of before (the MCP path has no
 				 * client-computed hash to probe with up front). */
-				const existing = await findReadyAssetByOwnerAndHash(
-					ctx.userId,
+				const existing = await findReadyAssetByProjectAndHash(
+					project,
 					validated.contentHash,
 				);
 				if (existing) {
@@ -174,7 +182,7 @@ export function registerUploadMediaAsset(
 				 * so both collapse into one server-side pass against the
 				 * already-validated bytes. */
 				const gcsObjectKey = gcsObjectKeyFor(
-					ctx.userId,
+					project,
 					validated.contentHash,
 					validated.extension,
 				);
@@ -185,6 +193,7 @@ export function registerUploadMediaAsset(
 				});
 				const pending = await createPendingAsset({
 					owner: ctx.userId,
+					project_id: project,
 					contentHash: validated.contentHash,
 					mimeType: validated.mimeType,
 					kind: validated.kind,

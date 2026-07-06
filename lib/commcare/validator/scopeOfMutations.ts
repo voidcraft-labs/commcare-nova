@@ -48,13 +48,26 @@
  */
 
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, Field, SearchInputDef, Uuid } from "@/lib/domain";
 import type { ValidationScope } from "./index";
 
 /** Read `case_property_on` off any Field variant (kinds without the slot → undefined). */
 function casePropertyOn(field: Field): string | undefined {
 	const value = (field as unknown as Record<string, unknown>).case_property_on;
 	return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Whether a search input's payload can read a case property OUTSIDE the
+ * module's own type — an advanced predicate (free-form AST), a `default`
+ * value expression, or a simple input whose relation `via` walks to another
+ * type. Such a reference reaches readers a module-keyed scope can't bound, so
+ * the edit forces a full run; a bare simple input reads only the own type.
+ */
+function searchInputReferencesForeignScope(input: SearchInputDef): boolean {
+	if (input.default !== undefined) return true;
+	if (input.kind === "advanced") return true;
+	return input.via !== undefined && input.via.kind !== "self";
 }
 
 /**
@@ -390,6 +403,72 @@ export function scopeOfMutations(
 				// (`connectType` gates the per-form Connect rules; the
 				// catalog feeds every case-reference admission set).
 				acc.full = true;
+				break;
+
+			// ── Granular case-type catalog ─────────────────────────────
+			case "declareCaseType":
+			case "retireCaseType":
+			case "addCaseProperty":
+			case "setCaseProperty":
+			case "removeCaseProperty":
+			case "setCaseTypeMeta":
+				// Catalog edits feed every case-reference admission set
+				// app-wide — the same cross-entity reach as `setCaseTypes`.
+				acc.full = true;
+				break;
+
+			// ── Granular case-list collections ─────────────────────────
+			case "addColumn":
+			case "updateColumn":
+				// A column edit re-walks its module. A CALCULATED column carries
+				// an AST that can read a property on another case type via a
+				// relation walk — the same reach as a case-property writer, so
+				// it forces a full run; every other column kind reads only the
+				// module's own type and stays module-scoped.
+				if (mut.column.kind === "calculated") acc.full = true;
+				else acc.moduleUuids.add(mut.moduleUuid);
+				break;
+			case "removeColumn":
+			case "moveColumn":
+				// Removing a read-only reference or reordering can only flip
+				// the owning module's own findings.
+				acc.moduleUuids.add(mut.moduleUuid);
+				break;
+			case "addSearchInput":
+			case "updateSearchInput":
+				// An advanced predicate, a `default` expression, or a simple
+				// input with a relation `via` can read a property on another
+				// case type (full); a bare simple input reads only the module's
+				// own type (module scope).
+				if (searchInputReferencesForeignScope(mut.searchInput)) {
+					acc.full = true;
+				} else {
+					acc.moduleUuids.add(mut.moduleUuid);
+				}
+				break;
+			case "removeSearchInput":
+			case "moveSearchInput":
+				acc.moduleUuids.add(mut.moduleUuid);
+				break;
+			case "setCaseListMeta":
+				// The always-on `filter` is a predicate that can walk to another
+				// case type (full); icon / audioLabel are pure media (module).
+				if (Object.hasOwn(mut.patch, "filter") && mut.patch.filter != null) {
+					acc.full = true;
+				} else {
+					acc.moduleUuids.add(mut.uuid);
+				}
+				break;
+
+			// ── Granular select options ────────────────────────────────
+			case "addOption":
+			case "updateOption":
+			case "removeOption":
+			case "moveOption":
+				// An option label's `#<type>/<prop>` prose resolves against the
+				// containing form's reachable types — a form-scoped read, never a
+				// writer-set change. Form scope covers it.
+				scopeFieldTarget(prevDoc, acc, mut.fieldUuid);
 				break;
 
 			default: {

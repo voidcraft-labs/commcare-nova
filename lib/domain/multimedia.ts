@@ -487,29 +487,30 @@ export const MEDIA_EXTRACT_STATUSES = [
 export type MediaExtractStatus = (typeof MEDIA_EXTRACT_STATUSES)[number];
 
 /**
- * Final GCS object key derivation. Per-owner namespace gives us
- * (owner, hash) dedup at the storage layer once bytes have been
- * validated — same blob uploaded by two apps of the same user shares
- * one object, while two users keep separate copies (closing the
- * cross-tenant probe vector). The trailing extension is the canonical
- * extension for the sniffed MIME (not the client's original filename
- * extension).
+ * Final GCS object key derivation. Per-PROJECT namespace gives us
+ * (project, hash) dedup at the storage layer once bytes have been validated —
+ * same blob attached to two apps in the same Project shares one object, while
+ * two Projects keep separate copies. Project-scoped (not per-owner) so the
+ * bytes belong to the tenant: a member's deletion can later purge their
+ * personal-Project bytes without touching shared-Project media. The trailing
+ * extension is the canonical extension for the sniffed MIME (not the client's
+ * original filename extension).
  */
 export function gcsObjectKeyFor(
-	owner: string,
+	projectId: string,
 	contentHash: string,
 	extension: string,
 ): string {
-	return `users/${owner}/${contentHash}${extension}`;
+	return `projects/${projectId}/${contentHash}${extension}`;
 }
 
 /**
  * GCS object key for a document's requirements extract — a sibling of the
- * bytes object under the same per-owner namespace. Keyed by the content hash
+ * bytes object under the same per-Project namespace. Keyed by the content hash
  * AND the extractor `version`, so:
  *
- *  - the extract dedups exactly like the bytes (same document re-uploaded by
- *    the same owner resolves to one extract), and
+ *  - the extract dedups exactly like the bytes (same document re-attached in
+ *    the same Project resolves to one extract), and
  *  - bumping `EXTRACTOR_VERSION` (a prompt/model change) lands a NEW key, so
  *    every stale extract is invalidated without a migration — the old object
  *    simply stops being read and ages out, and the next reference re-extracts
@@ -519,11 +520,11 @@ export function gcsObjectKeyFor(
  * spreadsheets, bullet structure for prose).
  */
 export function extractGcsObjectKeyFor(
-	owner: string,
+	projectId: string,
 	contentHash: string,
 	version: number,
 ): string {
-	return `users/${owner}/${contentHash}.extract.v${version}.md`;
+	return `projects/${projectId}/${contentHash}.extract.v${version}.md`;
 }
 
 /**
@@ -560,13 +561,13 @@ export const EXTRACTOR_VERSION = 1;
  */
 export function extractObjectKeyForAsset(asset: {
 	kind: AssetKind;
-	owner: string;
+	project_id: string;
 	contentHash: string;
 	extract?: { version: number } | null;
 }): string | null {
 	if (!isDocumentKind(asset.kind)) return null;
 	const version = asset.extract?.version ?? EXTRACTOR_VERSION;
-	return extractGcsObjectKeyFor(asset.owner, asset.contentHash, version);
+	return extractGcsObjectKeyFor(asset.project_id, asset.contentHash, version);
 }
 
 /**
@@ -584,23 +585,23 @@ export const PENDING_OBJECT_PREFIX = "pending/";
  * The browser's signed URL is minted BEFORE the server has validated the
  * bytes, so it lands at a per-attempt key under a top-level `pending/`
  * prefix — never the final content-hash key. A stale leaked URL can only
- * overwrite its own pending object; the key still embeds the owner, so it
- * also can't reach another user's space. Confirm-time validation promotes
- * clean bytes to `gcsObjectKeyFor(...)`; rejection deletes this pending
- * object and row.
+ * overwrite its own pending object (the key embeds the random `assetId`).
+ * Confirm-time validation promotes clean bytes to `gcsObjectKeyFor(...)`;
+ * rejection deletes this pending object and row.
  *
- * The prefix is top-level (not nested under `users/<owner>/`) so one bucket
+ * The prefix is top-level (not nested under `projects/<id>/`) so one bucket
  * lifecycle rule — delete objects under it past a short TTL — reaps uploads
  * that were initiated but never confirmed. GCS lifecycle prefix matching
- * anchors at the object-name start, so a per-owner-nested pending path could
- * not be expressed as a single rule.
+ * anchors at the object-name start, so a per-Project-nested pending path could
+ * not be expressed as a single rule; the Project segment sits AFTER the
+ * `pending/` prefix so the one rule still matches.
  */
 export function pendingGcsObjectKeyFor(
-	owner: string,
+	projectId: string,
 	assetId: AssetId,
 	extension: string,
 ): string {
-	return `${PENDING_OBJECT_PREFIX}${owner}/${assetId}${extension}`;
+	return `${PENDING_OBJECT_PREFIX}${projectId}/${assetId}${extension}`;
 }
 
 /**

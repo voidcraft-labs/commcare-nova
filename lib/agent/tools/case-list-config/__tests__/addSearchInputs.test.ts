@@ -27,13 +27,11 @@ import { addSearchInputsTool } from "../addSearchInputs";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
 vi.mock("@/lib/db/apps", () => ({
-	updateApp: vi.fn(() => Promise.resolve()),
-	updateAppForRun: vi.fn(() => Promise.resolve()),
 	completeApp: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(() => Promise.resolve()),
+	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
 }));
 
 beforeEach(() => {
@@ -97,7 +95,11 @@ describe("addSearchInputs", () => {
 			doc,
 		);
 
-		expect(result.mutations).toHaveLength(1);
+		// One granular `addSearchInput` per input now, not a single wholesale patch.
+		expect(result.mutations).toHaveLength(2);
+		expect(result.mutations.every((m) => m.kind === "addSearchInput")).toBe(
+			true,
+		);
 		const inputs =
 			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
 		expect(inputs.map((i) => i.kind)).toEqual(["simple", "advanced"]);

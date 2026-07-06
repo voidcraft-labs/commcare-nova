@@ -7,12 +7,23 @@
 // lockstep; the compile-only `database.test.ts` and the harness smoke
 // tests catch drift between them.
 //
-// ## Multi-tenancy
+// ## Multi-tenancy — two orthogonal axes
 //
-// Tenant isolation is the column pair `(app_id, owner_id)`. No
-// row-level security, no per-tenant schema, no per-tenant
-// database. The application funnels access through a `CaseStore`
-// instance bound to the request's owner id.
+// Tenant isolation is the column pair `(app_id, project_id)` — case
+// data is shared at Project scope, so every member of a Project sees
+// its rows. That is the ONLY structural filter today.
+//
+// `owner_id` is the SECOND axis: the CommCare case-owner, Nova's
+// reserved axis for future location-/group-based access carving. It is
+// a first-class column (defaulted to the creating user), NOT a tenant
+// boundary and NOT disposable — nothing filters on it yet because
+// locations are unimplemented, but when they land, location-based
+// access control filters on it BENEATH the Project tenant filter.
+//
+// No row-level security, no per-tenant schema, no per-tenant database.
+// The application funnels reads/writes through a `CaseStore` bound to
+// the request's Project id (`withProjectContext`); schema-change
+// operations are app-scoped and bind no tenant (`withSchemaContext`).
 //
 // ## JSONB column types do NOT narrow per case type
 //
@@ -59,13 +70,32 @@ export interface CasesTable {
 	 */
 	case_id: ColumnType<string, string | undefined, string>;
 
-	/** First half of `(app_id, owner_id)`. TEXT (not UUID) — apps are root-level Firestore docs. */
+	/** First half of `(app_id, project_id)`. TEXT (not UUID) — apps are root-level Firestore docs. */
 	app_id: string;
 
 	/** Matches the blueprint's `CaseType.id`. */
 	case_type: string;
 
-	/** Second half of `(app_id, owner_id)`. Nullable — HQ-imported cases pre-assignment carry null. */
+	/**
+	 * Second half of `(app_id, project_id)` — the structural tenant
+	 * filter; case data is shared at Project scope. Required on insert
+	 * (`withProjectContext` binds it) and non-null on read. (The DB
+	 * column is nullable; the `add_cases_project_id` migration module
+	 * owns the expand→backfill rollout that keeps the non-null read
+	 * contract safe.)
+	 */
+	project_id: string;
+
+	/**
+	 * The CommCare case-owner — Nova's reserved axis for future
+	 * location-/group-based access carving, NOT the tenant boundary
+	 * (that is `project_id`). Defaults to the creating user; nothing
+	 * filters on it today (locations unimplemented), but it is a
+	 * first-class field reserved for that access-control axis, never to
+	 * be repurposed or dropped. Nullable — HQ-imported cases
+	 * pre-assignment carry null. Stays a queryable reserved scalar
+	 * column (`RESERVED_SCALAR_COLUMNS`).
+	 */
 	owner_id: string | null;
 
 	/**
@@ -138,6 +168,21 @@ export interface CaseTypeSchemasTable {
 	 * particular validator library.
 	 */
 	schema: JSONColumnType<JsonObject>;
+	/**
+	 * The `mutation_seq` this schema row was last synced from — the
+	 * monotone guard that makes concurrent additive case-type edits
+	 * converge. `applySchemaChange` UPSERTs with the incoming seq guarded
+	 * by `WHERE excluded.synced_seq >= case_type_schemas.synced_seq`, so a
+	 * stale lower-seq sync no-ops and a peer's concurrently-added property
+	 * is never clobbered by an in-flight older write.
+	 *
+	 * `ColumnType<string, number | undefined, number>`: node-postgres returns
+	 * `bigint`/`int8` as a STRING, so the SELECT type is `string` and a reader
+	 * coerces `Number(row.synced_seq)` — the type forces the coercion rather
+	 * than letting a bare `>=`/`+ 1` silently do string math. Insert is OPTIONAL
+	 * (defaults to 0 via the column DEFAULT); update supplies the seq.
+	 */
+	synced_seq: ColumnType<string, number | undefined, number>;
 }
 
 /**

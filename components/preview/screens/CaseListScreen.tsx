@@ -51,11 +51,11 @@ import {
 	rowMatchesFilterText,
 } from "@/components/preview/shared/listFilter";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
-import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	CASE_LOADING_FORM_TYPES,
@@ -68,7 +68,6 @@ import {
 } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { PreviewMarkdown } from "@/lib/markdown";
-import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingClient";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
@@ -95,7 +94,6 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const navigate = useNavigate();
 	const caseTypes = useCaseTypes();
 	const appId = useAppId() ?? "";
-	const docApi = useBlueprintDocApi();
 	const { updateModule } = useBlueprintMutations();
 
 	/* All three case-list workspace URLs (`cases` / `search-config` /
@@ -150,25 +148,6 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const config = mod?.caseListConfig;
 	const searchConfig = mod?.caseSearchConfig;
-
-	// Re-project whenever the case-type schemas change. The running list reads
-	// only ONE slice off this blueprint — `loadCasesAction` → `buildCaseTypeMap`
-	// consults `caseTypes` and nothing else — so `caseTypes` is the projection's
-	// sole live dependency. This screen is retained across the preview toggle
-	// under `<Activity>`, so keying on the stable `docApi.getState` alone would
-	// freeze the projection at mount: after a referenced property is renamed the
-	// running list would type-check its calc ASTs against the pre-rename property
-	// set and reject them, while the edit canvas (which reads the doc fresh) stays
-	// correct. Keying on the reactive `caseTypes` re-fires the load the instant
-	// the schema changes — even with no config edit — and stays referentially
-	// stable on an ordinary render, so it never re-queries the case store
-	// needlessly. (`pickBlueprintDoc` strips action methods + non-schema keys so
-	// the projection survives Next's RSC serializer.)
-	// biome-ignore lint/correctness/useExhaustiveDependencies: `caseTypes` is an intentional invalidation key — the callback reads the whole doc, of which `caseTypes` is the only slice the query consumes.
-	const blueprint = useMemo(
-		() => pickBlueprintDoc(docApi.getState()),
-		[docApi.getState, caseTypes],
-	);
 
 	// ── Responsive split — the canvas's own width decides ──
 	// Measured synchronously in the ref callback so the very first
@@ -225,14 +204,18 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const { state, fetching, reload } = useCases({
 		appId,
 		caseType: caseType?.name,
-		blueprint,
 		caseListConfig: config,
 		inputValues,
+		// The live case-type catalog — the schema slice the SQL compiler
+		// casts the config's predicate/sort/calc against. Sent with the
+		// config so a property rename/retype reaches both together, and a
+		// fresh `caseTypes` reference re-fires the load on a schema edit.
+		caseTypes,
 	});
 
 	const { generate } = useSampleData({
 		appId,
-		caseType: caseType?.name,
+		caseType,
 		onDone: reload,
 	});
 
@@ -245,10 +228,14 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		setFilterText("");
 	};
 
-	const visibleColumns = (config?.columns ?? []).filter(
+	// DISPLAY order (`sort-by-(order, uuid)`, the sequence the wire case-list
+	// detail emits), not `columns` array position — a `moveColumn` reorder must
+	// show here exactly as it exports.
+	const sortedColumns = [...(config?.columns ?? [])].sort(bySortKey);
+	const visibleColumns = sortedColumns.filter(
 		(col) => col.visibleInList ?? true,
 	);
-	const detailColumns = (config?.columns ?? []).filter(
+	const detailColumns = sortedColumns.filter(
 		(col) => col.visibleInDetail !== false,
 	);
 	const hasSearch = (config?.searchInputs.length ?? 0) > 0;

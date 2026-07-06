@@ -10,7 +10,11 @@
 
 import { z } from "zod";
 import type { BlueprintDoc } from "@/lib/domain";
-import { type FormSnapshot, formSnapshot } from "../blueprintHelpers";
+import {
+	type FormSnapshot,
+	formSnapshot,
+	resolveFormUuid,
+} from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
 
@@ -48,9 +52,7 @@ export const getFormTool = {
 			kind: "read",
 			data: { error: `Form m${moduleIndex}-f${formIndex} not found` },
 		};
-		const moduleUuid = doc.moduleOrder[moduleIndex];
-		if (!moduleUuid) return notFound;
-		const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
+		const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
 		if (!formUuid) return notFound;
 		const snapshot = formSnapshot(doc, formUuid);
 		if (!snapshot) return notFound;

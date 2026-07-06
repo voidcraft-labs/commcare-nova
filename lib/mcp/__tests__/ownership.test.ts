@@ -1,46 +1,67 @@
 /**
  * requireOwnedApp unit tests.
  *
- * Covers the three paths a route handler has to care about:
- *   - App doesn't exist → `McpAccessError("not_found")`.
- *   - App exists but belongs to someone else → `McpAccessError("not_owner")`.
- *   - App belongs to the caller → resolves cleanly.
+ * `requireOwnedApp` now wraps the membership resolver `resolveAppScope`; these
+ * tests verify it maps the resolver's outcomes onto the two-value MCP taxonomy:
+ *   - resolver throws `AppAccessError("not_found")` → `McpAccessError("not_found")`.
+ *   - resolver throws any other `AppAccessError` (non-member / under-privileged)
+ *     → `McpAccessError("not_owner")` (which the wire collapses to `not_found`).
+ *   - resolver resolves → `requireOwnedApp` resolves cleanly.
  *
- * `loadAppOwner` is mocked so no Firestore client ever spins up; the
- * hoisted `vi.mock` installs before `../ownership` resolves its import.
+ * `resolveAppScope` is mocked (the real `AppAccessError` is kept so the
+ * instanceof mapping holds) so no Firestore/Postgres client ever spins up.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadAppOwner } from "@/lib/db/apps";
+import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { McpAccessError, requireOwnedApp } from "../ownership";
 
-vi.mock("@/lib/db/apps", () => ({
-	loadAppOwner: vi.fn(),
+vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
+	resolveAppScope: vi.fn(),
 }));
 
 beforeEach(() => {
-	vi.mocked(loadAppOwner).mockReset();
+	vi.mocked(resolveAppScope).mockReset();
 });
 
 describe("requireOwnedApp", () => {
 	it("throws not_found when the app doesn't exist", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce(null);
+		vi.mocked(resolveAppScope).mockRejectedValueOnce(
+			new AppAccessError("not_found"),
+		);
 		await expect(requireOwnedApp("u1", "missing")).rejects.toMatchObject({
 			name: "McpAccessError",
 			reason: "not_found",
 		});
 	});
 
-	it("throws not_owner when the app belongs to someone else", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("other-user");
+	it("throws not_owner when the caller isn't a member", async () => {
+		vi.mocked(resolveAppScope).mockRejectedValueOnce(
+			new AppAccessError("not_member"),
+		);
 		await expect(requireOwnedApp("u1", "a1")).rejects.toMatchObject({
 			name: "McpAccessError",
 			reason: "not_owner",
 		});
 	});
 
-	it("resolves cleanly when the caller owns the app", async () => {
-		vi.mocked(loadAppOwner).mockResolvedValueOnce("u1");
+	it("throws not_owner when the caller's role is under-privileged", async () => {
+		vi.mocked(resolveAppScope).mockRejectedValueOnce(
+			new AppAccessError("insufficient_role"),
+		);
+		await expect(requireOwnedApp("u1", "a1", "delete")).rejects.toMatchObject({
+			name: "McpAccessError",
+			reason: "not_owner",
+		});
+	});
+
+	it("resolves cleanly when the caller has the capability", async () => {
+		vi.mocked(resolveAppScope).mockResolvedValueOnce({
+			projectId: "proj-1",
+			role: "owner",
+			actorUserId: "u1",
+		});
 		await expect(requireOwnedApp("u1", "a1")).resolves.toBeUndefined();
 	});
 

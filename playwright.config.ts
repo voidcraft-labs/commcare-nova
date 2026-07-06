@@ -24,6 +24,15 @@ import { urlHost } from "./e2e/lib/url";
  */
 const BASE_URL = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const isCI = !!process.env.CI;
+/**
+ * Watch-mode knobs for the two-user multiplayer suite (`npm run mp:watch`):
+ * `MP_SLOWMO` inserts a pause (ms) between every Playwright action so a human
+ * can follow the run; `MP_MANUAL=1` registers the open-ended manual
+ * dual-session project (`npm run mp:manual`) — gated so a bare
+ * `playwright test` (CI's full-suite run) can never sit in its forever-wait.
+ */
+const MP_SLOWMO = Number(process.env.MP_SLOWMO ?? 0) || 0;
+const MP_MANUAL = process.env.MP_MANUAL === "1";
 const localHost = urlHost(BASE_URL);
 const isLocalTarget =
 	localHost === "localhost" || localHost === "127.0.0.1" || localHost === "::1";
@@ -85,8 +94,11 @@ export default defineConfig({
 	// test mutates app rows, so parallel workers could race the app list.
 	workers: 1,
 	// Generous headroom for a full page load + assertions. `next start` serves
-	// pre-compiled routes, so this isn't covering a cold compile.
-	timeout: 90_000,
+	// pre-compiled routes, so this isn't covering a cold compile. Watch mode
+	// scales the budget with its action delay: slowMo pauses every real action
+	// (not expect-polls), and the op-heaviest scenario (revocation) runs ~40 of
+	// them — 60 × MP_SLOWMO is that with headroom. Zero when MP_SLOWMO unset.
+	timeout: 90_000 + 60 * MP_SLOWMO,
 	expect: { timeout: 15_000 },
 	reporter: isCI
 		? [
@@ -118,6 +130,33 @@ export default defineConfig({
 				storageState: "e2e/.auth/state.json",
 			},
 		},
+		{
+			// Two-user real-time co-editing acceptance. NO project-level
+			// storageState — the spec opens its own `browser.newContext({
+			// storageState })` per user (Ada + Grace), each carrying that user's
+			// seeded session cookie (`e2e/.auth/state-mp-{a,b}.json`).
+			name: "multiplayer",
+			testMatch: /multiplayer\.spec\.ts/,
+			use: {
+				// The tiled watch mode (`mp:watch`) deliberately KEEPS this fixed
+				// viewport: headed Chromium scales an emulated viewport down to fit
+				// a smaller window, so a half-screen window shows the whole 1280×720
+				// page shrunk — and every assertion runs against the exact geometry
+				// CI runs. (A `viewport: null` variant both conflicts with the
+				// preset's `deviceScaleFactor` and re-times the suite at whatever
+				// width the user's screen halves to.)
+				...devices["Desktop Chrome"],
+				// slowMo is a browser-launch option, so it covers every context the
+				// spec opens (both users). Zero (the default) leaves CI untouched.
+				...(MP_SLOWMO > 0 && { launchOptions: { slowMo: MP_SLOWMO } }),
+			},
+		},
+		// The open-ended manual dual-session harness — registered ONLY under
+		// MP_MANUAL=1 (see `mp:manual`); its lone "test" waits until the human
+		// closes both windows, which must never run in an unattended suite.
+		...(MP_MANUAL
+			? [{ name: "mp-manual", testMatch: /mp-manual\.spec\.ts/ }]
+			: []),
 	],
 	// Manage our own server only when smoke.sh is driving a localhost run.
 	// Against a deployed URL (or any already-running server) we test what's there.
@@ -131,7 +170,19 @@ export default defineConfig({
 					// console, where the error guard would catch benign server logs —
 					// `next start` doesn't. `fumadocs-mdx` first generates the
 					// `@/.source/server` import `next build` needs (as typecheck does).
-					command: "npx fumadocs-mdx && next build && next start",
+					// SMOKE_REUSE_BUILD=1 skips straight to `next start` for a fast
+					// relaunch of the watch/manual modes over an UNCHANGED build — the
+					// human is iterating on their own usage, not on the code. Off by
+					// default (CI and plain runs always build fresh); a missing/dev-mode
+					// `.next` makes `next start` fail loudly, so it can't silently serve
+					// a stale or non-production artifact as green.
+					// `npx` so the local binary resolves even when smoke.sh is invoked
+					// directly (outside an npm script, nothing puts node_modules/.bin
+					// on the PATH this command is spawned with).
+					command:
+						process.env.SMOKE_REUSE_BUILD === "1"
+							? "npx next start"
+							: "npx fumadocs-mdx && npx next build && npx next start",
 					url: BASE_URL,
 					// Never reuse a stray server: a dev's own `npm run dev` on :3000
 					// points at REAL Firestore with a different secret, so reusing it

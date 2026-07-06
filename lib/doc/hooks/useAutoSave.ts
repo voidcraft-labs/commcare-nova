@@ -1,39 +1,44 @@
 /**
- * useAutoSave — leading+trailing throttle for Firestore persistence.
+ * useAutoSave — leading+trailing throttle that dispatches human edits to the
+ * reconciler, which owns the durable write path.
  *
- * Subscribes to the BlueprintDoc store's entity map references. On the first
- * mutation after a quiet period, saves immediately (leading edge). Mutations
- * that arrive while a save is in-flight or during the post-save cooldown are
- * batched — a single trailing save fires once the cooldown expires. This means
- * "Saving..." only appears when a fetch is actually in-flight (~300ms), not
- * during an artificial debounce window.
+ * Subscribes to the BlueprintDoc store's entity-map references. On the first
+ * mutation after a quiet period it dispatches immediately (leading edge);
+ * mutations that arrive during a cooldown batch into one trailing dispatch, so
+ * "Saving…" appears only while a PUT is actually in flight, not during an
+ * artificial debounce window.
  *
- * Only active when: (a) an appId exists (from the legacy session store),
- * (b) the doc has entities, and (c) phase is Ready. Auth is guaranteed by
- * the server layout.
+ * The reconciler (`lib/collab/reconciler.ts`) owns `confirmedDoc ⊕ sentPending`
+ * — the diff base — and the PUT itself (`dispatchHumanBatch` mints a batchId,
+ * registers the batch, PUTs `{ mutations, batchId }`, and re-sends on network
+ * failure via its own retry loop). This hook is the throttle + the save-status
+ * surface: it computes when to dispatch, hands the reconciler a
+ * `SaveObserver`, and renders the status + the "changes aren't being saved"
+ * warning from the signals it gets back.
  *
- * Returns a SaveState with the current status and the timestamp of the last
- * successful save. The SaveIndicator uses `savedAt` to display a persistent
- * relative timestamp ("Saved 2m ago") so the user always knows when their
- * work was last persisted.
+ * Gate order (load-bearing): `remoteFrameApplyInProgress` is checked FIRST —
+ * the store subscriber fires synchronously from `applyMany`, including when the
+ * reconciler applies an inbound frame, and a server-originated frame must never
+ * bounce back out as a client PUT. There is deliberately NO agent-run gate: a
+ * human edit made during an agent run is a `humanUncommitted` delta (the run's
+ * own batches are in the reconciler's `sentPending`), so the reconciler's diff
+ * picks it up and PUTs it on the next tick.
  *
- * Entity reference changes are the watermark — if no entity map changed
- * reference (Immer structural sharing), the subscriber doesn't fire.
- * No mutationCount needed.
+ * Returns a SaveState the SaveIndicator renders.
  */
 "use client";
-import { useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
 import { reportClientError } from "@/lib/clientErrorReporter";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { useReconcilerContext } from "@/lib/collab/context";
+import type { SaveSignal } from "@/lib/collab/reconciler";
 import { docHasData } from "@/lib/doc/predicates";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import type { PersistableDoc } from "@/lib/domain";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import { derivePhase } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
-import { showToast } from "@/lib/ui/toastStore";
+import { showToast, toastStore } from "@/lib/ui/toastStore";
 
 /** Post-save cooldown before the trailing edge can fire (ms). */
 const COOLDOWN_MS = 1000;
@@ -61,7 +66,7 @@ const IDLE_STATE: SaveState = { status: "idle", savedAt: null };
  * A new reference on any of these fields implies at least one user-visible
  * mutation has landed. This MUST list every persisted, user-editable
  * top-level field: a field omitted here is invisible to the save
- * subscription, so a change touching ONLY that field never persists.
+ * subscription, so a change touching ONLY that field never dispatches.
  * `setAppLogo` mutates only `s.logo`, so `logo` belongs here; entity maps
  * (`modules` / `forms` / `fields`) cover their nested media, so the standalone
  * top-level slots are the ones to watch.
@@ -87,22 +92,23 @@ export function projectSaveSlice(s: BlueprintDoc) {
 }
 
 /**
- * Auto-save hook — persists blueprint edits to Firestore via API route.
+ * Auto-save hook — dispatches blueprint edits to the reconciler.
  *
  * Auth is guaranteed by the server layout (`requireAuth` in
- * `app/build/layout.tsx`) — no client-side auth check needed.
- *
- * Reads the session store handle via `BuilderSessionContext` — the hook
- * gates saving on `appId` + derived phase (Ready/Completed). The doc
- * store is read from context for subscription + blueprint assembly.
+ * `app/build/layout.tsx`) — no client-side auth check needed. The reconciler
+ * (from `useReconcilerContext`) owns the write path; this hook throttles the
+ * dispatch and renders its status. In replay (no reconciler) it inertly stays
+ * idle — replay never edits.
  */
 export function useAutoSave(): SaveState {
 	const [state, setState] = useState<SaveState>(IDLE_STATE);
 
-	/* The doc store owns blueprint entity data — the session store's `appId`
-	 * and lifecycle flags gate whether saving is enabled. */
+	/* The doc store owns blueprint entity data; the session store's `appId` and
+	 * lifecycle flags gate whether dispatching is enabled; the reconciler owns
+	 * the diff base + the PUT. */
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
+	const reconcilerCtx = useReconcilerContext();
 
 	/* Throttle state — all mutable, read/written inside the subscription
 	 * callback and cleanup. Never triggers re-renders. */
@@ -112,10 +118,53 @@ export function useAutoSave(): SaveState {
 	);
 	const pendingTrailingRef = useRef(false);
 	const unmountedRef = useRef(false);
+	/* 404 warning state. `warned404Ref` gates the persistent toast to ONCE per
+	 * failure episode (not every edit); it does NOT disable dispatching — the
+	 * reconciler keeps retrying, so a transient 404 / re-promotion auto-recovers.
+	 * On recovery the captured `warn404ToastIdRef` toast is DISMISSED. Both reset
+	 * on app change. The Sentry signal is deduped by `reportClientError`'s own
+	 * message Set (the message carries the app id). */
+	const warned404Ref = useRef(false);
+	const warn404ToastIdRef = useRef<string | undefined>(undefined);
+	/* True while the last dispatch errored. Gates the "Saving…" flash so a
+	 * SUSTAINED error episode doesn't bounce the indicator error→saving→error on
+	 * every edit and re-announce the alert region. Cleared on any successful
+	 * save / reload; reset on app change. */
+	const lastErroredRef = useRef(false);
+	/* Once-per-episode gate for the TERMINAL toasts (`permanent` / `tooLarge`) —
+	 * the reconciler re-surfaces the signal on every post-freeze edit so the
+	 * indicator stays honest, but the persistent toast must show ONCE, not once
+	 * per keystroke. The toast id is captured so the app-change reset and the
+	 * unmount cleanup can DISMISS it — a persistent toast must not strand on
+	 * whatever app/screen the user lands on next (the 404 warning's rule). */
+	const warnedTerminalRef = useRef(false);
+	const terminalToastIdRef = useRef<string | undefined>(undefined);
 
-	/* Reset state when the app changes — new app means a fresh save state
-	 * and no pending/in-flight state from the old app. Uses React's "derive
-	 * state from props" pattern. */
+	/* Clear the 404 warning + dismiss its persistent toast. Called wherever the
+	 * "can't save" state ends — a successful save, an app change, unmount — so
+	 * the pinned toast never outlives the condition it describes. */
+	const dismiss404Warning = useCallback(() => {
+		warned404Ref.current = false;
+		if (warn404ToastIdRef.current) {
+			toastStore.dismiss(warn404ToastIdRef.current);
+			warn404ToastIdRef.current = undefined;
+		}
+	}, []);
+
+	/* Clear the terminal (`permanent` / `tooLarge`) warning + dismiss its
+	 * persistent toast — the terminal twin of `dismiss404Warning`, run on the
+	 * app-change reset, a successful save, and unmount. */
+	const dismissTerminalWarning = useCallback(() => {
+		warnedTerminalRef.current = false;
+		if (terminalToastIdRef.current) {
+			toastStore.dismiss(terminalToastIdRef.current);
+			terminalToastIdRef.current = undefined;
+		}
+	}, []);
+
+	/* Reset state when the app changes — new app means a fresh save state and
+	 * no pending/in-flight state from the old app. Uses React's "derive state
+	 * from props" pattern. */
 	const currentAppId = sessionApi?.getState().appId;
 	const prevAppIdRef = useRef(currentAppId);
 	if (prevAppIdRef.current !== currentAppId) {
@@ -126,6 +175,9 @@ export function useAutoSave(): SaveState {
 			cooldownTimerRef.current = undefined;
 		}
 		pendingTrailingRef.current = false;
+		dismiss404Warning();
+		dismissTerminalWarning();
+		lastErroredRef.current = false;
 		setState(IDLE_STATE);
 	}
 
@@ -134,234 +186,231 @@ export function useAutoSave(): SaveState {
 	 * entity map changed reference, the subscriber doesn't fire. */
 	useEffect(() => {
 		if (!docStore || !sessionApi) return;
-		/* Capture the narrowed non-null reference so nested closures
-		 * can read it without non-null assertions (TypeScript loses
-		 * the guard narrowing inside closures). */
 		const session = sessionApi;
+		const reconciler = reconcilerCtx?.reconciler ?? null;
 		unmountedRef.current = false;
 
 		/**
-		 * Fire the actual Firestore PUT and transition status honestly:
-		 * saving → saved/error. Starts a cooldown timer after completion
-		 * so the trailing edge can fire if mutations arrived mid-flight.
-		 *
-		 * The `appId` is captured at save-start; every state transition
-		 * re-checks the current `appId` and bails if it has changed. This
-		 * prevents an in-flight save for app A from resolving after the
-		 * user switches to app B and marking the new app as "Saved" — or
-		 * marking it as "error" — for a save that didn't belong to it.
+		 * Map a reconciler save signal to the indicator + the 404 warning. The
+		 * `appId` guard: the reconciler is per-mount, but a fast app swap could
+		 * fire a late signal — ignore anything once unmounted or after an app
+		 * change (the reset above already cleared state).
 		 */
-		async function executeSave() {
-			if (!docStore) return;
-			const appIdAtStart = session.getState().appId;
-			const doc = docStore.getState();
-			if (!appIdAtStart || doc.moduleOrder.length === 0) return;
-
-			/* Strip the derived state (fieldParent + the reference index)
-			 * before sending — the server rebuilds both on load and the
-			 * strict persistable schema rejects unknown keys. */
-			const persistable = toPersistableDoc(doc);
-
-			inFlightRef.current = true;
-			if (!unmountedRef.current) {
-				setState((prev) => ({ ...prev, status: "saving" }));
-			}
-
-			/** True iff the current store still belongs to the app we
-			 *  started saving. If false, the user navigated to a different
-			 *  app while the request was in flight — discard the result. */
-			const stillCurrent = () =>
-				session.getState().appId === appIdAtStart && !unmountedRef.current;
-
-			try {
-				const res = await fetch(`/api/apps/${appIdAtStart}`, {
-					method: "PUT",
-					headers: { "Content-Type": "application/json" },
-					// Send under the `blueprint` key so the API route's body parsing
-					// stays consistent. The value is a normalized BlueprintDoc
-					// (minus fieldParent — rebuilt on load). `basisToken` is the
-					// optimistic-save basis — the server `blueprint_token` this
-					// client last observed; the server compares it transactionally
-					// and rejects with 409 when the doc advanced under us.
-					body: JSON.stringify({
-						blueprint: persistable,
-						basisToken: session.getState().saveBasis,
-					}),
-				});
-				if (!stillCurrent()) return;
-				if (res.ok) {
-					/* Advance the basis to the freshly rotated token so the next
-					 * save's precondition compares against the doc THIS save just
-					 * wrote. */
-					try {
-						const body = await res.json();
-						if (typeof body?.basisToken === "string") {
-							session.getState().setSaveBasis(body.basisToken);
-						}
-					} catch {
-						/* body unreadable — the next save's stale basis will 409 and
-						 * recover via the reload path below. */
+		function observe(signal: SaveSignal): void {
+			if (unmountedRef.current) return;
+			switch (signal.kind) {
+				case "saving":
+					inFlightRef.current = true;
+					/* During a sustained error episode skip the flash — it would bounce
+					 * status error→saving→error on each retry and re-announce the alert
+					 * region. */
+					if (!lastErroredRef.current) {
+						setState((prev) => ({ ...prev, status: "saving" }));
 					}
+					return;
+				case "saved":
+					inFlightRef.current = false;
+					lastErroredRef.current = false;
+					dismiss404Warning();
+					dismissTerminalWarning();
 					setState({ status: "saved", savedAt: Date.now() });
-				} else if (res.status === 409) {
-					/* Stale basis: a writer this window never saw advanced the doc
-					 * (another tab's save, an agent working over MCP). Saving would
-					 * have erased that work, so the server refused. Recover by
-					 * reloading the server's version and telling the user what
-					 * happened — their last local change here is discarded. */
-					await reloadAfterStaleBasis(appIdAtStart, stillCurrent);
-				} else {
-					let detail = `HTTP ${res.status}`;
-					try {
-						const body = await res.json();
-						if (typeof body?.error === "string") detail += `: ${body.error}`;
-					} catch {
-						/* body unreadable — status code alone is still useful */
-					}
-
-					reportClientError({
-						message: `Auto-save failed — ${detail}`,
-						source: "manual",
-						url: window.location.href,
-					});
-					if (stillCurrent()) {
-						setState((prev) => ({ ...prev, status: "error" }));
-					}
-				}
-			} catch (err) {
-				if (stillCurrent()) {
-					reportClientError(
-						{
-							message: `Auto-save network error: ${err instanceof Error ? err.message : String(err)}`,
-							stack: err instanceof Error ? err.stack : undefined,
-							source: "manual",
-							url: window.location.href,
-						},
-						err,
+					startCooldown();
+					return;
+				case "conflict":
+					/* The reconciler runs the reload (GET fresh + re-fold) itself; the
+					 * toast tells the user their edit conflicted. Reaching a 409 proves
+					 * edit access, so a stale 404 warning is dismissed. */
+					inFlightRef.current = false;
+					dismiss404Warning();
+					lastErroredRef.current = false;
+					setState(IDLE_STATE);
+					showToast(
+						"warning",
+						"App reloaded",
+						"This app changed in a way that conflicts with your last edit — by an agent connection or another collaborator. We loaded the latest version; redo that change if you still want it.",
 					);
-					setState((prev) => ({ ...prev, status: "error" }));
-				}
-			} finally {
-				inFlightRef.current = false;
-				/* Cooldown is local to this hook instance; safe to start
-				 * even on a stale save because the next leading-edge call
-				 * still queues correctly via pendingTrailingRef. */
-				if (!unmountedRef.current) startCooldown();
+					startCooldown();
+					return;
+				case "reauth":
+					/* Terminal — edit access was removed. The reconciler froze the
+					 * canvas and OWNS the single Sentry report for a 403
+					 * (`onReauthDenied`), so warn the user WITHOUT a second report
+					 * here (a duplicate would double-count every revocation). */
+					inFlightRef.current = false;
+					lastErroredRef.current = true;
+					warnNotWritable(/* report */ false);
+					setState((prev) =>
+						prev.status === "error" ? prev : { ...prev, status: "error" },
+					);
+					startCooldown();
+					return;
+				case "notFound":
+					/* 404 — edit access revoked mid-session, or the app was deleted.
+					 * The reconciler keeps retrying (no terminal signal owns this), so
+					 * warn AND report from here. */
+					inFlightRef.current = false;
+					lastErroredRef.current = true;
+					warnNotWritable(/* report */ true);
+					setState((prev) =>
+						prev.status === "error" ? prev : { ...prev, status: "error" },
+					);
+					startCooldown();
+					return;
+				case "permanent":
+					/* Terminal — the server permanently rejected a change (a 400
+					 * "Invalid mutations", a client↔server gate disagreement): the
+					 * reconciler FROZE saving (no retry, no discard — the edits stay in
+					 * the store) and OWNS the Sentry report (`onSaveError`). Tell the
+					 * user to reload; ONE persistent toast per episode — the reconciler
+					 * re-surfaces the signal on every post-freeze edit to keep the
+					 * indicator honest, and un-gated that would toast per keystroke. */
+					inFlightRef.current = false;
+					lastErroredRef.current = true;
+					if (!warnedTerminalRef.current) {
+						warnedTerminalRef.current = true;
+						terminalToastIdRef.current = showToast(
+							"error",
+							"These edits couldn't be saved",
+							"The server rejected a change, so saving is paused to avoid losing work. Reload the app to continue from the last saved version.",
+							{ persistent: true },
+						);
+					}
+					setState((prev) =>
+						prev.status === "error" ? prev : { ...prev, status: "error" },
+					);
+					startCooldown();
+					return;
+				case "tooLarge":
+					/* A 413 — the accumulated unsaved changes are too large to save in
+					 * one request. The reconciler stopped retrying (no storm) but KEPT
+					 * the edits and OWNS the report. Tell the user to reload; ONE
+					 * persistent toast per episode (the signal re-fires on every edit
+					 * dispatched behind the stuck batch). */
+					inFlightRef.current = false;
+					lastErroredRef.current = true;
+					if (!warnedTerminalRef.current) {
+						warnedTerminalRef.current = true;
+						terminalToastIdRef.current = showToast(
+							"error",
+							"Your unsaved changes are too large to save",
+							"There are too many unsaved changes to save at once. Reload the app to continue from the last saved version.",
+							{ persistent: true },
+						);
+					}
+					setState((prev) =>
+						prev.status === "error" ? prev : { ...prev, status: "error" },
+					);
+					startCooldown();
+					return;
+				case "error":
+					inFlightRef.current = false;
+					lastErroredRef.current = true;
+					setState((prev) =>
+						prev.status === "error" ? prev : { ...prev, status: "error" },
+					);
+					startCooldown();
+					return;
+			}
+		}
+
+		/** Warn ONCE per failure episode that the app can't be saved from here
+		 *  (edit access removed, or the app was deleted). The reconciler keeps
+		 *  retrying, so a re-promotion / transient failure auto-recovers. `report`
+		 *  gates the Sentry signal: a 404 reports here, but a 403 does NOT — the
+		 *  reconciler's `onReauthDenied` owns the single 403 report, so warning
+		 *  from both would double-count a revocation. */
+		function warnNotWritable(report: boolean): void {
+			if (warned404Ref.current) return;
+			warned404Ref.current = true;
+			warn404ToastIdRef.current = showToast(
+				"warning",
+				"Your changes aren't being saved",
+				"This app can't be saved from here right now — your edit access may have been removed, or the app was deleted. If this persists, reload to see the current version.",
+				{ persistent: true },
+			);
+			if (report) {
+				reportClientError({
+					message: `Auto-save failed — app ${session.getState().appId} not writable`,
+					source: "manual",
+					url: window.location.href,
+				});
 			}
 		}
 
 		/**
-		 * Recover from a 409 stale-basis rejection: fetch the server's
-		 * current doc, replace the local one with it, re-sync the basis, and
-		 * tell the user in plain language what happened. The local doc was
-		 * built on a snapshot another writer has since replaced, so the
-		 * server's version is the one source of truth worth keeping — the
-		 * user's most recent local change is the cost, and the toast says so.
+		 * Dispatch the human delta through the reconciler. The reconciler
+		 * computes it from `localBase()` (so a batch it already holds isn't
+		 * re-sent) and returns undefined when there is nothing to send.
 		 */
-		async function reloadAfterStaleBasis(
-			appId: string,
-			stillCurrent: () => boolean,
-		): Promise<void> {
-			try {
-				const res = await fetch(`/api/apps/${appId}`);
-				if (!stillCurrent()) return;
-				if (!res.ok) throw new Error(`reload failed: HTTP ${res.status}`);
-				const data = (await res.json()) as {
-					blueprint: PersistableDoc;
-					basis_token: string | null;
-				};
-				if (!stillCurrent() || !docStore) return;
-				/* `load()` clears + re-pauses undo tracking (the empty→populated
-				 * swap must not enter history); resume right after so the user's
-				 * next edit is undoable again. */
-				docStore.getState().load(data.blueprint);
-				docStore.temporal.getState().resume();
-				session.getState().setSaveBasis(data.basis_token ?? null);
-				setState(IDLE_STATE);
-				showToast(
-					"warning",
-					"App reloaded",
-					"This app was changed outside this window — by an agent connection or another tab. We loaded the latest version so nothing gets overwritten; your last change here wasn't saved, so redo it if you still want it.",
-				);
-			} catch (err) {
-				/* The reload itself failed — surface as a save error so the
-				 * indicator shows something is wrong; the next mutation retries
-				 * the whole save → 409 → reload sequence. */
-				reportClientError(
-					{
-						message: `Auto-save stale-basis reload failed: ${
-							err instanceof Error ? err.message : String(err)
-						}`,
-						source: "manual",
-						url: window.location.href,
-					},
-					err,
-				);
-				if (stillCurrent()) {
-					setState((prev) => ({ ...prev, status: "error" }));
-				}
-			}
+		function dispatch(): void {
+			if (!docStore || !reconciler) return;
+			/* A viewer holds no `edit` capability — never dispatch. The read-only
+			 * builder suppresses edit affordances; this is the airtight backstop. */
+			if (!session.getState().canEdit) return;
+			reconciler.dispatchHumanBatch(observe);
 		}
 
 		/**
-		 * After a save completes (success or error), pause before allowing
-		 * the next save. If mutations arrived during the in-flight save or
-		 * this cooldown, the trailing edge fires once the timer expires.
+		 * After a save signal settles, pause before allowing the next dispatch.
+		 * If mutations arrived during the in-flight save or this cooldown, the
+		 * trailing edge fires once the timer expires.
 		 */
 		function startCooldown() {
+			if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
 			cooldownTimerRef.current = setTimeout(() => {
 				cooldownTimerRef.current = undefined;
 				if (pendingTrailingRef.current) {
 					pendingTrailingRef.current = false;
-					executeSave();
+					dispatch();
 				}
 			}, COOLDOWN_MS);
 		}
 
-		/* Subscribe to doc entity map changes — fires only when a map gets a
-		 * new Immer reference. Shallow equality on the projected slice short-
-		 * circuits unrelated doc updates (e.g. appId bookkeeping). */
+		/* Subscribe to doc entity map changes — fires only when a map gets a new
+		 * Immer reference. Shallow equality on the projected slice short-circuits
+		 * unrelated doc updates (e.g. appId bookkeeping). */
 		const unsub = docStore.subscribe(
 			projectSaveSlice,
 			() => {
+				/* Gate on `remoteFrameApplyInProgress` FIRST — this subscriber fires
+				 * SYNCHRONOUSLY from `applyMany`, including when the reconciler
+				 * applies an inbound frame (echo / remote / reload re-fold /
+				 * data-done reseed). A server-originated change must never bounce
+				 * back out as a client PUT. */
+				if (docStore.getState().remoteFrameApplyInProgress) return;
+
 				const sessionState = session.getState();
-				/* Never save during replay. The doc is being rebuilt from a
-				 * historical event log; any mutation it receives is a scrub
-				 * reconstruction, not a user edit. Persisting those writes
-				 * would overwrite the app's real data with a partial playback
-				 * snapshot. Gate here before the phase check — replay now
-				 * derives to Ready (see `derivePhase`), so the phase gate
-				 * alone would let scrub writes through. */
+				/* A viewer holds no `edit` capability — never dispatch. */
+				if (!sessionState.canEdit) return;
+				/* Never dispatch during replay — the doc is being rebuilt from a
+				 * historical event log; any mutation is a scrub reconstruction, not
+				 * a user edit. */
 				if (sessionState.replay !== undefined) return;
-				/* Gate on lifecycle phase and app existence. Derive the builder
-				 * phase from session state + doc presence — only save when the
-				 * builder is in Ready or Completed (i.e. the user has a usable
-				 * blueprint and no initial generation is in progress). */
+
+				/* Gate on lifecycle phase + app existence. Only dispatch when the
+				 * builder is Ready or Completed (a usable blueprint, no initial
+				 * generation in progress). A human edit made DURING an agent run is
+				 * deliberately NOT gated out — it is a `humanUncommitted` delta the
+				 * reconciler diffs + PUTs on the next tick (the run's own batches
+				 * are in `sentPending`). */
 				const docSnap = docStore.getState();
 				const phase = derivePhase(sessionState, docHasData(docSnap));
 				if (phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed)
 					return;
-				const pid = sessionState.appId;
-				/* Redundant with the phase gate above (Ready/Completed both
-				 * require a populated doc), but defensive — the flags are
-				 * updated independently and we never want to PUT an empty
-				 * blueprint. Use the shared predicate for consistency. */
-				if (!pid || !docHasData(docSnap)) return;
+				if (!sessionState.appId || !docHasData(docSnap)) return;
 
-				/* Save is in-flight — queue for trailing edge after completion. */
+				/* Dispatch is in-flight → queue for trailing edge after completion. */
 				if (inFlightRef.current) {
 					pendingTrailingRef.current = true;
 					return;
 				}
-
-				/* Cooldown active — queue for trailing edge when it expires. */
+				/* Cooldown active → queue for trailing edge when it expires. */
 				if (cooldownTimerRef.current) {
 					pendingTrailingRef.current = true;
 					return;
 				}
-
-				/* No save in-flight, no cooldown → leading edge: save immediately. */
-				executeSave();
+				/* No dispatch in-flight, no cooldown → leading edge. */
+				dispatch();
 			},
 			{ equalityFn: shallow },
 		);
@@ -374,8 +423,18 @@ export function useAutoSave(): SaveState {
 				cooldownTimerRef.current = undefined;
 			}
 			pendingTrailingRef.current = false;
+			/* Leaving the builder must not strand a persistent toast on whatever
+			 * screen the user lands on next. */
+			dismiss404Warning();
+			dismissTerminalWarning();
 		};
-	}, [sessionApi, docStore]);
+	}, [
+		sessionApi,
+		docStore,
+		reconcilerCtx,
+		dismiss404Warning,
+		dismissTerminalWarning,
+	]);
 
 	return state;
 }

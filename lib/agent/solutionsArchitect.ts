@@ -20,7 +20,10 @@
  */
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
-import type { BlueprintDoc } from "@/lib/domain";
+import { loadApp } from "@/lib/db/apps";
+import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { SA_MODEL, SA_REASONING } from "@/lib/models";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
@@ -197,16 +200,41 @@ export function createSolutionsArchitect(
 			inputSchema: t.inputSchema,
 			execute: (input: I) =>
 				serial(async () => {
-					/* `kind: "mutate"` discriminator is internal to the shared
-					 * tool contract — the chat-side AI SDK tool surface only
-					 * sees `result`. Destructure-and-discard. */
-					const { mutations, newDoc, result } = await t.execute(
-						input,
-						ctx,
-						doc,
-					);
-					if (mutations.length > 0) doc = newDoc;
-					return result;
+					try {
+						/* `kind: "mutate"` discriminator is internal to the shared
+						 * tool contract — the chat-side AI SDK tool surface only
+						 * sees `result`. Destructure-and-discard. On success the SA
+						 * continues against `newDoc` — the guarded writer's committed
+						 * doc, which may carry a peer's concurrent edit merged in. */
+						const { mutations, newDoc, result } = await t.execute(
+							input,
+							ctx,
+							doc,
+						);
+						if (mutations.length > 0) doc = newDoc;
+						return result;
+					} catch (err) {
+						/* A RETRYABLE conflict — a peer deleted/changed what this
+						 * tool targeted, or the app moved Projects, between our read
+						 * and the commit. Surface the standard `{ error }` envelope
+						 * to the SA AND reload fresh so the next tool builds on the
+						 * current server state, not the stale closure doc. (A
+						 * pre-commit validity finding does NOT throw — the tool
+						 * returns its own `{ error }` and nothing reloads. A terminal
+						 * `CommitReauthError` — the actor lost access — is NOT caught
+						 * here: it propagates and fails the run, since reloading can't
+						 * restore authorization.) */
+						if (err instanceof BlueprintCommitRejectedError) {
+							const fresh = await loadApp(ctx.appId);
+							if (fresh) {
+								doc = hydratePersistedBlueprint(
+									fresh.blueprint as PersistableDoc,
+								);
+							}
+							return { error: err.message } as R;
+						}
+						throw err;
+					}
 				}),
 		};
 	}

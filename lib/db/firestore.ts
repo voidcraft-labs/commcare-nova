@@ -31,20 +31,29 @@ import {
 	Firestore,
 	type FirestoreDataConverter,
 	type QueryDocumentSnapshot,
+	type Transaction,
 	type WithFieldValue,
 } from "@google-cloud/firestore";
 import type { ZodType } from "zod";
 import { type Event, eventSchema } from "@/lib/log/types";
+import { log } from "@/lib/logger";
+import { delay } from "@/lib/utils/delay";
 import { firestoreClientOptions } from "./firestoreClientOptions";
 import {
+	type AcceptedMutationDoc,
 	type AppDoc,
+	acceptedMutationSchema,
 	appDocSchema,
+	type BatchDedupDoc,
+	batchDedupSchema,
 	type CreditGrantDoc,
 	type CreditMonthDoc,
 	creditGrantDocSchema,
 	creditMonthDocSchema,
 	type MediaAssetDoc,
 	mediaAssetDocSchema,
+	type PresenceDoc,
+	presenceDocSchema,
 	type RunSummaryDoc,
 	runSummaryDocSchema,
 	type ThreadDoc,
@@ -77,6 +86,139 @@ export function getDb(): Firestore {
 		});
 	}
 	return _db;
+}
+
+// ── Write-throttle ride-out ────────────────────────────────────────
+
+/** gRPC status the write throttle carries on the gRPC transport — the shape
+ * the SDK's own retry predicates recognize. */
+const GRPC_RESOURCE_EXHAUSTED = 8;
+
+/** HTTP status the same throttle carries on the REST transport. */
+const HTTP_TOO_MANY_REQUESTS = 429;
+
+/** Backoff schedule — ~8s across four retries, well under the chat route's
+ * ceiling, giving Firestore time to re-allocate write capacity. */
+const WRITE_THROTTLE_RETRY_DELAYS_MS = [250, 750, 2000, 5000];
+
+/**
+ * Matches Firestore's write throttle on both transports: the gRPC status code
+ * (`GoogleError.code`), the REST shape — an HTTP 429 whose `code`/`status`
+ * carry the number or its string form — and, as a last resort, an error whose
+ * message embeds the 429 response body verbatim.
+ */
+function isFirestoreWriteThrottled(err: unknown): boolean {
+	if (typeof err === "object" && err !== null) {
+		const { code, status } = err as { code?: unknown; status?: unknown };
+		if (code === GRPC_RESOURCE_EXHAUSTED) return true;
+		if (
+			code === HTTP_TOO_MANY_REQUESTS ||
+			code === String(HTTP_TOO_MANY_REQUESTS) ||
+			status === HTTP_TOO_MANY_REQUESTS ||
+			status === String(HTTP_TOO_MANY_REQUESTS)
+		) {
+			return true;
+		}
+	}
+	const message = err instanceof Error ? err.message : String(err);
+	return /RESOURCE_EXHAUSTED|maximum bandwidth for writes|rateLimitExceeded/i.test(
+		message,
+	);
+}
+
+/**
+ * The shared ride-out loop. `shouldBypass` short-circuits classification for
+ * errors the caller KNOWS are not the throttle — a transaction body's own
+ * rejection, which can quote user-authored text that would otherwise match
+ * the message fallback. Each bounce logs a warning so a shed is never
+ * invisible.
+ */
+async function retryThrottled<T>(
+	attemptOnce: () => Promise<T>,
+	shouldBypass: (err: unknown) => boolean,
+): Promise<T> {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await attemptOnce();
+		} catch (err) {
+			if (
+				shouldBypass(err) ||
+				attempt === WRITE_THROTTLE_RETRY_DELAYS_MS.length ||
+				!isFirestoreWriteThrottled(err)
+			) {
+				throw err;
+			}
+			const delayMs = WRITE_THROTTLE_RETRY_DELAYS_MS[attempt];
+			log.warn("[firestore] write throttled; retrying", {
+				attempt: attempt + 1,
+				delayMs,
+				error: err instanceof Error ? err.message.slice(0, 300) : String(err),
+			});
+			await delay(delayMs);
+		}
+	}
+}
+
+/**
+ * Run a Firestore transaction, riding out the write throttle with bounded
+ * exponential backoff. Every transaction call site in lib/db goes through
+ * this instead of calling `runTransaction` directly.
+ *
+ * Firestore sheds commits with 429 RESOURCE_EXHAUSTED — "This database has
+ * exceeded their maximum bandwidth for writes, please retry with exponential
+ * backoff" — and its contract makes the retry the CLIENT's job. The shed is
+ * not always explained by the documented limits: this database has rejected
+ * single small commits at zero measured load, reads unaffected, with no cause
+ * visible on any surface Google exposes — so any 429 commit rejection is
+ * weather to ride out.
+ *
+ * The SDK is built to absorb this itself — RESOURCE_EXHAUSTED is retryable at
+ * three layers (the gax call retry, `Firestore._retry`, and the transaction
+ * runner) — but all three classify by gRPC status code, and over the REST
+ * transport this codebase uses (`preferRest`, see `firestoreClientOptions`)
+ * the throttle surfaces as an HTTP error carrying `code: 429`, which none of
+ * them match. Unwrapped, a single shed therefore hard-fails the request that
+ * carried it.
+ *
+ * Only TRANSPORT errors are ever classified: an error thrown by the
+ * transaction body itself (`OutOfCreditsError`, a commit-gate rejection whose
+ * message may quote user-authored text) is recognized by identity and
+ * propagates on the first attempt no matter what its message contains.
+ * Contention ABORTs are `runTransaction`'s own to retry, and a throttle retry
+ * re-runs the whole body — the same re-execution contract the SDK's
+ * contention retry already imposes on every body.
+ */
+export async function runThrottledTransaction<T>(
+	db: Firestore,
+	updateFunction: (tx: Transaction) => Promise<T>,
+): Promise<T> {
+	let bodyError: unknown;
+	return retryThrottled(
+		() => {
+			bodyError = undefined;
+			return db.runTransaction(async (tx) => {
+				try {
+					return await updateFunction(tx);
+				} catch (err) {
+					bodyError = err;
+					throw err;
+				}
+			});
+		},
+		(err) => bodyError !== undefined && err === bodyError,
+	);
+}
+
+/**
+ * `runThrottledTransaction`'s sibling for PLAIN writes (a bare
+ * `set`/`update`/`create`), for the hot paths where a single shed must not
+ * fail the user's save (app creation, blueprint snapshots). A plain write's
+ * rejection can only come from the SDK — there is no body to misread — so the
+ * classifier applies directly. Ops must be idempotent under re-execution;
+ * lib/db's plain writes are (full-doc sets and fixed-field updates).
+ */
+export function runThrottledWrite<T>(op: () => Promise<T>): Promise<T> {
+	return retryThrottled(op, () => false);
 }
 
 // ── Converters ─────────────────────────────────────────────────────
@@ -115,6 +257,17 @@ const runSummaryConverter = zodConverter(runSummaryDocSchema);
 const threadConverter = zodConverter(threadDocSchema);
 const userSettingsConverter = zodConverter(userSettingsDocSchema);
 const mediaAssetConverter = zodConverter(mediaAssetDocSchema);
+const batchDedupConverter = zodConverter(batchDedupSchema);
+
+/**
+ * Exported so the relay route (`getListenDb()`-bound `onSnapshot`) can apply
+ * the same Zod converter the `getDb()`-bound collection helpers do — the
+ * listen client is constructed separately, so it needs the standalone
+ * converter rather than only the bound collection helper.
+ */
+export const acceptedMutationConverter = zodConverter(acceptedMutationSchema);
+/** Exported for the same listen-client reason as `acceptedMutationConverter`. */
+export const presenceConverter = zodConverter(presenceDocSchema);
 
 // ── Collection Helpers ─────────────────────────────────────────────
 
@@ -201,6 +354,48 @@ export const collections = {
 	 */
 	mediaAssets: (): CollectionReference<MediaAssetDoc> =>
 		getDb().collection("mediaAssets").withConverter(mediaAssetConverter),
+
+	/**
+	 * Per-app durable mutation stream: `apps/{appId}/acceptedMutations/{seq}`.
+	 *
+	 * Takes an EXPLICIT client so the relay route can build its listen query on
+	 * the gRPC `getListenDb()` (whose `preferRest: false` is what makes
+	 * `onSnapshot` fire) rather than the REST-preferring `getDb()`, on which a
+	 * listen silently never fires in prod. Defaults to `getDb()` for ordinary
+	 * read/write callers.
+	 */
+	acceptedMutations: (
+		appId: string,
+		db: Firestore = getDb(),
+	): CollectionReference<AcceptedMutationDoc> =>
+		db
+			.collection("apps")
+			.doc(appId)
+			.collection("acceptedMutations")
+			.withConverter(acceptedMutationConverter),
+
+	/**
+	 * Per-app live presence roster: `apps/{appId}/presence/{userId}:{sessionId}`.
+	 * Explicit client param for the same listen-vs-REST reason as
+	 * `acceptedMutations`.
+	 */
+	presence: (
+		appId: string,
+		db: Firestore = getDb(),
+	): CollectionReference<PresenceDoc> =>
+		db
+			.collection("apps")
+			.doc(appId)
+			.collection("presence")
+			.withConverter(presenceConverter),
+
+	/** Per-app batch idempotency latches: `apps/{appId}/batchDedup/{batchId}`. */
+	batchDedup: (appId: string): CollectionReference<BatchDedupDoc> =>
+		getDb()
+			.collection("apps")
+			.doc(appId)
+			.collection("batchDedup")
+			.withConverter(batchDedupConverter),
 };
 
 // ── Document Helpers ───────────────────────────────────────────────
@@ -272,4 +467,45 @@ export const docs = {
 	/** Direct reference: `mediaAssets/{assetId}` */
 	mediaAsset: (assetId: string): DocumentReference<MediaAssetDoc> =>
 		collections.mediaAssets().doc(assetId),
+
+	/**
+	 * Direct reference: `apps/{appId}/acceptedMutations/{seq}`. The doc id is
+	 * the zero-padded `seq` (`String(seq).padStart(12, '0')`) so lexicographic
+	 * doc-id ordering matches numeric `seq` ordering — a range scan / prune by
+	 * doc id is the same as by `seq`.
+	 */
+	acceptedMutation: (
+		appId: string,
+		seq: number,
+	): DocumentReference<AcceptedMutationDoc> =>
+		collections.acceptedMutations(appId).doc(String(seq).padStart(12, "0")),
+
+	/**
+	 * Direct reference: `apps/{appId}/presence/{presenceId}` where
+	 * `presenceId = `${userId}:${sessionId}`` (minted by the caller).
+	 */
+	presence: (
+		appId: string,
+		presenceId: string,
+	): DocumentReference<PresenceDoc> =>
+		collections.presence(appId).doc(presenceId),
+
+	/** Direct reference: `apps/{appId}/batchDedup/{batchId}` (converter-applied, for the in-txn `set`). */
+	batchDedup: (
+		appId: string,
+		batchId: string,
+	): DocumentReference<BatchDedupDoc> =>
+		collections.batchDedup(appId).doc(batchId),
+
+	/**
+	 * RAW (converter-less) reference to a batch-dedup doc, for the in-transaction
+	 * dedup READ. A `withConverter` `tx.get()` routes the snapshot through
+	 * `batchDedupSchema.parse`, which throws inside the transaction on a partial
+	 * doc — same parse-on-read hazard the credit-reservation `creditMonthRaw`
+	 * guards against. The dedup read reads raw and branches on `snap.exists`.
+	 * `withConverter(null)` strips the converter from the same path
+	 * `collections.batchDedup` owns, so the path stays single-sourced.
+	 */
+	batchDedupRaw: (appId: string, batchId: string): DocumentReference =>
+		collections.batchDedup(appId).doc(batchId).withConverter(null),
 };

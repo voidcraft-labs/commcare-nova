@@ -25,7 +25,11 @@
  */
 
 import { parseXPathExpression } from "@/lib/commcare/xpath";
+import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { fieldIdVerdict } from "@/lib/doc/identifierVerdicts";
+import { keyBetween, keysForSlot } from "@/lib/doc/order/keys";
+import { keyedOptions } from "@/lib/doc/order/options";
+import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -37,9 +41,11 @@ import type {
 } from "@/lib/domain";
 import {
 	asUuid,
+	fieldCasePropertyOn,
 	fieldPathResolver,
 	isContainer,
 	opaqueXPathExpression,
+	type SelectOption,
 } from "@/lib/domain";
 import { findFieldByBareId } from "../../blueprintHelpers";
 import {
@@ -116,7 +122,7 @@ export function assembleFieldMutations(
 	}
 	let topLevelNextIndex: number | undefined;
 	if (anchor?.beforeFieldId || anchor?.afterFieldId) {
-		const order = doc.fieldOrder[batchInsertParent] ?? [];
+		const order = orderedFieldUuids(doc, batchInsertParent);
 		if (anchor.beforeFieldId) {
 			const i = order.findIndex(
 				(u) => doc.fields[u]?.id === anchor.beforeFieldId,
@@ -129,6 +135,10 @@ export function assembleFieldMutations(
 			if (i !== -1) topLevelNextIndex = i + 1;
 		}
 	}
+	// The anchor's start slot in the parent's DISPLAY order, captured BEFORE
+	// the placement loop advances `topLevelNextIndex` — the second-pass order
+	// minting keys the anchored block BETWEEN the neighbors at this slot.
+	const anchorStartIndex = topLevelNextIndex;
 
 	// `mintedByBareId` records only containers added earlier in this batch
 	// so a later item's `parentId` can resolve to them; `pendingByParent`
@@ -228,9 +238,71 @@ export function assembleFieldMutations(
 	if (rejected.length > 0) return { ok: false, rejected };
 	const resolve = batchPathResolver(doc, formUuid, mutations);
 	resolveBatchExpressions(resolve, landed);
+	// Mint an `order` key for every born field. An ANCHORED batch (a top-level
+	// block placed at `beforeFieldId` / `afterFieldId`) keys its fields BETWEEN
+	// the anchor's DISPLAY neighbors — the same neighbor bounds the builder's
+	// `orderKeyForFieldSlot` uses — so the insert lands AT the anchor in display
+	// order, not appended. Every other field (nested under its own parentId, or
+	// any field when no anchor was given) appends after its parent's existing
+	// fields, advancing per field so the batch's fields to one parent keep their
+	// authored order. A field born keyless would sort ahead of / behind a later
+	// keyed sibling until a reload's backfill, so the key is assigned at
+	// construction. A minted container parent (added earlier in this same batch)
+	// has no existing doc fields, so its children seed a fresh sequence.
+	let anchorKeys: string[] | undefined;
+	if (anchorStartIndex !== undefined) {
+		const siblingKeys = orderedFieldUuids(doc, batchInsertParent)
+			.map((u) => doc.fields[u]?.order)
+			.filter((o): o is string => o !== undefined);
+		const anchoredCount = mutations.filter(
+			(m) => m.kind === "addField" && m.parentUuid === batchInsertParent,
+		).length;
+		anchorKeys = keysForSlot(siblingKeys, anchorStartIndex, anchoredCount);
+	}
+	const lastOrderByParent = new Map<string, string | null>();
+	let anchorCursor = 0;
+	for (const mut of mutations) {
+		if (mut.kind !== "addField") continue;
+		let order: string;
+		if (anchorKeys !== undefined && mut.parentUuid === batchInsertParent) {
+			order = anchorKeys[anchorCursor];
+			anchorCursor += 1;
+		} else {
+			let last = lastOrderByParent.get(mut.parentUuid);
+			if (last === undefined) {
+				const keys = orderedFieldUuids(doc, mut.parentUuid)
+					.map((u) => doc.fields[u]?.order)
+					.filter((o): o is string => o !== undefined);
+				last = keys.at(-1) ?? null;
+			}
+			order = keyBetween(last, null);
+			lastOrderByParent.set(mut.parentUuid, order);
+		}
+		// A select field's born options also need identity + a sort key: the
+		// per-uuid option diff skips a keyless option, so an edit to an
+		// SA-authored option before a reload's backfill would be lost.
+		const opts = keyedOptions(
+			(mut.field as { options?: SelectOption[] }).options,
+		);
+		mut.field = { ...mut.field, order, ...(opts && { options: opts }) };
+	}
+	// Declaration chokepoint: a field writing to a type absent from the catalog
+	// declares it (granular `declareCaseType`) — the reducer no longer
+	// auto-creates the type. Declare each absent type ONCE, BEFORE the adds, so
+	// every addField's catalog sync can append its property to the now-declared
+	// type. No-op when every written type is already declared.
+	const declared = new Set<string>();
+	const declarations: Mutation[] = [];
+	for (const mut of mutations) {
+		if (mut.kind !== "addField") continue;
+		const caseType = fieldCasePropertyOn(mut.field);
+		if (caseType === undefined || declared.has(caseType)) continue;
+		declared.add(caseType);
+		declarations.push(...declareCaseTypeMutations(doc, caseType));
+	}
 	return {
 		ok: true,
-		mutations,
+		mutations: [...declarations, ...mutations],
 		skipped,
 		parseExpression: (text) => parseXPathExpression(text, resolve),
 	};

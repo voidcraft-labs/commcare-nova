@@ -26,9 +26,16 @@
 
 import { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
-import { updateColumnMutation } from "../../blueprintHelpers";
+import {
+	resolveModuleUuid,
+	updateColumnMutation,
+} from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
-import { guardedMutate, type MutatingToolResult } from "../common";
+import {
+	guardedMutate,
+	type MutatingToolResult,
+	toToolErrorResult,
+} from "../common";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	columnInputSchema,
@@ -77,7 +84,7 @@ export const updateCaseListColumnTool = {
 		const { moduleIndex, columnUuid: rawColumnUuid, column } = input;
 		const columnUuid = asUuid(rawColumnUuid);
 		try {
-			const moduleUuid = doc.moduleOrder[moduleIndex];
+			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid)
 				return moduleNotFoundResult<UpdateCaseListColumnSuccess>(
 					doc,
@@ -130,12 +137,7 @@ export const updateCaseListColumnTool = {
 				},
 			};
 		} catch (err) {
-			return {
-				kind: "mutate" as const,
-				mutations: [],
-				newDoc: doc,
-				result: { error: err instanceof Error ? err.message : String(err) },
-			};
+			return toToolErrorResult(err, doc);
 		}
 	},
 };

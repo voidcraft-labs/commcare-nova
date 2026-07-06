@@ -31,6 +31,8 @@ import tablerShieldLock from "@iconify-icons/tabler/shield-lock";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
+import { Button } from "@/components/shadcn/button";
+import { Input } from "@/components/shadcn/input";
 import {
 	Popover,
 	PopoverContent,
@@ -60,15 +62,7 @@ type FormStatus =
 	| { type: "error"; message: string }
 	| { type: "deleting" };
 
-// ── Styles ─────────────────────────────────────────────────────────
-
-/** Shared input styles for both editable and locked states. */
-const INPUT_BASE =
-	"w-full px-4 py-2.5 rounded-lg text-sm border transition-all duration-200";
-
-const INPUT_ACTIVE = `${INPUT_BASE} bg-nova-deep border-nova-border text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet focus:shadow-[var(--nova-glow-violet)]`;
-
-const INPUT_LOCKED = `${INPUT_BASE} bg-nova-deep/50 border-nova-border/50 text-nova-text-muted cursor-not-allowed`;
+// ── Constants ──────────────────────────────────────────────────────
 
 /** Placeholder shown in the masked API key field. The actual key never leaves the server. */
 const API_KEY_MASK = "•".repeat(32);
@@ -183,9 +177,9 @@ export function CommCareSettings({
 
 	/* ── Render ──────────────────────────────────────────────────── */
 	return (
-		<section className="rounded-xl border border-nova-border overflow-hidden">
+		<section className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden">
 			{/* ── Card header ───────────────────────────────────────── */}
-			<div className="flex items-center gap-3 px-6 py-4 border-b border-nova-border/50 bg-nova-surface/20">
+			<div className="flex items-center gap-3 px-6 py-4 border-b border-nova-border/50">
 				<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-nova-violet/10">
 					<Icon
 						icon={tablerCloudUpload}
@@ -246,11 +240,12 @@ export function CommCareSettings({
 				{/* ── Form fields ────────────────────────────────────── */}
 				<div className="space-y-4">
 					{/* Username */}
-					<label className="flex flex-col gap-1.5">
+					<label htmlFor="commcare-username" className="flex flex-col gap-1.5">
 						<span className="text-sm font-medium text-nova-text-secondary">
 							Username
 						</span>
-						<input
+						<Input
+							id="commcare-username"
 							type="email"
 							value={username}
 							onChange={(e) => setUsername(e.target.value)}
@@ -258,7 +253,6 @@ export function CommCareSettings({
 							disabled={fieldsLocked}
 							autoComplete="off"
 							data-1p-ignore
-							className={fieldsLocked ? INPUT_LOCKED : INPUT_ACTIVE}
 						/>
 					</label>
 
@@ -268,7 +262,7 @@ export function CommCareSettings({
 							API Key
 						</span>
 						{fieldsLocked ? (
-							<input
+							<Input
 								id="commcare-api-key"
 								type="text"
 								value={API_KEY_MASK}
@@ -276,10 +270,10 @@ export function CommCareSettings({
 								tabIndex={-1}
 								autoComplete="off"
 								data-1p-ignore
-								className={`${INPUT_LOCKED} tracking-wider`}
+								className="tracking-wider"
 							/>
 						) : (
-							<input
+							<Input
 								id="commcare-api-key"
 								type="text"
 								value={apiKey}
@@ -287,7 +281,6 @@ export function CommCareSettings({
 								placeholder="Paste your API key"
 								autoComplete="off"
 								data-1p-ignore
-								className={INPUT_ACTIVE}
 							/>
 						)}
 
@@ -330,52 +323,41 @@ export function CommCareSettings({
 				{/* ── Actions ────────────────────────────────────────── */}
 				<div className="mt-5 flex items-center gap-3">
 					{showSaveArea && (
-						<button
+						<Button
 							type="button"
 							onClick={handleSave}
 							disabled={!canSave || isVerifying}
-							className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-nova-action px-5 py-2.5 text-sm font-medium text-white transition-all duration-200 hover:bg-nova-action-hover disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							{isVerifying ? (
 								<>
-									<Icon
-										icon={tablerLoader2}
-										width="16"
-										height="16"
-										className="animate-spin"
-									/>
+									<Icon icon={tablerLoader2} className="animate-spin" />
 									Verifying...
 								</>
 							) : (
 								"Test & Save"
 							)}
-						</button>
+						</Button>
 					)}
 
 					{showDisconnectArea && (
-						<button
+						<Button
 							type="button"
+							variant="destructive"
 							onClick={handleDisconnect}
 							disabled={status.type === "deleting"}
-							className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm text-nova-text-secondary transition-colors hover:bg-nova-rose/[0.06] hover:text-nova-rose disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							{status.type === "deleting" ? (
 								<>
-									<Icon
-										icon={tablerLoader2}
-										width="14"
-										height="14"
-										className="animate-spin"
-									/>
+									<Icon icon={tablerLoader2} className="animate-spin" />
 									Removing...
 								</>
 							) : (
 								<>
-									<Icon icon={tablerTrash} width="14" height="14" />
+									<Icon icon={tablerTrash} />
 									Disconnect
 								</>
 							)}
-						</button>
+						</Button>
 					)}
 				</div>
 			</div>
@@ -505,19 +487,18 @@ function RefreshButton({
 	onRefresh: () => void;
 }) {
 	return (
-		<button
+		<Button
 			type="button"
+			variant="ghost"
+			size="xs"
 			onClick={onRefresh}
 			disabled={busy}
-			className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-nova-text-muted transition-colors hover:bg-white/[0.04] hover:text-nova-text-secondary disabled:cursor-not-allowed disabled:opacity-40"
 		>
 			<Icon
 				icon={busy ? tablerLoader2 : tablerRefresh}
-				width="13"
-				height="13"
 				className={busy ? "animate-spin" : undefined}
 			/>
 			Refresh
-		</button>
+		</Button>
 	);
 }

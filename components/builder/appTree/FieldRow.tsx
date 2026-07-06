@@ -26,6 +26,7 @@ import {
 	TreeItemRow,
 } from "@/components/builder/appTree/shared";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
+import { PeerBadge, usePeerEditingColor } from "@/components/builder/PeerBadge";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
@@ -76,6 +77,10 @@ export const FieldRow = memo(function FieldRow({
 	/** Shared provider — resolves label chips against this row's own form. */
 	const provider = useReferenceProvider();
 
+	/** The hue of a peer whose selection IS this field, or null — drives the
+	 *  live "editing this" ring. Called unconditionally (before the guard). */
+	const editingColor = usePeerEditingColor(uuid);
+
 	if (!field) return null;
 
 	const fieldPath = fpath(field.id, parentPath);
@@ -108,13 +113,13 @@ export const FieldRow = memo(function FieldRow({
 		>
 			<TreeItemRow
 				data-tree-field={fieldPath}
-				className={`flex items-center gap-1 py-2.5 transition-colors text-xs ${
+				className={`flex items-center gap-1 py-2.5 pr-3 transition-colors text-xs ${
 					locked
 						? "pointer-events-none text-nova-text-secondary"
 						: isSelected
 							? "cursor-pointer bg-nova-violet/[0.08] text-nova-text shadow-[inset_2px_0_0_var(--nova-violet)]"
 							: "cursor-pointer hover:bg-nova-violet/[0.06] text-nova-text-secondary"
-				}`}
+				} ${editingColor ? `ring-1 ring-inset ${editingColor.ring}` : ""}`}
 				style={{ paddingLeft: `${28 + depth * 8}px` }}
 				onClick={(e) => {
 					e.stopPropagation();
@@ -161,8 +166,14 @@ export const FieldRow = memo(function FieldRow({
 						</span>
 					</span>
 				) : (
+					/* `min-w-0 flex-1` is load-bearing: a flex item's default
+					 * min-width is auto, so a bare `truncate` never actually
+					 * truncates — a long label would push into the trailing meta
+					 * (count / peer marker) instead of ellipsizing. flex-1 also
+					 * pins the trailing cluster to the row's right edge whatever
+					 * the label length. */
 					<span
-						className={`truncate ${hasChildren ? "font-medium text-nova-text" : ""}`}
+						className={`min-w-0 flex-1 truncate ${hasChildren ? "font-medium text-nova-text" : ""}`}
 					>
 						{textIndices ? (
 							<HighlightedText text={displayText} indices={textIndices} />
@@ -172,10 +183,14 @@ export const FieldRow = memo(function FieldRow({
 					</span>
 				)}
 				{hasChildren && isCollapsed && (
-					<span className="text-[10px] text-nova-text-muted ml-auto shrink-0">
+					<span className="text-[10px] text-nova-text-muted shrink-0">
 						{childUuids.length}
 					</span>
 				)}
+				{/* Peer marker in the fixed trailing slot — the flex-1 label pins
+				 *  it (after any collapsed-count) to the right edge at a constant
+				 *  offset, and it renders no wrapper at all while solo. */}
+				<PeerBadge uuid={uuid} />
 			</TreeItemRow>
 
 			{/* Nested children for groups/repeats — self-recursive */}

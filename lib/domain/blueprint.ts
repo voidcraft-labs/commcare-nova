@@ -49,7 +49,7 @@ const casePropertyMappingSchema = z
 	.strict();
 export type CasePropertyMapping = z.infer<typeof casePropertyMappingSchema>;
 
-const casePropertySchema = z
+export const casePropertySchema = z
 	.object({
 		name: z.string(),
 		label: z.string(),

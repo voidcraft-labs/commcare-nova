@@ -29,6 +29,7 @@
  * and the nested-bracket border stack.
  */
 
+import { bySortKey } from "@/lib/doc/order/compare";
 import type { Field, Uuid } from "@/lib/domain";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -185,7 +186,15 @@ function walk(
 	rows: FormRow[],
 	options: BuildFormRowsOptions,
 ): void {
-	const childUuids = src.fieldOrder[parentUuid] ?? [];
+	// DISPLAY order (`sort-by-(order, uuid)`), not `fieldOrder` array position —
+	// a same-parent `moveField` reorder writes only the field's `order` and
+	// leaves the array untouched, so the edit canvas re-sequences because this
+	// walk sorts; the insertion-point `beforeIndex` values below are positions
+	// in this sorted sequence (which the add gesture resolves against the same
+	// sorted siblings).
+	const childUuids = [...(src.fieldOrder[parentUuid] ?? [])].sort((a, b) =>
+		bySortKey(src.fields[a] ?? {}, src.fields[b] ?? {}),
+	);
 
 	// Leading insertion point (edit mode only).
 	if (options.includeInsertionPoints) {

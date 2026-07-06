@@ -20,6 +20,12 @@
  * first so any validator finding — a soundness error, missing completeness
  * work, or a stale media reference — surfaces as actionable `invalid_input`,
  * never a broken artifact.
+ *
+ * Each result names the document version it was built from — the blueprint's
+ * `mutation_seq`. The `"ccz"` path stamps it into the profile's
+ * `cc-content-version`; the `"json"` path (whose `text` body must stay the
+ * byte-identical HQ-import artifact) carries it on the result's `_meta`
+ * (`nova/compiledAtSeq`) instead.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -86,7 +92,19 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * message, so an invalid app never compiles into an artifact —
 				 * and a stale media reference never reaches `expandDoc`'s
 				 * `requireAssetRef` throw (an opaque `internal` error). */
-				const violations = await collectBoundaryViolations(doc, ctx.userId);
+				/* An app's media lives in its PROJECT (the sharing boundary), so
+				 * resolve/validate against `app.project_id`, not the acting caller —
+				 * matches the web export path (`prepareCompileRequest`) so a Project
+				 * co-member (who reaches this tool at `view`) compiles the project's
+				 * media the same way through MCP as through the browser. No leak: the
+				 * manifest resolves only the ids the app's own blueprint references,
+				 * filtered to the project. */
+				if (!app.project_id) {
+					throw new McpInvalidInputError(
+						"This app isn't ready to compile — it has no Project.",
+					);
+				}
+				const violations = await collectBoundaryViolations(doc, app.project_id);
 				if (violations.length > 0) {
 					throw new McpInvalidInputError(
 						`This app isn't ready to compile — fix these first: ${violations
@@ -99,7 +117,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * expander's media references and — for a media-bearing app —
 				 * the byte bundle. A media-free app resolves to an empty
 				 * manifest at no byte cost. */
-				const assets = await resolveMediaManifest(doc, ctx.userId, {
+				const assets = await resolveMediaManifest(doc, app.project_id, {
 					withBytes: true,
 				});
 				const hasMedia = assets.size > 0;
@@ -114,13 +132,21 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						 * media-free app expands media-OFF — its JSON stays
 						 * byte-identical to the pre-media output instead of
 						 * riding on an empty manifest collapsing to the same
-						 * shape. */
+						 * shape. The blueprint's `mutation_seq` rides on the
+						 * result's `_meta` (protocol metadata, no `outputSchema`
+						 * needed) rather than the `text` body — the JSON export
+						 * is the byte-identical HQ-import artifact, so the seq
+						 * names its document version out-of-band. */
+						const compiledAtMeta = {
+							_meta: { "nova/compiledAtSeq": app.mutation_seq },
+						};
 						const hqJson = expandDoc(doc, hasMedia ? { assets } : {});
 						if (!hasMedia) {
 							/* Bare HQ JSON — the caller asked for JSON and, with
 							 * no media to carry, gets JSON. */
 							return {
 								content: [{ type: "text", text: JSON.stringify(hqJson) }],
+								...compiledAtMeta,
 							};
 						}
 						/* Media-bearing: the same `<app>.zip` the HTTP export
@@ -145,6 +171,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 									}),
 								},
 							],
+							...compiledAtMeta,
 						};
 					}
 					case "ccz": {
@@ -155,7 +182,13 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						 * lossless escape, and the `encoding` field inside the
 						 * wrapper tells the caller to decode it. */
 						const hqJson = expandDoc(doc, { assets });
-						const cczBuf = compileCcz(hqJson, app.app_name, doc, { assets });
+						/* Stamp the blueprint's `mutation_seq` into the profile's
+						 * `cc-content-version` so the archive names the exact
+						 * document version it was built from. */
+						const cczBuf = compileCcz(hqJson, app.app_name, doc, {
+							assets,
+							compiledAtSeq: app.mutation_seq,
+						});
 						return {
 							content: [
 								{

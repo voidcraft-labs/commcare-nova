@@ -58,9 +58,36 @@ export function applyFormMutation(
 			return;
 		}
 		case "moveForm": {
-			if (draft.forms[mut.uuid] === undefined) return;
+			const form = draft.forms[mut.uuid];
+			if (form === undefined) return;
 			if (draft.modules[mut.toModuleUuid] === undefined) return;
-			// Remove from source module.
+			// New emission: write the fractional `order` verbatim. A same-module
+			// reorder leaves every membership array untouched; a cross-module move
+			// also relocates the form's membership (position arbitrary — the
+			// `order` key, not array position, decides display sequence).
+			if (mut.order !== undefined) {
+				form.order = mut.order;
+				let currentModule: string | undefined;
+				for (const [modUuid, formList] of Object.entries(draft.formOrder)) {
+					if (formList.includes(mut.uuid)) {
+						currentModule = modUuid;
+						break;
+					}
+				}
+				if (currentModule !== mut.toModuleUuid) {
+					if (currentModule !== undefined) {
+						const src = draft.formOrder[currentModule];
+						const idx = src.indexOf(mut.uuid);
+						if (idx !== -1) src.splice(idx, 1);
+					}
+					const dest = draft.formOrder[mut.toModuleUuid] ?? [];
+					if (!dest.includes(mut.uuid)) dest.push(mut.uuid);
+					draft.formOrder[mut.toModuleUuid] = dest;
+				}
+				return;
+			}
+			// Legacy replay: an array-position move (pre-`order` events).
+			if (mut.toIndex === undefined) return;
 			for (const [modUuid, formList] of Object.entries(draft.formOrder)) {
 				const idx = formList.indexOf(mut.uuid);
 				if (idx !== -1) {
@@ -69,7 +96,6 @@ export function applyFormMutation(
 					break;
 				}
 			}
-			// Insert into destination.
 			const destOrder = draft.formOrder[mut.toModuleUuid] ?? [];
 			const clamped = Math.max(0, Math.min(mut.toIndex, destOrder.length));
 			destOrder.splice(clamped, 0, mut.uuid);
@@ -84,7 +110,17 @@ export function applyFormMutation(
 		case "updateForm": {
 			const form = draft.forms[mut.uuid];
 			if (!form) return;
-			Object.assign(form, mut.patch);
+			// Apply the patch key-by-key: a `null` (the wire representation of a
+			// clear — JSON drops `undefined`, so a cleared optional slot crosses
+			// the persistence wire as `null`) or `undefined` (an in-memory clear)
+			// DELETES the slot; any other value sets it. The patch schema admits
+			// `null` only on the clearable (optional) slots, so a required slot
+			// can never reach here as `null`.
+			const target = form as unknown as Record<string, unknown>;
+			for (const [key, value] of Object.entries(mut.patch)) {
+				if (value === null || value === undefined) delete target[key];
+				else target[key] = value;
+			}
 			return;
 		}
 		case "setFormMedia": {

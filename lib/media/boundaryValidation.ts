@@ -28,7 +28,7 @@
 // the referenced-asset count and byte total are bounded HERE, before a
 // single byte leaves GCS.
 //
-// Server-only: it reads Firestore (the owner's asset rows). It is the
+// Server-only: it reads Firestore (the project's asset rows). It is the
 // only media-side consumer of `lib/commcare/validator`; the manifest
 // builder (`lib/media/manifest.ts`) crosses the same one-way
 // `@/lib/commcare` boundary too, but via `multimedia/assetWirePath`, not
@@ -59,18 +59,23 @@ import { exportBudgetExcess } from "./exportBudget";
  * The asset load here is INTENTIONALLY distinct from the manifest that
  * feeds `expandDoc`. `resolveMediaManifest` filters to `ready` rows (the
  * emitter can't bundle unvalidated bytes), but `loadAssetsByIds` returns
- * ready AND pending rows (owner-filtered). Pending rows must reach the
+ * ready AND pending rows (project-filtered). Pending rows must reach the
  * validator so `mediaAssetReady` can fire its "still uploading" message
  * rather than the manifest's `ready`-only view collapsing it into a
  * "not found" miss. Two loads with different filters, one extra
  * Firestore read per upload/compile.
+ *
+ * Scope is the doc's referenced ids filtered to `projectId`: a
+ * foreign-PROJECT reference loads no row, so it surfaces as
+ * `MEDIA_ASSET_NOT_FOUND` — the cross-tenant defense, since media is
+ * shared at the Project boundary.
  *
  * Returns an empty array for a fully valid doc — the validator still
  * runs (cheap), and a media-free doc skips the Firestore read.
  */
 export async function collectBoundaryViolations(
 	doc: BlueprintDoc,
-	owner: string,
+	projectId: string,
 ): Promise<ValidationError[]> {
 	const ids = [...collectAssetRefs(doc)];
 
@@ -105,7 +110,7 @@ export async function collectBoundaryViolations(
 	// map (no refs) still runs the media group — the rules produce zero
 	// errors against zero refs.
 	const realRows =
-		realIds.length === 0 ? [] : await loadAssetsByIds(owner, realIds);
+		realIds.length === 0 ? [] : await loadAssetsByIds(realIds, projectId);
 	const rows = [...realRows, ...builtinAssetRows(builtinSlugs)];
 	const mediaAssets = new Map(rows.map((row) => [row.id as string, row]));
 

@@ -58,6 +58,34 @@ export const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 export type SearchInputValues = ReadonlyMap<string, string>;
 
 /**
+ * Wire form of {@link SearchInputValues} — a plain object, NOT a `Map`.
+ *
+ * The case-list search action carries this bag from client to server.
+ * React encodes a Server Action call as `multipart/form-data` the moment
+ * any argument holds a non-plain-JSON value (a `Map`, `Set`, `File`, …),
+ * and a multipart envelope trips the edge WAF's CRS protocol-attack rule
+ * (the `\r\nContent-Disposition: form-data; name=` part-header reads as
+ * header injection). A plain object keeps the whole call a `text/plain`
+ * JSON body, so the value bag crosses as an object and rehydrates to a
+ * `Map` on each side.
+ */
+export type SearchInputValuesWire = Record<string, string>;
+
+/** {@link SearchInputValues} → {@link SearchInputValuesWire} for the wire. */
+export function searchInputValuesToWire(
+	values: SearchInputValues,
+): SearchInputValuesWire {
+	return Object.fromEntries(values);
+}
+
+/** {@link SearchInputValuesWire} → {@link SearchInputValues} after the wire. */
+export function searchInputValuesFromWire(
+	values: SearchInputValuesWire,
+): SearchInputValues {
+	return new Map(Object.entries(values));
+}
+
+/**
  * Compose every contributing search-input's runtime predicate into
  * one Predicate representing the input-driven contribution. Empty /
  * absent input values short-circuit per-input. Zero-input or all-

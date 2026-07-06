@@ -1,26 +1,26 @@
 // lib/preview/engine/caseDataBinding.ts
 //
 // Server Actions for the running-app view's case-data binding.
-// Each action resolves the request's session, constructs a
-// tenant-scoped `CaseStore` via `withOwnerContext(session.user.id)`
-// wrapped in `schemaHealingCaseStore` (every individual store call
-// self-heals a missing or stale schema row and retries itself once), and
-// delegates to an I/O helper in `./caseDataBindingHelpers.ts`
-// (server-only) or an error mapper in `./caseDataBindingClient.ts`
-// (client-bundle-safe). Tests bypass the actions and inject a
-// `CaseStore` directly. Centralizing session resolution here means
-// a change to the auth strategy lands in one file.
+// Each action resolves the request's session, then constructs a
+// Project-scoped `CaseStore` via `gatedCaseStore` — which verifies the
+// actor's membership of the app's Project (the IDOR gate over the
+// client-supplied `appId`) and wraps a `withProjectContext` store in
+// `schemaHealingCaseStore` (every individual store call self-heals a
+// missing or stale schema row and retries itself once) — and delegates
+// to an I/O helper in `./caseDataBindingHelpers.ts` (server-only) or an
+// error mapper in `./caseDataBindingClient.ts` (client-bundle-safe). A
+// membership denial surfaces as the IDOR-safe not-found `error` arm.
+// Tests bypass the actions and inject a `CaseStore` directly.
+// Centralizing session + membership resolution here means a change to
+// the auth strategy lands in one file.
 
 "use server";
 
 import { getSession } from "@/lib/auth-utils";
-import {
-	buildCaseTypeMap,
-	CaseTypeNotInBlueprintError,
-	withOwnerContext,
-} from "@/lib/case-store";
+import { buildCaseTypeMap } from "@/lib/case-store";
+import { AppAccessError } from "@/lib/db/appAccess";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
+import type { BlueprintDoc, CaseListConfig, CaseType } from "@/lib/domain";
 import { caseListConfigSchema } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
@@ -35,12 +35,12 @@ import {
 	applyFollowupMutation,
 	applyRegistrationMutation,
 	applySurveyMutation,
+	gatedCaseStore,
 	readCaseData,
 	readCaseListPreview,
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
-	schemaHealingCaseStore,
 	seedSampleCases,
 } from "./caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
@@ -53,7 +53,10 @@ import type {
 	SubmissionMutation,
 	SubmissionResult,
 } from "./caseDataBindingTypes";
-import type { SearchInputValues } from "./runtimeBindings";
+import {
+	type SearchInputValuesWire,
+	searchInputValuesFromWire,
+} from "./runtimeBindings";
 
 // Errors thrown by the case-store layer are caught and mapped to
 // the `{ kind: "error" }` arm so an unhandled throw never tears
@@ -94,38 +97,57 @@ function stripDerivedFieldParent(blueprint: unknown): unknown {
  * lookup returns `undefined`.
  *
  * `inputValues` carries the running-app search form's per-input
- * value bag — `composeRuntimeFilter` translates it into the
- * input-driven predicate contribution, which AND-composes with the
- * unified `caseListConfig.filter` slot inside `readCases`. Callers
- * not mounting a search form leave it undefined; the helper then
- * skips the runtime-bindings composition entirely.
+ * value bag as a plain object ({@link SearchInputValuesWire}, not a
+ * `Map`) — `composeRuntimeFilter` translates it into the input-driven
+ * predicate contribution, which AND-composes with the unified
+ * `caseListConfig.filter` slot inside `readCases`. Callers not
+ * mounting a search form leave it undefined; the helper then skips
+ * the runtime-bindings composition entirely.
+ *
+ * `caseTypes` is the LIVE case-type catalog — the only blueprint slice
+ * the SQL compiler reads (property data types for casts, relation
+ * paths to other types). The client sends just this catalog, not the
+ * whole `BlueprintDoc`: the modules/forms/fields trees are dead weight
+ * here, and the bag stays plain JSON (no `Map`, no outsized body) so
+ * the Server Action call never takes a wire shape the edge WAF flags.
+ * Sending the live catalog rather than reading the persisted one keeps
+ * the schemas consistent with the live `caseListConfig` the client
+ * sends in the same call — a property rename/retype reaches both
+ * together, so a calc/sort/filter never compiles against a stale type.
+ * Callers reading raw rows (case-loading-form lookups) leave it
+ * undefined; `readCases` only needs it when a predicate/sort/calc
+ * references a typed property.
  */
 export async function loadCasesAction(args: {
 	appId: string;
 	caseType: string;
-	blueprint?: BlueprintDoc;
 	caseListConfig?: CaseListConfig;
-	inputValues?: SearchInputValues;
+	inputValues?: SearchInputValuesWire;
+	caseTypes?: readonly CaseType[];
 }): Promise<LoadCasesResult> {
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
-		const store = schemaHealingCaseStore(
-			await withOwnerContext(session.user.id),
-			{ appId: args.appId, userId: session.user.id },
-		);
-		// Convert `BlueprintDoc → ReadonlyMap<string, CaseType>` at the
-		// request edge — `readCases` accepts the case-store's actual
-		// schema-resolution dependency directly, so the helper stays
-		// decoupled from the full blueprint shape.
+		const caseTypeSchemas =
+			args.caseTypes && args.caseTypes.length > 0
+				? new Map(args.caseTypes.map((ct) => [ct.name, ct]))
+				: undefined;
+		const store = await gatedCaseStore(args.appId, session.user.id, "view");
 		return await readCases(store, {
 			appId: args.appId,
 			caseType: args.caseType,
-			caseTypeSchemas: buildCaseTypeMap(args.blueprint),
+			caseTypeSchemas,
 			caseListConfig: args.caseListConfig,
-			inputValues: args.inputValues,
+			inputValues: args.inputValues
+				? searchInputValuesFromWire(args.inputValues)
+				: undefined,
 		});
 	} catch (err) {
+		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
+		// is expected, not a fault: collapse it to the IDOR-safe not-found
+		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
 		reportUnexpectedActionError("loadCases", err, {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -145,12 +167,14 @@ export async function loadCaseDataAction(
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
-		const store = schemaHealingCaseStore(
-			await withOwnerContext(session.user.id),
-			{ appId, userId: session.user.id },
-		);
+		const store = await gatedCaseStore(appId, session.user.id, "view");
 		return await readCaseData(store, { appId, caseType, caseId });
 	} catch (err) {
+		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
+		// is expected, not a fault: collapse it to the IDOR-safe not-found
+		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
 		reportUnexpectedActionError("loadCaseData", err, { appId, caseType });
 		return {
 			kind: "error",
@@ -161,30 +185,26 @@ export async function loadCaseDataAction(
 
 export async function populateSampleCasesAction(
 	appId: string,
-	caseType: string,
-	blueprint: BlueprintDoc,
+	caseType: CaseType,
 ): Promise<PopulateSampleCasesResult> {
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
-		// Resolve the `CaseType` definition out of the blueprint at the
-		// request edge — the case-store's `generateSampleData` reads
-		// property declarations + `parent_type` off the definition, so
-		// the helper accepts the narrow value directly. A blueprint
-		// missing the requested case type throws
-		// `CaseTypeNotInBlueprintError` here; the catch block delegates
-		// to `mapPopulateSampleCasesError` which surfaces the typed
-		// `missing-case-type` arm.
-		const found = blueprint.caseTypes?.find((c) => c.name === caseType);
-		if (!found) {
-			throw new CaseTypeNotInBlueprintError(appId, caseType);
-		}
-		const store = schemaHealingCaseStore(
-			await withOwnerContext(session.user.id),
-			{ appId, userId: session.user.id },
-		);
-		return await seedSampleCases(store, { appId, caseType: found });
+		// The LIVE `CaseType` definition comes straight from the client —
+		// the generator reads only its property declarations + `parent_type`,
+		// so the one catalog entry is all this needs (never the whole
+		// blueprint). `gatedCaseStore` verifies the actor holds `edit` on the
+		// app's Project before binding the store, so a crafted `appId` for
+		// another Project is rejected — the client-supplied id is otherwise
+		// unchecked — and generated rows land in that shared Project's store.
+		const store = await gatedCaseStore(appId, session.user.id, "edit");
+		return await seedSampleCases(store, { appId, caseType });
 	} catch (err) {
+		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
+		// is expected, not a fault: collapse it to the IDOR-safe not-found
+		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
 		// Sample-data generation: a `CasePropertiesValidationError`
 		// here means the GENERATOR produced data its own schema
 		// rejects (a bug), so it alerts alongside any raw DB error.
@@ -193,7 +213,7 @@ export async function populateSampleCasesAction(
 			err,
 			{
 				appId,
-				caseType,
+				caseType: caseType.name,
 			},
 			{ treatValidationAsBug: true },
 		);
@@ -204,8 +224,8 @@ export async function populateSampleCasesAction(
 /**
  * Drop every existing case row for `(appId, caseType)` and regenerate
  * a fresh sample population. Structural mirror of
- * `populateSampleCasesAction` — same session resolution, same
- * blueprint-edge `CaseType` lookup, same typed-error mapping through
+ * `populateSampleCasesAction` — same session resolution, same LIVE
+ * client-supplied `CaseType`, same typed-error mapping through
  * `mapPopulateSampleCasesError`. Delegates to `resetSampleCases`
  * which wraps the case-store's atomic `resetSampleData` (delete +
  * regenerate in one transaction).
@@ -218,22 +238,19 @@ export async function populateSampleCasesAction(
  */
 export async function resetSampleCasesAction(
 	appId: string,
-	caseType: string,
-	blueprint: BlueprintDoc,
+	caseType: CaseType,
 ): Promise<PopulateSampleCasesResult> {
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
-		const found = blueprint.caseTypes?.find((c) => c.name === caseType);
-		if (!found) {
-			throw new CaseTypeNotInBlueprintError(appId, caseType);
-		}
-		const store = schemaHealingCaseStore(
-			await withOwnerContext(session.user.id),
-			{ appId, userId: session.user.id },
-		);
-		return await resetSampleCases(store, { appId, caseType: found });
+		const store = await gatedCaseStore(appId, session.user.id, "edit");
+		return await resetSampleCases(store, { appId, caseType });
 	} catch (err) {
+		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
+		// is expected, not a fault: collapse it to the IDOR-safe not-found
+		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
 		// See `populateSampleCasesAction` — a validation failure on
 		// generated rows is a generator bug, so it alerts too.
 		reportUnexpectedActionError(
@@ -241,7 +258,7 @@ export async function resetSampleCasesAction(
 			err,
 			{
 				appId,
-				caseType,
+				caseType: caseType.name,
 			},
 			{ treatValidationAsBug: true },
 		);
@@ -251,8 +268,8 @@ export async function resetSampleCasesAction(
 
 /**
  * Load case-list authoring-surface live-preview rows. Resolves the
- * request's session, constructs a tenant-scoped `CaseStore` via
- * `withOwnerContext(session.user.id)`, and delegates to
+ * request's session, constructs a Project-scoped `CaseStore` via
+ * `gatedCaseStore` (view), and delegates to
  * `readCaseListPreview` which routes through
  * `caseStore.query` so calculated columns evaluate at the SQL layer.
  *
@@ -348,10 +365,7 @@ export async function loadCaseListPreviewAction(args: {
 			return { kind: "invalid-blueprint", message };
 		}
 
-		const store = schemaHealingCaseStore(
-			await withOwnerContext(session.user.id),
-			{ appId: args.appId, userId: session.user.id },
-		);
+		const store = await gatedCaseStore(args.appId, session.user.id, "view");
 		// Resolve the `name → CaseType` map once at the request edge —
 		// `readCaseListPreview` accepts the case-store's schema-resolution
 		// dependency directly so the helper stays decoupled from the full
@@ -366,6 +380,11 @@ export async function loadCaseListPreviewAction(args: {
 			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
 		});
 	} catch (err) {
+		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
+		// is expected, not a fault: collapse it to the IDOR-safe not-found
+		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
 		reportUnexpectedActionError("loadCaseListPreview", err, {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -377,7 +396,7 @@ export async function loadCaseListPreviewAction(args: {
 /**
  * Load Filters-section authoring-surface live-preview rows + the
  * full matching count. Resolves the request's session, constructs
- * a tenant-scoped `CaseStore` via `withOwnerContext(session.user.id)`,
+ * a Project-scoped `CaseStore` via `gatedCaseStore` (view),
  * and delegates to `readFilterPreview` which routes through
  * `caseStore.query` (row sample) + `caseStore.count`
  * (totality figure) — both compile the same predicate through the
@@ -442,10 +461,7 @@ export async function loadFilterPreviewAction(args: {
 			return { kind: "invalid-blueprint", message };
 		}
 
-		const store = schemaHealingCaseStore(
-			await withOwnerContext(session.user.id),
-			{ appId: args.appId, userId: session.user.id },
-		);
+		const store = await gatedCaseStore(args.appId, session.user.id, "view");
 		// `buildCaseTypeMap` reads only `caseTypes`, so the parsed
 		// persistable shape goes through directly — same as
 		// `loadCaseListPreviewAction`.
@@ -457,6 +473,11 @@ export async function loadFilterPreviewAction(args: {
 			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
 		});
 	} catch (err) {
+		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
+		// is expected, not a fault: collapse it to the IDOR-safe not-found
+		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
 		reportUnexpectedActionError("loadFilterPreview", err, {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -493,10 +514,7 @@ export async function submitFormAction(
 		// so a dispatch-level retry would re-insert children that already
 		// landed. With the heal at the store call, the one write that threw
 		// retries and the dispatch resumes from where it stopped.
-		const store = schemaHealingCaseStore(
-			await withOwnerContext(session.user.id),
-			{ appId, userId: session.user.id },
-		);
+		const store = await gatedCaseStore(appId, session.user.id, "edit");
 		switch (mutation.kind) {
 			case "registration": {
 				const { caseId, childCaseIds } = await applyRegistrationMutation(
@@ -538,6 +556,11 @@ export async function submitFormAction(
 			}
 		}
 	} catch (err) {
+		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
+		// is expected, not a fault: collapse it to the IDOR-safe not-found
+		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
 		// Form submit: `CasePropertiesValidationError` is ordinary
 		// user error (the submitted values failed the schema), so it
 		// stays un-alerted — only raw DB / invariant failures report.

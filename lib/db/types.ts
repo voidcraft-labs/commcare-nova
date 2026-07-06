@@ -23,6 +23,8 @@
 import { Timestamp } from "@google-cloud/firestore";
 import { z } from "zod";
 import { attachmentRefSchema } from "@/lib/chat/attachmentRefs";
+import { mutationSchema } from "@/lib/doc/types";
+import { locationSchema } from "@/lib/routing/types";
 import { blueprintDocSchema } from "../domain/blueprint";
 import {
 	ALL_MIME_TYPES,
@@ -211,6 +213,12 @@ export type UserSettingsDoc = z.infer<typeof userSettingsDocSchema>;
 export const appDocSchema = z.object({
 	/** Owner userId (UUID) — the user who created this app. Used for list queries and authorization. */
 	owner: z.string(),
+	/**
+	 * Owning Project (Better Auth organizationId) — the tenancy key for shared
+	 * apps; `createApp` stamps it on every new app. Nullable only for rows that
+	 * predate the field (a backfill sets it).
+	 */
+	project_id: z.string().nullable().default(null),
 	/** App name — denormalized from the doc for list display. */
 	app_name: z.string(),
 	/**
@@ -222,6 +230,15 @@ export const appDocSchema = z.object({
 	 * even when that field is absent in the stored document.
 	 */
 	blueprint: blueprintDocSchema,
+	/**
+	 * Monotonic per-app counter, advanced by exactly one on every committed
+	 * blueprint mutation batch. It is the per-app mutation stream's ordering
+	 * key, the client's recovery cursor, the export version boundary, and the
+	 * source for the Postgres `synced_seq` guard.
+	 * Defaults to 0 on rows that predate the field, and initializes on the
+	 * first committed write.
+	 */
+	mutation_seq: z.number().int().nonnegative().default(0),
 	/** Connect app type — denormalized for list filtering. Null for standard apps. */
 	connect_type: z.enum(["learn", "deliver"]).nullable().default(null),
 	/** Number of modules — denormalized for list display. */
@@ -244,7 +261,7 @@ export const appDocSchema = z.object({
 	 * - `error` — a build run failed; see `error_type` for the bucket.
 	 *   Every chargeable build POST against an existing app — a retry of
 	 *   a failed build or a new instruction into a finished one — claims
-	 *   the run window back to `generating` (`claimBuildRun`).
+	 *   the run window back to `generating` (`claimRun` in build mode).
 	 * - `deleted` — legacy marker, retained in the enum for back-compat
 	 *   with rows soft-deleted before the marker moved off `status`.
 	 *   New code uses `deleted_at != null` as the soft-delete signal
@@ -286,46 +303,18 @@ export const appDocSchema = z.object({
 	/** Run ID of the generation/edit that last modified this app. */
 	run_id: z.string().nullable().default(null),
 	/**
-	 * Optimistic-concurrency basis for whole-doc blueprint overwrites.
-	 *
-	 * Rotated (fresh random value) by every writer a live builder session
-	 * CANNOT see land in its own doc: the browser auto-save PUT (another
-	 * tab), the MCP guarded commit (an external agent), and the
-	 * `scripts/recover-app.ts` writer. The
-	 * builder echoes the token it last observed on every PUT; a mismatch
-	 * means the stored doc advanced under it, and the overwrite is
-	 * rejected (`BlueprintBasisStaleError` → 409) instead of silently
-	 * erasing the other writer's work — the builder then reloads the
-	 * server doc.
-	 *
-	 * Chat-run INTERMEDIATE saves (`updateAppForRun`) deliberately do NOT
-	 * rotate it: the same browser session that drives a chat run also
-	 * receives every mutation over SSE, so its doc already carries the
-	 * run's changes and its next auto-save is a faithful overwrite — a
-	 * rotation there would 409 the builder against its own companion run.
-	 * Those saves are also ORDERED against the drain-end finish
-	 * (`completeApp` is status-only and lands after the route drains the
-	 * save chain), so `status: complete` never points at a blueprint the
-	 * run hadn't finished persisting.
-	 * RECORDED CONSTRAINT — the one-tab assumption: that reasoning holds
-	 * for the tab driving the run; a SECOND builder tab open during a
-	 * chat run sees neither the SSE mutations nor a rotation, so its next
-	 * save can still blind-overwrite the run's writes. That shape is the
-	 * known unguarded remainder of the basis matrix.
-	 * Null on rows that predate the field and on never-PUT apps; a null
-	 * basis matches a null stored token, so first saves need no backfill.
-	 */
-	blueprint_token: z.string().nullable().default(null),
-	/**
 	 * Durable credit-reservation marker for the refunding reaper.
 	 *
 	 * Written ATOMICALLY with the credit debit when a chargeable turn reserves
 	 * (same `reserveCredits` transaction), so a committed charge always carries
 	 * the marker its refund needs. `settled` means the hold is RESOLVED — no
-	 * refund is owed: set by the live refund paths (flush / `failRun` /
-	 * `reapStaleGenerating`, which hand the hold back) and by `claimBuildRun`
-	 * when it displaces a finished run whose charge was KEPT. The claim-window
-	 * rule is what makes "stale `generating` + unsettled marker ⇒ refund it"
+	 * refund is owed: set by the refunding paths (flush / `failRun` /
+	 * `reapStaleGenerating` / `reapStaleReservation`, which hand the hold back),
+	 * by the atomic clean-completion writers on a KEPT charge (`completeAndSettleRun`
+	 * for a build, `clearRunLockAndSettle` for an edit — each settles in the SAME
+	 * transaction that makes the app claimable), and by `claimRun` (build mode) when
+	 * it displaces a finished run whose charge was KEPT. The claim-window rule is what makes "stale `generating` + unsettled
+	 * marker ⇒ refund it"
 	 * safe: a KEPT charge's marker stays unsettled only while its app sits at
 	 * `complete` — a shape the reaper never touches — and the moment a new run
 	 * claims that row back to `generating`, the claim transaction marks the
@@ -341,7 +330,12 @@ export const appDocSchema = z.object({
 	 * never un-book a charge a previous run kept — even when a hard kill lands
 	 * between the claim and the new reservation. `reserved` is the exact
 	 * amount to return; `period` is the month the hold actually hit (the reaper
-	 * refunds that month, not whatever month it happens to run in).
+	 * refunds that month, not whatever month it happens to run in). The marker
+	 * carries NO expiry of its own: an EDIT's stranded hold (its `complete` app
+	 * never enters the `generating`-keyed staleness inference) is reaped off the
+	 * `run_lock`'s single liveness horizon by `reapStaleReservation` — the reaper
+	 * refunds an unsettled marker only once the edit's `run_lock` is gone or past
+	 * its (per-commit-refreshed) `expireAt`.
 	 *
 	 * Absent on apps created before this field shipped and on turns that never
 	 * reserved (free continuations) — `refundReservation` treats an absent marker
@@ -352,6 +346,56 @@ export const appDocSchema = z.object({
 			period: z.string(),
 			reserved: z.number(),
 			settled: z.boolean(),
+			/**
+			 * The user whose credits the reservation debited — the run's
+			 * ACTOR, NOT necessarily `owner` (a Project co-member can run a
+			 * build/edit against a shared app, and per-user billing charges the
+			 * one who ran it). `refundReservation` hands the hold back to THIS
+			 * user. Optional: markers written before per-actor billing carry
+			 * none and fall back to `owner` (the actor in the single-member
+			 * world those markers were written in).
+			 */
+			userId: z.string().optional(),
+			/**
+			 * The run that booked this hold — its `run_id`, the per-run BUILD-ownership
+			 * identity `runLeaseState().mine` reads (a build has no `run_lock` to carry
+			 * one). It answers "does a present marker belong to a run that will resolve
+			 * its OWN outcome, or to one already resolved for it?" — the reaper-race
+			 * discriminator. When a run reserves, `reserveCredits` writes its `runId`;
+			 * when the REAPERS resolve a stranded run they CLEAR the `runId` (keeping
+			 * `userId`/`period`/`reserved`/`settled`). So a marker still carrying a `runId`
+			 * is a live run that owns its terminal write (its `failApp` is correct); a
+			 * marker with its `runId` CLEARED is a reaped GHOST whose stale terminal writer
+			 * must NOT read it as `mine` and `failApp` a taker that re-claimed the freed app
+			 * in the `[claim, reserveCredits)` window. `mine` is NON-LENIENT (an absent
+			 * `runId` is nobody's), so a ghost and a legacy pre-P9 marker both read as
+			 * unowned, resolved only by the reapers' OWN lenient clauses. Optional: absent
+			 * on legacy pre-P9 markers, reaped markers, and free-continuation rows.
+			 */
+			runId: z.string().optional(),
+		})
+		.optional(),
+	/**
+	 * Exclusive edit-run lease — the per-app serialization lock an EDIT run
+	 * holds while it works. An edit stays `complete` (its status never flips to
+	 * `generating`), so it can't use the build path's status-as-lock; instead a
+	 * chargeable edit transactionally claims this field (`claimRun('edit')`) and
+	 * a concurrent build OR edit waits on it. Absent when no edit run holds the
+	 * app; `claimRun` treats an absent or past-`expireAt` lock as claimable, so a
+	 * hard kill that never released it (`clearRunLock`) self-heals at the lease's
+	 * expiry rather than starving the next run. Builds do NOT write this — they
+	 * hold the app via `status: 'generating'` — but `claimRun` reads it on both
+	 * modes so a build waits on a live edit-lock and vice versa (the full
+	 * cross-mode matrix).
+	 */
+	run_lock: z
+		.object({
+			/** The edit run holding the lease — the `run_id` of the claiming POST. */
+			runId: z.string(),
+			/** The user whose POST claimed the lease (attribution; not a tenant key). */
+			actorUserId: z.string(),
+			/** Absolute lease deadline (`now + MAX_RUN_MINUTES` at claim). */
+			expireAt: timestamp,
 		})
 		.optional(),
 	/** First save timestamp. Set once via FieldValue.serverTimestamp(). */
@@ -360,6 +404,100 @@ export const appDocSchema = z.object({
 	updated_at: timestamp,
 });
 export type AppDoc = z.infer<typeof appDocSchema>;
+
+// ── Multiplayer stream — app subcollections ────────────────────────
+//
+// Three subcollections under `apps/{appId}` back the real-time stream:
+//
+//   acceptedMutations/{seq}   the durable, ordered stream of committed
+//                             mutation batches (seqDocId = padded `seq`)
+//   batchDedup/{batchId}      the idempotency latch a retried PUT keys on
+//   presence/{userId}:{sessionId}  the live roster, one doc per browser tab
+//
+// Every entry carries an absolute `expireAt` Timestamp; a Firestore TTL
+// policy provisioned out-of-band on that field reaps it. Durations live in
+// `lib/db/constants.ts`.
+
+/**
+ * One committed mutation batch in the durable stream, stored at
+ * `apps/{appId}/acceptedMutations/{seq}` (seqDocId = `String(seq).padStart(12,
+ * '0')` so lexicographic doc-id order matches numeric `seq` order). Entries
+ * store the DELTA, so folding the deltas from any retained `seq` reproduces
+ * the stored blueprint snapshot. The relay pipes these to browsers as SSE
+ * frames; a `kind: 'migration'` entry is a stream sentinel (its `mutations`
+ * are empty) that tells a client to reload rather than replay.
+ */
+export const acceptedMutationSchema = z.object({
+	/** The monotonic `mutation_seq` this batch committed at. */
+	seq: z.number().int().nonnegative(),
+	/** Client-minted idempotency key — pairs with `batchDedup/{batchId}`. */
+	batchId: z.string(),
+	/** The SA run that produced the batch (chat/mcp); absent for an autosave. */
+	runId: z.string().optional(),
+	/** The committed batch's delta. Empty for a `migration` sentinel. */
+	mutations: z.array(mutationSchema),
+	/** The user who authored the batch (echo-classification on the client). */
+	actorId: z.string(),
+	/** Which write path committed the batch. */
+	kind: z.enum(["autosave", "mcp", "chat", "migration"]),
+	/** Commit time, via FieldValue.serverTimestamp(); a Timestamp on read. */
+	ts: timestamp,
+	/** TTL deadline (`now + ACCEPTED_MUTATIONS_TTL_MS`). */
+	expireAt: timestamp,
+});
+export type AcceptedMutationDoc = z.infer<typeof acceptedMutationSchema>;
+
+/**
+ * Idempotency latch for one committed batch, stored at
+ * `apps/{appId}/batchDedup/{batchId}`. The guarded writer reads it FIRST
+ * inside the commit transaction: a hit short-circuits to the recorded `seq`
+ * and writes nothing, so a client's retry of a not-yet-acked PUT never
+ * double-commits.
+ */
+export const batchDedupSchema = z.object({
+	seq: z.number().int().nonnegative(),
+	/** TTL deadline (`now + BATCH_DEDUP_TTL_MS`). */
+	expireAt: timestamp,
+});
+export type BatchDedupDoc = z.infer<typeof batchDedupSchema>;
+
+/**
+ * One collaborator's live presence, stored at
+ * `apps/{appId}/presence/{userId}:{sessionId}`. Keyed per browser session so a
+ * user's two tabs don't clobber each other; the roster dedupes self by
+ * `userId`. Posted on selection change and on a heartbeat; the TTL reaps a
+ * tab that stopped heartbeating. `location` is validated against the same
+ * `locationSchema` the routing hooks consume, so a peer's location is a
+ * structurally valid builder URL on read.
+ */
+export const presenceDocSchema = z.object({
+	userId: z.string(),
+	sessionId: z.string(),
+	/** Display name, denormalized from `auth_user` so the roster needs no join. */
+	name: z.string(),
+	/**
+	 * Avatar URL (the Google profile photo), or null when the account has
+	 * none. Stamped SERVER-SIDE from the heartbeat's session — never
+	 * client-asserted — so a peer can't wear someone else's face. The roster
+	 * renders it with the palette color as ring + fallback.
+	 */
+	image: z.string().nullable().default(null),
+	/**
+	 * Account email, stamped SERVER-SIDE from the heartbeat's session (same
+	 * authoritative-source rule as `image`). Shown on the roster's hover
+	 * profile card so co-members can tell same-named collaborators apart.
+	 */
+	email: z.string().default(""),
+	/** Stable per-user avatar/marker color (`hash(userId) → palette`). */
+	color: z.string(),
+	/** Where this session is in the builder — a peer's avatar follows this. */
+	location: locationSchema,
+	/** Last heartbeat/selection-change time; the roster hides a stale entry. */
+	updatedAt: timestamp,
+	/** TTL deadline (`now + PRESENCE_TTL_MS`). */
+	expireAt: timestamp,
+});
+export type PresenceDoc = z.infer<typeof presenceDocSchema>;
 
 // ── Chat Threads ──────────────────────────────────────────────────
 
@@ -435,38 +573,47 @@ export type ThreadDoc = z.infer<typeof threadDocSchema>;
 // ── Media Assets ───────────────────────────────────────────────────
 
 /**
- * Per-owner content-hash-deduped media. Lives at root collection
- * `mediaAssets/{assetId}` (the doc id is the asset's UUID; not
- * mirrored in the body). `owner` gates every read site.
+ * Project-scoped, content-hash-deduped media. Lives at root collection
+ * `mediaAssets/{assetId}` (the doc id is the asset's UUID; not mirrored in the
+ * body). `project_id` (Project membership) gates every read/list/compile/delete
+ * site — the same tenancy axis apps + case rows use; `owner` is the uploader,
+ * attribution only, no longer the access gate or the GCS-path namespace.
  *
- * Two reasons this is a root collection rather than a per-app
- * subcollection:
- *
- *  1. Dedup follows the owner, not the app — a logo reused across
- *     three apps is one row, not three. A subcollection scope
- *     would force per-app copies.
- *  2. The library picker shows all of a user's assets at once;
- *     querying across apps from a subcollection requires a
- *     collection-group query, which costs an additional index per
- *     filter clause.
+ * Root collection (not a per-app subcollection) because dedup + the library
+ * picker span a whole Project, and a subcollection scope would force per-app
+ * copies + a collection-group query per filter clause.
  *
  * Composite indexes (see `firestore.indexes.json`):
  *
- *   (owner ASC, contentHash ASC) — dedup probe at upload-initiate
- *   (owner ASC, gcsObjectKey ASC) — shared-byte guard before deletion
- *   (owner ASC, createdAt DESC)  — library pagination, newest first
+ *   (project_id ASC, contentHash ASC, status ASC)        — dedup probe at upload
+ *   (project_id ASC, status ASC, created_at DESC)        — library pagination
+ *   (project_id ASC, status ASC, kind ASC, created_at DESC) — library, kind-filtered
+ *
+ * The shared-byte deletion guard (`hasOtherAssetForGcsObjectKey`) queries
+ * `gcsObjectKey` alone — a single-field equality Firestore auto-indexes, so it
+ * needs no composite entry.
  */
 export const mediaAssetDocSchema = z.object({
 	/**
-	 * User id of the asset's owner. Every read site enforces
-	 * `asset.owner === session.user.id` before returning bytes
-	 * or metadata.
+	 * The Project (Better Auth organization) the asset belongs to — the tenant,
+	 * and the ONLY access gate. Set authoritatively at upload (the app's Project
+	 * for an app-context upload, else the uploader's active Project), NEVER
+	 * self-asserted — so referencing a foreign asset's id can't grant access:
+	 * every read / list / compile / delete site authorizes the caller's
+	 * membership in THIS project_id, and the manifest filters a doc's referenced
+	 * ids to it. The same tenancy axis apps + case rows use.
+	 */
+	project_id: z.string().min(1),
+	/**
+	 * User id of the uploader — provenance only (e.g. a future "uploaded by"
+	 * label). NOT an access gate (that's `project_id`) and NOT in the GCS path
+	 * (bytes live at `projects/<project_id>/…`). Recorded at upload.
 	 */
 	owner: z.string().min(1),
 	/**
 	 * SHA-256 of the validated bytes, lowercase hex. Computed at
 	 * the validation gate from the actual stored bytes, NOT
-	 * trusted from the client. Dedup key paired with `owner`.
+	 * trusted from the client. Dedup key paired with `project_id`.
 	 */
 	contentHash: z.string().regex(/^[a-f0-9]{64}$/),
 	/**
@@ -598,8 +745,8 @@ export const mediaAssetDocSchema = z.object({
 	 * live: once a writer arrayUnions a single app onto an absent field, the field
 	 * becomes DEFINED-but-partial and the full-scan fallback no longer fires, so a
 	 * still-referenced asset whose other apps haven't re-saved could be wrongly
-	 * deletable in that window. Run the backfill as part of the deploy (see
-	 * `scripts/backfill-media-reference-index.ts`); the export media-validator is
+	 * deletable in that window. A one-time deploy backfill seeded the existing
+	 * rows; the export media-validator is
 	 * the backstop if a partial edge ever slips through. New rows are born `[]`
 	 * (see `createPendingAsset`), so post-backfill no live row is `undefined`.
 	 */

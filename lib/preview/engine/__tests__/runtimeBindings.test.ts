@@ -83,7 +83,41 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate";
-import { composeRuntimeFilter } from "../runtimeBindings";
+import {
+	composeRuntimeFilter,
+	searchInputValuesFromWire,
+	searchInputValuesToWire,
+} from "../runtimeBindings";
+
+describe("searchInputValues wire bridge", () => {
+	// The bag is a `Map` in the client and must cross the Server Action
+	// wire as a plain object, or React encodes the call as multipart —
+	// which the edge WAF treats as header injection. These pin both the
+	// shape (plain object, not a Map) and the round-trip identity the
+	// running-app search depends on.
+	it("encodes a Map to a plain object and back without loss", () => {
+		const bag = new Map([
+			["last_name", "OBrien"],
+			["dob:from", "2000-01-01"],
+			["dob:to", "2020-12-31"],
+		]);
+		const wire = searchInputValuesToWire(bag);
+		// Plain object, not a Map — this is the property that keeps the
+		// Server Action call off the multipart wire.
+		expect(wire).toEqual({
+			last_name: "OBrien",
+			"dob:from": "2000-01-01",
+			"dob:to": "2020-12-31",
+		});
+		expect(wire instanceof Map).toBe(false);
+		expect(searchInputValuesFromWire(wire)).toEqual(bag);
+	});
+
+	it("round-trips an empty bag", () => {
+		expect(searchInputValuesToWire(new Map())).toEqual({});
+		expect(searchInputValuesFromWire({})).toEqual(new Map());
+	});
+});
 
 const PATIENT = "patient";
 

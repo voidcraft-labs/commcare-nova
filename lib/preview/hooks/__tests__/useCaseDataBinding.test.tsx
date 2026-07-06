@@ -10,20 +10,18 @@
 // `CaseListScreen` "Reset sample data" affordance depends on:
 //
 //   1. The hook returns a fresh callback reference on every render,
-//      matching the JSDoc'd "not wrapped in `useCallback`" contract —
-//      callers pass a fresh-per-render `blueprint` projection, so a
-//      memoized callback would invalidate every render anyway and the
-//      memoization would be structurally empty.
-//   2. Any undefined arg short-circuits to the typed `error` arm with
-//      the verbatim user-actionable message. The Server Action is NOT
-//      called along that path.
-//   3. With all args populated, the hook forwards `(appId, caseType,
-//      blueprint)` verbatim to `resetSampleCasesAction` and returns the
-//      action's resolved result.
+//      matching the JSDoc'd "not memoized" contract.
+//   2. Any undefined identifier short-circuits to the typed `error`
+//      arm with the verbatim user-actionable message. The Server
+//      Action is NOT called along that path.
+//   3. With the args populated, the hook forwards `(appId, caseType)`
+//      verbatim to `resetSampleCasesAction` — `caseType` is the live
+//      `CaseType` definition the client passes through (never the whole
+//      blueprint) — and returns the action's resolved result.
 
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { CaseType } from "@/lib/domain";
 
 // The hook imports a Server Action from a `"use server"` module.
 // Vitest's `vi.mock` is hoisted above every import, so the mocked
@@ -42,26 +40,10 @@ import { useResetSampleCases } from "../useCaseDataBinding";
 
 const APP_ID = "app-hook-test";
 
-/**
- * Minimal `BlueprintDoc` literal — the hook never reads the
- * blueprint's shape; it only forwards the reference to the Server
- * Action. A literal with the required slots keeps the test fixture
- * cheap and decoupled from the case-store's full case-type
- * generator.
- */
-const BLUEPRINT: BlueprintDoc = {
-	appId: APP_ID,
-	appName: "hook test app",
-	connectType: null,
-	caseTypes: [{ name: "patient", properties: [] }],
-	modules: {},
-	forms: {},
-	fields: {},
-	moduleOrder: [],
-	formOrder: {},
-	fieldOrder: {},
-	fieldParent: {},
-};
+/** The live `CaseType` definition the hook forwards verbatim to the
+ *  action — the hook never reads its shape, so an empty-property literal
+ *  keeps the fixture cheap. */
+const PATIENT: CaseType = { name: "patient", properties: [] };
 
 beforeEach(() => {
 	vi.mocked(resetSampleCasesAction).mockReset();
@@ -69,17 +51,10 @@ beforeEach(() => {
 
 describe("useResetSampleCases", () => {
 	it("returns a fresh callback reference on every render", () => {
-		// The JSDoc'd contract: the hook is NOT wrapped in
-		// `useCallback`, so consecutive renders MUST yield distinct
-		// callback identities. Memoizing here would invalidate every
-		// render against a fresh-per-render `blueprint` projection, so
-		// the contract is structural.
+		// The JSDoc'd contract: the hook is NOT memoized, so consecutive
+		// renders MUST yield distinct callback identities.
 		const { result, rerender } = renderHook(() =>
-			useResetSampleCases({
-				appId: APP_ID,
-				caseType: "patient",
-				blueprint: BLUEPRINT,
-			}),
+			useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
 		);
 		const first = result.current;
 		rerender();
@@ -93,49 +68,25 @@ describe("useResetSampleCases", () => {
 		// `usePopulateSampleCases` so the consumer renders the same
 		// fallback regardless of which affordance the user pressed.
 		const { result } = renderHook(() =>
-			useResetSampleCases({
-				appId: undefined,
-				caseType: "patient",
-				blueprint: BLUEPRINT,
-			}),
+			useResetSampleCases({ appId: undefined, caseType: PATIENT }),
 		);
 		const action = result.current;
 		const outcome = await action();
 		expect(outcome).toEqual({
 			kind: "error",
-			message: "App, case type, or blueprint not yet available.",
+			message: "App or case type not yet available.",
 		});
 		expect(vi.mocked(resetSampleCasesAction)).not.toHaveBeenCalled();
 	});
 
 	it("returns the typed error arm without calling the action when caseType is undefined", async () => {
 		const { result } = renderHook(() =>
-			useResetSampleCases({
-				appId: APP_ID,
-				caseType: undefined,
-				blueprint: BLUEPRINT,
-			}),
+			useResetSampleCases({ appId: APP_ID, caseType: undefined }),
 		);
 		const outcome = await result.current();
 		expect(outcome).toEqual({
 			kind: "error",
-			message: "App, case type, or blueprint not yet available.",
-		});
-		expect(vi.mocked(resetSampleCasesAction)).not.toHaveBeenCalled();
-	});
-
-	it("returns the typed error arm without calling the action when blueprint is undefined", async () => {
-		const { result } = renderHook(() =>
-			useResetSampleCases({
-				appId: APP_ID,
-				caseType: "patient",
-				blueprint: undefined,
-			}),
-		);
-		const outcome = await result.current();
-		expect(outcome).toEqual({
-			kind: "error",
-			message: "App, case type, or blueprint not yet available.",
+			message: "App or case type not yet available.",
 		});
 		expect(vi.mocked(resetSampleCasesAction)).not.toHaveBeenCalled();
 	});
@@ -148,19 +99,14 @@ describe("useResetSampleCases", () => {
 			inserted: 30,
 		});
 		const { result } = renderHook(() =>
-			useResetSampleCases({
-				appId: APP_ID,
-				caseType: "patient",
-				blueprint: BLUEPRINT,
-			}),
+			useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
 		);
 		const outcome = await result.current();
 		expect(outcome).toEqual({ kind: "ok", inserted: 30 });
 		expect(vi.mocked(resetSampleCasesAction)).toHaveBeenCalledTimes(1);
 		expect(vi.mocked(resetSampleCasesAction)).toHaveBeenCalledWith(
 			APP_ID,
-			"patient",
-			BLUEPRINT,
+			PATIENT,
 		);
 	});
 
@@ -172,11 +118,7 @@ describe("useResetSampleCases", () => {
 			kind: "unauthenticated",
 		});
 		const { result } = renderHook(() =>
-			useResetSampleCases({
-				appId: APP_ID,
-				caseType: "patient",
-				blueprint: BLUEPRINT,
-			}),
+			useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
 		);
 		const outcome = await result.current();
 		expect(outcome).toEqual({ kind: "unauthenticated" });
@@ -192,11 +134,7 @@ describe("useResetSampleCases", () => {
 			message: "connection refused",
 		});
 		const { result } = renderHook(() =>
-			useResetSampleCases({
-				appId: APP_ID,
-				caseType: "patient",
-				blueprint: BLUEPRINT,
-			}),
+			useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
 		);
 		const outcome = await result.current();
 		expect(outcome).toEqual({ kind: "error", message: "connection refused" });

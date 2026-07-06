@@ -32,7 +32,7 @@ import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { writeTextObject } from "@/lib/storage/media";
 
 const {
-	loadAssetForOwnerMock,
+	loadAssetByIdMock,
 	setAssetExtractStatusMock,
 	claimExtractionIfIdleMock,
 	extractDocumentMock,
@@ -40,7 +40,7 @@ const {
 	readTextObjectMock,
 	writeTextObjectMock,
 } = vi.hoisted(() => ({
-	loadAssetForOwnerMock: vi.fn(),
+	loadAssetByIdMock: vi.fn(),
 	setAssetExtractStatusMock: vi.fn(),
 	claimExtractionIfIdleMock: vi.fn(),
 	extractDocumentMock: vi.fn(),
@@ -50,10 +50,9 @@ const {
 }));
 
 vi.mock("@/lib/db/mediaAssets", () => ({
-	loadAssetForOwner: loadAssetForOwnerMock,
+	loadAssetById: loadAssetByIdMock,
 	setAssetExtractStatus: setAssetExtractStatusMock,
 	claimExtractionIfIdle: claimExtractionIfIdleMock,
-	MediaAssetOwnershipError: class MediaAssetOwnershipError extends Error {},
 }));
 vi.mock("@/lib/storage/media", () => ({
 	downloadAssetBytes: downloadAssetBytesMock,
@@ -74,12 +73,13 @@ function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	return {
 		id: "asset-1",
 		owner: "user-1",
+		project_id: "project-1",
 		contentHash: "a".repeat(64),
 		mimeType: "application/pdf",
 		extension: ".pdf",
 		sizeBytes: 1234,
 		kind: "pdf",
-		gcsObjectKey: "users/user-1/aaaa.pdf",
+		gcsObjectKey: "projects/project-1/aaaa.pdf",
 		originalFilename: "form.pdf",
 		status: "ready",
 		// biome-ignore lint/suspicious/noExplicitAny: Timestamp irrelevant to these tests
@@ -205,14 +205,14 @@ describe("ensureStoredExtract (orchestration)", () => {
 			truncated: false,
 			charCount: 6,
 		});
-		expect(loadAssetForOwnerMock).not.toHaveBeenCalled();
+		expect(loadAssetByIdMock).not.toHaveBeenCalled();
 		expect(extractDocumentMock).not.toHaveBeenCalled();
 		expect(writeTextObject).not.toHaveBeenCalled();
 	});
 
 	it("atomically claims, then persists ready when no extract exists", async () => {
 		readTextObjectMock.mockResolvedValue(null); // GCS miss
-		loadAssetForOwnerMock.mockResolvedValue(docAsset()); // no extract record
+		loadAssetByIdMock.mockResolvedValue(docAsset()); // no extract record
 
 		const result = await ensureStoredExtract({
 			asset: docAsset(),
@@ -255,7 +255,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 		// Under `onInflight: "report"` the store must defer to that winner: report
 		// `extracting`, never run a second model call.
 		readTextObjectMock.mockResolvedValue(null); // GCS miss
-		loadAssetForOwnerMock.mockResolvedValue(docAsset()); // no live job at read time
+		loadAssetByIdMock.mockResolvedValue(docAsset()); // no live job at read time
 		claimExtractionIfIdleMock.mockResolvedValue(false); // lost the claim race
 
 		const result = await ensureStoredExtract({
@@ -273,7 +273,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 
 	it("reports an in-flight job (no model call) under onInflight:'report'", async () => {
 		readTextObjectMock.mockResolvedValue(null);
-		loadAssetForOwnerMock.mockResolvedValue(
+		loadAssetByIdMock.mockResolvedValue(
 			docAsset({ extract: extractRecord("extracting", { ageMs: 0 }) }),
 		);
 		const result = await ensureStoredExtract({
@@ -289,7 +289,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 
 	it("claims when an in-flight record is stale (a dead job)", async () => {
 		readTextObjectMock.mockResolvedValue(null);
-		loadAssetForOwnerMock.mockResolvedValue(
+		loadAssetByIdMock.mockResolvedValue(
 			docAsset({ extract: extractRecord("extracting", { ageMs: 400_000 }) }),
 		);
 		const result = await ensureStoredExtract({
@@ -304,7 +304,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 
 	it("re-extracts when status is ready but the GCS object is gone", async () => {
 		readTextObjectMock.mockResolvedValue(null); // object missing despite ready
-		loadAssetForOwnerMock.mockResolvedValue(
+		loadAssetByIdMock.mockResolvedValue(
 			docAsset({ extract: extractRecord("ready") }),
 		);
 		const result = await ensureStoredExtract({
@@ -319,7 +319,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 
 	it("returns failed (recording the reason) when extraction throws", async () => {
 		readTextObjectMock.mockResolvedValue(null);
-		loadAssetForOwnerMock.mockResolvedValue(docAsset());
+		loadAssetByIdMock.mockResolvedValue(docAsset());
 		extractDocumentMock.mockRejectedValue(new Error("model exploded"));
 
 		const result = await ensureStoredExtract({

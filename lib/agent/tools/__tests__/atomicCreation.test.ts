@@ -34,14 +34,23 @@ function makeCtx() {
 		.fn()
 		.mockImplementation(async (_muts: unknown, doc: BlueprintDoc) => {
 			blueprintDocSchema.parse(toPersistableDoc(doc));
-			return [];
+			return { events: [], committedDoc: doc };
+		});
+	// The guarded writer returns `{ events, committedDoc }` per stage; the parse
+	// check stays and the final stage's doc rides back as the committed doc.
+	const recordMutationStages = vi
+		.fn()
+		.mockImplementation(async (stages: Array<{ doc: BlueprintDoc }>) => {
+			const finalDoc = stages[stages.length - 1]?.doc;
+			if (finalDoc) blueprintDocSchema.parse(toPersistableDoc(finalDoc));
+			return { events: [], committedDoc: finalDoc };
 		});
 	const ctx: ToolExecutionContext = {
 		appId: "app-1",
 		userId: "user-1",
 		runId: "run-1",
 		recordMutations,
-		recordMutationStages: vi.fn().mockResolvedValue([]),
+		recordMutationStages,
 		recordConversation: vi.fn(),
 	};
 	return { ctx, recordMutations };

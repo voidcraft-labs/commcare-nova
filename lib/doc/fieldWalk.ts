@@ -15,6 +15,33 @@
 
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
+import { bySortKey } from "./order/compare";
+
+/**
+ * The membership arrays (`moduleOrder` / `formOrder[m]` / `fieldOrder[p]`) are
+ * NOT the authoritative sequence — display/wire/preview/SA order is derived as
+ * `sort-by-(order, uuid)`. These three helpers resolve each uuid to its entity
+ * and return the membership in that derived order, so every consumer that
+ * walks a level as a SEQUENCE sorts through one comparator (a same-parent
+ * reorder, which leaves the membership array untouched, still re-sequences).
+ */
+export function orderedModuleUuids(doc: BlueprintDoc): Uuid[] {
+	return [...doc.moduleOrder].sort((a, b) =>
+		bySortKey(doc.modules[a] ?? {}, doc.modules[b] ?? {}),
+	);
+}
+
+export function orderedFormUuids(doc: BlueprintDoc, moduleUuid: Uuid): Uuid[] {
+	return [...(doc.formOrder[moduleUuid] ?? [])].sort((a, b) =>
+		bySortKey(doc.forms[a] ?? {}, doc.forms[b] ?? {}),
+	);
+}
+
+export function orderedFieldUuids(doc: BlueprintDoc, parentUuid: Uuid): Uuid[] {
+	return [...(doc.fieldOrder[parentUuid] ?? [])].sort((a, b) =>
+		bySortKey(doc.fields[a] ?? {}, doc.fields[b] ?? {}),
+	);
+}
 
 /**
  * One form's identity in canonical (module-then-form) order, alongside
@@ -38,9 +65,9 @@ interface FormIterEntry {
  * still emit / log against the form uuid without crashing.
  */
 export function* iterForms(doc: BlueprintDoc): Generator<FormIterEntry> {
-	for (const moduleUuid of doc.moduleOrder) {
+	for (const moduleUuid of orderedModuleUuids(doc)) {
 		const moduleName = doc.modules[moduleUuid]?.name ?? "";
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+		for (const formUuid of orderedFormUuids(doc, moduleUuid)) {
 			yield { moduleUuid, moduleName, formUuid };
 		}
 	}
@@ -93,7 +120,7 @@ export function buildFieldTree(
 	doc: BlueprintDoc,
 	parentUuid: Uuid,
 ): FieldWithChildren[] {
-	const ordered = doc.fieldOrder[parentUuid] ?? [];
+	const ordered = orderedFieldUuids(doc, parentUuid);
 	const out: FieldWithChildren[] = [];
 	for (const uuid of ordered) {
 		const field = doc.fields[uuid];

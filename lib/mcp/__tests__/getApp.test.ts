@@ -26,6 +26,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { xp } from "@/lib/__tests__/docHelpers";
+import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -40,6 +41,14 @@ import { makeFakeServer } from "./fakeServer";
  * is driven by the value (or rejection) `loadApp` resolves to. */
 vi.mock("@/lib/db/apps", () => ({
 	loadApp: vi.fn(),
+}));
+
+/* The membership gate runs inside `loadAppBlueprint` via `resolveAppAccess`.
+ * Mock it (keeping the real `AppAccessError` for the instanceof mapping) so the
+ * tests drive allow/deny without an auth DB. `loadApp` still supplies the doc. */
+vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
+	resolveAppAccess: vi.fn(),
 }));
 
 /* --- Helpers --------------------------------------------------------- */
@@ -111,8 +120,10 @@ function mockAppDoc(
 ): AppDoc {
 	return {
 		owner: "u1",
+		project_id: null,
 		app_name: blueprint.appName,
 		blueprint: blueprint as unknown as BlueprintDoc,
+		mutation_seq: 0,
 		connect_type: null,
 		module_count: blueprint.moduleOrder.length,
 		form_count: Object.values(blueprint.formOrder).reduce(
@@ -127,7 +138,6 @@ function mockAppDoc(
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
-		blueprint_token: null,
 		// Tool doesn't read timestamps — any placeholder works; casting through
 		// `unknown` avoids pulling in the Firestore Admin SDK just to fabricate
 		// real `Timestamp` instances in a unit test.
@@ -141,6 +151,17 @@ const toolCtx: ToolContext = { userId: "u1", scopes: [], authKind: "oauth" };
 
 beforeEach(() => {
 	vi.mocked(loadApp).mockReset();
+	vi.mocked(resolveAppAccess).mockReset();
+	/* Default: the caller passes the membership gate. The not-owner tests
+	 * override it to reject; the not-found tests never reach it (loadApp → null
+	 * throws first). The resolved value is unused by `loadAppBlueprint` (it only
+	 * awaits the gate), so a minimal AppAccess suffices. */
+	vi.mocked(resolveAppAccess).mockResolvedValue({
+		app: mockAppDoc(mockBlueprint()),
+		projectId: "p1",
+		role: "owner",
+		actorUserId: "u1",
+	});
 });
 
 /* --- Tests ----------------------------------------------------------- */
@@ -178,8 +199,8 @@ describe("registerGetApp — ownership failure", () => {
 		 * watching the response. `loadAppBlueprint` throws
 		 * `McpAccessError("not_owner")` internally; the wire collapses
 		 * to `"not_found"`. */
-		vi.mocked(loadApp).mockResolvedValueOnce(
-			mockAppDoc(mockBlueprint(), { owner: "someone-else" }),
+		vi.mocked(resolveAppAccess).mockRejectedValueOnce(
+			new AppAccessError("not_member"),
 		);
 
 		const { server, capture } = makeFakeServer();
@@ -228,8 +249,8 @@ describe("registerGetApp — wire parity (IDOR regression lock)", () => {
 		 * comparing two responses — one for an id they own (collapsed to
 		 * not_found) and one for a genuinely missing id — must see the
 		 * same text and error_type. */
-		vi.mocked(loadApp).mockResolvedValueOnce(
-			mockAppDoc(mockBlueprint(), { owner: "someone-else" }),
+		vi.mocked(resolveAppAccess).mockRejectedValueOnce(
+			new AppAccessError("not_member"),
 		);
 		const { server: sA, capture: capA } = makeFakeServer();
 		registerGetApp(sA, toolCtx);

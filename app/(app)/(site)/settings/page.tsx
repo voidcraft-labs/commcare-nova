@@ -1,6 +1,11 @@
 /**
- * Settings page. Auth is enforced by the layout's `requireAuth`; the
- * session check below only narrows the type for TypeScript.
+ * Account settings — the settings that belong to the USER, not a Project: their
+ * CommCare HQ credentials, the apps they've authorized (OAuth), and the API
+ * keys they've issued. All keyed to `session.user.id` and unchanged by the
+ * active Project. Project-scoped settings (members + invitations) live on their
+ * own `/project` page, reached from the header's ProjectSwitcher. Auth is
+ * enforced by the layout's `requireAuth`; the session check below only narrows
+ * the type for TypeScript.
  */
 import type { Metadata } from "next";
 import { getSession } from "@/lib/auth-utils";

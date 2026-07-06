@@ -13,6 +13,10 @@
 
 import { xp } from "@/lib/__tests__/docHelpers";
 import {
+	backfillOptionUuids,
+	backfillOrderKeys,
+} from "@/lib/doc/order/backfill";
+import {
 	asUuid,
 	type BlueprintDoc,
 	type Field,
@@ -23,8 +27,8 @@ import type { AssetKind, MediaAssetStatus } from "@/lib/domain/multimedia";
 import {
 	type MakeMcpTestContextHandles,
 	makeMcpTestContext,
-	makeTestContext,
-	type TestContextHandles,
+	makeStubToolContext,
+	type StubToolContextHandles,
 } from "../../../__tests__/fixtures";
 
 // ── In-memory asset table behind the `@/lib/db/mediaAssets` mock ─────
@@ -41,7 +45,7 @@ import {
 /** The row fields the attach verdict reads, plus the id. */
 export interface TestAssetRow {
 	id: string;
-	owner: string;
+	project_id: string;
 	status: MediaAssetStatus;
 	kind: AssetKind;
 	sizeBytes: number;
@@ -49,7 +53,7 @@ export interface TestAssetRow {
 
 const testAssetRows = new Map<string, TestAssetRow>();
 
-/** The ready, owner-matched rows every happy-path attach test relies on. */
+/** The ready, in-Project rows every happy-path attach test relies on. */
 const CANONICAL_ASSETS: ReadonlyArray<[string, AssetKind]> = [
 	["asset-img-1", "image"],
 	["asset-aud-1", "audio"],
@@ -58,8 +62,8 @@ const CANONICAL_ASSETS: ReadonlyArray<[string, AssetKind]> = [
 	["asset-logo", "image"],
 ];
 
-/** Seed (or overwrite) one asset row. Defaults: owner "user-1" (the test
- *  contexts' user), ready, 1 KiB. */
+/** Seed (or overwrite) one asset row. Defaults: project "project-1" (the test
+ *  app's Project), ready, 1 KiB. */
 export function seedTestAsset(
 	id: string,
 	kind: AssetKind,
@@ -68,7 +72,7 @@ export function seedTestAsset(
 	testAssetRows.set(id, {
 		id,
 		kind,
-		owner: overrides.owner ?? "user-1",
+		project_id: overrides.project_id ?? "project-1",
 		status: overrides.status ?? "ready",
 		sizeBytes: overrides.sizeBytes ?? 1024,
 	});
@@ -81,16 +85,16 @@ export function resetTestAssets(): void {
 }
 resetTestAssets();
 
-/** Mock implementation of `loadAssetsByIds` — owner-filtered like the
- *  real one (a foreign row reads as missing). */
+/** Mock implementation of `loadAssetsByIds` — Project-filtered like the
+ *  real one (a foreign-Project row reads as missing). */
 export async function loadAssetsByIdsMock(
-	owner: string,
 	ids: readonly string[],
+	projectId: string,
 ): Promise<TestAssetRow[]> {
 	return [...new Set(ids)]
 		.map((id) => testAssetRows.get(id))
 		.filter((row): row is TestAssetRow => row !== undefined)
-		.filter((row) => row.owner === owner);
+		.filter((row) => row.project_id === projectId);
 }
 
 /* Stable uuids the per-tool tests reference against the post-mutation
@@ -144,7 +148,7 @@ export function makeMediaDoc(): BlueprintDoc {
 		kind: "hidden",
 		calculate: xp("0"),
 	} as Field;
-	return {
+	const doc: BlueprintDoc = {
 		appId: "test-app",
 		appName: "Clinic Intake",
 		connectType: null,
@@ -170,10 +174,18 @@ export function makeMediaDoc(): BlueprintDoc {
 			[HIDDEN_FIELD]: FORM_A,
 		},
 	};
+	// Mirror the production hydration boundary (`loadAppBlueprint`): backfill
+	// order keys + option uuids so a granular `updateOption` can key the option
+	// by uuid (a hand-built fixture lacks them otherwise).
+	backfillOrderKeys(doc);
+	backfillOptionUuids(doc);
+	return doc;
 }
 
-/** Bundle of doc + chat-side `GenerationContext`. */
-export interface MediaFixture extends TestContextHandles {
+/** Bundle of doc + a lightweight chat-surface `ToolExecutionContext` stub
+ *  (its `recordMutations` echoes the passed post-mutation doc as the committed
+ *  doc; the media-expectations arg still rides through for assertion). */
+export interface MediaFixture extends StubToolContextHandles {
 	doc: BlueprintDoc;
 }
 
@@ -184,7 +196,7 @@ export interface MediaMcpFixture extends MakeMcpTestContextHandles {
 
 /** Build a `{ doc, ctx, ... }` bundle for the chat surface. */
 export function makeMediaFixture(): MediaFixture {
-	return { ...makeTestContext(), doc: makeMediaDoc() };
+	return { ...makeStubToolContext(), doc: makeMediaDoc() };
 }
 
 /** Build a `{ doc, ctx, ... }` bundle for the MCP surface. */

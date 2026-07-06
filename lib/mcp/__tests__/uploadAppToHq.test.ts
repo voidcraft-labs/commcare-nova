@@ -130,8 +130,10 @@ function fixtureBlueprint(): BlueprintDoc {
 function fixtureAppDoc(overrides?: Partial<AppDoc>): AppDoc {
 	return {
 		owner: "u1",
+		project_id: "project-1",
 		app_name: "Vaccine Tracker",
 		blueprint: fixtureBlueprint(),
+		mutation_seq: 0,
 		connect_type: null,
 		module_count: 0,
 		form_count: 0,
@@ -140,7 +142,6 @@ function fixtureAppDoc(overrides?: Partial<AppDoc>): AppDoc {
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
-		blueprint_token: null,
 		created_at: new Date() as unknown as AppDoc["created_at"],
 		updated_at: new Date() as unknown as AppDoc["updated_at"],
 		...overrides,
@@ -366,10 +367,11 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 		expect(expandDoc).toHaveBeenCalledWith(fixtureBlueprint(), {
 			assets: FAKE_MANIFEST,
 		});
-		/* The manifest is resolved WITH bytes — the upload needs them. */
+		/* The manifest is resolved WITH bytes — the upload needs them, at the
+		 * app's PROJECT scope (the sharing boundary), not the acting caller. */
 		expect(resolveMediaManifest).toHaveBeenCalledWith(
 			fixtureBlueprint(),
-			"u1",
+			"project-1",
 			{
 				withBytes: true,
 			},

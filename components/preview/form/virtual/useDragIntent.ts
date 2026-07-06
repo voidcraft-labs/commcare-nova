@@ -35,6 +35,7 @@
 import { monitorForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { extractClosestEdge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
 import { useContext, useEffect, useRef, useState } from "react";
+import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { notifyMoveRename } from "@/lib/doc/mutations/notify";
 import { BlueprintDocContext } from "@/lib/doc/provider";
@@ -47,6 +48,7 @@ import {
 	readDropTargetData,
 	targetContainerUuidFor,
 } from "./dragData";
+import { isNoOpFieldDrop } from "./dropNoOp";
 import type { FormRow } from "./rowModel";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -375,20 +377,19 @@ export function useDragIntent({
 				}
 
 				// No-op detection: if the source would land in the same
-				// position it started (adjacent to itself), skip the
-				// mutation entirely — it's a cancel, not a move.
+				// position it started (adjacent to itself in DISPLAY order),
+				// skip the mutation entirely — it's a cancel, not a move.
+				// Adjacency is `sort-by-(order, uuid)`, not `fieldOrder` array
+				// position — the onDrag placeholder already renders in display
+				// order, so a prior same-parent reorder that diverged the array
+				// from the display must not make this guard no-op a real move.
 				if (drop.kind === "drop-field") {
-					const parentOrder =
-						docs.getState().fieldOrder[drop.parentUuid as Uuid] ?? [];
-					const sourceIdx = parentOrder.indexOf(asUuid(dragUuid));
-					const targetIdx = parentOrder.indexOf(drop.uuid);
-					// Same parent, and the source is immediately before
-					// (edge=top) or after (edge=bottom) the target — no-op.
-					if (sourceIdx >= 0 && targetIdx >= 0) {
-						if (edge === "top" && sourceIdx === targetIdx - 1) return;
-						if (edge === "bottom" && sourceIdx === targetIdx + 1) return;
-						// Dropping on immediate neighbor on the "touching" side.
-						if (edge !== "top" && sourceIdx === targetIdx + 1) return;
+					const siblings = orderedFieldUuids(
+						docs.getState(),
+						drop.parentUuid as Uuid,
+					);
+					if (isNoOpFieldDrop(siblings, asUuid(dragUuid), drop.uuid, edge)) {
+						return;
 					}
 				}
 
@@ -424,8 +425,13 @@ export function useDragIntent({
 							});
 							break;
 						}
-						const firstChild =
-							docs.getState().fieldOrder[drop.uuid as Uuid]?.[0];
+						// The DISPLAY-first child (`sort-by-(order, uuid)`), not the
+						// `fieldOrder` array head — dropping "as first child" must
+						// land before the visually-first sibling.
+						const firstChild = orderedFieldUuids(
+							docs.getState(),
+							drop.uuid as Uuid,
+						)[0];
 						result = firstChild
 							? moveField(asUuid(dragUuid), {
 									toParentUuid: drop.uuid,

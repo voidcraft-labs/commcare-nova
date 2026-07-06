@@ -50,12 +50,20 @@ import {
 } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { FieldPath } from "@/lib/doc/fieldPath";
+import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
-import { BlueprintDocContext } from "@/lib/doc/provider";
+import { keysForSlot } from "@/lib/doc/order/keys";
+import { keyedOptions } from "@/lib/doc/order/options";
+import {
+	BlueprintDocContext,
+	BlueprintEditableContext,
+} from "@/lib/doc/provider";
 import {
 	caseListModuleMutations,
 	caseTypeCatalogMutations,
+	declareCaseTypeForField,
+	declareCaseTypeMutations,
 	formScaffoldMutations,
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
@@ -81,6 +89,7 @@ import {
 	type Form,
 	type FormType,
 	type Module,
+	type SelectOption,
 } from "@/lib/domain";
 
 /**
@@ -95,6 +104,43 @@ export type AddCommitOutcome =
 export type { CommitOutcome };
 
 const COMMITTED: CommitOutcome = { ok: true };
+
+/**
+ * Compute the absolute fractional `order` key for a field landing in (or
+ * moving within) `parentUuid` at the requested slot — `index` (clamped) wins,
+ * else `beforeUuid` / `afterUuid` resolves to a slot in the parent's DISPLAY
+ * sequence (`sort-by-(order, uuid)`), default append. `excludeUuid` drops the
+ * field being moved from the neighbor set so a same-parent reorder keys between
+ * the OTHER siblings. The key is computed against the live store doc and the
+ * reducer stores it verbatim — never recomputed from an index server-side.
+ */
+function orderKeyForFieldSlot(
+	doc: BlueprintDoc,
+	parentUuid: Uuid,
+	slot: { index?: number; beforeUuid?: Uuid; afterUuid?: Uuid },
+	excludeUuid?: Uuid,
+): string {
+	const siblings = orderedFieldUuids(doc, parentUuid).filter(
+		(u) => u !== excludeUuid,
+	);
+	let index = siblings.length;
+	if (slot.index !== undefined) {
+		index = Math.max(0, Math.min(slot.index, siblings.length));
+	} else if (slot.beforeUuid) {
+		const i = siblings.indexOf(slot.beforeUuid);
+		if (i >= 0) index = i;
+	} else if (slot.afterUuid) {
+		const i = siblings.indexOf(slot.afterUuid);
+		if (i >= 0) index = i + 1;
+	}
+	// Route through the shared slot helper so a collision (two display-adjacent
+	// siblings sharing a key) widens past the tied run to a well-defined slot —
+	// identically to the SA anchor path, so builder-drag and SA-insert agree.
+	const siblingKeys = siblings
+		.map((u) => doc.fields[u]?.order)
+		.filter((o): o is string => o !== undefined);
+	return keysForSlot(siblingKeys, index, 1)[0];
+}
 
 /** The silent-no-op rejection (a stale uuid, nothing dispatched) — no
  *  messages, so editors keep the legacy quiet behavior. */
@@ -462,6 +508,13 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 		);
 	}
 
+	/* The single read-only choke point. `false` for a view-only Project member
+	 * (the build page resolved their role); every gated dispatch then no-ops
+	 * with a view-only explanation, so no canvas affordance can mutate the doc
+	 * even if its control wasn't individually hidden. The agent-stream / replay
+	 * writers bypass this hook and stay unaffected — a viewer triggers neither. */
+	const canEdit = useContext(BlueprintEditableContext);
+
 	// Memoize against the store instance so the returned action object is
 	// reference-stable across re-renders. A consumer storing this in a
 	// useEffect dependency array sees it as unchanging for the lifetime of
@@ -495,6 +548,18 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 			):
 				| { ok: true; results: MutationResult[] }
 				| { ok: false; messages: string[] } => {
+				/* View-only access — no user edit reaches the store. The visible
+				 * affordances are already hidden for a viewer; this is the
+				 * airtight backstop for any that aren't, so a stray dispatch
+				 * explains itself instead of silently mutating a doc that can
+				 * never persist. */
+				if (!canEdit) {
+					const lines = [
+						"You have view-only access to this app. Ask a Project admin for edit access to make changes.",
+					];
+					if (announce) notifyRejectedCommit(lines);
+					return { ok: false, messages: lines };
+				}
 				const verdict = mutationCommitVerdict(get(), mutations);
 				if (!verdict.ok) {
 					// Render to the concise BUILDER copy once — both the toast
@@ -526,20 +591,15 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						return NOOP_REJECTION;
 					}
 
-					// Resolve insertion index from afterUuid / beforeUuid / atIndex.
-					// atIndex takes precedence (matches legacy semantics where
-					// numeric index is documented as authoritative).
-					const order = doc.fieldOrder[parentUuid] ?? [];
-					let index: number | undefined;
-					if (opts?.atIndex !== undefined) {
-						index = opts.atIndex;
-					} else if (opts?.beforeUuid) {
-						const i = order.indexOf(opts.beforeUuid);
-						if (i >= 0) index = i;
-					} else if (opts?.afterUuid) {
-						const i = order.indexOf(opts.afterUuid);
-						if (i >= 0) index = i + 1;
-					}
+					// Resolve the new field's absolute fractional `order` from the
+					// requested slot (atIndex / beforeUuid / afterUuid, default
+					// append) against the parent's DISPLAY sequence — sequence is the
+					// `order` key, not array position.
+					const fieldOrder = orderKeyForFieldSlot(doc, parentUuid, {
+						index: opts?.atIndex,
+						beforeUuid: opts?.beforeUuid,
+						afterUuid: opts?.afterUuid,
+					});
 
 					// Mint a uuid if the caller didn't supply one. FieldTypePicker
 					// and the SA tool handlers pass shapes without uuids and rely on
@@ -550,19 +610,39 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 							? maybeUuid
 							: crypto.randomUUID(),
 					);
+					// A born select field's options each need a stable uuid + order
+					// key too — the per-uuid option diff skips a keyless/uuid-less
+					// option, so a picker-created select (whose starter options
+					// carry neither) would lose them. Same minting the SA assembly
+					// uses.
+					const bornOptions = keyedOptions(
+						(field as { options?: SelectOption[] }).options,
+					);
 					// Field is a discriminated union; the narrowed generic input is a
-					// specific variant's Omit — we stamp the uuid and cast via
+					// specific variant's Omit — we stamp the uuid + order and cast via
 					// `unknown` because the distributive Omit shape doesn't round-trip
 					// back to the full union narrowly (TS limitation around Omit +
 					// discriminated unions).
-					const entity = { ...field, uuid } as unknown as Field;
+					const entity = {
+						...field,
+						uuid,
+						order: fieldOrder,
+						...(bornOptions && { options: bornOptions }),
+					} as unknown as Field;
+
+					// Declaration chokepoint: a field writing to a type absent from
+					// the catalog prepends `declareCaseType` (the reducer no longer
+					// auto-creates the type — that kept it from clobbering a
+					// concurrent declaration). A no-op when the type is already
+					// declared or the field writes to no case.
+					const declare = declareCaseTypeForField(doc, entity);
 
 					const applied = guardedApply([
+						...declare,
 						{
 							kind: "addField",
 							parentUuid,
 							field: entity,
-							index,
 						},
 					]);
 					if (!applied.ok) return applied;
@@ -583,8 +663,17 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					// in `Mutation` — at the value level the shape is structurally
 					// identical, but TS treats the union arms as distinct types
 					// rather than a parameterized one.
+					// Declaration chokepoint: a patch RE-TARGETING `case_property_on`
+					// to a type absent from the catalog prepends `declareCaseType`.
+					const nextType = (patch as { case_property_on?: unknown })
+						.case_property_on;
+					const declare =
+						typeof nextType === "string" && nextType.length > 0
+							? declareCaseTypeMutations(doc, nextType)
+							: [];
 					return toOutcome(
 						guardedApply([
+							...declare,
 							{
 								kind: "updateField",
 								uuid,
@@ -672,26 +761,20 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					const toParentUuid =
 						opts.toParentUuid ?? doc.fieldParent[uuid] ?? uuid;
 
-					// Virtual post-splice order when same-parent move. When the source
-					// uuid appears in the destination parent, emulate the post-splice
-					// state so the returned index aligns with where the reducer will
-					// actually insert after it removes the source uuid.
-					const base = doc.fieldOrder[toParentUuid] ?? [];
-					const virtual = base.includes(uuid)
-						? base.filter((u) => u !== uuid)
-						: base;
-
-					// Default: append at the end of the destination parent.
-					let toIndex = virtual.length;
-					if (opts.toIndex !== undefined) {
-						toIndex = opts.toIndex;
-					} else if (opts.beforeUuid) {
-						const i = virtual.indexOf(opts.beforeUuid);
-						if (i >= 0) toIndex = i;
-					} else if (opts.afterUuid) {
-						const i = virtual.indexOf(opts.afterUuid);
-						if (i >= 0) toIndex = i + 1;
-					}
+					// Compute the absolute fractional `order` for the requested slot in
+					// the destination parent's DISPLAY sequence, excluding the moved
+					// field from the neighbor set (a same-parent reorder keys between
+					// the OTHER siblings). The reducer writes it verbatim.
+					const order = orderKeyForFieldSlot(
+						doc,
+						toParentUuid,
+						{
+							index: opts.toIndex,
+							beforeUuid: opts.beforeUuid,
+							afterUuid: opts.afterUuid,
+						},
+						uuid,
+					);
 
 					// Dispatch via the single write path. Position `[0]` of the
 					// returned array carries the reducer's rename metadata (populated
@@ -700,7 +783,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					// and the Immer draft — fallback to a zeroed result so callers
 					// always see a valid `MoveFieldResult`.
 					const applied = guardedApply([
-						{ kind: "moveField", uuid, toParentUuid, toIndex },
+						{ kind: "moveField", uuid, toParentUuid, order },
 					]);
 					if (!applied.ok) return {};
 					return (applied.results[0] as MoveFieldResult | undefined) ?? {};
@@ -1081,5 +1164,5 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 		};
 
 		return { ...makeApi(true), inline: makeApi(false) };
-	}, [store]);
+	}, [store, canEdit]);
 }
