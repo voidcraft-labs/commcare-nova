@@ -33,9 +33,10 @@ test.describe("public surface", () => {
 		request,
 	}) => {
 		// THE regression net. With no cookie this must return 200 (a null
-		// session), and it touches Firestore via Better Auth's per-request rate
-		// limiter — the exact path that 500'd under the undici / node-fetch
-		// dependency regressions, taking prod login down with nothing in Sentry.
+		// session), and it exercises the auth datastore + rate limiter over the
+		// Cloud SQL connector's outbound credential stack — the exact path that
+		// 500'd under the undici / node-fetch regressions, taking prod login down
+		// with nothing in Sentry.
 		const res = await request.get("/api/auth/get-session");
 		expect(
 			res.status(),

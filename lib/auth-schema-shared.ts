@@ -5,13 +5,13 @@
 // two can't diverge. Kept free of plugin/MCP imports so the esbuild-bundled
 // migrate entrypoint (which pulls `lib/auth-migrate-options.ts`) stays lean.
 //
-// The READ side does NOT import these: the Kysely interfaces (`AuthDatabase` in
-// `lib/auth/db.ts`, `CopyTables` in `lib/auth/migrate-data.ts`) and the
-// `selectFrom("auth_…")` literals in the read modules hardcode the same names —
-// Kysely table keys must be literal types, so they can't reference this const.
-// A rename here therefore must be mirrored into those interfaces by hand; the
-// compiler will NOT flag the read side (it still type-checks against its own
-// interface), so a missed mirror surfaces as a runtime "relation does not exist".
+// The READ side does NOT import these: the `AuthDatabase` Kysely interface in
+// `lib/auth/db.ts` and the `selectFrom("auth_…")` literals in the read modules
+// hardcode the same names — Kysely table keys must be literal types, so they
+// can't reference this const. A rename here therefore must be mirrored into that
+// interface by hand; the compiler will NOT flag the read side (it still
+// type-checks against its own interface), so a missed mirror surfaces as a
+// runtime "relation does not exist".
 
 export const AUTH_TABLE_NAMES = {
 	user: "auth_user",

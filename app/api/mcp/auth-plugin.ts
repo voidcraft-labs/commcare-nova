@@ -9,7 +9,7 @@
  * route would sit at a Next.js route handler that calls
  * `auth.api.verifyApiKey` directly, bypassing the rate limiter; an
  * unauthenticated attacker could spam `Bearer sk-nova-v1-*` garbage
- * and force a Firestore index lookup per request. The rate limiter's
+ * and force a Postgres `auth_apikey` lookup per request. The rate limiter's
  * `customRules` rule for `/mcp` (configured in `lib/auth.ts`) bounds
  * that cost.
  *
