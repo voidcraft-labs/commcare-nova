@@ -435,7 +435,7 @@ export const BUILTIN_ICON_CATALOG = [
 	},
 ] as const;
 
-/** Slugs offered on module create/update tools — the 33 topic icons + `default`. */
+/** Slugs offered on `set_menu_media`'s module arm — the 33 topic icons + `default`. */
 export const MODULE_ICON_SLUGS = [
 	"household",
 	"community",
@@ -473,7 +473,7 @@ export const MODULE_ICON_SLUGS = [
 	"default",
 ] as const;
 
-/** Slugs offered on form create/update tools — the 13 action icons + `default`. */
+/** Slugs offered on `set_menu_media`'s form arm — the 13 action icons + `default`. */
 export const FORM_ICON_SLUGS = [
 	"register",
 	"update",

@@ -37,9 +37,9 @@ export type IconCatalogEntry = (typeof BUILTIN_ICON_CATALOG)[number];
 
 /** Every built-in icon slug. */
 export type IconSlug = (typeof ALL_ICON_SLUGS)[number];
-/** Slugs offered on module create/update tools (topic icons + `default`). */
+/** Slugs offered on `set_menu_media`'s module arm (topic icons + `default`). */
 export type ModuleIconSlug = (typeof MODULE_ICON_SLUGS)[number];
-/** Slugs offered on form create/update tools (action icons + `default`). */
+/** Slugs offered on `set_menu_media`'s form arm (action icons + `default`). */
 export type FormIconSlug = (typeof FORM_ICON_SLUGS)[number];
 
 /** The two icon-slot families: module tiles (incl. case-list) take topic icons,

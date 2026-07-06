@@ -203,3 +203,11 @@ export function makeMediaFixture(): MediaFixture {
 export function makeMediaMcpFixture(): MediaMcpFixture {
 	return { ...makeMcpTestContext(), doc: makeMediaDoc() };
 }
+
+/** Narrow a mutating-tool result to its error string, failing the test on
+ *  success — the shared assertion helper of the batch media tool tests. */
+export function errorOf(result: { result: unknown }): string {
+	const r = result.result as { error?: string };
+	if (r.error === undefined) throw new Error("expected error result");
+	return r.error;
+}
