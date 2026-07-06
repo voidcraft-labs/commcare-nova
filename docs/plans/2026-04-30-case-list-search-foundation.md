@@ -1,12 +1,12 @@
 # Case List & Search — Foundation Implementation Plan (v2)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Implement this plan task-by-task with subagent-driven development. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Status:** v2 — supersedes v1 of this same file. v1 had a fundamental scope error (missing AST coverage for relational queries, expression family entirely absent, three wire dialects collapsed to two) that surfaced after the implementor had shipped Tasks 1–8. v2 reconciles with shipped work where possible and supersedes where the shipped emitter design is structurally wrong.
 
 **Goal:** Build the typed Predicate AST + typed Expression AST, schema-driven type checker, JSON Schema generator, two CommCare wire emitters (on-device XPath + CSQL with total hoisting), and the AST → Kysely compiler. Ships as tested library code with no consumer yet — Plans 2–5 wire it up.
 
-**Architecture summary** (full detail in `docs/superpowers/specs/2026-04-30-case-list-search-design.md` v2):
+**Architecture summary** (full detail in `docs/specs/2026-04-30-case-list-search-design.md` v2):
 - Two AST families: Predicate (boolean) + Expression (value), sharing Term shapes
 - Three wire targets dispatched as separate visitors: case-list filter (on-device, plain XPath 1.0 + `selected()`), CSQL (server-side ES, full extension set), post-ES search filter (on-device, same as case-list filter)
 - Postgres SQL via Kysely as the live runtime — full operator coverage, no losses
@@ -393,8 +393,8 @@ Shipped across commits `c2d2b393` → `2f7941d0` → `510441fb`.
 - `lib/domain/predicate/__tests__/builders.test.ts`
 - `lib/domain/predicate/__tests__/typeChecker.test.ts`
 - `lib/commcare/predicate/__tests__/xpathEmitter.test.ts`
-- `docs/superpowers/specs/2026-04-30-case-list-search-design.md` (Null vs blank semantics subsection)
-- `docs/superpowers/plans/2026-04-30-case-list-search-foundation.md` (this section + the B-phase emitter behavior on `is-blank` / `is-null`)
+- `docs/specs/2026-04-30-case-list-search-design.md` (Null vs blank semantics subsection)
+- `docs/plans/2026-04-30-case-list-search-foundation.md` (this section + the B-phase emitter behavior on `is-blank` / `is-null`)
 
 **What landed:**
 
@@ -1192,7 +1192,7 @@ Shipped across commits `1b35db8e` → `72baaba6` → `52e04036`. The first commi
 - `lib/domain/predicate/CLAUDE.md` (new) — two-AST-families-in-one-package architecture: Predicate + ValueExpression families share Term shapes via intra-file `z.lazy`; full operator inventory; Term family arms; RelationPath kinds; the locked Postgres-strict null/blank semantic; type-checker contract; JSON Schema generator's role; reduction module.
 - `lib/case-store/CLAUDE.md` (modified) — one-line cross-reference to `sql/CLAUDE.md` and the compiler-stack files.
 - `lib/case-store/sql/__tests__/_barrel-verification.test.ts` (new, 3 tests) — runtime asserts for compiler entry points, the cast table, and the leaf-alias constants; type-only `_BarrelTypeSurface` aggregating struct pins every type-only re-export at compile time; explicit assertion that `compileLiteral` and `JSONB_READ_OPERATOR_FOR_DATA_TYPE` are NOT exposed by the barrel.
-- `docs/superpowers/coverage/2026-05-02-foundation-coverage-matrix.md` (new) — coverage matrix as docs artifact: every spec V1-IN operator (16 Predicate union schemas / 21 distinct discriminator values once `compare`'s six comparison kinds and `match`'s four modes are split + 15 ValueExpression schemas) cited `file:line` against four compilation surfaces (type checker, on-device XPath, CSQL, Postgres compiler), plus Term family + RelationPath family tables, plus cross-arm verification gates.
+- `docs/coverage/2026-05-02-foundation-coverage-matrix.md` (new) — coverage matrix as docs artifact: every spec V1-IN operator (16 Predicate union schemas / 21 distinct discriminator values once `compare`'s six comparison kinds and `match`'s four modes are split + 15 ValueExpression schemas) cited `file:line` against four compilation surfaces (type checker, on-device XPath, CSQL, Postgres compiler), plus Term family + RelationPath family tables, plus cross-arm verification gates.
 - `lib/case-store/sql/compileExpression.ts` (modified by `52e04036`) — `compileToday` switched from `sql.raw("current_date")` to `eb.cast(eb.fn<Date>("now"), "date")` (Postgres documents `current_date` and `now()::date` as transaction-stable equivalents). `compileDateAdd` switched from `eb.cast(eb.val(\`1 ${unit}\`), sql.raw("interval"))` to `eb.fn("make_interval", [...zero-padded slots, quantityExpr])` per Postgres's positional `make_interval(years, months, weeks, days, hours, mins, secs)` signature.
 - `lib/case-store/sql/compilePredicate.ts` (modified by `52e04036`) — `compileWithinDistance` switched both `geography` casts from `eb.cast(eb.fn("st_makepoint", [lon, lat]), sql.raw("geography"))` to a `geographyPoint(lon, lat)` helper using `ST_GeogFromText('POINT(<lon> <lat>)')` (returns geography directly, SRID 4326 default per PostGIS docs). The WKT payload composes through Postgres `concat(...)` so lon/lat numerics flow as typed-builder arguments.
 
@@ -1201,7 +1201,7 @@ Shipped across commits `1b35db8e` → `72baaba6` → `52e04036`. The first commi
 1. **Named exports for `lib/case-store/sql/index.ts`, wholesale `export *` for `lib/domain/predicate/index.ts`.** Per-package decision: `case-store/sql` has internal helpers (`compileLiteral`, dispatch helpers, type-erased views) that must NOT leak; named exports let the barrel curate. `domain/predicate`'s sibling modules already curate their own surfaces; wholesale re-export is mechanical and safe.
 2. **`dataTypeTokens.ts` as a third sibling module** rather than exporting tables from `compileTerm.ts`. Tables are pure data; isolating them in a dedicated module breaks the implied "compileTerm owns the tables" coupling (which would have made `compileLiteral` import from `compileTerm`, creating a structurally circular edge through the lazy data access). Three modules of equal weight: `compileTerm` and `compileLiteral` import from `dataTypeTokens`; neither imports the other.
 3. **`compileLiteral` as sibling module** rather than as an export from `compileTerm`. Both consumers (term-side literal arm + predicate-side `in.values` arm) treat literal emission as a leaf concern; the sibling shape lets either consumer evolve independently without touching the other.
-4. **Coverage matrix as docs artifact** lives at `docs/superpowers/coverage/`, separate from specs and plans. The matrix grounds the "every V1-IN operator covers four surfaces" verification gate the plan's Final-verification block requires; future drift is catchable mechanically by re-running the cited file:line checks.
+4. **Coverage matrix as docs artifact** lives at `docs/coverage/`, separate from specs and plans. The matrix grounds the "every V1-IN operator covers four surfaces" verification gate the plan's Final-verification block requires; future drift is catchable mechanically by re-running the cited file:line checks.
 5. **TRUE zero raw SQL across the case-store SQL package.** Every `sql\`...\`` template literal AND every `sql.raw(...)` function call eliminated from the four compiler source files (`compileTerm`, `compileExpression`, `compilePredicate`, `compileRelationPath`) plus the new `compileLiteral` module. The supervisor's initial framing of "ZERO `sql\`` template uses" was a goalpost shift the user corrected: `sql.raw(...)` IS raw SQL emission, just different syntax. Every Postgres expression flows through Kysely's typed builder surface (`eb.fn`, `eb.cast`, `eb()`, `eb.val`, `eb.lit`, `eb.and`, `eb.or`, `eb.not`, `eb.exists`, `eb.case()`, `eb.selectFrom`, `eb.ref`). Test files retain `sql\`(values (1))\`` for tableless VALUES sources where Kysely has no typed builder; that scope is out of bounds for the source-file gate.
 6. **Three Postgres features that look like they need raw emission route through typed-builder primitives instead.** `current_date` → `eb.cast(eb.fn<Date>("now"), "date")` (Postgres-equivalent via `now()::date`). `interval` cast for `date-add` → `eb.fn("make_interval", [positional slots])` (Postgres's `make_interval` returns the typed interval directly; no cast needed). `geography` cast for `within-distance` → `eb.fn("st_geogfromtext", [<wkt>])` (PostGIS's `ST_GeogFromText` returns `geography` directly with default SRID 4326). Future compiler arms reaching for a Postgres feature outside Kysely's typed surface should follow the same pattern: identify the function-call surface that returns the typed value directly, not the cast token Kysely's `ColumnDataType` enum doesn't include.
 
@@ -1219,7 +1219,7 @@ Shipped across commits `1b35db8e` → `72baaba6` → `52e04036`. The first commi
 - `rg "containsNonSelfRelationWalk|aliasDepth|compileValueExprAsTerm" lib/case-store/sql/` returns 0 matches (Phase 1+2 invariants preserved).
 - `grep -rn "TODO\|FIXME\|XXX" lib/domain/predicate lib/commcare/predicate lib/commcare/expression lib/case-store` returns empty.
 - Strengthened eternal-present sweep on touched files: 0 hits.
-- Coverage matrix at `docs/superpowers/coverage/2026-05-02-foundation-coverage-matrix.md` documents every V1-IN operator across four compilation surfaces with file:line citations.
+- Coverage matrix at `docs/coverage/2026-05-02-foundation-coverage-matrix.md` documents every V1-IN operator across four compilation surfaces with file:line citations.
 
 #### Post-shipped amendment 2026-05-03 — Elm-style error-message rewrite
 

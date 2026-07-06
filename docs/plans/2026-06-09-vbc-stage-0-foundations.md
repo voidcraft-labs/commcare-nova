@@ -1,6 +1,6 @@
 # Plan: VBC Stage 0 — Foundations
 
-Implements Stage 0 of `docs/superpowers/specs/2026-06-09-valid-by-construction-program.md`.
+Implements Stage 0 of `docs/specs/2026-06-09-valid-by-construction-program.md`.
 No user-visible behavior change except two bug fixes (rename coverage, cross-depth
 move re-anchoring). Tasks are SERIALIZED — one implementer at a time, no parallel
 writers. Branch: `docs/valid-by-construction` (worktree
