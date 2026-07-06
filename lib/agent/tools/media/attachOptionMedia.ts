@@ -1,41 +1,46 @@
 /**
  * SA tool: `attach_option_media` — set or clear the image/audio/video on
- * one option of a single-/multi-select field.
+ * one or more options of single-/multi-select fields in a single call.
  *
  * Each select option carries its own optional `media` bundle (image +
  * audio + video) so a visual-pick UI can show a picture or play audio
- * beside each choice. The tool locates the field, finds the option by its
- * `value` (the stored choice key, not the display label), and replaces
- * that option's `media` bundle. Passing an empty bundle (`{}`) clears it.
+ * beside each choice. Every attachment in the batch locates a field,
+ * finds the option by its `value` (the stored choice key, not the display
+ * label), and replaces that option's `media` bundle; an empty bundle
+ * (`{}`) clears it. A whole picture-choice field — or several fields —
+ * authors in one call; one attachment is a length-1 `attachments` array.
  *
  * Only `single_select` / `multi_select` fields carry options; any other
- * kind is rejected with an Elm-shape error. A `value` that isn't among
- * the field's options is likewise rejected, naming the values that exist.
+ * kind fails with an Elm-shape error. A `value` that isn't among the
+ * field's options likewise fails, naming the values that exist.
  *
- * Every set runs the at-source asset verdict before the gated commit
- * (`attachGuardedMutate` — exists / owned / ready / kind-matched /
- * inside the export ceiling), so a committed reference can't dangle; a
- * clear (empty bundle) carries no expectations and skips the asset
- * read.
+ * The batch is all-or-nothing (`commitMediaBatch`): every attachment must
+ * resolve and every set slot must pass the at-source asset verdict
+ * (exists / owned / ready / kind-matched / inside the export ceiling)
+ * before the single gated commit; any failure returns `{ error }` naming
+ * every offending attachment and nothing is written. Two attachments
+ * addressing the same option apply in order — the later one wins.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext`.
  */
 
 import { z } from "zod";
-import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc, type SelectOption } from "@/lib/domain";
 import { resolveFieldByIndex } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
+import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	attachGuardedMutate,
 	brandMediaBundle,
 	bundleExpectations,
+	commitMediaBatch,
+	joinBatchLines,
 	mediaBundleInput,
+	type ResolvedMediaBatchItem,
 } from "./shared";
 
-export const attachOptionMediaInputSchema = z
+const optionMediaAttachmentSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
@@ -55,128 +60,139 @@ export const attachOptionMediaInputSchema = z
 	})
 	.strict();
 
+export const attachOptionMediaInputSchema = z
+	.object({
+		attachments: z
+			.array(optionMediaAttachmentSchema)
+			.min(1)
+			.describe(
+				"The option attachments to apply, each naming a select field, one " +
+					"of its option values, and the media bundle for it. Batch every " +
+					"attachment you're making in one call — a whole picture-choice " +
+					"field's options, across fields and forms as needed. The batch " +
+					"commits as a whole.",
+			),
+	})
+	.strict();
+
 export type AttachOptionMediaInput = z.infer<
 	typeof attachOptionMediaInputSchema
 >;
 
-/** Human-readable success string or an error record. */
-export type AttachOptionMediaResult = string | { error: string };
+export type AttachOptionMediaResult = MutationSuccess | { error: string };
 
 export const attachOptionMediaTool = {
 	description:
-		"Set or clear the image/audio/video on one option of a single_select / multi_select field. Locate the option by its value; supply asset ids from list_media_assets, or an empty media object to clear it.",
+		"Set or clear the image/audio/video on one or more options of single_select / multi_select fields in a single call — a whole picture-choice field authors in one batch. Locate each option by its value; supply asset ids from list_media_assets, or an empty media object to clear it.",
 	inputSchema: attachOptionMediaInputSchema,
 	async execute(
 		input: AttachOptionMediaInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AttachOptionMediaResult>> {
-		const { moduleIndex, formIndex, fieldId, optionValue, media } = input;
+		const { attachments } = input;
 		try {
-			const resolved = resolveFieldByIndex(
-				doc,
-				moduleIndex,
-				formIndex,
-				fieldId,
-			);
-			if (!resolved) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: {
-						error: `Tried to attach media to option "${optionValue}" on field "${fieldId}" in m${moduleIndex}-f${formIndex}, but no field with that id is there. Run getForm or searchBlueprint to find the right field id.`,
-					},
-				};
+			// Resolve every attachment before writing anything, collecting
+			// every failure — `commitMediaBatch` reports them as one
+			// all-or-nothing error.
+			const resolved: ResolvedMediaBatchItem[] = [];
+			const failures: string[] = [];
+			for (const [i, attachment] of attachments.entries()) {
+				const { moduleIndex, formIndex, fieldId, optionValue, media } =
+					attachment;
+				const found = resolveFieldByIndex(doc, moduleIndex, formIndex, fieldId);
+				if (!found) {
+					failures.push(
+						`attachments[${i}]: found no field "${fieldId}" in m${moduleIndex}-f${formIndex}. Run getForm or searchBlueprint to find the right field id.`,
+					);
+					continue;
+				}
+
+				const { field } = found;
+				if (field.kind !== "single_select" && field.kind !== "multi_select") {
+					failures.push(
+						`attachments[${i}]: field "${fieldId}" is a ${field.kind} field, which has no options to attach media to. Option media is only for single_select and multi_select fields.`,
+					);
+					continue;
+				}
+
+				const index = field.options.findIndex((o) => o.value === optionValue);
+				if (index < 0) {
+					const values = field.options.map((o) => `"${o.value}"`).join(", ");
+					failures.push(
+						`attachments[${i}]: field "${fieldId}" has no option with value "${optionValue}". Its option values are: ${values}.`,
+					);
+					continue;
+				}
+
+				// Empty bundle clears the option's media; a populated bundle
+				// sets it. An all-empty bundle resolves to `undefined` so the
+				// option drops its `media` key rather than storing an empty
+				// object.
+				const branded = brandMediaBundle(media);
+				const setKinds = Object.entries(branded)
+					.filter(([, v]) => v !== undefined)
+					.map(([k]) => k);
+
+				// Swap the one option's media via a granular `updateOption` keyed by
+				// the option's uuid, so a concurrent edit to a DIFFERENT option of the
+				// same field merges. The reducer preserves the option's current
+				// `order`; the uuid falls back to the deterministic backfill key when
+				// a not-yet-hydrated doc lacks one (matching what backfill mints).
+				const targetOption = field.options[index];
+				const optionUuid =
+					targetOption.uuid ?? asUuid(`${field.uuid}-opt-${index}`);
+				const updated = withMedia(
+					{ ...targetOption, uuid: optionUuid },
+					setKinds.length > 0 ? branded : undefined,
+				);
+				resolved.push({
+					mutations: [
+						{
+							kind: "updateOption",
+							fieldUuid: field.uuid,
+							uuid: optionUuid,
+							option: updated,
+						},
+					],
+					expectations: bundleExpectations(
+						branded,
+						`option "${optionValue}" of field "${fieldId}"`,
+					),
+					line:
+						setKinds.length > 0
+							? `attached ${setKinds.join(", ")} media on option "${optionValue}" of field "${fieldId}"`
+							: `cleared media on option "${optionValue}" of field "${fieldId}"`,
+				});
 			}
 
-			const { field } = resolved;
-			if (field.kind !== "single_select" && field.kind !== "multi_select") {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: {
-						error: `Field "${fieldId}" is a ${field.kind} field, which has no options to attach media to. Option media is only for single_select and multi_select fields.`,
-					},
-				};
-			}
-
-			const index = field.options.findIndex((o) => o.value === optionValue);
-			if (index < 0) {
-				const values = field.options.map((o) => `"${o.value}"`).join(", ");
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: {
-						error: `Field "${fieldId}" has no option with value "${optionValue}". Its option values are: ${values}.`,
-					},
-				};
-			}
-
-			// Empty bundle clears the option's media; a populated bundle
-			// sets it. An all-empty bundle resolves to `undefined` so the
-			// option drops its `media` key rather than storing an empty
-			// object.
-			const branded = brandMediaBundle(media);
-			const hasAny =
-				branded.image !== undefined ||
-				branded.audio !== undefined ||
-				branded.video !== undefined;
-
-			// Swap the one option's media via a granular `updateOption` keyed by
-			// the option's uuid, so a concurrent edit to a DIFFERENT option of the
-			// same field merges. The reducer preserves the option's current
-			// `order`; the uuid falls back to the deterministic backfill key when
-			// a not-yet-hydrated doc lacks one (matching what backfill mints).
-			const targetOption = field.options[index];
-			const optionUuid =
-				targetOption.uuid ?? asUuid(`${field.uuid}-opt-${index}`);
-			const updated = withMedia(
-				{ ...targetOption, uuid: optionUuid },
-				hasAny ? branded : undefined,
-			);
-			const mutations: Mutation[] = [
-				{
-					kind: "updateOption",
-					fieldUuid: field.uuid,
-					uuid: optionUuid,
-					option: updated,
-				},
-			];
-			const commit = await attachGuardedMutate(
+			const outcome = await commitMediaBatch({
 				ctx,
 				doc,
-				mutations,
-				`media:option:${moduleIndex}-${formIndex}`,
-				bundleExpectations(
-					branded,
-					`option "${optionValue}" of field "${fieldId}"`,
-				),
-			);
-			if (!commit.ok) {
+				stage: "media:option",
+				resolved,
+				failures,
+				attemptPhrase: `attach media to ${attachments.length} option${attachments.length === 1 ? "" : "s"}`,
+				itemNoun: "attachment",
+				outcomeVerb: "attached",
+			});
+			if (!outcome.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
-					result: { error: commit.error },
+					result: { error: outcome.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
-			const verb = hasAny ? "Attached" : "Cleared";
-			const slots = hasAny
-				? Object.entries(branded)
-						.filter(([, v]) => v !== undefined)
-						.map(([k]) => k)
-						.join(", ")
-				: "all";
 			return {
 				kind: "mutate" as const,
-				mutations,
-				newDoc,
-				result: `${verb} ${slots} media on option "${optionValue}" of field "${fieldId}".`,
+				mutations: outcome.mutations,
+				newDoc: outcome.newDoc,
+				result: {
+					message: joinBatchLines(resolved.map((r) => r.line)),
+					summary: { count: attachments.length },
+				},
 			};
 		} catch (err) {
 			return toToolErrorResult(err, doc);

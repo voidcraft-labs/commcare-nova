@@ -134,10 +134,10 @@ export const BUILTIN_ICON_CATALOG = [
 ${entryLines}
 ] as const;
 
-/** Slugs offered on module create/update tools — the 33 topic icons + \`default\`. */
+/** Slugs offered on \`set_menu_media\`'s module arm — the 33 topic icons + \`default\`. */
 export const MODULE_ICON_SLUGS = [${tuple(moduleEnum)}] as const;
 
-/** Slugs offered on form create/update tools — the 13 action icons + \`default\`. */
+/** Slugs offered on \`set_menu_media\`'s form arm — the 13 action icons + \`default\`. */
 export const FORM_ICON_SLUGS = [${tuple(formEnum)}] as const;
 
 /** Every built-in icon slug, in catalog order. */

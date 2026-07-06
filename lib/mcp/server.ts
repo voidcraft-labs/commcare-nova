@@ -68,8 +68,7 @@ import { attachOptionMediaTool } from "@/lib/agent/tools/media/attachOptionMedia
 import { listMediaAssetsTool } from "@/lib/agent/tools/media/listMediaAssets";
 import { removeMediaAssetTool } from "@/lib/agent/tools/media/removeMediaAsset";
 import { setAppLogoTool } from "@/lib/agent/tools/media/setAppLogo";
-import { setFormMediaTool } from "@/lib/agent/tools/media/setFormMedia";
-import { setModuleMediaTool } from "@/lib/agent/tools/media/setModuleMedia";
+import { setMenuMediaTool } from "@/lib/agent/tools/media/setMenuMedia";
 import { planAppDesignTool } from "@/lib/agent/tools/planAppDesign";
 import { removeFieldTool } from "@/lib/agent/tools/removeField";
 import { removeFormTool } from "@/lib/agent/tools/removeForm";
@@ -199,10 +198,11 @@ const SHARED_TOOLS: ReadonlyArray<{
 		requires: "edit",
 	},
 	/* Media authoring — the dedicated surface for attaching asset ids to
-	 * carriers (the generic mutation tools omit every media slot). Five
-	 * doc-mutation tools (field/option/module/form/app-logo) plus two
-	 * library tools (`list` discovers asset ids; `remove` deletes one
-	 * with a reference guard). The MCP-only `upload_media_asset` is
+	 * carriers (the generic mutation tools omit every media slot). Four
+	 * doc-mutation tools, batch-shaped where the carrier repeats
+	 * (field slots / options / menu tiles / app-logo) plus two library
+	 * tools (`list` discovers asset ids; `remove` deletes one with a
+	 * reference guard). The MCP-only `upload_media_asset` is
 	 * hand-registered below — it neither targets a doc nor an app id, so
 	 * it can't ride the shared adapter. */
 	{ name: "attach_field_media", tool: attachFieldMediaTool, requires: "edit" },
@@ -211,8 +211,7 @@ const SHARED_TOOLS: ReadonlyArray<{
 		tool: attachOptionMediaTool,
 		requires: "edit",
 	},
-	{ name: "set_module_media", tool: setModuleMediaTool, requires: "edit" },
-	{ name: "set_form_media", tool: setFormMediaTool, requires: "edit" },
+	{ name: "set_menu_media", tool: setMenuMediaTool, requires: "edit" },
 	{ name: "set_app_logo", tool: setAppLogoTool, requires: "edit" },
 	{ name: "list_media_assets", tool: listMediaAssetsTool, requires: "view" },
 	{ name: "remove_media_asset", tool: removeMediaAssetTool, requires: "edit" },

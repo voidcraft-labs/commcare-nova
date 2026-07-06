@@ -1,26 +1,33 @@
 /**
- * Behavioral tests for `attach_field_media`.
+ * Behavioral tests for `attach_field_media` (batch-shaped: one call
+ * attaches to one or more field message slots, all-or-nothing).
  *
  * Coverage:
  *   1. Sets a slot's media bundle on the field.
- *   2. Clears the slot when handed an empty bundle.
- *   3. CLEAR survives the SSE JSON wire (the blocker regression guard) —
+ *   2. A multi-attachment batch lands on several fields in one call.
+ *   3. Clears the slot when handed an empty bundle.
+ *   4. CLEAR survives the SSE JSON wire (the blocker regression guard) —
  *      a clear encoded as `{ key: undefined }` would be dropped by
  *      `JSON.stringify` and silently no-op on the client.
- *   4. Refuses a slot the field's kind doesn't carry (validate_msg on a
+ *   5. Refuses a slot the field's kind doesn't carry (validate_msg on a
  *      hidden field) with an Elm-style error naming the available slots.
- *   5. Field-not-found surfaces an Elm-style error.
- *   6. Cross-surface parity — chat + MCP contexts produce identical
+ *   6. Field-not-found surfaces an Elm-style error; one bad attachment
+ *      fails the whole batch with nothing written.
+ *   7. Cross-surface parity — chat + MCP contexts produce identical
  *      mutation batches.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
+import type { Media } from "@/lib/domain";
 import { attachFieldMediaTool } from "../attachFieldMedia";
+import type { FieldMediaSlot } from "../shared";
 import {
+	errorOf,
 	makeMediaFixture,
 	makeMediaMcpFixture,
 	resetTestAssets,
+	SELECT_FIELD,
 	seedTestAsset,
 	TEXT_FIELD,
 } from "./fixtures";
@@ -44,17 +51,30 @@ beforeEach(() => {
 	resetTestAssets();
 });
 
+/** One attachment on the fixture's m0-f0. */
+const attachment = (
+	fieldId: string,
+	slot: FieldMediaSlot,
+	media: Partial<Media>,
+) => ({ moduleIndex: 0, formIndex: 0, fieldId, slot, media });
+
+/** Wrap attachments in the batch input shape. */
+const input = (...attachments: ReturnType<typeof attachment>[]) => ({
+	attachments,
+});
+
+/** Narrow a result to its success message, failing the test on error. */
+function messageOf(result: { result: unknown }): string {
+	const r = result.result as { message?: string; error?: string };
+	if (r.message === undefined) throw new Error(r.error ?? "expected success");
+	return r.message;
+}
+
 describe("attachFieldMedia", () => {
 	it("sets the image on a field's label slot", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
-				slot: "label",
-				media: { image: "asset-img-1" },
-			},
+			input(attachment("patient_name", "label", { image: "asset-img-1" })),
 			ctx,
 			doc,
 		);
@@ -69,13 +89,12 @@ describe("attachFieldMedia", () => {
 	it("sets a multi-slot bundle on the hint slot", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
-				slot: "hint",
-				media: { image: "asset-img-1", audio: "asset-aud-1" },
-			},
+			input(
+				attachment("patient_name", "hint", {
+					image: "asset-img-1",
+					audio: "asset-aud-1",
+				}),
+			),
 			ctx,
 			doc,
 		);
@@ -85,29 +104,39 @@ describe("attachFieldMedia", () => {
 		).toEqual({ image: "asset-img-1", audio: "asset-aud-1" });
 	});
 
+	it("attaches to several fields in one batch", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		const result = await attachFieldMediaTool.execute(
+			input(
+				attachment("patient_name", "label", { image: "asset-img-1" }),
+				attachment("symptom", "label", { audio: "asset-aud-1" }),
+			),
+			ctx,
+			doc,
+		);
+		const text = result.newDoc.fields[TEXT_FIELD];
+		const select = result.newDoc.fields[SELECT_FIELD];
+		expect(
+			text && "label_media" in text ? text.label_media : undefined,
+		).toEqual({ image: "asset-img-1" });
+		expect(
+			select && "label_media" in select ? select.label_media : undefined,
+		).toEqual({ audio: "asset-aud-1" });
+		const success = result.result as { summary?: { count?: number } };
+		expect(success.summary).toEqual({ count: 2 });
+	});
+
 	it("clears the slot when handed an empty bundle", async () => {
 		const { doc: baseDoc, ctx } = makeMediaFixture();
 		// Seed an existing label_media so the clear has something to remove.
 		const seeded = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
-				slot: "label",
-				media: { image: "asset-img-1" },
-			},
+			input(attachment("patient_name", "label", { image: "asset-img-1" })),
 			ctx,
 			baseDoc,
 		);
 
 		const cleared = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
-				slot: "label",
-				media: {},
-			},
+			input(attachment("patient_name", "label", {})),
 			ctx,
 			seeded.newDoc,
 		);
@@ -115,7 +144,7 @@ describe("attachFieldMedia", () => {
 		expect(
 			field && "label_media" in field ? field.label_media : undefined,
 		).toBeUndefined();
-		expect(cleared.result).toContain("Cleared");
+		expect(messageOf(cleared)).toContain("Cleared");
 	});
 
 	it("clears the slot AFTER a JSON wire round-trip (blocker guard)", async () => {
@@ -129,24 +158,12 @@ describe("attachFieldMedia", () => {
 		// it clears over the wire too.
 		const { doc: baseDoc, ctx } = makeMediaFixture();
 		const seeded = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
-				slot: "label",
-				media: { image: "asset-img-1" },
-			},
+			input(attachment("patient_name", "label", { image: "asset-img-1" })),
 			ctx,
 			baseDoc,
 		);
 		const clear = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
-				slot: "label",
-				media: {},
-			},
+			input(attachment("patient_name", "label", {})),
 			ctx,
 			seeded.newDoc,
 		);
@@ -162,65 +179,63 @@ describe("attachFieldMedia", () => {
 		const { doc, ctx } = makeMediaFixture();
 		// A hidden field carries no validate_msg media slot.
 		const result = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "computed_score",
-				slot: "validate_msg",
-				media: { image: "asset-img-1" },
-			},
+			input(
+				attachment("computed_score", "validate_msg", { image: "asset-img-1" }),
+			),
 			ctx,
 			doc,
 		);
 
 		expect(result.mutations).toEqual([]);
-		if (typeof result.result === "string") {
-			throw new Error("expected error result");
-		}
-		expect(result.result.error).toContain("hidden field");
-		expect(result.result.error).toContain("validate_msg");
+		const error = errorOf(result);
+		expect(error).toContain("hidden field");
+		expect(error).toContain("validate_msg");
 	});
 
 	it("returns an Elm-style error when the field id is unknown", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "nope",
-				slot: "label",
-				media: { image: "asset-img-1" },
-			},
+			input(attachment("nope", "label", { image: "asset-img-1" })),
 			ctx,
 			doc,
 		);
 		expect(result.mutations).toEqual([]);
-		if (typeof result.result === "string") {
-			throw new Error("expected error result");
-		}
-		expect(result.result.error).toContain("Tried to attach label media");
-		expect(result.result.error).toContain('"nope"');
+		const error = errorOf(result);
+		expect(error).toContain("nothing was attached");
+		expect(error).toContain('"nope"');
+	});
+
+	it("writes nothing when one attachment of a batch doesn't resolve", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		const result = await attachFieldMediaTool.execute(
+			input(
+				attachment("patient_name", "label", { image: "asset-img-1" }),
+				attachment("nope", "label", { image: "asset-img-1" }),
+			),
+			ctx,
+			doc,
+		);
+		expect(result.mutations).toEqual([]);
+		const field = result.newDoc.fields[TEXT_FIELD];
+		expect(
+			field && "label_media" in field ? field.label_media : undefined,
+		).toBeUndefined();
+		const error = errorOf(result);
+		expect(error).toContain("attachments[1]");
+		expect(error).toContain('"nope"');
 	});
 
 	it("refuses an asset id that isn't in the caller's library", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
-				slot: "label",
-				media: { image: "asset-nope" },
-			},
+			input(attachment("patient_name", "label", { image: "asset-nope" })),
 			ctx,
 			doc,
 		);
 		expect(result.mutations).toEqual([]);
-		if (typeof result.result === "string") {
-			throw new Error("expected error result");
-		}
-		expect(result.result.error).toContain("asset-nope");
-		expect(result.result.error).toContain("library");
+		const error = errorOf(result);
+		expect(error).toContain("asset-nope");
+		expect(error).toContain("library");
 		// Nothing committed.
 		const field = result.newDoc.fields[TEXT_FIELD];
 		expect(
@@ -232,41 +247,24 @@ describe("attachFieldMedia", () => {
 		seedTestAsset("asset-foreign", "image", { project_id: "project-2" });
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
-				slot: "label",
-				media: { image: "asset-foreign" },
-			},
+			input(attachment("patient_name", "label", { image: "asset-foreign" })),
 			ctx,
 			doc,
 		);
-		if (typeof result.result === "string") {
-			throw new Error("expected error result");
-		}
-		expect(result.result.error).toContain("library");
-		expect(result.result.error).not.toContain("project-2");
+		const error = errorOf(result);
+		expect(error).toContain("library");
+		expect(error).not.toContain("project-2");
 	});
 
 	it("refuses an asset whose upload hasn't confirmed", async () => {
 		seedTestAsset("asset-pending", "image", { status: "pending" });
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
-				slot: "hint",
-				media: { image: "asset-pending" },
-			},
+			input(attachment("patient_name", "hint", { image: "asset-pending" })),
 			ctx,
 			doc,
 		);
-		if (typeof result.result === "string") {
-			throw new Error("expected error result");
-		}
-		expect(result.result.error).toContain("upload hasn't finished");
+		expect(errorOf(result)).toContain("upload hasn't finished");
 		expect(result.mutations).toEqual([]);
 	});
 
@@ -274,34 +272,37 @@ describe("attachFieldMedia", () => {
 		const { doc, ctx } = makeMediaFixture();
 		// An audio asset placed in the bundle's IMAGE slot.
 		const result = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
-				slot: "label",
-				media: { image: "asset-aud-1" },
-			},
+			input(attachment("patient_name", "label", { image: "asset-aud-1" })),
 			ctx,
 			doc,
 		);
-		if (typeof result.result === "string") {
-			throw new Error("expected error result");
-		}
-		expect(result.result.error).toContain("an audio file");
-		expect(result.result.error).toContain("an image");
+		const error = errorOf(result);
+		expect(error).toContain("an audio file");
+		expect(error).toContain("an image");
 		expect(result.mutations).toEqual([]);
+	});
+
+	it("a verdict failure on one attachment writes nothing for the whole batch", async () => {
+		const { doc, ctx } = makeMediaFixture();
+		const result = await attachFieldMediaTool.execute(
+			input(
+				attachment("patient_name", "label", { image: "asset-img-1" }),
+				attachment("symptom", "label", { image: "asset-nope" }),
+			),
+			ctx,
+			doc,
+		);
+		expect(result.mutations).toEqual([]);
+		const field = result.newDoc.fields[TEXT_FIELD];
+		expect(
+			field && "label_media" in field ? field.label_media : undefined,
+		).toBeUndefined();
 	});
 
 	it("clears without touching the asset table (no verdict on a clear)", async () => {
 		const { doc: baseDoc, ctx } = makeMediaFixture();
 		const seeded = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
-				slot: "label",
-				media: { image: "asset-img-1" },
-			},
+			input(attachment("patient_name", "label", { image: "asset-img-1" })),
 			ctx,
 			baseDoc,
 		);
@@ -310,31 +311,21 @@ describe("attachFieldMedia", () => {
 		resetTestAssets();
 		seedTestAsset("asset-img-1", "image", { project_id: "project-2" });
 		const cleared = await attachFieldMediaTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
-				slot: "label",
-				media: {},
-			},
+			input(attachment("patient_name", "label", {})),
 			ctx,
 			seeded.newDoc,
 		);
-		expect(cleared.result).toContain("Cleared");
+		expect(messageOf(cleared)).toContain("Cleared");
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
 		const { doc, ctx: chatCtx } = makeMediaFixture();
 		const { ctx: mcpCtx } = makeMediaMcpFixture();
-		const input = {
-			moduleIndex: 0,
-			formIndex: 0,
-			fieldId: "patient_name",
-			slot: "label" as const,
-			media: { image: "asset-img-1" },
-		};
-		const r1 = await attachFieldMediaTool.execute(input, chatCtx, doc);
-		const r2 = await attachFieldMediaTool.execute(input, mcpCtx, doc);
+		const batch = input(
+			attachment("patient_name", "label", { image: "asset-img-1" }),
+		);
+		const r1 = await attachFieldMediaTool.execute(batch, chatCtx, doc);
+		const r2 = await attachFieldMediaTool.execute(batch, mcpCtx, doc);
 		expect(r1.mutations).toEqual(r2.mutations);
 	});
 });

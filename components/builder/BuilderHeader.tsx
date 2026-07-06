@@ -124,7 +124,10 @@ export function BuilderHeader({
 								</Tooltip>
 							</>
 						) : (
-							<span className="mr-1 inline-flex items-center rounded-md border border-nova-border px-2 py-1 text-xs font-medium text-nova-text-muted">
+							/* ml-[13px] mirrors the icon buttons' glyph inset so the
+							 * PresenceRoster divider (when peers are present) sits
+							 * visually centered before the badge's border too. */
+							<span className="ml-[13px] mr-1 inline-flex items-center rounded-md border border-nova-border px-2 py-1 text-xs font-medium text-nova-text-muted">
 								View only
 							</span>
 						)}

@@ -1,23 +1,24 @@
 /**
  * SA tool: `attach_field_media` — set or clear the image/audio/video on
- * one of a field's message slots (label / hint / help / validation
- * message).
+ * one or more field message slots (label / hint / help / validation
+ * message) in a single call.
  *
  * Each visible-message slot on a field carries its own `<slot>_media`
  * bundle (`label_media` / `hint_media` / `help_media` /
- * `validate_msg_media`). The slot the SA names maps to that key; the
- * supplied `Media` bundle replaces it wholesale. Passing an empty bundle
- * (`{}`) clears every reference on the slot.
+ * `validate_msg_media`). Every attachment in the batch names a field and
+ * a slot; the supplied `Media` bundle replaces that slot wholesale, and
+ * an empty bundle (`{}`) clears every reference on it. One attachment is
+ * a length-1 `attachments` array — there is no singular twin.
  *
  * Slot availability is per-kind, not universal: `label_media` is on every
  * visible field (and containers); `hint_media` / `help_media` are on
  * input kinds; `validate_msg_media` only on the kinds that support
- * validation. The tool gates the slot against the field's KIND via
+ * validation. Each attachment gates its slot against the field's KIND via
  * `fieldKindDeclaresKey` — the schema key set, NOT `key in field`, because
  * an unset optional slot is absent as an own property even on a kind that
- * supports it — and refuses an unsupported slot with an Elm-shape error.
+ * supports it — and an unsupported slot fails with an Elm-shape error.
  *
- * The tool emits the dedicated `setFieldMedia` mutation (via
+ * Each attachment emits the dedicated `setFieldMedia` mutation (via
  * `setFieldMediaMutations`), NOT an `updateField` patch. A clear must
  * cross the SSE wire as an explicit `null`: an `updateField` patch encodes
  * a clear as `{ <slot>_media: undefined }`, which `JSON.stringify` DROPS,
@@ -26,21 +27,20 @@
  * clear). `setFieldMedia` carries `media: Media | null` and the reducer
  * maps `null → undefined`, so both set and clear survive the wire.
  *
- * Every set runs the at-source asset verdict before the gated commit
- * (`attachGuardedMutate` — exists / owned / ready / kind-matched /
- * inside the export ceiling), so a committed reference can't dangle; a
- * clear (empty bundle) carries no expectations and skips the asset
- * read.
+ * The batch is all-or-nothing (`commitMediaBatch`): every attachment must
+ * resolve (field exists, slot supported) and every set slot must pass the
+ * at-source asset verdict (exists / owned / ready / kind-matched / inside
+ * the export ceiling) before the single gated commit; any failure returns
+ * `{ error }` naming every offending attachment and nothing is written.
+ * Two attachments addressing the same (field, slot) apply in order — the
+ * later one wins.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolExecutionContext`. Four exit branches: field not found →
- * `{ error }`; slot unsupported on the field's kind → `{ error }`; a
- * failed asset verdict → `{ error }`; success → a human-readable
- * summary.
+ * shared `ToolExecutionContext`.
  */
 
 import { z } from "zod";
-import type { BlueprintDoc, Field } from "@/lib/domain";
+import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { fieldKindDeclaresKey } from "@/lib/domain";
 import {
 	resolveFieldByIndex,
@@ -48,17 +48,20 @@ import {
 } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
+import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	attachGuardedMutate,
 	brandMediaBundle,
 	bundleExpectations,
+	commitMediaBatch,
 	FIELD_MEDIA_SLOTS,
 	type FieldMediaSlot,
+	joinBatchLines,
 	mediaBundleInput,
 	mediaKeyForSlot,
+	type ResolvedMediaBatchItem,
 } from "./shared";
 
-export const attachFieldMediaInputSchema = z
+const fieldMediaAttachmentSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
@@ -80,103 +83,122 @@ export const attachFieldMediaInputSchema = z
 	})
 	.strict();
 
+export const attachFieldMediaInputSchema = z
+	.object({
+		attachments: z
+			.array(fieldMediaAttachmentSchema)
+			.min(1)
+			.describe(
+				"The field-slot attachments to apply, each naming a field, one of " +
+					"its message slots, and the media bundle for it. Batch every " +
+					"attachment you're making in one call — the fields can span " +
+					"different forms and modules. The batch commits as a whole.",
+			),
+	})
+	.strict();
+
 export type AttachFieldMediaInput = z.infer<typeof attachFieldMediaInputSchema>;
 
-/** Human-readable success string or an error record. */
-export type AttachFieldMediaResult = string | { error: string };
+export type AttachFieldMediaResult = MutationSuccess | { error: string };
 
 export const attachFieldMediaTool = {
 	description:
-		"Set or clear the image/audio/video on one of a field's message slots (label, hint, help, or validation message). Supply asset ids from list_media_assets; pass an empty media object to clear the slot. The slot must exist on the field's kind (e.g. only input fields have hint/help; only validation-capable kinds have validate_msg).",
+		"Set or clear the image/audio/video on one or more field message slots (label, hint, help, or validation message) in a single call — the fields can span different forms. Supply asset ids from list_media_assets; pass an empty media object to clear a slot. Each slot must exist on its field's kind (e.g. only input fields have hint/help; only validation-capable kinds have validate_msg).",
 	inputSchema: attachFieldMediaInputSchema,
 	async execute(
 		input: AttachFieldMediaInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AttachFieldMediaResult>> {
-		const { moduleIndex, formIndex, fieldId, slot, media } = input;
+		const { attachments } = input;
 		try {
-			const resolved = resolveFieldByIndex(
-				doc,
-				moduleIndex,
-				formIndex,
-				fieldId,
-			);
-			if (!resolved) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: {
-						error: `Tried to attach ${slot} media to field "${fieldId}" in m${moduleIndex}-f${formIndex}, but no field with that id is there. Run getForm or searchBlueprint to find the right field id.`,
-					},
-				};
+			// Resolve every attachment before writing anything, collecting
+			// every failure — `commitMediaBatch` reports them as one
+			// all-or-nothing error. `fieldUuid` rides along for the
+			// distinct-field summary count.
+			const resolved: (ResolvedMediaBatchItem & { fieldUuid: Uuid })[] = [];
+			const failures: string[] = [];
+			for (const [i, attachment] of attachments.entries()) {
+				const { moduleIndex, formIndex, fieldId, slot, media } = attachment;
+				const found = resolveFieldByIndex(doc, moduleIndex, formIndex, fieldId);
+				if (!found) {
+					failures.push(
+						`attachments[${i}]: found no field "${fieldId}" in m${moduleIndex}-f${formIndex}. Run getForm or searchBlueprint to find the right field id.`,
+					);
+					continue;
+				}
+
+				const { field } = found;
+				const mediaKey = mediaKeyForSlot(slot);
+				// Slot availability is per-KIND, asked of the schema — not of
+				// this field instance. An unset optional `<slot>_media` is absent
+				// as an own property even on a kind that supports it, so
+				// `key in field` would falsely reject a field that simply has no
+				// media yet. `fieldKindDeclaresKey` reads the kind's schema key
+				// set, the same source of truth the reducer's
+				// `pickFieldKeysForKind` filter uses — so a slot the kind doesn't
+				// carry is rejected here rather than silently dropped downstream.
+				if (!fieldKindDeclaresKey(field.kind, mediaKey)) {
+					failures.push(
+						`attachments[${i}]: field "${fieldId}" is a ${field.kind} field, which has no ${slot} message — so there's nothing to attach ${slot} media to. ${supportedSlotsHint(field.kind)}`,
+					);
+					continue;
+				}
+
+				// Empty bundle clears the slot; a populated bundle sets it. An
+				// all-empty bundle becomes a `null` payload so the reducer drops
+				// the slot (rather than storing an empty object). `null` survives
+				// JSON over the SSE wire; `undefined` would not.
+				const branded = brandMediaBundle(media);
+				const setKinds = Object.entries(branded)
+					.filter(([, v]) => v !== undefined)
+					.map(([k]) => k);
+				resolved.push({
+					mutations: setFieldMediaMutations(
+						field.uuid,
+						slot,
+						setKinds.length > 0 ? branded : null,
+					),
+					expectations: bundleExpectations(
+						branded,
+						`the ${slot} media on field "${fieldId}"`,
+					),
+					fieldUuid: field.uuid,
+					line:
+						setKinds.length > 0
+							? `attached ${setKinds.join(", ")} ${slot} media on field "${fieldId}"`
+							: `cleared ${slot} media on field "${fieldId}"`,
+				});
 			}
 
-			const { field } = resolved;
-			const mediaKey = mediaKeyForSlot(slot);
-			// Slot availability is per-KIND, asked of the schema — not of
-			// this field instance. An unset optional `<slot>_media` is absent
-			// as an own property even on a kind that supports it, so
-			// `key in field` would falsely reject a field that simply has no
-			// media yet. `fieldKindDeclaresKey` reads the kind's schema key
-			// set, the same source of truth the reducer's
-			// `pickFieldKeysForKind` filter uses — so a slot the kind doesn't
-			// carry is rejected here rather than silently dropped downstream.
-			if (!fieldKindDeclaresKey(field.kind, mediaKey)) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: {
-						error: `Field "${fieldId}" is a ${field.kind} field, which has no ${slot} message — so there's nothing to attach ${slot} media to. ${supportedSlotsHint(field.kind)}`,
-					},
-				};
-			}
-
-			// Empty bundle clears the slot; a populated bundle sets it. An
-			// all-empty bundle becomes a `null` payload so the reducer drops
-			// the slot (rather than storing an empty object). `null` survives
-			// JSON over the SSE wire; `undefined` would not.
-			const branded = brandMediaBundle(media);
-			const hasAny =
-				branded.image !== undefined ||
-				branded.audio !== undefined ||
-				branded.video !== undefined;
-			const mutations = setFieldMediaMutations(
-				field.uuid,
-				slot,
-				hasAny ? branded : null,
-			);
-			const commit = await attachGuardedMutate(
+			const outcome = await commitMediaBatch({
 				ctx,
 				doc,
-				mutations,
-				`media:field:${moduleIndex}-${formIndex}`,
-				bundleExpectations(branded, `the ${slot} media on field "${fieldId}"`),
-			);
-			if (!commit.ok) {
+				stage: "media:field",
+				resolved,
+				failures,
+				attemptPhrase: `attach media to ${attachments.length} field slot${attachments.length === 1 ? "" : "s"}`,
+				itemNoun: "attachment",
+				outcomeVerb: "attached",
+			});
+			if (!outcome.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
-					result: { error: commit.error },
+					result: { error: outcome.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
-			const verb = hasAny ? "Attached" : "Cleared";
-			const slots = hasAny
-				? Object.entries(branded)
-						.filter(([, v]) => v !== undefined)
-						.map(([k]) => k)
-						.join(", ")
-				: "all";
+			const fieldCount = new Set(resolved.map((r) => r.fieldUuid)).size;
 			return {
 				kind: "mutate" as const,
-				mutations,
-				newDoc,
-				result: `${verb} ${slots} ${slot} media on field "${fieldId}".`,
+				mutations: outcome.mutations,
+				newDoc: outcome.newDoc,
+				result: {
+					message: joinBatchLines(resolved.map((r) => r.line)),
+					summary: { count: fieldCount },
+				},
 			};
 		} catch (err) {
 			return toToolErrorResult(err, doc);

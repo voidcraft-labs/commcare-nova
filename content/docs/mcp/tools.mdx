@@ -41,7 +41,7 @@ A new app is planned first, then built module by module. The two planning tools 
 | `create_module` | Add a new module together with its forms (each with fields), its case-list columns, and — when its case type is new to the app — the case type's record, in one call. A module lands complete or not at all. Refine the case list afterward via the case-list tools below. |
 | `update_module` | Rename a module and/or set its case type (with starter case-list columns when the module has none) — set the case type before adding registration, follow-up, or close forms to a module created without one. |
 | `remove_module` | Delete a module. |
-| `get_module` | Show details for one module, including the structured case-list config. |
+| `get_module` | Show details for one module, including the structured case-list config and each menu tile's current icon and audio label. |
 
 ## Working on the case list
 
@@ -100,10 +100,9 @@ You can attach images, audio, and video to parts of an app — a field's label o
 | `upload_media_asset` | Upload an image, audio, or video file (sent as base64) and get back its asset id. Audio must be `.mp3` or `.wav` and video `.mp4` — CommCare HQ can't accept `.m4a` or `.ogg`. |
 | `list_media_assets` | List your uploaded files and their asset ids — how your agent finds the ids the attach tools need. |
 | `remove_media_asset` | Delete a file from your library. Refuses if any live app still uses it. |
-| `attach_field_media` | Set or clear the image/audio/video on a field's label, hint, help, or validation message. |
-| `attach_option_media` | Set or clear the media on one choice of a dropdown (single- or multi-select). |
-| `set_module_media` | Set or clear a module's home-screen icon and audio label. |
-| `set_form_media` | Set or clear a form's menu icon and audio label. |
+| `attach_field_media` | Set or clear the image/audio/video on field labels, hints, help, or validation messages — one call batches attachments across fields and forms. |
+| `attach_option_media` | Set or clear the media on dropdown choices (single- or multi-select) — a whole picture-choice field in one call. |
+| `set_menu_media` | Set or clear menu icons and audio labels on module home-screen tiles and form menu tiles — any mix of both, the whole app's menu in one call. |
 | `set_app_logo` | Set or clear the app logo shown on the login and home screens. |
 
 ## Exporting and uploading
