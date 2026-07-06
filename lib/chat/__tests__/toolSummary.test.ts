@@ -13,6 +13,56 @@ const donePart = (tool: string, summary: ToolCallSummary): ToolUIPart =>
 		output: { message: "prose for the model", summary },
 	}) as ToolUIPart;
 
+/** An in-flight tool part — input received, no output yet. */
+const pendingPart = (tool: string): ToolUIPart =>
+	({
+		type: `tool-${tool}`,
+		toolCallId: "call_1",
+		state: "input-available",
+		input: {},
+	}) as ToolUIPart;
+
+describe("action tense follows the call's status", () => {
+	it("reads as in-progress while the call is in flight", () => {
+		expect(toolAction(pendingPart("addFields"))).toBe("Adding fields");
+		expect(toolAction(pendingPart("createModule"))).toBe("Creating module");
+		expect(toolAction(pendingPart("setCaseListFilter"))).toBe(
+			"Setting the case-list filter",
+		);
+		expect(toolAction(pendingPart("updateApp"))).toBe("Updating app settings");
+	});
+
+	it("reads as done once the call succeeds", () => {
+		expect(toolAction(donePart("createModule", { subject: "Clients" }))).toBe(
+			'Created module "Clients"',
+		);
+	});
+
+	it("keeps the in-progress form for a failure — the change never landed", () => {
+		const errored = {
+			type: "tool-addFields",
+			toolCallId: "call_1",
+			state: "output-error",
+			input: {},
+			errorText: "AI_ToolExecutionError: boom",
+		} as ToolUIPart;
+		expect(toolAction(errored)).toBe("Adding fields");
+
+		const refused = {
+			type: "tool-removeField",
+			toolCallId: "call_1",
+			state: "output-available",
+			input: {},
+			output: { error: "No field with that id exists." },
+		} as ToolUIPart;
+		expect(toolAction(refused)).toBe("Removing field");
+	});
+
+	it("falls back to the raw tool name in either tense for an unmapped tool", () => {
+		expect(toolAction(pendingPart("someFutureTool"))).toBe("someFutureTool");
+	});
+});
+
 describe("updateApp transcript row", () => {
 	it("reads 'Named the app' with the title on the → line for a first name", () => {
 		const part = donePart("updateApp", {

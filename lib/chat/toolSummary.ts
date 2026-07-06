@@ -15,44 +15,82 @@
 import type { ToolUIPart } from "ai";
 import type { ToolCallSummary } from "@/lib/agent/tools/shared/toolCallSummary";
 
-/** Friendly "<verb> <noun>" action phrases, keyed by tool name. The transcript
+/** The two tenses a row can read in: `doing` while the call is in flight (or
+ *  failed — the act never completed, so the past tense would claim a change
+ *  that didn't land), `done` once it succeeded. */
+interface ActionPhrases {
+	doing: string;
+	done: string;
+}
+
+/** Friendly "<verb> <noun>" action phrases, keyed by tool name, in both tenses
+ *  ("Adding fields" spinning → "Added fields" once committed). The transcript
  *  appends the call's `summary.subject` in quotes when present, so these stay
- *  as the bare verb+noun ("Added column" → `Added column "Age"`). */
-const TOOL_ACTIONS: Record<string, string> = {
-	addFields: "Added fields",
-	editField: "Updated field",
-	removeField: "Removed field",
-	createForm: "Created form",
-	updateForm: "Updated form",
-	removeForm: "Removed form",
-	createModule: "Created module",
-	updateModule: "Renamed module",
-	removeModule: "Removed module",
-	addCaseListColumns: "Added columns",
-	updateCaseListColumn: "Updated column",
-	removeCaseListColumn: "Removed column",
-	reorderCaseListColumns: "Reordered columns",
-	addSearchInputs: "Added search inputs",
-	updateSearchInput: "Updated search input",
-	removeSearchInput: "Removed search input",
-	reorderSearchInputs: "Reordered search inputs",
-	setCaseListFilter: "Set the case-list filter",
-	setCaseSearchAdvanced: "Updated advanced search",
-	setCaseSearchDisplay: "Updated the search screen",
-	attachFieldMedia: "Set field media",
-	attachOptionMedia: "Set option media",
-	setMenuMedia: "Set menu media",
-	updateApp: "Updated app settings",
+ *  as the bare verb+noun ("Added column" → `Added column "Age"`) — and since a
+ *  summary only exists once the call returns, the `doing` form always stands
+ *  alone. */
+const TOOL_ACTIONS: Record<string, ActionPhrases> = {
+	addFields: { doing: "Adding fields", done: "Added fields" },
+	editField: { doing: "Updating field", done: "Updated field" },
+	removeField: { doing: "Removing field", done: "Removed field" },
+	createForm: { doing: "Creating form", done: "Created form" },
+	updateForm: { doing: "Updating form", done: "Updated form" },
+	removeForm: { doing: "Removing form", done: "Removed form" },
+	createModule: { doing: "Creating module", done: "Created module" },
+	updateModule: { doing: "Renaming module", done: "Renamed module" },
+	removeModule: { doing: "Removing module", done: "Removed module" },
+	addCaseListColumns: { doing: "Adding columns", done: "Added columns" },
+	updateCaseListColumn: { doing: "Updating column", done: "Updated column" },
+	removeCaseListColumn: { doing: "Removing column", done: "Removed column" },
+	reorderCaseListColumns: {
+		doing: "Reordering columns",
+		done: "Reordered columns",
+	},
+	addSearchInputs: {
+		doing: "Adding search inputs",
+		done: "Added search inputs",
+	},
+	updateSearchInput: {
+		doing: "Updating search input",
+		done: "Updated search input",
+	},
+	removeSearchInput: {
+		doing: "Removing search input",
+		done: "Removed search input",
+	},
+	reorderSearchInputs: {
+		doing: "Reordering search inputs",
+		done: "Reordered search inputs",
+	},
+	setCaseListFilter: {
+		doing: "Setting the case-list filter",
+		done: "Set the case-list filter",
+	},
+	setCaseSearchAdvanced: {
+		doing: "Updating advanced search",
+		done: "Updated advanced search",
+	},
+	setCaseSearchDisplay: {
+		doing: "Updating the search screen",
+		done: "Updated the search screen",
+	},
+	attachFieldMedia: { doing: "Setting field media", done: "Set field media" },
+	attachOptionMedia: {
+		doing: "Setting option media",
+		done: "Set option media",
+	},
+	setMenuMedia: { doing: "Setting menu media", done: "Set menu media" },
+	updateApp: { doing: "Updating app settings", done: "Updated app settings" },
 	// Historical threads only — these tools are retired, but runs
 	// persisted before their retirement still carry these parts.
-	completeBuild: "Finished the app",
-	validateApp: "Validated the app",
-	setModuleMedia: "Set module media",
-	setFormMedia: "Set form media",
-	searchBlueprint: "Searched the app",
-	getModule: "Inspected a module",
-	getForm: "Inspected a form",
-	getField: "Inspected a field",
+	completeBuild: { doing: "Finishing the app", done: "Finished the app" },
+	validateApp: { doing: "Validating the app", done: "Validated the app" },
+	setModuleMedia: { doing: "Setting module media", done: "Set module media" },
+	setFormMedia: { doing: "Setting form media", done: "Set form media" },
+	searchBlueprint: { doing: "Searching the app", done: "Searched the app" },
+	getModule: { doing: "Inspecting a module", done: "Inspected a module" },
+	getForm: { doing: "Inspecting a form", done: "Inspected a form" },
+	getField: { doing: "Inspecting a field", done: "Inspected a field" },
 };
 
 /** Verb phrases for the app-level Connect flip, keyed by the resulting state
@@ -70,12 +108,15 @@ const CONNECT_ACTIONS: Record<string, string> = {
  *  line (see `toolLocation`), never inline where a long title truncates the
  *  headline. Falls back to the generic phrase for a row recorded before the
  *  tool reported these facts. */
-const updateAppAction = (summary: ToolCallSummary | undefined): string => {
+const updateAppAction = (
+	summary: ToolCallSummary | undefined,
+	tense: keyof ActionPhrases,
+): string => {
 	if (summary?.nameChange) {
 		return summary.nameChange === "named" ? "Named the app" : "Renamed the app";
 	}
 	if (summary?.connect) return CONNECT_ACTIONS[summary.connect];
-	return TOOL_ACTIONS.updateApp;
+	return TOOL_ACTIONS.updateApp[tense];
 };
 
 /** Tools whose single call performs a MULTI-ITEM action — the friendly action
@@ -173,19 +214,26 @@ export const toolStatus = (part: ToolUIPart): ToolStatus => {
 	return "done";
 };
 
-/** The headline action for a call: the friendly verb+noun, with the call's
- *  subject appended in quotes when the tool reported one. Falls back to the raw
- *  tool name so a newly-added tool still reads before it's mapped here. */
+/** The headline action for a call: the friendly verb+noun in the tense the
+ *  call's status earns — "Adding fields" while the spinner runs, "Added
+ *  fields" once it lands, and back to the gerund for a failure (the change
+ *  never happened, so "Added" would lie). The call's subject is appended in
+ *  quotes when the tool reported one. Falls back to the raw tool name so a
+ *  newly-added tool still reads before it's mapped here. */
 export const toolAction = (part: ToolUIPart): string => {
 	const name = toolName(part);
+	const tense: keyof ActionPhrases =
+		toolStatus(part) === "done" ? "done" : "doing";
 	const summary = outputOf(part)?.summary;
-	if (name === "updateApp") return updateAppAction(summary);
+	if (name === "updateApp") return updateAppAction(summary, tense);
 	// Multi-item actions fold the count into the verb+noun ("Added 3 fields").
+	// Count lives on the summary, which only a completed call carries — so the
+	// past tense these phrases speak is always earned.
 	const countable = COUNTABLE_ACTIONS[name];
 	if (countable && typeof summary?.count === "number") {
 		return countable(summary.count);
 	}
-	const action = TOOL_ACTIONS[name] ?? name;
+	const action = TOOL_ACTIONS[name]?.[tense] ?? name;
 	return summary?.subject ? `${action} "${summary.subject}"` : action;
 };
 
