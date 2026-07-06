@@ -39,11 +39,16 @@ const TOOL_ACTIONS: Record<string, string> = {
 	setCaseListFilter: "Set the case-list filter",
 	setCaseSearchAdvanced: "Updated advanced search",
 	setCaseSearchDisplay: "Updated the search screen",
+	attachFieldMedia: "Set field media",
+	attachOptionMedia: "Set option media",
+	setMenuMedia: "Set menu media",
 	updateApp: "Updated app settings",
 	// Historical threads only — these tools are retired, but runs
 	// persisted before their retirement still carry these parts.
 	completeBuild: "Finished the app",
 	validateApp: "Validated the app",
+	setModuleMedia: "Set module media",
+	setFormMedia: "Set form media",
 	searchBlueprint: "Searched the app",
 	getModule: "Inspected a module",
 	getForm: "Inspected a form",
@@ -86,6 +91,15 @@ const COUNTABLE_ACTIONS: Record<string, (n: number) => string> = {
 		`Reordered ${n} ${n === 1 ? "column" : "columns"}`,
 	reorderSearchInputs: (n) =>
 		`Reordered ${n} ${n === 1 ? "search input" : "search inputs"}`,
+	/* "Set" covers both directions of the media tools — a batch can mix
+	 * attaches and clears, and either way the slot was set to a stated
+	 * value. `attachFieldMedia`'s count is DISTINCT fields (several slots
+	 * of one field is still one field to the reader); the other two count
+	 * their items. */
+	attachFieldMedia: (n) => `Set media on ${n} ${n === 1 ? "field" : "fields"}`,
+	attachOptionMedia: (n) =>
+		`Set media on ${n} ${n === 1 ? "option" : "options"}`,
+	setMenuMedia: (n) => `Set media on ${n} menu ${n === 1 ? "tile" : "tiles"}`,
 };
 
 export type ToolStatus = "pending" | "done" | "failed";

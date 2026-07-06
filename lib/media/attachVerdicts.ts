@@ -2,7 +2,7 @@
 //
 // The at-source verdict for media ATTACH commits — the one judgment every
 // doc-mutation media tool (`attach_field_media`, `attach_option_media`,
-// `set_module_media`, `set_form_media`, `set_app_logo`) runs BEFORE its
+// `set_menu_media`, `set_app_logo`) runs BEFORE its
 // gated commit. An asset's lifecycle lives outside the doc (bytes in GCS,
 // a Firestore status row), so no doc commit fires when it changes — which
 // makes the attach the LAST commit that can see the asset's state. The
@@ -156,10 +156,13 @@ export function describeMediaExpectationFailures(
  * export, applied here so the user hears "remove other media first" at
  * the attach instead of at the export door.
  *
- * The aggregate counts a ref being REPLACED in the same batch (the old
- * value still sits on the pre-attach doc) — a one-asset overcount at the
- * exact ceiling, accepted because it only ever errs toward rejecting,
- * never toward letting an over-budget app through.
+ * The aggregate counts every ref being REPLACED in the same batch (the
+ * old values still sit on the pre-attach doc) — an overcount of up to
+ * one asset per replaced slot, so a batch tool swapping many uploaded
+ * refs on an app at the exact ceiling can be over-rejected. Accepted
+ * because it only ever errs toward rejecting, never toward letting an
+ * over-budget app through; the SA recovers by clearing or splitting the
+ * replacement.
  *
  * `doc` is the PRE-attach doc; callers pass the expectations for every
  * slot the call SETS (clears carry no expectation and need no verdict).

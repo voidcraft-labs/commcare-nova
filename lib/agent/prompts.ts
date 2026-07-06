@@ -291,17 +291,19 @@ You can attach images, audio, and video to parts of the app — useful for low-l
 
 What can carry media:
 
-- **A field's messages.** A field's label, hint, help, and validation message can each carry an image, audio, video, or any combination. Use \`attach_field_media\` — name the field and the slot (\`label\`, \`hint\`, \`help\`, or \`validate_msg\`).
-- **A select option.** Each choice in a single-select or multi-select can show its own image/audio/video beside the choice. Use \`attach_option_media\` — name the field and the option's value.
-- **A menu tile.** A module's home-screen tile and a form's menu tile each take an icon image and an audio label (no video). Use \`set_module_media\` and \`set_form_media\`.
-- **The app logo.** A single image shown on the login and home screens. Use \`set_app_logo\`.
+- **A field's messages.** A field's label, hint, help, and validation message can each carry an image, audio, video, or any combination. Use \`attachFieldMedia\` — each attachment names the field and the slot (\`label\`, \`hint\`, \`help\`, or \`validate_msg\`), and one call batches attachments across fields and forms.
+- **A select option.** Each choice in a single-select or multi-select can show its own image/audio/video beside the choice. Use \`attachOptionMedia\` — each attachment names the field and the option's value; a whole picture-choice field authors in one call.
+- **A menu tile.** A module's home-screen tile and a form's menu tile each take an icon image and an audio label (no video). Use \`setMenuMedia\` — one call sets any mix of module and form tiles, so the whole app's menu styles in a single batch.
+- **The app logo.** A single image shown on the login and home screens. Use \`setAppLogo\`.
 
-**Built-in menu icons.** \`set_module_media\` and \`set_form_media\` accept a built-in icon BY NAME for the tile — no upload, no \`list_media_assets\` step: pass the \`icon\` slug (modules take topic icons like \`household\`, \`patient\`, \`lab\`; forms take action icons like \`register\`, \`follow_up\`, \`refer\`). Give each module and form an icon as you build the app so the menus read clearly — prefer this over uploading an image. Use \`default\` for a neutral tile. Pass an uploaded image's asset id to the same \`icon\` slot instead only when the user wants their own image.
+**Built-in menu icons.** \`setMenuMedia\` accepts a built-in icon BY NAME for each tile — no upload, no \`listMediaAssets\` step: pass the \`icon\` slug (modules take topic icons like \`household\`, \`patient\`, \`lab\`; forms take action icons like \`register\`, \`follow_up\`, \`refer\`). Give each module and form an icon as you build the app so the menus read clearly — prefer this over uploading an image, and set every tile in ONE \`setMenuMedia\` call so you choose the whole menu's icons together. Use \`default\` for a neutral tile. Pass an uploaded image's asset id to the same \`icon\` slot instead only when the user wants their own image.
+
+**Vary icons within a screen.** Tiles shown on the SAME screen — the module tiles on the home menu, or the form tiles within one module — should each get a DIFFERENT icon: distinct icons are what make a menu scannable, and two siblings sharing one (say \`maternal_health\` on both a Mothers and a Pregnancies module) blur together. Give the icon to the sibling it fits best and pick the next-best relevant icon for the other (Mothers → \`maternal_health\`, Pregnancies → \`newborn_care\`). Reusing an icon on DIFFERENT screens is fine and often correct — every module's registration form can carry \`register\`, since no two of them are ever on screen together. Uniqueness never outranks relevance: when no other icon genuinely fits a sibling, prefer the relevant duplicate over an unrelated icon.
 
 How to attach it:
 
 1. The user uploads media in the library (or, if you're a Claude Code-style client, with \`upload_media_asset\`). You don't create media — you reference what's already there.
-2. Call \`list_media_assets\` to see what the user has uploaded and get each asset's id.
+2. Call \`listMediaAssets\` to see what the user has uploaded and get each asset's id.
 3. Pass those asset ids to the attach/set tools above.
 
 A few things to know:
@@ -309,7 +311,7 @@ A few things to know:
 - Audio must be \`.mp3\` or \`.wav\`, and video must be \`.mp4\`. CommCare HQ can't accept \`.m4a\` or \`.ogg\` — if a user has audio in those formats, ask them to convert to \`.mp3\` or \`.wav\` first.
 - If you reference an asset that isn't ready (deleted, still uploading, or the wrong kind for the slot), validation will tell you exactly which slot has the problem. Fix the reference there.
 - To remove media from a slot, attach an empty bundle (for field/option media) or pass \`null\` (for menu icons, audio labels, and the logo).
-- To delete an asset from the user's library entirely, use \`remove_media_asset\`. It won't delete an asset any live app still uses — clear those references first.
+- To delete an asset from the user's library entirely, use \`removeMediaAsset\`. It won't delete an asset any live app still uses — clear those references first.
 
 ---
 
