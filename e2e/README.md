@@ -25,20 +25,27 @@ metadata server — i.e. it **stubs out the exact outbound network layer that to
 login down** (the undici / node-fetch regressions, #143 / #145). So the smoke catches
 UI / route / render / session-contract breaks, but **not** the auth-dependency outages.
 
-Those are caught by a separate CI job, **`auth-healthz`** (`scripts/ci/auth-healthz.ts`):
-a REAL `firebase-admin` → REAL Firestore round-trip over the real outbound HTTP stack,
-on the prod-pinned Node, authenticated via keyless Workload Identity Federation to a
+Those are caught by a separate CI job, **`auth-healthz`** (the required `Auth Firestore
+healthz` check), which runs two probes over the real outbound HTTP stack on the
+prod-pinned Node, authenticated via keyless Workload Identity Federation to a
 **dedicated, isolated `commcare-nova-ci` project** whose Firestore holds nothing but
-throwaway healthz docs — the CI identity has access to that project and nothing else.
-If a dependency or Node bump regresses that stack, the round-trip throws and the PR
-goes red — before merge, before deploy. That's the faithful gate for the breakages we
-keep shipping.
+throwaway healthz docs (the CI identity has access to that project and nothing else):
+
+1. **`scripts/ci/auth-healthz.ts`** mints a `google-auth-library` access token — the
+   login path's credential stack now that auth runs on the Cloud SQL connector (no
+   database involved).
+2. **`scripts/ci/firestore-healthz.ts`** does a REAL `firebase-admin` → Firestore
+   round-trip — the app-data path (apps / threads / runs / credits / usage / media stay
+   on Firestore).
+
+If a dependency or Node bump regresses that stack, a probe throws and the PR goes red —
+before merge, before deploy. That's the faithful gate for the breakages we keep shipping.
 
 ## How auth works (no Google account needed)
 
 CI has no `@dimagi.com` Workspace account and sign-in is domain-gated, so the suite
 does **not** drive real Google OAuth for the everyday gate. Instead `e2e/seed.ts`
-writes a session row straight into the Firestore emulator and `e2e/lib/session.ts`
+writes a session row straight into the local Postgres (auth state lives in Postgres now) and `e2e/lib/session.ts`
 forges the cookie Better Auth would have set — signed exactly like `better-call`'s
 `signCookieValue` (HMAC-SHA256 of the token, keyed by `BETTER_AUTH_SECRET`). The
 contract that this forgery stays valid is pinned by
@@ -115,8 +122,9 @@ OAuth callback — would need a Google Workspace test account, which we delibera
 
 That's a sound trade because every auth outage we've shipped was a **dependency-boundary
 500**, not a Google-side problem: the undici / node-fetch regressions made *every*
-`/api/auth/*` request 500 (they all touch Firestore through the same outbound-HTTP
-stack). `GET /api/auth/get-session` is one of those requests — so running the `public`
+`/api/auth/*` request 500 — they share the same outbound credential stack
+(`google-auth-library` → `gaxios`, used by the Cloud SQL connector that backs auth
+now, and by Firestore before the cutover). `GET /api/auth/get-session` is one of those requests — so running the `public`
 probe **against real prod after deploy** (`npm run test:smoke:url`) would have caught
 both outages with no account involved. A real-SSO test's token exchange uses that same
 stack, so it would catch nothing the prod `get-session` probe doesn't.

@@ -390,11 +390,8 @@ migrations it runs Better Auth's own migrator (`getMigrations(...)
 .runMigrations()`, which creates/updates the `auth_*` tables) via the
 MCP-free `lib/auth-migrate-options.ts`, then the Nova-owned auth-app
 migrations (`lib/auth/migrate.ts`, the `auth_oauth_grant_revocation`
-watermark). On the prod connector path only (`NOVA_DB_LOCAL_URL` unset)
-it then runs a one-shot, `auth_user`-empty-guarded copy of the durable
-auth state Firestore → Postgres (`lib/auth/migrate-data.ts`) — local dev
-/ smoke / tests set `NOVA_DB_LOCAL_URL`, so they create the tables but
-never pull real Firestore auth data.
+watermark). Both are idempotent and run on every deploy, local and prod
+alike.
 
 ### Checking prod migration state
 

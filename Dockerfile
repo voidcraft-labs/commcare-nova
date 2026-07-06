@@ -4,8 +4,8 @@
 # 22.23.0 (a security release) carried an http keep-alive change that
 # regressed the bundled undici: gaxios / google-auth-library token fetches
 # to oauth2.googleapis.com and the metadata server began throwing
-# ERR_STREAM_PREMATURE_CLOSE. Every `/api/auth/*` request touches Firestore
-# (the rate limiter's per-request counter), so all of them 500'd — prod
+# ERR_STREAM_PREMATURE_CLOSE. Every `/api/auth/*` request authenticates
+# outbound over that same stack (the auth datastore + rate limiter), so all 500'd — prod
 # login went down with nothing in Sentry (the throw escapes Better Auth's
 # own try/catch). See nodejs/node#63989. This is the same mutable-tag
 # supply-chain logic that digest-pins the testcontainers postgis image in

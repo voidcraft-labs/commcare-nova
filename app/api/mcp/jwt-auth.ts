@@ -138,7 +138,7 @@ export const handleJwtMcp: (req: Request) => Promise<Response> = mcpHandler(
 		 * grant was revoked from `/settings` would keep authenticating
 		 * until expiry — `hasActiveConsent` compares `iat` against the
 		 * per-grant revocation watermark, so a stale token fails
-		 * immediately. Firestore failure returns 401 with the same
+		 * immediately. A lookup failure returns 401 with the same
 		 * reasoning as the missing-claim paths: fail-closed posture. */
 		let consentActive: boolean;
 		try {
@@ -158,7 +158,7 @@ export const handleJwtMcp: (req: Request) => Promise<Response> = mcpHandler(
 		 * cache window (the consent page reads the cached session). This makes the
 		 * JWT path enforce the SAME `isUserActive` gate the API-key path runs, so
 		 * revocation is universal across both MCP bearers. Fail CLOSED on a lookup
-		 * error (the consent check above is fail-closed too): a transient Firestore
+		 * error (the consent check above is fail-closed too): a transient datastore
 		 * outage rejects rather than authenticates a possibly-banned user. (The
 		 * web-session choke points fail OPEN instead, to avoid mass sign-out;
 		 * rejecting a narrow MCP call is the safer trade here.) */

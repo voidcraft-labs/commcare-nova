@@ -1,129 +1,58 @@
 /**
- * CI Google-auth outbound healthz — the faithful pre-merge gate for the
- * dependency / runtime regressions that have taken prod down (#143 undici, #145
- * firebase-admin node-fetch v2).
+ * CI Google-credential outbound healthz — the faithful pre-merge gate for the
+ * dependency / runtime regressions that have taken prod auth down (#143 undici,
+ * #145 node-fetch v2 keep-alive, the Node base-tag bump).
  *
- * Why this exists separately from the Playwright smoke: the smoke points the app
- * at a Firestore EMULATOR, which talks plain HTTP to localhost and skips the
- * Google token fetch + metadata server — i.e. it stubs out the exact outbound
- * network layer that broke. So the emulator can't catch this class. This gate
- * does what prod does: a REAL firebase-admin → REAL Firestore round-trip over
- * the real outbound HTTP stack, on the exact Node patch prod ships.
+ * After the Postgres cutover, login runs through the Cloud SQL connector
+ * (`@google-cloud/cloud-sql-connector`), which mints its ephemeral client cert +
+ * IAM token through `google-auth-library` → `gaxios` → `node-fetch` — the same
+ * outbound credential stack every prior auth outage lived in. This gate
+ * exercises THAT stack directly: it mints a real access token via the CI service
+ * account (Workload Identity Federation → STS token exchange → SA impersonation,
+ * two sequential HTTPS calls over that stack) on the exact Node patch prod ships.
+ * A regression in the stack (a Node/undici/node-fetch bump that breaks
+ * keep-alive, an ERR_STREAM_PREMATURE_CLOSE) throws or hangs here and reds the PR
+ * — before it can merge. The emulator-backed Playwright smoke can't catch this
+ * class: it replaces that exact network layer.
  *
- * It reproduces the broken primitive — the firebase-admin Firestore client
- * built with the SAME options as the app's Firestore client (`lib/db/firestore`,
- * via the shared `firestoreClientOptions`, so a future change to that
- * construction is exercised here too) — doing create → read → delete. The
- * load-bearing surface is credential acquisition (google-auth-library / gaxios →
- * undici): in CI the WIF token exchange + SA impersonation; on Cloud Run the
- * metadata server + oauth2.googleapis.com. That credential stack is SHARED with
- * the auth path: after the Postgres cutover, login goes through the Cloud SQL
- * connector (`@google-cloud/cloud-sql-connector`), whose ephemeral-cert fetch
- * uses the same google-auth-library outbound stack — so a regression in that
- * shared layer (the #143/#145 class) still turns this gate red. The Firestore
- * data call (google-gax / node-fetch) is also exercised, guarding the app-data
- * path (apps / threads / credits stay on Firestore).
+ * `google-auth-library` is declared as a devDependency at the connector's own
+ * range (`^10.6.2`), so npm dedupes it to the SINGLE shared copy the connector +
+ * firebase-admin already use — the test exercises the exact library the connector
+ * depends on. Keep this range in lockstep with the connector's: nothing enforces
+ * it automatically, and a divergent range would split off a second copy this test
+ * no longer shares. The Firestore app-data path keeps its own gate in
+ * `scripts/ci/firestore-healthz.ts`.
  *
- * NOT covered (follow-up): a regression SPECIFIC to pg or the Cloud SQL
- * connector's TLS/socket path — not shared with Firestore — would break Postgres
- * login undetected here. Closing that gap needs a Cloud SQL instance in the CI
- * project for a real connector round-trip.
+ * What it deliberately does NOT cover: the connector's OWN code — the Cloud SQL
+ * Admin-API cert mint and the mTLS socket to the instance. That can only run
+ * against a real Cloud SQL instance (no emulator, no offline mode exists), it has
+ * never been the outage class, and its failure modes (cert expiry/refresh) are
+ * runtime behaviour a one-shot CI check can't reproduce. The pg driver + Better
+ * Auth adapter are covered pre-merge by the testcontainer auth-contract job; the
+ * connector's live path is exercised post-merge by the migrate Job before traffic
+ * shifts.
  *
  * Run by the `auth-healthz` CI job against the isolated `commcare-nova-ci`
- * project (its own empty Firestore — no real data anywhere) via keyless WIF.
- * REFUSES to run against the emulator — the whole point is the real network.
+ * project via keyless WIF.
  */
-import { randomUUID } from "node:crypto";
-import { writeSync } from "node:fs";
-import { Firestore } from "firebase-admin/firestore";
-import { firestoreClientOptions } from "@/lib/db/firestoreClientOptions";
+import { GoogleAuth } from "google-auth-library";
+import { runHealthz } from "./healthz-harness";
 
-const COLLECTION = "ci_healthz";
-const TIMEOUT_MS = 30_000;
+// Mirror the scope the Cloud SQL connector requests for its Admin-API calls so
+// the minted token shapes the same credential path. The token is never used
+// against a resource — minting it is what exercises the outbound stack.
+const SCOPE = "https://www.googleapis.com/auth/sqlservice.admin";
 
-/**
- * Write the failure diagnostic to stderr SYNCHRONOUSLY. The whole point of this
- * gate is surfacing the regression signature (e.g. an ERR_STREAM_PREMATURE_CLOSE
- * stack); on CI's piped stderr a `console.error` + `process.exit()` can drop the
- * buffered write, so use `writeSync` which is flushed before control returns.
- */
-function logFailure(msg: string, err?: unknown): void {
-	writeSync(2, `[auth-healthz] FAIL: ${msg}\n`);
-	if (err !== undefined) {
-		writeSync(
-			2,
-			`${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
-		);
-	}
-}
-
-async function main(): Promise<void> {
-	// Hard guard: this gate is meaningless against the emulator (which stubs out
-	// the outbound stack that broke prod). Refuse so a misconfigured run fails
-	// loud instead of testing nothing.
-	if (process.env.FIRESTORE_EMULATOR_HOST) {
+// ADC comes from google-github-actions/auth (WIF) in CI, or
+// `gcloud auth application-default login` locally. No emulator branch — this gate
+// is meaningless without the real outbound network.
+runHealthz("auth-healthz", async () => {
+	const auth = new GoogleAuth({ scopes: [SCOPE] });
+	const token = await auth.getAccessToken();
+	if (!token) {
 		throw new Error(
-			"FIRESTORE_EMULATOR_HOST is set — this gate must hit REAL Firestore to exercise the outbound stack that broke prod. Unset it.",
+			"getAccessToken returned no token — ADC loaded but the token mint produced nothing.",
 		);
 	}
-	const projectId = process.env.GOOGLE_CLOUD_PROJECT;
-	if (!projectId) {
-		throw new Error(
-			"GOOGLE_CLOUD_PROJECT is required (the project the CI service account targets — the isolated commcare-nova-ci project).",
-		);
-	}
-
-	// Same options as lib/auth.ts::getAuthDb (REST here — the guard above ensures
-	// no emulator). ADC comes from google-github-actions/auth (WIF) in CI, or
-	// `gcloud auth application-default login` locally.
-	const db = new Firestore({ projectId, ...firestoreClientOptions() });
-	const ref = db.collection(COLLECTION).doc(`ci-${randomUUID()}`);
-	const marker = randomUUID();
-
-	try {
-		await ref.set({ marker, at: new Date(), runner: "ci-auth-healthz" });
-		const snap = await ref.get();
-		if (!snap.exists || snap.get("marker") !== marker) {
-			throw new Error(
-				`round-trip mismatch — wrote ${marker}, read back ${snap.get("marker") ?? "<missing>"}`,
-			);
-		}
-		console.log(
-			`[auth-healthz] OK — firebase-admin ⇄ ${projectId} Firestore round-trip succeeded on Node ${process.version}.`,
-		);
-	} finally {
-		await ref.delete().catch(() => {});
-		await db.terminate().catch(() => {});
-	}
-}
-
-// Hard timeout: a broken keep-alive can hang rather than throw — don't let CI
-// sit. unref() so it never keeps the process alive on the happy path.
-const timer = setTimeout(() => {
-	logFailure(
-		`timed out after ${TIMEOUT_MS}ms — the outbound Firestore call hung (a keep-alive / undici regression signature).`,
-	);
-	process.exit(1);
-}, TIMEOUT_MS);
-timer.unref();
-
-main()
-	.then(() => {
-		clearTimeout(timer);
-		// Force-exit rather than relying on natural drain: this gate deliberately
-		// exercises the WIF/gaxios keep-alive HTTP stack, and a lingering keep-alive
-		// socket (the exact layer being tested) could keep the loop alive past
-		// main() with the watchdog already cleared — a hung process burning to the
-		// CI job timeout on a SUCCESSFUL round-trip. Matches e2e/seed.ts's exit.
-		process.exit(0);
-	})
-	.catch((err) => {
-		clearTimeout(timer);
-		// logFailure used writeSync (flushed synchronously), so process.exit(1)
-		// can't truncate the diagnostic.
-		logFailure(
-			"firebase-admin Firestore round-trip threw — the auth outbound stack is broken (this is how prod login outages look).",
-			err,
-		);
-		process.exit(1);
-	});
+	return `google-auth-library minted an access token over the prod outbound stack on Node ${process.version}.`;
+});
