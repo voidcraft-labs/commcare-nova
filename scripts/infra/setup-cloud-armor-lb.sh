@@ -8,8 +8,9 @@
 # mappings onto the LB, so the cutover is outage-capable and partly manual
 # (DNS lives at GoDaddy, not Cloud DNS).
 #
-# Recurring cost once the forwarding rule exists (Phase 2): ~$18/mo forwarding
-# rule + $0.008/GiB each way (LB) + $5/mo Armor policy + $1/mo per rule +
+# Recurring cost once the forwarding rules exist (Phase 2): ~$18/mo flat (one
+# fee covers the first 5 forwarding rules; we use 4 — v4+v6 × :443+:80) +
+# $0.008/GiB each way (LB) + $5/mo Armor policy + $1/mo per rule +
 # $0.75/M requests. Standard Armor tier — NOT Managed Protection Plus.
 #
 # Layout: Phase 1 (additive, ZERO traffic impact) is already applied and is
@@ -38,6 +39,18 @@ have compute addresses describe nova-lb-ip --global \
 # not a stale literal. (Current prod value: 34.8.42.153.)
 LB_IP="$(gcloud compute addresses describe nova-lb-ip --global --format='value(address)')"
 echo "  nova-lb-ip = ${LB_IP}  (this is your GoDaddy A-record target)"
+
+# The LB needs an IPv6 leg too: a browser on an IPv6-capable network (Happy
+# Eyeballs) dials the AAAA target first, and a TLS-level failure there is
+# TERMINAL — Chrome falls back to the A record only when the TCP connect itself
+# fails, not when the handshake dies after connecting (ERR_CONNECTION_CLOSED).
+# So every AAAA record must point at an address that serves these hosts' certs:
+# this one. (Current prod value: 2600:1901:0:5ff1::.)
+have compute addresses describe nova-lb-ipv6 --global \
+  || gcloud compute addresses create nova-lb-ipv6 --global --ip-version=IPV6 \
+       --description="Nova LB IPv6 anycast (pairs with nova-lb-ip; target of the AAAA records)"
+LB_IPV6="$(gcloud compute addresses describe nova-lb-ipv6 --global --format='value(address)')"
+echo "  nova-lb-ipv6 = ${LB_IPV6}  (this is your GoDaddy AAAA-record target)"
 
 have compute network-endpoint-groups describe nova-neg --region="$REGION" \
   || gcloud compute network-endpoint-groups create nova-neg \
@@ -190,29 +203,49 @@ cat <<EOF
       gcloud certificate-manager certificates describe nova-cert \\
         --format='value(managed.state)'    # → ACTIVE
 
- 1. Build the HTTPS front + the :80 redirect (both forwarding rules sit in the
-    first-5 bracket, so this is the ~\$18/mo step):
+ 1. Build the HTTPS front + the :80 redirect (all four forwarding rules sit in
+    the first-5 bracket, so this is the ~\$18/mo step):
       gcloud certificate-manager maps create nova-cert-map
       gcloud certificate-manager maps entries create nova-cert-map-entry \\
         --map=nova-cert-map --certificates=nova-cert --set-primary   # primary (catch-all) entry; --hostname takes a real FQDN, not '*'
       gcloud compute target-https-proxies create nova-https-proxy \\
         --url-map=nova-url-map --certificate-map=nova-cert-map
       gcloud compute forwarding-rules create nova-fr --global \\
+        --load-balancing-scheme=EXTERNAL_MANAGED \\
         --target-https-proxy=nova-https-proxy --address=nova-lb-ip --ports=443
+      gcloud compute forwarding-rules create nova-fr-v6 --global \\
+        --load-balancing-scheme=EXTERNAL_MANAGED \\
+        --target-https-proxy=nova-https-proxy --address=nova-lb-ipv6 --ports=443
       # :80 -> 301 https (nova-http-proxy/nova-redirect-map already exist)
       gcloud compute forwarding-rules create nova-fr-http --global \\
+        --load-balancing-scheme=EXTERNAL_MANAGED \\
         --target-http-proxy=nova-http-proxy --address=nova-lb-ip --ports=80
+      gcloud compute forwarding-rules create nova-fr-http-v6 --global \\
+        --load-balancing-scheme=EXTERNAL_MANAGED \\
+        --target-http-proxy=nova-http-proxy --address=nova-lb-ipv6 --ports=80
 
- 2. VERIFY via the IP before touching DNS (cert + Armor + Cloud Run path):
+ 2. VERIFY via the IPs before touching DNS (cert + Armor + Cloud Run path):
       curl -sv --resolve commcare.app:443:${LB_IP} https://commcare.app/ -o /dev/null
+      # IPv6 leg too — from an IPv6-capable network (a dual-stack GCE VM works):
+      curl -gsv --resolve "commcare.app:443:[${LB_IPV6}]" https://commcare.app/ -o /dev/null
    Confirm 200/expected, valid cert, and that a >60/min burst to
    /api/log/error returns 429.
 
- 3. Cut GoDaddy DNS — point each host at the LB IP (apex needs an A record):
+ 3. Cut GoDaddy DNS — point each host at the LB (apex takes bare-name records):
       commcare.app        A     ${LB_IP}
+      commcare.app        AAAA  ${LB_IPV6}
       mcp.commcare.app    A     ${LB_IP}
+      mcp.commcare.app    AAAA  ${LB_IPV6}
       docs.commcare.app   A     ${LB_IP}
-   Wait for propagation; re-verify each host over real DNS.
+      docs.commcare.app   AAAA  ${LB_IPV6}
+   ⚠ DELETE every record the Cloud Run domain mappings had you create — above
+   all the apex's four ghs AAAA records (2001:4860:4802:3x::15). Once the
+   mappings are gone (step 4), that ghs frontend has no cert for these hosts
+   and closes the connection mid-TLS-handshake, so a leftover AAAA hard-breaks
+   every IPv6-capable browser (ERR_CONNECTION_CLOSED, no IPv4 fallback — see
+   the nova-lb-ipv6 comment in Phase 1) while IPv4-only networks keep working,
+   which hides the breakage from most testers.
+   Wait for propagation; re-verify each host over real DNS, on v4 AND v6.
 
  4. Remove the now-bypassed Cloud Run domain mappings:
       for d in ${DOMAINS[*]}; do
@@ -230,8 +263,9 @@ cat <<EOF
  - Revert ingress:   gcloud run services update ${SERVICE} --region=${REGION} --ingress=all
  - Recreate mappings: gcloud beta run domain-mappings create --service=${SERVICE} \\
                         --domain=<host> --region=${REGION}   (per host)
- - Revert GoDaddy DNS to the prior targets (apex → Google's 216.239.3x.21 set;
-   mcp/docs → ghs.googlehosted.com CNAME). The LB resources can stay; deleting
-   the forwarding rules stops the \$18/mo:
-      gcloud compute forwarding-rules delete nova-fr nova-fr-http --global -q
+ - Revert GoDaddy DNS to the prior targets (apex → Google's 216.239.3x.21 A set
+   + 2001:4860:4802:3x::15 AAAA set; mcp/docs → ghs.googlehosted.com CNAME).
+   The LB resources can stay; deleting the forwarding rules stops the \$18/mo:
+      gcloud compute forwarding-rules delete \\
+        nova-fr nova-fr-http nova-fr-v6 nova-fr-http-v6 --global -q
 EOF
