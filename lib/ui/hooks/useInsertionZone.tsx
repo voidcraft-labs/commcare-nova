@@ -51,6 +51,12 @@ const RECT_TTL_MS = 300;
  *  cost, and nothing can open mid-scroll anyway (speed reads as travel). */
 const RECT_STALE_GRACE_MS = 30;
 
+/** Keep re-measuring for this long after a zone opens or closes — the reveal
+ *  physically expands the gap (250ms delay + ease), sliding every zone below
+ *  it, and no scroll/resize/registration event observes that. Covers the
+ *  animation plus a settle frame. */
+const REVEAL_RELAYOUT_WINDOW_MS = 400;
+
 /** Surfaces that host insertion zones mark their scroll/canvas root with this
  *  attribute; a pointer hit that resolves outside every marked surface is an
  *  overlay (portalled popup, dialog) covering the zone. */
@@ -116,13 +122,28 @@ function createBinding(config?: Partial<InsertionIntentConfig>): IntentBinding {
 		rectsDirty = true;
 	};
 
+	// A reveal is itself a layout change (the gap expands, rows below slide):
+	// track open/close transitions and keep rects fresh through the animation.
+	let lastOpenId: string | null = null;
+	let revealChangedAt = Number.NEGATIVE_INFINITY;
+	model.subscribe(() => {
+		const openId = model.getSnapshot().openId;
+		if (openId !== lastOpenId) {
+			lastOpenId = openId;
+			revealChangedAt = performance.now();
+			invalidateRects();
+		}
+	});
+
 	// ── Tick loop: runs only while the model has time-dependent work ──
 	let raf = 0;
 	let attached = false;
 	const loop = (): void => {
 		raf = 0;
 		if (!attached) return;
-		model.tick(performance.now());
+		const now = performance.now();
+		if (now - revealChangedAt < REVEAL_RELAYOUT_WINDOW_MS) invalidateRects();
+		model.tick(now);
 		if (model.needsTick()) raf = requestAnimationFrame(loop);
 	};
 	const ensureLoop = (): void => {

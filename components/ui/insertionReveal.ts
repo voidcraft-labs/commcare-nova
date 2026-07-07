@@ -46,6 +46,22 @@ export function insertionRevealTransition(
 	return extra ? `${base}, ${extra}` : base;
 }
 
+/** The container's slide-open: the gap physically expands and pushes the
+ *  neighboring rows apart, on the same delayed bloom the line/circle use.
+ *  The intent binding re-measures zone rects through this animation (a
+ *  reveal is a layout change nothing else observes) — see
+ *  lib/ui/hooks/useInsertionZone.tsx. */
+export function insertionExpandStyle(
+	open: boolean,
+	restPx: number,
+	openPx: number,
+): CSSProperties {
+	return {
+		height: open ? openPx : restPx,
+		transition: open ? `height 200ms ${OPEN_EASE} 50ms` : "height 90ms ease-in",
+	};
+}
+
 /** Class for each violet flanking line; pass the side the line GROWS from
  *  (its transform origin faces the center "+"). Full literals — Tailwind's
  *  scanner can't see interpolated class names. */

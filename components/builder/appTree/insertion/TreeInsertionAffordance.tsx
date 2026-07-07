@@ -6,17 +6,18 @@
 // opens when the model reads dwell-intent over it — a slow hover opens
 // near-instantly, sweeping past never opens, a flick that stops on it opens
 // after a settle beat. The Base UI Menu/Popover TRIGGER itself is the
-// affordance — a full-width, click-anywhere strip at a CONSTANT height (the
-// reveal animates opacity/scale within it, never layout, so opening can't
-// shift sibling rows under the pointer). The 20px "+" circle overflows the
-// 14px strip by a few pixels on each side, Notion-style; it re-enables
-// pointer events on itself so clicks on the overflowing sliver still land on
-// the trigger (they'd otherwise fall through to the adjacent row). The host
-// composes three pieces:
+// affordance — a full-width, click-anywhere strip that EXPANDS (14px → 32px,
+// pushing the neighboring rows apart) while revealed — layout moving under
+// the pointer is safe because zone containment is geometric (the binding
+// re-measures rects through the reveal animation), never DOM hover state.
+// While collapsed, the 20px "+" circle would overflow the strip, so it
+// re-enables pointer events on itself; clicks on the overflowing sliver
+// still land on the trigger instead of falling through to the adjacent row.
+// The host composes three pieces:
 //   - useTreeInsertionZone(open) — the gated `revealed` state + the zone ref
 //     to attach to the trigger; AppTree mounts the surface-wide model via
 //     InsertionIntentProvider.
-//   - INSERTION_TRIGGER_CLS / INSERTION_TRIGGER_STYLE — the trigger's chrome.
+//   - INSERTION_TRIGGER_CLS / insertionTriggerStyle — the trigger's chrome.
 //   - TreeInsertionLine — the violet lines + "+" circle rendered inside it.
 
 "use client";
@@ -26,6 +27,7 @@ import { type CSSProperties, useEffect } from "react";
 import {
 	INSERTION_CIRCLE_CLS,
 	insertionCircleStyle,
+	insertionExpandStyle,
 	insertionLineCls,
 	insertionLineStyle,
 } from "@/components/ui/insertionReveal";
@@ -68,14 +70,17 @@ export function useTreeInsertionZone(open: boolean): TreeInsertionZone {
 }
 
 /** The insertion trigger's static className: a full-width, pointer-cursor
- *  strip so the WHOLE line is clickable, not just the "+". Constant height —
- *  the reveal never changes layout. */
+ *  strip so the WHOLE line is clickable, not just the "+". */
 export const INSERTION_TRIGGER_CLS =
 	"relative block w-full cursor-pointer outline-none";
 
-/** The trigger's fixed geometry (a style for call-site symmetry with the
- *  form canvas; no animation — the reveal lives in TreeInsertionLine). */
-export const INSERTION_TRIGGER_STYLE: CSSProperties = { height: 14 };
+/** The trigger's animated geometry: a thin 14px gap at rest that expands to
+ *  32px while revealed, giving the 20px "+" circle clearance and pushing the
+ *  adjacent rows apart — the same slide-open the form canvas's
+ *  InsertionPoint performs. */
+export function insertionTriggerStyle(revealed: boolean): CSSProperties {
+	return insertionExpandStyle(revealed, 14, 32);
+}
 
 /**
  * The violet flanking lines + centered "+" circle. While arming, the lines

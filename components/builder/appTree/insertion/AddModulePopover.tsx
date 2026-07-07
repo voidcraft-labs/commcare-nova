@@ -27,7 +27,7 @@ import {
 } from "@/lib/styles";
 import {
 	INSERTION_TRIGGER_CLS,
-	INSERTION_TRIGGER_STYLE,
+	insertionTriggerStyle,
 	TreeInsertionLine,
 	useTreeInsertionZone,
 } from "./TreeInsertionAffordance";
@@ -98,7 +98,7 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 				<Popover.Trigger
 					ref={ref}
 					className={INSERTION_TRIGGER_CLS}
-					style={INSERTION_TRIGGER_STYLE}
+					style={insertionTriggerStyle(revealed)}
 					aria-label="Add module"
 				>
 					<TreeInsertionLine revealed={revealed} progress={progress} />

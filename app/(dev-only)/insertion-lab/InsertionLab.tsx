@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	INSERTION_CIRCLE_CLS,
 	insertionCircleStyle,
+	insertionExpandStyle,
 	insertionLineCls,
 	insertionLineStyle,
 } from "@/components/ui/insertionReveal";
@@ -105,15 +106,24 @@ function MockTreeColumn() {
 	);
 }
 
-/** A real insertion zone with the product reveal visuals (line glow + "+"). */
-function LabGap({ id, height }: { id: string; height: number }) {
+/** A real insertion zone with the product reveal visuals — the expanding
+ *  gap, the line glow, and the "+" pop, on the shared timing. */
+function LabGap({
+	id,
+	height,
+	openHeight = 32,
+}: {
+	id: string;
+	height: number;
+	openHeight?: number;
+}) {
 	const zone = useInsertionZone();
 	const open = zone.status === "open";
 	return (
 		<div
 			ref={zone.ref}
 			className="relative"
-			style={{ height }}
+			style={insertionExpandStyle(open, height, openHeight)}
 			data-lab-zone={id}
 			data-status={zone.status}
 		>

@@ -6,9 +6,11 @@
  * stops on the gap opens after a settle beat, and an arming glow fades the
  * line in as evidence accumulates.
  *
- * The reveal is layout-neutral: the row is a constant 24px and the line +
- * "+" circle animate opacity/scale WITHIN it, so opening never shifts other
- * rows under the pointer (the bug family that made hover state go stale).
+ * The reveal physically expands the gap (24px → 32px), pushing the
+ * neighboring fields apart while the line + "+" circle bloom in — layout
+ * moving under the pointer is safe here because zone containment is
+ * geometric (the binding re-measures rects through the reveal animation),
+ * never DOM hover state.
  *
  * Rendering stays two-phase for the virtualized canvas:
  *
@@ -32,6 +34,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	INSERTION_CIRCLE_CLS,
 	insertionCircleStyle,
+	insertionExpandStyle,
 	insertionLineCls,
 	insertionLineStyle,
 } from "@/components/ui/insertionReveal";
@@ -43,7 +46,10 @@ import {
 	useInsertionZone,
 } from "@/lib/ui/hooks/useInsertionZone";
 import { useFieldPicker } from "./FieldPickerContext";
-import { INSERTION_REST_HEIGHT_PX } from "./virtual/rowStyles";
+import {
+	INSERTION_OPEN_HEIGHT_PX,
+	INSERTION_REST_HEIGHT_PX,
+} from "./virtual/rowStyles";
 
 interface InsertionPointProps {
 	atIndex: number;
@@ -100,12 +106,17 @@ export function InsertionPoint({
 	if (disabled) return null;
 
 	const inflated = engaged || heldByMenu || zone.status !== "idle";
+	const open = zone.status === "open";
 
 	return (
 		<div
 			ref={zone.ref}
 			className="relative"
-			style={{ height: INSERTION_REST_HEIGHT_PX }}
+			style={insertionExpandStyle(
+				open,
+				INSERTION_REST_HEIGHT_PX,
+				INSERTION_OPEN_HEIGHT_PX,
+			)}
 			data-insertion-point
 		>
 			{/* Invisible click detector covering the gap — always mounted so a
