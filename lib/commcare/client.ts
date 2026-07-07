@@ -27,6 +27,7 @@
  */
 
 import { log } from "@/lib/logger";
+import { COMMCARE_SERVERS, type CommCareServer } from "./servers";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -93,21 +94,25 @@ export function isValidDomainSlug(domain: string): boolean {
 // ── Client ─────────────────────────────────────────────────────────
 
 /**
- * CommCare HQ base URL — hardcoded server-side.
+ * Credentials needed to authenticate with CommCare HQ.
  *
- * Not user-configurable to prevent SSRF attacks. If the user could set this
- * to an arbitrary URL, they could point our server at internal services
- * (GCP metadata server, localhost, etc.) via the proxy routes.
- *
- * If India HQ or staging support is needed in the future, use an allowlist
- * validated against an env var, not a user-supplied value.
+ * `server` names which of Dimagi's separate SaaS deployments the
+ * username/key pair lives on — an API key only authenticates against the
+ * server that issued it, so the pair is meaningless without it. Every
+ * request's base URL derives from it through the closed `COMMCARE_SERVERS`
+ * catalog, never from a user-supplied URL — that closed union is the SSRF
+ * boundary (a user who could set an arbitrary URL could point our server
+ * at internal services: GCP metadata, localhost, etc.). See `./servers`.
  */
-export const COMMCARE_HQ_URL = "https://www.commcarehq.org";
-
-/** Credentials needed to authenticate with CommCare HQ. */
 export interface CommCareCredentials {
 	username: string;
 	apiKey: string;
+	server: CommCareServer;
+}
+
+/** Base URL for every HQ API call these credentials can make. */
+function baseUrl(creds: CommCareCredentials): string {
+	return COMMCARE_SERVERS[creds.server].baseUrl;
 }
 
 /**
@@ -152,7 +157,8 @@ export async function listDomains(
 	creds: CommCareCredentials,
 ): Promise<CommCareDomain[] | CommCareApiError> {
 	const domains: CommCareDomain[] = [];
-	let url: string | null = `${COMMCARE_HQ_URL}/api/user_domains/v1/?limit=100`;
+	const base = baseUrl(creds);
+	let url: string | null = `${base}/api/user_domains/v1/?limit=100`;
 	/** Safety bound — prevents infinite loops from buggy pagination pointers. */
 	const MAX_PAGES = 50;
 	let page = 0;
@@ -180,11 +186,9 @@ export async function listDomains(
 		 * a MITM injects a foreign URL, following it would leak the user's
 		 * API key via the Authorization header. */
 		if (data.meta.next) {
-			const resolved = new URL(data.meta.next, COMMCARE_HQ_URL);
+			const resolved = new URL(data.meta.next, base);
 			url =
-				resolved.origin === new URL(COMMCARE_HQ_URL).origin
-					? resolved.toString()
-					: null;
+				resolved.origin === new URL(base).origin ? resolved.toString() : null;
 		} else {
 			url = null;
 		}
@@ -208,7 +212,7 @@ export async function testDomainAccess(
 	domain: string,
 ): Promise<boolean | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return false;
-	const url = `${COMMCARE_HQ_URL}/a/${domain}/apps/api/list_apps/`;
+	const url = `${baseUrl(creds)}/a/${domain}/apps/api/list_apps/`;
 	const res = await fetch(url, {
 		headers: { Authorization: authHeader(creds) },
 	});
@@ -305,9 +309,9 @@ function getCookie(res: Response, cookieName: string): string | null {
  * Returns null if the token can't be obtained (caller should still
  * attempt the import — the CSRF requirement may be fixed upstream).
  */
-async function fetchCsrfToken(): Promise<string | null> {
+async function fetchCsrfToken(base: string): Promise<string | null> {
 	try {
-		const res = await fetch(`${COMMCARE_HQ_URL}/accounts/login/`);
+		const res = await fetch(`${base}/accounts/login/`);
 		return getCookie(res, "csrftoken");
 	} catch {
 		return null;
@@ -333,10 +337,11 @@ export async function importApp(
 	if (!isValidDomainSlug(domain)) {
 		return { success: false, status: 400 };
 	}
-	const url = `${COMMCARE_HQ_URL}/a/${domain}/apps/api/import_app/`;
+	const base = baseUrl(creds);
+	const url = `${base}/a/${domain}/apps/api/import_app/`;
 
 	/* Obtain a CSRF token before the POST — see fetchCsrfToken() for why. */
-	const csrfToken = await fetchCsrfToken();
+	const csrfToken = await fetchCsrfToken(base);
 
 	/*
 	 * Multipart form: app_name (string) + app_file (JSON blob).
@@ -393,7 +398,7 @@ export async function importApp(
 	return {
 		success: true,
 		appId: data.app_id,
-		appUrl: `${COMMCARE_HQ_URL}/a/${domain}/apps/view/${data.app_id}/`,
+		appUrl: `${base}/a/${domain}/apps/view/${data.app_id}/`,
 		warnings: data.warnings ?? [],
 	};
 }
@@ -471,11 +476,12 @@ export async function uploadAppMediaBundle(
 	if (!isValidDomainSlug(domain)) {
 		return { success: false, status: 400 };
 	}
-	const base = `${COMMCARE_HQ_URL}/a/${domain}/apps/api/${appId}/multimedia`;
+	const hqBase = baseUrl(creds);
+	const base = `${hqBase}/a/${domain}/apps/api/${appId}/multimedia`;
 	const uploadUrl = `${base}/`;
 
 	/* Obtain a CSRF token before the POST — see fetchCsrfToken(). */
-	const csrfToken = await fetchCsrfToken();
+	const csrfToken = await fetchCsrfToken(hqBase);
 	const formData = new FormData();
 	formData.append(
 		"bulk_upload_file",

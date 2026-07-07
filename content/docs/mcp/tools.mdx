@@ -110,7 +110,7 @@ You can attach images, audio, and video to parts of an app — a field's label o
 | Tool | What it does |
 |---|---|
 | `compile_app` | Compile to CommCare HQ format — the JSON shape HQ accepts (a zip bundling that JSON with the media files when your app has media), or a `.ccz` archive. |
-| `get_hq_connection` | Check whether you've added an HQ API key in Nova settings, and if so, which project spaces (domains) it can reach. |
+| `get_hq_connection` | Check whether you've added an HQ API key in Nova settings, and if so, which CommCare server it belongs to (US, India, or EU — separate servers with separate accounts) and which project spaces (domains) it can reach. |
 | `upload_app_to_hq` | Push the app to CommCare HQ as a new app. Pass `domain` to choose the target space when your key reaches several; returns the HQ app URL. |
 
 <Callout type="info">

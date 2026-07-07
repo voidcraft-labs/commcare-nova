@@ -27,7 +27,11 @@ import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip
 import { asAssetId } from "@/lib/domain/multimedia";
 import { uploadAppMediaBundle } from "../client";
 
-const CREDS = { username: "user@example.org", apiKey: "abc123" };
+const CREDS = {
+	username: "user@example.org",
+	apiKey: "abc123",
+	server: "production",
+} as const;
 const DOMAIN = "myproject";
 const APP_ID = "app-uuid-1234";
 

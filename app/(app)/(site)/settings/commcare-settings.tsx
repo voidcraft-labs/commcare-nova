@@ -38,7 +38,19 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
 import type { CommCareDomain } from "@/lib/commcare/client";
+import {
+	COMMCARE_SERVER_IDS,
+	COMMCARE_SERVERS,
+	type CommCareServer,
+} from "@/lib/commcare/servers";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
 import {
 	deleteCredentials,
@@ -67,6 +79,16 @@ type FormStatus =
 /** Placeholder shown in the masked API key field. The actual key never leaves the server. */
 const API_KEY_MASK = "•".repeat(32);
 
+/**
+ * Server picker items — one per HQ deployment, labeled with the hostname the
+ * user recognizes from their browser's address bar. The value is HQ's
+ * environment name (what the connection stores).
+ */
+const SERVER_ITEMS = COMMCARE_SERVER_IDS.map((id) => ({
+	label: `${COMMCARE_SERVERS[id].label} — ${COMMCARE_SERVERS[id].host}`,
+	value: id,
+}));
+
 // ── Animation presets ──────────────────────────────────────────────
 
 const STATUS_ENTER = { opacity: 0, y: -6 } as const;
@@ -88,6 +110,12 @@ export function CommCareSettings({
 		initial.configured ? initial.username : userEmail,
 	);
 	const [apiKey, setApiKey] = useState("");
+	/* Which HQ deployment the credentials live on. US/India/EU are separate
+	 * deployments with separate accounts, so the key is only meaningful
+	 * together with this choice. */
+	const [server, setServer] = useState<CommCareServer>(
+		initial.configured ? initial.server : "production",
+	);
 
 	/* ── Domains + status ────────────────────────────────────────── */
 	/* The full set of project spaces the key can reach. Display-only here;
@@ -119,6 +147,7 @@ export function CommCareSettings({
 	const applySettings = useCallback((settings: CommCareSettingsPublic) => {
 		if (settings.configured) {
 			setUsername(settings.username);
+			setServer(settings.server);
 			setAvailableDomains(settings.availableDomains);
 			setStatus({ type: "configured" });
 		} else {
@@ -136,6 +165,7 @@ export function CommCareSettings({
 		const result = await verifyAndSaveCredentials(
 			username.trim(),
 			apiKey.trim(),
+			server,
 		);
 
 		if (result.success) {
@@ -143,7 +173,7 @@ export function CommCareSettings({
 		} else {
 			setStatus({ type: "error", message: result.error });
 		}
-	}, [username, apiKey, applySettings]);
+	}, [username, apiKey, server, applySettings]);
 
 	/* ── Refresh the reachable set ────────────────────────────────── */
 	/* Re-reads which spaces the key can reach — picks up project memberships
@@ -239,6 +269,40 @@ export function CommCareSettings({
 
 				{/* ── Form fields ────────────────────────────────────── */}
 				<div className="space-y-4">
+					{/* Server — US/India/EU are separate deployments with separate
+					 * accounts, so this choice decides which one the key is
+					 * verified against (and later uploaded to). */}
+					<div className="flex flex-col gap-1.5">
+						<span className="text-sm font-medium text-nova-text-secondary">
+							Server
+						</span>
+						<Select
+							items={SERVER_ITEMS}
+							value={server}
+							onValueChange={(next) => {
+								if (next) setServer(next);
+							}}
+							disabled={fieldsLocked}
+						>
+							<SelectTrigger className="w-full" aria-label="CommCare HQ server">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{SERVER_ITEMS.map((item) => (
+									<SelectItem key={item.value} value={item.value}>
+										{item.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						{!fieldsLocked && (
+							<span className="text-xs text-nova-text-muted">
+								Pick where your CommCare account lives — an API key only works
+								on the server that issued it.
+							</span>
+						)}
+					</div>
+
 					{/* Username */}
 					<label htmlFor="commcare-username" className="flex flex-col gap-1.5">
 						<span className="text-sm font-medium text-nova-text-secondary">
@@ -284,17 +348,19 @@ export function CommCareSettings({
 							/>
 						)}
 
-						{/* Help link — only when the input is editable */}
+						{/* Help link — only when the input is editable; follows the
+						 * selected server so the user lands on the deployment that
+						 * can actually issue a working key. */}
 						{!fieldsLocked && (
 							<span className="text-xs text-nova-text-muted">
 								Generate one at{" "}
 								<a
-									href="https://www.commcarehq.org/account/api_keys/"
+									href={`https://${COMMCARE_SERVERS[server].host}/account/api_keys/`}
 									target="_blank"
 									rel="noopener noreferrer"
 									className="inline-flex items-center gap-0.5 text-nova-violet-bright hover:underline"
 								>
-									commcarehq.org/account/api_keys
+									{COMMCARE_SERVERS[server].host}/account/api_keys
 									<Icon icon={tablerExternalLink} width="12" height="12" />
 								</a>
 							</span>

@@ -17,6 +17,11 @@
 import { getSession } from "@/lib/auth-utils";
 import { discoverAccessibleDomains } from "@/lib/commcare/client";
 import {
+	COMMCARE_SERVERS,
+	type CommCareServer,
+	isCommCareServer,
+} from "@/lib/commcare/servers";
+import {
 	type CommCareSettingsPublic,
 	deleteCommCareSettings,
 	getCommCareSettings,
@@ -42,10 +47,25 @@ export type DeleteResult =
 
 // ── Error messages ──────────────────────────────────────────────────
 
-/** Map CommCare HQ status codes to user-facing messages for settings context. */
+/**
+ * A verify-time 401, naming the deployment the key was tried against. The
+ * US, India, and EU servers are separate deployments with separate accounts,
+ * and a key carries no hint of which one issued it — so "invalid key"
+ * against one server very often means "valid key, wrong server," and the
+ * message has to point there or the user has nothing left to check.
+ */
+function invalidKeyMessage(server: CommCareServer): string {
+	const { label, host } = COMMCARE_SERVERS[server];
+	return `CommCare HQ (${label} — ${host}) rejected this API key. Check that you copied it correctly, and that ${label} is the server where your account lives — a key only works on the server that issued it.`;
+}
+
+/**
+ * Map the non-401 CommCare HQ status codes to user-facing messages. Each
+ * caller owns its 401 (verify → `invalidKeyMessage`; refresh → its
+ * revoked-key copy) because what a 401 MEANS depends on whether the key was
+ * just typed or has worked before.
+ */
 function settingsErrorMessage(status: number): string {
-	if (status === 401)
-		return "Invalid API key. Check that you copied it correctly.";
 	if (status === 429)
 		return "Rate limited by CommCare HQ. Wait a moment and try again.";
 	if (status >= 500) return "CommCare HQ is unavailable. Try again later.";
@@ -66,6 +86,7 @@ function settingsErrorMessage(status: number): string {
 export async function verifyAndSaveCredentials(
 	username: string,
 	apiKey: string,
+	server: string,
 ): Promise<SettingsResult> {
 	try {
 		const session = await getSession();
@@ -75,12 +96,22 @@ export async function verifyAndSaveCredentials(
 			return { success: false, error: "Username is required." };
 		if (!apiKey.trim())
 			return { success: false, error: "API key is required." };
+		/* Server Action args are untrusted; narrow to the closed catalog so
+		 * an arbitrary string can never reach the HQ client or storage. */
+		if (!isCommCareServer(server))
+			return { success: false, error: "Pick a CommCare HQ server." };
 
-		const creds = { username: username.trim(), apiKey: apiKey.trim() };
+		const creds = { username: username.trim(), apiKey: apiKey.trim(), server };
 
 		const accessible = await discoverAccessibleDomains(creds);
 		if (!Array.isArray(accessible)) {
-			return { success: false, error: settingsErrorMessage(accessible.status) };
+			return {
+				success: false,
+				error:
+					accessible.status === 401
+						? invalidKeyMessage(server)
+						: settingsErrorMessage(accessible.status),
+			};
 		}
 		if (accessible.length === 0) {
 			return {
@@ -93,6 +124,7 @@ export async function verifyAndSaveCredentials(
 		await saveCommCareSettings(session.user.id, {
 			username: creds.username,
 			apiKey: creds.apiKey,
+			server,
 			approvedDomains: accessible,
 		});
 
@@ -128,6 +160,16 @@ export async function refreshDomainsAction(): Promise<SettingsResult> {
 					success: false,
 					error:
 						"This API key no longer reaches any project space — it may have been revoked or had its access changed. Your saved connection is unchanged.",
+				};
+			}
+			/* A refresh 401 can't be a copy/paste or wrong-server mistake — the
+			 * stored key already verified once — so it means the key stopped
+			 * being accepted (revoked, deactivated, or expired). */
+			if (result.status === 401) {
+				return {
+					success: false,
+					error:
+						"CommCare HQ no longer accepts your stored API key — it may have been revoked or expired. Disconnect and reconnect with a new key.",
 				};
 			}
 			return { success: false, error: settingsErrorMessage(result.status) };

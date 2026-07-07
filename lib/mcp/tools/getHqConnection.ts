@@ -21,6 +21,7 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import { getCommCareSettings } from "@/lib/db/settings";
 import {
 	type McpToolErrorResult,
@@ -43,11 +44,16 @@ type DomainBody = { name: string; displayName: string };
  * schema (`approved_domains` defaults to `[]`) but by the runtime collapse in
  * `getCommCareSettings`, which reports `configured: false` when the stored set
  * is empty.
+ *
+ * `server` / `server_url` name which HQ deployment the connection lives on
+ * (US / India / EU are separate deployments); uploads land there.
  */
 type GetHqConnectionBody =
 	| { configured: false }
 	| {
 			configured: true;
+			server: CommCareServer;
+			server_url: string;
 			available_domains: DomainBody[];
 	  };
 
@@ -67,7 +73,7 @@ export function registerGetHqConnection(
 		"get_hq_connection",
 		{
 			description:
-				"Check the user's CommCare HQ connection: whether it's configured and every project space (domain) the API key can upload to (`available_domains`). Call this before `upload_app_to_hq` to confirm the target. When `available_domains` holds more than one space, ask the user which space and pass their choice to `upload_app_to_hq` — never choose for them; a multi-space key's target is always the user's per-upload decision.",
+				"Check the user's CommCare HQ connection: whether it's configured, which HQ deployment it lives on (`server`/`server_url` — US, India, and EU are separate CommCare servers), and every project space (domain) the API key can upload to (`available_domains`). Call this before `upload_app_to_hq` to confirm the target. When `available_domains` holds more than one space, ask the user which space and pass their choice to `upload_app_to_hq` — never choose for them; a multi-space key's target is always the user's per-upload decision.",
 		},
 		async (_extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {
@@ -83,6 +89,8 @@ export function registerGetHqConnection(
 				const body: GetHqConnectionBody = settings.configured
 					? {
 							configured: true,
+							server: settings.server,
+							server_url: COMMCARE_SERVERS[settings.server].baseUrl,
 							available_domains: settings.availableDomains,
 						}
 					: { configured: false };

@@ -8,8 +8,10 @@
  * test asserts the result shape and the side-effect (what got persisted).
  *
  * The behavior this locks: verifying stores EVERY reachable space (the fix
- * for the silent-first-match bug), the picker action surfaces a rejection
- * message, and refresh maps an HQ status to a user-facing message.
+ * for the silent-first-match bug) on the server the user picked, the picker
+ * action surfaces a rejection message that names that server (a key only
+ * works on the deployment that issued it), and refresh maps an HQ status to
+ * a user-facing message.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,6 +57,7 @@ describe("verifyAndSaveCredentials", () => {
 		const settings = {
 			configured: true,
 			username: "alice@example.com",
+			server: "production",
 			availableDomains: [PROD, CRISPR],
 		};
 		mocks.getCommCareSettings.mockResolvedValue(settings);
@@ -62,6 +65,7 @@ describe("verifyAndSaveCredentials", () => {
 		const result = await verifyAndSaveCredentials(
 			"alice@example.com",
 			"key-xyz",
+			"production",
 		);
 
 		expect(result).toEqual({ success: true, settings });
@@ -70,13 +74,44 @@ describe("verifyAndSaveCredentials", () => {
 		expect(mocks.saveCommCareSettings).toHaveBeenCalledWith("u1", {
 			username: "alice@example.com",
 			apiKey: "key-xyz",
+			server: "production",
 			approvedDomains: [PROD, CRISPR],
+		});
+	});
+
+	it("verifies against and stores the picked server, not a fixed one", async () => {
+		mocks.discoverAccessibleDomains.mockResolvedValue([PROD]);
+		const settings = {
+			configured: true,
+			username: "alice@example.com",
+			server: "eu",
+			availableDomains: [PROD],
+		};
+		mocks.getCommCareSettings.mockResolvedValue(settings);
+
+		const result = await verifyAndSaveCredentials(
+			"alice@example.com",
+			"key-eu",
+			"eu",
+		);
+
+		expect(result).toEqual({ success: true, settings });
+		expect(mocks.discoverAccessibleDomains).toHaveBeenCalledWith({
+			username: "alice@example.com",
+			apiKey: "key-eu",
+			server: "eu",
+		});
+		expect(mocks.saveCommCareSettings).toHaveBeenCalledWith("u1", {
+			username: "alice@example.com",
+			apiKey: "key-eu",
+			server: "eu",
+			approvedDomains: [PROD],
 		});
 	});
 
 	it("requires authentication", async () => {
 		mocks.getSession.mockResolvedValue(null);
-		const result = await verifyAndSaveCredentials("a", "b");
+		const result = await verifyAndSaveCredentials("a", "b", "production");
 		expect(result).toEqual({
 			success: false,
 			error: "Authentication required.",
@@ -85,33 +120,53 @@ describe("verifyAndSaveCredentials", () => {
 	});
 
 	it("rejects a blank username / API key before touching HQ", async () => {
-		expect(await verifyAndSaveCredentials("  ", "key")).toEqual({
+		expect(await verifyAndSaveCredentials("  ", "key", "production")).toEqual({
 			success: false,
 			error: "Username is required.",
 		});
-		expect(await verifyAndSaveCredentials("alice", "  ")).toEqual({
-			success: false,
-			error: "API key is required.",
-		});
+		expect(await verifyAndSaveCredentials("alice", "  ", "production")).toEqual(
+			{
+				success: false,
+				error: "API key is required.",
+			},
+		);
 		expect(mocks.discoverAccessibleDomains).not.toHaveBeenCalled();
 	});
 
-	it("maps an HQ API error to a contextual message and does not save", async () => {
+	it("rejects a server outside the closed catalog before touching HQ", async () => {
+		const result = await verifyAndSaveCredentials(
+			"alice",
+			"key",
+			"https://evil.example.com",
+		);
+		expect(result).toEqual({
+			success: false,
+			error: "Pick a CommCare HQ server.",
+		});
+		expect(mocks.discoverAccessibleDomains).not.toHaveBeenCalled();
+		expect(mocks.saveCommCareSettings).not.toHaveBeenCalled();
+	});
+
+	it("maps a 401 to a message naming the picked server and does not save", async () => {
 		mocks.discoverAccessibleDomains.mockResolvedValue({
 			success: false,
 			status: 401,
 		});
-		const result = await verifyAndSaveCredentials("alice", "bad-key");
-		expect(result).toEqual({
-			success: false,
-			error: "Invalid API key. Check that you copied it correctly.",
-		});
+		const result = await verifyAndSaveCredentials("alice", "bad-key", "eu");
+		expect(result.success).toBe(false);
+		if (!result.success) {
+			/* The key may be perfectly valid — on a different deployment. The
+			 * message must point at the server choice or the user has nothing
+			 * left to check. */
+			expect(result.error).toContain("eu.commcarehq.org");
+			expect(result.error).toContain("server that issued it");
+		}
 		expect(mocks.saveCommCareSettings).not.toHaveBeenCalled();
 	});
 
 	it("rejects a key that reaches zero spaces", async () => {
 		mocks.discoverAccessibleDomains.mockResolvedValue([]);
-		const result = await verifyAndSaveCredentials("alice", "key");
+		const result = await verifyAndSaveCredentials("alice", "key", "production");
 		expect(result.success).toBe(false);
 		expect(mocks.saveCommCareSettings).not.toHaveBeenCalled();
 	});
@@ -122,6 +177,7 @@ describe("refreshDomainsAction", () => {
 		const settings = {
 			configured: true,
 			username: "alice@example.com",
+			server: "production",
 			availableDomains: [PROD, CRISPR],
 		};
 		mocks.refreshApprovedDomains.mockResolvedValue({ ok: true, settings });
@@ -141,6 +197,19 @@ describe("refreshDomainsAction", () => {
 			success: false,
 			error: "Rate limited by CommCare HQ. Wait a moment and try again.",
 		});
+	});
+
+	it("explains a refresh 401 as a no-longer-accepted key, not a copy mistake", async () => {
+		mocks.refreshApprovedDomains.mockResolvedValue({
+			ok: false,
+			kind: "hq_error",
+			status: 401,
+		});
+		const result = await refreshDomainsAction();
+		expect(result.success).toBe(false);
+		if (!result.success) {
+			expect(result.error).toContain("no longer accepts");
+		}
 	});
 
 	it("explains a key that now reaches zero spaces without clobbering settings", async () => {

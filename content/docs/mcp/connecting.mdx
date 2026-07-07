@@ -50,7 +50,7 @@ If your client doesn't open the browser tab automatically, check its MCP logs �
 The HQ upload tool needs two things that aren't required for the rest of the surface:
 
 1. **HQ permissions on the connection.** The consent screen has two HQ-specific rows — *See your CommCare HQ project connection* and *Deploy your apps to CommCare HQ on your behalf*. If your client requested them when you signed in, they're already part of the connection. If not, you'll need to sign out and back in once your client is configured to ask for them.
-2. **An HQ API key in Nova settings.** Add the key on the [Nova settings page](https://commcare.app/settings). A key can reach more than one project space (Settings shows which); your agent picks the target per upload with the upload tool's `domain` argument.
+2. **An HQ API key in Nova settings.** Add the key on the [Nova settings page](https://commcare.app/settings), picking the CommCare server your account lives on — US (www.commcarehq.org), India, or EU. These are separate servers with separate accounts, and a key only works on the one that issued it, so a key rejected as invalid may just be paired with the wrong server. Uploads go to that server. A key can reach more than one project space (Settings shows which); your agent picks the target per upload with the upload tool's `domain` argument.
 
 If either is missing when the upload tool runs, the response carries a clear error your agent can pass back to you.
 
