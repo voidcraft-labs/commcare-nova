@@ -38,11 +38,11 @@ const OBJECT = { extract: "EXTRACT", title: "Title", summary: "Summary." };
 
 type StreamPart = { type: string; text?: string };
 
-/** A `streamText` result: a `fullStream` (drives generation + progress) plus the
+/** A `streamText` result: a `stream` (drives generation + progress) plus the
  *  finished-response promises. `streamText` returns this synchronously. */
 function streamResult(
 	over: Partial<{
-		fullStream: AsyncIterable<StreamPart>;
+		stream: AsyncIterable<StreamPart>;
 		output: Promise<unknown>;
 		usage: Promise<unknown>;
 		warnings: Promise<unknown>;
@@ -54,7 +54,7 @@ function streamResult(
 		yield { type: "text-delta", text: "chunk" };
 	}
 	return {
-		fullStream: oneChunk(),
+		stream: oneChunk(),
 		output: Promise.resolve(OBJECT),
 		usage: Promise.resolve({ inputTokens: 10, outputTokens: 5 }),
 		warnings: Promise.resolve([]),
@@ -63,7 +63,7 @@ function streamResult(
 	};
 }
 
-/** A `fullStream` that throws on consumption — a transport failure mid-stream.
+/** A `stream` that throws on consumption — a transport failure mid-stream.
  *  `yield* []` makes it a real (empty) generator before the throw. */
 async function* throwingStream(): AsyncGenerator<StreamPart> {
 	yield* [];
@@ -99,7 +99,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 		// System prompt, the decoded text prompt, the structured-output request, and
 		// the output cap pass through; no `messages` (that's the file path).
 		const call = mockStreamText().mock.calls[0][0];
-		expect(call.system).toBe("extract");
+		expect(call.instructions).toBe("extract");
 		expect(call.prompt).toBe("the document body");
 		expect(call.output).toBeDefined(); // Output.object({ schema })
 		expect(call.maxOutputTokens).toBe(4096);
@@ -161,7 +161,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 		// A transport failure surfaces while consuming the stream; streamObjectWith
 		// re-throws it (not a NoObjectGeneratedError), and the method's catch emits.
 		mockStreamText().mockReturnValue(
-			streamResult({ fullStream: throwingStream() }),
+			streamResult({ stream: throwingStream() }),
 		);
 
 		await expect(
@@ -187,7 +187,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 
 	it("re-throws but stays silent under emitErrors:false (the caller recovers)", async () => {
 		mockStreamText().mockReturnValue(
-			streamResult({ fullStream: throwingStream() }),
+			streamResult({ stream: throwingStream() }),
 		);
 
 		await expect(

@@ -86,7 +86,7 @@ export async function generateObjectWith<T>(opts: {
 		const result = opts.file
 			? await generateObject({
 					model: opts.model,
-					system: opts.system,
+					instructions: opts.system,
 					schema: opts.schema,
 					messages: [
 						{
@@ -106,7 +106,7 @@ export async function generateObjectWith<T>(opts: {
 				})
 			: await generateObject({
 					model: opts.model,
-					system: opts.system,
+					instructions: opts.system,
 					schema: opts.schema,
 					prompt: opts.prompt ?? "",
 					maxOutputTokens: opts.maxOutputTokens,
@@ -144,7 +144,7 @@ export async function generateObjectWith<T>(opts: {
  * Built on `streamText` + `Output.object`, NOT `streamObject`, on purpose: the
  * summarizer runs at high thinking, where MOST of the wall-clock is silent
  * reasoning before any output token — `streamObject` exposes only the output text,
- * so progress wouldn't start until the very end. `streamText`'s `fullStream`
+ * so progress wouldn't start until the very end. `streamText`'s `stream`
  * carries `reasoning-delta` parts too (with Gemini `includeThoughts`), so progress
  * tracks the thinking phase as well — which is where the time actually goes.
  *
@@ -181,7 +181,7 @@ export async function streamObjectWith<T>(opts: {
 		const result = opts.file
 			? streamText({
 					model: opts.model,
-					system: opts.system,
+					instructions: opts.system,
 					output: Output.object({ schema: opts.schema }),
 					messages: [
 						{
@@ -201,7 +201,7 @@ export async function streamObjectWith<T>(opts: {
 				})
 			: streamText({
 					model: opts.model,
-					system: opts.system,
+					instructions: opts.system,
 					output: Output.object({ schema: opts.schema }),
 					prompt: opts.prompt ?? "",
 					maxOutputTokens: opts.maxOutputTokens,
@@ -215,13 +215,13 @@ export async function streamObjectWith<T>(opts: {
 			result.finishReason,
 		];
 
-		// Draining `fullStream` advances generation; the result promises resolve once
+		// Draining `stream` advances generation; the result promises resolve once
 		// it's done. Feed progress from BOTH reasoning and output deltas — reasoning
 		// is most of the work. `onProgress` is best-effort: a throwing callback (e.g.
 		// a write to a disconnected client) must NEVER break extraction — the model
 		// run persists regardless of who's listening — so it's swallowed here at the
 		// source rather than relied on at each call site.
-		for await (const part of result.fullStream) {
+		for await (const part of result.stream) {
 			if (part.type === "reasoning-delta" || part.type === "text-delta") {
 				if (part.text.length > 0) {
 					try {

@@ -63,13 +63,18 @@ export function SaveIndicator() {
 	return (
 		<AnimatePresence>
 			{visible && (
+				/* pl-[13px] = the icon buttons' glyph inset ((44px hit target −
+				 * 18px glyph) / 2), so the PresenceRoster divider's right-hand
+				 * neighbor — this indicator when visible, the settings button
+				 * otherwise — presents the same leading whitespace and the
+				 * divider stays visually centered (see its comment). */
 				<motion.div
 					role={isError ? "alert" : undefined}
 					initial={{ opacity: 0 }}
 					animate={{ opacity: 1 }}
 					exit={{ opacity: 0 }}
 					transition={{ duration: 0.2 }}
-					className={`flex items-center gap-1.5 pr-2 text-xs select-none ${colorClass}`}
+					className={`flex items-center gap-1.5 pl-[13px] pr-2 text-xs select-none ${colorClass}`}
 				>
 					<Icon icon={icon} width="14" height="14" />
 					<span className="whitespace-nowrap">{label}</span>

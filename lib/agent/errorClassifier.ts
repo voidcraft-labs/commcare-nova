@@ -2,7 +2,7 @@
  * Error classifier — inspects errors from the AI SDK / API calls and returns
  * a structured classification with a human-readable message safe for display.
  */
-import { APICallError } from "@ai-sdk/provider";
+import { APICallError } from "ai";
 
 // ── Types ──────────────────────────────────────────────────────────────
 

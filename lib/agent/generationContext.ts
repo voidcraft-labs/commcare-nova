@@ -42,7 +42,7 @@ import {
 	type AnthropicProviderOptions,
 	createAnthropic,
 } from "@ai-sdk/anthropic";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createGoogle } from "@ai-sdk/google";
 import type {
 	CallWarning,
 	LanguageModelUsage,
@@ -115,11 +115,17 @@ export function logWarnings(
  * through as encrypted/redacted on Opus 4.7.
  */
 export function thinkingProviderOptions(effort: ReasoningEffort) {
-	const anthropic: AnthropicProviderOptions = {
-		thinking: { type: "adaptive", display: "summarized" },
-		effort,
+	// `satisfies` (not an annotation) so the literal's own type flows out:
+	// the declared AnthropicProviderOptions type is not JSONObject-assignable
+	// (its `fallbacks` entries carry Record<string, unknown> slots), which
+	// providerOptions requires — while `satisfies` still rejects a misplaced
+	// or misspelled key.
+	return {
+		anthropic: {
+			thinking: { type: "adaptive", display: "summarized" },
+			effort,
+		} satisfies AnthropicProviderOptions,
 	};
-	return { anthropic };
 }
 
 /**
@@ -159,7 +165,7 @@ interface GenerationContextOptions {
 
 /**
  * One completed agent step, normalized to the minimum surface the step
- * handler needs. Callers (the SA's `onStepFinish`, tests) map the AI SDK's
+ * handler needs. Callers (the SA's `onStepEnd`, tests) map the AI SDK's
  * step-finish argument into this shape so `handleAgentStep` stays stable
  * across SDK minor-version bumps.
  */
@@ -198,7 +204,7 @@ export class GenerationContext implements ToolExecutionContext {
 	/** Google provider for the document summarizer (Gemini). `null` when
 	 *  `GOOGLE_GENERATIVE_AI_API_KEY` is unset — `resolveModel` then fails loud
 	 *  on a Gemini call and the condenser falls back to raw inlining. */
-	private google: ReturnType<typeof createGoogleGenerativeAI> | null;
+	private google: ReturnType<typeof createGoogle> | null;
 	readonly writer: UIMessageStreamWriter;
 	readonly logWriter: LogWriter;
 	readonly usage: UsageAccumulator;
@@ -260,9 +266,7 @@ export class GenerationContext implements ToolExecutionContext {
 		 * threaded in via `opts.apiKey`. Built once per request; null-when-unset
 		 * so `resolveModel` can fail loud rather than construct a broken client. */
 		const googleKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-		this.google = googleKey
-			? createGoogleGenerativeAI({ apiKey: googleKey })
-			: null;
+		this.google = googleKey ? createGoogle({ apiKey: googleKey }) : null;
 		this.writer = opts.writer;
 		this.logWriter = opts.logWriter;
 		this.usage = opts.usage;
@@ -668,9 +672,9 @@ export class GenerationContext implements ToolExecutionContext {
 	 * tool-call counts.
 	 *
 	 * This is the shared fan-in for every `ToolLoopAgent` driven by this
-	 * context — the SA's inline `onStepFinish` funnels here; any future
+	 * context — the SA's inline `onStepEnd` funnels here; any future
 	 * agent should do the same. The caller owns mapping whatever shape
-	 * the AI SDK's `onStepFinish` provides into `AgentStep`, so this
+	 * the AI SDK's `onStepEnd` provides into `AgentStep`, so this
 	 * method stays stable across SDK minor-version bumps.
 	 *
 	 * Ordering mirrors the model's own production order: reasoning summary
@@ -928,7 +932,7 @@ export class GenerationContext implements ToolExecutionContext {
 			const result = await generateText({
 				model: this.anthropic(model),
 				output: Output.object({ schema }),
-				system: opts.system,
+				instructions: opts.system,
 				prompt: opts.prompt,
 				maxOutputTokens: opts.maxOutputTokens,
 				...(opts.reasoning && {
@@ -961,7 +965,7 @@ export class GenerationContext implements ToolExecutionContext {
 		const result = streamText({
 			model: this.anthropic(model),
 			output: Output.object({ schema }),
-			system: opts.system,
+			instructions: opts.system,
 			prompt: opts.prompt,
 			maxOutputTokens: opts.maxOutputTokens,
 			...(opts.reasoning && {

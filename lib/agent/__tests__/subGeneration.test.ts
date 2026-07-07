@@ -2,7 +2,7 @@
  * Unit tests for `streamObjectWith` — the streaming structured-generation core.
  *
  * The AI SDK's `streamText` (with `Output.object`) is mocked at the import
- * boundary so no model runs: we drive a fake `fullStream` + result promises and
+ * boundary so no model runs: we drive a fake `stream` + result promises and
  * assert what the streaming path adds over the blocking `generateObjectWith` —
  * per-chunk `onProgress` fed from BOTH reasoning and output deltas (reasoning is
  * most of the work at high thinking), the final-object-only result, and the
@@ -52,8 +52,8 @@ import { streamObjectWith } from "../subGeneration";
 
 type StreamPart = { type: string; text?: string };
 
-/** An async-iterable `fullStream` from a fixed part list. */
-async function* fullStreamOf(parts: StreamPart[]) {
+/** An async-iterable `stream` from a fixed part list. */
+async function* streamOf(parts: StreamPart[]) {
 	for (const p of parts) yield p;
 }
 
@@ -67,7 +67,7 @@ beforeEach(() => vi.clearAllMocks());
 describe("streamObjectWith", () => {
 	it("feeds onProgress from BOTH reasoning and output deltas, returns the final object + usage", async () => {
 		streamTextMock.mockReturnValue({
-			fullStream: fullStreamOf([
+			stream: streamOf([
 				{ type: "reasoning-start" }, // ignored (no text)
 				{ type: "reasoning-delta", text: "abc" }, // 3
 				{ type: "text-start" }, // ignored
@@ -98,7 +98,7 @@ describe("streamObjectWith", () => {
 
 	it("maps an output failure to a null object, surfacing usage + finishReason", async () => {
 		streamTextMock.mockReturnValue({
-			fullStream: fullStreamOf([{ type: "text-delta", text: "truncated" }]),
+			stream: streamOf([{ type: "text-delta", text: "truncated" }]),
 			// Truncation / malformed / invalid object → `output` rejects.
 			output: Promise.reject(new Error("no valid object")),
 			usage: Promise.resolve(USAGE),
@@ -133,7 +133,7 @@ describe("streamObjectWith", () => {
 			} as never);
 		}
 		streamTextMock.mockReturnValue({
-			fullStream: boom(),
+			stream: boom(),
 			output: Promise.reject(new Error("obj")),
 			usage: Promise.reject(new Error("u")),
 			warnings: Promise.reject(new Error("w")),
@@ -160,7 +160,7 @@ describe("streamObjectWith", () => {
 			throw new Error("transport exploded");
 		}
 		streamTextMock.mockReturnValue({
-			fullStream: boom(),
+			stream: boom(),
 			output: Promise.reject(new Error("object rejected")),
 			usage: Promise.reject(new Error("usage rejected")),
 			warnings: Promise.reject(new Error("warnings rejected")),
@@ -179,7 +179,7 @@ describe("streamObjectWith", () => {
 
 	it("never lets a throwing onProgress break the drain (best-effort progress)", async () => {
 		streamTextMock.mockReturnValue({
-			fullStream: fullStreamOf([
+			stream: streamOf([
 				{ type: "text-delta", text: "ab" },
 				{ type: "text-delta", text: "cd" },
 			]),
@@ -205,7 +205,7 @@ describe("streamObjectWith", () => {
 
 	it("drives generation with no onProgress (drains the stream, returns the object)", async () => {
 		streamTextMock.mockReturnValue({
-			fullStream: fullStreamOf([{ type: "text-delta", text: "x" }]),
+			stream: streamOf([{ type: "text-delta", text: "x" }]),
 			output: Promise.resolve({ x: 9 }),
 			usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
 			warnings: Promise.resolve([]),
