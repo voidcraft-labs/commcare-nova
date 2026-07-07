@@ -11,7 +11,6 @@
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import { useState } from "react";
-import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	CASE_FORM_TYPES,
@@ -33,7 +32,7 @@ import {
 	INSERTION_TRIGGER_CLS,
 	insertionTriggerStyle,
 	TreeInsertionLine,
-	useTreeInsertionHover,
+	useTreeInsertionZone,
 } from "./TreeInsertionAffordance";
 
 /** Menu-only one-line description per form type (label + icon + the
@@ -62,7 +61,7 @@ export function AddFormMenu({
 	const [open, setOpen] = useState(false);
 	const { createForm } = useBlueprintMutations();
 	const { openForm } = useNavigate();
-	const { revealed, ref, hoverProps } = useTreeInsertionHover(open);
+	const { revealed, progress, ref } = useTreeInsertionZone(open);
 	const canEdit = useCanEdit();
 
 	const handleSelect = (type: FormType) => {
@@ -77,17 +76,22 @@ export function AddFormMenu({
 
 	return (
 		<Menu.Root open={open} onOpenChange={setOpen}>
-			<Tooltip content="Add form">
-				<Menu.Trigger
-					ref={ref}
-					{...hoverProps}
-					className={INSERTION_TRIGGER_CLS}
-					style={insertionTriggerStyle(revealed)}
-					aria-label="Add form"
-				>
-					<TreeInsertionLine revealed={revealed} />
-				</Menu.Trigger>
-			</Tooltip>
+			<Menu.Trigger
+				ref={ref}
+				className={INSERTION_TRIGGER_CLS}
+				style={insertionTriggerStyle(revealed)}
+				aria-label="Add form"
+			>
+				{/* Indented to the form rows' depth (FormCard is pl-5) so the
+				 *  affordance reads as INSIDE the module — the strip directly
+				 *  below it is the full-width "+ Module" one. */}
+				<TreeInsertionLine
+					revealed={revealed}
+					progress={progress}
+					label="Form"
+					insetCls="left-5 right-3"
+				/>
+			</Menu.Trigger>
 			<Menu.Portal>
 				<Menu.Positioner
 					className={MENU_POSITIONER_CLS}

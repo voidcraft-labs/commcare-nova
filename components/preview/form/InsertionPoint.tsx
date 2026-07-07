@@ -1,61 +1,99 @@
 /**
- * InsertionPoint — hover-reveal gap between fields for inserting new fields.
+ * InsertionPoint — the intent-gated gap between fields for inserting new
+ * fields. Reveal state comes from `useInsertionZone` (the shared insertion-
+ * intent model): the zone registers its rect and the model decides — slow
+ * deliberate hover opens near-instantly, traversal never opens, a flick that
+ * stops on the gap opens after a settle beat, and an arming glow fades the
+ * line in as evidence accumulates.
  *
- * Two-phase rendering for performance:
+ * The reveal physically expands the gap (24px → 32px), pushing the
+ * neighboring fields apart while the line + "+" circle bloom in — layout
+ * moving under the pointer is safe here because zone containment is
+ * geometric (the binding re-measures rects through the reveal animation),
+ * never DOM hover state.
  *
- * 1. **Lazy shell** (initial mount): A minimal 24px div with a single `useState`
- *    hook. Inflates to the full UI on first mouse entry. For a 25-field form,
- *    this reduces 26 InsertionPoints from ~338 hooks to ~26 hooks at mount time.
+ * Rendering stays two-phase for the virtualized canvas:
  *
- * 2. **Full InsertionPoint** (after first hover): Hover detection logic with
- *    EMA-smoothed cursor speed gating, a detached `Menu.Trigger` connected to
- *    the shared `FieldTypePickerPopup` via `Menu.createHandle()`, and a
- *    `Tooltip` wrapper. No `Menu.Root` or popup content — the single shared
- *    instance in `FormRenderer` serves all InsertionPoints.
+ * 1. **Resting** (most rows, most of the time): the zone div + an invisible
+ *    click-through detector button. No Menu.Trigger, no Tooltip.
+ * 2. **Inflated** (once the zone arms, opens, or is clicked): the visible
+ *    line + a detached `Menu.Trigger` connected to the shared
+ *    `FieldTypePickerPopup` via `Menu.createHandle()` + a `Tooltip`. The
+ *    single shared menu instance in VirtualFormList serves all points; each
+ *    trigger sends its (`atIndex`, `parentUuid`) as payload.
  *
- * The shared menu pattern uses Base UI's official detached trigger API:
- * each InsertionPoint sends its context (`atIndex`, `parentPath`) as payload
- * to the shared `Menu.Root` via the handle. The popup reads the payload to
- * determine where to insert the new field.
+ * Clicking works in EVERY phase: the detector is always mounted, and a click
+ * that lands before the trigger exists inflates first, then forwards — so
+ * automation (or a decisive user) can click a gap that never visibly opened.
  */
 "use client";
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-	type RefObject,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
+	INSERTION_CIRCLE_CLS,
+	insertionCircleStyle,
+	insertionExpandStyle,
+	insertionLineCls,
+	insertionLineStyle,
+} from "@/components/ui/insertionReveal";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { Uuid } from "@/lib/doc/types";
 import { useCanEdit, useEditMode } from "@/lib/session/hooks";
 import {
-	insertionRevealTransition,
-	useInsertionHover,
-} from "@/lib/ui/hooks/useInsertionHover";
+	type InsertionZone,
+	useInsertionZone,
+} from "@/lib/ui/hooks/useInsertionZone";
 import { useFieldPicker } from "./FieldPickerContext";
+import {
+	INSERTION_OPEN_HEIGHT_PX,
+	INSERTION_REST_HEIGHT_PX,
+} from "./virtual/rowStyles";
 
 interface InsertionPointProps {
 	atIndex: number;
 	/** UUID of the parent container (form for root-level, group/repeat uuid for nested). */
 	parentUuid: Uuid;
 	disabled?: boolean;
-	cursorSpeedRef?: RefObject<number>;
-	lastCursorRef?: RefObject<{ x: number; y: number; t: number } | undefined>;
 }
 
-/**
- * Lazy shell: a minimal 24px div that inflates the full InsertionPoint
- * on first mouse entry. Avoids mounting hover-detection hooks, Menu.Trigger,
- * and Tooltip for all 26+ insertion points until the user actually approaches.
- */
-export function InsertionPoint(props: InsertionPointProps) {
+export function InsertionPoint({
+	atIndex,
+	parentUuid,
+	disabled,
+}: InsertionPointProps) {
 	const mode = useEditMode();
 	const canEdit = useCanEdit();
-	const [activated, setActivated] = useState(false);
+	const zone = useInsertionZone();
+	const pickerCtx = useFieldPicker();
+	/* Sticky after first interaction — keeps the Menu.Trigger + Tooltip mounted
+	 * so repeated hovers don't re-inflate. */
+	const [engaged, setEngaged] = useState(false);
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	/* Set when a click arrives before the trigger exists (automation, or a
+	 * decisive click on a gap that hasn't revealed) — the click handler
+	 * forwards to the trigger mounted by the mousedown's state flip. */
+	const pendingOpenRef = useRef(false);
+
+	/* Pin the line while the shared menu is open FOR THIS GAP. The context's
+	 * `activeTarget` is reported from inside the menu popup's mount, so this
+	 * effect follows the menu's true open state through EVERY path — click,
+	 * pointerdown-and-release-into-menu, keyboard open, Escape/outside-click
+	 * close, re-anchor to another gap (the model's single-slot hold transfers
+	 * atomically), and select. The cleanup also releases when this row
+	 * unmounts (virtualizer scroll-out), so a hold can never leak. */
+	const target = pickerCtx?.activeTarget;
+	const heldByMenu =
+		target != null &&
+		target.parentUuid === parentUuid &&
+		target.atIndex === atIndex;
+	const { setHold } = zone;
+	useEffect(() => {
+		if (!heldByMenu) return;
+		setHold(true);
+		return () => setHold(false);
+	}, [heldByMenu, setHold]);
 
 	/* Insertion points are an edit-mode-only affordance — they don't exist
 	 * in preview mode. `useEditMode()` is derived from the session store
@@ -65,139 +103,129 @@ export function InsertionPoint(props: InsertionPointProps) {
 	 * `InsertionPointRow`'s `minHeight` keeps the 24px gap, so the canvas
 	 * spacing is unchanged. */
 	if (!canEdit) return null;
-	if (props.disabled) return null;
-
-	if (!activated) {
-		return (
-			// biome-ignore lint/a11y/noStaticElementInteractions: lazy shell — mouseenter inflates the full interactive InsertionPoint, no keyboard interaction needed
-			<div
-				style={{ height: 24 }}
-				onMouseEnter={() => setActivated(true)}
-				data-insertion-point
-			/>
-		);
-	}
-
-	return <FullInsertionPoint {...props} />;
-}
-
-// ── Full InsertionPoint (inflated on first hover) ────────────────────
-
-/**
- * The fully-interactive InsertionPoint with hover detection, speed gating,
- * detached menu trigger, and tooltip. Mounts only after the lazy shell
- * receives its first mouseenter event.
- */
-function FullInsertionPoint({
-	atIndex,
-	parentUuid,
-	disabled,
-	cursorSpeedRef,
-	lastCursorRef,
-}: InsertionPointProps) {
-	const pickerCtx = useFieldPicker();
-	const triggerRef = useRef<HTMLButtonElement>(null);
-
-	const {
-		revealed,
-		reset,
-		containerRef,
-		onMouseEnter,
-		onMouseMove,
-		onMouseLeave,
-	} = useInsertionHover<HTMLDivElement>({
-		cursorSpeedRef,
-		lastCursorRef,
-		/* Keep the insertion line visible while the shared menu is open — the
-		 * pointer may have moved into a portal-rendered submenu. subscribeClose
-		 * collapses it once the menu eventually closes. */
-		keepOpen: () => pickerCtx?.handle.isOpen ?? false,
-	});
-
-	/* The shared Menu.Root broadcasts close events (from whichever insertion
-	 * point opened it) so we collapse the hover line when the user finishes
-	 * selecting a field kind or clicks outside the popup. */
-	useEffect(() => {
-		if (!pickerCtx) return;
-		return pickerCtx.subscribeClose(reset);
-	}, [pickerCtx, reset]);
-
-	/** Click anywhere in the gap → forward to the actual Menu.Trigger button.
-	 *  Since the trigger is a detached Menu.Trigger with the shared handle,
-	 *  Base UI handles open state, positioning, and FloatingTreeStore registration
-	 *  correctly. No `justOpenedRef` guard needed — the click originates from
-	 *  the trigger element itself, so Base UI recognizes it as an inside-tree
-	 *  interaction and won't immediately dismiss. */
-	const handleDetectorMouseDown = useCallback((e: React.MouseEvent) => {
-		if (e.button !== 0) return;
-		e.stopPropagation();
-		e.preventDefault();
-		triggerRef.current?.click();
-	}, []);
-
-	/** Prevent click from bubbling to parent field wrappers. */
-	const stopClick = useCallback((e: React.MouseEvent) => {
-		e.stopPropagation();
-	}, []);
-
 	if (disabled) return null;
 
-	const isActive = revealed;
+	const inflated = engaged || heldByMenu || zone.status !== "idle";
+	const open = zone.status === "open";
 
 	return (
 		<div
-			ref={containerRef}
+			ref={zone.ref}
 			className="relative"
-			style={{
-				height: isActive ? 32 : 24,
-				transition: insertionRevealTransition(isActive),
-			}}
+			style={insertionExpandStyle(
+				open,
+				INSERTION_REST_HEIGHT_PX,
+				INSERTION_OPEN_HEIGHT_PX,
+			)}
 			data-insertion-point
 		>
-			{/* Invisible hover detector covering the insertion point's own area.
-			 * No negative margins — the detector stays within the gap so the user
-			 * won't accidentally trigger it from an adjacent field.
-			 * Semantic <button> with tabIndex={-1} so keyboard users skip it (they
-			 * use the visible "+" button below). aria-hidden keeps it out of the
-			 * a11y tree. Clicks forward to the Menu.Trigger via ref. */}
+			{/* Invisible click detector covering the gap — always mounted so a
+			 * click works in every phase. Semantic <button> with tabIndex={-1} so
+			 * keyboard users skip it (they use the visible "+" below); aria-hidden
+			 * keeps it out of the a11y tree. */}
 			<button
 				type="button"
 				tabIndex={-1}
 				aria-hidden="true"
 				className="absolute inset-0 z-raised cursor-pointer bg-transparent border-none p-0"
-				onMouseEnter={onMouseEnter}
-				onMouseMove={onMouseMove}
-				onMouseLeave={onMouseLeave}
-				onMouseDown={handleDetectorMouseDown}
-				onClick={stopClick}
+				onMouseEnter={() => {
+					if (!engaged) setEngaged(true);
+				}}
+				onMouseDown={(e) => {
+					if (e.button !== 0) return;
+					e.preventDefault();
+					e.stopPropagation();
+					// A fresh gesture always clears a stale pending-open — a prior
+					// mousedown whose mouseup landed off the gap never fired the
+					// click that consumes it, and a leftover flag would forward a
+					// SECOND click below, toggling the menu open→shut.
+					pendingOpenRef.current = false;
+					if (triggerRef.current) {
+						triggerRef.current.click();
+					} else {
+						// Inflate now (state commits before the click event of this
+						// gesture); the click handler forwards.
+						pendingOpenRef.current = true;
+						setEngaged(true);
+					}
+				}}
+				onClick={(e) => {
+					e.stopPropagation();
+					if (pendingOpenRef.current) {
+						pendingOpenRef.current = false;
+						triggerRef.current?.click();
+					}
+				}}
 			/>
 
-			{/* Visible content — vertically centered in the expanded area */}
+			{inflated && (
+				<InsertionPointContent
+					zone={zone}
+					pickerCtx={pickerCtx}
+					atIndex={atIndex}
+					parentUuid={parentUuid}
+					triggerRef={triggerRef}
+				/>
+			)}
+		</div>
+	);
+}
+
+// ── Inflated content (line + shared-menu trigger) ────────────────────
+
+function InsertionPointContent({
+	zone,
+	pickerCtx,
+	atIndex,
+	parentUuid,
+	triggerRef,
+}: {
+	zone: InsertionZone;
+	pickerCtx: ReturnType<typeof useFieldPicker>;
+	atIndex: number;
+	parentUuid: Uuid;
+	triggerRef: React.RefObject<HTMLButtonElement | null>;
+}) {
+	const open = zone.status === "open";
+	const stopClick = useCallback((e: React.MouseEvent) => {
+		e.stopPropagation();
+	}, []);
+
+	/* Same z tier as the detector but later in the DOM, so the layer paints
+	 * above it; `pointer-events-none` keeps the gap's clicks on the detector,
+	 * and only the "+" circle re-enables them when open — that's what makes
+	 * its hover tint and tooltip live (a detector ABOVE the trigger would eat
+	 * both). */
+	return (
+		<div className="absolute inset-x-0 top-1/2 -translate-y-1/2 z-raised flex items-center pointer-events-none">
 			<div
-				className={`absolute inset-x-0 top-1/2 -translate-y-1/2 flex items-center transition-opacity duration-150 ${
-					isActive ? "opacity-100" : "opacity-0 pointer-events-none"
-				}`}
-			>
-				<div className="flex-1 h-px bg-nova-violet/40" />
+				className={insertionLineCls("right")}
+				style={insertionLineStyle(zone.progress, open)}
+			/>
 
-				{/* Detached trigger connected to the shared Menu.Root in FormRenderer.
-				 *  The payload carries this InsertionPoint's location so the shared
-				 *  FieldTypePickerPopup knows where to insert the new field. */}
-				<Tooltip content="Insert field">
-					<Menu.Trigger
-						ref={triggerRef}
-						handle={pickerCtx?.handle}
-						payload={{ atIndex, parentUuid }}
-						className="mx-1 w-5 h-5 flex items-center justify-center rounded-full bg-nova-surface border border-nova-violet/40 text-nova-violet-bright hover:bg-nova-violet/10 transition-colors cursor-pointer shrink-0 outline-none"
-						aria-label="Insert field"
-						onClick={stopClick}
-					>
-						<Icon icon={tablerPlus} width="12" height="12" />
-					</Menu.Trigger>
-				</Tooltip>
+			{/* Detached trigger connected to the shared Menu.Root in
+			 *  VirtualFormList. The payload carries this InsertionPoint's location
+			 *  so the shared FieldTypePickerPopup knows where to insert. */}
+			<Tooltip content="Insert field">
+				<Menu.Trigger
+					ref={triggerRef}
+					handle={pickerCtx?.handle}
+					payload={{ atIndex, parentUuid }}
+					className={`${INSERTION_CIRCLE_CLS} mx-1 w-5 h-5 hover:bg-nova-violet/10 cursor-pointer shrink-0 outline-none ${
+						open ? "pointer-events-auto" : "pointer-events-none"
+					}`}
+					style={insertionCircleStyle(open, "background-color 150ms ease")}
+					aria-label="Insert field"
+					onClick={stopClick}
+				>
+					<Icon icon={tablerPlus} width="12" height="12" />
+				</Menu.Trigger>
+			</Tooltip>
 
-				<div className="flex-1 h-px bg-nova-violet/40" />
-			</div>
+			<div
+				className={insertionLineCls("left")}
+				style={insertionLineStyle(zone.progress, open)}
+			/>
 		</div>
 	);
 }

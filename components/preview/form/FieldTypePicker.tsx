@@ -7,7 +7,7 @@ import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
 import tablerFolder from "@iconify-icons/tabler/folder";
 import tablerForms from "@iconify-icons/tabler/forms";
 import tablerPhoto from "@iconify-icons/tabler/photo";
-import { useCallback, useContext } from "react";
+import { useCallback, useContext, useEffect } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext } from "@/lib/doc/provider";
@@ -79,6 +79,12 @@ interface FieldTypePickerPopupProps {
 	atIndex: number;
 	/** UUID of the parent container (form for root-level, group/repeat uuid for nested). */
 	parentUuid: Uuid;
+	/** Reports which insertion location the menu is open for (null on close).
+	 *  Fired from inside `Menu.Popup`, whose mount is exactly the menu's open
+	 *  lifetime — the anchor InsertionPoint pins its line while this matches. */
+	onActiveTargetChange: (
+		target: { atIndex: number; parentUuid: Uuid } | null,
+	) => void;
 }
 
 /**
@@ -98,6 +104,7 @@ interface FieldTypePickerPopupProps {
 export function FieldTypePickerPopup({
 	atIndex,
 	parentUuid,
+	onActiveTargetChange,
 }: FieldTypePickerPopupProps) {
 	const { setPending } = useScrollIntoView();
 	const select = useSelect();
@@ -165,6 +172,11 @@ export function FieldTypePickerPopup({
 				collisionPadding={8}
 			>
 				<Menu.Popup className={MENU_POPUP_CLS} style={{ minWidth: 192 }}>
+					<ActiveTargetReporter
+						atIndex={atIndex}
+						parentUuid={parentUuid}
+						onChange={onActiveTargetChange}
+					/>
 					{/* ── Category submenus ── */}
 					{INSERTION_CATEGORIES.map((cat) => (
 						<Menu.SubmenuRoot key={cat.label}>
@@ -212,6 +224,26 @@ export function FieldTypePickerPopup({
 			</Menu.Positioner>
 		</Menu.Portal>
 	);
+}
+
+/** Reports the menu's open target for the lifetime of `Menu.Popup`'s mount —
+ *  Base UI unmounts the popup on close (default `keepMounted: false`), so the
+ *  effect's setup/cleanup brackets exactly the open window, independent of
+ *  HOW the menu was opened or closed. Renders nothing. */
+function ActiveTargetReporter({
+	atIndex,
+	parentUuid,
+	onChange,
+}: {
+	atIndex: number;
+	parentUuid: Uuid;
+	onChange: FieldTypePickerPopupProps["onActiveTargetChange"];
+}) {
+	useEffect(() => {
+		onChange({ atIndex, parentUuid });
+		return () => onChange(null);
+	}, [atIndex, parentUuid, onChange]);
+	return null;
 }
 
 /* ── Reusable menu item for a single field kind ─────────────────────── */

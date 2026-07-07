@@ -54,8 +54,7 @@ import { attachOptionMediaTool } from "./tools/media/attachOptionMedia";
 import { listMediaAssetsTool } from "./tools/media/listMediaAssets";
 import { removeMediaAssetTool } from "./tools/media/removeMediaAsset";
 import { setAppLogoTool } from "./tools/media/setAppLogo";
-import { setFormMediaTool } from "./tools/media/setFormMedia";
-import { setModuleMediaTool } from "./tools/media/setModuleMedia";
+import { setMenuMediaTool } from "./tools/media/setMenuMedia";
 import { planAppDesignTool } from "./tools/planAppDesign";
 import { removeFieldTool } from "./tools/removeField";
 import { removeFormTool } from "./tools/removeForm";
@@ -367,18 +366,18 @@ export function createSolutionsArchitect(
 		// The dedicated surface for attaching asset ids to carriers — the
 		// generic mutation tools (`addFields`, `editField`,
 		// case-list-config) omit every media slot, so the SA can neither
-		// mint nor reference an asset id there. Five doc-mutation tools
-		// (field message slots / select option / module + form menu /
-		// app logo) plus two library tools: `listMediaAssets` discovers
-		// the asset ids the others need (read), `removeMediaAsset` deletes
-		// one with a live-reference guard (read-shaped — its side effect
-		// is on the library, not the doc). The MCP-only `uploadMediaAsset`
-		// is not here: the browser uploads through the library UI.
+		// mint nor reference an asset id there. Four doc-mutation tools,
+		// each batch-shaped where the carrier repeats (field message
+		// slots / select options / module + form menu tiles / app logo)
+		// plus two library tools: `listMediaAssets` discovers the asset
+		// ids the others need (read), `removeMediaAsset` deletes one with
+		// a live-reference guard (read-shaped — its side effect is on the
+		// library, not the doc). The MCP-only `uploadMediaAsset` is not
+		// here: the browser uploads through the library UI.
 
 		attachFieldMedia: wrapMutating(attachFieldMediaTool),
 		attachOptionMedia: wrapMutating(attachOptionMediaTool),
-		setModuleMedia: wrapMutating(setModuleMediaTool),
-		setFormMedia: wrapMutating(setFormMediaTool),
+		setMenuMedia: wrapMutating(setMenuMediaTool),
 		setAppLogo: wrapMutating(setAppLogoTool),
 		listMediaAssets: wrapRead(listMediaAssetsTool),
 		removeMediaAsset: wrapRead(removeMediaAssetTool),
@@ -403,15 +402,20 @@ export function createSolutionsArchitect(
 			// Adaptive thinking with `display: 'summarized'` is required on Opus 4.7
 			// and later for human-readable thinking summaries to stream back. `effort` is a
 			// top-level provider option (sibling of `thinking`), not nested inside
-			// it — Zod silently strips nested unknown fields.
-			const anthropic: AnthropicProviderOptions = {
-				cacheControl: { type: "ephemeral" },
-				thinking: { type: "adaptive", display: "summarized" },
-				effort: SA_REASONING.effort,
+			// it — Zod silently strips nested unknown fields. `satisfies` (not an
+			// annotation) so the literal's JSONObject-assignable type flows into
+			// providerOptions while misplaced keys are still rejected.
+			return {
+				providerOptions: {
+					anthropic: {
+						cacheControl: { type: "ephemeral" },
+						thinking: { type: "adaptive", display: "summarized" },
+						effort: SA_REASONING.effort,
+					} satisfies AnthropicProviderOptions,
+				},
 			};
-			return { providerOptions: { anthropic } };
 		},
-		onStepFinish: (step) => {
+		onStepEnd: (step) => {
 			/* Delegate step-level fan-out (usage + conversation events +
 			 * tool-call counting) to the shared handler on GenerationContext.
 			 * We map the AI SDK's step-finish argument into the normalized

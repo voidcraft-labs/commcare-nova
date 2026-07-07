@@ -23,8 +23,8 @@
  *     `removeSearchInput`, `reorderSearchInputs`,
  *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`, `createForm`,
  *     `createModule`, `updateModule`,
- *     `attachFieldMedia`, `attachOptionMedia`, `setModuleMedia`,
- *     `setFormMedia`, `setAppLogo`, `listMediaAssets`,
+ *     `attachFieldMedia`, `attachOptionMedia`, `setMenuMedia`,
+ *     `setAppLogo`, `listMediaAssets`,
  *     `removeMediaAsset`, `uploadMediaAsset`.
  */
 import "dotenv/config";
@@ -52,8 +52,7 @@ import { attachOptionMediaTool } from "../lib/agent/tools/media/attachOptionMedi
 import { listMediaAssetsTool } from "../lib/agent/tools/media/listMediaAssets";
 import { removeMediaAssetTool } from "../lib/agent/tools/media/removeMediaAsset";
 import { setAppLogoTool } from "../lib/agent/tools/media/setAppLogo";
-import { setFormMediaTool } from "../lib/agent/tools/media/setFormMedia";
-import { setModuleMediaTool } from "../lib/agent/tools/media/setModuleMedia";
+import { setMenuMediaTool } from "../lib/agent/tools/media/setMenuMedia";
 import { planAppDesignTool } from "../lib/agent/tools/planAppDesign";
 import { updateAppTool } from "../lib/agent/tools/updateApp";
 import {
@@ -224,28 +223,21 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: attachFieldMediaTool.description,
 		schema: attachFieldMediaTool.inputSchema,
 		prompt:
-			"Use attachFieldMedia on module 0, form 0, field patient_name to set its label media image to asset 11111111-1111-1111-1111-111111111111.",
+			"Use attachFieldMedia with two attachments in one call: on module 0, form 0, set field patient_name's label media image to asset 11111111-1111-1111-1111-111111111111, and field age's hint media audio to asset 22222222-2222-2222-2222-222222222222.",
 	},
 	{
 		name: "attachOptionMedia",
 		description: attachOptionMediaTool.description,
 		schema: attachOptionMediaTool.inputSchema,
 		prompt:
-			"Use attachOptionMedia on module 0, form 0, field symptom, option fever, to set its image to asset 11111111-1111-1111-1111-111111111111.",
+			"Use attachOptionMedia with two attachments in one call: on module 0, form 0, field symptom, set option fever's image to asset 11111111-1111-1111-1111-111111111111 and option cough's image to asset 22222222-2222-2222-2222-222222222222.",
 	},
 	{
-		name: "setModuleMedia",
-		description: setModuleMediaTool.description,
-		schema: setModuleMediaTool.inputSchema,
+		name: "setMenuMedia",
+		description: setMenuMediaTool.description,
+		schema: setMenuMediaTool.inputSchema,
 		prompt:
-			"Use setModuleMedia on module 0 to set its icon to asset 11111111-1111-1111-1111-111111111111 and clear its audio label (null).",
-	},
-	{
-		name: "setFormMedia",
-		description: setFormMediaTool.description,
-		schema: setFormMediaTool.inputSchema,
-		prompt:
-			"Use setFormMedia on module 0, form 0 to set its icon to asset 11111111-1111-1111-1111-111111111111 and clear its audio label (null).",
+			"Use setMenuMedia with two items in one call: set module 0's icon to the built-in household icon, and module 0 form 0's icon to the built-in register icon. Clear every audio label (null).",
 	},
 	{
 		name: "setAppLogo",

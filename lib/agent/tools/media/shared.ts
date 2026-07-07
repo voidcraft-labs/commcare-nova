@@ -43,6 +43,7 @@ import {
 	iconCatalogEntry,
 	type Media,
 	mediaSchema,
+	parseBuiltinIconSlug,
 } from "@/lib/domain";
 import {
 	type MediaAttachExpectation,
@@ -203,6 +204,12 @@ export function slotExpectation(
  *     ready image, resolved from the shipped set at emit — so the at-source
  *     verdict (which reads Firestore) must not run for them. An empty
  *     expectation list is exactly what skips it.
+ *   - a STORED built-in ref (`nova-icon:<slug>`, a valid catalog slug) → the
+ *     ref unchanged, NO expectation. This is the echo-back path: the SA
+ *     preserves a tile's current icon by reading it (getModule / getForm) and
+ *     passing the stored value back, so the stored form must round-trip. A
+ *     STALE prefixed ref (slug gone from the catalog) falls through to the
+ *     uploaded-id arm and fails closed at the verdict, like any dangling ref.
  *   - any other non-null value → an uploaded asset id: branded, with the
  *     standard image expectation so the verdict checks it exists / is ready.
  *   - `null` → clear, no expectation.
@@ -217,6 +224,9 @@ export function resolveIconInput(
 	if (value === null) return { icon: null, expectations: [] };
 	if (iconCatalogEntry(value)) {
 		return { icon: builtinIconRef(value as IconSlug), expectations: [] };
+	}
+	if (parseBuiltinIconSlug(value)) {
+		return { icon: brandAssetSlot(value), expectations: [] };
 	}
 	return {
 		icon: brandAssetSlot(value),
@@ -241,6 +251,76 @@ export async function requireToolProjectId(appId: string): Promise<string> {
 		);
 	}
 	return projectId;
+}
+
+/**
+ * One resolved item of a batch media tool: the mutations it emits, the
+ * verdict expectations its set slots impose, and the line the success
+ * message reports for it. Tools that need extra per-item facts for their
+ * summary (e.g. `attachFieldMedia`'s distinct-field count) intersect this
+ * with their own field.
+ */
+export interface ResolvedMediaBatchItem {
+	mutations: Mutation[];
+	expectations: MediaAttachExpectation[];
+	line: string;
+}
+
+/** Outcome of {@link commitMediaBatch}: the committed doc + the flattened
+ *  mutation batch, or the error string for the tool's `{ error }` envelope. */
+export type MediaBatchOutcome =
+	| { ok: true; newDoc: BlueprintDoc; mutations: Mutation[] }
+	| { ok: false; error: string };
+
+/**
+ * The shared tail of every batch media tool. The batch is all-or-nothing:
+ * unresolved items are reported as ONE error naming them all (so the SA
+ * repairs the whole call at once instead of discovering them one by one);
+ * a clean batch flattens its mutations + expectations into a single
+ * verdict-guarded, gated commit.
+ *
+ * `attemptPhrase` names what the call tried ("set menu media on 3 tiles");
+ * `itemNoun` is the entry noun the failure count uses ("item",
+ * "attachment"); `outcomeVerb` completes "nothing was <verb>" ("set",
+ * "attached").
+ */
+export async function commitMediaBatch(args: {
+	ctx: ToolExecutionContext;
+	doc: BlueprintDoc;
+	stage: string;
+	resolved: readonly ResolvedMediaBatchItem[];
+	failures: readonly string[];
+	attemptPhrase: string;
+	itemNoun: string;
+	outcomeVerb: string;
+}): Promise<MediaBatchOutcome> {
+	const { ctx, doc, stage, resolved, failures } = args;
+	if (failures.length > 0) {
+		const count =
+			failures.length === 1
+				? `one ${args.itemNoun}`
+				: `${failures.length} ${args.itemNoun}s`;
+		return {
+			ok: false,
+			error: `Tried to ${args.attemptPhrase}, but the batch commits as a whole and ${count} didn't resolve — nothing was ${args.outcomeVerb}:\n${failures.join("\n")}`,
+		};
+	}
+	const mutations = resolved.flatMap((r) => r.mutations);
+	const commit = await attachGuardedMutate(
+		ctx,
+		doc,
+		mutations,
+		stage,
+		resolved.flatMap((r) => r.expectations),
+	);
+	if (!commit.ok) return { ok: false, error: commit.error };
+	return { ok: true, newDoc: commit.newDoc, mutations };
+}
+
+/** Join a batch's per-item lines into one sentence-cased success message. */
+export function joinBatchLines(lines: readonly string[]): string {
+	const joined = `${lines.join("; ")}.`;
+	return joined.charAt(0).toUpperCase() + joined.slice(1);
 }
 
 /**

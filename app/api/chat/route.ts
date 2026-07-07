@@ -603,12 +603,12 @@ export async function POST(req: Request) {
 	});
 
 	/* POST-scope mirror of the execute-local `finalized` latch, readable by the
-	 * `onFinish` net (a sibling scope that can't see execute's closure). Set true
-	 * whenever `finalizeRun` runs to completion; `onFinish`'s stranded-lock release
+	 * `onEnd` net (a sibling scope that can't see execute's closure). Set true
+	 * whenever `finalizeRun` runs to completion; `onEnd`'s stranded-lock release
 	 * fires ONLY when this stayed false — i.e. the prelude threw before any
 	 * `finalizeRun`. A run that DID finalize (clean / failed / paused) already made
 	 * the correct lock decision (a paused edit deliberately KEEPS its lock), so
-	 * `onFinish` must not second-guess it. */
+	 * `onEnd` must not second-guess it. */
 	let finalizeRan = false;
 
 	/* No `req.signal` disconnect handling: the run is no longer tied to the
@@ -1444,7 +1444,7 @@ export async function POST(req: Request) {
 				await finalizeRun(undefined, { paused: ctx.pausedOnInput() });
 			}
 		},
-		onFinish() {
+		onEnd() {
 			/* Last-resort safety net for a throw in the execute PRELUDE (before the
 			 * main try) that skips `finalizeRun` — e.g. the `hydratePersistedBlueprint`
 			 * / `ensureReferenceIndex` seed build. The execute block's awaited
@@ -1478,7 +1478,7 @@ export async function POST(req: Request) {
 							void clearRunLock(appId);
 						}
 					} catch (err) {
-						log.error("[chat] onFinish run-lock release check failed", err, {
+						log.error("[chat] onEnd run-lock release check failed", err, {
 							appId,
 						});
 					}

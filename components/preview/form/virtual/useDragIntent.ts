@@ -14,8 +14,6 @@
  *   - The `monitorForElements` registration that runs the full drag
  *     lifecycle (~280 lines: onDragStart, onDrag intent resolution +
  *     dedup + cycle/no-op suppression, onDrop mutation application).
- *   - Cursor-velocity refs (via the shared `useCursorSpeed`) — feed
- *     InsertionPointRow's hover gating during drag.
  *
  * Implicit contract with the caller:
  *
@@ -24,9 +22,6 @@
  *     on every `onDrag`, so the caller must keep the ref up-to-date
  *     WITHOUT forcing the monitor effect to re-register (otherwise every
  *     row change would tear down the monitor mid-drag).
- *   - The hook's cursor refs (`cursorSpeedRef`, `lastCursorRef`) are
- *     stable across re-registrations — the consumer hands them to
- *     InsertionPointRow without worrying about identity churn.
  *   - Consumers own the rows-array swap that turns `placeholderIndex`
  *     into a visible placeholder row; the hook only computes where the
  *     placeholder should go.
@@ -41,7 +36,6 @@ import { notifyMoveRename } from "@/lib/doc/mutations/notify";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import { useSelect } from "@/lib/routing/hooks";
-import { useCursorSpeed } from "@/lib/ui/hooks/useInsertionHover";
 import {
 	isDraggableFieldData,
 	isUuidInSubtree,
@@ -69,10 +63,6 @@ interface UseDragIntentResult {
 	readonly setDragActive: (active: boolean) => void;
 	readonly placeholderIndex: number | null;
 	readonly placeholderDepth: number;
-	readonly cursorSpeedRef: React.RefObject<number>;
-	readonly lastCursorRef: React.RefObject<
-		{ x: number; y: number; t: number } | undefined
-	>;
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────
@@ -457,10 +447,6 @@ export function useDragIntent({
 		});
 	}, [docStore, moveField, select, baseRowsRef]);
 
-	// Cursor velocity for the InsertionPoint hover gating — the same EMA
-	// tracker the app tree uses (lib/ui/hooks/useInsertionHover).
-	const { cursorSpeedRef, lastCursorRef } = useCursorSpeed();
-
 	return {
 		dragActive,
 		setDragActive,
@@ -468,7 +454,5 @@ export function useDragIntent({
 		// Expose the depth as a plain number — the shell reads it alongside
 		// `placeholderIndex`, whose state change drives the render.
 		placeholderDepth: placeholderDepthRef.current,
-		cursorSpeedRef,
-		lastCursorRef,
 	};
 }

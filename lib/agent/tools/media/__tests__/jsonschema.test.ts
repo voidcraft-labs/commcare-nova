@@ -16,14 +16,12 @@ import { attachOptionMediaInputSchema } from "../attachOptionMedia";
 import { listMediaAssetsInputSchema } from "../listMediaAssets";
 import { removeMediaAssetInputSchema } from "../removeMediaAsset";
 import { setAppLogoInputSchema } from "../setAppLogo";
-import { setFormMediaInputSchema } from "../setFormMedia";
-import { setModuleMediaInputSchema } from "../setModuleMedia";
+import { setMenuMediaInputSchema } from "../setMenuMedia";
 
 const schemas = {
 	attachFieldMedia: attachFieldMediaInputSchema,
 	attachOptionMedia: attachOptionMediaInputSchema,
-	setModuleMedia: setModuleMediaInputSchema,
-	setFormMedia: setFormMediaInputSchema,
+	setMenuMedia: setMenuMediaInputSchema,
 	setAppLogo: setAppLogoInputSchema,
 	listMediaAssets: listMediaAssetsInputSchema,
 	removeMediaAsset: removeMediaAssetInputSchema,
