@@ -82,7 +82,14 @@ placement on the column** — the same move as sort-on-column:
 tileLayout?: {
   grouping?: { parentIndex: string /* index identifier, default "parent" */,
                headerRows: number /* ≥1 */ },
-  entitiesPerRow?: number, uniformCells?: boolean,
+  // Local-`.ccz`/preview ONLY (verified: `fit-across` + `uniform-units` are <detail>
+  // attributes parsed by commcare-core's DetailParser but have NO HQ authoring model or
+  // suite emission — repo-wide grep clean outside custom_xml, which Nova never emits).
+  // The HQ-upload path CANNOT carry them: the compile boundary surfaces a non-silent
+  // notice ("multi-tile rows / uniform cells don't survive HQ upload") when set on an
+  // HQ-targeted export. Preview + .ccz honor them fully.
+  entitiesPerRow?: number,   // → <detail fit-across="N">
+  uniformCells?: boolean,    // → <detail uniform-units="true">
   persistOnForms?: boolean, pullDown?: boolean,
 }
 // per-column (all seven column kinds):
@@ -101,27 +108,42 @@ slot-mapping validators entirely, and keeps one wire path for presets and hand l
 ## Build
 
 1. **Domain**: the two schema additions; validator rules (all-visible-columns-placed;
-   `x+w ≤ 12`; no overlapping cells; grouping requires a case-first module whose case type
-   carries the named index (catalog `parent_type`/relationship + the index identifier);
-   `headerRows` < the tile's row count; header-row columns should resolve against parent
-   properties — gate the decidable case: a header-row column whose expression references
-   own-case-only properties gets a finding; long-detail tiles legal (custom-only is
-   automatic — Nova only emits custom)); class rows + repair judgments; reference-slot
-   entries for the new expression-free slots are nil, but `parentIndex` joins the module
-   edges for rename safety of the index identifier.
+   `x+w ≤ 12`; no overlapping cells; `headerRows` < the tile's row count; header-row
+   columns should resolve against parent properties — gate the decidable case: a header-row
+   column whose expression references own-case-only properties gets a finding). **Grouping
+   `parentIndex` source of truth (explicit):** valid iff the module is case-first AND
+   either (a) `parentIndex === "parent"` and the module's case type has catalog
+   `parent_type` set (the derived-subcase convention — Nova's `case_property_on` children
+   always index as `parent`), or (b) some case operation in the app links this case type
+   via `links[].identifier === parentIndex` with `targetType` = the catalog `parent_type`
+   (PR-01 vocabulary). Reference edges: case (b) keys the edge on that op link, so an
+   identifier rename re-validates/updates `parentIndex`; case (a) needs no edge (the
+   convention is fixed). **Detail scope (explicit): tiles apply to the SHORT + SEARCH
+   details only in this PR — the long (case detail) view always emits a plain field list;
+   long-detail tiling is recorded, not planned** (HQ models long tiles independently and
+   requires custom config — out of scope). Class rows + repair judgments.
 2. **Wire** (`lib/commcare/suite/case-list/*` + `hqJson`): per-field `<style><grid>`
    emission (the verified attribute names; header/template order per `Field` ORDER);
    `<group function="string(./index/<id>)" header-rows="N"/>`; the companion
    `_parent_ids` entry datum (both variants); search-detail inheritance (Nova's single
    config already models what HQ's deepcopy does); persistent-tile emission
    (`persist_tile_on_forms`, `pull_down_tile`) on the HQ JSON + the suite; HQ JSON carries
-   `case_tile_template: "custom"` + per-column grid fields + `case_tile_group`. Pin every
-   fixture listed above; extend the suite oracle (grid attribute completeness, the 12-col
-   cap as an oracle assertion, group node shape).
+   `case_tile_template: "custom"` + per-column grid fields + `case_tile_group` (NO slot
+   exists for `entitiesPerRow`/`uniformCells` — the HQ-target compile notice from §1's
+   schema comment fires here). Local `.ccz` additionally emits `<detail fit-across="N"
+   uniform-units="true">` when set (commcare-core `DetailParser::parse` attrs — the
+   runtime authority). Pin every fixture listed above; extend the suite oracle (grid
+   attribute completeness, the 12-col cap as an oracle assertion, group node shape).
 3. **Preview**: tile rendering in the case-list screens mirroring the verified cloudcare
    math (grid-area conversion, per-group collapse with header-from-first-case, group
    pagination, entitiesPerRow container grid, uniform square cells); persistent tile above
-   preview forms.
+   preview forms. **Grouping order contract (verified — do not skip): grouped lists are
+   re-sorted by first-appearance order of `groupKey` AFTER the user sort and BEFORE
+   pagination** (`commcare-core/src/cli/.../EntityScreenHelper::groupEntities` — a stable
+   sort clustering group members contiguously; `EntityListResponse::getEntitiesForCurrentPage`
+   then counts group boundaries on adjacent keys). The preview applies the same clustering
+   re-sort, and the parity test matrix includes a case whose user sort does NOT cluster by
+   the parent index.
 4. **Builder UI**: a tile-layout editor on the case-list workspace (drag/resize cells on a
    12-col canvas; presets; grouping controls with the child-cases-grouped-by-parent-index
    explainer; live preview via the real renderer). Load the frontend-design skill.
@@ -148,5 +170,6 @@ frozen features, recorded not planned; Android-specific tile tuning.
 ## Open choices (implementer)
 
 - Preset catalog contents (start with one icon+text starter and one two-line starter).
-  (`entitiesPerRow > 1` is IN — decided, not open: wire + renderer verified, one
-  attribute.)
+  (`entitiesPerRow`/`uniformCells` remain IN, scoped per §1's schema comment: local
+  `.ccz` + preview only, with the non-silent HQ-upload notice — HQ's authoring model has
+  no slot for them, verified.)

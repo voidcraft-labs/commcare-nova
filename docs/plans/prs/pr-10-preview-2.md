@@ -34,13 +34,31 @@ persona B, watch it appear in B's queue — real Postgres rows, no simulation.
   (`commcare-core/.../SandboxUtils.java::extractEntityOwners`), and HQ folds owning
   locations into that fixture verbatim (`users/fixturegenerators.py::
   UserGroupsFixtureProvider`). No other owner source exists client-side (greps clean).
-- **Restore contents = the livequery positive closure** (`casexml/apps/phone/
-  data_providers/case/livequery.py::do_livequery`): seed = open cases owned by the owner
-  set; an owned/live case pulls every ancestor (parent or host, even closed); a live OPEN
-  host pulls its OPEN extensions, recursively in both directions; nothing survives under a
-  closed host. The client purge filter is the negative dual
-  (`commcare-core/.../cases/util/CasePurgeFilter.java`). The livequery module docstring's
-  worked examples are the correctness contract for this PR's tests.
+- **Restore contents = the livequery closure — an AVAILABILITY-grounded fixpoint**
+  (`casexml/apps/phone/data_providers/case/livequery.py::get_live_case_ids_and_indices`,
+  re-derived line-by-line 2026-07-07 after the review caught the earlier three-rule
+  summary being wrong in both directions). The exact rules:
+  1. **available** = open AND "not an extension case" (no extension index, OR any child
+     index — `is_extension`), ∪ open extensions of available cases (chain grounding —
+     `has_live_extension`'s recursion).
+  2. **live seed** = owned ∩ available (an owned open EXTENSION is NOT seeded; it becomes
+     live only through an available host chain — `enliven` post-loop guards
+     `not is_extension`).
+  3. **closure**: a live case pulls EVERY direct parent/host (open or closed — `enliven`
+     chains `hosts_by_extension` + `parents_by_child` unconditionally); a live case — open
+     **or closed** — pulls its OPEN extensions (`classify`'s
+     `if ref_id in live_ids: enliven(sub_id)` has no host-openness check). "Nothing
+     survives under a closed host" is NOT a rule — closed-host death emerges only from
+     rule 2's seed grounding.
+  **Correctness contract = HQ's machine-readable corpus**, not the module docstring:
+  `casexml/apps/phone/tests/data/case_relationship_tests.json` (45 graphs with
+  owned/subcases/extensions/closed/outcome, exercised by `test_extension_indexes.py`).
+  The docstring's final example (`a(closed) <--ext-- b <--chi-- c(owned) >> []`) is
+  **stale** — the implementation and the corpus fixture `open_child_of_closed_extension`
+  both yield `{a,b,c}`. The SQL below was validated **44/44** against every non-skipped
+  corpus fixture on 2026-07-07 (the one skip is HQ's own, unrelated to scope semantics).
+  The client purge filter is the negative dual
+  (`commcare-core/.../cases/util/CasePurgeFilter.java`).
 - **Usercase:** type `commcare-user`, identity `hq_user_id = user_id`, owner = the user's
   own id, seeded with username/first_name/last_name/email/phone/commcare_project
   (`callcenter/sync_usercase.py::_get_sync_usercase_helper/_get_user_case_fields`);
@@ -49,11 +67,13 @@ persona B, watch it appear in B's queue — real Postgres rows, no simulation.
   location, `commcare_location_ids` (plural, space-separated) = the assignment set — both
   plain `session/user/data` keys, no dedicated session slot
   (`users/models.py::get_user_session_data`; runtime greps clean).
-- **Measured feasibility (2026-07-06 spike, local dev Postgres):** the closure CTE below,
+- **Measured feasibility (re-measured 2026-07-07 on the CORRECTED query, local Postgres):**
   at 240k cases / 200k index edges (Colorado-shaped: 40k clients, 120k referrals, 60k
-  messages, 20k claims), computes a facility-worker persona's scope (5,900 cases) in
-  **~640 ms** and the worst-case registry persona (228,000 cases) in **~3.0 s**, scaling
-  linearly. No architectural risk; cache + invalidate.
+  messages, 20k claims), the corrected two-phase closure computes a facility-worker
+  persona's scope (5,900 cases) in **~610–675 ms** and the worst-case registry persona
+  (228,000 cases) in **~1.2 s** — the availability pre-pass makes the worst case FASTER
+  than the earlier (semantically wrong) single-phase query's 3.0 s. No architectural risk;
+  cache + invalidate.
 
 ## Build
 
@@ -68,8 +88,10 @@ persona B, watch it appear in B's queue — real Postgres rows, no simulation.
 - **`session/user/data` resolution order** (later wins): built-ins synthesized from the
   persona → user type `values` → ad-hoc overrides. Synthesized built-ins:
   `commcare_project` (the app's project name), `commcare_first_name`/`_last_name` (from
-  the persona/type name), `commcare_user_type` (`"CommCareUser"`), `user_type`
-  (`"standard"`), `commcare_location_id` (primary location uuid),
+  the persona/type name), `commcare_user_type` (`"commcare"` — the mobile-worker value
+  `users/models.py::_get_user_type` actually emits via `COMMCARE_USER`; "CommCareUser" is
+  the Couch doc_type, never a session value), `user_type` (`"standard"`),
+  `commcare_location_id` (primary location uuid),
   `commcare_location_ids` (space-joined assignment uuids), `commcare_primary_case_sharing_id`
   (= primary). Absent keys stay absent (absent-node ⇒ comparisons false — matches the
   runtime).
@@ -106,44 +128,58 @@ wire is unaffected — emission compiles owner expressions to runtime fixture lo
 
 ### 4. The restore-scope query
 
-One recursive CTE, verbatim from the measured spike (adapted to bound parameters):
+The two-phase closure, verbatim as validated (44/44 corpus fixtures, 2026-07-07) and
+re-measured; `depth = 1` pinned on every `case_indices` hop (the repo's
+materialization-agnostic convention, `lib/case-store/sql/compileRelationPath.ts`):
 
 ```sql
-WITH RECURSIVE live(case_id, is_open) AS (
-  SELECT c.case_id, true
-  FROM cases c
+WITH RECURSIVE
+available(case_id) AS (
+  -- grounded roots: open AND "not an extension case" (no ext index OR any child index)
+  SELECT c.case_id FROM cases c
   WHERE c.app_id = $app AND c.project_id = $proj AND c.closed_on IS NULL
-    AND c.owner_id = ANY($ownerSet)
+    AND (NOT EXISTS (SELECT 1 FROM case_indices i
+                     WHERE i.case_id = c.case_id AND i.relationship = 'extension' AND i.depth = 1)
+         OR EXISTS (SELECT 1 FROM case_indices i
+                    WHERE i.case_id = c.case_id AND i.relationship = 'child' AND i.depth = 1))
   UNION
-  SELECT e.next_id, e.next_open
-  FROM live l
+  -- open extension of an available case (chain grounding)
+  SELECT sub.case_id FROM available a
+  JOIN case_indices i ON i.ancestor_id = a.case_id AND i.relationship = 'extension' AND i.depth = 1
+  JOIN cases sub ON sub.case_id = i.case_id AND sub.closed_on IS NULL
+),
+live(case_id) AS (
+  -- seed: owned AND available (owned open extensions are NOT seeded directly)
+  SELECT a.case_id FROM available a JOIN cases c ON c.case_id = a.case_id
+  WHERE c.owner_id = ANY($ownerSet)
+  UNION
+  SELECT nxt.case_id FROM live l
   JOIN LATERAL (
-    -- up: a live case pulls every ancestor (parent or host), open or closed
-    SELECT c2.case_id AS next_id, (c2.closed_on IS NULL) AS next_open
-    FROM case_indices i JOIN cases c2 ON c2.case_id = i.ancestor_id
-    WHERE i.case_id = l.case_id
+    -- up-pull: every direct parent/host of a live case, open or closed
+    SELECT i.ancestor_id AS case_id FROM case_indices i
+    WHERE i.case_id = l.case_id AND i.depth = 1
     UNION ALL
-    -- down: a live OPEN host pulls its OPEN extensions (extension edges only)
-    SELECT c2.case_id, true
-    FROM case_indices i JOIN cases c2 ON c2.case_id = i.case_id
-    WHERE i.ancestor_id = l.case_id AND i.relationship = 'extension'
-      AND c2.closed_on IS NULL AND l.is_open
-  ) e ON true
+    -- down-pull: OPEN extensions of a live case (the host itself may be closed)
+    SELECT sub.case_id FROM case_indices i
+    JOIN cases sub ON sub.case_id = i.case_id AND sub.closed_on IS NULL
+    WHERE i.ancestor_id = l.case_id AND i.relationship = 'extension' AND i.depth = 1
+  ) nxt ON true
 )
-SELECT case_id FROM live;
+SELECT DISTINCT case_id FROM live;
 ```
 
-The three rules it encodes (and nothing else): seed on open+owned; unconditional up-pull;
-down-pull only `extension` edges from an open live host to an open extension. Closed-host
-death, child→parent-keeps-closed-parent, and extension⇆host chains all emerge from those —
-verified against livequery's own worked examples, which become the test suite (encode each
-docstring example as a fixture graph and assert the scope set exactly; add the purge-filter
-asymmetry case: closed parent with owned open child stays; closed host's extension dies).
+**The test suite is the corpus, mechanically:** port
+`case_relationship_tests.json` (44 non-skipped graphs) as a data-driven test — load each
+graph into a scratch schema, run the query, assert the exact scope set. Do NOT hand-encode
+the module docstring's examples (its final example is stale — see the contract bullet).
+Any future query change must keep the corpus green; that IS the definition of correct.
 
 - **Caching:** compute per persona on first use; hold as a session-scoped set (the
-  measured 640 ms worker / 3.0 s worst-case make recompute-on-invalidate acceptable);
-  invalidate on any case write in `(app_id, project_id)` — hook the existing case-store
-  write path (the same seam PR-04 uses for count-query freshness).
+  re-measured ~610–675 ms worker / ~1.2 s worst-case make recompute-on-invalidate
+  acceptable); invalidate on any case write in `(app_id, project_id)`. **The invalidation
+  hook is NEW work in this PR** — a monotonic stamp bumped inside the store's write
+  methods / the submission transaction. (PR-04 deliberately shipped per-render evaluation
+  with manual reload and no counter; do not go looking for an existing seam.)
 - **Application:** `readCases` / `readCaseListPreview` and the menu/display-condition
   residues gain a scope filter (`case_id ∈ scope`) when a persona is active. **Case search
   stays global** (search crosses ownership by design — ACA §2.4). No persona selected ⇒
@@ -163,7 +199,8 @@ full tree.
 
 ## Tests / acceptance
 
-- Livequery docstring examples, verbatim, as scope fixtures (the correctness contract).
+- The `case_relationship_tests.json` corpus (44 graphs), data-driven, exact scope-set
+  assertions — the correctness contract (validated 44/44 at plan time).
 - Owner-set matrix: role × assignment × seesDescendantCaseloads × archived.
 - Persona determinism (same type ⇒ same userid ⇒ same usercase row; idempotent re-select).
 - Scope filtering on case lists + display-condition residues; search unaffected; omniscient

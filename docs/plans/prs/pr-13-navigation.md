@@ -25,15 +25,27 @@ without copies; form links that would strand users at runtime are rejected at au
   sweeps over `commcare-hq/.../app_manager/xml_models.py`, `models.py::FormBase`, `xform.py`.
   Sections are therefore a Nova-only projection.
 - **EOF workflows**: six constants (`const.py::WORKFLOW_*`); `WORKFLOW_DEFAULT` emits **no
-  `<stack>` at all**; `root` = empty `<create>` (`allow_empty_frame`); `module` = one
-  `<command>`; `parent_module` recurses the root module's frame children
-  (`workflow.py::EndOfFormNavigationWorkflow._get_static_stack_frame`). Nova's `postSubmit`
-  maps 1:1 (`app_home`↔`default`); the reserved internal arms `root`/`parent_module` activate
-  here.
-- **Form links**: one `<create if="<xpath>">` frame per link, first-true-wins, plus a fallback
-  frame guarded by `and(not(c1), not(c2)…)` (`workflow.py::_get_link_frame/_get_fallback_frame`).
-  Latent HQ bug: `const.py::WORKFLOW_FALLBACK_OPTIONS` is `None` (a `.remove()` return value),
-  so HQ never validates the fallback — Nova validates its own.
+  `<stack>` at all**; `root` = empty `<create>` (`allow_empty_frame`); `parent_module`
+  recurses the root module's frame children; **`module` is parent-aware** — for a module
+  with a parent, `_frame_children_for_module` FIRST recurses into the parent
+  (`if module.root_module: frame_children.extend(…root_module…)`) and then appends the
+  module's own command, because a one-command frame naming a nested submenu is unreplayable
+  (the runtime only offers a submenu where `currentMenuId == menu.root` —
+  `MenuLoader.addUnaddedMenu`; an unmatched frame step strands the user at the root menu,
+  `MenuSessionFactory::rebuildSessionFromFrame`). For a top-level module it degenerates to
+  the one-command frame (`workflow.py::_get_static_stack_frame` /
+  `::_frame_children_for_module`). Nova's `postSubmit` maps 1:1 (`app_home`↔`default`); the
+  reserved internal arms `root`/`parent_module` activate here.
+- **Form links — the true multi-frame semantics (NOT first-true-wins):** HQ guards each
+  link frame only by its OWN xpath (`workflow.py::_get_link_frame`); at runtime EVERY true
+  `<create if>` pushes a frame (`CommCareSession::executeStackOperations` →
+  `pushNewFrame` → `frameStack.push`), the LAST-pushed frame is entered
+  (`finishAndPop` → `frameStack.pop()`), and earlier true frames remain PENDING —
+  snapshot-captured, firing after later form completions or wiped by `cleanStack`. Only
+  the fallback frame carries `and(not(c1), not(c2)…)`. Nova therefore emits
+  **mutually-exclusive guards by construction** (§4) so exactly one frame ever pushes.
+  Latent HQ bug: `const.py::WORKFLOW_FALLBACK_OPTIONS` is `None` (a `.remove()` return
+  value), so HQ never validates the fallback — Nova validates its own.
 - **Menu nesting**: `root_module_id` → `<menu id="m<child>" root="m<parent>">`
   (`menus.py::MenuContributor._generate_menu`; `xml_models.py::MenuMixin.root`). `put_in_root`
   collapses the child's menu id to the parent's (`id_strings.py::menu_id`), and same-id
@@ -77,10 +89,19 @@ without copies; form links that would strand users at runtime are rejected at au
   fence: sections carry NO expression slots, ever** — the moment a section wants a condition
   or repetition, it is a `group`/`repeat` and must be one. The fence is structural (the
   schema has no such slots) and stays that way.
-- Mutations: the keyed quartet (`addSection`/`updateSection`/`removeSection`/`moveSection`)
-  per the PR-01 op-mutation pattern; reference-slot registry entry + `extractFormEdges` arm
-  for `startFieldUuid` (uuid edge). Deleting a section's first field re-anchors the section
-  to the next field in it; an emptied section dissolves (reducer-total, no gate dependency).
+- Mutations: `addSection`/`updateSection`/`removeSection` ONLY — **there is no
+  `moveSection`**, deliberately: sections carry no stored order (membership and sequence
+  derive entirely from field order), so "reordering a section" is moving its FIELDS — the
+  existing field-move gestures — never a section mutation. Reference-slot registry entry +
+  `extractFormEdges` arm for `startFieldUuid` (uuid edge). Deleting a section's first field
+  re-anchors the section to the next field in it; an emptied section dissolves
+  (reducer-total, no gate dependency).
+- **The head rule (partition totality):** when a form has any sections, the FIRST section
+  must anchor the form's first top-level field — gating soundness
+  (`SECTION_HEAD_UNANCHORED`, + class row + repair judgment), so the partition is total by
+  construction (no undefined pre-anchor head fields in step numbering or on-device
+  wrapping). The UI satisfies it automatically: adding a form's first section anchors it at
+  the first field.
 - Preview: step-wise rendering — one section per screen, progress ("Step 2 of 5 — <title>"),
   per-section validation surfacing (a step blocks advance while its fields hold validation
   errors, mirroring the engine's existing per-field state); edit mode shows section rails on
@@ -91,9 +112,10 @@ without copies; form links that would strand users at runtime are rejected at au
   the verified single-screen-per-group shape. Since sections partition top-level fields, a
   section boundary can never split a group/repeat subtree by construction.
 - Validator: `SECTION_ANCHOR_UNRESOLVED` (startFieldUuid must resolve to a top-level field
-  of the form), `SECTION_DUPLICATE_ANCHOR` (two sections may not share a first field) — both
-  gating soundness + repair judgments (`VALIDITY_CLASS_BY_CODE` rows +
-  `legacyFindingRepairs` entries, the pinned tests enforce).
+  of the form), `SECTION_DUPLICATE_ANCHOR` (two sections may not share a first field), and
+  `SECTION_HEAD_UNANCHORED` (the head rule above) — all gating soundness + repair judgments
+  (`VALIDITY_CLASS_BY_CODE` rows + `legacyFindingRepairs` entries, the pinned tests
+  enforce).
 
 ### 2. Menu nesting (`lib/domain`, `lib/commcare`)
 
@@ -107,11 +129,20 @@ without copies; form links that would strand users at runtime are rejected at au
   `effectiveDisplayConditionForEmission`, mirroring HQ's verified `module_filter` merge.
   HQ-JSON projection: `root_module_id` / `put_in_root` on the module shell.
 - `postSubmit` internal arms activate: `root` emits the empty-`<create>` frame;
-  `parent_module` emits the parent's command(+datum) frame — both per the verified
-  `_get_static_stack_frame` shapes. Auto-resolution: `module` on a flattened module resolves
-  to `root` (the validation stub noted in `lib/commcare/CLAUDE.md` §put_in_root); `parent_module`
-  with a flattened parent is rejected (stub activates). Retire the corresponding
-  not-yet-modeled notes in that CLAUDE.md.
+  `parent_module` emits the parent's command(+datum) frame; and the EXISTING `module` arm
+  becomes parent-aware — for a form in a nested module, `derivePostSubmitStack` emits the
+  parent's frame children FOLLOWED by the child's command (the verified
+  `_frame_children_for_module` recursion; a bare child-command frame strands the user at
+  the root menu — contract above). Pin a nested-module `module`-arm fixture beside the
+  `root`/`parent_module` ones. Auto-resolution: `module` on a FLATTENED module resolves to
+  **`parent_module`** — the parent's menu is where the flattened module's commands actually
+  live (HQ's own shape: `menu_id` collapses to the parent, so `_frame_children_for_module`
+  lands on the parent's menu; the old `lib/commcare/CLAUDE.md` §put_in_root note said
+  `module` → `root`, written before "flatten requires a parent" existed — REWRITE that
+  note, don't just retire it). `parent_module` as an AUTHORED destination requires the
+  module to have a parent (gating rule — the reachable configuration; the old stub's
+  "flattened-parent" case is unconstructible under one-tier + flatten-requires-a-parent
+  and is dropped, not implemented).
 - Suite oracle: menu `root` must resolve to an existing menu id (or `'root'`); same-id menus
   legal; command-id uniqueness still holds per menu after concatenation.
 - Validator: one-tier rule; flatten requires a parent; parent/child case-type constraint —
@@ -128,12 +159,22 @@ without copies; form links that would strand users at runtime are rejected at au
   continues the host's form numbering), `<form>` = the source form's `xmlns`, datums derived
   from the source form's case requirements under the host module (same case type — see
   validator); host menu gets the `<command>` with the link's own display condition (F1
-  machinery). The verified shadow-module wire shape, minus the shadow objects. HQ-JSON: emit
-  the same duplicated-entry structure Nova-side; do NOT emit `ShadowModule` doc types (Nova's
-  local suite and HQ's regenerated suite must agree — implementer verifies HQ's importer
-  accepts a plain module whose menu references another module's form command, else falls back
-  to emitting the linked form as an additional real form entry in the host module's HQ JSON
-  with the same xmlns; pin whichever shape passes `import_app` + rebuild).
+  machinery). The verified shadow-module wire shape, minus the shadow AUTHORING objects.
+  **HQ-JSON projection (decided — verified against HQ source):** the two naive projections
+  both FAIL on HQ — a duplicate real form entry sharing the source's xmlns trips the
+  build-blocking `"duplicate xmlns"` error (`helpers/validators.py::ApplicationValidator.
+  _check_forms` counts xmlns over all non-ShadowForm forms), and a plain module's menu
+  cannot reference another module's form command (plain-module commands derive solely from
+  `module.get_suite_forms()`, `menus.py::_get_commands`). The projection that works is HQ's
+  own reuse vocabulary: the emitter projects a host module's `linkedForms` as a **v2
+  `ShadowModule`** (`source_module_id` = the source module, `excluded_form_ids` = the
+  source's non-linked forms, `root_module_id` = the host, `put_in_root = true` — the
+  shadow's commands flatten into the host's menu). This is WIRE vocabulary inside
+  `lib/commcare`'s HQ-JSON emitter — no shadow objects enter Nova's domain (the shape rule
+  holds: authoring is the reference, the projection is emission detail). Consequence,
+  stated: HQ regenerates shadow command ids (`m<shadowIdx>-f<n>`), so local-vs-HQ suite
+  agreement for linked forms is **shape-level, not command-id-level** (each path is
+  internally consistent; nothing Nova emits cross-references those ids across paths).
 - Preview: launching a linked form runs the source form under the host module's context
   (host's case list; same case type).
 - Doc semantics: source-form deletion **blocks with references** (the house
@@ -146,6 +187,12 @@ without copies; form links that would strand users at runtime are rejected at au
 
 ### 4. Chaining hardening (`lib/commcare/validator`, SA prompts, docs)
 
+- **Exclusive-guard emission (fixes Nova's existing form-link emitter):** to make
+  "first matching link wins" TRUE on the wire, each link's `if` emits as
+  `and(cond_i, not(cond_1), …, not(cond_{i-1}))` — exactly one frame can push, matching the
+  fallback's existing `and(not(…))` pattern and eliminating the pending-frame pile-up the
+  contract above describes. (HQ's own emission has the pile-up; Nova's is strictly better
+  and behaviorally identical when conditions are already exclusive.)
 - Form-link rules (all gating soundness + repairs):
   `FORM_LINK_DATUM_INCOMPLETE` — the link's `datums` plus the session-carried datums must
   cover every datum the target entry derives (checkable against `deriveSessionDatums` for
@@ -190,6 +237,6 @@ personas; nothing here requires them).
   widening.
 - Section re-anchor vs dissolve on first-field deletion: recommend re-anchor-to-next,
   dissolve when empty (as specced); keep the reducer total either way.
-- HQ-JSON shape for linked forms (see §3 emission note): pin whichever of the two candidate
-  shapes survives `import_app` + "Make New Version" — this is the one implementer-verified
-  wire decision in the PR.
+- (The HQ-JSON linked-form projection is DECIDED in §3 — the v2 ShadowModule shape; the
+  implementer's residual is pinning an `import_app` + "Make New Version" round-trip test
+  over it, not choosing a shape.)

@@ -17,11 +17,12 @@ Base UI; icons via `@iconify/react/offline` (Tabler).
 ## What the user sees
 
 - A **Display condition** section in a module's settings panel and a form's settings panel:
-  a sentence-style condition builder ("show when `can_admin` is `yes`", "show when there are
-  open `referral` cases"). Conditioned modules/forms carry a small badge on the canvas.
+  a sentence-style condition builder ("show when the user's `can_admin` data is `yes`" —
+  `can_admin` is CUSTOM USER DATA, not a case property; "show when there are open
+  `referral` cases"). Conditioned modules/forms carry a small badge on the canvas.
 - A **Case operations** workspace on a form: a list of cards, each reading like a sentence —
-  "Create a `referral` linked to this client, owned by …", "Close the `commcare-case-claim`
-  from field `claim_id`" — with writes, links, conditions, and per-repeat execution visible
+  "Create a `referral` linked to this client, owned by …", "Close the `referral` whose id
+  is field `referral_id`" — with writes, links, conditions, and per-repeat execution visible
   in one place. This is the "what does submitting this form do to the case universe" view.
 - A **Tables** workspace: column schema on the left, an editable rows grid on the right, CSV
   paste/import, and a banner marking the table as shared across the Project's apps.
@@ -36,12 +37,16 @@ Base UI; icons via `@iconify/react/offline` (Tabler).
   shaped to compose more) and `…/formSettings/FormSettingsPanel.tsx` (four self-gating
   sections in fixed order — `CloseConditionSection` gates on form type, `ConnectSection` on
   app connectType). New sections drop in as siblings.
-- `components/builder/shared/PredicateCardEditor.tsx` is the structural Predicate editor
-  (props: `value/onChange/caseTypes/currentCaseType/knownInputs/onValidityChange`); its
-  pickers derive from the checker's slot constraints — the PR-01 contexts flow through the
-  same mechanism, so **disable-with-reason, never dim** and never offer an arm the context
-  rejects. `case-list-config/inspector/FilterInspectorBody.tsx` (+ its live `MatchCount`
-  via a server action) is the mounting pattern to clone.
+- `components/builder/shared/PredicateCardEditor.tsx` is the structural Predicate editor.
+  Its CURRENT props are `value/onChange/caseTypes/currentCaseType/knownInputs/
+  onValidityChange` — it does NOT yet accept a checker context. **Extending it is THIS
+  PR's work**: the editor gains an optional `context: TypeContext` prop (PR-01's
+  display/table contexts) from which its pickers derive their offer sets (the same
+  slot-constraint machinery it already uses for case scopes), and `currentCaseType`
+  becomes optional (a module with no case type still edits display conditions). House
+  rule holds: **disable-with-reason, never dim**, never offer an arm the context rejects.
+  `case-list-config/inspector/FilterInspectorBody.tsx` (+ its live `MatchCount` via a
+  server action) is the mounting pattern to clone.
 - Field-level XPath slots edit through `components/builder/editor/fields/XPathEditor.tsx`
   (CodeMirror `XPathField` + the `useXPathSlots` text⇄AST bridge + the `CommitOutcome`
   bounce: a gate-rejected commit keeps the editor open with the draft). Field-editor
@@ -59,30 +64,43 @@ Base UI; icons via `@iconify/react/offline` (Tabler).
 
 - `ModuleDisplayConditionSection` (third section in `ModuleSettingsPanel`) and
   `FormDisplayConditionSection` (in `FormSettingsPanel` beside `CloseConditionSection`):
-  mount `PredicateCardEditor` under PR-01's `displayConditionContext` (module vs form
-  variant). Empty state: "Always shown — add a condition".
-- **Case-first awareness**: the form variant offers selected-case properties only when
-  `isCaseFirstModule` holds; otherwise the property picker shows those arms disabled with
-  the reason ("this module doesn't guarantee a selected case — every form must load one").
+  mount the extended `PredicateCardEditor` with PR-01's `displayConditionContext` (module
+  vs form variant). Empty state: "Always shown — add a condition".
+- **Per-variant subject offers (PR-01's admissibility matrix, exactly):** the MODULE
+  variant offers ONLY user data (`session-user`), session context, case counts
+  (`case-count`), and table lookups — case properties are never offered at module level
+  (PR-01 rejects `prop` there unconditionally). The FORM variant in a case-first module
+  additionally offers the selected case's own properties. The FORM variant in a
+  forms-first module offers neither case properties NOR case counts (PR-01's matrix:
+  `case-count` is barred there by HQ's form-filter casedb check) — both arms render
+  disabled with reasons ("this module doesn't guarantee a selected case — every form must
+  load one" / "case counts aren't allowed on form conditions here — CommCare HQ rejects
+  case references in this position").
 - Commit: `updateModule`/`updateForm` patch with the Predicate (or `null` to clear) through
   `useBlueprintMutations().inline` so `DISPLAY_CONDITION_ALWAYS_FALSE` and type findings
   render inline in the section (the XPathEditor bounce pattern, adapted: editor state stays,
   finding shown under the card).
-- **Canvas badges** (edit mode only): a small eye-slash chip on module tiles (home canvas)
-  and form tiles carrying a condition; tooltip prints the condition summary (the same
-  printer PR-04 uses for the reveal affordance — display-only, one implementation).
+- **Canvas badges** (edit mode only) — **owned by THIS PR** (PR-04's earlier badge mention
+  is corrected; PR-04 ships no canvas UI): a small eye-slash chip on module tiles (home
+  canvas) and form tiles carrying a condition; tooltip prints the condition summary (the
+  same printer PR-04 uses for the reveal affordance — display-only, one implementation).
 
 ### 2. Case Operations workspace
 
 - A dedicated form-level workspace (route/selection via `lib/routing`'s Location model, the
-  case-list workspace pattern) — **not** a settings-panel section: ops are content.
+  case-list workspace pattern) — **not** a settings-panel section: ops are content. **Entry
+  affordances**: a "Case operations" button in the form's canvas header (beside the settings
+  gear, with an op-count chip) and a matching row in the form settings panel.
 - **Op list**: ordered cards (fractional order; drag to reorder → `moveCaseOperation`), add
   menu split by action (Create / Update / Close). Each card is a sentence header +
   expandable body:
   - **Header**: action verb + case type + target summary ("Create `referral` — linked to
     this client", "Update `clinic` from expression…").
-  - **Target row** (update/close): Session case (only offered when case-first) / a case
-    created above (picker over earlier create ops) / an expression (ValueExpression editor).
+  - **Target row** (update/close): Session case (offered only when the module is case-first
+    AND the op's case type equals the module's type — PR-01's full rule; otherwise disabled
+    with that reason) / a case created above (picker over earlier create ops **of the op's
+    case type** — others listed disabled with the reason, matching PR-01's
+    earlier-create-of-same-type rule) / an expression (ValueExpression editor).
     Expression targets carry the **runtime-resolved affordance**: an info chip whose copy
     states the failure semantics plainly — *"Resolved when the form is submitted. If the
     case isn't found, the submission fails with 'Unable to update or close case …' and the
@@ -90,7 +108,8 @@ Base UI; icons via `@iconify/react/offline` (Tabler).
   - **Create extras**: name (required), owner (ValueExpression editor with the PR-01 owner
     vocabulary), **id source** (`idFrom`): default "generated"; optional picker over
     form-local non-repeat fields ("use a field's value as the new case's ID"), with the
-    companion hint that other ops/fields can reference this case via `id-of`.
+    companion hint: "later ops can reference this case via `id-of`; fields reference this
+    field's own value" (`id-of` is op-expression-only per PR-01).
   - **Writes**: rows of catalog property picker + value expression + optional condition;
     the property picker offers the destination type's declared properties and an inline
     "new property…" that routes through the declaration chokepoint.
@@ -98,8 +117,10 @@ Base UI; icons via `@iconify/react/offline` (Tabler).
     pickers make `case_name`/`case_type` unreachable from the writes list (PR-01's
     reserved-name rule).
   - **Links**: rows of identifier (default `parent`) + target type + target (same target
-    union, plus "remove link" = null target rendered as an unlink row) + relationship
-    (child/extension with one-line explanations of sync behavior).
+    union, plus "remove link" = null target rendered as an unlink row) + relationship, with
+    the two explanations inlined verbatim — **child**: "belongs to the parent; syncs to
+    whoever owns it and pulls the parent along" — **extension**: "rides along with its
+    host's sync and is removed when the host closes".
   - **Condition** (whole-op) and **for each** (repeat picker; copy: "runs once per entry of
     <repeat>").
 - All edits emit PR-01's op mutation quartet through the gate; finding presentation inline
@@ -107,27 +128,47 @@ Base UI; icons via `@iconify/react/offline` (Tabler).
 
 ### 3. Tables workspace + options source
 
-- **Tables workspace** (Project-level surface, reachable from the builder's workspace nav):
-  left rail lists the Project's tables (PR-02 registry); main area = schema editor (column
-  name/label/type rows; name immutability per PR-02's rules surfaced as locked inputs with
-  the reason) + the rows grid (server-action-backed: cell edit, row add/delete/reorder, CSV
-  paste and file import mapping columns by header). A persistent banner: *"Shared across
-  this Project — changes affect every app that uses this table."* Row edits are data writes
-  (no undo; confirm destructive bulk actions).
+- **Tables workspace** — decided placement (the open choice below is closed): inside the
+  builder shell, entered from a NEW persistent node ABOVE the AppTree structure rail.
+  Precedent note for the implementer: the builder has NO top-level nav list today — the
+  left rail IS the module/form AppTree (`components/builder/appTree/`), and the case-list
+  workspace is entered from a per-module tree node — so this "Tables" node is a new shape
+  this PR introduces, carrying a Project-scope glyph to distinguish it from app content.
+  Its list pane shows the Project's tables (PR-02 registry) **plus a "New table"
+  affordance** collecting name + tag (tag pre-filled by slugifying the name, editable,
+  gated inline by PR-02's legality rules — the `identifierVerdicts` presentation pattern);
+  main area = schema editor + rows grid, with a persistent banner:
+  *"Shared across this Project — changes affect every app that uses this table."*
+  - **Schema editor** (aligned with PR-02's decided governance — no client-side
+    pre-locking): column name/label/type rows are editable, **and the column list ends
+    with an add-column row** (columns are always addable per PR-02); rename, removal,
+    `data_type` edits, and tag changes ATTEMPT the server mutation, and a rejection (the
+    project-wide reference scan found references) surfaces the server's person-readable
+    referencing-apps list verbatim inline. Labels always save (nothing references them).
+  - **Rows grid** (server-action-backed, each action commits immediately — no draft
+    buffer): cell edit → `upsertRow`; add row → `upsertRow` (fresh id, tail order key);
+    delete row → `deleteRow`; drag reorder → `moveRow`; CSV paste/file import →
+    `replaceRows` behind a destructive-confirm dialog ("replaces all N rows"). Row edits
+    are data writes (no undo — the confirm dialog is the guard).
 - **Options source on selects**: a new field-editor section (registered in
   `fieldEditorSchemas.ts` for the two select kinds): a source switch (Inline options ⊕
   Lookup table). Table mode: table picker (registry), value/label column pickers, optional
   filter via `PredicateCardEditor` under the `tableScope` context — including `field`-Term
   choice filters ("only rows where `region` = answer of <field>"), offered via a field
-  picker restricted to form-local fields. Switching modes preserves the other mode's config
-  in the doc until explicitly cleared (schema exclusivity is enforced at commit; the editor
-  guides rather than destroys).
+  picker restricted to form-local fields. **Mode-switch semantics, per direction** (PR-01's
+  precedence is PRESENCE-based, so the directions differ): Inline → Table SETS
+  `options_source` (the inline `options` stay in the doc — PR-01's one-directional
+  retention); Table → Inline emits `options_source: null` through the gate — **the switch
+  IS the explicit clear**, because a retained `options_source` would keep winning by
+  precedence and make the switch observably inert. Only `options` survives round-trips; a
+  confirm names what's discarded (the table binding — one click to re-create).
 
 ## Tests / acceptance
 
 House testing rules: UI is f(state) — **no RTL/jsdom component tests**; test the state
-models (section visibility gating, op card ↔ mutation mapping, options-source exclusivity
-transitions) as pure functions; flows ride the Playwright smoke.
+models (section visibility gating, op card ↔ mutation mapping, options-source mode-switch
+transitions per direction — inline→table retains `options`; table→inline emits the null
+clear) as pure functions; flows ride the Playwright smoke.
 
 Acceptance, phrased as what the user does/sees:
 - Open a module's settings → add "show when `can_admin` is `yes`" → the panel shows the
@@ -153,8 +194,6 @@ docs pages (PR-06); tiles UI (PR-07); wave-2 workspaces (PR-12).
 
 - Case Operations workspace layout (single column of cards vs master-detail) — pick for
   legibility at 5–20 ops; the 20-op production forms are the stress case.
-- Whether the tables workspace lives under the builder shell or a Project-level route
-  (recommend builder shell with a Project-scope banner — matches where authors already are).
 - CSV import UX details (header mapping, error presentation) — keep v1 minimal
   (paste + file, comma/tab sniffing, per-row error list).
 - Badge/chip visuals — frontend-design skill decides; keep the condition-summary printer

@@ -71,9 +71,13 @@ LookupTableDef = {
   columns: Array<{ name: string, label: string, data_type?: LookupColumnDataType }>,
   createdBy: string, createdAt/updatedAt: Timestamp,
 }
-// LookupColumnDataType = the SCALAR subset of the case-property vocabulary:
-//   "text" | "integer" | "decimal" | "date" | "datetime" | "boolean" (default text).
-//   select/multi_select/geopoint are excluded — they have no table-cell semantics.
+// LookupColumnDataType = the SCALAR subset of the ACTUAL case-property vocabulary
+//   (lib/domain/casePropertyTypes.ts::casePropertyDataTypes — spelled exactly):
+//   "text" | "int" | "decimal" | "date" | "time" | "datetime" (default text).
+//   select/multi_select/geopoint are excluded (no table-cell semantics). There is NO
+//   boolean — CommCare has no boolean data type and the predicate checker coerces
+//   booleans to text (typeChecker.ts's literal-type note); flag-like columns are text
+//   ("yes"/"no"), matching case-property practice.
 // The read-only projection PR-01's validator consumes is exported from here as
 //   LookupTableSnapshot = Pick<LookupTableDef, "id" | "tag" | "name" | "columns">.
 ```
@@ -118,7 +122,8 @@ index: (project_id, table_id, "order", row_id)
   `withProjectContext` — clone the `gatedCaseStore` wrapper as `gatedLookupStore`.
 - **AJV write validation** compiled per table from `columns` (`additionalProperties:
   false`; JSON types per `LookupColumnDataType` — text/date/datetime as strings,
-  integer/decimal as numbers, boolean as boolean) — mirror `caseTypeToJsonSchema` +
+  int/decimal as numbers, everything else — text/date/time/datetime — as strings) — mirror
+  `caseTypeToJsonSchema` +
   `validateProperties`, one shared "compile column schema" helper so PR-04's preview
   validation reuses it. **Type-coercion locus: the import/write boundary** — CSV parsing
   yields strings for every cell, so the server action coerces each cell per its column's
@@ -150,26 +155,31 @@ allowlist change needed); the builder and preview consume IT.
   pattern the app doc itself uses) so a table CREATED by a co-member after session load
   becomes referenceable without a reload; the `TABLE_REFERENCE_UNKNOWN` rejection message
   says "…or the registry hasn't refreshed — retry" for the residual race window.
-- `mutationCommitVerdict` and `validateBlueprintDeep` thread the registry through to the
-  checker (`tableScope(tableDef)`) and the `TABLE_REFERENCE_UNKNOWN` /
-  options-source column checks from PR-01. Absent registry (stale session, race with a
-  concurrent table deletion): unknown-table findings are **introduce-gated** soundness, so
-  a doc referencing a just-deleted table still loads and the reference scan (§1) makes that
-  race rare by construction.
-- MCP/API paths that validate (compile, tool dispatch) hydrate the registry server-side the
-  same way the media manifest resolves assets today.
+- **Ownership boundary with PR-01 (which lands SECOND and owns the validation side):**
+  this PR delivers the `LookupTableSnapshot` type export, the gated read/list surface, and
+  the Firestore listener above — nothing more. The gate/context signature change
+  (`mutationCommitVerdict`'s optional `context.tables`), the threading into
+  `validateBlueprintDeep`/`tableScope`, the `TABLE_REFERENCE_UNKNOWN` and options-source
+  checks, and every reference-dependent behavior are **PR-01 deliverables** (no table
+  reference is even expressible in a doc until PR-01's schema slots exist). MCP/API-path
+  hydration is likewise wired by PR-01 against this PR's read surface.
 
 ## Tests / acceptance
 
 - Firestore-membership matrix: co-member sees/edits; non-member rejected on every helper.
 - Tag legality + per-Project uniqueness incl. the concurrent-create race test.
-- Column governance: add/label-edit pass; remove/rename/tag-change blocked with a
-  referencing-app list when a fixture app references the column; allowed when clean;
-  data_type edit re-validates rows.
+- Column governance: add/label-edit pass; remove/rename/tag-change **allowed when the
+  project-wide scan returns zero references** (the only state expressible before PR-01 —
+  no schema slot can reference a table yet); the scan machinery is exercised here against
+  a seeded synthetic reference edge, and the real referencing-app block cases land in
+  PR-01's test plan alongside the slots that create references; data_type edit re-validates
+  rows.
 - Row store: AJV rejections per data_type; replaceRows transactionality; fractional-order
   stability; the cap.
-- Registry hydration: a doc referencing a known table validates; unknown table id →
-  introduce-gated finding; commit-gate parity between builder and MCP paths.
+- Registry hydration: the snapshot listener delivers creates/updates/deletes to a
+  subscribed session; the read surface is membership-gated. (The validation-side tests —
+  known-table validates, unknown-table introduce-gated finding, builder/MCP commit-gate
+  parity — are PR-01's, where table references first become expressible.)
 - `npm run db:migrate` applies clean; `lint/typecheck/test` green; `test:leaks` on touched
   tests.
 

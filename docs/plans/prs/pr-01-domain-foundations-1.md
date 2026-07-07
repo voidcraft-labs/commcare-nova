@@ -31,8 +31,12 @@ tables referenced from expressions and select options. This PR makes those state
   (`commcare-core/.../MenuLoader.getMenuDisplayables` catch → screen-level error) — the
   reason every condition here is checker-gated and boolean-by-construction.
 - `window_width` is real (`SessionInstanceBuilder::addMetadata` writes
-  `session/context/window_width`; the node is ABSENT when the frontend sends none —
-  comparisons then false).
+  `session/context/window_width`; the node is ABSENT when the frontend sends none).
+  **Absent-node comparison semantics (wire truth — the checker docs and PR-04's fold must
+  mirror this exactly):** commcare-core unpacks an empty nodeset to the EMPTY STRING for
+  general comparisons — so `eq(absent, '')` is TRUE, `neq(absent, x)` is TRUE for non-empty
+  x — while NUMERIC ordering comparisons against an absent node are false (NaN). "Absent ⇒
+  false" holds only for the ordering operators; equality follows empty-string semantics.
 - Case blocks: every block needs `@case_id` (server `CaseGenerationException`);
   create-of-existing merges (client `acceptCreateOverwrites` true in all callers; server
   treats as update); `<create>` accepts only case_type/case_name/owner_id children; empty
@@ -132,7 +136,14 @@ compiler is the authority, this list is the map.)
   tenant + type + open filter — PR-04 adds the server-action/store *entry point* that
   invokes it); CSQL: representability error.
 - `table-lookup` (ValueExpression): `{ tableId, column, where: Predicate }` — first-match
-  by row order on BOTH targets (XPath first node; SQL `ORDER BY row order LIMIT 1`).
+  by row order on BOTH targets, **pinned structurally, not by coercion**: JavaRosa has NO
+  XPath-1.0 first-node coercion — a scalar use of a multi-node path throws
+  (`javarosa/.../XPathNodeset.java::unpack`: size > 1 → `XPathTypeMismatchException`, which
+  in menu relevancy kills the whole menu screen). The on-device lowering therefore carries
+  an explicit positional predicate — `…/{tag}[where][1]/col` (JavaRosa numeric predicates
+  are position matches: `EvaluationContext`'s predicate loop, `passed = (intVal ==
+  positionContext[predIndex])`) — and SQL mirrors it with `ORDER BY row order LIMIT 1`.
+  PR-03's emitter and PR-04's fold both cite this rule.
 - `column` (Term): `{ name }` — a lookup-table column reference, **legal only inside table
   scope** (`table-lookup.where`, `options_source.filter`); checker resolves the type from
   the PR-02 registry snapshot's column `data_type`; on-device prints the relative child
@@ -149,17 +160,22 @@ compiler is the authority, this list is the map.)
   `acting-user` (ValueExpression) — on-device `/data/meta/userID`-anchored (the meta block
   bind PR-03 wires); Postgres: the acting persona/user id; and `unowned` (ValueExpression)
   — the literal `'-'` sentinel (verified alive: `UNOWNED_EXTENSION_OWNER_ID`).
-- `window_width` added to `SESSION_CONTEXT_FIELDS` (checker type number; absent-node ⇒
-  false documented). **Admission mechanism**: the shared enum admits it schema-wide; the
+- `window_width` added to `SESSION_CONTEXT_FIELDS` (checker type number; absent-node
+  semantics per the eq/ordering split in the verified contracts above — document that
+  split, never a blanket absent⇒false). **Admission mechanism**: the shared enum admits it schema-wide; the
   TYPE CHECKER rejects it outside display-condition contexts (a per-context rule, the same
   mechanism as every other context restriction — schema-level admission is deliberately
   global).
 - XPath parts-AST leaf `table-ref` (`lib/domain/xpath/ast.ts` + printer + Lezer bridge):
   authored AND PRINTED as **`#table/<tag>`** — an identity leaf, byte-exact round-trip like
   every other leaf; the domain printer NEVER emits wire vocabulary (quarantine intact).
-  The wire expansion to `instance('item-list:<tag>')/{tag}_list/{tag}` is a NEW entry in
-  `lib/commcare/hashtags.ts`'s expansion table (the same seam `#user/` uses), landed here
-  but **activated in PR-03** (see §5's gating). `#table` becomes a reserved namespace:
+  The wire expansion to `instance('item-list:<tag>')/{tag}_list/{tag}` is a NEW
+  resolver-function branch in `lib/commcare/hashtags.ts`'s `rewriteHashtags` consumers
+  (keyed on the `table` namespace, alongside the `#case/` resolver branch) — NOT an entry
+  in the flat-prefix `EXPANSIONS` Map, which structurally cannot express it: the Map is
+  `prefix + segments.join("/")`, and this expansion repeats the tag three times (the same
+  reason the file excludes `#case/` from that Map). Landed here but **activated in PR-03**
+  (see §6's gating). `#table` becomes a reserved namespace:
   `lib/domain/hashtagSegments.ts` + the reference config gain it, and a new validator rule
   makes a case type named `table` unconstructible going forward (introduce-gated — legacy
   docs carrying one keep validating; the namespace resolver prefers the reserved reading).
@@ -172,7 +188,8 @@ compiler is the authority, this list is the map.)
 | arm | module level | form level (case-first) | form level (forms-first) |
 |---|---|---|---|
 | `literal`, date fns, `session-user`, `session-context` (incl. `window_width`) | ✓ | ✓ | ✓ |
-| `case-count`, `table-lookup` (+ `column` inside them) | ✓ | ✓ | ✓ |
+| `table-lookup` (+ `column` inside it) | ✓ | ✓ | ✓ |
+| `case-count` (+ `column`/`prop` inside its `where`) | ✓ | ✓ | ✗ — HQ's form_filter post-interpolation check (`menus.py`: `xpath_references_case(interpolated_xpath)` → `CaseXPathValidationError`) rejects ANY casedb reference in a form filter whose module doesn't guarantee a case; `case-count` lowers to `instance('casedb')…`, so forms-first form conditions must not carry it. Module filters are exempt (only the hashtag/dot check runs there). |
 | `prop` (module's own type, own properties) | ✗ | ✓ | ✗ |
 | `field`, `input`, `when-input-present`, `id-of`, `within-distance`, `unwrap-list` | ✗ | ✗ | ✗ |
 | match modes | on-device set only (extend `matchModeOnDeviceCompatibility`) | same | same |
@@ -183,14 +200,17 @@ compiler is the authority, this list is the map.)
 - `tableScope(tableDef)`: `column` refs against the snapshot's columns; plus `field`
   (options filter only), session terms, literals.
 
-### 4. Registry snapshot plumbing (with PR-02)
+### 4. Registry snapshot plumbing (with PR-02) — ownership split, explicit
 
-The commit gate stays a pure function: `mutationCommitVerdict` gains an optional
-`context.tables: LookupTableSnapshot[]` (shape, exported by PR-02:
-`{ id, tag, name, columns: [{ name, label, data_type? }] }`). Hydration per surface:
-the builder session hydrates at load and live-updates from the PR-02 registry listener;
-the chat route and MCP dispatch hydrate per request server-side. Semantics: **fail-closed
-for introductions** — a batch introducing a reference to a table id absent from the
+**PR-01 owns the entire validation side**: the gate/context signature change
+(`mutationCommitVerdict` gains an optional `context.tables: LookupTableSnapshot[]` — the
+ONE slot name both docs use), the threading through `evaluateCommit`/`validateBlueprintDeep`
+to `tableScope` and the table findings, and every reference-dependent test. **From PR-02
+(already landed) this PR consumes only**: the exported `LookupTableSnapshot` type
+(`{ id, tag, name, columns: [{ name, label, data_type? }] }`), the gated read surface, and
+the Firestore registry listener. Hydration per surface (wired here): the builder session
+hydrates at load and live-updates from the listener; the chat route and MCP dispatch
+hydrate per request server-side. Semantics: **fail-closed for introductions** — a batch introducing a reference to a table id absent from the
 snapshot rejects (`TABLE_REFERENCE_UNKNOWN`, introduce-gated soundness, person-readable
 "that table isn't in this Project (or the registry hasn't refreshed — retry)"); existing
 docs' references are introduce-exempt as usual.
@@ -205,8 +225,12 @@ docs' references are introduce-exempt as usual.
   `caseType`/`retype`/`links[].targetType` (`t:` edges), op writes (`c:` edges),
   `forEach.repeat`/`target.opUuid`/`idFrom`/`id-of` (uuid edges), `options_source`
   (`lt:`/`ltc:` edges), `table-lookup`/`table-ref`/`column` carriers.
-- Catalog chokepoints: op-creating surfaces prepend `declareCaseType` /
-  `ensureCatalogProperty` (per-surface multiplayer test, the `multiplayerMerge` pattern).
+- Catalog chokepoints: op-creating surfaces prepend the chokepoint MUTATIONS —
+  `declareCaseType` (idempotent) + one `addCaseProperty` per op-written property (the
+  `scaffolds.ts::declareCaseTypeForField`/`caseTypeCatalogMutations` builder precedents;
+  note `ensureCatalogProperty` is a reducer-internal appender covering FIELD writes only —
+  op writes need the explicit mutations). Per-surface multiplayer test, the
+  `multiplayerMerge` pattern.
 
 ### 6. Validator — codes, classes, repairs
 
@@ -221,14 +245,23 @@ All gating codes get `VALIDITY_CLASS_BY_CODE` rows + `legacyFindingRepairs` judg
   `commcare-case-claim`, `user-owner-mapping-case` — claim unlocks in wave 2); `target:
   session` requires case-first + module type; `target: op` earlier-create-of-same-type;
   `retype` declared; ≤1 op per statically-known (caseType, target); `idFrom` form-local,
-  non-repeat; op `id` slug rules.
+  non-repeat; **a create op with `forEach` may not carry `idFrom`** (a non-repeat field
+  yields the SAME id every iteration, and create-of-existing merges — N intended cases
+  would silently collapse into one on both runtimes; per-iteration ids are always the
+  PR-03 bind-calculate `uuid()`); op `id` slug rules.
 - Tables: `TABLE_REFERENCE_UNKNOWN` (§4); `options_source` column/type checks. **Gating
   boundary with PR-03 (total-emitter invariant):** this PR does NOT green-light
-  table-bearing wire. `FIXTURE_REFERENCE_NOT_MODELED` keeps rejecting `#table/` heads in
-  field expressions, and a temporary gating finding (`TABLE_EMISSION_NOT_ACTIVE`) keeps
-  `options_source`/`table-lookup`-bearing docs from committing, **both lifted by PR-03 in
-  the same PR that makes the wire emittable** — at no merge point can a valid doc reach an
-  emitter that can't emit it (main auto-deploys).
+  table-bearing wire, and the gate is **new code, not existing behavior** — the existing
+  `fixtureReferenceNotModeled` rule scans printed field XPath for literal `instance('<id>')`
+  calls (`validator/rules/field.ts::findUnmodeledInstanceIds`, a Lezer `FunctionName ===
+  "instance"` walk) and can never see a `#table/<tag>` head, which prints as a hashtag.
+  So this PR lands ONE temporary gating finding, `TABLE_EMISSION_NOT_ACTIVE`, covering
+  EVERY table carrier: `options_source`, `table-lookup` expressions, AND `table-ref`
+  leaves in field expression slots (a new scan arm over the parts-AST leaves — cheap,
+  the reference index already extracts them). PR-03 deletes that finding in the same PR
+  that makes the wire emittable (and narrows `FIXTURE_REFERENCE_NOT_MODELED` for
+  raw-authored `instance('item-list:…')` text there too) — at no merge point can a valid
+  doc reach an emitter that can't emit it (main auto-deploys).
 - `#table`-reserved-namespace rule (§2).
 
 ### 7. `effectiveDisplayConditionForEmission` (`simplify.ts`)

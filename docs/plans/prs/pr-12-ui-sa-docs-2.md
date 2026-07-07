@@ -44,10 +44,14 @@ chat, preview it as any persona, and read exactly what to configure on HQ.
   constraints; **no RTL/jsdom UI tests** — test state models; real-UI verification rides
   the Playwright smoke. Load the `frontend-design` skill; build from `@/components/shadcn`;
   icons from `@iconify/react/offline`.
-- **SA tool mechanics** as in PR-06: hand-written Zod inputs, `guardedMutate` for doc
-  mutations, server actions for data writes, `SHARED_TOOLS` entries for new tools, automatic
-  MCP schema propagation (`lib/mcp/adapters/sharedToolAdapter.ts::registerSharedTool`),
-  `scripts/test-schema.ts` coverage, guidance as `###` subsections in
+- **SA tool mechanics** as in PR-06 (its corrected contract): hand-written Zod inputs,
+  `guardedMutate` for doc mutations, server actions for data writes, and — for every
+  brand-new tool — **TWO registrations**: the chat SA's own tool manifest in `lib/agent`
+  (the tool directory the `ToolLoopAgent` is constructed from) AND a `SHARED_TOOLS` entry
+  in `lib/mcp/server.ts`. Schema changes on EXISTING tools propagate to MCP automatically
+  (`lib/mcp/adapters/sharedToolAdapter.ts::registerSharedTool`); missing the chat-side
+  registration ships a tool on MCP only and silently breaks this PR's headline goal.
+  `scripts/test-schema.ts` coverage; guidance as `###` subsections in
   `lib/agent/prompts.ts::SHARED_TAIL`.
 
 ## Build
@@ -67,8 +71,10 @@ validator rule surfaced inline). Edits dispatch the PR-09 keyed mutations throug
 Two panes. **Levels**: the role vocabulary as the primary control (territory / bucket /
 registry / area, each with one-line intent copy from F3 §2), `seesDescendantCaseloads` and
 `addressBook` as explicit options, custom level fields (name/label under the slug rule).
-**Tree**: an editor over the Postgres `locations` rows (PR-09's store API via server
-actions) — add/rename/move-within-level/archive, `site_code` displayed read-only (derived),
+**Tree**: an editor over the Postgres `locations` rows (**PR-10's implemented store** —
+PR-09 lands only schema/types/stubs; the gated CRUD server actions this pane invokes are
+PR-10 deliverables per the index's ownership note) — add/rename/move-within-level/archive,
+`site_code` displayed read-only (derived),
 custom-field value cells per the level's fields. Tree integrity rejections (level parentage,
 singleton-bucket, site_code uniqueness) render as inline person-readable errors. No undo on
 tree edits (data, not doc) — say so in the UI copy.
@@ -109,7 +115,10 @@ In the Deployment panel: "Create workers on HQ from user types" — pick a type 
 usernames, invoke PR-11's `CommCareUserResource` client functions (user_data values from the
 type, location assignment via `primary_location`/`locations`), show per-worker results and
 the identity mappings; failures degrade to warnings per the push contract. Web-user
-invitations ride the same surface minimally (email + type).
+invitations ride the same surface minimally — inputs: email, Nova user type, and a
+**required HQ web-user role name** (`InvitationResource` resolves `role` by name against
+the domain's roles and fails without one; a Nova user type cannot supply it — the surface
+takes it as an explicit text input documented as "an existing role on the target domain").
 
 ### 7. SA tools + prompt guidance II
 

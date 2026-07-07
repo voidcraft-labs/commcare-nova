@@ -11,8 +11,9 @@ push identity); PR-03 (emitters + instance-accumulation seams).*
 the locations address-book fixture on both delivery paths, the remaining expression
 lowerings, **one HQ push framework** with three drivers (lookup tables, locations, users),
 and **one consolidated setup artifact** covering everything HQ has no write API for. After
-this PR, "upload to HQ" delivers: the app, its media, its tables, its location tree, its
-users — plus a precise setup document for the rest.
+this PR, "upload to HQ" delivers: the app, its media, its referenced tables, its location
+tree — plus a precise setup document for the rest, and on-demand worker provisioning
+functions that PR-12's surface invokes (users are deliberately NOT an automatic phase).
 
 ## Verified contracts this PR relies on
 
@@ -91,7 +92,12 @@ users — plus a precise setup document for the rest.
 - `deriveCaseConfig` gains the usercase bucket: fields with
   `case_property_on: 'commcare-user'` → `buildFormActions` populates `usercase_update`
   (and `usercase_preload` mirroring the module-case preload derivation for case-loading
-  reads — see open choices); the three inert slots stop being constants.
+  reads — see open choices). The TWO usercase slots become derived; the third inert
+  FormActions slot, `load_from_form`, stays a `never()` constant — explicitly untouched
+  (no Nova surface feeds it). The usercase bucket is EXCLUDED from the child-case
+  bucketing (no `OpenSubCaseAction` for `commcare-user` — the create-a-usercase wire is
+  unreachable), and this PR **lifts PR-09's `USERCASE_EMISSION_NOT_ACTIVE` gate** in the
+  same change.
 - `xform/caseBlocks.ts` gains the usercase branch mirroring `_add_usercase` exactly
   (block path, `@case_id` bind, per-property update binds with the count-guard rule,
   preload setvalues). The HQ-upload path needs only the FormActions (HQ regenerates —
@@ -115,6 +121,8 @@ users — plus a precise setup document for the rest.
   `addTermInstance` arms for `LocationRef`/`location-field` (→ `locations` +
   `commcaresession` where user-location is involved); `#user`/`usercase-prop` → `casedb`
   + `commcaresession`.
+- This PR also **lifts PR-09's `LOCATION_EMISSION_NOT_ACTIVE` gate** — the same change
+  that makes the fixture + instance declarations real (the PR-01→PR-03 activation pattern).
 - Lowerings (on-device): `#user/<prop>` + `usercase-prop` → the verified UsercaseXPath
   shape; `LocationRef` per the F3 plan §2 table — `location` →
   `instance('locations')/locations/location[site_code='<code>']/@id`; `user-location` →
@@ -125,19 +133,31 @@ users — plus a precise setup document for the rest.
 
 ### 3. The push framework (built once)
 
-A small `HqPushPhase` abstraction on the upload route: ordered phases after `importApp`
-(app → media → **tables → locations → users**), each returning ok/warning with a
-person-readable message (the media contract — a failed phase never fails the upload; it
-reports precisely what to do). Shared client helpers (auth, CSRF, WAF padding, bounded
-concurrency, async-poll) extracted from `importApp`'s machinery, then three drivers:
+A small `HqPushPhase` abstraction on the upload route: ordered AUTOMATIC phases after
+`importApp` (app → media → **tables → locations**; users are on-demand functions, not a
+phase), each returning ok/warning with a person-readable message (the media contract — a
+failed phase never fails the upload; it reports precisely what to do). Shared client
+helpers (auth, CSRF, WAF padding, bounded concurrency, async-poll) extracted from
+`importApp`'s machinery, then three drivers:
 
-- **Tables** (identity = `tag`): resolve existing by listing + tag match; structure via
-  JSON REST (POST new / PUT by UUID — tag immutable; a Nova tag rename = delete old +
-  create new, surfaced in the phase report); rows via the **Excel `fixapi` bulk path,
-  `replace=true`, async + status polling** (content-keyed, stateless — no row-UUID
-  bookkeeping). Generate the workbook in the documented upload format (one sheet per
-  table; header row = field names). xlsx generation: check the repo's existing deps
-  before adding one (open choice).
+- **Tables** (identity = `tag`; **scope = only the tables the app REFERENCES** — the same
+  compile-time reference set that drives embedded-fixture emission, never the whole
+  Project catalog). **This driver also DELETES PR-03's interim wave-1 upload guard**
+  (`rejectTableReferencingUploads` / the `HQ_UPLOAD_TABLES_NOT_PUSHED` message constant on
+  the upload route's boundary gate — grep the symbol) in this same PR, with a test
+  asserting a table-referencing app now uploads and its tables push. Then: resolve
+  existing by listing + tag match; structure via JSON REST
+  (POST new / PUT by UUID — tag immutable; a Nova tag rename = delete old + create new,
+  surfaced in the phase report); rows via the **Excel `fixapi` bulk path, `replace=true`,
+  async + status polling** (content-keyed, stateless — no row-UUID bookkeeping). The
+  workbook format is HQ's fixture-upload contract, verified at
+  `fixtures/upload/workbook.py`: a mandatory **`types` definition sheet** (one row per
+  table: `Delete(Y/N)`, the table tag, global flag, and the field-name columns) plus one
+  **data sheet per table, named by its tag**, whose headers are `UID`, `Delete(Y/N)`, and
+  **`field: <name>`** (colon syntax) per column — leave `UID` empty on insert
+  (`_run_upload` keys merges on it). NOT "one sheet with field-name headers" — a workbook
+  missing the `types` sheet is rejected outright (`no_types_sheet`). xlsx generation:
+  check the repo's existing deps before adding one (open choice).
 - **Locations** (identity = `site_code`): fetch existing (list, paged) → diff → upsert
   via `patch_list` in parent-before-child batches of ≤100 (atomic per batch); level codes
   must already exist on the domain (the setup artifact's org section is a prerequisite —

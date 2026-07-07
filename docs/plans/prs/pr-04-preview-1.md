@@ -16,8 +16,8 @@ persona interface does not change when typed user types land (PR-10).
 In the running-app preview: menus and forms appear/disappear based on who they're pretending
 to be (a persona editor sets user-data values and screen width); submitting an event form
 visibly creates/updates/closes/links several cases at once in the case data; selects fed by
-lookup tables show live, filtered choices. In edit mode nothing hides — conditioned items
-carry a badge.
+lookup tables show live, filtered choices. In edit mode nothing hides (the canvas badges on
+conditioned items are PR-05's).
 
 ## Verified contracts this PR mirrors (cite in code by these names)
 
@@ -34,13 +34,21 @@ carry a badge.
   `update_strategy.py::_apply_index_action`); the server applies each block's actions in
   fixed order create→update→close→index regardless of XML order
   (`parser.py::CaseUpdate.__init__`), the client in document order — PR-01's canonical op
-  order (array order; `target: op` points earlier) + PR-03's child ordering make both agree,
-  and this PR's application order is that same canonical order.
+  sequence (**`sort-by-(order, uuid)`** over the op collection; fractional keys, reorder
+  re-keys `order`, membership-array position never authoritative; `target: op` points
+  earlier in that sorted sequence) + PR-03's child ordering make both agree, and this PR's
+  application order is that same sorted sequence. Empty-index-removal server citations,
+  complete: `_apply_index_action` blanks `referenced_id` on the existing row, and removal
+  is realized by `CommCareCaseIndex.is_deleted` (`not referenced_id`) filtering in
+  `live_indices`.
 - **Session instance semantics**: `session/user/data/<key>` nodes come verbatim from the
   restore user's properties (`SessionInstanceBuilder.java::addUserProperties`); an absent
-  key is an **absent node**, so comparisons against it are false. `window_width` is written
-  by `addMetadata` only when the frontend supplied one (`addData` drops null) — absent, not
-  empty. The persona evaluator must reproduce absent-vs-empty exactly.
+  key is an **absent node**, and the wire's comparison semantics are exact: commcare-core
+  unpacks an empty nodeset to the EMPTY STRING for general comparisons — `eq(absent, '')`
+  is TRUE and `neq(absent, x)` is TRUE for non-empty x — while NUMERIC ordering against an
+  absent node is false (NaN). `window_width` is written by `addMetadata` only when the
+  frontend supplied one (`addData` drops null) — absent, not empty. The persona evaluator
+  must reproduce absent-vs-empty and the eq/neq/ordering split exactly.
 - **Choice re-evaluation**: itemset choices are recomputed when a prompt rebuilds — a filter
   referencing another answer re-filters on navigation
   (`commcare-core/.../ItemSetUtils.java::populateDynamicChoices`;
@@ -71,8 +79,11 @@ interface PreviewPersona {
   location; nothing here changes. Resolution helpers live beside the store
   (`resolvePersonaUserData(persona)`) so wave 2 swaps sources, not call sites.
 - Persona editor in the preview shell (`components/preview/PreviewShell.tsx` region):
-  key/value user-data rows, username, width presets (desktop/tablet/phone/unset). "No
-  persona" = today's author-omniscient behavior, clearly labeled.
+  key/value user-data rows, username, width presets (desktop/tablet/phone/unset). **"No
+  persona" semantics (defined once, here):** with no persona selected, display conditions
+  are NOT applied at all — everything renders (author-omniscient, labeled in the shell).
+  No partial evaluation: data-only conditions (case-count/table-lookup) are skipped too,
+  so the author never sees a half-persona hybrid.
 - Builder session store gains the slot + actions following the `PreviewCaseTarget` pattern;
   no shadow flags (house rule).
 
@@ -82,13 +93,29 @@ Three stages, single-semantics rule enforced by construction:
 1. **Rewrite** `session-user` / `session-context` terms to literals from the persona
    (`lib/domain/predicate/rewrite.ts` machinery; `window_width` → number or *absent-node
    sentinel*, `userid`/`username` from the persona).
-2. **Constant-fold** in TS: literal-vs-literal comparisons, boolean identities
-   (`reduction.ts`/`simplifyForEmission` building blocks). Absent-node sentinel comparisons
-   fold to false, mirroring the wire. Most user-data-flag conditions fully decide here.
+2. **Constant-fold** in TS: literal-vs-literal comparisons, boolean identities (building
+   blocks: `lib/domain/predicate/reduction.ts` + `simplify.ts::simplifyForEmission`).
+   Absent-node sentinel comparisons fold per the wire's exact semantics (contracts above):
+   `eq(absent, '')` → true, `neq(absent, non-empty)` → true, numeric ordering → false.
+   Most user-data-flag conditions fully decide here.
 3. **SQL residue**, batched: remaining `case-count` / `table-lookup` (and form-level
    selected-case `prop`) subtrees compile through the existing AST→Kysely path
    (`lib/case-store/sql/compilePredicate.ts` / `compileExpression.ts`) in ONE server action
-   per menu render (`evaluateDisplayConditions(appId, conditions[], personaLiterals)`),
+   per menu render (`evaluateDisplayConditions(appId, conditions[], caseTypes,
+   personaLiterals, selectedCaseId?)` — `caseTypes` is the LIVE catalog slice sent from the
+   client, per the house Server-Action wire-shape rule (`lib/preview/CLAUDE.md`:
+   "read/query actions ship the case-type catalog slice… not re-read server-side", the
+   `loadCasesAction` precedent) — the residue's `prop` casts need it and a server-side
+   re-read would reintroduce the stale-schema divergence that rule exists to prevent).
+   **Form-level evaluation locus (preview-verified):** in preview, a case-first module's
+   `ModuleScreen` renders nothing (`ModuleScreen.tsx::redirectToCaseList` sends non-edit
+   case-first traffic to the case list) — the post-selection form menu lives INSIDE
+   `CaseListScreen` (`formMenuCase` state + the `caseLoadingForms` list, including the
+   single-form auto-continue via `openFormWithCase` and `seededFormUuid`). So form-level
+   `prop` conditions gate `caseLoadingForms` (which also gates the auto-continue) and the
+   `formMenuPane` list, with the selected row's `case_id` as `selectedCaseId`, never Home;
+   `ModuleScreen`'s form map is a gating site only for the forms-first flow, where `prop`
+   is inadmissible and no `selectedCaseId` exists. All of it
    Project-membership-gated like every case read (`gatedCaseStore`). New store ENTRY POINT:
    a type-scoped open-case-count query method — it invokes the `case-count` compile arm
    PR-01 landed in `compileExpression.ts` (this PR adds the store method + server action,
@@ -98,23 +125,30 @@ Three stages, single-semantics rule enforced by construction:
   structural — no per-item evaluation exists).
 - **Hidden-items reveal**: hidden is the default (runtime-faithful); a "hidden items (N)"
   affordance shows ghosted tiles, each with a person-readable condition summary ("shows
-  when `can_admin` = 'yes'"). Edit mode is untouched: everything visible, conditioned items
-  badged (matches field-`relevant` behavior: edit shows all, preview evaluates).
-- Caching: results keyed on (doc revision, persona, case-store write counter); case writes
-  during preview invalidate — reuse the case-data invalidation seam the case-list preview
-  already consumes.
+  when `can_admin` = 'yes'"). Edit mode is untouched — everything visible (PR-05 adds the
+  canvas badges; not this PR).
+- Caching: none in v1 — conditions evaluate per render (menu renders are already
+  server-backed), and case writes trigger the same per-screen manual `reload` pattern the
+  case-list preview uses today. A revision-token cache is future work, not scope (the repo
+  has no case-store write counter or table-revision token to key on).
 
 ### 3. Case-op execution (`lib/preview/engine` + `lib/case-store`)
 
-- **New `SubmissionMutation` arm** (`caseDataBindingTypes.ts`): `caseOperations` — the
-  form's ops resolved to concrete effects at submit time by
-  `FormEngine.computeSubmissionMutation`: per op — evaluate `condition` (skip if false),
-  expand `forEach` over repeat instances (the existing `[i]`-indexed walk), resolve
-  `target` (`new` → fresh uuid or the `idFrom` field's value; `op` → the earlier op's
-  resolved id; `session` → the loaded case id; `expression` → evaluated value), evaluate
-  `name`/`owner`/`rename`/`retype`/`writes` (per-write conditions evaluated **explicitly —
-  never via render visibility**; the engine's walk ignores `state.visible` today, a
-  divergence ops must not inherit), resolve `links` targets (null = remove).
+- **New `SubmissionMutation` arm** (`caseDataBindingTypes.ts`): `caseOperations` — split
+  across the boundary deliberately. `FormEngine.computeSubmissionMutation` emits op
+  **DESCRIPTORS**, not resolved effects: per op it captures the expression ASTs plus
+  everything form-local (the submitted field values, `forEach` expansion over repeat
+  instances via the existing `[i]`-indexed walk, `idFrom` field values, per-write
+  conditions flagged for explicit evaluation — **never via render visibility**; the
+  engine's walk ignores `state.visible` today, a divergence ops must not inherit).
+  **Resolution happens SERVER-SIDE inside the submission transaction**
+  (`submitFormAction`): session-user/session-context terms fold from the persona BEFORE
+  dispatch (literals in the descriptor); field refs and `id-of` resolve from the submitted
+  instance + the transaction's op-id allocations; `table-lookup` inside op expressions
+  compiles inline via `compileExpression` within the same transaction (Postgres-resident
+  data never round-trips to the client); `target` resolves there too (`new` → fresh uuid or
+  the `idFrom` value; `op` → the earlier op's allocated id; `session` → the loaded case id;
+  `expression` → evaluated in-transaction); `links` targets likewise (null = remove).
 - **One transaction per submission**: a new store method
   `applySubmission(appId, effects[])` wraps EVERYTHING — primary case action, children,
   ops, link CRUD, closes — in a single Kysely transaction. The existing
@@ -122,20 +156,27 @@ Three stages, single-semantics rule enforced by construction:
   non-atomicity**; `schemaHealingCaseStore` retry semantics move to the transaction
   boundary (a retry re-runs the whole submission, which is now safe because nothing
   partial persisted).
-- Effect application order = ops array order; per op: create → `insert` (merge-on-existing
-  when `idFrom` collides, mirroring `acceptCreateOverwrites`) → writes (JSONB merge) →
-  rename (`case_name` column) / retype (`case_type` column) → close (`closed_on` last) →
-  links.
+- Effect application order = PR-01's canonical sequence, `sort-by-(order, uuid)` over the
+  op collection (never array position — `moveCaseOperation` re-keys only `order`); per op:
+  create → `insert` (merge-on-existing when `idFrom` collides, mirroring
+  `acceptCreateOverwrites`) → writes (JSONB merge) → rename (`case_name` column) / retype
+  (`case_type` column) → close (`closed_on` last) → links.
 - **Link CRUD + real relationships**: store gains identifier-keyed index operations
   (upsert link, remove link on null target — the empty-target-removes rule); edge writes
   take `relationship` from the op/catalog instead of the current hardcoded `"child"`
   (`lib/case-store/postgres/store.ts` writes `relationship: "child"` on every
   `case_indices` edge today — fix for op links AND the existing subcase path, which
   ignores the catalog's `extension` declaration).
-- `id-of` resolution: the engine records each create op's resolved id in submission scope;
-  `id-of(op)` in any later expression (op or field calculate) reads it.
-- **Owner stamping**: the op's `owner` result; absent → the persona's `id` when a persona
-  is active, else the acting Nova user (today's `requireActorUserId()` behavior).
+- `id-of` resolution: the transaction records each create op's allocated id in submission
+  scope; `id-of(op)` in LATER OP EXPRESSIONS reads it (per PR-01, `id-of` is legal only in
+  op expression slots — field expressions reference the created id through the authored
+  `idFrom` field's own value instead).
+- **Owner stamping — CREATE ops only** (mirroring PR-03's emission rule and PR-01's facet
+  matrix): a create's `owner` result; absent → the persona's `id` when a persona is
+  active, else the acting Nova user (today's `requireActorUserId()` behavior, which is
+  insert-only). An UPDATE op writes `owner_id` only when `owner` is explicitly set
+  (ownership transfer) — an absent owner on update touches nothing, exactly as the wire
+  emits nothing (else every edit would silently reassign the case to the submitter).
   `owner_id` remains a non-tenant axis — no read filters change in this PR.
 
 ### 4. Table-backed choices (`lib/preview` + PR-02's rows store)
@@ -147,7 +188,21 @@ Three stages, single-semantics rule enforced by construction:
 - `field`-Term filters re-query when the referenced answer changes (subscribe on the
   engine's answer-change events for the referenced uuids) — observably matching the wire's
   prompt-rebuild re-evaluation.
-- Choices cache per (form session, table revision, bound answer values).
+- Choices cache per (form session, bound answer values) — no table-revision token exists
+  (see the caching note in §2); a row edit mid-session shows on the next form entry, which
+  matches the wire's install/upgrade semantics anyway.
+- **Field-level table reads (the `#table/` parts-AST leaf in calculates/defaults):** the
+  form engine fetches each referenced table's rows ONCE at form init (≤ PR-02's row cap)
+  into a lookup keyed by **table tag** (never `item-list:` — wire vocabulary stays out of
+  the preview). **The evaluation seam is hashtag resolution, not `instance()`:** the
+  engine evaluates the DOMAIN-printed text, where table references are `#table/<tag>`
+  heads — `formEngine.ts::createEvalContext().resolveHashtag` (which today serves
+  `#form/`/`#case/`/`#user/` and falls back to `""`) and the evaluator's `HashtagRef`
+  handling gain the `#table/<tag>` arm serving the prefetched lookup; the `instance()`
+  stub in `functions.ts` is DEAD CODE for these expressions and additionally gains the
+  `item-list:` arm only for raw-authored `instance('item-list:…')` text (legal
+  post-PR-03's narrowing), stated separately so no implementer wires the wrong seam. This
+  is the preview-execution home for `#table/` field expressions — no other PR owns it.
 
 ## Tests / acceptance
 

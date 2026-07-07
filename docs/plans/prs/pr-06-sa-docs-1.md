@@ -30,8 +30,11 @@ message away.
   PR-01 context before any mutation is built.
 - **MCP propagation is automatic for existing tools**:
   `lib/mcp/adapters/sharedToolAdapter.ts::registerSharedTool` builds the wire schema from the
-  tool's own Zod (`{ ...tool.inputSchema.shape, app_id }`). A **brand-new** tool needs one
-  `SHARED_TOOLS` entry in `lib/mcp/server.ts` — nothing else.
+  tool's own Zod (`{ ...tool.inputSchema.shape, app_id }`). A **brand-new** tool needs TWO
+  registrations: a `SHARED_TOOLS` entry in `lib/mcp/server.ts` (MCP) AND an entry in the
+  chat SA's own tool manifest in `lib/agent` (the tool directory the `ToolLoopAgent` is
+  constructed from — the chat side keeps its own list; MCP's is not consumed there). Miss
+  the second and the headline goal (chat authoring) silently doesn't ship.
 - `scripts/test-schema.ts` verifies each schema is accepted by the Anthropic API; it already
   imports `updateModuleInputSchema` — `updateForm` and every new tool must be added.
 - Prompt guidance lives in `lib/agent/prompts.ts::SHARED_TAIL` (`## Architecture Principles`
@@ -42,9 +45,13 @@ message away.
 - The `jr:count` doc correction (owed since the F4 pass): JavaRosa resolves `jr:count`
   **dynamically at navigation** — `commcare-core/.../FormEntryModel::createModelForGroup`
   reads the count node's current value when the model walks to the repeat, and
-  `FormDef::canCreateRepeat` re-resolves per check. Nova's `count_bound` is behaviorally
-  frozen only because its hoisted `__nova_count_*` node is seeded once at `xforms-ready`.
-  `lib/commcare/CLAUDE.md`'s "evaluated ONCE at form load" misstates the mechanism.
+  `FormDef::canCreateRepeat` re-resolves per check. **The freeze claim is per-arm**: Nova's
+  `count_bound` HOISTED arm (non-path counts hoisted into `__nova_count_*`) is behaviorally
+  frozen because that node is seeded once at `xforms-ready`; the DIRECT-PATH arm (a count
+  that is already a location path emits `jr:count` pointing at the live authored node) is
+  NOT frozen — its cardinality re-resolves as the node changes.
+  `lib/commcare/CLAUDE.md`'s "evaluated ONCE at form load" misstates the mechanism for
+  both arms and the behavior for the direct-path arm.
 
 ## Build
 
@@ -58,17 +65,44 @@ tools; MCP rides automatically.
 
 ### 2. Case-operation tools
 
-Four new shared tools mirroring the doc mutations: `add_case_operation`,
-`update_case_operation`, `remove_case_operation`, `move_case_operation`. Inputs mirror
-PR-01's `CaseOperation` exactly — `action`, `case_type`, `target` (discriminated union incl.
-`{kind:"new", id_from?}` / `{kind:"op", op_id}` / `{kind:"session"}` /
-`{kind:"expression"}`), `condition`, `for_each`, `name`, `owner`, `rename`, `retype`,
-`writes` (with per-write `condition`), `links` (identifier / target_type / target-or-null /
-relationship). Ops address by `(moduleIndex, formIndex, opId)`; positional resolution uses
-the sorted `resolveModuleUuid`/`resolveFormUuid` helpers (never raw array position — the
-order-sweep test enforces this). Each tool prepends the catalog chokepoint mutations
-(`declareCaseType` / `ensureCatalogProperty`) exactly as PR-01's surfaces do, and commits
-via `guardedMutate`. Register all four in `SHARED_TOOLS`.
+Four new shared tools mirroring the doc mutations: **`add_case_operations` (LIST-taking —
+the house rule: "no singular add-tool has a plural twin", `lib/agent/CLAUDE.md`; one op is
+a length-1 array, and the batch is order-resolved so a later op's `{kind:"op", op_id}`
+target may reference an op landing in the SAME call — the `addFields` parentId-batch
+precedent)**, `update_case_operation`, `remove_case_operation`, `move_case_operation`.
+Inputs mirror PR-01's `CaseOperation` shape — `action`, `case_type`, `target`
+(discriminated union incl. `{kind:"new", id_from?}` / `{kind:"op", op_id}` /
+`{kind:"session"}` / `{kind:"expression"}`), `condition`, `for_each`, `name`, `owner`,
+`rename`, `retype`, `writes` (with per-write `condition`), `links` (identifier /
+target_type / target-or-null / relationship). **Identity/addressing (stated, not
+implied):** the SA passes human-readable identifiers and the tool boundary resolves them
+to uuids — `op_id` is the op's SLUG `id` (resolved to `uuid` via the form's op list);
+`id_from` and `for_each.repeat` are FIELD PATHS. **The path→uuid resolver must be
+written** — no such helper exists today (`lib/doc/fieldPath.ts` exports only the string
+primitives `fpath`/`fpathId`/`fpathParent`, and `lib/doc/CLAUDE.md`'s
+"`resolveFieldByPath`, `getFieldPath`" line is drift naming symbols that don't exist —
+fix that line in §7's sync): a walk over the form's field tree matching slash-delimited
+ids, sound because sibling ids are unique per parent (`identifierVerdicts`).
+**Identity extends INTO the typed expression ASTs**: PR-01's `field` Term is `{uuid}` and
+`id-of` is `{opUuid}`, but the SA never sees field uuids (it speaks ids/paths —
+`summarizeBlueprint`'s contract), so the SA-facing predicate/expression sub-schemas carry
+a FIELD-PATH variant of the `field` leaf and an OP-SLUG variant of `id-of`, and the tool
+boundary AST-walks each expression param rewriting those leaves to their uuid forms BEFORE
+`checkPredicate` runs — this covers `condition`, `name`, `owner`, `writes[].value`,
+`links`, and §3's `options_source.filter` alike. Ops address by
+`(moduleIndex, formIndex, op_id)`; positional resolution uses the sorted
+`resolveModuleUuid`/`resolveFormUuid` helpers (never raw array position — the order-sweep
+test enforces this). `move_case_operation` takes `{ before_op_id?: string }` (absent =
+move to end), resolved to a fractional `order` key via `keysForSlot` — the same landing
+the builder drag computes. Each tool prepends the catalog chokepoint MUTATIONS —
+`declareCaseType` (idempotent) + one `addCaseProperty` per written property, the exact
+pattern `lib/agent/tools/createModule.ts` emits inline; the `Mutation[]`-building
+precedents to copy are `lib/doc/scaffolds.ts::declareCaseTypeForField` /
+`::caseTypeCatalogMutations` (NOTE: `ensureCatalogProperty` is a reducer-INTERNAL void
+appender in `lib/doc/mutations/fields.ts` covering FIELD writes only — it builds no
+mutations and cannot be prepended; op writes need the explicit mutations precisely because
+no reducer side-effect covers them) — and commits via `guardedMutate`. Register all
+four in BOTH the chat SA manifest and `SHARED_TOOLS`.
 
 ### 3. Table tools + field params
 
@@ -78,16 +112,29 @@ write through the registry service with Project-membership auth, not `guardedMut
 - `create_lookup_table` / `update_lookup_table` / `delete_lookup_table` — schema CRUD
   (tag, name, columns) against the PR-02 registry; deletion blocked with a person-readable
   reference list when any app in the Project references the table.
-- `set_lookup_table_rows` — bulk row replace (ordered), with an explicit payload cap
-  (reject over-cap with a message naming the cap and the CSV-import alternative in the
-  builder). Row writes validate against column types (PR-02's AJV path).
-- `options_source` on the two select kinds enters the **generated** field-tool arms (the
-  kinds-registry-driven schema in `lib/agent/toolSchemaGenerator.ts` picks up the new slot;
-  verify the generated arm round-trips through `generate_schema`). `table-lookup` /
-  `table-ref` values ride the existing expression params once PR-01's parser accepts them.
+- `set_lookup_table_rows` — bulk row replace (ordered). The cap is **PR-02's single
+  5,000-row constant, imported** (never a second cap invented here); over-cap rejects with
+  a message naming the cap and the CSV-import alternative in the builder. Row writes
+  validate against column types (PR-02's AJV path).
+- `options_source` on the two select kinds: **a hand-written per-property arm** in
+  `lib/agent/toolSchemaGenerator.ts` — only new KINDS propagate automatically; SLOTS are
+  wired per property. The SA-facing sub-schema:
+  `{ table: string /* tag or display name; resolved to tableId at the boundary against the
+  registry */, value_column: string, label_column: string, filter?: Predicate }`. The
+  API-acceptance check for the widened schemas is `scripts/test-schema.ts` (there is no
+  role for the `generate_schema` planning tool here). `table-lookup` / `table-ref` values
+  ride the existing expression params once PR-01's parser accepts them.
+- Read tools with SPECIFIED outputs (SA context budget is the constraint):
+  `list_lookup_tables` returns `{ id, tag, name, columns, rowCount }[]`;
+  `get_lookup_table` returns the schema + `rowCount` + the FIRST 25 rows as a sample —
+  never the full table.
 
-New tools get `SHARED_TOOLS` entries (`requires: "edit"`); reads (`list_lookup_tables`,
-`get_lookup_table`) get `requires: "view"`.
+New tools get chat-manifest + `SHARED_TOOLS` entries (`requires: "edit"`); the two reads
+get `requires: "view"`. **Tenancy**: the MCP adapter splices `app_id` into every shared
+tool — the target Project for these registry operations derives SERVER-SIDE from that
+app's `project_id` (never client-asserted), and the app-level `edit` capability is the
+gate for registry writes; the chat-side tools derive the Project from the active app the
+same way.
 
 ### 4. Schema test coverage
 
@@ -124,17 +171,28 @@ trigger smells + negative guidance (the house style):
 
 - New authoring section under `content/docs/` (+ `meta.json`): one page each for display
   conditions (incl. the persona-preview explainer), case operations (intent-level verbs; the
-  CommCare "Advanced Case Actions" name only as export detail), lookup tables (incl. the
-  two delivery paths and the keep-tables-small doctrine). Write behaviors as what the user
-  sees in the builder/preview and in Web Apps — never parser internals.
+  CommCare "Advanced Case Actions" name only as export detail), lookup tables — described
+  as SHIPPED for the local `.ccz` path (data embedded in the app) with the HQ push
+  documented as arriving in wave 2, and PR-03's interim guard named (a table-referencing
+  app is blocked from HQ upload until the push exists), so the docs match observable
+  behavior; plus the keep-tables-small doctrine. Write behaviors as what the user sees in
+  the builder/preview and in Web Apps — never parser internals.
 - `content/docs/mcp/tools.mdx`: rows for every new/changed tool.
 
 ### 7. CLAUDE.md sync
 
 `lib/domain` (new vocabulary map lines), `lib/commcare` (menu relevancy + op-block + itemset
-emission notes; **the `jr:count` mechanism correction** with the two citations above —
-keep Nova's behavioral note, fix the JavaRosa claim), `lib/case-store` (lookup rows +
-registry), `components/builder` (new workspaces/sections), `lib/agent` (new tool families).
+emission notes; **the `jr:count` mechanism correction** with the two citations above — the
+replacement text must be per-arm: "the hoisted `__nova_count_*` arm is seeded once at
+`xforms-ready` (frozen); a direct-path count tracks its node dynamically at navigation" —
+do NOT preserve a blanket frozen-cardinality claim. **The same blanket claim lives in
+SA-facing text THIS PR edits and must be corrected in the same sweep**: `lib/agent/
+prompts.ts` SHARED_TAIL's count_bound line ("evaluates it ONCE at form load and freezes
+cardinality") and its bound-modes paragraph ("freeze cardinality at form load"), the
+`lib/agent/toolSchemaGenerator.ts` FIELD_DOCS repeat entries, and the repeat-emission
+comment in `lib/commcare/xform/builder.ts` — each rewritten per-arm), `lib/case-store`
+(lookup rows + registry), `components/builder` (new workspaces/sections), `lib/agent` (new
+tool families; also fix `lib/doc/CLAUDE.md`'s drifted `fieldPath.ts` line — see §2).
 
 ### 8. Drift sweep
 
@@ -144,8 +202,10 @@ drift across everything this wave touched.
 ## Tests / acceptance
 
 - Tool-level tests: display-condition set/clear round-trip incl. `null`; op tool → mutation
-  → gate rejection surfaces findings; table tool auth (non-member rejected), payload cap,
-  reference-blocked deletion.
+  → gate rejection surfaces findings; op/field addressing resolution (slug + path → uuid,
+  incl. `before_op_id` landing); table tool auth (non-member rejected), the imported
+  row cap, reference-blocked deletion; `list_lookup_tables`/`get_lookup_table` output
+  shapes (sample capped at 25 rows, rowCount correct).
 - `scripts/test-schema.ts` passes with every new schema.
 - MCP: dispatch-level test that one op tool and one table tool execute over
   `app/api/mcp` (the existing dispatch test pattern).

@@ -1,4 +1,4 @@
-# Execution plan: F1–F7 as fourteen PRs
+# Execution plan: F1–F7 as fifteen PRs
 
 *2026-07-06. This index supersedes the per-feature execution prompts in the
 `2026-07-06-f*.md` plans — those plans remain the **reference** for verified platform facts
@@ -30,17 +30,25 @@ big-table indexing (owner ruling); HQ profiles (redundant); `category`/`state` w
 
 ## Measured: the restore-scope query (was the one open technical risk)
 
-The livequery positive closure runs as one recursive CTE over `case_indices`. Measured
-2026-07-06 on the local dev Postgres at reference-architecture scale — 240k cases / 200k
-edges (40k clients, 120k referrals, 60k messages, 20k claims, Colorado-shaped):
+The livequery closure runs as a **two-phase recursive closure** (an availability grounding
+pass, then live propagation) — the original 2026-07-06 single-phase CTE was **semantically
+wrong** (caught by the final review: it mis-seeded owned extensions and mis-handled
+closed-host extension pulls, diverging from HQ on 9/44 of its own fixtures). The corrected
+query was re-derived from `livequery.py::get_live_case_ids_and_indices` line-by-line and
+**validated 44/44 against HQ's machine-readable corpus**
+(`casexml/apps/phone/tests/data/case_relationship_tests.json` — which is also the plan's
+test contract; the livequery module docstring's final example is stale). Re-measured
+2026-07-07 at reference-architecture scale — 240k cases / 200k edges (40k clients, 120k
+referrals, 60k messages, 20k claims, Colorado-shaped):
 
-| Persona | Scope size | Time |
+| Persona | Scope size | Time (corrected query) |
 |---|---|---|
-| Facility worker (own claims + one bucket) | 5,900 cases | **~640 ms** |
-| Registry staff (owns all 40k clients — worst case) | 228,000 cases | **~3.0 s** |
+| Facility worker (own claims + one bucket) | 5,900 cases | **~610–675 ms** |
+| Registry staff (owns all 40k clients — worst case) | 228,000 cases | **~1.2 s** |
 
-Linear-ish scaling, no blowup. Verdict: compute per persona, cache, invalidate on case
-writes. The exact CTE and seed model are inlined in PR-10.
+The availability pre-pass makes the worst case *faster* than the wrong query measured.
+Verdict unchanged: compute per persona, cache, invalidate on case writes. The exact SQL,
+the derived rules, and the corpus-test mandate are inlined in PR-10.
 
 ## The PRs
 
@@ -55,6 +63,7 @@ writes. The exact CTE and seed model are inlined in PR-10.
 | PR-06 | SA + MCP + docs I | PR-01–05 | F1/F4/F5 SA prompts |
 | PR-07 | Case tiles + tile grouping | PR-03 (functional: emits through the case-list/entry emitters PR-03 touches) + after PR-06 in practice | new (verified this pass) |
 | PR-08 | Attachments: capture-to-case | PR-03, **PR-07** (both extend the case-list column model — serialized to avoid conflicting edits) | new (verified this pass) |
+| PR-15 | Case-search extensions + profile properties (multi-select lists, related-case pulls, cc-* flags) | PR-03, PR-06; after PR-08 (same emitters) | F4 §4 EXT (added at final review — these items had no PR home) |
 | **Wave 2 — the org-aware system** | | | |
 | PR-09 | Domain II: users, org model, automations | PR-01 | F2 §2–3, F3 §2–3, F6 §2–3 |
 | PR-10 | Preview II: typed personas, owner sets, restore scope, **the locations store** | PR-04, PR-09 | F2 §3.2, F3 §3/L5 |

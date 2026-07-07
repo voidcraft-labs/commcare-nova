@@ -70,12 +70,18 @@ resolution so the flow is testable before upload.
 
 ### 1. Domain (`lib/domain`, `lib/doc`)
 
-- `moduleSchema.endpoint?: { id: string, respectRelevancy?: boolean }` and
-  `formSchema.endpoint?: { id, respectRelevancy? }`. `id`: slug rules via
-  `identifierVerdicts`-style checks, **unique across the app** (endpoints share one
-  namespace on the wire); `respectRelevancy` defaults true (absent = true; only `false`
-  stored). HQ's `case_list_session_endpoint_id` is covered structurally: a `caseListOnly`
-  module's endpoint IS its case-list deep link — stated in docs, not silently dropped.
+- `moduleSchema.endpoint?: { id: string }` and `formSchema.endpoint?: { id,
+  respectRelevancy?: boolean }`. **`respectRelevancy` is FORM-endpoint-only** — verified:
+  `respect_relevancy` exists only on `FormBase` and HQ's `EndpointsHelper` passes it only
+  for form endpoints, so a module-level toggle would emit in the `.ccz` but silently revert
+  to true after HQ regeneration; Nova refuses that silent divergence by not offering the
+  slot on modules. `id`: slug rules via `identifierVerdicts`-style checks, **unique across
+  the app** (endpoints share one namespace on the wire); `respectRelevancy` defaults true
+  (absent = true; only `false` stored). A `caseListOnly` module's endpoint IS its case-list
+  deep link — with HQ's exact case-list semantics: the **trailing selection datum is
+  EXCLUDED** (no `case_id` argument, no claim frame for it; the link lands ON the list) —
+  mirroring `endpoints.py::update_suite`'s `should_add_last_selection_datum=False` for
+  `case_list_session_endpoint_id`.
   HQ's `function_datum_endpoints` (arguments for computed datums) is a named non-goal (no
   Nova consumer: Nova's computed datums — usercase id, generated case ids — are derivable,
   never caller-supplied); revisit only with a concrete external integration asking for it.
@@ -90,22 +96,32 @@ resolution so the flow is testable before upload.
 ### 2. Wire emission (`lib/commcare`)
 
 - A post-suite endpoints step in `compiler.ts` (after menus/entries exist): per endpoint,
-  `<endpoint id>` + `<argument id>` per **selection-requiring** datum of the target (module
-  endpoint → the module's case-first datum chain; form endpoint → the form's entry datums),
-  multi-select datums emitting the verified `@instance-id`/`@instance-src` shape (wave-1
-  multi-select from PR-03/06); then the `<push>` stack: claim frame per case-id argument
+  `<endpoint id>` + `<argument id>` per **selection-requiring** datum of the target —
+  module endpoint → the module's case-first datum chain, **except a `caseListOnly`
+  module's endpoint, which EXCLUDES the browse entry's trailing `case_id` datum** (the
+  case-list semantics above); form endpoint → the form's entry datums. (The multi-select
+  `@instance-id`/`@instance-src="jr://instance/selected-entities"` Argument shape is
+  verified and RECORDED here for the future — **no PR in this roadmap builds multi-select
+  case-list selection**, so no endpoint can need it yet; it activates with that future
+  feature, exactly like the smart-link helper in §5.) Then the `<push>` stack: claim frame
+  per case-id argument
   with the exact `claim_command.<endpoint_id>.<arg_id>` convention, then commands +
   `<datum id value="$<arg_id>"/>`. **Verify-first item (named for the implementer):** how
   HQ resolves `claim_command.*` command ids to claim `<remote-request>` entries — read
   `endpoints.py` + its remote-requests wiring fully and mirror the complete shape (the claim
   command must reference an emitted claim request; pin the HQ endpoint suite fixtures —
   locate them under `corehq/apps/app_manager/tests/` by grepping `endpoint`).
-- `respect-relevancy="false"` attribute only when set.
-- HQ-JSON projection: `session_endpoint_id` on module/form shells + `respect_relevancy` on
-  forms (HQ regenerates its own endpoints — the verified fields exist for exactly this).
-- Suite oracle: endpoint id uniqueness; argument ids match the target's datum ids; stack
-  steps within the closed vocabulary (add `jump` to the accepted step set now — smart-link
-  machinery); claim command references resolve.
+- `respect-relevancy="false"` attribute only when set (form endpoints only, per §1).
+- HQ-JSON projection: `session_endpoint_id` on form shells and non-caseListOnly module
+  shells; **`case_list_session_endpoint_id`** for a `caseListOnly` module's endpoint (the
+  field that makes HQ regenerate the datum-excluded shape); `respect_relevancy` on forms.
+- Suite oracle: endpoint id uniqueness; argument ids match the target's datum ids; a **NEW
+  frame-step vocabulary check** — children of `<create>`/`<push>` must be
+  `datum | instance-datum | command | query | mark | rewind | jump` per
+  `StackFrameStepParser` (the oracle's existing `VALID_STACK_OPS` covers `<stack>` CHILDREN
+  — create/push/clear per `StackOpParser` — and stays untouched; `jump` is a frame STEP,
+  never a stack op, and today no oracle check constrains frame children at all); claim
+  command references resolve.
 - The **smart-link `<jump>` emission helper** lands here (URL `concat` builder over a domain
   variable + endpoint id + args, per `get_smart_link_function`'s shape) with tests — unused
   by any authoring surface until registry search exists (§5).
@@ -122,8 +138,9 @@ resolution so the flow is testable before upload.
 
 ### 4. Builder UI + SA + docs
 
-- UI: endpoint sections in the module/form settings panels (id + relevancy toggle + the
-  caveat copy); post-upload, the app's endpoints list with **copyable URLs** in the deploy
+- UI: endpoint sections in the module/form settings panels (id; the relevancy toggle +
+  caveat copy on FORM endpoints only, per §1); post-upload, the app's endpoints list with
+  **copyable URLs** in the deploy
   surface (`https://www.commcarehq.org/a/<domain>/app/v1/<app_id>/<endpoint_id>/` + arg
   template). The `SESSION_ENDPOINTS` toggle prerequisite joins the setup-artifact/docs
   prerequisites (PR-11's artifact when present; docs regardless).
@@ -150,10 +167,11 @@ is a case-search-registry feature decision, not lost work here.
 ## Tests / acceptance
 
 - Emission fixtures pinned against HQ's endpoint suite outputs (module endpoint, form
-  endpoint with case datum, multi-select argument, respect-relevancy=false, claim frame +
-  its resolved claim request) — locate + name the HQ fixtures in the first commit.
-- Oracle: id uniqueness, argument/datum coherence, `jump` step accepted, claim-command
-  resolution.
+  endpoint with case datum, caseListOnly datum-excluded endpoint, respect-relevancy=false
+  on a form, claim frame + its resolved claim request) — locate + name the HQ fixtures in
+  the first commit.
+- Oracle: id uniqueness, argument/datum coherence, the frame-step vocabulary check
+  (incl. `jump` as a legal push child), claim-command resolution.
 - Preview simulation state tests: arg binding, missing-arg error parity, hidden-menu
   traversal under respectRelevancy=false.
 - Validator matrices; `lint/typecheck/test` clean; emitter fuzz grows endpoint arms.
