@@ -14,11 +14,6 @@ updates:
       default-days: 5
       semver-patch-days: 3
     ignore:
-      # The AI SDK is pinned to a pre-release channel (beta). Dependabot orders
-      # the canary channel ahead of beta, so it keeps proposing the LESS-stable
-      # channel. These power the SA agent — bump them by hand, deliberately.
-      - dependency-name: "ai"
-      - dependency-name: "@ai-sdk/*"
       # Keep @types/node aligned to the Node runtime major (the Dockerfile runs
       # node:22) — type defs shouldn't run ahead of the engine they describe.
       - dependency-name: "@types/node"

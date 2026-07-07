@@ -1,4 +1,4 @@
-import { APICallError } from "@ai-sdk/provider";
+import { APICallError } from "ai";
 import { describe, expect, it } from "vitest";
 import { classifyError } from "../errorClassifier";
 

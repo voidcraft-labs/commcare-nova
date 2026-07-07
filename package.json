@@ -24,9 +24,9 @@
 		"mp:manual": "MP_MANUAL=1 bash scripts/smoke.sh --project=mp-manual --headed"
 	},
 	"dependencies": {
-		"@ai-sdk/anthropic": "^4.0.0-beta.42",
-		"@ai-sdk/google": "^4.0.0-beta.49",
-		"@ai-sdk/react": "^4.0.0-beta.116",
+		"@ai-sdk/anthropic": "^4.0.8",
+		"@ai-sdk/google": "^4.0.8",
+		"@ai-sdk/react": "^4.0.17",
 		"@atlaskit/pragmatic-drag-and-drop": "^2.0.1",
 		"@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.0.0",
 		"@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.0.0",
@@ -68,7 +68,7 @@
 		"@uiw/codemirror-themes": "^4.25.8",
 		"@uiw/react-codemirror": "^4.25.8",
 		"adm-zip": "^0.5.18",
-		"ai": "^7.0.0-beta.116",
+		"ai": "^7.0.16",
 		"ajv": "^8.20.0",
 		"ajv-formats": "^3.0.1",
 		"better-auth": "1.6.23",
