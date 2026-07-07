@@ -1,5 +1,7 @@
 # Plan: F1 — Module & form display conditions ("show when")
 
+> **Execution superseded (2026-07-06):** this plan remains the verified-facts + rationale reference; implementation follows the PR plans in `docs/plans/2026-07-06-pr-execution-plan.md` (+ `docs/plans/prs/`), which also carry the owner's scope rulings — several items this plan lists as deferred/excluded are now IN scope there (project-shared tables, authored+referencable create ids, rename/re-type ops, custom location fields, multi-location personas, answer-dependent choice filters, table reads from field expressions, case tiles, case attachments, session endpoints + smart links). Where this plan and the PR plans disagree on scope, the PR plans win.
+
 *Planning pass, 2026-07-06. Seeded by `docs/research/feature-map.md` §F1; evidence anchors
 `docs/research/advanced-case-actions.md` (ACA) and `docs/research/commcare-locations.md` (LOC).
 Every platform fact below was re-verified against the local checkouts on 2026-07-06

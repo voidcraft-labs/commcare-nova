@@ -1,5 +1,7 @@
 # Plan: F6 — Domain automations: case rules & conditional alerts
 
+> **Execution superseded (2026-07-06):** this plan remains the verified-facts + rationale reference; implementation follows the PR plans in `docs/plans/2026-07-06-pr-execution-plan.md` (+ `docs/plans/prs/`), which also carry the owner's scope rulings — several items this plan lists as deferred/excluded are now IN scope there (project-shared tables, authored+referencable create ids, rename/re-type ops, custom location fields, multi-location personas, answer-dependent choice filters, table reads from field expressions, case tiles, case attachments, session endpoints + smart links). Where this plan and the PR plans disagree on scope, the PR plans win.
+
 *Planning pass, 2026-07-06. Seeded by `docs/research/feature-map.md` §F6; anchors: ACA H9
 (the vacuous-success argument), §2.4 (the nightly claim sweep), §3-P2 (message delivery),
 LOC L6 (the API gap). Platform facts re-verified 2026-07-06 against `~/code/commcare-hq`

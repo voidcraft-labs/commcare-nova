@@ -1,0 +1,195 @@
+# PR-13: Navigation — sections, nesting, reuse, chaining hardening
+
+*Self-contained implementation plan. Reference rationale: `docs/plans/2026-07-06-f7-navigation-workflow.md`
+§2–3. Scope rulings in `docs/plans/2026-07-06-pr-execution-plan.md` apply. Depends on PR-01
+(display-condition slots + Predicate machinery) **and PR-03** (this PR's nesting/reuse work
+builds on PR-03's menu/command relevancy emission machinery — the AND-merge for flattened
+modules and linked-form display conditions compose with it); independent of wave 2 — a
+second implementer can run this alongside PR-09–12 once PR-03 lands.*
+
+**Goal.** F7 slice A in one PR: first-class **sections/steps** on forms (projection-only),
+**menu nesting** (submodules + flatten-into-parent), **Nova-native form reuse** (linked forms
+emitting CCHQ's duplicated-entry wire shape without shadow models), and **chaining hardening**
+(validator rules + SA guidance derived from verified runtime failure mechanics).
+
+## What the user gets
+
+Long forms present as steps with progress in the preview (optionally on-device); modules nest
+one level as submenus or flatten into their parent; one form appears under several modules
+without copies; form links that would strand users at runtime are rejected at authoring time.
+
+## Verified contracts this PR relies on (do not re-derive; cite by these names)
+
+- **No wire notion of sections/steps exists** — only the XForms `<group>` (+
+  `appearance="field-list"` renders multiple questions on one screen). Verified by negative
+  sweeps over `commcare-hq/.../app_manager/xml_models.py`, `models.py::FormBase`, `xform.py`.
+  Sections are therefore a Nova-only projection.
+- **EOF workflows**: six constants (`const.py::WORKFLOW_*`); `WORKFLOW_DEFAULT` emits **no
+  `<stack>` at all**; `root` = empty `<create>` (`allow_empty_frame`); `module` = one
+  `<command>`; `parent_module` recurses the root module's frame children
+  (`workflow.py::EndOfFormNavigationWorkflow._get_static_stack_frame`). Nova's `postSubmit`
+  maps 1:1 (`app_home`↔`default`); the reserved internal arms `root`/`parent_module` activate
+  here.
+- **Form links**: one `<create if="<xpath>">` frame per link, first-true-wins, plus a fallback
+  frame guarded by `and(not(c1), not(c2)…)` (`workflow.py::_get_link_frame/_get_fallback_frame`).
+  Latent HQ bug: `const.py::WORKFLOW_FALLBACK_OPTIONS` is `None` (a `.remove()` return value),
+  so HQ never validates the fallback — Nova validates its own.
+- **Menu nesting**: `root_module_id` → `<menu id="m<child>" root="m<parent>">`
+  (`menus.py::MenuContributor._generate_menu`; `xml_models.py::MenuMixin.root`). `put_in_root`
+  collapses the child's menu id to the parent's (`id_strings.py::menu_id`), and same-id
+  `<menu>` elements concatenate their commands (menus.py module docstring). The parent's
+  `module_filter` is **AND-merged** into a flattened child's relevancy
+  (`_generate_menu`: `XPath.and_(child, parent)`). Effectively one nesting tier; training
+  modules use reserved root `'training-root'`.
+- **Shadow modules are wire-level duplication, not reference**: a shadow emits its own
+  `<entry>` per source form — same form `xmlns`, shadow-scoped command ids
+  `m<shadowIdx>-f<n>` (`entries.py::EntriesHelper.entry_for_module` iterates
+  `module.get_suite_forms()`; `id_strings.py::form_command` uses the shadow's index) — plus
+  its own menu/details/filter. v2 current, v1 deprecated (`toggles::V1_SHADOW_MODULES`
+  TAG_DEPRECATED); gated `APP_BUILDER_SHADOW_MODULES` (TAG_FROZEN). Nova emits the same wire
+  shape from a plain reference — no shadow authoring objects.
+- **Chaining fragility is verified mechanics** (the reason sections beat chains):
+  web-apps navigation is a stateless client-held selections array replayed from a reset
+  session (`formplayer/.../MenuSession.java::resetSession`; back = truncate + full replay in
+  `MenuSessionRunnerService`); a pending chained frame is **wiped wholesale** when a
+  re-selected datum diverges from its snapshot
+  (`CommCareSession.java::finishAndPop/cleanStack`; `SessionFrame.java::isSnapshotIncompatible`
+  → `frameStack.removeAllElements()`); there is **no lease/timestamp/rollback primitive**
+  anywhere in the frame machinery (greps; only `ScheduledTasks.java::purge`'s 7-day session
+  sweep) — a closed tab permanently strands mid-flow case writes.
+- **No datum re-prompt during chaining**: a stack-op-launched form's datums must be carried
+  by the op and the case must still be in the target entry's nodeset, else a logged
+  reconstruction failure (`MenuSessionFactory.java::rebuildSessionFromFrame` →
+  `logStepNotInEntityScreenError`); auto-select rescues only opt-in single-match datums
+  (`EntityScreen.java::shouldAutoSelect`: `isAutoSelectEnabled() && references.size() == 1`).
+- **`cc-auto-advance-menu`**: a single *visible* choice self-selects
+  (`MenuScreen.java::handleAutoMenuAdvance`) and the advanced menu is omitted from the
+  persistent menu/breadcrumb (`PersistentMenuHelper.kt`) — a documented sharp edge for SA
+  guidance, not something this PR changes.
+
+## Build
+
+### 1. Sections/steps (`lib/domain`, `lib/preview`, `lib/commcare`)
+
+- `formSchema.sections?: Array<{ uuid: Uuid, title: string, startFieldUuid: Uuid }>` — a
+  contiguous partition of the form's **top-level** field sequence, keyed by each section's
+  first field. No nesting; membership is derived from field order, never stored. **The design
+  fence: sections carry NO expression slots, ever** — the moment a section wants a condition
+  or repetition, it is a `group`/`repeat` and must be one. The fence is structural (the
+  schema has no such slots) and stays that way.
+- Mutations: the keyed quartet (`addSection`/`updateSection`/`removeSection`/`moveSection`)
+  per the PR-01 op-mutation pattern; reference-slot registry entry + `extractFormEdges` arm
+  for `startFieldUuid` (uuid edge). Deleting a section's first field re-anchors the section
+  to the next field in it; an emptied section dissolves (reducer-total, no gate dependency).
+- Preview: step-wise rendering — one section per screen, progress ("Step 2 of 5 — <title>"),
+  per-section validation surfacing (a step blocks advance while its fields hold validation
+  errors, mirroring the engine's existing per-field state); edit mode shows section rails on
+  the canvas (all fields visible, house rule). State model only — no DOM tests.
+- Emission: default is **preview-only chrome** (zero wire change — `sections` never reaches
+  the emitters). Opt-in `formSchema.sectionsOnDevice?: boolean`: each section wraps its
+  fields in `<group appearance="field-list">` with the section title as the group label —
+  the verified single-screen-per-group shape. Since sections partition top-level fields, a
+  section boundary can never split a group/repeat subtree by construction.
+- Validator: `SECTION_ANCHOR_UNRESOLVED` (startFieldUuid must resolve to a top-level field
+  of the form), `SECTION_DUPLICATE_ANCHOR` (two sections may not share a first field) — both
+  gating soundness + repair judgments (`VALIDITY_CLASS_BY_CODE` rows +
+  `legacyFindingRepairs` entries, the pinned tests enforce).
+
+### 2. Menu nesting (`lib/domain`, `lib/commcare`)
+
+- `moduleSchema.parentModuleUuid?: Uuid` (submenu) + `moduleSchema.flattenIntoParent?:
+  boolean` (the intent-named `put_in_root`). One tier: a module with a parent cannot itself
+  be a parent (gating soundness).
+- Suite emission (`compiler.ts` menu construction from PR-03): nested module →
+  `root` attribute = parent's menu id; flattened module → child's menu **takes the parent's
+  id** (same-id concatenation lands its commands in the parent's menu); flattened child's
+  command relevancy = `AND(child.displayCondition, parent.displayCondition)` via
+  `effectiveDisplayConditionForEmission`, mirroring HQ's verified `module_filter` merge.
+  HQ-JSON projection: `root_module_id` / `put_in_root` on the module shell.
+- `postSubmit` internal arms activate: `root` emits the empty-`<create>` frame;
+  `parent_module` emits the parent's command(+datum) frame — both per the verified
+  `_get_static_stack_frame` shapes. Auto-resolution: `module` on a flattened module resolves
+  to `root` (the validation stub noted in `lib/commcare/CLAUDE.md` §put_in_root); `parent_module`
+  with a flattened parent is rejected (stub activates). Retire the corresponding
+  not-yet-modeled notes in that CLAUDE.md.
+- Suite oracle: menu `root` must resolve to an existing menu id (or `'root'`); same-id menus
+  legal; command-id uniqueness still holds per menu after concatenation.
+- Validator: one-tier rule; flatten requires a parent; parent/child case-type constraint —
+  **implementer reads HQ's child-module case-type rules first** (`models.py` child module
+  validation) and enforces the subset Nova's parent-select-less model needs (open choice
+  below).
+
+### 3. Form reuse — linked forms (`lib/domain`, `lib/commcare`, `lib/preview`)
+
+- `moduleSchema.linkedForms?: Array<{ uuid: Uuid, formUuid: Uuid, displayCondition?:
+  Predicate }>` — a reference to a real form in another module; the source form is the
+  single editing surface (a linked form has no fields of its own, ever).
+- Emission: per linked form, a **duplicate `<entry>`** — command id `m<hostIdx>-f<k>` (k
+  continues the host's form numbering), `<form>` = the source form's `xmlns`, datums derived
+  from the source form's case requirements under the host module (same case type — see
+  validator); host menu gets the `<command>` with the link's own display condition (F1
+  machinery). The verified shadow-module wire shape, minus the shadow objects. HQ-JSON: emit
+  the same duplicated-entry structure Nova-side; do NOT emit `ShadowModule` doc types (Nova's
+  local suite and HQ's regenerated suite must agree — implementer verifies HQ's importer
+  accepts a plain module whose menu references another module's form command, else falls back
+  to emitting the linked form as an additional real form entry in the host module's HQ JSON
+  with the same xmlns; pin whichever shape passes `import_app` + rebuild).
+- Preview: launching a linked form runs the source form under the host module's context
+  (host's case list; same case type).
+- Doc semantics: source-form deletion **blocks with references** (the house
+  `caseTypeRetirement`-style plan: list the linking modules); reference-slot entry + edges
+  for `formUuid`; rename-safety free (uuid reference).
+- Validator: host module case type must equal the source form's module case type (v1 rule);
+  the source must be a real form (no linking to a link); a form may not be linked into its
+  own module; form-type coherence (a case-loading linked form keeps the host case-first
+  computation honest — `isCaseFirstModule` counts linked forms' types).
+
+### 4. Chaining hardening (`lib/commcare/validator`, SA prompts, docs)
+
+- Form-link rules (all gating soundness + repairs):
+  `FORM_LINK_DATUM_INCOMPLETE` — the link's `datums` plus the session-carried datums must
+  cover every datum the target entry derives (checkable against `deriveSessionDatums` for
+  the target; the runtime never re-prompts — verified above);
+  `FORM_LINK_TARGET_FILTER_EXCLUDES` — statically decidable exclusions only: carried case
+  type ≠ target module case type (value-level filter analysis is out of scope, stated);
+  `FORM_LINK_FALLBACK_INVALID` — the fallback destination must be a valid non-form
+  destination for the source form's context (Nova validates what HQ's `None`-bug never did).
+- SA guidance (prompts.ts): prefer sections within one form over multi-form chains — cite
+  the mechanics (frame wipe on changed selection, no cleanup of stranded mid-flow writes,
+  no datum re-prompt); never design stage-flag chains; auto-select is opt-in single-match
+  only; `cc-auto-advance-menu` collapses hops out of the breadcrumb (use sparingly).
+- Docs: a "how navigation actually behaves" page — what survives back-navigation, what a
+  closed tab strands, when a chained form silently loses its pending chain — person-readable
+  renderings of the verified facts, plus the sections-vs-chains recommendation.
+
+## Tests / acceptance
+
+- Section partition invariants (anchor resolution, dissolve-on-empty, reorder) as pure state
+  tests; preview step-flow state tests (advance blocked on invalid section).
+- Emission fixtures pinned: nested menu (`root` attr), flattened menu (id collapse +
+  condition AND-merge — compare against HQ `menus.py` outputs for the same shapes), linked
+  form (duplicate entry, shared xmlns, host command ids), `root`/`parent_module` stack
+  frames (empty-create + parent-frame shapes).
+- Suite oracle green on: same-id menus, duplicate xmlns entries, menu-root resolution.
+- Validator matrices: one-tier nesting, linked-form type rules, the three form-link rules.
+- `npm run lint && npm run typecheck && npm test` clean; emitter fuzz (blueprintDoc
+  arbitraries grow sections/nesting/links arms) green.
+
+## Non-goals
+
+Endpoints + smart links (PR-14). Multi-tier nesting. Cross-case-type linked forms.
+Value-level filter-exclusion analysis. Persona-aware navigation niceties (wave 2 provides
+personas; nothing here requires them).
+
+## Open choices (implementer)
+
+- Parent/child module case-type constraint: read HQ's child-module rules
+  (`models.py` root_module validation) first; recommend requiring same-or-no case type in v1
+  (Nova has no parent-select), stating the rule in the validator message.
+- `sectionsOnDevice` granularity: per-form (as specced) — confirm no per-app appetite before
+  widening.
+- Section re-anchor vs dissolve on first-field deletion: recommend re-anchor-to-next,
+  dissolve when empty (as specced); keep the reducer total either way.
+- HQ-JSON shape for linked forms (see §3 emission note): pin whichever of the two candidate
+  shapes survives `import_app` + "Make New Version" — this is the one implementer-verified
+  wire decision in the PR.

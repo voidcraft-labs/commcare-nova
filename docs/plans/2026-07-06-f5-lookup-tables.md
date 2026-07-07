@@ -1,5 +1,7 @@
 # Plan: F5 — Lookup tables
 
+> **Execution superseded (2026-07-06):** this plan remains the verified-facts + rationale reference; implementation follows the PR plans in `docs/plans/2026-07-06-pr-execution-plan.md` (+ `docs/plans/prs/`), which also carry the owner's scope rulings — several items this plan lists as deferred/excluded are now IN scope there (project-shared tables, authored+referencable create ids, rename/re-type ops, custom location fields, multi-location personas, answer-dependent choice filters, table reads from field expressions, case tiles, case attachments, session endpoints + smart links). Where this plan and the PR plans disagree on scope, the PR plans win.
+
 *Planning pass, 2026-07-06. Seeded by `docs/research/feature-map.md` §F5; anchors: ACA memo
 §2.1 (lookup tables as the third address book), LOC §7 (restore-size doctrine). Platform
 facts re-verified 2026-07-06 against `~/code/commcare-hq` (@4e3052a8), `~/code/commcare-core`
