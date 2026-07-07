@@ -1,6 +1,6 @@
 # Case Data Layer Implementation Plan (Plan 2 of 5)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Implement this plan task-by-task with subagent-driven development. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Status:** Plan 2 of 5. Depends on Plan 1 (Foundation) — needs the Predicate AST, Expression AST, JSON Schema generator, and the Postgres compiler. Does NOT need Plans 3-5.
 
@@ -79,7 +79,7 @@ lib/preview/engine/
 
 ### Task 0: Cloud SQL provisioning + connection pool — SHIPPED
 
-SHIPPED 2026-05-03 against project `commcare-nova`. Two halves: infrastructure (provisioning + Cloud Run wire-up) per the runbook at `docs/superpowers/runbooks/2026-05-02-plan-2-task-0-cloud-sql-provisioning.md` and the record-of-truth script at `scripts/infra/provision-cloud-sql.sh`; code (connection layer) at `lib/case-store/postgres/connection.ts`.
+SHIPPED 2026-05-03 against project `commcare-nova`. Two halves: infrastructure (provisioning + Cloud Run wire-up) per the runbook at `docs/runbooks/2026-05-02-plan-2-task-0-cloud-sql-provisioning.md` and the record-of-truth script at `scripts/infra/provision-cloud-sql.sh`; code (connection layer) at `lib/case-store/postgres/connection.ts`.
 
 **Infrastructure deliverable:**
 
@@ -492,7 +492,7 @@ SHIPPED 2026-05-06 in commits `1c1268dc` (plan amendment) → `9a389a9a` (drop u
 
 Trigger: holistic review of Task 6's shipped form-bridge surfaced `countRepeatInstances` regex-parsing path strings to recover repeat indices. Tracing the smell upstream surfaced the structural problem — the form-bridge package existed as a CCHQ-mirroring serialization layer between two components (the form engine and the case-store) that share memory. CCHQ has runtime/processor separation because their form runtime runs on mobile devices and casedb lives on HQ servers — XForm-the-spec is the wire format that crosses the network. Nova has no such separation. The form-bridge inherited CCHQ's layer count without inheriting CCHQ's reason for it.
 
-What landed: `FormEngine.computeSubmissionMutation` walks the engine's own template tree, consults `getRepeatCount(repeatPath)` for instance counts and `instance.get(materializedPath)` for per-instance values, applies `data_type` coercion via a call-time-injected `caseTypes` array, and emits a typed `SubmissionMutation` discriminated by form type. `EngineController.computeSubmissionMutation` is the consumer-facing pass-through. `submitFormAction` Server Action calls `getSession()` + `withOwnerContext` + dispatches on `mutation.kind` to per-arm helpers (`applyRegistrationMutation` → `insertWithChildren` for atomic primary+children; `applyFollowupMutation` and `applyCloseMutation` for primary update + per-child inserts; `applySurveyMutation` for the no-op survey arm). Typed-error mapping (`mapSubmitFormError`) handles the four user-domain error classes. The form-bridge package + barrel re-exports + form-bridge sections of `lib/case-store/CLAUDE.md` are deleted; the form-completion contract (formerly "Two-state JSONB collapse for form completion") moved to `lib/preview/CLAUDE.md` alongside the form engine. Coverage checklist at `docs/superpowers/plans/2026-05-06-form-bridge-removal-checklist.md` maps every old `it()` block to a new test (with all flagged gaps closed in the same commit per the amendment's spec).
+What landed: `FormEngine.computeSubmissionMutation` walks the engine's own template tree, consults `getRepeatCount(repeatPath)` for instance counts and `instance.get(materializedPath)` for per-instance values, applies `data_type` coercion via a call-time-injected `caseTypes` array, and emits a typed `SubmissionMutation` discriminated by form type. `EngineController.computeSubmissionMutation` is the consumer-facing pass-through. `submitFormAction` Server Action calls `getSession()` + `withOwnerContext` + dispatches on `mutation.kind` to per-arm helpers (`applyRegistrationMutation` → `insertWithChildren` for atomic primary+children; `applyFollowupMutation` and `applyCloseMutation` for primary update + per-child inserts; `applySurveyMutation` for the no-op survey arm). Typed-error mapping (`mapSubmitFormError`) handles the four user-domain error classes. The form-bridge package + barrel re-exports + form-bridge sections of `lib/case-store/CLAUDE.md` are deleted; the form-completion contract (formerly "Two-state JSONB collapse for form completion") moved to `lib/preview/CLAUDE.md` alongside the form engine. Coverage checklist at `docs/plans/2026-05-06-form-bridge-removal-checklist.md` maps every old `it()` block to a new test (with all flagged gaps closed in the same commit per the amendment's spec).
 
 Net delta: deleted ~1000 LOC (deriveFromForm.ts + writeThrough.ts + their tests + fixtures); added ~600 LOC (engine method + Server Action + per-arm helpers + their tests). Test count: 2957 → 2992 (+35 net across the amendment phase).
 

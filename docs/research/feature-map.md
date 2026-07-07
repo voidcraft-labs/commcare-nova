@@ -22,13 +22,9 @@ The cascade is: **this map → a planning pass per feature (seeded by its charte
 
 **Why.** In the reference apps virtually every menu and form is gated — overwhelmingly on *user data* flags (`session/user/data/can_*`), secondarily on case state and screen width (ACA memo's suite maps). This is the cheapest feature in the map and the most immediately visible to users.
 
-**Depends on / unlocks.** Effectively inseparable from F2's app-facing half: without user data as an expression context, show-when has almost nothing real to test. Unlocks role-shaped apps; first slice of F7.
+**Depends on / unlocks.** *Revised at planning (2026-07-06):* F1 ships first and standalone — Nova's Predicate AST already carries the `session-user` custom-user-data reference (open namespace, wire- and preview-complete), so user data is an expression context today; F2's app-facing half later adds the *schema* over that namespace (typed fields, vocabulary validation, typed personas). Unlocks role-shaped apps; first slice of F7.
 
-**Planning charter.**
-- What can a condition reference, at each level? (User data, case counts, session context — enumerate and type them in Nova's expression AST; no raw-XPath escape hatches.)
-- How do module conditions interact with Nova's always-valid guarantee (can a form become unreachable for everyone — is that a validator finding)?
-- How does the preview present "hidden for this persona" — and does that presuppose F2/F3's persona concept, or a simpler toggle?
-- Wire mapping: menu/command `relevant` emission — verify current emitter shape against `commcare-hq` suite generation at plan time.
+**Planned.** Charter closed by `docs/plans/2026-07-06-f1-module-form-display-conditions.md` — all four charter questions answered there (§3), with fresh lifecycle citations (§1) and the execution-prompt sequence (§6).
 
 ---
 
@@ -40,11 +36,7 @@ The cascade is: **this map → a planning pass per feature (seeded by its charte
 
 **Depends on / unlocks.** Unlocks F1's real use, alert filtering (F6), and role-based owner logic (F3). Provisioning half is independent of the app-facing half and could land later.
 
-**Planning charter.**
-- Is a "user type" a first-class blueprint object (with typed data fields) or a set of conventions? How do user-data references enter the typed AST (rename-safe, like case properties)?
-- Usercase: modeled as a special case type in the catalog (it *is* a case, `commcare-user`, only updatable — ACA §1.3) or as its own concept? What does the preview do with it (per-persona usercase rows in the case store)?
-- Provisioning: verify the current CCHQ user API surface *at plan time* (create/update mobile workers + web users, custom data fields); identity mapping across pushes.
-- Where does Nova's Project-member concept end and app-level personas begin? (LOC L5 raises the same question from the preview side — answer them together.)
+**Planned.** Charter closed by `docs/plans/2026-07-06-f2-users.md` — user types are first-class blueprint objects (typed `userDataFields` schema + named `userTypes` bundles; F1's `session-user` refs tighten to the declared vocabulary + a verified built-ins catalog); the usercase is a built-in reserved catalog case type (update-only, reusing `case_property_on`); the user APIs are verified (users + values pushable; the schema is NOT API-pushable → setup artifact; profiles paid-gated and excluded; usercase paid-gated on HQ → export note); Project members vs personas resolved jointly with LOC L5 (three populations: authors / design-artifact personas / provisioned workers). Provisioning specced (P6) and recommended to land with F3.
 
 ---
 
@@ -56,12 +48,7 @@ The cascade is: **this map → a planning pass per feature (seeded by its charte
 
 **Depends on / unlocks.** Unlocks ACA tier (b) (F4), owner-addressed messaging (F6), real multi-persona preview. Wants F5 (lookup tables) alongside, since region-style addressing uses them.
 
-**Planning charter** (beyond L1–L6, which it inherits wholesale):
-- Model the *roles*, not the flag soup (L3): does Nova name territories/buckets/registries, or synthesize HQ's flags at the emitter?
-- Typed addressing (L4): owner references as catalog objects vs expressions — and what the validator can then guarantee ("this expression yields a case-owning location").
-- Preview personas (L5) — likely the majority of the implementation cost; decide jointly with F2.
-- Custom location fields as join keys: confirm the fixture serialization contract in source first (LOC §10.1).
-- Sequencing inside the feature: reference-only locations (address book, no ownership semantics) as a first slice?
+**Planned.** Charter closed by `docs/plans/2026-07-06-f3-locations.md` — L1–L6 and all five questions answered (§3), with source corrections to this map's memos: the production join keys are HQ's **built-in `{code}_id` lineage attributes** (not custom fields — LOC §10.1 resolved), custom location data serializes as `<location_data>` children, `LocationTypeResource` is **read-only** so the org model ships as a setup artifact while the tree pushes via v0.6 (LOC §10.2 resolved), the hierarchical fixture is deprecated, and no Sync-All-Locations toggle exists. Roles-not-flags adopted (territory/bucket/registry/area); typed `LocationRef` addressing with a checker-enforced case-owning-level guarantee; preview personas = F2 userTypes + location, with a livequery-faithful restore-scope query; reference-only address book confirmed as slice A. Execution prompts in §5.
 
 ---
 
@@ -73,12 +60,7 @@ The cascade is: **this map → a planning pass per feature (seeded by its charte
 
 **Depends on / unlocks.** **Sequenced bet (agreed with the project):** tier (a) — session-independent ops: fan-out updates, close-by-id, side-effect records, link/unlink — ships *before* F3, with `owner_id` as a wire-complete expression slot from day one so tier (b) is emission-ready (ACA H1). Tier (b) — ownership choreography: foreign-owner routing, claim-forcing, moderated writes — activates with F3. Repeats already exist in Nova (`repeat` field kind); the planning pass must confirm the *data-driven* repeat mode, which is what turns one op into N effects (ACA §3-P5/P8).
 
-**Planning charter** (beyond H1–H9):
-- The op vocabulary and shape (H2): per-op typed objects; index as action vs facet; close-with-final-writes; `forEach` multiplicity as an explicit field.
-- Validator posture for runtime-resolved targets (H3) and reserved case types (`commcare-case-claim`, usercase).
-- Preview execution semantics — must match the wire exactly (H6): document order, empty-index-removes, create-overwrite tolerance.
-- SA guidance: the P1–P8 trigger smells and the negative guidance (H5), scoped to what's actually shipped (tier a first).
-- Whole-block conditionality as a first-class concept (the group-wrapping idiom of ACA §1.3 should be structure, not idiom).
+**Planned.** Charter closed by `docs/plans/2026-07-06-f4-case-operations.md` — H1–H9 and all five charter questions answered there (§3), with fresh lifecycle citations (§1, including the resolution of ACA §7.1: the index-only-block NPE is real and gets a structural emitter guard), the EXT closures (§4: case-search extensions in scope, case tiles explicitly not-yet, profile custom properties, repeats confirmed), and the execution-prompt sequence (§6).
 
 ---
 
@@ -90,10 +72,7 @@ The cascade is: **this map → a planning pass per feature (seeded by its charte
 
 **Depends on / unlocks.** Independent and cheap relative to the rest; unlocks pieces of F3 addressing and many mundane app-quality wins. **Sequenced bet:** early — it's enabling, low-risk, and exercises the same push-loop machinery F2/F3 need.
 
-**Planning charter.**
-- Schema: typed columns? Where do table references live in the AST (rename-safe row/column identity vs stringly `instance('item-list:…')`)?
-- Scope: per-app vs Project-shared; how the preview stores rows (case-store adjacency?).
-- Export + API push; size limits and the restore-size doctrine (LOC §7).
+**Planned.** Charter closed by `docs/plans/2026-07-06-f5-lookup-tables.md` — typed columns, references only via the typed families (`table-lookup` value arm + select `options_source` itemsets; raw-XPath access stays rejected), schemas in-doc / rows in the case store's Postgres, dual delivery (suite-embedded fixtures in the local `.ccz` — client-parser-verified — plus the HQ API push), and the execution-prompt sequence (§6). `fixture_select` verified deprecated and excluded.
 
 ---
 
@@ -105,10 +84,7 @@ The cascade is: **this map → a planning pass per feature (seeded by its charte
 
 **Depends on / unlocks.** Meaningful once the patterns that imply them exist (F4 tier b + F3 for messages; claim-heavy designs for sweeps). The *modeling* decision (blueprint vocabulary now vs later) is explicitly open — ACA H9's decision line.
 
-**Planning charter.**
-- Representation: are rules/alerts blueprint objects (validated against the catalog: case types, properties, user-data filters) even while unexportable?
-- Output form today: human-applied setup instructions — where do they surface (export bundle? docs page per app?) and how are they kept in sync with the app?
-- Track the API gap: re-check CCHQ for rule/alert API surface at plan time; design the push for when it lands.
+**Planned.** Charter closed by `docs/plans/2026-07-06-f6-domain-automations.md` — automations ARE blueprint objects (one collection, sweep + alert arms, catalog-validated, constrained to HQ's verified rule expressiveness by a representability checker context); output = the consolidated **HQ setup artifact** (third family after F2's user schema and F3's org model), regenerated from the doc every export behind a push port; the API gap re-checked and **confirmed absent** (no surface, no scaffolding — greps cited). Also resolves ACA §7.2: the rule cap is 10,000 per (domain, case-type, partition) run — the 50k figure is the unrelated SMS daily limit. Plan tiers verified (sweeps Pro+, alerts Standard+).
 
 ---
 
@@ -120,21 +96,18 @@ The cascade is: **this map → a planning pass per feature (seeded by its charte
 
 **Depends on / unlocks.** F1 is its first slice. Endpoints interact with F3 (cross-app flows carry case ids across ownership boundaries). Deliberately last in this map: the biggest design-space, the least settled evidence.
 
-**Planning charter.**
-- Which of these are wire-constrained (endpoints, EOF nav, stack ops — emitter work) vs Nova-experience work (steps, reuse)?
-- The H8 decision: sections/steps in the form model.
-- Whether "workflow" ever becomes a first-class noun in the blueprint, or stays a property of modules/forms/navigation.
+**Planned.** Charter closed by `docs/plans/2026-07-06-f7-navigation-workflow.md` — the wire/experience split is drawn (EOF nav + form links verified already-shipped 1:1; menu nesting + duplicated-entry reuse + optional section groups are slice-A wire; endpoints/smart links are slice B, deferred with their wire verified behind frozen HQ flags); **H8 decided: yes to sections/steps, as projection-only presentation** (no wire section notion exists — confirmed — and chaining fragility is now verified mechanics: snapshot-incompatible frame wipes, no cleanup primitives, no datum re-prompt); "workflow" stays a property of forms/modules/navigation, not a blueprint noun, with the revisit trigger recorded.
 
 ---
 
 ### EXT — Extensions to existing features (scope items, not new features)
 
-Attach these to their owning features' planning passes; listed here so they don't fall between slots:
+Attach these to their owning features' planning passes; listed here so they don't fall between slots. *Ownership resolved at the F4 planning pass (2026-07-06) — all four are closed in `docs/plans/2026-07-06-f4-case-operations.md` §4:*
 
-- **Case search** (exists today): multi-select selections (`instance-datum`), related-case pulls (`x_commcare_include_all_related_cases`, `custom_related_case_property` — ACA §3-P3), results-instance-backed case lists, claim-post emission (straddles F4).
-- **Case list presentation**: case tiles + tile grouping — the display constraint that *causes* denormalization (ACA §3-P5); even a "not yet" decision should be explicit, because SA guidance on denormalization hangs off it.
-- **Export/profile**: custom-property emission (`cc-sync-after-form`, `cc-auto-advance-menu`, `cc-index-case-search-results` — ACA §2.3); small, load-bearing.
-- **Repeats**: confirm the data-driven mode (owner: F4's planning pass).
+- **Case search** (exists today): multi-select selections (`instance-datum`), related-case pulls (`x_commcare_include_all_related_cases`, `custom_related_case_property` — ACA §3-P3), results-instance-backed case lists — *in F4 scope (prompt P6)*; claim-post-on-entry emission — *deferred to F4 tier (b)*.
+- **Case list presentation**: case tiles + tile grouping — *explicit NOT-YET decision made in the F4 plan, with the "project, don't copy" SA-guidance consequence stated (calculated parent-walk columns instead of denormalization).*
+- **Export/profile**: custom-property emission — *in F4 scope (prompt P6), with the HQ-path `CUSTOM_PROPERTIES` domain-toggle caveat verified and documented; `cc-auto-advance-menu` recorded for F7.*
+- **Repeats**: data-driven mode — *confirmed at source in the F4 plan (fact 13), plus a `jr:count`-mechanism doc correction.*
 
 ---
 
@@ -152,7 +125,7 @@ F1 show-when                   │
                                           owner_id wire-complete from day one)
 ```
 
-Reading order of the bets: **F4 tier (a)** has no prerequisites and is agreed to go early. **F2 (app half) → F1** is the second cheap chain. **F5** slots anywhere early. **F3** is the big rock and gates tier (b) + F6. **F7** accretes last, with F1 as its down payment.
+Reading order of the bets: **F4 tier (a)** has no prerequisites and is agreed to go early. ~~**F2 (app half) → F1**~~ *(revised 2026-07-06: F1 goes first standalone — the `session-user` reference already exists in the Predicate AST; F2's app half tightens it afterwards. See the F1 plan §4.)* **F5** slots anywhere early. **F3** is the big rock and gates tier (b) + F6. **F7** accretes last, with F1 as its down payment.
 
 ---
 

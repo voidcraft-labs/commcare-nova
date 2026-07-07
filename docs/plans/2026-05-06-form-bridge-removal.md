@@ -157,9 +157,9 @@ Internal helper extraction inside `caseDataBindingHelpers.ts` (per-arm `applyReg
 
 ### Plan docs updated
 
-- `docs/superpowers/plans/2026-05-01-case-data-layer.md` — Task 6 SHIPPED block prepended with `**SUPERSEDED 2026-05-06 — see [form-bridge-removal.md](2026-05-06-form-bridge-removal.md).**` pointer; the original SHIPPED-on-2026-05-05 description stays intact below the pointer (matches the Tasks 1+2 Atlas-rework precedent at lines 110-185 of that doc). The original block's incorrect test count ("14 pure-function tests") gets corrected to "15" in the same edit. A new `#### Plan 2 follow-up — form-bridge removal SHIPPED` block lands at the end of the Plan 2 doc once this amendment ships.
+- `docs/plans/2026-05-01-case-data-layer.md` — Task 6 SHIPPED block prepended with `**SUPERSEDED 2026-05-06 — see [form-bridge-removal.md](2026-05-06-form-bridge-removal.md).**` pointer; the original SHIPPED-on-2026-05-05 description stays intact below the pointer (matches the Tasks 1+2 Atlas-rework precedent at lines 110-185 of that doc). The original block's incorrect test count ("14 pure-function tests") gets corrected to "15" in the same edit. A new `#### Plan 2 follow-up — form-bridge removal SHIPPED` block lands at the end of the Plan 2 doc once this amendment ships.
 
-- `docs/superpowers/plans/2026-05-01-running-app-search-execution.md` — File Structure block comment for `FormHandoff.tsx` updated from `# form-completion → CaseStore.writeThrough` to `# engine.computeSubmissionMutation() → submitFormAction()`. Task 4 body replaced with: *"When a running-app form completes, the consumer calls `controller.validateAll()`; on validate-pass, calls `controller.computeSubmissionMutation({ caseId, caseTypes })` with `caseTypes` from the session-store and `caseId` from the URL nav stack, then dispatches the result to `submitFormAction(mutation, appId)` (Server Action; resolves session, constructs `withOwnerContext`, routes to the matching `CaseStore` method). The case list re-queries automatically (cache invalidation by app-id + case-type)."*
+- `docs/plans/2026-05-01-running-app-search-execution.md` — File Structure block comment for `FormHandoff.tsx` updated from `# form-completion → CaseStore.writeThrough` to `# engine.computeSubmissionMutation() → submitFormAction()`. Task 4 body replaced with: *"When a running-app form completes, the consumer calls `controller.validateAll()`; on validate-pass, calls `controller.computeSubmissionMutation({ caseId, caseTypes })` with `caseTypes` from the session-store and `caseId` from the URL nav stack, then dispatches the result to `submitFormAction(mutation, appId)` (Server Action; resolves session, constructs `withOwnerContext`, routes to the matching `CaseStore` method). The case list re-queries automatically (cache invalidation by app-id + case-type)."*
 
 ---
 
@@ -191,7 +191,7 @@ Each step is one commit. Tests pass after each commit.
    - Existing form-bridge tests still pass (untouched).
 
 5. **Verify coverage transfer + zero downstream consumers — single commit, atomic with delete.**
-   - Build a coverage checklist at `docs/superpowers/plans/2026-05-06-form-bridge-removal-checklist.md`: list every `it()` block in `deriveFromForm.test.ts` (15 blocks) and `writeThrough.test.ts`, mapping each to the new test (added in steps 3-4) that asserts the same semantic. Surface gaps; close them in this commit.
+   - Build a coverage checklist at `docs/plans/2026-05-06-form-bridge-removal-checklist.md`: list every `it()` block in `deriveFromForm.test.ts` (15 blocks) and `writeThrough.test.ts`, mapping each to the new test (added in steps 3-4) that asserts the same semantic. Surface gaps; close them in this commit.
    - Run the rg sweeps: `rg -l "from .*case-store/form-bridge|from .*form-bridge" lib/ components/ app/` returns no hits outside the package; `rg -l "writeFormCompletionThrough|deriveFromForm|CompletedForm|DerivedFormOps|WriteFormCompletionResult" lib/ components/ app/` returns no hits outside the package.
    - Delete the `lib/case-store/form-bridge/` directory.
    - Delete the form-bridge barrel re-export block in `lib/case-store/index.ts` (lines 25-39 — verified against the current 60-line file; the block starts at the comment `// Form-bridge — completed-form → CaseStore operations.` and ends at the closing `export { writeFormCompletionThrough }` line).
@@ -228,8 +228,8 @@ The earlier draft's separate verify-then-delete steps collapse into one (step 5)
 - [ ] `npm run lint` — clean (no unused exports, no orphaned imports, no `_caseTypes` underscore-prefixed dead parameter)
 - [ ] `npx tsc --noEmit` — no errors
 - [ ] `rg -l "form-bridge" lib/ components/ app/` returns 0 hits
-- [ ] `rg -l "form-bridge" docs/superpowers/` returns exactly 2 hits: this amendment file (`docs/superpowers/plans/2026-05-06-form-bridge-removal.md`) and the Plan 2 doc (`docs/superpowers/plans/2026-05-01-case-data-layer.md`, where Task 6's SHIPPED block carries the SUPERSEDED pointer)
-- [ ] Coverage checklist at `docs/superpowers/plans/2026-05-06-form-bridge-removal-checklist.md` shows every `it()` block from the deleted test files mapped to a corresponding new test, with no gaps
+- [ ] `rg -l "form-bridge" docs/` returns exactly 2 hits: this amendment file (`docs/plans/2026-05-06-form-bridge-removal.md`) and the Plan 2 doc (`docs/plans/2026-05-01-case-data-layer.md`, where Task 6's SHIPPED block carries the SUPERSEDED pointer)
+- [ ] Coverage checklist at `docs/plans/2026-05-06-form-bridge-removal-checklist.md` shows every `it()` block from the deleted test files mapped to a corresponding new test, with no gaps
 - [ ] `lib/preview/CLAUDE.md` "Form engine lifecycle rules" section gained one new bullet describing `computeSubmissionMutation`
 - [ ] `lib/preview/CLAUDE.md` gained the "Two-state JSONB collapse" subsection (moved from `lib/case-store/CLAUDE.md`)
 - [ ] One end-to-end smoke: a `FormEngine` instance with a registration form blueprint, fill it via the engine's input methods, call `controller.validateAll()` (returns true), call `controller.computeSubmissionMutation({ caseTypes })`, hand the result to `submitFormAction(mutation, appId)` against a real `PostgresCaseStore`, verify the case + children persist with correctly-typed JSONB values

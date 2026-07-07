@@ -2,7 +2,7 @@
 
 **Date created:** 2026-05-02 · **Last revised:** 2026-05-03 (post-execution capture)
 **Owner:** supervisor (Braxton, executed gcloud after sign-off)
-**Plan reference:** `docs/superpowers/plans/2026-05-01-case-data-layer.md` Task 0
+**Plan reference:** `docs/plans/2026-05-01-case-data-layer.md` Task 0
 **Status:** EXECUTED 2026-05-03 against project `commcare-nova`. Record-of-truth shell script at `scripts/infra/provision-cloud-sql.sh` captures the actual commands run.
 
 This runbook locks every Task 0 decision against live Google docs and the existing project state, then sequences the billable provisioning. The implementer's downstream code-side scope (`lib/case-store/postgres/connection.ts`, `scripts/infra/provision-cloud-sql.sh` as the record-of-truth shell script, test wiring) follows after the infra is up.
@@ -523,4 +523,4 @@ All three extensions live and reachable end-to-end via IAM auth. The runtime pat
 
 ### Plan 2 sync
 
-`docs/superpowers/plans/2026-05-01-case-data-layer.md` Task 0 is rewritten as a SHIPPED block citing this runbook and the shell script. Task 1's migration runner reframes from "local Cloud SQL Auth Proxy" to "Cloud Run job" with the rationale captured. The pool=4 math + the tier-up path are documented in Plan 2.
+`docs/plans/2026-05-01-case-data-layer.md` Task 0 is rewritten as a SHIPPED block citing this runbook and the shell script. Task 1's migration runner reframes from "local Cloud SQL Auth Proxy" to "Cloud Run job" with the rationale captured. The pool=4 math + the tier-up path are documented in Plan 2.

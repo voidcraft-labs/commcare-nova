@@ -432,7 +432,7 @@ removal, index before migration), the merge is one PR at the end. Docs
 
 ### Stage 0 — Foundations (no behavior change) — SHIPPED
 
-Landed as specified (see `docs/superpowers/plans/2026-06-09-vbc-stage-0-foundations.md`
+Landed as specified (see `docs/plans/2026-06-09-vbc-stage-0-foundations.md`
 for the per-task SHIPPED record and the five review rounds that closed it).
 
 1. `gate.ts`: classification table (typed-total over all ~190 codes; the

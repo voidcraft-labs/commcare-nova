@@ -2,7 +2,7 @@
 
 Date: 2026-05-02
 Owner: Plan 1 (foundation) — Task C8 final verification gate
-Spec source: `docs/superpowers/specs/2026-04-30-case-list-search-design.md`,
+Spec source: `docs/specs/2026-04-30-case-list-search-design.md`,
 "Wire emission" section, V1-IN list at lines 457-478
 
 This matrix grounds every operator in the spec's V1-IN list against

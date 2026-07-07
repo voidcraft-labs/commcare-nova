@@ -1,6 +1,6 @@
 # Search Authoring Implementation Plan (Plan 4 of 5)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Implement this plan task-by-task with subagent-driven development. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Status:** Plan 4 of 5. Reshaped 2026-05-08 against the v2 `caseListConfig` shape that Plan 3 + the 2026-05-07 schema reshape ship. The reshape revisited Plan 4's premise: CCHQ's authoring layer separates "case list" and "search results" into duplicate config surfaces (`<sort>` vs `custom_sort_properties`, case-list filter vs default search filter), but Nova's principle is "from the user's perspective there is only one case list ever, regardless of how they get there." The wire emitter projects the single `caseListConfig` onto both wire detail blocks (`m{N}_case_short` + `m{N}_search_short`, mirror for long) at emission. Plan 4's `caseSearchConfig` carries only the search-only authoring concerns that have no case-list parallel — claim flow + display labels + the cross-bound search inputs from Plan 3. Plan 5 (Running-app search execution) depends on this plan.
 
@@ -662,7 +662,7 @@ Web no longer emits `inlineSearch: true` from any branch — only Android does. 
 - `lib/commcare/suite/case-search/types.ts` — drop `PlatformFlags` interface and `flags` field on `PlatformContext`; drop `splitScreen` field on `WireShape`. JSDoc rewritten for the three-flag shape.
 - `lib/commcare/suite/case-search/compileForPlatform.ts` — fold branch 2 into branch 4; rewrite JSDoc to enumerate three flags / three branches.
 - `lib/commcare/suite/case-search/__tests__/compileForPlatform.test.ts` — collapse the four-branch test organization to three (drop the "web + split-screen available" describe shell entirely; drop the "split-screen flag dominates" Android case as the flag no longer exists). Test count: 11 (was 14).
-- `docs/superpowers/plans/2026-05-01-search-authoring.md` — Task 6 plan body's `PlatformContext` / `WireShape` definition + branch table updated to three-flag / three-branch shape.
+- `docs/plans/2026-05-01-search-authoring.md` — Task 6 plan body's `PlatformContext` / `WireShape` definition + branch table updated to three-flag / three-branch shape.
 
 **Whole-repo build state:** green throughout. Lint, `tsc --noEmit`, and `npm test` all clean post-change.
 
@@ -973,7 +973,7 @@ Landed across two commits (one a partial-state intermediate, one the completion)
 
 **Lessons learned (process, not implementation):**
 
-1. **Parallel agent operations on a shared worktree need explicit sequencing.** The reorg implementer's `git mv` operations pre-staged 67 renames into the index. When the supervisor ran `git add docs/superpowers/plans/2026-05-01-search-authoring.md && git commit` for the unrelated Task 4 plan-sync, the staged renames swept in. Fix going forward: when an implementer is running operations that stage to the index (`git mv`, `git add` of any kind), the supervisor avoids unrelated commits OR uses `git add --` with explicit-paths discipline (which was already the case here, but the renames had been staged outside the supervisor's `git add` invocation by the implementer's parallel session).
+1. **Parallel agent operations on a shared worktree need explicit sequencing.** The reorg implementer's `git mv` operations pre-staged 67 renames into the index. When the supervisor ran `git add docs/plans/2026-05-01-search-authoring.md && git commit` for the unrelated Task 4 plan-sync, the staged renames swept in. Fix going forward: when an implementer is running operations that stage to the index (`git mv`, `git add` of any kind), the supervisor avoids unrelated commits OR uses `git add --` with explicit-paths discipline (which was already the case here, but the renames had been staged outside the supervisor's `git add` invocation by the implementer's parallel session).
 
 2. **The implementer's discipline holds.** They correctly chose NOT to `git reset --soft` to repair the partial state — that would have clobbered the supervisor's plan-doc edit. The remediation was a clean follow-up commit instead. End-state is correct; commit history has one extra step.
 
@@ -1053,7 +1053,7 @@ Three commits land the foundation cleanup:
 - 3839 tests passing across 227 files.
 - `npm run lint`, `npx tsc --noEmit`, `npm run build` all green.
 
-**Why this section, not its own plan.** The reshape's pattern (`docs/superpowers/plans/2026-05-07-case-list-schema-reshape.md`'s "Audit-driven follow-ups" section) is the precedent: foundation fixes that surface during a plan's CR loop and that the supervisor lands as their own commits stay attached to the plan as followups, not as a separate plan. This section documents the four foundation commits so a fresh-session supervisor reading Plan 4 sees the foundation that Plan 4's later tasks compose against.
+**Why this section, not its own plan.** The reshape's pattern (`docs/plans/2026-05-07-case-list-schema-reshape.md`'s "Audit-driven follow-ups" section) is the precedent: foundation fixes that surface during a plan's CR loop and that the supervisor lands as their own commits stay attached to the plan as followups, not as a separate plan. This section documents the four foundation commits so a fresh-session supervisor reading Plan 4 sees the foundation that Plan 4's later tasks compose against.
 
 ### Option B — claim-condition authoring removed wholesale — 2026-05-09
 
@@ -1085,7 +1085,7 @@ Three commits land the foundation cleanup:
 
 **Wire emission (Task 9).** Plan 4 Task 9's pending scope (claim emission) collapses. With `claimCondition` gone, the `<post>` `relevant` attribute emits the default guard verbatim: `count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0`. There is no AND-composition with `additional_relevant`. Task 9 reduces to a 5-line helper that emits the `<post>` element + its single `<data key="case_id">` child + the static `relevant` string. The "Resolution — no separate skip-already-owned toggle" sub-section becomes moot and is preserved here only as a historical reference; the operative decision is "no claim authoring at all."
 
-**Spec doc.** `docs/superpowers/specs/2026-04-30-case-list-search-design.md`: the V1-IN list's "Claim condition (Predicate AST)" bullet is removed. The "Predicate AST" use-list cross-reference at the spec head is updated to drop "claim conditions" — `Predicate` is still used for filters, default search filters, search-button display conditions, and EXISTS clauses. `lib/domain/predicate/CLAUDE.md`'s package summary follows the spec.
+**Spec doc.** `docs/specs/2026-04-30-case-list-search-design.md`: the V1-IN list's "Claim condition (Predicate AST)" bullet is removed. The "Predicate AST" use-list cross-reference at the spec head is updated to drop "claim conditions" — `Predicate` is still used for filters, default search filters, search-button display conditions, and EXISTS clauses. `lib/domain/predicate/CLAUDE.md`'s package summary follows the spec.
 
 **File deletions (commit-ready).**
 - `components/builder/case-search-config/ClaimSection.tsx`
@@ -1107,4 +1107,4 @@ Three commits land the foundation cleanup:
 - `npx tsc --noEmit` clean.
 - `npm run lint` clean.
 - `npm test` all green.
-- The four `rg` final-sweep terms return zero matches outside of `docs/superpowers/`.
+- The four `rg` final-sweep terms return zero matches outside of `docs/`.

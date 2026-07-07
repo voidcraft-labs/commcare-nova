@@ -1,6 +1,6 @@
 # Chat Attachments via the Media Store Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development` or `superpowers:executing-plans`. Frontend tasks additionally load the `frontend-design` skill and build from `@/components/shadcn`. Steps use checkbox (`- [ ]`) syntax.
+> **For agentic workers:** Implement task-by-task with subagent-driven development. Frontend tasks additionally load the `frontend-design` skill and build from `@/components/shadcn`. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Route chat attachments through the per-owner media store (#45): the composer opens the file manager (not the browser picker), uploads go to storage, the requirements **extract** is computed once at upload and reused every turn, and the user can both see *that* extraction happens and preview *what the AI reads*.
 

@@ -1,6 +1,6 @@
 # Running-App Search Execution Implementation Plan (Plan 5 of 5)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Implement this plan task-by-task with subagent-driven development. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Status:** Plan 5 of 5. Depends on Plans 1, 2, 3 (case-list authoring shipped end-to-end at v2 shape per the 2026-05-07 reshape), Plan 4 (case-search authoring — `caseSearchConfig.{excludedOwnerIds, searchScreen*, emptyListText, search*ButtonLabel, searchButtonDisplayCondition}`, `searchInputs` on `caseListConfig`, dual-detail emission, `<remote-request>` orchestrator + sub-emitters, `compileForPlatform` decision tree, six-rule validator family, `setCaseSearchDisplay` / `setCaseSearchAdvanced` SA tools, `CaseSearchConfigPanel` mounted in edit mode, `CaseSearchConfigInteractEmptyState` mounted in pointer mode). After Plan 5 ships, the flipbook's running-app surface (cursor-mode `pointer` → `useEditMode() === "test"`) executes search-input filtering end-to-end against the Postgres `cases` rows; forms write through the case-store so the user can walk through registration → list → followup workflows on the same rows the editor inspects.
 
