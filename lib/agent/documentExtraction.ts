@@ -18,10 +18,7 @@
 // from being re-condensed — or re-billed at the Opus input rate across dozens of
 // tool-loop steps — on every send.
 
-import {
-	createGoogleGenerativeAI,
-	type GoogleLanguageModelOptions,
-} from "@ai-sdk/google";
+import { createGoogle, type GoogleLanguageModelOptions } from "@ai-sdk/google";
 import AdmZip from "adm-zip";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
@@ -746,7 +743,7 @@ export function createGeminiCondenser(): AttachmentCondenser {
 			"GOOGLE_GENERATIVE_AI_API_KEY is unset — document feature extraction needs the Gemini summarizer key. Set it in the environment so uploaded documents can be condensed into the requirements extract Nova reads.",
 		);
 	}
-	const model = createGoogleGenerativeAI({ apiKey })(CONDENSER_MODEL);
+	const model = createGoogle({ apiKey })(CONDENSER_MODEL);
 	return {
 		async extractDocumentStructured(args) {
 			const r = await streamObjectWith({

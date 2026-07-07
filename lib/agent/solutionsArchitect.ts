@@ -402,15 +402,20 @@ export function createSolutionsArchitect(
 			// Adaptive thinking with `display: 'summarized'` is required on Opus 4.7
 			// and later for human-readable thinking summaries to stream back. `effort` is a
 			// top-level provider option (sibling of `thinking`), not nested inside
-			// it — Zod silently strips nested unknown fields.
-			const anthropic: AnthropicProviderOptions = {
-				cacheControl: { type: "ephemeral" },
-				thinking: { type: "adaptive", display: "summarized" },
-				effort: SA_REASONING.effort,
+			// it — Zod silently strips nested unknown fields. `satisfies` (not an
+			// annotation) so the literal's JSONObject-assignable type flows into
+			// providerOptions while misplaced keys are still rejected.
+			return {
+				providerOptions: {
+					anthropic: {
+						cacheControl: { type: "ephemeral" },
+						thinking: { type: "adaptive", display: "summarized" },
+						effort: SA_REASONING.effort,
+					} satisfies AnthropicProviderOptions,
+				},
 			};
-			return { providerOptions: { anthropic } };
 		},
-		onStepFinish: (step) => {
+		onStepEnd: (step) => {
 			/* Delegate step-level fan-out (usage + conversation events +
 			 * tool-call counting) to the shared handler on GenerationContext.
 			 * We map the AI SDK's step-finish argument into the normalized
