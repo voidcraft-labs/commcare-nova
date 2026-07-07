@@ -1,120 +1,137 @@
 // components/builder/appTree/insertion/TreeInsertionAffordance.tsx
 //
 // The hover-reveal "+" affordance between app-tree rows — the tree analog of
-// the form canvas's `InsertionPoint`, and now sharing its EXACT reveal gating
-// (`lib/ui/hooks/useInsertionHover`): the strip opens only once the cursor
-// SLOWS over it, so sweeping past a gap never pops it open. The Base UI
-// Menu/Popover TRIGGER itself is the affordance — a full-width, click-anywhere
-// strip that expands (and fades its "+" in) while `revealed`, so the circle
-// gets room and never overlaps the rows above/below. The host composes three
-// pieces:
-//   - useTreeInsertionHover(open) — the gated `revealed` state + the handlers
-//     to spread onto the trigger; reads the surface-wide cursor speed from
-//     context (AppTree mounts the tracker via CursorSpeedProvider).
-//   - insertionTriggerCls(revealed) — the trigger's className.
-//   - TreeInsertionLine — the violet lines + "+" circle rendered inside it.
+// the form canvas's `InsertionPoint`, sharing its EXACT reveal gating (the
+// insertion-intent model behind `lib/ui/hooks/useInsertionZone`): the strip
+// opens when the model reads dwell-intent over it — a slow hover opens
+// near-instantly, sweeping past never opens, a flick that stops on it opens
+// after a settle beat. The Base UI Menu/Popover TRIGGER itself is the
+// affordance — a full-width, click-anywhere strip that EXPANDS (14px → 32px,
+// pushing the neighboring rows apart) while revealed — layout moving under
+// the pointer is safe because zone containment is geometric (the binding
+// re-measures rects through the reveal animation), never DOM hover state.
+// The host composes three pieces:
+//   - useTreeInsertionZone(open) — the gated `revealed` state + the zone ref
+//     to attach to the trigger; AppTree mounts the surface-wide model via
+//     InsertionIntentProvider.
+//   - INSERTION_TRIGGER_CLS / insertionTriggerStyle — the trigger's chrome.
+//   - TreeInsertionLine — the violet lines + the labeled "+ Form" /
+//     "+ Module" pill rendered inside it. The label is the level indicator;
+//     there is no tooltip (naming an affordance through a tooltip means
+//     naming it while it's invisible).
 
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import { type CSSProperties, type RefObject, useEffect, useRef } from "react";
+import { type CSSProperties, useEffect } from "react";
 import {
-	insertionRevealTransition,
-	useCursorSpeedContext,
-	useInsertionHover,
-} from "@/lib/ui/hooks/useInsertionHover";
+	INSERTION_CIRCLE_CLS,
+	insertionCircleStyle,
+	insertionExpandStyle,
+	insertionLineCls,
+	insertionLineStyle,
+} from "@/components/ui/insertionReveal";
+import {
+	type InsertionZone,
+	useInsertionZone,
+} from "@/lib/ui/hooks/useInsertionZone";
 
-interface TreeInsertionHover {
-	/** Whether the strip is expanded + the "+" shown. */
+interface TreeInsertionZone {
+	/** Whether the strip shows its line + "+". */
 	readonly revealed: boolean;
+	/** Arming evidence 0..1 — drives the pre-open glow. */
+	readonly progress: number;
 	/** Attach to the Base UI `Menu.Trigger` / `Popover.Trigger`. */
-	readonly ref: RefObject<HTMLButtonElement | null>;
-	/** Spread onto the same trigger. */
-	readonly hoverProps: {
-		readonly onMouseEnter: () => void;
-		readonly onMouseMove: () => void;
-		readonly onMouseLeave: () => void;
-	};
+	readonly ref: InsertionZone["ref"];
 }
 
 /**
- * Cursor-speed-gated reveal for a tree insertion affordance, sharing the form
- * canvas's `useInsertionHover`. `open` is the host popup's open state: the strip
- * stays revealed while open and collapses when it closes — the tree equivalent
- * of the form InsertionPoint's subscribeClose reset.
+ * Intent-gated reveal for a tree insertion affordance. `open` is the host
+ * popup's open state: while open the zone is HELD (the pointer may be inside
+ * the portalled popup), and release hands control back to the model — the
+ * tree equivalent of the form InsertionPoint pinning on the picker's
+ * `activeTarget`.
  */
-export function useTreeInsertionHover(open: boolean): TreeInsertionHover {
-	const { cursorSpeedRef, lastCursorRef } = useCursorSpeedContext();
-	// Latest open in a ref so the leave handler reads it without re-subscribing.
-	const openRef = useRef(open);
-	openRef.current = open;
-
-	const hover = useInsertionHover<HTMLButtonElement>({
-		cursorSpeedRef,
-		lastCursorRef,
-		keepOpen: () => openRef.current,
-	});
-
-	// Collapse when the popup CLOSES (true→false) — the tree equivalent of the
-	// form's subscribeClose reset. Guarded against mount (open is false at mount)
-	// so it doesn't clobber useInsertionHover's mount-time cursor check, which
-	// reveals the strip if the cursor is already over it when it appears.
-	const { reset } = hover;
-	const wasOpenRef = useRef(false);
+export function useTreeInsertionZone(open: boolean): TreeInsertionZone {
+	const zone = useInsertionZone();
+	// Hold while the popup is open (the pointer may be inside the portal); the
+	// effect cleanup also releases on unmount so a hold can't outlive its zone.
+	const { setHold } = zone;
 	useEffect(() => {
-		if (wasOpenRef.current && !open) reset();
-		wasOpenRef.current = open;
-	}, [open, reset]);
-
+		if (!open) return;
+		setHold(true);
+		return () => setHold(false);
+	}, [open, setHold]);
 	return {
-		revealed: hover.revealed || open,
-		ref: hover.containerRef,
-		hoverProps: {
-			onMouseEnter: hover.onMouseEnter,
-			onMouseMove: hover.onMouseMove,
-			onMouseLeave: hover.onMouseLeave,
-		},
+		revealed: open || zone.status === "open",
+		progress: zone.progress,
+		ref: zone.ref,
 	};
 }
 
-/** The insertion trigger's static className: a full-width, pointer-cursor strip
- *  so the WHOLE line is clickable, not just the "+". Height + its animation come
- *  from `insertionTriggerStyle` (an inline transition, not a class). */
+/** The insertion trigger's static className: a full-width, pointer-cursor
+ *  strip so the WHOLE line is clickable, not just the "+". */
 export const INSERTION_TRIGGER_CLS =
 	"relative block w-full cursor-pointer outline-none";
 
-/**
- * The trigger's animated height: grows from a thin idle gap (14px) to 32px while
- * `revealed`, giving the 20px "+" circle clearance so it doesn't cut into
- * adjacent rows. Shares `insertionRevealTransition` with the form canvas's
- * InsertionPoint so the two surfaces animate identically (an inline transition,
- * not a Tailwind class swap, which chops instead of glides).
- */
+/** The trigger's animated geometry: a thin 14px gap at rest that expands to
+ *  32px while revealed, giving the 20px "+" circle clearance and pushing the
+ *  adjacent rows apart — the same slide-open the form canvas's
+ *  InsertionPoint performs. */
 export function insertionTriggerStyle(revealed: boolean): CSSProperties {
-	return {
-		height: revealed ? 32 : 14,
-		transition: insertionRevealTransition(revealed),
-	};
+	return insertionExpandStyle(revealed, 14, 32);
 }
 
 /**
- * The violet flanking lines + centered "+" circle, faded in while `revealed`.
- * All inline (`<span>`) elements so the markup is valid inside the trigger's
- * `<button>`, and `pointer-events-none` so clicks fall through to the trigger —
- * the entire strip is the click target, not just the circle.
+ * The violet flanking lines + centered "+ <label>" pill. While arming, the
+ * lines glow in with accumulated evidence; on reveal they commit to full
+ * opacity and the pill blooms in. The LABEL is what makes the two tree
+ * levels legible — a bare "+" between a module's last form and the next
+ * module is anonymous, and naming the action through a tooltip means naming
+ * it through an invisible affordance. All inline (`<span>`) elements so the
+ * markup is valid inside the trigger's `<button>`. The lines are
+ * `pointer-events-none` (clicks fall through to the full-width trigger);
+ * the pill re-enables pointer events because it overflows the strip's hit
+ * box — a click on the overflowing sliver must not fall through to the
+ * adjacent row.
+ *
+ * `insetCls` positions the lines: form strips indent to the form rows'
+ * depth so the affordance reads as INSIDE the module; module strips span
+ * the tree's full row width.
  */
-export function TreeInsertionLine({ revealed }: { revealed: boolean }) {
+export function TreeInsertionLine({
+	revealed,
+	progress = 0,
+	label,
+	insetCls = "inset-x-3",
+}: {
+	revealed: boolean;
+	progress?: number;
+	/** Names the action in the pill — "Form" | "Module". */
+	label: string;
+	insetCls?: string;
+}) {
 	return (
 		<span
-			className={`pointer-events-none absolute inset-x-3 top-1/2 flex -translate-y-1/2 items-center gap-1.5 transition-opacity duration-150 ${
-				revealed ? "opacity-100" : "opacity-0"
-			}`}
+			className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 items-center gap-1.5 ${insetCls}`}
 		>
-			<span className="h-px flex-1 bg-nova-violet/40" />
-			<span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-nova-violet/40 bg-nova-surface text-nova-violet-bright">
+			<span
+				className={insertionLineCls("right")}
+				style={insertionLineStyle(progress, revealed)}
+			/>
+			<span
+				className={`${INSERTION_CIRCLE_CLS} h-5 shrink-0 gap-1 px-2 ${
+					revealed ? "pointer-events-auto" : ""
+				}`}
+				style={insertionCircleStyle(revealed)}
+			>
 				<Icon icon={tablerPlus} width="12" height="12" />
+				<span className="text-[11px] font-medium leading-none">{label}</span>
 			</span>
-			<span className="h-px flex-1 bg-nova-violet/40" />
+			<span
+				className={insertionLineCls("left")}
+				style={insertionLineStyle(progress, revealed)}
+			/>
 		</span>
 	);
 }

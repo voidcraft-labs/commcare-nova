@@ -10,9 +10,12 @@
  * payload (`atIndex`, `parentPath`) that the shared popup reads to determine
  * where to insert the new field.
  *
- * The `subscribeClose` pub/sub lets InsertionPoints reset their hover state
- * when the shared menu closes — necessary because the InsertionPoint no
- * longer owns the `Menu.Root` and can't observe `onOpenChange` directly.
+ * `activeTarget` is the payload the menu is CURRENTLY open for (null when
+ * closed) — the popup reports it from inside `Menu.Popup`, whose mount is
+ * exactly the menu's open lifetime, so it is correct for every open path
+ * (click, pointerdown-and-drag-into-menu, keyboard) and every close path
+ * (select, Escape, outside click, re-anchor). The anchor InsertionPoint pins
+ * its line open while `activeTarget` matches it.
  */
 "use client";
 
@@ -35,9 +38,8 @@ export type FieldPickerHandle = Menu.Handle<FieldPickerPayload>;
 interface FieldPickerContextValue {
 	/** Shared menu handle connecting all InsertionPoint triggers to a single popup. */
 	handle: FieldPickerHandle;
-	/** Subscribe to menu close events so InsertionPoints can reset hover state.
-	 *  Returns an unsubscribe function. */
-	subscribeClose: (listener: () => void) => () => void;
+	/** The insertion location the menu is open for right now; null when closed. */
+	activeTarget: FieldPickerPayload | null;
 }
 
 export const FieldPickerContext = createContext<FieldPickerContextValue | null>(

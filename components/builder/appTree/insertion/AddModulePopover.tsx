@@ -17,7 +17,6 @@ import tablerClipboardText from "@iconify-icons/tabler/clipboard-text";
 import tablerTable from "@iconify-icons/tabler/table";
 import { useState } from "react";
 import { CaseTypePickerContent } from "@/components/builder/shared/CaseTypePicker";
-import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -29,7 +28,7 @@ import {
 	INSERTION_TRIGGER_CLS,
 	insertionTriggerStyle,
 	TreeInsertionLine,
-	useTreeInsertionHover,
+	useTreeInsertionZone,
 } from "./TreeInsertionAffordance";
 
 interface AddModulePopoverProps {
@@ -45,7 +44,7 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 	// error line, not as a toast — the popover owns the feedback.
 	const { inline } = useBlueprintMutations();
 	const { openModule, openCaseList } = useNavigate();
-	const { revealed, ref, hoverProps } = useTreeInsertionHover(open);
+	const { revealed, progress, ref } = useTreeInsertionZone(open);
 	const canEdit = useCanEdit();
 
 	// Reset transient state whenever the popover closes — by dismiss
@@ -94,17 +93,18 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 
 	return (
 		<Popover.Root open={open} onOpenChange={handleOpenChange}>
-			<Tooltip content="Add module">
-				<Popover.Trigger
-					ref={ref}
-					{...hoverProps}
-					className={INSERTION_TRIGGER_CLS}
-					style={insertionTriggerStyle(revealed)}
-					aria-label="Add module"
-				>
-					<TreeInsertionLine revealed={revealed} />
-				</Popover.Trigger>
-			</Tooltip>
+			<Popover.Trigger
+				ref={ref}
+				className={INSERTION_TRIGGER_CLS}
+				style={insertionTriggerStyle(revealed)}
+				aria-label="Add module"
+			>
+				<TreeInsertionLine
+					revealed={revealed}
+					progress={progress}
+					label="Module"
+				/>
+			</Popover.Trigger>
 			<Popover.Portal>
 				<Popover.Positioner
 					side="bottom"
@@ -116,9 +116,6 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 						<div className="w-64 p-1.5">
 							{step === "choose" ? (
 								<>
-									<div className="px-2 pt-1 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-nova-text-muted">
-										Add module
-									</div>
 									<ArchetypeRow
 										icon={tablerTable}
 										title="Case List"

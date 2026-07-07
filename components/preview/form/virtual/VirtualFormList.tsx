@@ -21,8 +21,10 @@
  *   - `autoScrollForElements` on the scroll container.
  *   - The shared field-picker Base UI `Menu.Root`.
  *
- * The drag lifecycle (global `monitorForElements`, cursor-velocity
- * tracking, placeholder resolution) lives in `./useDragIntent`.
+ * The drag lifecycle (global `monitorForElements`, placeholder
+ * resolution) lives in `./useDragIntent`; insertion-point reveal gating
+ * lives in the surface-wide insertion-intent model this shell mounts
+ * (`lib/ui/hooks/useInsertionZone`).
  */
 
 "use client";
@@ -41,11 +43,13 @@ import {
 	useEffect,
 	useMemo,
 	useRef,
+	useState,
 } from "react";
 import { DragStateProvider } from "@/components/builder/contexts/DragStateContext";
 import type { Uuid } from "@/lib/doc/types";
 import { useSelectedField } from "@/lib/routing/hooks";
 import { useGetEditScroll, useSetEditScroll } from "@/lib/session/hooks";
+import { InsertionIntentProvider } from "@/lib/ui/hooks/useInsertionZone";
 import {
 	FieldPickerContext,
 	type FieldPickerPayload,
@@ -121,19 +125,12 @@ export const VirtualFormList = memo(function VirtualFormList({
 	baseRowsRef.current = baseRows;
 
 	// ── Drag state (owned by useDragIntent) ─────────────────────────
-	// The hook wires the pragmatic-drag-and-drop global monitor and the
-	// cursor-velocity listeners. The shell only needs the reactive
-	// placeholder position + the cursor refs to forward to insertion
-	// point rows.
+	// The hook wires the pragmatic-drag-and-drop global monitor. The shell
+	// only needs the reactive placeholder position; insertion-point reveal
+	// state lives in the surface-wide insertion-intent model below.
 
-	const {
-		dragActive,
-		setDragActive,
-		placeholderIndex,
-		placeholderDepth,
-		cursorSpeedRef,
-		lastCursorRef,
-	} = useDragIntent({ formUuid, baseRowsRef });
+	const { dragActive, setDragActive, placeholderIndex, placeholderDepth } =
+		useDragIntent({ formUuid, baseRowsRef });
 
 	// REPLACE the insertion row at the drop position with a taller
 	// placeholder. The row count stays the same, every other row keeps
@@ -256,21 +253,15 @@ export const VirtualFormList = memo(function VirtualFormList({
 		() => Menu.createHandle<FieldPickerPayload>(),
 		[],
 	);
-	const closeListenersRef = useRef(new Set<() => void>());
-	const subscribeClose = useCallback((listener: () => void) => {
-		closeListenersRef.current.add(listener);
-		return () => {
-			closeListenersRef.current.delete(listener);
-		};
-	}, []);
-	const onPickerOpenChange = useCallback((nextOpen: boolean) => {
-		if (!nextOpen) {
-			for (const listener of closeListenersRef.current) listener();
-		}
-	}, []);
+	// The insertion location the picker is open for right now (null when
+	// closed) — reported by the popup from inside Menu.Popup, whose mount IS
+	// the open lifetime. The anchor InsertionPoint pins its line while this
+	// matches it.
+	const [activeInsertTarget, setActiveInsertTarget] =
+		useState<FieldPickerPayload | null>(null);
 	const questionPickerCtx = useMemo(
-		() => ({ handle: fieldPickerHandle, subscribeClose }),
-		[fieldPickerHandle, subscribeClose],
+		() => ({ handle: fieldPickerHandle, activeTarget: activeInsertTarget }),
+		[fieldPickerHandle, activeInsertTarget],
 	);
 
 	// ── Render ───────────────────────────────────────────────────────
@@ -279,71 +270,66 @@ export const VirtualFormList = memo(function VirtualFormList({
 	const totalSize = virtualizer.getTotalSize();
 
 	return (
-		<FieldPickerContext.Provider value={questionPickerCtx}>
-			<VirtualFormProvider
-				formUuid={formUuid}
-				toggleCollapse={toggleCollapse}
-				isCollapsed={isCollapsed}
-			>
-				<DragStateProvider isActive={dragActive} setActive={setDragActive}>
-					<div
-						ref={scrollerRef}
-						data-preview-scroll-container
-						className="relative h-full overflow-auto"
-						style={{ contain: "strict" }}
-					>
-						<div
-							style={{
-								height: totalSize,
-								width: "100%",
-								position: "relative",
-							}}
-						>
-							{virtualItems.map((vi) => {
-								const row = rows[vi.index];
-								if (!row) return null;
-								return (
-									<div
-										key={vi.key}
-										ref={virtualizer.measureElement}
-										data-index={vi.index}
-										style={{
-											position: "absolute",
-											top: 0,
-											left: 0,
-											width: "100%",
-											transform: `translateY(${vi.start}px)`,
-										}}
-									>
-										<RenderRow
-											row={row}
-											cursorSpeedRef={cursorSpeedRef}
-											lastCursorRef={lastCursorRef}
-											disableInsertion={dragActive}
-										/>
-									</div>
-								);
-							})}
-						</div>
-					</div>
-				</DragStateProvider>
-
-				<Menu.Root
-					handle={fieldPickerHandle}
-					modal={false}
-					onOpenChange={onPickerOpenChange}
+		<InsertionIntentProvider>
+			<FieldPickerContext.Provider value={questionPickerCtx}>
+				<VirtualFormProvider
+					formUuid={formUuid}
+					toggleCollapse={toggleCollapse}
+					isCollapsed={isCollapsed}
 				>
-					{({ payload }: { payload: FieldPickerPayload | undefined }) =>
-						payload && (
-							<FieldTypePickerPopup
-								atIndex={payload.atIndex}
-								parentUuid={payload.parentUuid}
-							/>
-						)
-					}
-				</Menu.Root>
-			</VirtualFormProvider>
-		</FieldPickerContext.Provider>
+					<DragStateProvider isActive={dragActive} setActive={setDragActive}>
+						<div
+							ref={scrollerRef}
+							data-preview-scroll-container
+							data-insertion-surface
+							className="relative h-full overflow-auto"
+							style={{ contain: "strict" }}
+						>
+							<div
+								style={{
+									height: totalSize,
+									width: "100%",
+									position: "relative",
+								}}
+							>
+								{virtualItems.map((vi) => {
+									const row = rows[vi.index];
+									if (!row) return null;
+									return (
+										<div
+											key={vi.key}
+											ref={virtualizer.measureElement}
+											data-index={vi.index}
+											style={{
+												position: "absolute",
+												top: 0,
+												left: 0,
+												width: "100%",
+												transform: `translateY(${vi.start}px)`,
+											}}
+										>
+											<RenderRow row={row} disableInsertion={dragActive} />
+										</div>
+									);
+								})}
+							</div>
+						</div>
+					</DragStateProvider>
+
+					<Menu.Root handle={fieldPickerHandle} modal={false}>
+						{({ payload }: { payload: FieldPickerPayload | undefined }) =>
+							payload && (
+								<FieldTypePickerPopup
+									atIndex={payload.atIndex}
+									parentUuid={payload.parentUuid}
+									onActiveTargetChange={setActiveInsertTarget}
+								/>
+							)
+						}
+					</Menu.Root>
+				</VirtualFormProvider>
+			</FieldPickerContext.Provider>
+		</InsertionIntentProvider>
 	);
 });
 
@@ -351,17 +337,11 @@ export const VirtualFormList = memo(function VirtualFormList({
 
 interface RenderRowProps {
 	row: FormRow;
-	cursorSpeedRef: React.RefObject<number>;
-	lastCursorRef: React.RefObject<
-		{ x: number; y: number; t: number } | undefined
-	>;
 	disableInsertion: boolean;
 }
 
 const RenderRow = memo(function RenderRow({
 	row,
-	cursorSpeedRef,
-	lastCursorRef,
 	disableInsertion,
 }: RenderRowProps) {
 	/* Group nesting rails — left/right borders at each ancestor group's
@@ -379,8 +359,6 @@ const RenderRow = memo(function RenderRow({
 						parentUuid={row.parentUuid}
 						beforeIndex={row.beforeIndex}
 						depth={row.depth}
-						cursorSpeedRef={cursorSpeedRef}
-						lastCursorRef={lastCursorRef}
 						disabled={disableInsertion}
 					/>
 				</>
