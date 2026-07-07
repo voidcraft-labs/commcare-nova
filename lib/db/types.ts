@@ -23,6 +23,7 @@
 import { Timestamp } from "@google-cloud/firestore";
 import { z } from "zod";
 import { attachmentRefSchema } from "@/lib/chat/attachmentRefs";
+import { COMMCARE_SERVER_IDS } from "@/lib/commcare/servers";
 import { mutationSchema } from "@/lib/doc/types";
 import { locationSchema } from "@/lib/routing/types";
 import { blueprintDocSchema } from "../domain/blueprint";
@@ -192,6 +193,20 @@ export const userSettingsDocSchema = z.object({
 	commcare_username: z.string(),
 	/** Cloud KMS-encrypted CommCare HQ API key (base64). Never sent to the client. */
 	commcare_api_key: z.string(),
+	/**
+	 * Which CommCare HQ deployment the credentials live on. Each SaaS server
+	 * (US / India / EU) is a separate deployment with its own accounts, so a
+	 * key only authenticates against the server that issued it — the whole
+	 * connection (username, key, reachable spaces) is per-server.
+	 *
+	 * Optional at PARSE only, so a row the `migrate-commcare-server.ts`
+	 * backfill hasn't stamped yet still reads as data instead of throwing
+	 * inside the converter (which would 500 every page that touches
+	 * settings). A missing value is never treated as a server: every reader
+	 * in `lib/db/settings.ts` collapses it to "not configured", and the save
+	 * path always writes it.
+	 */
+	commcare_server: z.enum(COMMCARE_SERVER_IDS).optional(),
 	/**
 	 * Every project space the API key can actually upload to — the spaces
 	 * that passed an app-level access probe at credential save / refresh. An

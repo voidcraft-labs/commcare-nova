@@ -17,7 +17,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type CommCareApiError, discoverAccessibleDomains } from "../client";
 
-const CREDS = { username: "alice@example.com", apiKey: "key-xyz" };
+const CREDS = {
+	username: "alice@example.com",
+	apiKey: "key-xyz",
+	server: "production",
+} as const;
 
 /** A fetch Response stand-in carrying just what the client reads. */
 function res(status: number, body: unknown) {
@@ -104,6 +108,29 @@ describe("discoverAccessibleDomains", () => {
 		expect((result as CommCareApiError).status).toBe(401);
 		/* No app-level probe should fire when the key itself is invalid. */
 		expect(probe).not.toHaveBeenCalled();
+	});
+
+	it("sends every request to the credentials' server, not a fixed host", async () => {
+		const hosts: string[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((url: string) => {
+				hosts.push(new URL(url).host);
+				if (url.includes("/api/user_domains/")) {
+					return Promise.resolve(res(200, userDomainsBody(["alpha"])));
+				}
+				return Promise.resolve(res(200, {}));
+			}),
+		);
+
+		const result = await discoverAccessibleDomains({ ...CREDS, server: "eu" });
+		expect((result as { name: string }[]).map((d) => d.name)).toEqual([
+			"alpha",
+		]);
+		/* An EU key must never be presented to another deployment — a wrong
+		 * host both fails auth (separate account DBs) and leaks the key. */
+		expect(hosts.length).toBeGreaterThan(0);
+		for (const host of hosts) expect(host).toBe("eu.commcarehq.org");
 	});
 
 	it("bounds peak in-flight probes to the concurrency window for a many-space key", async () => {

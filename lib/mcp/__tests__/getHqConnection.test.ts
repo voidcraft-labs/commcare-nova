@@ -2,11 +2,12 @@
  * `registerGetHqConnection` unit tests.
  *
  * Wire-contract invariants the suite locks:
- *   - Configured → `{configured: true, available_domains}`. `available_domains`
- *     lists every reachable space (length 1 ⇒ single-space key). Username and
- *     any key material stay out of the wire. There is deliberately NO `domain`
- *     field — a multi-space key's target is chosen per upload (the caller asks
- *     the user), never returned here as a default.
+ *   - Configured → `{configured: true, server, server_url, available_domains}`.
+ *     `available_domains` lists every reachable space (length 1 ⇒ single-space
+ *     key); `server`/`server_url` name the HQ deployment the connection lives
+ *     on. Username and any key material stay out of the wire. There is
+ *     deliberately NO `domain` field — a multi-space key's target is chosen
+ *     per upload (the caller asks the user), never returned here as a default.
  *   - Unconfigured → `{configured: false}`. Callers branch on the discriminant.
  *   - A `getCommCareSettings` throw surfaces as an MCP `isError: true`
  *     envelope via the shared classifier, never as an unhandled
@@ -43,11 +44,12 @@ beforeEach(() => {
 });
 
 describe("registerGetHqConnection — configured", () => {
-	it("returns {configured, available_domains} (no domain) and forwards the caller userId to the DB layer", async () => {
+	it("returns {configured, server, available_domains} (no domain) and forwards the caller userId to the DB layer", async () => {
 		const acme = { name: "acme-research", displayName: "ACME Research" };
 		vi.mocked(getCommCareSettings).mockResolvedValueOnce({
 			configured: true,
 			username: "alice@example.com",
+			server: "eu",
 			availableDomains: [acme],
 		});
 
@@ -64,6 +66,8 @@ describe("registerGetHqConnection — configured", () => {
 		>;
 		expect(parsed).toEqual({
 			configured: true,
+			server: "eu",
+			server_url: "https://eu.commcarehq.org",
 			available_domains: [acme],
 		});
 		/* Regression locks — neither the username/key material nor any stored
@@ -80,6 +84,7 @@ describe("registerGetHqConnection — configured", () => {
 		vi.mocked(getCommCareSettings).mockResolvedValueOnce({
 			configured: true,
 			username: "alice@example.com",
+			server: "production",
 			availableDomains: [prod, crispr],
 		});
 
@@ -95,6 +100,8 @@ describe("registerGetHqConnection — configured", () => {
 		>;
 		expect(parsed).toEqual({
 			configured: true,
+			server: "production",
+			server_url: "https://www.commcarehq.org",
 			available_domains: [prod, crispr],
 		});
 		/* No default is ever returned — a multi-space key's target is the

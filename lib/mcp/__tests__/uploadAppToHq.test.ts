@@ -170,7 +170,11 @@ const FAKE_HQ_JSON = {
  */
 const FIXTURE_CREDS = {
 	ok: true as const,
-	creds: { username: "alice@example.com", apiKey: "key-xyz" },
+	creds: {
+		username: "alice@example.com",
+		apiKey: "key-xyz",
+		server: "production" as const,
+	},
 	domain: { name: "acme-research", displayName: "ACME Research" },
 };
 

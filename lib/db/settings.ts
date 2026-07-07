@@ -25,6 +25,7 @@ import {
 	discoverAccessibleDomains,
 } from "@/lib/commcare/client";
 import { decrypt, encrypt } from "@/lib/commcare/encryption";
+import type { CommCareServer } from "@/lib/commcare/servers";
 import { resolveUploadDomain } from "./domainResolution";
 import { docs } from "./firestore";
 import type { UserSettingsDoc } from "./types";
@@ -46,6 +47,8 @@ export type CommCareSettingsPublic =
 	| {
 			configured: true;
 			username: string;
+			/** Which HQ deployment the connection lives on (US / India / EU). */
+			server: CommCareServer;
 			availableDomains: CommCareDomain[];
 	  };
 
@@ -70,10 +73,10 @@ export type CredentialsForUploadResult =
  * Get the user's CommCare settings in a client-safe format.
  *
  * Returns `configured: false` when no settings exist OR when the persisted
- * row is missing the username / reachable spaces a configured row must have —
- * the save flow rejects partial rows, so the defensive collapse turns an
- * in-place schema corruption into a "not configured" UX rather than an
- * inconsistent half-state. Never exposes the raw API key.
+ * row is missing the username / server / reachable spaces a configured row
+ * must have — the save flow rejects partial rows, so the defensive collapse
+ * turns an in-place schema corruption into a "not configured" UX rather than
+ * an inconsistent half-state. Never exposes the raw API key.
  */
 export async function getCommCareSettings(
 	userId: string,
@@ -84,13 +87,18 @@ export async function getCommCareSettings(
 	if (!data) return { configured: false };
 
 	const availableDomains = data.approved_domains ?? [];
-	if (!data.commcare_username || availableDomains.length === 0) {
+	if (
+		!data.commcare_username ||
+		!data.commcare_server ||
+		availableDomains.length === 0
+	) {
 		return { configured: false };
 	}
 
 	return {
 		configured: true,
 		username: data.commcare_username,
+		server: data.commcare_server,
 		availableDomains,
 	};
 }
@@ -114,7 +122,11 @@ export async function getCredentialsForUpload(
 	if (!snap.exists) return { ok: false, error: "not_configured" };
 	const data = snap.data();
 	const availableDomains = data?.approved_domains ?? [];
-	if (!data?.commcare_username || availableDomains.length === 0) {
+	if (
+		!data?.commcare_username ||
+		!data.commcare_server ||
+		availableDomains.length === 0
+	) {
 		return { ok: false, error: "not_configured" };
 	}
 
@@ -126,7 +138,11 @@ export async function getCredentialsForUpload(
 	const apiKey = await decrypt(data.commcare_api_key);
 	return {
 		ok: true,
-		creds: { username: data.commcare_username, apiKey },
+		creds: {
+			username: data.commcare_username,
+			apiKey,
+			server: data.commcare_server,
+		},
 		domain: resolved.domain,
 	};
 }
@@ -137,6 +153,8 @@ export async function getCredentialsForUpload(
 export interface SaveCommCareSettingsInput {
 	username: string;
 	apiKey: string;
+	/** The HQ deployment the key was verified against — stored with it. */
+	server: CommCareServer;
 	/** Every space the key can upload to (already access-probed by the caller). */
 	approvedDomains: CommCareDomain[];
 }
@@ -158,6 +176,7 @@ export async function saveCommCareSettings(
 		{
 			commcare_username: input.username,
 			commcare_api_key: encryptedKey,
+			commcare_server: input.server,
 			approved_domains: input.approvedDomains,
 			updated_at: FieldValue.serverTimestamp(),
 		} as unknown as UserSettingsDoc,
@@ -192,7 +211,11 @@ export async function refreshApprovedDomains(
 ): Promise<RefreshDomainsResult> {
 	const snap = await docs.settings(userId).get();
 	const data = snap.exists ? snap.data() : undefined;
-	if (!data?.commcare_username || !data.commcare_api_key) {
+	if (
+		!data?.commcare_username ||
+		!data.commcare_api_key ||
+		!data.commcare_server
+	) {
 		return { ok: true, settings: { configured: false } };
 	}
 
@@ -201,6 +224,7 @@ export async function refreshApprovedDomains(
 		await discoverAccessibleDomains({
 			username: data.commcare_username,
 			apiKey,
+			server: data.commcare_server,
 		});
 	if (!Array.isArray(accessible))
 		return { ok: false, kind: "hq_error", status: accessible.status };

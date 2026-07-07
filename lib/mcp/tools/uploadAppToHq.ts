@@ -55,11 +55,11 @@
  * actionable — it collapses cross-tenant probes to the same shape as
  * a missing app.)
  *
- * The hardcoded `COMMCARE_HQ_URL` inside `lib/commcare/client.ts` is the
- * one SSRF boundary; the resolved domain is always one the stored key
- * already reached (probed at save/refresh and re-checked here against the
- * reachable set), so it cannot smuggle path components into the URL
- * `importApp` constructs.
+ * The closed server catalog (`lib/commcare/servers.ts`, resolved through
+ * the stored connection's `server`) is the one SSRF boundary; the resolved
+ * domain is always one the stored key already reached (probed at
+ * save/refresh and re-checked here against the reachable set), so it
+ * cannot smuggle path components into the URL `importApp` constructs.
  *
  * Pre-gate ordering — scope → ownership → settings/domain — is defensive:
  * each gate leaks strictly less information than the one after it, so
@@ -305,9 +305,10 @@ export function registerUploadAppToHq(
 					});
 
 					/* Gate 3 — the only network call. The SSRF boundary
-					 * lives inside `importApp` via the hardcoded
-					 * `COMMCARE_HQ_URL`. `expandDoc` materializes the
-					 * media-ON `HqApplication` JSON HQ's `/api/import_app/`
+					 * lives inside `importApp` via the closed server
+					 * catalog the credentials' `server` resolves through.
+					 * `expandDoc` materializes the media-ON
+					 * `HqApplication` JSON HQ's `/api/import_app/`
 					 * endpoint expects; the app id it returns goes in the
 					 * media upload URL. */
 					const hqJson = expandDoc(doc, { assets: manifest });

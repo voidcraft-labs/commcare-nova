@@ -36,7 +36,9 @@ vi.mock("@/lib/commcare/client", () => ({
 	discoverAccessibleDomains: mocks.discover,
 }));
 
+import { Timestamp } from "@google-cloud/firestore";
 import { getCredentialsForUpload, refreshApprovedDomains } from "../settings";
+import { userSettingsDocSchema } from "../types";
 
 const PROD = { name: "connect-ace-prod", displayName: "ACE Prod" };
 const CRISPR = { name: "ace-crispr-connect", displayName: "CRISPR" };
@@ -60,13 +62,18 @@ describe("getCredentialsForUpload — decrypt happens ONLY after the target reso
 			snap({
 				commcare_username: "alice@example.com",
 				commcare_api_key: "ciphertext",
+				commcare_server: "eu",
 				approved_domains: [PROD],
 			}),
 		);
 		const r = await getCredentialsForUpload("u1");
 		expect(r).toEqual({
 			ok: true,
-			creds: { username: "alice@example.com", apiKey: "plaintext-key" },
+			creds: {
+				username: "alice@example.com",
+				apiKey: "plaintext-key",
+				server: "eu",
+			},
 			domain: PROD,
 		});
 		expect(mocks.decrypt).toHaveBeenCalledTimes(1);
@@ -77,6 +84,7 @@ describe("getCredentialsForUpload — decrypt happens ONLY after the target reso
 			snap({
 				commcare_username: "alice@example.com",
 				commcare_api_key: "ciphertext",
+				commcare_server: "production",
 				approved_domains: [PROD, CRISPR],
 			}),
 		);
@@ -94,6 +102,7 @@ describe("getCredentialsForUpload — decrypt happens ONLY after the target reso
 			snap({
 				commcare_username: "alice@example.com",
 				commcare_api_key: "ciphertext",
+				commcare_server: "production",
 				approved_domains: [PROD, CRISPR],
 			}),
 		);
@@ -111,6 +120,7 @@ describe("getCredentialsForUpload — decrypt happens ONLY after the target reso
 			snap({
 				commcare_username: "alice@example.com",
 				commcare_api_key: "ciphertext",
+				commcare_server: "production",
 				approved_domains: [PROD, CRISPR],
 			}),
 		);
@@ -135,7 +145,27 @@ describe("getCredentialsForUpload — decrypt happens ONLY after the target reso
 			snap({
 				commcare_username: "alice@example.com",
 				commcare_api_key: "ciphertext",
+				commcare_server: "production",
 				approved_domains: [],
+			}),
+		);
+		const r = await getCredentialsForUpload("u1");
+		expect(r).toEqual({ ok: false, error: "not_configured" });
+		expect(mocks.decrypt).not.toHaveBeenCalled();
+	});
+
+	it("row without commcare_server (pre-migration) → not_configured, NEVER decrypts", async () => {
+		/* The defensive collapse mirrors the username/spaces one: a row the
+		 * `migrate-commcare-server.ts` backfill hasn't touched must read as
+		 * unconfigured rather than produce credentials with no server to
+		 * derive a base URL from. (This mock bypasses the Zod converter; the
+		 * schema suite below proves the converter parses such a row instead
+		 * of throwing, so this reader-level collapse is actually reachable.) */
+		mocks.settingsGet.mockResolvedValue(
+			snap({
+				commcare_username: "alice@example.com",
+				commcare_api_key: "ciphertext",
+				approved_domains: [PROD],
 			}),
 		);
 		const r = await getCredentialsForUpload("u1");
@@ -148,6 +178,7 @@ describe("refreshApprovedDomains — never clobbers stored spaces on a non-succe
 	const configuredRow = snap({
 		commcare_username: "alice@example.com",
 		commcare_api_key: "ciphertext",
+		commcare_server: "production",
 		approved_domains: [PROD],
 	});
 
@@ -186,5 +217,41 @@ describe("refreshApprovedDomains — never clobbers stored spaces on a non-succe
 		expect(result).toEqual({ ok: true, settings: { configured: false } });
 		expect(mocks.discover).not.toHaveBeenCalled();
 		expect(mocks.settingsSet).not.toHaveBeenCalled();
+	});
+});
+
+describe("userSettingsDocSchema — the converter tolerates pre-migration rows", () => {
+	/* Real reads go through `zodConverter(userSettingsDocSchema)` — a throw
+	 * here 500s every surface that touches settings (the settings page, the
+	 * builder page, MCP, uploads). A row written before `commcare_server`
+	 * existed must PARSE (and then collapse to not-configured in the readers
+	 * above), not throw. */
+	const preMigrationRow = {
+		commcare_username: "alice@example.com",
+		commcare_api_key: "ciphertext",
+		approved_domains: [PROD],
+		updated_at: Timestamp.now(),
+	};
+
+	it("parses a row without commcare_server", () => {
+		const parsed = userSettingsDocSchema.parse(preMigrationRow);
+		expect(parsed.commcare_server).toBeUndefined();
+	});
+
+	it("rejects a server value outside the closed catalog", () => {
+		expect(() =>
+			userSettingsDocSchema.parse({
+				...preMigrationRow,
+				commcare_server: "staging",
+			}),
+		).toThrow();
+	});
+
+	it("parses a fully-migrated row with its server intact", () => {
+		const parsed = userSettingsDocSchema.parse({
+			...preMigrationRow,
+			commcare_server: "eu",
+		});
+		expect(parsed.commcare_server).toBe("eu");
 	});
 });
