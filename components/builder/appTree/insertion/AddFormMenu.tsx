@@ -31,9 +31,9 @@ import {
 } from "@/lib/styles";
 import {
 	INSERTION_TRIGGER_CLS,
-	insertionTriggerStyle,
+	INSERTION_TRIGGER_STYLE,
 	TreeInsertionLine,
-	useTreeInsertionHover,
+	useTreeInsertionZone,
 } from "./TreeInsertionAffordance";
 
 /** Menu-only one-line description per form type (label + icon + the
@@ -62,7 +62,7 @@ export function AddFormMenu({
 	const [open, setOpen] = useState(false);
 	const { createForm } = useBlueprintMutations();
 	const { openForm } = useNavigate();
-	const { revealed, ref, hoverProps } = useTreeInsertionHover(open);
+	const { revealed, progress, ref } = useTreeInsertionZone(open);
 	const canEdit = useCanEdit();
 
 	const handleSelect = (type: FormType) => {
@@ -80,12 +80,11 @@ export function AddFormMenu({
 			<Tooltip content="Add form">
 				<Menu.Trigger
 					ref={ref}
-					{...hoverProps}
 					className={INSERTION_TRIGGER_CLS}
-					style={insertionTriggerStyle(revealed)}
+					style={INSERTION_TRIGGER_STYLE}
 					aria-label="Add form"
 				>
-					<TreeInsertionLine revealed={revealed} />
+					<TreeInsertionLine revealed={revealed} progress={progress} />
 				</Menu.Trigger>
 			</Tooltip>
 			<Menu.Portal>

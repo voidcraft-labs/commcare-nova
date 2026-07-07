@@ -29,10 +29,7 @@ import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
 import { useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import { useBuilderPhase } from "@/lib/session/hooks";
-import {
-	CursorSpeedProvider,
-	useCursorSpeed,
-} from "@/lib/ui/hooks/useInsertionHover";
+import { InsertionIntentProvider } from "@/lib/ui/hooks/useInsertionZone";
 
 interface AppTreeProps {
 	actions?: React.ReactNode;
@@ -65,11 +62,6 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 	 * Only fires when the deferred query or entities change. */
 	const searchResult = useSearchFilter(deferredQuery);
 
-	/* One cursor-velocity tracker for the whole tree, shared by every
-	 * insertion affordance via context so they reveal with the same
-	 * cursor-speed gating as the form canvas (lib/ui/hooks/useInsertionHover). */
-	const cursorSpeed = useCursorSpeed();
-
 	if (!moduleOrder || moduleOrder.length === 0) {
 		return (
 			<div className="h-full flex items-center justify-center text-nova-text-muted text-sm">
@@ -79,8 +71,10 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 	}
 
 	return (
-		<CursorSpeedProvider value={cursorSpeed}>
-			<div className="h-full flex flex-col">
+		<InsertionIntentProvider>
+			{/* data-insertion-surface: hits inside this tree count as unobstructed
+			 * for insertion-intent arming; hits in portalled popups don't. */}
+			<div className="h-full flex flex-col" data-insertion-surface>
 				{!hideHeader && (
 					<div className="flex items-center justify-between px-6 h-12 border-b border-nova-border shrink-0">
 						<div className="flex items-center min-w-0">
@@ -170,6 +164,6 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 					)}
 				</div>
 			</div>
-		</CursorSpeedProvider>
+		</InsertionIntentProvider>
 	);
 }

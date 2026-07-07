@@ -27,9 +27,9 @@ import {
 } from "@/lib/styles";
 import {
 	INSERTION_TRIGGER_CLS,
-	insertionTriggerStyle,
+	INSERTION_TRIGGER_STYLE,
 	TreeInsertionLine,
-	useTreeInsertionHover,
+	useTreeInsertionZone,
 } from "./TreeInsertionAffordance";
 
 interface AddModulePopoverProps {
@@ -45,7 +45,7 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 	// error line, not as a toast — the popover owns the feedback.
 	const { inline } = useBlueprintMutations();
 	const { openModule, openCaseList } = useNavigate();
-	const { revealed, ref, hoverProps } = useTreeInsertionHover(open);
+	const { revealed, progress, ref } = useTreeInsertionZone(open);
 	const canEdit = useCanEdit();
 
 	// Reset transient state whenever the popover closes — by dismiss
@@ -97,12 +97,11 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 			<Tooltip content="Add module">
 				<Popover.Trigger
 					ref={ref}
-					{...hoverProps}
 					className={INSERTION_TRIGGER_CLS}
-					style={insertionTriggerStyle(revealed)}
+					style={INSERTION_TRIGGER_STYLE}
 					aria-label="Add module"
 				>
-					<TreeInsertionLine revealed={revealed} />
+					<TreeInsertionLine revealed={revealed} progress={progress} />
 				</Popover.Trigger>
 			</Tooltip>
 			<Popover.Portal>
