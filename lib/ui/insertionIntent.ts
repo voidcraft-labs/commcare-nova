@@ -20,6 +20,17 @@
 //     the "you meant it after all" beat. Evidence reaching 1 opens the zone.
 //   - Evidence decays (rather than resetting) when the pointer slips out, so
 //     boundary jitter keeps partial credit but a real departure clears fast.
+//   - Evidence only accumulates while SETTLING — genuinely slow, or
+//     decelerating (the fast estimate visibly below a slower trend EMA).
+//     Aiming brakes into its target; passing through holds speed.
+//   - Direction guards the two cases speed alone can't tell apart. A swipe's
+//     TURNAROUND decelerates exactly like an arrival — but then the direction
+//     flips while momentum is high, which pins the speed estimate back up to
+//     the trend (the reversal pin) and drains the evidence. And because the
+//     turnaround is unknowable until the return motion begins, evidence that
+//     fills while still moving must survive `OPEN_COMMIT_MS` of continued
+//     settling before it opens — an aim sails through; a reversal breaks
+//     settling inside the window and aborts.
 //
 // Zone membership is GEOMETRIC — point-in-rect against caller-supplied rects —
 // never DOM enter/leave events, because layout can move under a stationary
@@ -167,6 +178,25 @@ const SCORE_EPSILON = 0.02;
  *  (background tab) must not bank seconds of "presence" and open on resume. */
 const MAX_ACCUMULATION_STEP_MS = 50;
 
+/** Time constant (ms) of the velocity DIRECTION EMA — short, so it reflects
+ *  the travel direction of the last few samples. */
+const DIR_TAU_MS = 50;
+
+/** Reversal test: a sample whose direction's cosine against the direction EMA
+ *  is below this opposes recent travel — a turnaround, not an arrival. */
+const REVERSAL_DOT = -0.3;
+
+/** Both the sample and the direction EMA must exceed slowSpeed × this factor
+ *  for the reversal test to fire — hand tremor produces moderate one-sample
+ *  speeds in random directions, and a dwelling pointer must not self-pin. */
+const REVERSAL_SPEED_FACTOR = 1.5;
+
+/** Evidence that fills while the pointer is still moving (v ≥ slowSpeed) must
+ *  survive this much further sustained settling before opening — the causality
+ *  guard for turnarounds, which are only detectable once the return motion
+ *  begins. Truly slow arrival (v < slowSpeed) opens immediately. */
+const OPEN_COMMIT_MS = 60;
+
 /** Snapshot progress quantization steps (re-renders per arming, at most). */
 const PROGRESS_STEPS = 24;
 
@@ -205,6 +235,8 @@ export function createInsertionIntentModel(
 	// ── Speed estimate ────────────────────────────────────────────────
 	let speed = 0; // px/s, fast-attack/slow-release EMA
 	let trend = 0; // px/s, slower EMA — the settling baseline
+	let dirX = 0; // px/s, velocity-vector EMA — recent travel direction
+	let dirY = 0;
 	let speedT = Number.NEGATIVE_INFINITY; // time of last speed sample
 
 	// ── Pointer ───────────────────────────────────────────────────────
@@ -216,6 +248,7 @@ export function createInsertionIntentModel(
 	let score = 0;
 	let scoreZoneId: string | null = null;
 	let scoreT = Number.NEGATIVE_INFINITY; // time of last accumulate/decay
+	let scoreFullAt: number | null = null; // when evidence first reached 1
 
 	// ── Open state ────────────────────────────────────────────────────
 	let openId: string | null = null;
@@ -258,8 +291,23 @@ export function createInsertionIntentModel(
 		(cfg.maxDwellMs - cfg.minDwellMs) *
 			smoothstep(cfg.slowSpeed, cfg.fastSpeed, v);
 
-	const updateSpeed = (distPx: number, dt: number): void => {
-		const inst = distPx / (dt / 1000);
+	const updateMotion = (dx: number, dy: number, dt: number): void => {
+		const vx = dx / (dt / 1000);
+		const vy = dy / (dt / 1000);
+		const inst = Math.hypot(vx, vy);
+		// Reversal pin — checked against the direction EMA BEFORE this sample
+		// joins it. Opposing recent travel at meaningful speed is a swipe
+		// turnaround: carry the momentum through so the settling gate holds
+		// (a turnaround's speed dip decelerates exactly like an arrival).
+		const dirMag = Math.hypot(dirX, dirY);
+		const floor = cfg.slowSpeed * REVERSAL_SPEED_FACTOR;
+		if (inst > floor && dirMag > floor) {
+			const dot = (vx * dirX + vy * dirY) / (inst * dirMag);
+			if (dot < REVERSAL_DOT) speed = Math.max(speed, trend, inst);
+		}
+		const aDir = 1 - Math.exp(-dt / DIR_TAU_MS);
+		dirX += aDir * (vx - dirX);
+		dirY += aDir * (vy - dirY);
 		const tau = inst > speed ? cfg.speedRiseTauMs : cfg.speedFallTauMs;
 		speed += (1 - Math.exp(-dt / tau)) * (inst - speed);
 		trend += (1 - Math.exp(-dt / cfg.trendTauMs)) * (inst - trend);
@@ -325,6 +373,7 @@ export function createInsertionIntentModel(
 			closePendingAt = null;
 			score = 0;
 			scoreZoneId = null;
+			scoreFullAt = null;
 			scoreT = t;
 			publish();
 			return;
@@ -377,15 +426,26 @@ export function createInsertionIntentModel(
 				score + Math.min(dt, MAX_ACCUMULATION_STEP_MS) / dwell,
 			);
 		}
+		if (score >= 1) scoreFullAt ??= t;
+		else scoreFullAt = null;
 		scoreT = t;
 
-		// Transitions.
-		if (candidate !== null && candidate !== openId && score >= 1) {
+		// Transitions. Full evidence gathered while still MOVING must survive
+		// the commit window — a turnaround is only detectable once the return
+		// motion begins, and its reversal pin breaks settling (draining the
+		// score below 1) before the window elapses. A truly slow arrival
+		// commits immediately.
+		const committed =
+			score >= 1 &&
+			(v < cfg.slowSpeed ||
+				(scoreFullAt !== null && t - scoreFullAt >= OPEN_COMMIT_MS));
+		if (candidate !== null && candidate !== openId && committed) {
 			if (openId !== null) lastClosedAt = t;
 			openId = candidate;
 			closePendingAt = null;
 			score = 0;
 			scoreZoneId = null;
+			scoreFullAt = null;
 		} else if (openId !== null) {
 			if (candidate === openId) {
 				closePendingAt = null;
@@ -407,14 +467,16 @@ export function createInsertionIntentModel(
 			if (pointerKnown) {
 				const dt = t - speedT;
 				if (dt > 0 && dt <= cfg.sampleGapResetMs) {
-					updateSpeed(Math.hypot(x - px, y - py), dt);
+					updateMotion(x - px, y - py, dt);
 					speedT = t;
 				} else if (dt > cfg.sampleGapResetMs) {
 					// Not a velocity sample (idle gap or teleport): carry the decayed
 					// estimates forward so a dwell right after arrival isn't judged by
-					// pre-gap speed.
+					// pre-gap speed. The travel direction is stale too.
 					speed = speedAt(t);
 					trend = trendAt(t);
+					dirX = 0;
+					dirY = 0;
 					speedT = t;
 				}
 			} else {
@@ -422,6 +484,8 @@ export function createInsertionIntentModel(
 				// new clock, otherwise pre-departure speed would resurrect undecayed.
 				speed = speedAt(t);
 				trend = trendAt(t);
+				dirX = 0;
+				dirY = 0;
 				speedT = t;
 			}
 			px = x;
@@ -433,11 +497,14 @@ export function createInsertionIntentModel(
 		motionBump(deltaPx, t) {
 			const dt = t - speedT;
 			if (dt > 0 && dt <= cfg.sampleGapResetMs) {
-				updateSpeed(Math.abs(deltaPx), dt);
+				// Signed vertical delta — a scroll-direction flip is a reversal too.
+				updateMotion(0, deltaPx, dt);
 			} else {
 				// First motion after a gap: treat the burst as fast travel outright.
 				speed = Math.max(speedAt(t), cfg.fastSpeed);
 				trend = Math.max(trendAt(t), speed);
+				dirX = 0;
+				dirY = Math.sign(deltaPx) * speed;
 			}
 			speedT = t;
 			evaluate(t);

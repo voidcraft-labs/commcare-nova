@@ -101,6 +101,30 @@ describe("insertion intent model", () => {
 		expect(m.getSnapshot().openId).toBeNull();
 	});
 
+	it("a swipe that turns around on a gap never opens it (reversal)", () => {
+		const m = makeModel();
+		// Ease-out down-swipe bottoming on C…
+		let t = approach(m, 0, { x: 200, y: 60 }, { x: 200, y: 358 }, 320);
+		// …a brief human hesitation at the bottom of the swing…
+		t = glide(m, t, { x: 200, y: 358 }, { x: 200, y: 362 }, 60);
+		expect(m.getSnapshot().openId).toBeNull(); // commit window holds
+		// …then straight back up. The reversal pin drains the evidence.
+		t = glide(m, t, { x: 200, y: 362 }, { x: 200, y: 80 }, 160);
+		expect(m.getSnapshot().openId).toBeNull();
+		dwell(m, t, 400);
+		expect(m.getSnapshot().openId).toBeNull();
+	});
+
+	it("an overshoot correction — reverse and STOP on the gap — still opens", () => {
+		const m = makeModel();
+		// Swipe down past C…
+		let t = approach(m, 0, { x: 200, y: 60 }, { x: 200, y: 430 }, 260);
+		// …come back up a short hop and stop dead on C.
+		t = approach(m, t, { x: 200, y: 430 }, { x: 200, y: 360 }, 180);
+		t = dwell(m, t, 600);
+		expect(m.getSnapshot().openId).toBe("C");
+	});
+
 	it("a constant slow drift across gaps opens nothing (passing through)", () => {
 		const m = makeModel();
 		// 200 px/s straight through all three zones — sub-traversal speed but

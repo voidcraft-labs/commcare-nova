@@ -43,7 +43,8 @@ export function InsertionLab() {
 					gap deliberately — it opens as you arrive; (3) flick and stop dead on
 					a gap — it opens after a beat; (4) with one open, glide to a neighbor
 					— it transfers quickly; (5) scroll with the pointer parked on a gap —
-					it stays shut until you stop.
+					it stays shut until you stop; (6) swipe down and flick back up — the
+					gap at the turnaround stays quiet.
 				</p>
 				<div className="flex gap-10 items-start">
 					{/* data-insertion-surface: same unobstructed-hit contract the

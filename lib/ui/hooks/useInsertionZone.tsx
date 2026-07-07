@@ -184,7 +184,8 @@ function createBinding(config?: Partial<InsertionIntentConfig>): IntentBinding {
 				ensureLoop();
 			};
 			const onWheel = (e: WheelEvent): void => {
-				const px = Math.abs(e.deltaY) * (e.deltaMode === 1 ? 16 : 1);
+				// Signed — a scroll-direction flip reads as a reversal in the model.
+				const px = e.deltaY * (e.deltaMode === 1 ? 16 : 1);
 				invalidateRects();
 				model.motionBump(px, e.timeStamp);
 				ensureLoop();
