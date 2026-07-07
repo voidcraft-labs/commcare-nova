@@ -4,11 +4,11 @@
 	"private": true,
 	"scripts": {
 		"predev": "node scripts/check-node.mjs",
-		"dev": "npm run db:dev && next dev",
+		"dev": "npm run db:dev && NEXT_TELEMETRY_DISABLED=1 next dev",
 		"db:dev": "docker compose up -d --wait && NOVA_DB_LOCAL_URL=postgres://nova:nova@localhost:5432/nova_cases?sslmode=disable npm run db:migrate",
 		"db:migrate": "tsx scripts/migrate.ts",
 		"db:dev:down": "docker compose down",
-		"build": "next build",
+		"build": "NEXT_TELEMETRY_DISABLED=1 next build",
 		"start": "next start",
 		"lint": "biome check --error-on-warnings",
 		"format": "biome check --write",
