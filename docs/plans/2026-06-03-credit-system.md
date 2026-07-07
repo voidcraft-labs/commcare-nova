@@ -1,6 +1,6 @@
 # Credit System Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. **Frontend tasks (11–14) MUST load the `frontend-design` skill and build from `@/components/shadcn` (base-nova), never raw Base UI; icons from `@iconify/react/offline` (Tabler).** Tests are state-model/pure — **no RTL/jsdom UI tests** (project rule). Run each test once; a flake is a blocking bug, not a retry.
+> **For agentic workers:** Implement this plan task-by-task with subagent-driven development. Steps use checkbox (`- [ ]`) syntax for tracking. **Frontend tasks (11–14) MUST load the `frontend-design` skill and build from `@/components/shadcn` (base-nova), never raw Base UI; icons from `@iconify/react/offline` (Tabler).** Tests are state-model/pure — **no RTL/jsdom UI tests** (project rule). Run each test once; a flake is a blocking bug, not a retry.
 
 **Goal:** Replace the per-user dollar spend cap with a credit-based gate (build = 100 credits, edit = 5, reserved before each generation), tracked on a resettable ledger separate from an accumulate-only actual-cost ledger, with an audited admin reset/grant, lifetime+period visibility, a $50 invisible runaway backstop, and a migration that restores hand-blanked cost truth.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next.js 16 (App Router), TypeScript strict, `@google-cloud/firestore` (transactions, `FieldValue`), Zod converters, Vitest, shadcn (base-nova) + Base UI, Tailwind v4, `commander` + `tsx` for scripts.
 
-Spec: `docs/superpowers/specs/2026-06-03-credit-system-design.md`.
+Spec: `docs/specs/2026-06-03-credit-system-design.md`.
 
 ---
 
