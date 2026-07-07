@@ -116,9 +116,6 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 						<div className="w-64 p-1.5">
 							{step === "choose" ? (
 								<>
-									<div className="px-2 pt-1 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-nova-text-muted">
-										Add module
-									</div>
 									<ArchetypeRow
 										icon={tablerTable}
 										title="Case List"
