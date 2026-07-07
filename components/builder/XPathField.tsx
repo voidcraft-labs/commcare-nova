@@ -40,14 +40,15 @@ import { POPOVER_POPUP_CLS } from "@/lib/styles";
 
 // ── Read-only theme ────────────────────────────────────────────────────
 
-/** Minimal CodeMirror chrome for the static display state. */
-const readOnlyTheme = EditorView.theme({
+/** Read-only content chrome — font, padding, no caret/selection. The box
+ *  (border + fill) lives on the WRAPPER, not here: the editable-idle state
+ *  gets its well from the wrapping button (so the field reads as one
+ *  element), and the standalone read-only display layers
+ *  `readOnlyStandaloneBox` on top. */
+const readOnlyBaseTheme = EditorView.theme({
 	"&": {
 		fontSize: "12px",
 		fontFamily: "var(--font-nova-mono)",
-		background: "var(--nova-surface)",
-		borderRadius: "6px",
-		border: "1px solid var(--nova-border)",
 	},
 	"&.cm-focused": { outline: "none" },
 	".cm-scroller": { overflow: "visible", padding: "6px 8px" },
@@ -62,24 +63,33 @@ const readOnlyTheme = EditorView.theme({
 	".cm-cursor": { display: "none" },
 });
 
+/** Box chrome for the standalone read-only display (no editable button to
+ *  supply the border + fill). */
+const readOnlyStandaloneBox = EditorView.theme({
+	"&": {
+		background: "var(--nova-surface)",
+		borderRadius: "6px",
+		border: "1px solid var(--nova-border)",
+	},
+});
+
 const baseReadOnlyExtensions = [
 	xpath(),
 	EditorView.editable.of(false),
 	EditorState.readOnly.of(true),
 	EditorState.tabSize.of(4),
 	EditorView.lineWrapping,
-	readOnlyTheme,
+	readOnlyBaseTheme,
 ];
 
 // ── Editing theme ──────────────────────────────────────────────────────
 
-/** Compact CodeMirror chrome for the inline editing state. */
+/** Compact CodeMirror chrome for the inline editing state. Chromeless like
+ *  the read-only base — the wrapper div owns the well (border + fill). */
 const editingTheme = EditorView.theme({
 	"&": {
 		fontSize: "12px",
 		fontFamily: "var(--font-nova-mono)",
-		background: "var(--nova-surface)",
-		borderRadius: "6px",
 		maxHeight: "200px",
 	},
 	"&.cm-focused": { outline: "none" },
@@ -167,24 +177,35 @@ export function XPathField({
 		];
 	}, [provider, currentFormUuid]);
 
+	/* Standalone read-only display layers its own box on top; the
+	 * editable-idle state instead gets its well from the wrapping button. */
+	const standaloneReadOnlyExtensions = useMemo(
+		() => [...readOnlyExtensions, readOnlyStandaloneBox],
+		[readOnlyExtensions],
+	);
+
 	// ── Read-only / idle states ────────────────────────────────────────
 
 	if (!editing) {
 		const formatted = prettyPrintXPath(value);
-		const display = (
-			<CodeMirror
-				value={formatted}
-				theme={novaXPathTheme}
-				extensions={readOnlyExtensions}
-				basicSetup={false}
-				editable={false}
-			/>
-		);
 
-		/* No onSave = pure read-only display. */
-		if (!onSave) return display;
+		/* No onSave = pure read-only display, which owns its own box. */
+		if (!onSave) {
+			return (
+				<CodeMirror
+					value={formatted}
+					theme={novaXPathTheme}
+					extensions={standaloneReadOnlyExtensions}
+					basicSetup={false}
+					editable={false}
+				/>
+			);
+		}
 
-		/* Editable idle — show static display with hover chrome. */
+		/* Editable idle — the button IS the single well (border + fill); the
+		 * CodeMirror inside is chromeless, so the field reads as one element
+		 * and matches the editing box 1:1 (only the border color and
+		 * interactivity change on click — no inner box, no size shift). */
 		return (
 			<button
 				type="button"
@@ -192,9 +213,15 @@ export function XPathField({
 					clickPosRef.current = { x: e.clientX, y: e.clientY };
 					setEditing(true);
 				}}
-				className="w-full text-left cursor-pointer rounded-lg border border-white/[0.06] bg-nova-deep/50 hover:border-nova-violet/30 transition-colors px-2 min-h-11 flex flex-col justify-center"
+				className="w-full text-left cursor-pointer rounded-lg border border-white/[0.06] bg-nova-deep/50 hover:border-nova-violet/30 transition-colors min-h-11 flex flex-col justify-center"
 			>
-				{display}
+				<CodeMirror
+					value={formatted}
+					theme={novaXPathTheme}
+					extensions={readOnlyExtensions}
+					basicSetup={false}
+					editable={false}
+				/>
 			</button>
 		);
 	}
@@ -533,7 +560,7 @@ function InlineXPathEditor({
 			onAnimationEnd={(e) => {
 				if (e.animationName === "shake") setShaking(false);
 			}}
-			className={`rounded-lg border border-nova-violet/40 ring-1 ring-nova-violet/30 bg-nova-deep/50 ${shaking ? "xpath-shake" : ""}`}
+			className={`rounded-lg border border-nova-violet/40 ring-1 ring-nova-violet/30 bg-nova-deep/50 min-h-11 flex flex-col justify-center ${shaking ? "xpath-shake" : ""}`}
 		>
 			<CodeMirror
 				ref={editorRef}
