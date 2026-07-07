@@ -40,8 +40,25 @@ export interface ZoneRect {
 }
 
 export interface InsertionIntentConfig {
-	/** Time constant (ms) of the speed EMA — also its no-events decay rate. */
-	readonly speedTauMs: number;
+	/** Speed-EMA time constant (ms) while speed is RISING. Short, so the very
+	 *  first fast samples of a swipe stiffen the dwell requirement before the
+	 *  swipe crosses anything — a symmetric constant lets gaps near the start
+	 *  point bank evidence while the estimate is still catching up. */
+	readonly speedRiseTauMs: number;
+	/** Speed-EMA time constant (ms) while speed is FALLING — also its
+	 *  no-events decay rate. Longer than the rise, so a swipe's deceleration
+	 *  tail (and the moments right after a stop) still read as fast: the
+	 *  settle beat after a flick comes from exactly this release. */
+	readonly speedFallTauMs: number;
+	/** Time constant (ms) of the slower trend EMA the settling test compares
+	 *  against. */
+	readonly trendTauMs: number;
+	/** The pointer counts as SETTLING when speed < trend × this ratio — i.e.
+	 *  measurably decelerating. Evidence accumulates only while settling or
+	 *  below `slowSpeed`: aiming decelerates into its target (Fitts's law),
+	 *  while passing through holds speed — this is what keeps a constant-speed
+	 *  drift across gaps from opening them. */
+	readonly settlingRatio: number;
 	/** Dwell (ms) required to open at/below `slowSpeed` — the "you're clearly
 	 *  aiming here" fast path. */
 	readonly minDwellMs: number;
@@ -74,7 +91,10 @@ export interface InsertionIntentConfig {
 }
 
 export const DEFAULT_INSERTION_INTENT_CONFIG: InsertionIntentConfig = {
-	speedTauMs: 60,
+	speedRiseTauMs: 25,
+	speedFallTauMs: 70,
+	trendTauMs: 150,
+	settlingRatio: 0.85,
 	minDwellMs: 40,
 	maxDwellMs: 280,
 	slowSpeed: 80,
@@ -103,6 +123,8 @@ export interface InsertionIntentSnapshot {
 /** Introspection for the tuning lab's HUD — not consumed by product surfaces. */
 export interface InsertionIntentDebugState {
 	readonly speed: number;
+	readonly trend: number;
+	readonly settling: boolean;
 	readonly score: number;
 	readonly candidateId: string | null;
 	readonly dwellMs: number;
@@ -181,7 +203,8 @@ export function createInsertionIntentModel(
 	};
 
 	// ── Speed estimate ────────────────────────────────────────────────
-	let speed = 0; // px/s, EMA
+	let speed = 0; // px/s, fast-attack/slow-release EMA
+	let trend = 0; // px/s, slower EMA — the settling baseline
 	let speedT = Number.NEGATIVE_INFINITY; // time of last speed sample
 
 	// ── Pointer ───────────────────────────────────────────────────────
@@ -214,8 +237,21 @@ export function createInsertionIntentModel(
 	const speedAt = (t: number): number => {
 		const idle = t - speedT;
 		if (idle <= STATIONARY_AFTER_MS) return speed;
-		return speed * Math.exp(-(idle - STATIONARY_AFTER_MS) / cfg.speedTauMs);
+		return speed * Math.exp(-(idle - STATIONARY_AFTER_MS) / cfg.speedFallTauMs);
 	};
+
+	const trendAt = (t: number): number => {
+		const idle = t - speedT;
+		if (idle <= STATIONARY_AFTER_MS) return trend;
+		return trend * Math.exp(-(idle - STATIONARY_AFTER_MS) / cfg.trendTauMs);
+	};
+
+	/** Aiming decelerates into its target; passing through holds speed. The
+	 *  fast estimate dropping visibly below the slow trend is the deceleration
+	 *  signature (below `slowSpeed` no signature is required — a creep or a
+	 *  stationary pointer is intent on its own). */
+	const isSettling = (v: number, t: number): boolean =>
+		v < cfg.slowSpeed || v <= trendAt(t) * cfg.settlingRatio;
 
 	const dwellFor = (v: number): number =>
 		cfg.minDwellMs +
@@ -224,8 +260,9 @@ export function createInsertionIntentModel(
 
 	const updateSpeed = (distPx: number, dt: number): void => {
 		const inst = distPx / (dt / 1000);
-		const alpha = 1 - Math.exp(-dt / cfg.speedTauMs);
-		speed += alpha * (inst - speed);
+		const tau = inst > speed ? cfg.speedRiseTauMs : cfg.speedFallTauMs;
+		speed += (1 - Math.exp(-dt / tau)) * (inst - speed);
+		trend += (1 - Math.exp(-dt / cfg.trendTauMs)) * (inst - trend);
 	};
 
 	/** The zone under the pointer. The open zone wins while inside its larger
@@ -320,6 +357,11 @@ export function createInsertionIntentModel(
 			// can park relative motion on a zone for hundreds of ms. Drain instead.
 			score *= Math.exp(-dt / cfg.scoreDecayTauMs);
 			if (score < SCORE_EPSILON) score = 0;
+		} else if (!isSettling(v, t)) {
+			// Sub-traversal speed but holding steady — passing through toward
+			// something beyond, not braking into the gap. Drain.
+			score *= Math.exp(-dt / cfg.scoreDecayTauMs);
+			if (score < SCORE_EPSILON) score = 0;
 		} else if (isObstructed?.(px, py, candidate)) {
 			// Something covers the zone (a portalled popup, a dialog) — presence
 			// inside an overlay is not intent toward the gap beneath it. Checked
@@ -369,15 +411,17 @@ export function createInsertionIntentModel(
 					speedT = t;
 				} else if (dt > cfg.sampleGapResetMs) {
 					// Not a velocity sample (idle gap or teleport): carry the decayed
-					// estimate forward so a dwell right after arrival isn't judged by
+					// estimates forward so a dwell right after arrival isn't judged by
 					// pre-gap speed.
 					speed = speedAt(t);
+					trend = trendAt(t);
 					speedT = t;
 				}
 			} else {
-				// First sample after (re-)entry: settle the decayed estimate onto the
+				// First sample after (re-)entry: settle the decayed estimates onto the
 				// new clock, otherwise pre-departure speed would resurrect undecayed.
 				speed = speedAt(t);
+				trend = trendAt(t);
 				speedT = t;
 			}
 			px = x;
@@ -393,13 +437,18 @@ export function createInsertionIntentModel(
 			} else {
 				// First motion after a gap: treat the burst as fast travel outright.
 				speed = Math.max(speedAt(t), cfg.fastSpeed);
+				trend = Math.max(trendAt(t), speed);
 			}
 			speedT = t;
 			evaluate(t);
 		},
 
 		travelBump(t) {
+			// Pin both estimates: with speed == trend the pointer is NOT settling,
+			// so nothing can arm mid-scroll; once the scrolling stops, speed falls
+			// off faster than trend and the settle path opens as usual.
 			speed = Math.max(speedAt(t), cfg.fastSpeed);
+			trend = Math.max(trendAt(t), speed);
 			speedT = t;
 			evaluate(t);
 		},
@@ -453,6 +502,8 @@ export function createInsertionIntentModel(
 			const v = speedAt(t);
 			return {
 				speed: v,
+				trend: trendAt(t),
+				settling: isSettling(v, t),
 				score,
 				candidateId: scoreZoneId ?? (openId !== null ? openId : null),
 				dwellMs: dwellFor(v),

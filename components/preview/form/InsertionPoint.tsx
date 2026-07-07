@@ -31,7 +31,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	INSERTION_CIRCLE_CLS,
-	insertionCircleStateCls,
+	insertionCircleStyle,
 	insertionLineCls,
 	insertionLineStyle,
 } from "@/components/ui/insertionReveal";
@@ -200,9 +200,10 @@ function InsertionPointContent({
 					ref={triggerRef}
 					handle={pickerCtx?.handle}
 					payload={{ atIndex, parentUuid }}
-					className={`${INSERTION_CIRCLE_CLS} ${insertionCircleStateCls(open)} mx-1 w-5 h-5 hover:bg-nova-violet/10 cursor-pointer shrink-0 outline-none ${
+					className={`${INSERTION_CIRCLE_CLS} mx-1 w-5 h-5 hover:bg-nova-violet/10 cursor-pointer shrink-0 outline-none ${
 						open ? "pointer-events-auto" : "pointer-events-none"
 					}`}
+					style={insertionCircleStyle(open, "background-color 150ms ease")}
 					aria-label="Insert field"
 					onClick={stopClick}
 				>

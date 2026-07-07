@@ -18,7 +18,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	INSERTION_CIRCLE_CLS,
-	insertionCircleStateCls,
+	insertionCircleStyle,
 	insertionLineCls,
 	insertionLineStyle,
 } from "@/components/ui/insertionReveal";
@@ -123,7 +123,8 @@ function LabGap({ id, height }: { id: string; height: number }) {
 					style={insertionLineStyle(zone.progress, open)}
 				/>
 				<span
-					className={`${INSERTION_CIRCLE_CLS} ${insertionCircleStateCls(open)} mx-1 h-5 w-5 shrink-0`}
+					className={`${INSERTION_CIRCLE_CLS} mx-1 h-5 w-5 shrink-0`}
+					style={insertionCircleStyle(open)}
 				>
 					<Icon icon={tablerPlus} width="12" height="12" />
 				</span>
@@ -143,7 +144,13 @@ function Hud() {
 	const [, force] = useState(0);
 	const logRef = useRef<string[]>([]);
 	const lastOpenRef = useRef<string | null>(null);
-	const debugRef = useRef({ speed: 0, score: 0, dwellMs: 0 });
+	const debugRef = useRef({
+		speed: 0,
+		trend: 0,
+		settling: false,
+		score: 0,
+		dwellMs: 0,
+	});
 
 	// Poll the model each frame — a dev page can afford an always-on rAF.
 	useEffect(() => {
@@ -177,6 +184,10 @@ function Hud() {
 			<div className="grid grid-cols-2 gap-y-1 text-sm font-mono">
 				<span className="text-nova-text-muted">speed</span>
 				<span>{d.speed.toFixed(0)} px/s</span>
+				<span className="text-nova-text-muted">trend</span>
+				<span>{d.trend.toFixed(0)} px/s</span>
+				<span className="text-nova-text-muted">settling</span>
+				<span>{d.settling ? "yes" : "—"}</span>
 				<span className="text-nova-text-muted">dwell req.</span>
 				<span>{d.dwellMs.toFixed(0)} ms</span>
 				<span className="text-nova-text-muted">evidence</span>
@@ -210,7 +221,10 @@ const KNOBS: Array<{
 	{ key: "maxDwellMs", min: 100, max: 800, step: 10, unit: "ms" },
 	{ key: "slowSpeed", min: 0, max: 400, step: 10, unit: "px/s" },
 	{ key: "fastSpeed", min: 400, max: 3000, step: 50, unit: "px/s" },
-	{ key: "speedTauMs", min: 20, max: 200, step: 5, unit: "ms" },
+	{ key: "speedRiseTauMs", min: 5, max: 100, step: 5, unit: "ms" },
+	{ key: "speedFallTauMs", min: 20, max: 250, step: 5, unit: "ms" },
+	{ key: "trendTauMs", min: 60, max: 400, step: 10, unit: "ms" },
+	{ key: "settlingRatio", min: 0.5, max: 1, step: 0.01, unit: "×" },
 	{ key: "scoreDecayTauMs", min: 20, max: 300, step: 10, unit: "ms" },
 	{ key: "closeGraceMs", min: 0, max: 400, step: 10, unit: "ms" },
 	{ key: "hitPadPx", min: 0, max: 16, step: 1, unit: "px" },

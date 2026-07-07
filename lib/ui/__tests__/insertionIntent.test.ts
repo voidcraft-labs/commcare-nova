@@ -2,6 +2,11 @@
 // Timestamps are explicit; a "gesture" is a sequence of pointerMove samples at
 // a realistic event rate (125Hz) plus tick() frames (60Hz) while stationary —
 // exactly what the DOM binding feeds the model.
+//
+// Two motion profiles matter: `glide` moves at CONSTANT velocity (passing
+// through — the settling gate must keep gaps shut), and `approach` decelerates
+// into its endpoint (aiming — the Fitts's-law profile real hands produce,
+// which the gate must reward).
 
 import { describe, expect, it } from "vitest";
 import {
@@ -21,7 +26,7 @@ const zones = new Map<string, ZoneRect>([
 const makeModel = (): InsertionIntentModel =>
 	createInsertionIntentModel(() => zones);
 
-/** Move the pointer from (x0,y0) to (x1,y1) over `ms` at 125Hz samples.
+/** Move at CONSTANT velocity from (x0,y0) to (x1,y1) over `ms` at 125Hz.
  *  Returns the end time. */
 function glide(
 	m: InsertionIntentModel,
@@ -42,37 +47,87 @@ function glide(
 	return t0 + ms;
 }
 
+/** Move with an ease-out profile — DECELERATING into the endpoint, the way a
+ *  human aims at a target. Returns the end time. */
+function approach(
+	m: InsertionIntentModel,
+	t0: number,
+	from: { x: number; y: number },
+	to: { x: number; y: number },
+	ms: number,
+): number {
+	const steps = Math.max(1, Math.round(ms / 8));
+	for (let i = 1; i <= steps; i++) {
+		const p = i / steps;
+		const f = 1 - (1 - p) ** 2;
+		m.pointerMove(
+			from.x + (to.x - from.x) * f,
+			from.y + (to.y - from.y) * f,
+			t0 + ms * p,
+		);
+	}
+	return t0 + ms;
+}
+
 /** Hold the pointer still, ticking at 60Hz. Returns the end time. */
 function dwell(m: InsertionIntentModel, t0: number, ms: number): number {
 	for (let t = t0 + 16; t <= t0 + ms; t += 16) m.tick(t);
 	return t0 + ms;
 }
 
+/** Aim at B's center from above and let it open — the canonical open. */
+function openB(m: InsertionIntentModel, t0: number): number {
+	let t = approach(m, t0, { x: 200, y: 176 }, { x: 200, y: 236 }, 400);
+	t = dwell(m, t, 300);
+	expect(m.getSnapshot().openId).toBe("B");
+	return t;
+}
+
 describe("insertion intent model", () => {
-	it("a fast swipe across every gap opens nothing", () => {
+	it("a fast swipe across every gap opens nothing and shows nothing", () => {
 		const m = makeModel();
 		// 500px of vertical travel in 180ms (~2800 px/s) straight through A, B, C.
 		glide(m, 0, { x: 200, y: 0 }, { x: 200, y: 500 }, 180);
 		expect(m.getSnapshot().openId).toBeNull();
-		// And no lingering arming evidence worth showing.
 		expect(m.getSnapshot().progress).toBeLessThan(0.3);
 	});
 
-	it("a slow, deliberate approach opens almost immediately", () => {
+	it("a swipe with human accel/decel endpoints still opens nothing", () => {
 		const m = makeModel();
-		// Approach B from 60px above at ~150 px/s, then creep through it.
-		let t = glide(m, 0, { x: 200, y: 164 }, { x: 200, y: 210 }, 300);
-		t = glide(m, t, { x: 200, y: 210 }, { x: 200, y: 236 }, 180);
+		// Ease-out swipe: launches fast, decelerates to a stop past C on a
+		// field row — the endpoint gaps see the slow phases.
+		approach(m, 0, { x: 200, y: 60 }, { x: 200, y: 420 }, 250);
+		dwell(m, 250, 500);
+		expect(m.getSnapshot().openId).toBeNull();
+	});
+
+	it("a constant slow drift across gaps opens nothing (passing through)", () => {
+		const m = makeModel();
+		// 200 px/s straight through all three zones — sub-traversal speed but
+		// no deceleration signature.
+		glide(m, 0, { x: 200, y: 60 }, { x: 200, y: 420 }, 1800);
+		expect(m.getSnapshot().openId).toBeNull();
+	});
+
+	it("a deliberate approach opens as the pointer arrives", () => {
+		const m = makeModel();
+		// Decelerate 60px into B's center over 400ms (peak ~300 px/s).
+		approach(m, 0, { x: 200, y: 176 }, { x: 200, y: 236 }, 400);
+		// Open by arrival or within a frame or two of it.
+		dwell(m, 400, 60);
 		expect(m.getSnapshot().openId).toBe("B");
 	});
 
-	it("a flick that stops dead on a gap opens after a short settle", () => {
+	it("a flick that stops dead on a gap opens after a settle beat", () => {
 		const m = makeModel();
 		// Flick 400px in 100ms (4000 px/s), landing centered on B.
 		let t = glide(m, 0, { x: 200, y: 636 }, { x: 200, y: 236 }, 100);
 		expect(m.getSnapshot().openId).toBeNull();
-		// Stationary on B: the speed estimate decays, evidence fills.
-		t = dwell(m, t, 400);
+		// The beat: still shut shortly after landing…
+		t = dwell(m, t, 120);
+		expect(m.getSnapshot().openId).toBeNull();
+		// …open once the speed estimate settles.
+		t = dwell(m, t, 500);
 		expect(m.getSnapshot().openId).toBe("B");
 	});
 
@@ -87,9 +142,7 @@ describe("insertion intent model", () => {
 
 	it("leaving an open zone closes it after the grace period, not before", () => {
 		const m = makeModel();
-		let t = glide(m, 0, { x: 200, y: 200 }, { x: 200, y: 236 }, 250);
-		t = dwell(m, t, 100);
-		expect(m.getSnapshot().openId).toBe("B");
+		let t = openB(m, 0);
 		// Move well outside (into the field row below).
 		t = glide(m, t, { x: 200, y: 236 }, { x: 200, y: 300 }, 80);
 		expect(m.getSnapshot().openId).toBe("B"); // inside grace
@@ -99,9 +152,7 @@ describe("insertion intent model", () => {
 
 	it("pointer leaving the surface closes the open zone", () => {
 		const m = makeModel();
-		let t = glide(m, 0, { x: 200, y: 200 }, { x: 200, y: 236 }, 250);
-		t = dwell(m, t, 100);
-		expect(m.getSnapshot().openId).toBe("B");
+		const t = openB(m, 0);
 		m.pointerGone(t);
 		dwell(m, t, 300);
 		expect(m.getSnapshot().openId).toBeNull();
@@ -109,12 +160,10 @@ describe("insertion intent model", () => {
 
 	it("walking from an open zone to a neighbor transfers quickly (warm)", () => {
 		const m = makeModel();
-		let t = glide(m, 0, { x: 200, y: 200 }, { x: 200, y: 236 }, 250);
-		t = dwell(m, t, 100);
-		expect(m.getSnapshot().openId).toBe("B");
+		let t = openB(m, 0);
 		// Travel down to C at a moderate 500 px/s and pause briefly.
 		t = glide(m, t, { x: 200, y: 236 }, { x: 200, y: 360 }, 250);
-		t = dwell(m, t, 120);
+		t = dwell(m, t, 250);
 		expect(m.getSnapshot().openId).toBe("C");
 	});
 
@@ -129,7 +178,20 @@ describe("insertion intent model", () => {
 		}
 		expect(m.getSnapshot().openId).toBeNull();
 		// Scroll stops; the pointer is resting on a gap → it opens after settle.
-		dwell(m, t, 500);
+		dwell(m, t, 600);
+		expect(m.getSnapshot().openId).toBe("B");
+	});
+
+	it("travel bumps (keyboard/programmatic scroll) also keep gaps shut", () => {
+		const m = makeModel();
+		m.pointerMove(200, 236, 0);
+		let t = 0;
+		for (let i = 0; i < 20; i++) {
+			t += 16;
+			m.travelBump(t);
+		}
+		expect(m.getSnapshot().openId).toBeNull();
+		dwell(m, t, 600);
 		expect(m.getSnapshot().openId).toBe("B");
 	});
 
@@ -146,9 +208,7 @@ describe("insertion intent model", () => {
 
 	it("a hold pins the zone open with the pointer long gone; unhold releases", () => {
 		const m = makeModel();
-		let t = glide(m, 0, { x: 200, y: 200 }, { x: 200, y: 236 }, 250);
-		t = dwell(m, t, 100);
-		expect(m.getSnapshot().openId).toBe("B");
+		let t = openB(m, 0);
 		m.setHold("B", true, t);
 		m.pointerGone(t);
 		t = dwell(m, t, 1000);
@@ -185,21 +245,21 @@ describe("insertion intent model", () => {
 
 	it("re-approaching within the warm window opens faster than cold", () => {
 		const m = makeModel();
-		// Open B, leave it, and measure how long a moderate-speed return takes.
-		let t = glide(m, 0, { x: 200, y: 200 }, { x: 200, y: 236 }, 250);
-		t = dwell(m, t, 100);
+		let t = openB(m, 0);
 		t = glide(m, t, { x: 200, y: 236 }, { x: 200, y: 320 }, 100);
 		t = dwell(m, t, 200); // grace elapses → closed, warm window running
 		expect(m.getSnapshot().openId).toBeNull();
-		t = glide(m, t, { x: 200, y: 320 }, { x: 200, y: 236 }, 120);
-		t = dwell(m, t, 60);
+		t = approach(m, t, { x: 200, y: 320 }, { x: 200, y: 236 }, 150);
+		// Opens within ~200ms of arrival — a cold flick-stop needs 2-3× that.
+		t = dwell(m, t, 200);
 		expect(m.getSnapshot().openId).toBe("B");
 	});
 
 	it("progress rises while arming and is quantized", () => {
 		const m = makeModel();
-		const t = glide(m, 0, { x: 200, y: 300 }, { x: 200, y: 240 }, 400);
-		m.tick(t + 16);
+		// Land on B stationary (teleport semantics: v ≈ 0) and take two frames.
+		m.pointerMove(200, 236, 0);
+		m.tick(16);
 		const snap = m.getSnapshot();
 		if (snap.openId === null) {
 			expect(snap.armingId).toBe("B");
@@ -223,7 +283,7 @@ describe("insertion intent model", () => {
 		const m = createInsertionIntentModel(() => zones, undefined, {
 			isObstructed: () => obstructed,
 		});
-		let t = glide(m, 0, { x: 200, y: 200 }, { x: 200, y: 236 }, 300);
+		let t = approach(m, 0, { x: 200, y: 176 }, { x: 200, y: 236 }, 300);
 		t = dwell(m, t, 600);
 		expect(m.getSnapshot().openId).toBeNull();
 		// The overlay goes away (popup closed) — dwell now opens it.
@@ -234,30 +294,31 @@ describe("insertion intent model", () => {
 
 	it("a hold drops sibling arming evidence — no frozen glow behind a menu", () => {
 		const m = makeModel();
-		// Accumulate partial evidence on B (slow approach, not enough to open)…
-		let t = glide(m, 0, { x: 200, y: 210 }, { x: 200, y: 236 }, 60);
-		expect(m.getSnapshot().armingId).not.toBeNull();
+		// Land on B stationary and bank partial evidence (not enough to open)…
+		m.pointerMove(200, 236, 0);
+		m.tick(16);
+		expect(m.getSnapshot().armingId).toBe("B");
 		// …then a menu pins C.
-		m.setHold("C", true, t + 10);
-		t = dwell(m, t + 10, 100);
+		m.setHold("C", true, 20);
+		const t = dwell(m, 20, 100);
 		const snap = m.getSnapshot();
 		expect(snap.openId).toBe("C");
 		expect(snap.armingId).toBeNull();
 		expect(snap.progress).toBe(0);
 		// Pinned-held is a steady state: the tick loop may stop.
 		expect(m.needsTick()).toBe(false);
+		m.setHold("C", false, t);
 	});
 
 	it("needsTick is false when idle and true while arming or open", () => {
 		const m = makeModel();
 		expect(m.needsTick()).toBe(false);
-		// Pointer stops inside B on its very first in-zone event.
 		m.pointerMove(200, 400, 0); // outside any zone (below C's bottom + pad)
 		expect(m.needsTick()).toBe(false);
 		m.pointerMove(200, 236, 20);
 		expect(m.needsTick()).toBe(true); // arming must be tick-driven from here
 		// The 164px-in-20ms entry reads as a flick — give it the settle beat.
-		dwell(m, 20, 500);
+		dwell(m, 20, 600);
 		expect(m.getSnapshot().openId).toBe("B");
 		expect(m.needsTick()).toBe(true);
 	});

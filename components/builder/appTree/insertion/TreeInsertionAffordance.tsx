@@ -25,7 +25,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import { type CSSProperties, useEffect } from "react";
 import {
 	INSERTION_CIRCLE_CLS,
-	insertionCircleStateCls,
+	insertionCircleStyle,
 	insertionLineCls,
 	insertionLineStyle,
 } from "@/components/ui/insertionReveal";
@@ -99,9 +99,10 @@ export function TreeInsertionLine({
 				style={insertionLineStyle(progress, revealed)}
 			/>
 			<span
-				className={`${INSERTION_CIRCLE_CLS} ${insertionCircleStateCls(revealed)} h-5 w-5 shrink-0 ${
+				className={`${INSERTION_CIRCLE_CLS} h-5 w-5 shrink-0 ${
 					revealed ? "pointer-events-auto" : ""
 				}`}
+				style={insertionCircleStyle(revealed)}
 			>
 				<Icon icon={tablerPlus} width="12" height="12" />
 			</span>
