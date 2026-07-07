@@ -17,7 +17,6 @@ import tablerClipboardText from "@iconify-icons/tabler/clipboard-text";
 import tablerTable from "@iconify-icons/tabler/table";
 import { useState } from "react";
 import { CaseTypePickerContent } from "@/components/builder/shared/CaseTypePicker";
-import { Tooltip } from "@/components/ui/Tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -94,16 +93,18 @@ export function AddModulePopover({ atIndex }: AddModulePopoverProps) {
 
 	return (
 		<Popover.Root open={open} onOpenChange={handleOpenChange}>
-			<Tooltip content="Add module">
-				<Popover.Trigger
-					ref={ref}
-					className={INSERTION_TRIGGER_CLS}
-					style={insertionTriggerStyle(revealed)}
-					aria-label="Add module"
-				>
-					<TreeInsertionLine revealed={revealed} progress={progress} />
-				</Popover.Trigger>
-			</Tooltip>
+			<Popover.Trigger
+				ref={ref}
+				className={INSERTION_TRIGGER_CLS}
+				style={insertionTriggerStyle(revealed)}
+				aria-label="Add module"
+			>
+				<TreeInsertionLine
+					revealed={revealed}
+					progress={progress}
+					label="Module"
+				/>
+			</Popover.Trigger>
 			<Popover.Portal>
 				<Popover.Positioner
 					side="bottom"

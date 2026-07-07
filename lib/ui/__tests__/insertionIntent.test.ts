@@ -334,6 +334,24 @@ describe("insertion intent model", () => {
 		m.setHold("C", false, t);
 	});
 
+	it("hysteresis never swallows a flush-adjacent zone (tree strip seam)", () => {
+		// The tree's last-form strip and add-module strip sit 2px apart — well
+		// inside each other's openPad. Resting ON the second must transfer.
+		const flush = new Map<string, ZoneRect>([
+			["F", { left: 0, top: 200, right: 400, bottom: 214 }],
+			["M", { left: 0, top: 216, right: 400, bottom: 230 }],
+		]);
+		const m = createInsertionIntentModel(() => flush);
+		let t = approach(m, 0, { x: 200, y: 160 }, { x: 200, y: 207 }, 350);
+		t = dwell(m, t, 300);
+		expect(m.getSnapshot().openId).toBe("F");
+		// Creep down onto M's actual rect (y=222 — still within F's 10px pad,
+		// which reaches y=224; the old pad-first candidate rule parked here).
+		t = glide(m, t, { x: 200, y: 207 }, { x: 200, y: 222 }, 250);
+		t = dwell(m, t, 300);
+		expect(m.getSnapshot().openId).toBe("M");
+	});
+
 	it("needsTick is false when idle and true while arming or open", () => {
 		const m = makeModel();
 		expect(m.needsTick()).toBe(false);

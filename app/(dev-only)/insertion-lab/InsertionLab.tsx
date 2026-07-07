@@ -16,6 +16,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { TreeInsertionLine } from "@/components/builder/appTree/insertion/TreeInsertionAffordance";
 import {
 	INSERTION_CIRCLE_CLS,
 	insertionCircleStyle,
@@ -92,17 +93,54 @@ function MockTreeColumn() {
 	return (
 		<div className="w-64 shrink-0">
 			<h2 className="text-xs uppercase tracking-wider text-nova-text-muted mb-2">
-				App tree (14px strips)
+				App tree (form/module seam)
 			</h2>
-			<LabGap id="tree-0" height={14} />
+			<LabTreeGap id="tree-module-0" label="Module" />
 			{TREE_ROWS.map((n) => (
 				<div key={n}>
 					<div className="h-9 rounded-md border border-nova-border bg-nova-surface px-3 flex items-center text-xs text-nova-text-muted">
 						Module {n}
 					</div>
-					<LabGap id={`tree-${n}`} height={14} />
+					{/* The real tree's seam: a module's trailing "+ Form" strip sits
+					 *  flush above the between-modules "+ Module" strip. */}
+					<LabTreeGap
+						id={`tree-form-${n}`}
+						label="Form"
+						insetCls="left-5 right-3"
+					/>
+					<LabTreeGap id={`tree-module-${n}`} label="Module" />
 				</div>
 			))}
+		</div>
+	);
+}
+
+/** A tree-strip zone rendering the REAL labeled affordance. */
+function LabTreeGap({
+	id,
+	label,
+	insetCls,
+}: {
+	id: string;
+	label: string;
+	insetCls?: string;
+}) {
+	const zone = useInsertionZone();
+	const open = zone.status === "open";
+	return (
+		<div
+			ref={zone.ref}
+			className="relative"
+			style={insertionExpandStyle(open, 14, 32)}
+			data-lab-zone={id}
+			data-status={zone.status}
+		>
+			<TreeInsertionLine
+				revealed={open}
+				progress={zone.progress}
+				label={label}
+				insetCls={insetCls}
+			/>
 		</div>
 	);
 }

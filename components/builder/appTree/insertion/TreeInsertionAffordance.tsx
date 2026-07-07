@@ -10,15 +10,15 @@
 // pushing the neighboring rows apart) while revealed — layout moving under
 // the pointer is safe because zone containment is geometric (the binding
 // re-measures rects through the reveal animation), never DOM hover state.
-// While collapsed, the 20px "+" circle would overflow the strip, so it
-// re-enables pointer events on itself; clicks on the overflowing sliver
-// still land on the trigger instead of falling through to the adjacent row.
 // The host composes three pieces:
 //   - useTreeInsertionZone(open) — the gated `revealed` state + the zone ref
 //     to attach to the trigger; AppTree mounts the surface-wide model via
 //     InsertionIntentProvider.
 //   - INSERTION_TRIGGER_CLS / insertionTriggerStyle — the trigger's chrome.
-//   - TreeInsertionLine — the violet lines + "+" circle rendered inside it.
+//   - TreeInsertionLine — the violet lines + the labeled "+ Form" /
+//     "+ Module" pill rendered inside it. The label is the level indicator;
+//     there is no tooltip (naming an affordance through a tooltip means
+//     naming it while it's invisible).
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -83,33 +83,50 @@ export function insertionTriggerStyle(revealed: boolean): CSSProperties {
 }
 
 /**
- * The violet flanking lines + centered "+" circle. While arming, the lines
- * glow in with accumulated evidence; on reveal they commit to full opacity
- * and the circle pops in. All inline (`<span>`) elements so the markup is
- * valid inside the trigger's `<button>`. The lines are `pointer-events-none`
- * (clicks fall through to the full-width trigger); the circle re-enables
- * pointer events because it overflows the strip's hit box.
+ * The violet flanking lines + centered "+ <label>" pill. While arming, the
+ * lines glow in with accumulated evidence; on reveal they commit to full
+ * opacity and the pill blooms in. The LABEL is what makes the two tree
+ * levels legible — a bare "+" between a module's last form and the next
+ * module is anonymous, and naming the action through a tooltip means naming
+ * it through an invisible affordance. All inline (`<span>`) elements so the
+ * markup is valid inside the trigger's `<button>`. The lines are
+ * `pointer-events-none` (clicks fall through to the full-width trigger);
+ * the pill re-enables pointer events because it overflows the strip's hit
+ * box — a click on the overflowing sliver must not fall through to the
+ * adjacent row.
+ *
+ * `insetCls` positions the lines: form strips indent to the form rows'
+ * depth so the affordance reads as INSIDE the module; module strips span
+ * the tree's full row width.
  */
 export function TreeInsertionLine({
 	revealed,
 	progress = 0,
+	label,
+	insetCls = "inset-x-3",
 }: {
 	revealed: boolean;
 	progress?: number;
+	/** Names the action in the pill — "Form" | "Module". */
+	label: string;
+	insetCls?: string;
 }) {
 	return (
-		<span className="pointer-events-none absolute inset-x-3 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
+		<span
+			className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 items-center gap-1.5 ${insetCls}`}
+		>
 			<span
 				className={insertionLineCls("right")}
 				style={insertionLineStyle(progress, revealed)}
 			/>
 			<span
-				className={`${INSERTION_CIRCLE_CLS} h-5 w-5 shrink-0 ${
+				className={`${INSERTION_CIRCLE_CLS} h-5 shrink-0 gap-1 px-2 ${
 					revealed ? "pointer-events-auto" : ""
 				}`}
 				style={insertionCircleStyle(revealed)}
 			>
 				<Icon icon={tablerPlus} width="12" height="12" />
+				<span className="text-[11px] font-medium leading-none">{label}</span>
 			</span>
 			<span
 				className={insertionLineCls("left")}

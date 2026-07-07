@@ -313,22 +313,18 @@ export function createInsertionIntentModel(
 		trend += (1 - Math.exp(-dt / cfg.trendTauMs)) * (inst - trend);
 	};
 
-	/** The zone under the pointer. The open zone wins while inside its larger
-	 *  hysteresis pad; otherwise the nearest-centered idle zone containing the
-	 *  point (pads can make neighbors overlap). */
-	const findCandidate = (
+	/** Nearest-centered zone whose rect (inflated by `pad`) contains the
+	 *  pointer; pads can make neighbors overlap. */
+	const bestContaining = (
 		zones: ReadonlyMap<string, ZoneRect>,
+		pad: number,
+		excludeId: string | null,
 	): string | null => {
-		if (!pointerKnown) return null;
-		if (openId !== null) {
-			const r = zones.get(openId);
-			if (r && inflated(r, cfg.openPadPx, px, py)) return openId;
-		}
 		let best: string | null = null;
 		let bestDist = Number.POSITIVE_INFINITY;
 		for (const [id, r] of zones) {
-			if (id === openId) continue;
-			if (!inflated(r, cfg.hitPadPx, px, py)) continue;
+			if (id === excludeId) continue;
+			if (!inflated(r, pad, px, py)) continue;
 			const cy = (r.top + r.bottom) / 2;
 			const cx = (r.left + r.right) / 2;
 			const dist = Math.abs(py - cy) + Math.abs(px - cx) * 0.1;
@@ -338,6 +334,25 @@ export function createInsertionIntentModel(
 			}
 		}
 		return best;
+	};
+
+	/** The zone under the pointer. Being ON a zone's actual rect always wins —
+	 *  the open zone's hysteresis pad must never swallow a flush-adjacent
+	 *  sibling (the tree's last-form strip and add-module strip sit within
+	 *  each other's pads), or the pointer can rest ON one affordance while
+	 *  another stays open. Off every raw rect, the open zone holds within its
+	 *  larger pad; otherwise the nearest pad-inflated zone. */
+	const findCandidate = (
+		zones: ReadonlyMap<string, ZoneRect>,
+	): string | null => {
+		if (!pointerKnown) return null;
+		const exact = bestContaining(zones, 0, null);
+		if (exact !== null) return exact;
+		if (openId !== null) {
+			const r = zones.get(openId);
+			if (r && inflated(r, cfg.openPadPx, px, py)) return openId;
+		}
+		return bestContaining(zones, cfg.hitPadPx, openId);
 	};
 
 	const publish = (): void => {
