@@ -64,7 +64,13 @@ interface ChatInputProps {
 	/** Send a turn. `attachments` are asset-id refs to files the user picked from
 	 *  the file manager; the server resolves each to its extract or image bytes. */
 	onSend: (message: { text: string; attachments?: AttachmentRef[] }) => void;
+	/** The composer can't be typed in or submitted. Says nothing about WHY —
+	 *  a turn may be in flight, or something else may simply own the screen. */
 	disabled?: boolean;
+	/** A turn is actually in flight, so the submit button shows a spinner. A
+	 *  strict subset of `disabled`: locking the composer for a non-chat reason
+	 *  (creating a blank app) must not claim the user's message is being sent. */
+	submitting?: boolean;
 	/** True while an AskQuestionsCard is waiting for a reply: a composer send
 	 *  routes to that card as a text-only answer, so attachments can't go with it.
 	 *  Disables the attach button and preserves any staged files for the next
@@ -102,6 +108,7 @@ interface ChatInputProps {
 export function ChatInput({
 	onSend,
 	disabled,
+	submitting,
 	answerPending,
 	centered,
 	openingPrompt,
@@ -320,7 +327,7 @@ export function ChatInput({
 						</Tooltip>
 						<PromptInputSubmit
 							disabled={disabled || overLimit || !hasText}
-							status={disabled ? "submitted" : "ready"}
+							status={submitting ? "submitted" : "ready"}
 							className="size-11 rounded-lg"
 						/>
 					</div>

@@ -97,8 +97,10 @@ const USER_MESSAGE_BY_CODE: Partial<
 	Record<ValidationErrorCode, UserMessageBuilder>
 > = {
 	// ── App-level ────────────────────────────────────────────────────
+	// Reached in the builder only by trying to remove the app's last module, so
+	// "add one" reads backwards — you'd add another BEFORE removing this one.
 	NO_MODULES: () =>
-		"Every app needs at least one module to do anything. Add one to get started.",
+		"An app needs at least one module, so you can't remove your last one. Add another first if you want to replace it.",
 	EMPTY_APP_NAME: () => "Your app needs a name. Add one to get started.",
 	RESERVED_CASE_TYPE_NAME: (e) => {
 		const ct = det(e, "caseType", "");
@@ -126,8 +128,12 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(modName(e))} is set to show only a case list, but it still has forms attached. Remove the forms.`,
 	CASE_LIST_ONLY_NO_CASE_TYPE: (e) =>
 		`${q(modName(e))} is set to show a case list, but you haven't said which case type to list. Pick one.`,
+	// Fires for a formless module — a plain survey menu (no case type) as well as
+	// a case module. In the builder it's reached by removing a survey module's
+	// last form or clearing a viewer's case type, so it must not assume a case
+	// type and must read sensibly for a delete (not just "add a form").
 	NO_FORMS_OR_CASE_LIST: (e) =>
-		`${q(modName(e))} has a case type but nothing to do with it yet. Add a form, or set it to show a case list.`,
+		`${q(modName(e))} needs at least one form. Add a form, or, if you're removing its last one, delete the whole module instead.`,
 	INVALID_CASE_TYPE_FORMAT: (e) =>
 		`${q(modName(e))}'s case type ${q(det(e, "caseType", ""))} isn't a valid name. Start it with a letter and stick to letters, numbers, underscores, and hyphens.`,
 	CASE_TYPE_TOO_LONG: (e) =>

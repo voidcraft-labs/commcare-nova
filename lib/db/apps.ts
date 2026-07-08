@@ -27,6 +27,7 @@ import {
 } from "@/lib/media/attachVerdicts";
 import {
 	describeIntroducedErrors,
+	exportReadinessFindings,
 	mutationCommitVerdict,
 } from "../doc/commitVerdicts";
 import {
@@ -415,8 +416,8 @@ export async function projectHasApps(projectId: string): Promise<boolean> {
 // ── CRUD ───────────────────────────────────────────────────────────
 
 /**
- * Optional overrides for `createApp`. Both fields are optional and
- * have defaults that match the most common shape of a new app row.
+ * Optional overrides for `createApp`. Every field is optional and the
+ * defaults match the most common shape of a new app row.
  */
 export interface CreateAppOptions {
 	/**
@@ -438,18 +439,79 @@ export interface CreateAppOptions {
 	 * via `softDeleteApp`, never a creation state.
 	 */
 	status?: "generating" | "complete";
+	/**
+	 * The contents the app is BORN with — a template (`lib/doc/scaffolds.ts`),
+	 * expressed as a mutation batch against the still-empty doc it receives.
+	 * It rides the single creation write, so the templated app never exists on
+	 * disk in its pre-template state and the denormalized counts describe what
+	 * was actually written.
+	 *
+	 * Supplying one is a promise the app is born EXPORT-ready, and `seedNewApp`
+	 * holds you to it: a template whose app couldn't be exported — including
+	 * one that forgets `appName` — throws rather than creating anything.
+	 *
+	 * Omit for the empty app the chat build and MCP `create_app` mint. Those
+	 * are deliberately NOT export-ready at birth; the agent's gated tool calls
+	 * add the contents (and the name) that make them so.
+	 */
+	seedMutations?: (doc: BlueprintDoc) => Mutation[];
+}
+
+/**
+ * Apply a creation template to the empty doc, behind TWO gates.
+ *
+ * First the ordinary commit gate — the batch may introduce no validator
+ * finding, exactly as on every other write path. That gate is DELTA-based,
+ * so on its own it would happily create a template that left the empty
+ * doc's `NO_MODULES` / `EMPTY_APP_NAME` standing (both are pre-existing,
+ * not introduced). Since a templated app has no SA run behind it to finish
+ * the job, the second gate is the one that matters: the whole seeded doc
+ * must clear the zero-tolerance EXPORT boundary. That is what makes "a
+ * templated app is born export-ready" a fact about `createApp` rather than
+ * a promise each caller has to keep.
+ *
+ * Export-readiness depends on BOTH halves of a template — `appName` and the
+ * mutations — so the check runs on the seeded doc, after the name is set.
+ * Templates carry no media, which is why the empty-manifest
+ * `exportReadinessFindings` is the right oracle here.
+ *
+ * Either throw is a construction bug, not a user error: a template is code.
+ */
+function seedNewApp(
+	emptyDoc: BlueprintDoc,
+	seedMutations: CreateAppOptions["seedMutations"],
+): BlueprintDoc {
+	if (!seedMutations) return emptyDoc;
+	const verdict = mutationCommitVerdict(emptyDoc, seedMutations(emptyDoc));
+	if (!verdict.ok) {
+		throw new Error(
+			`App template is not valid by construction: ${describeIntroducedErrors(
+				verdict.introduced,
+			)}`,
+		);
+	}
+	const notExportable = exportReadinessFindings(verdict.nextDoc);
+	if (notExportable.length > 0) {
+		throw new Error(
+			`App template must be born export-ready, but the app it creates could not be exported:\n${notExportable
+				.map((err) => `- ${err.message}`)
+				.join("\n")}`,
+		);
+	}
+	return verdict.nextDoc;
 }
 
 /**
  * Create a new app document.
  *
- * The empty doc uses the normalized `BlueprintDoc` shape with the
- * Firestore document id baked in as `appId` so the doc is
- * self-identifying on load. Denormalized summary fields are derived
- * eagerly from the empty doc + optional overrides so list queries
- * never deserialize a blueprint.
+ * The doc uses the normalized `BlueprintDoc` shape with the Firestore
+ * document id baked in as `appId` so the doc is self-identifying on
+ * load. It starts empty and, when `seedMutations` supplies a template,
+ * is born holding that template's contents. Denormalized summary fields
+ * are derived eagerly from the doc that is actually written, so list
+ * queries never deserialize a blueprint.
  *
- * See `CreateAppOptions` for the two tunable fields and their defaults.
+ * See `CreateAppOptions` for the tunable fields and their defaults.
  */
 export async function createApp(
 	owner: string,
@@ -471,12 +533,13 @@ export async function createApp(
 		fieldOrder: {},
 		fieldParent: {},
 	};
-	const persistable = toPersistableDoc(emptyDoc);
+	const doc = seedNewApp(emptyDoc, opts?.seedMutations);
+	const persistable = toPersistableDoc(doc);
 	await runThrottledWrite(() =>
 		ref.set({
 			owner,
 			project_id: projectId,
-			...denormalize(emptyDoc),
+			...denormalize(doc),
 			blueprint: persistable,
 			/* The per-app stream counter starts at 0; the guarded writer advances
 			 * it by one on every committed mutation batch. */

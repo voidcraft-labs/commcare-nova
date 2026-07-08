@@ -2,8 +2,10 @@
  * SA tool: `createModule` — add a new module to the app, together with
  * everything that makes it sound and complete, in one gated batch.
  *
- * Creation is ATOMIC. A case-managing module is only valid WITH its
- * forms (NO_FORMS_OR_CASE_LIST) and WITH its case-list columns
+ * Creation is ATOMIC. EVERY module is only valid WITH its forms
+ * (NO_FORMS_OR_CASE_LIST — a formless menu is a hard CommCare build
+ * error, the sole exception being a `case_list_only` viewer), and a
+ * case-managing one additionally WITH its case-list columns
  * (MISSING_CASE_LIST_COLUMNS — completeness, gated like everything
  * else). So the tool accepts `forms` (each with its `fields`) and
  * `case_list_columns`, and emits one batch: the case-type record +
@@ -137,7 +139,7 @@ export const createModuleInputSchema = z
 			.array(createModuleFormSchema)
 			.optional()
 			.describe(
-				"The module's forms, each with its fields — a case-managing module must land WITH its forms in this call (a case-typed module with no forms is rejected). Omit only for a case_list_only module.",
+				"The module's forms, each with its fields — EVERY module must land WITH at least one form in this call (a formless module is rejected: CommCare needs a form or a case list to show). Omit only for a case_list_only viewer module.",
 			),
 		case_list_columns: z
 			.array(columnInputSchema)

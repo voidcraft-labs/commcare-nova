@@ -1,8 +1,12 @@
 # e2e — Playwright smoke suite
 
-The pre-deploy UI gate: home loads, auth boundary is healthy, a user can open and
-delete an app in the builder. See `e2e/README.md` for how to run; the rules below are
-the non-obvious ones.
+The pre-deploy UI gate: home loads, auth boundary is healthy, a user can create a blank
+app, open one, and delete one in the builder. See `e2e/README.md` for how to run; the
+rules below are the non-obvious ones.
+
+The blank-app path is the suite's only app-CREATION coverage, and it can be because it
+needs no model call — it drives the real `createBlankApp` Server Action and asserts the
+chat DOCKS, which only happens once the new app has a module (`docHasData`).
 
 - **Hermetic, free, no real GCP.** The suite runs against the **Firestore emulator** +
   a local Postgres (`scripts/smoke.sh`), not a real project — same pattern as

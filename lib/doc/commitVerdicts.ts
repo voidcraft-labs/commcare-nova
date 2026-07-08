@@ -32,7 +32,10 @@
 
 import { produce } from "immer";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
-import { evaluateCommit } from "@/lib/commcare/validator/gate";
+import {
+	evaluateBoundary,
+	evaluateCommit,
+} from "@/lib/commcare/validator/gate";
 import { scopeOfMutations } from "@/lib/commcare/validator/scopeOfMutations";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation, MutationResult } from "@/lib/doc/types";
@@ -73,6 +76,25 @@ export function mutationCommitVerdict(
 	return verdict.ok
 		? { ok: true, nextDoc, results }
 		: { ok: false, nextDoc, introduced: verdict.introduced };
+}
+
+/**
+ * The EXPORT-readiness findings for a whole doc — the zero-tolerance bar the
+ * compile / upload / export boundary applies.
+ *
+ * `mutationCommitVerdict` cannot answer this question. It is DELTA-based: a
+ * pre-existing finding never blocks a commit, so an empty app's `NO_MODULES` /
+ * `EMPTY_APP_NAME` survive every batch that doesn't introduce something new.
+ * A caller that must establish "this doc is exportable" as a fact — rather
+ * than "this batch made nothing worse" — asks here.
+ *
+ * The manifest is empty, so a doc carrying media references reports them
+ * missing. Only callers whose docs hold no media may use this (today: the
+ * creation templates in `scaffolds.ts`). The real export path threads the
+ * Project's asset manifest through `lib/media/boundaryValidation.ts`.
+ */
+export function exportReadinessFindings(doc: BlueprintDoc): ValidationError[] {
+	return evaluateBoundary(doc, new Map());
 }
 
 /**

@@ -93,14 +93,29 @@ function noFormsOrCaseList(
 	doc: BlueprintDoc,
 ): ValidationError[] {
 	const forms = formsOf(doc, moduleUuid);
-	if (mod.caseListOnly || !mod.caseType || forms.length > 0) return [];
+	// A `caseListOnly` viewer is the ONLY valid formless shape (it maps to
+	// CommCare's case-list menu item). Every other module — case-typed OR a
+	// plain survey menu — needs at least one form: CommCare rejects a menu with
+	// no forms and no case list as a HARD, build-blocking error, regardless of
+	// case type (`ModuleValidator.validate_with_raise` in
+	// commcare-hq's app_manager/helpers/validators.py: `if not module.forms and
+	// not module.case_list.show`). So the check must NOT be gated on caseType —
+	// a typeless, formless menu is just as invalid, and Nova is emitting the
+	// exact wire CommCare then refuses to build.
+	if (mod.caseListOnly || forms.length > 0) return [];
+	// One finding, two contexts: creating a module without a form, and removing
+	// a module's LAST form. So the wording can't just say "add a form" — that
+	// reads backwards when you're deleting. It states the rule, then names the
+	// resolutions for both directions (a module always keeps ≥1 form, so to drop
+	// the last one you either add another first or remove the whole module).
+	const message = mod.caseType
+		? `Module "${mod.name}" has a case_type ("${mod.caseType}") but no forms. CommCare needs either forms to interact with cases, or a visible case list — so add a form, make it a case-list-only viewer, or, if you're removing its last form, delete the whole module instead.`
+		: `Module "${mod.name}" needs at least one form — CommCare won't build a menu with no forms and no case list. Add a form, or, if you're removing its last one, add another form first or delete the whole module.`;
 	return [
-		validationError(
-			"NO_FORMS_OR_CASE_LIST",
-			"module",
-			`Module "${mod.name}" has a case_type ("${mod.caseType}") but no forms. CommCare needs either forms to interact with cases, or a visible case list. If this module is just for viewing cases, set case_list_only: true. Otherwise, add forms.`,
-			{ moduleUuid, moduleName: mod.name },
-		),
+		validationError("NO_FORMS_OR_CASE_LIST", "module", message, {
+			moduleUuid,
+			moduleName: mod.name,
+		}),
 	];
 }
 

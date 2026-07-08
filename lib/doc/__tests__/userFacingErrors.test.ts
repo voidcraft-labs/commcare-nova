@@ -144,3 +144,21 @@ describe("userFacingError — voice", () => {
 		expect(line).toContain("on our end");
 	});
 });
+
+describe("userFacingError — delete-aware phrasing", () => {
+	// These two fire in the builder mainly when REMOVING the last of something,
+	// so the copy must not just say "add one" (which reads backwards on a delete).
+	it("NO_MODULES names the remove path, not just 'add one'", () => {
+		const line = userFacingError(richFinding("NO_MODULES"));
+		expect(line).toMatch(/can't remove your last one/i);
+		expect(line).toMatch(/add another/i);
+	});
+
+	it("NO_FORMS_OR_CASE_LIST is case-type-agnostic and delete-aware", () => {
+		const line = userFacingError(richFinding("NO_FORMS_OR_CASE_LIST"));
+		// Must not assume a case type (it now fires on plain survey modules too).
+		expect(line).not.toMatch(/case type/i);
+		expect(line).toMatch(/needs at least one form/i);
+		expect(line).toMatch(/removing its last one/i);
+	});
+});
