@@ -74,6 +74,35 @@ function deleteReq(appId: string, body: unknown): Request {
 	});
 }
 
+/**
+ * Invoke a presence route handler and ALWAYS drain both body streams, returning
+ * the status.
+ *
+ * Draining is load-bearing under the async-leak gate, not a convenience:
+ * `postReq`/`deleteReq` build real `Request`s with a JSON body, and the route
+ * returns a bodied `Response` on every path (`Response.json({ ok: true })` on
+ * success, `handleApiError`'s JSON on 4xx). An unconsumed body stream — request
+ * OR response — leaves its pull promise pending, which `--detect-async-leaks`
+ * flags as a leaked PROMISE. The RESPONSE is drained here so a status-only
+ * assertion still settles it; the REQUEST is drained on paths that short-circuit
+ * before the route's own `readJsonBody` (the scope-denial 404 rejects at
+ * `resolveAppScope` first), guarded on `bodyUsed` so a body the route already
+ * consumed is never re-read (which throws).
+ */
+async function call(
+	handler: (
+		req: Request,
+		ctx: { params: Promise<{ id: string }> },
+	) => Promise<Response>,
+	req: Request,
+	appId: string,
+): Promise<number> {
+	const res = await handler(req, { params: Promise.resolve({ id: appId }) });
+	await res.text();
+	if (!req.bodyUsed) await req.text();
+	return res.status;
+}
+
 beforeEach(() => {
 	createdAppIds.length = 0;
 	requireSessionMock.mockReset();
@@ -102,16 +131,17 @@ describe.skipIf(!emulatorAvailable)(
 	() => {
 		it("POST upserts a session doc keyed {userId}:{sessionId} with a server-stamped userId", async () => {
 			const appId = await seedApp();
-			const res = await POST(
+			const status = await call(
+				POST,
 				postReq(appId, {
 					sessionId: SESS_A,
 					name: "Ada",
 					color: "#abcdef",
 					location: { kind: "home" },
 				}),
-				{ params: Promise.resolve({ id: appId }) },
+				appId,
 			);
-			expect(res.status).toBe(200);
+			expect(status).toBe(200);
 
 			const snap = await docs.presence(appId, `${USER}:${SESS_A}`).get();
 			expect(snap.exists).toBe(true);
@@ -137,16 +167,17 @@ describe.skipIf(!emulatorAvailable)(
 			// A body-supplied `image`/`email` isn't even accepted: the strict body
 			// schema 400s an unknown key (pinned by the malformed-body test below),
 			// so the session is structurally the ONLY identity source.
-			const res = await POST(
+			const status = await call(
+				POST,
 				postReq(appId, {
 					sessionId: SESS_A,
 					name: "Ada",
 					color: "#abcdef",
 					location: { kind: "home" },
 				}),
-				{ params: Promise.resolve({ id: appId }) },
+				appId,
 			);
-			expect(res.status).toBe(200);
+			expect(status).toBe(200);
 			const data = (
 				await docs.presence(appId, `${USER}:${SESS_A}`).get()
 			).data();
@@ -161,16 +192,10 @@ describe.skipIf(!emulatorAvailable)(
 				color: "#abcdef",
 				location: { kind: "home" },
 			};
-			await POST(postReq(appId, { ...base, sessionId: SESS_A }), {
-				params: Promise.resolve({ id: appId }),
-			});
-			await POST(postReq(appId, { ...base, sessionId: SESS_B }), {
-				params: Promise.resolve({ id: appId }),
-			});
+			await call(POST, postReq(appId, { ...base, sessionId: SESS_A }), appId);
+			await call(POST, postReq(appId, { ...base, sessionId: SESS_B }), appId);
 
-			await DELETE(deleteReq(appId, { sessionId: SESS_A }), {
-				params: Promise.resolve({ id: appId }),
-			});
+			await call(DELETE, deleteReq(appId, { sessionId: SESS_A }), appId);
 
 			expect(
 				(await docs.presence(appId, `${USER}:${SESS_A}`).get()).exists,
@@ -185,30 +210,32 @@ describe.skipIf(!emulatorAvailable)(
 			const { AppAccessError } = await import("@/lib/db/appAccess");
 			resolveAppScopeMock.mockRejectedValue(new AppAccessError("not_member"));
 
-			const res = await POST(
+			const status = await call(
+				POST,
 				postReq(appId, {
 					sessionId: SESS_A,
 					name: "Ada",
 					color: "#abcdef",
 					location: { kind: "home" },
 				}),
-				{ params: Promise.resolve({ id: appId }) },
+				appId,
 			);
-			expect(res.status).toBe(404);
+			expect(status).toBe(404);
 		});
 
 		it("POST 400s on a malformed body (unknown key / bad location)", async () => {
 			const appId = await seedApp();
-			const res = await POST(
+			const status = await call(
+				POST,
 				postReq(appId, {
 					sessionId: SESS_A,
 					name: "Ada",
 					color: "#abcdef",
 					location: { kind: "not-a-real-kind" },
 				}),
-				{ params: Promise.resolve({ id: appId }) },
+				appId,
 			);
-			expect(res.status).toBe(400);
+			expect(status).toBe(400);
 		});
 
 		it("POST 400s a path-hostile sessionId (non-UUID rides the doc path)", async () => {
@@ -218,16 +245,17 @@ describe.skipIf(!emulatorAvailable)(
 			// any member could mint at will from a heartbeat endpoint). The UUID
 			// shape pin rejects it at the boundary.
 			const appId = await seedApp();
-			const res = await POST(
+			const status = await call(
+				POST,
 				postReq(appId, {
 					sessionId: "a/b",
 					name: "Ada",
 					color: "#abcdef",
 					location: { kind: "home" },
 				}),
-				{ params: Promise.resolve({ id: appId }) },
+				appId,
 			);
-			expect(res.status).toBe(400);
+			expect(status).toBe(400);
 		});
 	},
 );
