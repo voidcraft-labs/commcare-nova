@@ -2546,14 +2546,20 @@ function rankSearchOverPage(
 // ── Trash query ────────────────────────────────────────────────────
 
 /**
- * Denormalized fields fetched by `listDeletedApps`. Adds
- * `recoverable_until` to the standard summary projection so the trash
- * UI can render the "permanently deletes on DATE" copy without a
- * second read. `deleted_at` is already in `SUMMARY_FIELDS` (the active
- * list also reads it for soft-delete filtering).
+ * Denormalized fields fetched by `listDeletedApps`. Adds the two
+ * soft-delete timestamps to the standard summary projection so the
+ * trash UI can render "deleted X ago" and "permanently deletes on
+ * DATE" without a second read.
+ *
+ * Both must be listed explicitly: `SUMMARY_FIELDS` omits `deleted_at`
+ * (the active `listApps` only *filters* on it via `where("deleted_at",
+ * "==", null)`, and a `where` clause never widens the `.select()`
+ * projection), so without it here `data.deleted_at` comes back
+ * `undefined` and the "Deleted …" line renders "Invalid Date".
  */
 const DELETED_SUMMARY_FIELDS = [
 	...SUMMARY_FIELDS,
+	"deleted_at",
 	"recoverable_until",
 ] as const;
 
