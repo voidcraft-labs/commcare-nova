@@ -10,6 +10,8 @@ import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import {
+	BLANK_APP_NAME,
+	blankAppMutations,
 	caseListModuleMutations,
 	caseTypeCatalogMutations,
 	caseTypeClearPatch,
@@ -128,27 +130,33 @@ describe("surveyModuleMutations", () => {
 });
 
 /**
- * The blank app (`createBlankApp`, `app/(app)/build/actions.ts`) is a
- * non-blank app name plus this scaffold's bare survey module — and both
- * halves are what make it EXPORT-ready the instant it exists, which is the
- * bar a hand-built app has to clear with no SA run behind it.
+ * The blank app (`createBlankApp`, `app/(app)/build/actions.ts`) is exactly
+ * `BLANK_APP_NAME` + `blankAppMutations`, and both halves are what make it
+ * EXPORT-ready the instant it exists — the bar a hand-built app has to clear
+ * with no SA run behind it. These drive the real template, not a hand-rebuilt
+ * copy of it, so dropping either half fails here.
  *
- * `mutationCommitVerdict` cannot prove that: it is delta-based, and an empty
+ * `mutationCommitVerdict` cannot prove this: it is delta-based, and an empty
  * doc's `NO_MODULES` / `EMPTY_APP_NAME` are pre-existing rather than
  * introduced, so a template that left either standing would still commit.
- * The boundary validator — the zero-tolerance compile/upload/export gate —
- * is the only oracle that answers the question actually being asked.
+ * The boundary validator — the zero-tolerance compile/upload/export gate,
+ * which `createApp`'s `seedNewApp` also runs at construction — is the only
+ * oracle that answers the question actually being asked.
  */
 describe("the blank app template", () => {
-	const blankApp = (appName: string): BlueprintDoc => {
+	const seeded = (appName: string): BlueprintDoc => {
 		const base = { ...emptyDoc(), appName };
 		return produce(base, (d) => {
-			applyMutations(d, surveyModuleMutations(base).mutations);
+			applyMutations(d, blankAppMutations(base));
 		});
 	};
 
-	it("is export-ready: a named app holding one bare survey module", () => {
-		expect(evaluateBoundary(blankApp("Untitled"), new Map())).toEqual([]);
+	it("is export-ready as `createBlankApp` builds it", () => {
+		expect(evaluateBoundary(seeded(BLANK_APP_NAME), new Map())).toEqual([]);
+	});
+
+	it("names the app for real — BLANK_APP_NAME is not a blank name", () => {
+		expect(BLANK_APP_NAME.trim()).not.toBe("");
 	});
 
 	it("does not inherit the empty app's findings, which block export", () => {
@@ -157,7 +165,7 @@ describe("the blank app template", () => {
 	});
 
 	it("needs the name too — a nameless blank app cannot export", () => {
-		const codes = evaluateBoundary(blankApp(""), new Map()).map((e) => e.code);
+		const codes = evaluateBoundary(seeded(""), new Map()).map((e) => e.code);
 		expect(codes).toEqual(["EMPTY_APP_NAME"]);
 	});
 });

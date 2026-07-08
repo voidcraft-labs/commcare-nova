@@ -27,6 +27,7 @@ import {
 } from "@/lib/media/attachVerdicts";
 import {
 	describeIntroducedErrors,
+	exportReadinessFindings,
 	mutationCommitVerdict,
 } from "../doc/commitVerdicts";
 import {
@@ -439,32 +440,42 @@ export interface CreateAppOptions {
 	 */
 	status?: "generating" | "complete";
 	/**
-	 * The contents the app is BORN with — a template, expressed as a
-	 * mutation batch against the still-empty doc it receives. Runs through
-	 * the same commit gate every other write does, then rides the single
-	 * creation write, so the templated app never exists on disk in its
-	 * pre-template state and the denormalized counts describe what was
-	 * actually written.
+	 * The contents the app is BORN with — a template (`lib/doc/scaffolds.ts`),
+	 * expressed as a mutation batch against the still-empty doc it receives.
+	 * It rides the single creation write, so the templated app never exists on
+	 * disk in its pre-template state and the denormalized counts describe what
+	 * was actually written.
 	 *
-	 * Omit for the empty app the chat build and MCP `create_app` mint —
-	 * they add their own contents through the agent's gated tool calls.
+	 * Supplying one is a promise the app is born EXPORT-ready, and `seedNewApp`
+	 * holds you to it: a template whose app couldn't be exported — including
+	 * one that forgets `appName` — throws rather than creating anything.
+	 *
+	 * Omit for the empty app the chat build and MCP `create_app` mint. Those
+	 * are deliberately NOT export-ready at birth; the agent's gated tool calls
+	 * add the contents (and the name) that make them so.
 	 */
 	seedMutations?: (doc: BlueprintDoc) => Mutation[];
 }
 
 /**
- * Apply a creation template to the empty doc, through the same commit gate
- * every other write goes through: the batch may introduce no validator
- * finding.
+ * Apply a creation template to the empty doc, behind TWO gates.
  *
- * The gate is DELTA-based, so it cannot certify that a template leaves the
- * app EXPORT-ready — an empty doc's `NO_MODULES` / `EMPTY_APP_NAME` are
- * pre-existing rather than introduced, and a template that left either
- * standing would still commit. Each template owns that proof (the blank
- * app's lives in `lib/doc/__tests__/scaffolds.test.ts`).
+ * First the ordinary commit gate — the batch may introduce no validator
+ * finding, exactly as on every other write path. That gate is DELTA-based,
+ * so on its own it would happily create a template that left the empty
+ * doc's `NO_MODULES` / `EMPTY_APP_NAME` standing (both are pre-existing,
+ * not introduced). Since a templated app has no SA run behind it to finish
+ * the job, the second gate is the one that matters: the whole seeded doc
+ * must clear the zero-tolerance EXPORT boundary. That is what makes "a
+ * templated app is born export-ready" a fact about `createApp` rather than
+ * a promise each caller has to keep.
  *
- * The throw is a construction bug, not a user error: a template is code, so
- * the only way it introduces a finding is if someone wrote one that does.
+ * Export-readiness depends on BOTH halves of a template — `appName` and the
+ * mutations — so the check runs on the seeded doc, after the name is set.
+ * Templates carry no media, which is why the empty-manifest
+ * `exportReadinessFindings` is the right oracle here.
+ *
+ * Either throw is a construction bug, not a user error: a template is code.
  */
 function seedNewApp(
 	emptyDoc: BlueprintDoc,
@@ -477,6 +488,14 @@ function seedNewApp(
 			`App template is not valid by construction: ${describeIntroducedErrors(
 				verdict.introduced,
 			)}`,
+		);
+	}
+	const notExportable = exportReadinessFindings(verdict.nextDoc);
+	if (notExportable.length > 0) {
+		throw new Error(
+			`App template must be born export-ready, but the app it creates could not be exported:\n${notExportable
+				.map((err) => `- ${err.message}`)
+				.join("\n")}`,
 		);
 	}
 	return verdict.nextDoc;

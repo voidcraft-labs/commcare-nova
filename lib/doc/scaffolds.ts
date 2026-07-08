@@ -271,6 +271,39 @@ export function surveyModuleMutations(
 	};
 }
 
+// ── Creation templates ───────────────────────────────────────────────
+// What an app can be BORN holding, as opposed to what the builder adds to a
+// live one. Fed to `createApp`'s `seedMutations`, which gates the batch and
+// then refuses to create anything that isn't export-ready.
+
+/**
+ * The app name a blank app is born with.
+ *
+ * Deliberately NOT `UNTITLED_APP_NAME` (`lib/db/apps.ts`), which is the DISPLAY
+ * fallback `denormalize` writes into the summary row when the in-doc name is
+ * blank. This is a real, persisted `blueprint.appName`: a blank app has no SA
+ * run to name it, and `EMPTY_APP_NAME` blocks export until something does. The
+ * two strings coincide today; they are not the same concept, and collapsing
+ * them would silently un-name every blank app.
+ */
+export const BLANK_APP_NAME = "Untitled";
+
+/**
+ * The blank app's contents — one bare survey module, nothing else.
+ *
+ * Paired with `BLANK_APP_NAME`, this is the smallest EXPORT-ready app, which is
+ * the bar an app hand-built with no SA run behind it has to clear the moment it
+ * exists. A typeless, formless module introduces no finding (every module rule
+ * is guarded on `caseType`), and one module is also the minimum that satisfies
+ * `docHasData` — without it the builder would bounce the user back to the
+ * centered chat they just chose to skip.
+ *
+ * A case type instead of none would oblige forms, fields AND case-list columns.
+ */
+export function blankAppMutations(doc: BlueprintDoc): Mutation[] {
+	return surveyModuleMutations(doc).mutations;
+}
+
 /**
  * A new form of `type` in `moduleUuid`, born with a default first field:
  *   - `registration` → a `case_name` writer (needs the module's case type)

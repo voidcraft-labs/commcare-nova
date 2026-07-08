@@ -664,6 +664,10 @@ export function ChatSidebar({
 						<ChatInput
 							onSend={handleSend}
 							disabled={isLoading || isGenerating || composerBusy}
+							// The spinner means "your turn is on its way to the SA", so it
+							// tracks only the chat sources. `composerBusy` locks the composer
+							// for a reason that has nothing to do with a message.
+							submitting={isLoading || isGenerating}
 							// A waiting question card routes the next composer send to it as
 							// a text-only answer, so the composer disables attaching and
 							// preserves any staged files instead of dropping them.

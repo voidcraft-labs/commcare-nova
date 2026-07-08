@@ -14,7 +14,6 @@
 "use client";
 import { Chat, useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { useRouter } from "next/navigation";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createBlankApp } from "@/app/(app)/build/actions";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
@@ -35,6 +34,7 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
+import { useExternalNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	derivePhase,
@@ -245,6 +245,35 @@ export function ChatContainer({
 	 *  Anthropic prompt cache is still warm on subsequent requests. */
 	const lastResponseAtRef = useRef<string | undefined>(undefined);
 
+	// ── Blank-app escape hatch (new builds only) ─────────────────────────
+
+	/* The two ways out of `/build/new` are mutually exclusive, and whichever
+	 * the user picks first wins — latched synchronously, in the handler that
+	 * starts it. Refs, not state: `StartBlankApp` stays clickable all the way
+	 * through its collapse (deliberately — it must not flash disabled mid-fade),
+	 * so a click landing in that window has to meet a latch that was already set
+	 * when the message was sent, rather than wait on a re-render. */
+	const { replace } = useExternalNavigate();
+	const [creatingBlankApp, setCreatingBlankApp] = useState(false);
+	const agentEngagedRef = useRef(false);
+	const creatingBlankAppRef = useRef(false);
+	/** Set when a send failed before any app was minted — see the `chatError`
+	 *  effect. Un-collapses the starter so the user isn't left with neither path. */
+	const [sendFailedBeforeApp, setSendFailedBeforeApp] = useState(false);
+	/** `createBlankApp` resolves against an app-wide router and a global toast
+	 *  store, neither of which unmounts with us. Without this, abandoning a slow
+	 *  create (Back, or the header logo) yanks the user into the new app seconds
+	 *  later, or toasts a create failure onto a page that never had the button.
+	 *  Re-armed in the effect body, not just the cleanup, so a StrictMode
+	 *  mount→unmount→mount doesn't leave it stuck false. */
+	const mountedRef = useRef(true);
+	useEffect(() => {
+		mountedRef.current = true;
+		return () => {
+			mountedRef.current = false;
+		};
+	}, []);
+
 	// ── Chat instance — recreated when the session store identity changes ──
 	/* The session store is recreated inside `BuilderSessionProvider` on every
 	 * buildId change (the parent `BuilderProvider` keys on buildId, unmounting
@@ -370,6 +399,18 @@ export function ChatContainer({
 			},
 		});
 		showToast("error", "Generation failed", message);
+
+		/* A pre-stream rejection (out of credits, a build already running in
+		 * another tab, a 5xx) fails before the route mints an app, leaving the
+		 * user on `/build/new` with nothing. Re-arm the blank-app path they were
+		 * offered a moment ago — the send had latched it shut, and without this
+		 * the only ways out are a reload or navigating away. A failure that got
+		 * far enough to mint an app already announced it via `data-app-id`, so
+		 * `appId` is set and the escape hatch correctly stays closed. */
+		if (!session.appId) {
+			agentEngagedRef.current = false;
+			setSendFailedBeforeApp(true);
+		}
 	}, [chatError, sessionApi]);
 
 	/* Persist the active conversation thread on each status=ready transition.
@@ -394,19 +435,6 @@ export function ChatContainer({
 		saveThread(appId, thread);
 	}, [status, messages, isExistingApp]);
 
-	// ── Blank-app escape hatch (new builds only) ─────────────────────────
-
-	/* The two ways out of `/build/new` are mutually exclusive, and whichever
-	 * the user picks first wins — latched synchronously, in the handler that
-	 * starts it. Refs, not state: `StartBlankApp` stays clickable all the way
-	 * through its collapse (deliberately — it must not flash disabled mid-fade),
-	 * so a click landing in that window has to meet a latch that was already set
-	 * when the message was sent, rather than wait on a re-render. */
-	const router = useRouter();
-	const [creatingBlankApp, setCreatingBlankApp] = useState(false);
-	const agentEngagedRef = useRef(false);
-	const creatingBlankAppRef = useRef(false);
-
 	const handleSend = useCallback(
 		({
 			text,
@@ -418,6 +446,7 @@ export function ChatContainer({
 			if (creatingBlankAppRef.current) return;
 			if (!text.trim() && !attachments?.length) return;
 			agentEngagedRef.current = true;
+			setSendFailedBeforeApp(false);
 			// Attachments ride as asset-id refs in message METADATA, not file parts.
 			// The route's resolveAttachments expands each ref into the stored extract
 			// (documents) or image bytes (vision) before the SA. A turn with no
@@ -436,6 +465,8 @@ export function ChatContainer({
 		setCreatingBlankApp(true);
 		createBlankApp().then(
 			(result) => {
+				/* The app was created either way; we just no longer own the screen. */
+				if (!mountedRef.current) return;
 				if (!result.success) {
 					creatingBlankAppRef.current = false;
 					setCreatingBlankApp(false);
@@ -445,36 +476,48 @@ export function ChatContainer({
 				/* `replace`, not `push` — the app exists now, so `/build/new` is not
 				 * a place to go back to. Leave the latches set: the RSC navigation
 				 * unmounts this tree, and nothing should send in the meantime. */
-				router.replace(`/build/${result.appId}`);
+				replace(`/build/${result.appId}`);
 			},
 			/* The action itself never rejects — it returns its failures. Landing
-			 * here means the Server Action call didn't complete (offline, a
-			 * deploy mid-flight), so there's nothing to unwrap. */
+			 * here means the Server Action CALL didn't complete (offline, a deploy
+			 * mid-flight), so there's nothing to unwrap — and, since the write may
+			 * well have landed before the response was lost, no way to know whether
+			 * an app exists. `createApp` takes no idempotency key, so a blind retry
+			 * can mint a second one; say so rather than inviting it. */
 			() => {
+				if (!mountedRef.current) return;
 				creatingBlankAppRef.current = false;
 				setCreatingBlankApp(false);
 				showToast(
 					"error",
-					"Couldn't create the app",
-					"Check your connection and try again.",
+					"Couldn't confirm the app was created",
+					"Check your connection, then look in your app list before trying again — one may already be there.",
 				);
 			},
 		);
-	}, [router]);
+	}, [replace]);
 
 	// ── Derived values ───────────────────────────────────────────────────
+
+	/* Viewers (view-only Project members) get a read-only conversation, as does
+	 * replay — the composer hides in both. */
+	const readOnly = inReplayMode || !canEdit;
 
 	/* The SA is in play the moment a message exists — `useChat` appends the
 	 * user's turn optimistically, so this flips on the same tick as the send.
 	 * Staging or extracting a document does NOT flip it: extraction lives on
-	 * the composer (`onReadingChange`), never on `messages`. */
-	const agentEngaged = messages.length > 0;
+	 * the composer (`onReadingChange`), never on `messages`. A send that never
+	 * reached a run gives the escape hatch back. */
+	const agentEngaged = messages.length > 0 && !sendFailedBeforeApp;
 
-	/* The blank-app path only exists on a brand-new build the user can edit.
-	 * An existing app that happens to render centered (every module deleted)
-	 * already IS an app; replay and view-only members can't create one. */
-	const showBlankAppStarter =
-		centered && !isExistingApp && !inReplayMode && canEdit;
+	/* Only on a brand-new build, and only where the composer itself is offered
+	 * — a surface that can't send can't create either. Note this does NOT gate
+	 * out a view-only member: `canEdit` defaults to `true` on `/build/new`
+	 * (BuilderProvider has no role to consult before an app exists), so they see
+	 * this exactly as they see the composer, and `createBlankApp` refuses them
+	 * server-side exactly as `/api/chat` does. That Project `edit` check is the
+	 * gate; this is only about which surfaces make sense to show. */
+	const showBlankAppStarter = centered && !isExistingApp && !readOnly;
 
 	return (
 		<ChatSidebar
@@ -495,7 +538,7 @@ export function ChatContainer({
 			status={inReplayMode ? "ready" : status}
 			onSend={handleSend}
 			addToolOutput={addToolOutput}
-			readOnly={inReplayMode || !canEdit}
+			readOnly={readOnly}
 			readOnlyNotice={
 				!canEdit && !inReplayMode
 					? "You have view-only access to this app. Ask a Project admin for edit access to make changes."

@@ -12,8 +12,8 @@
 import { revalidatePath } from "next/cache";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
-import { createApp, UNTITLED_APP_NAME } from "@/lib/db/apps";
-import { surveyModuleMutations } from "@/lib/doc/scaffolds";
+import { createApp } from "@/lib/db/apps";
+import { BLANK_APP_NAME, blankAppMutations } from "@/lib/doc/scaffolds";
 import { log } from "@/lib/logger";
 
 /** Result of `createBlankApp`. Carries the new app's id so the client can navigate to it. */
@@ -25,22 +25,12 @@ export type CreateBlankAppResult =
  * Create the blank app — the starting point for a user who'd rather build
  * by hand than describe the app to the SA.
  *
- * "Blank" is a name plus ONE bare survey module, not an app with nothing in
- * it, and both halves are load-bearing:
- *
- *  - A nameless, moduleless app is a legal at-rest state (it's what the chat
- *    build and MCP `create_app` mint) but it is NOT export-ready — the
- *    boundary validator reports `EMPTY_APP_NAME` + `NO_MODULES`. Nova apps
- *    are always export-ready, so the blank app has to clear that bar the
- *    moment it exists.
- *  - A bare survey module is the smallest thing that clears it: every module
- *    rule is guarded on `caseType`, so a typeless, formless module
- *    introduces no finding. (Adding a case type instead would oblige forms,
- *    fields and case-list columns — see `lib/doc/scaffolds.ts`.)
- *
- * It is also what makes the builder render: `docHasData` is
- * `moduleOrder.length > 0`, so a moduleless app would land the user back on
- * the centered chat they just chose to skip.
+ * "Blank" is `BLANK_APP_NAME` plus `blankAppMutations`, not an app with
+ * nothing in it: a nameless, moduleless app is a legal at-rest state (it's
+ * what the chat build and MCP `create_app` mint) but it is NOT export-ready,
+ * and there is no SA run here to finish it. `createApp` enforces that —
+ * a template whose app couldn't be exported throws. See `lib/doc/scaffolds.ts`
+ * for why one bare survey module is the smallest thing that clears the bar.
  *
  * Born `complete` with no run behind it, so nothing to charge, reserve or
  * finalize — the credit ledger only meters generation.
@@ -73,9 +63,9 @@ export async function createBlankApp(): Promise<CreateBlankAppResult> {
 			projectId,
 			crypto.randomUUID(),
 			{
-				appName: UNTITLED_APP_NAME,
+				appName: BLANK_APP_NAME,
 				status: "complete",
-				seedMutations: (doc) => surveyModuleMutations(doc).mutations,
+				seedMutations: blankAppMutations,
 			},
 		);
 
