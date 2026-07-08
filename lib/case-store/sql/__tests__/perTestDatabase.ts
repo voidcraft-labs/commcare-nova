@@ -194,6 +194,20 @@ function buildIsolatedDb(uri: string): {
 	pool: Pool;
 } {
 	const pool = new Pool({ connectionString: uri, max: 1 });
+	// Absorb the connection-termination error the teardown drop provokes.
+	// `afterEach` runs `DROP DATABASE ... WITH (FORCE)` (see
+	// `dropIsolatedDatabase`) as a fallback even after `db.destroy()`, and
+	// FORCE terminates any connection still open to the target — a checked-out
+	// leak, or one still closing when the drop lands under a loaded runner. pg
+	// re-emits that as a pool `'error'` (`terminating connection due to
+	// administrator command`); with no listener Node escalates it to an
+	// uncaughtException that fails the whole `vitest run`, and under
+	// `--detect-async-leaks` its timing is additionally misreported as a leak
+	// pinned to an unrelated test file. The drop is intentional, so a
+	// terminated idle connection here is expected teardown noise, not a fault
+	// the harness should surface. (An error on an ACTIVE query still rejects
+	// that query — this listener only catches idle-client errors.)
+	pool.on("error", () => {});
 	const db = new Kysely<unknown>({
 		dialect: new PostgresDialect({
 			pool: pool as unknown as PostgresPool,
