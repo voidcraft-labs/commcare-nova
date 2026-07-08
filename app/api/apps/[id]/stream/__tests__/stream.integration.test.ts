@@ -605,6 +605,12 @@ describe.skipIf(!emulatorAvailable)(
 				new Request(`http://localhost/api/apps/${appId}/stream`),
 				{ params: Promise.resolve({ id: appId }) },
 			);
+			// Drain the error response body so its stream's pull promise settles under
+			// the async-leak gate. The SSE-stream path drains via the reader in
+			// `collectUntil`; this early 404 returns bodied JSON (`handleApiError`) that
+			// would otherwise leak. The request is a body-less GET — only the response
+			// needs draining.
+			await res.text();
 			expect(res.status).toBe(404);
 			// An error response, not an SSE stream.
 			expect(res.headers.get("Content-Type")).not.toBe("text/event-stream");
