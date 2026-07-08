@@ -319,11 +319,6 @@ export interface BlueprintMutations {
 	removeForm: (uuid: Uuid) => CommitOutcome;
 
 	// ── Module mutations ──────────────────────────────────────────────────
-	/** Insert a new module. Returns the new module's uuid.
-	 *  Accepts a module without a uuid — the hook mints one for the new entity. */
-	addModule: (
-		module: Omit<Module, "uuid"> & { uuid?: string },
-	) => AddCommitOutcome;
 	updateModule: (
 		uuid: Uuid,
 		patch: Partial<Omit<Module, "uuid">>,
@@ -358,8 +353,9 @@ export interface BlueprintMutations {
 		name?: string;
 		index?: number;
 	}) => AddCommitOutcome;
-	/** Create a bare survey/menu module (no case type, no forms — a valid
-	 *  empty menu the user fills with survey forms). Returns the new uuid. */
+	/** Create a survey/menu module (no case type) born with one survey form and
+	 *  a starter question — the smallest valid module, since CommCare rejects a
+	 *  menu with no forms and no case list. Returns the new module's uuid. */
 	createSurveyModule: (args?: {
 		name?: string;
 		index?: number;
@@ -939,23 +935,6 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						});
 					}
 					return toOutcome(guardedApply(mutations));
-				},
-
-				addModule(module) {
-					const maybeUuid = module.uuid;
-					const moduleUuid = asUuid(
-						typeof maybeUuid === "string" && maybeUuid.length > 0
-							? maybeUuid
-							: crypto.randomUUID(),
-					);
-					const applied = guardedApply([
-						{
-							kind: "addModule",
-							module: { ...module, uuid: moduleUuid } as Module,
-						},
-					]);
-					if (!applied.ok) return applied;
-					return { ok: true, uuid: moduleUuid };
 				},
 
 				updateModule(uuid, patch) {

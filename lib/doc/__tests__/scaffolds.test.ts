@@ -117,15 +117,66 @@ describe("caseListModuleMutations", () => {
 });
 
 describe("surveyModuleMutations", () => {
-	it("commits a bare survey module (no case type, no forms)", () => {
+	it("commits a survey module born with one survey form + question", () => {
 		const base = baseDoc();
 		const scaffold = surveyModuleMutations(base);
 		const verdict = mutationCommitVerdict(base, scaffold.mutations);
 
+		// Valid by construction: a formless module would introduce
+		// NO_FORMS_OR_CASE_LIST (a hard CommCare build error), so the module is
+		// born with a survey form — no case type, but a form.
 		expect(verdict.ok).toBe(true);
 		const mod = verdict.nextDoc.modules[scaffold.moduleUuid];
 		expect(mod?.caseType).toBeUndefined();
-		expect(verdict.nextDoc.formOrder[scaffold.moduleUuid]).toEqual([]);
+		expect(mod?.caseListOnly).toBeFalsy();
+		expect(verdict.nextDoc.formOrder[scaffold.moduleUuid]).toEqual([
+			scaffold.formUuid,
+		]);
+		const form = verdict.nextDoc.forms[scaffold.formUuid];
+		expect(form?.type).toBe("survey");
+		// The form has its one starter question, so it isn't born EMPTY_FORM.
+		expect(verdict.nextDoc.fieldOrder[scaffold.formUuid]).toHaveLength(1);
+	});
+
+	it("removing a survey module's only form is rejected, delete-friendly", () => {
+		// The user's exact action: a survey module has one form; deleting it would
+		// leave the module formless (a survey module can't fall back to a viewer
+		// the way a case module can). The message must read sensibly for a DELETE,
+		// not tell the user to "add a form" to the thing they're removing.
+		const base = baseDoc();
+		const scaffold = surveyModuleMutations(base);
+		const doc = produce(base, (d) => {
+			applyMutations(d, scaffold.mutations);
+		});
+		const verdict = mutationCommitVerdict(doc, [
+			{ kind: "removeForm", uuid: scaffold.formUuid },
+		]);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			const msg =
+				verdict.introduced.find((e) => e.code === "NO_FORMS_OR_CASE_LIST")
+					?.message ?? "";
+			expect(msg).toMatch(/add another form first or delete the whole module/i);
+		}
+	});
+
+	it("a manually-built formless survey module is rejected", () => {
+		// The gap this closes: a lone typeless, formless addModule used to commit
+		// clean (the rule was guarded on caseType). CommCare rejects it —
+		// "<menu> has no forms or case list" — so the gate must too.
+		const base = baseDoc();
+		const verdict = mutationCommitVerdict(base, [
+			{
+				kind: "addModule",
+				module: { uuid: M("bare"), id: "bare", name: "Bare" } as Module,
+			},
+		]);
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.introduced.map((e) => e.code)).toContain(
+				"NO_FORMS_OR_CASE_LIST",
+			);
+		}
 	});
 });
 
@@ -328,10 +379,38 @@ describe("caseTypeClearPatch", () => {
 		});
 	});
 
-	it("clearing a born viewer's type commits clean (becomes a survey)", () => {
-		// The born case-list module is caseListOnly:true; clearing its type must
-		// also drop the flag or it leaves an invalid typeless viewer
-		// (CASE_LIST_ONLY_NO_CASE_TYPE).
+	it("clearing a module's type when it has a survey form commits clean", () => {
+		// A case module carrying a SURVEY form (no case reference) and a Name
+		// column: clearing its type drops the flag + case-list config, leaving a
+		// plain survey with the form it already had. (A registration/followup form
+		// would block the clear — a case form needs its type — which is a separate,
+		// correct rejection.)
+		const base = baseDoc();
+		const { mutations, moduleUuid } = caseListModuleMutations(base, {
+			caseType: "thing",
+		});
+		const withViewer = produce(base, (d) => {
+			for (const m of mutations) applyMutation(d, m);
+		});
+		const form = formScaffoldMutations(withViewer, moduleUuid, "survey");
+		if (!form) throw new Error("form scaffold failed");
+		const doc = produce(withViewer, (d) => {
+			for (const m of form.mutations) applyMutation(d, m);
+		});
+		const verdict = mutationCommitVerdict(doc, [
+			{ kind: "updateModule", uuid: moduleUuid, patch: caseTypeClearPatch() },
+		]);
+		expect(verdict.ok).toBe(true);
+		expect(verdict.nextDoc.modules[moduleUuid]?.caseListOnly).toBeFalsy();
+		expect(verdict.nextDoc.modules[moduleUuid]?.caseType).toBeUndefined();
+	});
+
+	it("clearing a FORMLESS viewer's type is rejected (no forms left)", () => {
+		// A born viewer has no forms; clearing its type would leave a typeless,
+		// formless module — invalid in CommCare ("<menu> has no forms or case
+		// list"). The gate refuses it, and the module-settings control surfaces
+		// that inline. The user adds a form (making a real survey) or deletes the
+		// module; conjuring a form from a case-type toggle would be a surprise.
 		const { mutations, moduleUuid } = caseListModuleMutations(emptyDoc(), {
 			caseType: "thing",
 		});
@@ -341,9 +420,12 @@ describe("caseTypeClearPatch", () => {
 		const verdict = mutationCommitVerdict(doc, [
 			{ kind: "updateModule", uuid: moduleUuid, patch: caseTypeClearPatch() },
 		]);
-		expect(verdict.ok).toBe(true);
-		expect(verdict.nextDoc.modules[moduleUuid]?.caseListOnly).toBeFalsy();
-		expect(verdict.nextDoc.modules[moduleUuid]?.caseType).toBeUndefined();
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.introduced.map((e) => e.code)).toContain(
+				"NO_FORMS_OR_CASE_LIST",
+			);
+		}
 	});
 });
 

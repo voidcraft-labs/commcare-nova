@@ -91,6 +91,17 @@ describe("app rules", () => {
 		);
 	});
 
+	it("phrases NO_MODULES for the remove-last-module case, not just export", () => {
+		// A human meets this when they try to delete the app's only module. The
+		// message must not just say "add a module" (backwards for a delete) — it
+		// names the remove-path resolution.
+		const msg =
+			runValidation(buildDoc({ appName: "Test", modules: [] })).find(
+				(e) => e.code === "NO_MODULES",
+			)?.message ?? "";
+		expect(msg).toMatch(/if you're removing your last one, add another first/i);
+	});
+
 	it("allows duplicate module names — CommCare keys modules by id, not name", () => {
 		// Module names are display labels in app_strings keyed by position
 		// (`modules.m0`, `m1`); the suite refs menus by index id. CommCare's

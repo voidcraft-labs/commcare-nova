@@ -15,15 +15,19 @@ function noModules(doc: BlueprintDoc): ValidationError[] {
 	// CommCare HQ rejects an application with no modules at build time
 	// (commcare-hq app_manager/helpers/validators.py::ApplicationValidator
 	// `_check_modules`) — a module is what produces a navigation menu entry,
-	// so a moduleless app has nothing to open. Nova's builder UI never lands
-	// here, but the validator is the totality oracle: an empty `moduleOrder`
-	// must be caught at authoring time, not discovered as an HQ build failure.
+	// so a moduleless app has nothing to open. Nova never PERSISTS a moduleless
+	// app, but a human does meet this finding: the commit gate raises it when
+	// they try to remove the app's last module, so the message is written for
+	// that remove-path context, not only for export.
 	if (doc.moduleOrder.length > 0) return [];
+	// Shown both when an app has no modules yet AND when the user tries to remove
+	// its last one, so the wording can't just say "add a module" — that reads
+	// backwards for a delete. State the rule, then give the remove-path guidance.
 	return [
 		validationError(
 			"NO_MODULES",
 			"app",
-			`Your app has no modules yet. CommCare needs at least one module — it's the menu entry users tap to reach a form or case list — so add a module before exporting.`,
+			`Your app needs at least one module — it's the menu entry users tap to reach a form or case list. Add a module, or, if you're removing your last one, add another first.`,
 			{},
 		),
 	];

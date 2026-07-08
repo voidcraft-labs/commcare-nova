@@ -5,10 +5,11 @@
 // + `createModule` / `createForm` tools: every creation lands the entity TOGETHER
 // with the minimal contents that make it valid, so the whole batch passes the
 // commit gate (`mutationCommitVerdict`) as one candidate. Valid-by-construction
-// forbids an empty shell — a lone case-managing `addModule` introduces
-// `NO_FORMS_OR_CASE_LIST` + `MISSING_CASE_LIST_COLUMNS`, and a lone `addForm`
-// introduces `EMPTY_FORM` — so the defaults below aren't cosmetic, they're what
-// keeps creation alive under the gate.
+// forbids an empty shell — a lone `addModule` (of ANY kind) introduces
+// `NO_FORMS_OR_CASE_LIST` (a module needs a form or a case list), a case-managing
+// one adds `MISSING_CASE_LIST_COLUMNS`, and a lone `addForm` introduces
+// `EMPTY_FORM` — so the defaults below aren't cosmetic, they're what keeps
+// creation alive under the gate.
 //
 // The reducer applies a batch sequentially, so an `addForm` that names the
 // module the same batch just added resolves against the live draft — the same
@@ -247,14 +248,22 @@ export function caseListModuleMutations(
 }
 
 /**
- * A bare survey/menu module — no case type, no forms. This is valid (none of
- * the module rules fire on a typeless, formless module), so the user can add
- * survey forms to it afterward through the form insertion affordance.
+ * A survey/menu module — no case type — born WITH one survey form (a single
+ * text question, so the form isn't empty either).
+ *
+ * The form is not optional padding: a module with no forms and no case list is
+ * a HARD, build-blocking error in CommCare ("<menu> has no forms or case list"
+ * — see `NO_FORMS_OR_CASE_LIST` in `rules/module.ts`), regardless of case type.
+ * So a bare module is NOT a valid state, and this lands the module together
+ * with the minimum that makes it exportable — the same valid-by-construction
+ * shape as `caseListModuleMutations` (born a full viewer) and `formScaffoldMutations`
+ * (born with a field). The reducer applies the batch sequentially, so the
+ * `addForm` / `addField` naming this module resolve against the live draft.
  */
 export function surveyModuleMutations(
 	doc: BlueprintDoc,
 	{ name, index }: { name?: string; index?: number } = {},
-): { mutations: Mutation[]; moduleUuid: Uuid } {
+): { mutations: Mutation[]; moduleUuid: Uuid; formUuid: Uuid } {
 	const moduleUuid = asUuid(crypto.randomUUID());
 	const moduleName = name ?? "Survey";
 	const module: Module = {
@@ -263,11 +272,27 @@ export function surveyModuleMutations(
 		name: moduleName,
 		order: moduleOrderKeyAtIndex(doc, index),
 	};
+	// The module is brand new, so both the form (first in the module) and the
+	// field (first in the form) take the first key of a fresh order sequence.
+	const [firstKey] = sequenceOrderKeys(1);
+	const formUuid = asUuid(crypto.randomUUID());
+	const formName = formTypeLabels.survey;
+	const form: Form = {
+		uuid: formUuid,
+		id: uniqueSlug(formName, "form", existingFormIds(doc)),
+		name: formName,
+		order: firstKey,
+		type: "survey",
+	};
+	const field: TextField = { ...defaultQuestion(), order: firstKey };
 	return {
 		mutations: [
 			{ kind: "addModule", module, ...(index !== undefined && { index }) },
+			{ kind: "addForm", moduleUuid, form },
+			{ kind: "addField", parentUuid: formUuid, field },
 		],
 		moduleUuid,
+		formUuid,
 	};
 }
 
@@ -289,16 +314,19 @@ export function surveyModuleMutations(
 export const BLANK_APP_NAME = "Untitled";
 
 /**
- * The blank app's contents — one bare survey module, nothing else.
+ * The blank app's contents — one survey module with one survey form (one text
+ * question). Reuses `surveyModuleMutations`, so the blank app IS the builder's
+ * "add survey module" shape.
  *
- * Paired with `BLANK_APP_NAME`, this is the smallest EXPORT-ready app, which is
- * the bar an app hand-built with no SA run behind it has to clear the moment it
- * exists. A typeless, formless module introduces no finding (every module rule
- * is guarded on `caseType`), and one module is also the minimum that satisfies
- * `docHasData` — without it the builder would bounce the user back to the
- * centered chat they just chose to skip.
+ * Paired with `BLANK_APP_NAME`, this is the smallest EXPORT-ready app, the bar
+ * an app hand-built with no SA run behind it has to clear the moment it exists.
+ * The form is what clears it: a module with no forms and no case list is a
+ * hard, build-blocking error in CommCare (`NO_FORMS_OR_CASE_LIST`), so a bare
+ * module is NOT exportable however tempting its simplicity. One module also
+ * satisfies `docHasData`, without which the builder would bounce the user back
+ * to the centered chat they just chose to skip.
  *
- * A case type instead of none would oblige forms, fields AND case-list columns.
+ * A case type instead of none would oblige case-list columns on top.
  */
 export function blankAppMutations(doc: BlueprintDoc): Mutation[] {
 	return surveyModuleMutations(doc).mutations;

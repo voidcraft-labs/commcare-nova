@@ -6,10 +6,12 @@
 // instead of only as a toast). The born-valid shaping lives in the
 // `caseTypeSetPatch` / `caseTypeClearPatch` builders (`lib/doc/scaffolds`):
 // setting a type seeds a "Name" column (and makes a formless module a viewer),
-// clearing drops the case-list config AND the `caseListOnly` flag (so a viewer
-// becomes a survey). `updateModule` itself declares a brand-new type in the
-// catalog and runs the case-type retirement cascade. A change the gate refuses
-// (e.g. clearing the type while case forms still need it) surfaces inline.
+// clearing drops the case-list config AND the `caseListOnly` flag (so a module
+// with forms becomes a survey). `updateModule` itself declares a brand-new type
+// in the catalog and runs the case-type retirement cascade. A change the gate
+// refuses surfaces inline — clearing the type while case forms still need it,
+// or clearing a FORMLESS viewer (a module with neither forms nor a case list is
+// invalid in CommCare, so the user must add a form first or delete the module).
 
 "use client";
 import { useState } from "react";
@@ -57,7 +59,8 @@ export function ModuleCaseTypeSection({
 			/>
 			<p className="mt-1.5 text-[11px] text-nova-text-muted">
 				The type of case this module manages. Clearing it makes the module a
-				survey (forms only, no cases).
+				survey (its forms only, no cases) — a module with no forms needs one
+				added first.
 			</p>
 			{error && <p className="mt-1.5 text-[11px] text-nova-rose">{error}</p>}
 		</div>

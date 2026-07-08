@@ -648,26 +648,25 @@ describe("useBlueprintMutations", () => {
 
 	// ── addModule returns uuid ────────────────────────────────────────────
 
-	it("addModule returns the new module's uuid", () => {
+	it("createSurveyModule returns the new module's uuid, born with a form", () => {
 		const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
 			wrapper,
 		});
 
 		let returned = { ok: false, messages: [] } as AddCommitOutcome;
 		act(() => {
-			returned = result.current.mutations.addModule({
-				uuid: "module-2-uuid",
-				id: "m1",
-				name: "M1",
-			});
+			returned = result.current.mutations.createSurveyModule({ name: "M1" });
 		});
 
+		// A bare module would be rejected (NO_FORMS_OR_CASE_LIST); createSurveyModule
+		// lands a survey form with it, so the commit is valid by construction.
 		assert(returned.ok);
 		expect(returned.uuid).toMatch(/[0-9a-f-]/);
 		const s = result.current.store?.getState();
 		assert(s);
 		expect(s.modules[returned.uuid]).toBeDefined();
 		expect(s.modules[returned.uuid].name).toBe("M1");
+		expect(s.formOrder[returned.uuid]).toHaveLength(1);
 	});
 
 	// ── updateForm ────────────────────────────────────────────────────────
@@ -824,13 +823,10 @@ describe("useBlueprintMutations", () => {
 
 		/* Add a second module first — removing the app's ONLY module would
 		 * re-introduce NO_MODULES and the gate rightly rejects it (pinned
-		 * below). */
+		 * below). createSurveyModule lands it valid (a form comes with it). */
 		let secondUuid: Uuid = "" as Uuid;
 		act(() => {
-			const added = result.current.mutations.addModule({
-				id: "m1",
-				name: "M1",
-			});
+			const added = result.current.mutations.createSurveyModule({ name: "M1" });
 			assert(added.ok);
 			secondUuid = added.uuid;
 		});

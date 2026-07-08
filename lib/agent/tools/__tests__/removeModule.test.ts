@@ -97,7 +97,7 @@ describe("removeModule", () => {
 		expect(out.newDoc).toBe(doc);
 		expect(recordMutations).not.toHaveBeenCalled();
 		expect(out.result).toMatchObject({
-			error: expect.stringContaining("no modules"),
+			error: expect.stringContaining("at least one module"),
 		});
 	});
 
