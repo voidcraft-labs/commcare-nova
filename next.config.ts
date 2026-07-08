@@ -100,6 +100,12 @@ export default withSentryConfig(withMDX(nextConfig), {
 	org: "dimagi-1l",
 	project: "nova",
 
+	/* Opt out of the Sentry build plugin's own anonymous usage telemetry (the
+	 * "Sending telemetry data on issues and performance to Sentry" build log).
+	 * This is the plugin reporting on itself — unrelated to our error/trace
+	 * reporting via Sentry.init, which stays on. */
+	telemetry: false,
+
 	/* Only print source-map upload logs in CI. */
 	silent: !process.env.CI,
 

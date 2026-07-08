@@ -36,6 +36,10 @@ export NOVA_MEDIA_BUCKET="${NOVA_MEDIA_BUCKET:-demo-test-multimedia}"
 # GCP, so google-auth's probe just emits a noisy MetadataLookupWarning to stdout.
 # `none` skips the probe entirely (keeps the smoke logs clean).
 export METADATA_SERVER_DETECTION="${METADATA_SERVER_DETECTION:-none}"
+# Keep the smoke logs clean: opt out of Next.js's anonymous CLI telemetry so the
+# webServer's `next build` doesn't print its telemetry notice. Playwright merges
+# this process env into the server it spawns (playwright.config.ts `webServer`).
+export NEXT_TELEMETRY_DISABLED="${NEXT_TELEMETRY_DISABLED:-1}"
 # Pin 127.0.0.1, not `localhost`: on Linux CI runners `localhost` resolves to
 # ::1 first, where the compose-published port (IPv4 only) isn't reachable —
 # the migrate runner / the app get "connection reset by peer" on [::1]:5432.
