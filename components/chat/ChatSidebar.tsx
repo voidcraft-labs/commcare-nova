@@ -100,6 +100,13 @@ function createGridController(
 interface ChatSidebarProps {
 	centered: boolean;
 	heroLogo?: ReactNode;
+	/** Rendered under the chat card in centered mode — the blank-app escape
+	 *  hatch on a new build. Sharing the centered column is the point: it holds
+	 *  the chat above true center until it collapses away. */
+	startBlankApp?: ReactNode;
+	/** Locks the composer while a non-chat action owns the screen (creating a
+	 *  blank app, then navigating). Distinct from `readOnly`, which hides it. */
+	composerBusy?: boolean;
 	messages: NovaUIMessage[];
 	status: "submitted" | "streaming" | "ready" | "error";
 	/** Send a turn. `attachments` are asset-id refs to files picked from the file
@@ -126,6 +133,8 @@ interface ChatSidebarProps {
 export function ChatSidebar({
 	centered,
 	heroLogo,
+	startBlankApp,
+	composerBusy,
 	messages,
 	status,
 	onSend,
@@ -654,7 +663,7 @@ export function ChatSidebar({
 					<div className="shrink-0">
 						<ChatInput
 							onSend={handleSend}
-							disabled={isLoading || isGenerating}
+							disabled={isLoading || isGenerating || composerBusy}
 							// A waiting question card routes the next composer send to it as
 							// a text-only answer, so the composer disables attaching and
 							// preserves any staged files instead of dropping them.
@@ -674,6 +683,11 @@ export function ChatSidebar({
 					</div>
 				)}
 			</motion.div>
+
+			{/* Under the card, inside the same centered column — sharing it is the
+			 *  point: this holds the chat above true center, and the chat settles
+			 *  back to center as this collapses away. */}
+			{centered && startBlankApp}
 		</motion.div>
 	);
 }

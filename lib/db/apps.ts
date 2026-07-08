@@ -415,8 +415,8 @@ export async function projectHasApps(projectId: string): Promise<boolean> {
 // ── CRUD ───────────────────────────────────────────────────────────
 
 /**
- * Optional overrides for `createApp`. Both fields are optional and
- * have defaults that match the most common shape of a new app row.
+ * Optional overrides for `createApp`. Every field is optional and the
+ * defaults match the most common shape of a new app row.
  */
 export interface CreateAppOptions {
 	/**
@@ -438,18 +438,61 @@ export interface CreateAppOptions {
 	 * via `softDeleteApp`, never a creation state.
 	 */
 	status?: "generating" | "complete";
+	/**
+	 * The contents the app is BORN with — a template, expressed as a
+	 * mutation batch against the still-empty doc it receives. Runs through
+	 * the same commit gate every other write does, then rides the single
+	 * creation write, so the templated app never exists on disk in its
+	 * pre-template state and the denormalized counts describe what was
+	 * actually written.
+	 *
+	 * Omit for the empty app the chat build and MCP `create_app` mint —
+	 * they add their own contents through the agent's gated tool calls.
+	 */
+	seedMutations?: (doc: BlueprintDoc) => Mutation[];
+}
+
+/**
+ * Apply a creation template to the empty doc, through the same commit gate
+ * every other write goes through: the batch may introduce no validator
+ * finding.
+ *
+ * The gate is DELTA-based, so it cannot certify that a template leaves the
+ * app EXPORT-ready — an empty doc's `NO_MODULES` / `EMPTY_APP_NAME` are
+ * pre-existing rather than introduced, and a template that left either
+ * standing would still commit. Each template owns that proof (the blank
+ * app's lives in `lib/doc/__tests__/scaffolds.test.ts`).
+ *
+ * The throw is a construction bug, not a user error: a template is code, so
+ * the only way it introduces a finding is if someone wrote one that does.
+ */
+function seedNewApp(
+	emptyDoc: BlueprintDoc,
+	seedMutations: CreateAppOptions["seedMutations"],
+): BlueprintDoc {
+	if (!seedMutations) return emptyDoc;
+	const verdict = mutationCommitVerdict(emptyDoc, seedMutations(emptyDoc));
+	if (!verdict.ok) {
+		throw new Error(
+			`App template is not valid by construction: ${describeIntroducedErrors(
+				verdict.introduced,
+			)}`,
+		);
+	}
+	return verdict.nextDoc;
 }
 
 /**
  * Create a new app document.
  *
- * The empty doc uses the normalized `BlueprintDoc` shape with the
- * Firestore document id baked in as `appId` so the doc is
- * self-identifying on load. Denormalized summary fields are derived
- * eagerly from the empty doc + optional overrides so list queries
- * never deserialize a blueprint.
+ * The doc uses the normalized `BlueprintDoc` shape with the Firestore
+ * document id baked in as `appId` so the doc is self-identifying on
+ * load. It starts empty and, when `seedMutations` supplies a template,
+ * is born holding that template's contents. Denormalized summary fields
+ * are derived eagerly from the doc that is actually written, so list
+ * queries never deserialize a blueprint.
  *
- * See `CreateAppOptions` for the two tunable fields and their defaults.
+ * See `CreateAppOptions` for the tunable fields and their defaults.
  */
 export async function createApp(
 	owner: string,
@@ -471,12 +514,13 @@ export async function createApp(
 		fieldOrder: {},
 		fieldParent: {},
 	};
-	const persistable = toPersistableDoc(emptyDoc);
+	const doc = seedNewApp(emptyDoc, opts?.seedMutations);
+	const persistable = toPersistableDoc(doc);
 	await runThrottledWrite(() =>
 		ref.set({
 			owner,
 			project_id: projectId,
-			...denormalize(emptyDoc),
+			...denormalize(doc),
 			blueprint: persistable,
 			/* The per-app stream counter starts at 0; the guarded writer advances
 			 * it by one on every committed mutation batch. */

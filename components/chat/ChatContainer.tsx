@@ -14,8 +14,11 @@
 "use client";
 import { Chat, useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
+import { useRouter } from "next/navigation";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createBlankApp } from "@/app/(app)/build/actions";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
+import { StartBlankApp } from "@/components/chat/StartBlankApp";
 import { Logo } from "@/components/ui/Logo";
 import { parseApiErrorMessage } from "@/lib/apiError";
 import {
@@ -391,7 +394,18 @@ export function ChatContainer({
 		saveThread(appId, thread);
 	}, [status, messages, isExistingApp]);
 
-	// ── Derived values ───────────────────────────────────────────────────
+	// ── Blank-app escape hatch (new builds only) ─────────────────────────
+
+	/* The two ways out of `/build/new` are mutually exclusive, and whichever
+	 * the user picks first wins — latched synchronously, in the handler that
+	 * starts it. Refs, not state: `StartBlankApp` stays clickable all the way
+	 * through its collapse (deliberately — it must not flash disabled mid-fade),
+	 * so a click landing in that window has to meet a latch that was already set
+	 * when the message was sent, rather than wait on a re-render. */
+	const router = useRouter();
+	const [creatingBlankApp, setCreatingBlankApp] = useState(false);
+	const agentEngagedRef = useRef(false);
+	const creatingBlankAppRef = useRef(false);
 
 	const handleSend = useCallback(
 		({
@@ -401,7 +415,9 @@ export function ChatContainer({
 			text: string;
 			attachments?: AttachmentRef[];
 		}) => {
+			if (creatingBlankAppRef.current) return;
 			if (!text.trim() && !attachments?.length) return;
+			agentEngagedRef.current = true;
 			// Attachments ride as asset-id refs in message METADATA, not file parts.
 			// The route's resolveAttachments expands each ref into the stored extract
 			// (documents) or image bytes (vision) before the SA. A turn with no
@@ -414,11 +430,67 @@ export function ChatContainer({
 		[sendMessage],
 	);
 
+	const handleCreateBlankApp = useCallback(() => {
+		if (agentEngagedRef.current || creatingBlankAppRef.current) return;
+		creatingBlankAppRef.current = true;
+		setCreatingBlankApp(true);
+		createBlankApp().then(
+			(result) => {
+				if (!result.success) {
+					creatingBlankAppRef.current = false;
+					setCreatingBlankApp(false);
+					showToast("error", "Couldn't create the app", result.error);
+					return;
+				}
+				/* `replace`, not `push` — the app exists now, so `/build/new` is not
+				 * a place to go back to. Leave the latches set: the RSC navigation
+				 * unmounts this tree, and nothing should send in the meantime. */
+				router.replace(`/build/${result.appId}`);
+			},
+			/* The action itself never rejects — it returns its failures. Landing
+			 * here means the Server Action call didn't complete (offline, a
+			 * deploy mid-flight), so there's nothing to unwrap. */
+			() => {
+				creatingBlankAppRef.current = false;
+				setCreatingBlankApp(false);
+				showToast(
+					"error",
+					"Couldn't create the app",
+					"Check your connection and try again.",
+				);
+			},
+		);
+	}, [router]);
+
+	// ── Derived values ───────────────────────────────────────────────────
+
+	/* The SA is in play the moment a message exists — `useChat` appends the
+	 * user's turn optimistically, so this flips on the same tick as the send.
+	 * Staging or extracting a document does NOT flip it: extraction lives on
+	 * the composer (`onReadingChange`), never on `messages`. */
+	const agentEngaged = messages.length > 0;
+
+	/* The blank-app path only exists on a brand-new build the user can edit.
+	 * An existing app that happens to render centered (every module deleted)
+	 * already IS an app; replay and view-only members can't create one. */
+	const showBlankAppStarter =
+		centered && !isExistingApp && !inReplayMode && canEdit;
+
 	return (
 		<ChatSidebar
 			key="chat"
 			centered={centered}
 			heroLogo={centered ? <Logo size="hero" /> : undefined}
+			startBlankApp={
+				showBlankAppStarter ? (
+					<StartBlankApp
+						agentEngaged={agentEngaged}
+						creating={creatingBlankApp}
+						onCreate={handleCreateBlankApp}
+					/>
+				) : undefined
+			}
+			composerBusy={creatingBlankApp}
 			messages={inReplayMode ? replayMessages : messages}
 			status={inReplayMode ? "ready" : status}
 			onSend={handleSend}

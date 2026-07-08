@@ -5,9 +5,10 @@
 
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { evaluateBoundary } from "@/lib/commcare/validator/gate";
 import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { applyMutation } from "@/lib/doc/mutations";
+import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import {
 	caseListModuleMutations,
 	caseTypeCatalogMutations,
@@ -123,6 +124,41 @@ describe("surveyModuleMutations", () => {
 		const mod = verdict.nextDoc.modules[scaffold.moduleUuid];
 		expect(mod?.caseType).toBeUndefined();
 		expect(verdict.nextDoc.formOrder[scaffold.moduleUuid]).toEqual([]);
+	});
+});
+
+/**
+ * The blank app (`createBlankApp`, `app/(app)/build/actions.ts`) is a
+ * non-blank app name plus this scaffold's bare survey module — and both
+ * halves are what make it EXPORT-ready the instant it exists, which is the
+ * bar a hand-built app has to clear with no SA run behind it.
+ *
+ * `mutationCommitVerdict` cannot prove that: it is delta-based, and an empty
+ * doc's `NO_MODULES` / `EMPTY_APP_NAME` are pre-existing rather than
+ * introduced, so a template that left either standing would still commit.
+ * The boundary validator — the zero-tolerance compile/upload/export gate —
+ * is the only oracle that answers the question actually being asked.
+ */
+describe("the blank app template", () => {
+	const blankApp = (appName: string): BlueprintDoc => {
+		const base = { ...emptyDoc(), appName };
+		return produce(base, (d) => {
+			applyMutations(d, surveyModuleMutations(base).mutations);
+		});
+	};
+
+	it("is export-ready: a named app holding one bare survey module", () => {
+		expect(evaluateBoundary(blankApp("Untitled"), new Map())).toEqual([]);
+	});
+
+	it("does not inherit the empty app's findings, which block export", () => {
+		const codes = evaluateBoundary(emptyDoc(), new Map()).map((e) => e.code);
+		expect(codes).toContain("NO_MODULES");
+	});
+
+	it("needs the name too — a nameless blank app cannot export", () => {
+		const codes = evaluateBoundary(blankApp(""), new Map()).map((e) => e.code);
+		expect(codes).toEqual(["EMPTY_APP_NAME"]);
 	});
 });
 

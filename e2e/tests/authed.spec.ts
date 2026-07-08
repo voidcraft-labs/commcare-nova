@@ -82,6 +82,37 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 	});
 
+	test("the blank-app escape hatch mints a real app and opens it (no LLM)", async ({
+		page,
+	}) => {
+		await page.goto("/build/new");
+
+		const startBlank = page.getByRole("button", {
+			name: "Start with a blank app",
+		});
+		await expect(startBlank).toBeVisible({ timeout: 20_000 });
+
+		// The chat owns the screen until an app exists, so the sidebar chrome is
+		// absent here — this is the "centered, phase = Idle" state.
+		await expect(
+			page.getByRole("button", { name: "Collapse chat sidebar" }),
+		).toHaveCount(0);
+
+		await startBlank.click();
+
+		// The real createBlankApp Server Action → createApp → router.replace.
+		await page.waitForURL(/\/build\/(?!new)[\w-]+$/, { timeout: 30_000 });
+
+		// The chat DOCKED, which only happens once `docHasData` (moduleOrder is
+		// non-empty). That is the load-bearing assertion: a blank app that shipped
+		// with zero modules would render the centered chat again — and would fail
+		// the export validator with NO_MODULES.
+		await expect(
+			page.getByRole("button", { name: "Collapse chat sidebar" }),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(startBlank).toHaveCount(0);
+	});
+
 	test("GET /api/auth/get-session returns the seeded user", async ({
 		request,
 	}) => {
