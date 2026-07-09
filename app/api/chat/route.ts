@@ -748,12 +748,16 @@ export async function POST(req: Request) {
 				 * request from another tab, or one whose tab they closed — a closed
 				 * tab neither cancels nor finalizes a run), and naming the user to
 				 * themselves reads as a phantom collaborator. Their own PAUSED run
-				 * never reaches here — the claim supersedes it. */
-				const holder = await loadAppHolder(appId);
-				const holderLabel =
-					holder.userId === userId
+				 * never reaches here — the claim supersedes it. Re-resolved per
+				 * message rather than captured once: the holder can change while we
+				 * wait (a release + another claim), and the timeout toast two
+				 * minutes in must not name a long-gone holder. */
+				const holderLabel = async (): Promise<string> => {
+					const holder = await loadAppHolder(appId);
+					return holder.userId === userId
 						? "your previous request"
 						: `${holder.name}'s request`;
+				};
 				/* User-visible busy indicator: a non-fatal (recoverable) conversation
 				 * event the client toasts + shows in the signal panel, so the waiter
 				 * sees WHY nothing is happening yet. `recoverable: true` renders it as
@@ -763,7 +767,7 @@ export async function POST(req: Request) {
 				ctx.emitError(
 					{
 						type: "generation_in_progress",
-						message: `Waiting — ${holderLabel} is still running on this app. Only one request runs at a time; this one will start automatically when it finishes.`,
+						message: `Waiting — ${await holderLabel()} is still running on this app. Only one request runs at a time; this one will start automatically when it finishes.`,
 						recoverable: true,
 					},
 					"route:serialize-wait",
@@ -841,7 +845,7 @@ export async function POST(req: Request) {
 							type: claimError ? "internal" : "generation_in_progress",
 							message: claimError
 								? "Couldn't start your request just now. Please try again shortly."
-								: `Still busy — ${holderLabel} is taking a while. Please try again in a moment.`,
+								: `Still busy — ${await holderLabel()} is taking a while. Please try again in a moment.`,
 							recoverable: false,
 						},
 						"route:serialize-wait-timeout",
