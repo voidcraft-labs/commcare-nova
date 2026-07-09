@@ -52,6 +52,43 @@ let testConnectionString: string | null = null;
 
 const RECONNECT_MIN_MS = 250;
 const RECONNECT_MAX_MS = 5_000;
+/**
+ * Bounds on the dedicated client's three open-ended waits. Without them a
+ * wedged/starved server can hold `establish()` (and with it the `connecting`
+ * promise every subscriber joins and `closeStreamListener` awaits) forever,
+ * stranding the realtime listener for the process lifetime:
+ *
+ *   - `CONNECT_TIMEOUT_MS` bounds `Client.connect()` (pg default: no limit).
+ *   - `QUERY_TIMEOUT_MS` bounds the two `LISTEN` commands (pg default: no
+ *     limit) — instant on a healthy server.
+ *   - `END_TIMEOUT_MS` bounds the graceful `end()`'s wait for the server to
+ *     close the socket; past it `endClientBounded` destroys the socket.
+ *
+ * A timed-out attempt rejects into `ensureConnected`'s catch, where
+ * `scheduleReconnect`'s backoff owns the retry.
+ */
+const CONNECT_TIMEOUT_MS = 10_000;
+const QUERY_TIMEOUT_MS = 5_000;
+const END_TIMEOUT_MS = 2_000;
+
+/**
+ * End the dedicated client without letting a wedged server hold the caller:
+ * graceful Terminate first, then destroy the socket if it hasn't closed within
+ * the bound (destroying resolves the pending `end()` via the socket's close).
+ * `connection` is real on every `pg.Client` but absent from its public typing.
+ */
+async function endClientBounded(c: Client): Promise<void> {
+	const stream = (
+		c as unknown as { connection: { stream: { destroy(): void } } }
+	).connection.stream;
+	const timer = setTimeout(() => stream.destroy(), END_TIMEOUT_MS);
+	timer.unref();
+	try {
+		await c.end().catch(() => {});
+	} finally {
+		clearTimeout(timer);
+	}
+}
 
 /**
  * Point the dedicated listener at an explicit connection string (the per-test
@@ -67,9 +104,17 @@ export function __setListenerConfigForTests(
 
 async function resolveConfig(): Promise<ClientConfig> {
 	if (testConnectionString !== null) {
-		return { connectionString: testConnectionString };
+		return {
+			connectionString: testConnectionString,
+			connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+			query_timeout: QUERY_TIMEOUT_MS,
+		};
 	}
-	return buildDedicatedClientConfig();
+	return {
+		...(await buildDedicatedClientConfig()),
+		connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+		query_timeout: QUERY_TIMEOUT_MS,
+	};
 }
 
 /** Run a subscriber callback, never letting a throw escape the dispatcher. */
@@ -139,7 +184,7 @@ async function establish(): Promise<void> {
 		 * CURRENT healthy client. End it before the reconnect path takes over. */
 		c.removeAllListeners("error");
 		c.removeAllListeners("notification");
-		await c.end().catch(() => {});
+		await endClientBounded(c);
 		throw err;
 	}
 	// Torn down while we were connecting — discard this client rather than latch
@@ -148,7 +193,7 @@ async function establish(): Promise<void> {
 	if (torndown) {
 		c.removeAllListeners("error");
 		c.removeAllListeners("notification");
-		await c.end().catch(() => {});
+		await endClientBounded(c);
 		return;
 	}
 	client = c;
@@ -183,7 +228,7 @@ function discardClient(): void {
 	if (c !== null) {
 		c.removeAllListeners("error");
 		c.removeAllListeners("notification");
-		void c.end().catch(() => {});
+		void endClientBounded(c);
 	}
 }
 
@@ -281,6 +326,6 @@ export async function closeStreamListener(): Promise<void> {
 		c.removeAllListeners("notification");
 		// The connection may already be dead (e.g. a per-test database dropped
 		// out from under it) — a failed `end()` is expected teardown noise.
-		await c.end().catch(() => {});
+		await endClientBounded(c);
 	}
 }
