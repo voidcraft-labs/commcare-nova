@@ -8,9 +8,9 @@ The blank-app path is the suite's only app-CREATION coverage, and it can be beca
 needs no model call — it drives the real `createBlankApp` Server Action and asserts the
 chat DOCKS, which only happens once the new app has a module (`docHasData`).
 
-- **Hermetic, free, no real GCP.** The suite runs against the **Firestore emulator** +
-  a local Postgres (`scripts/smoke.sh`), not a real project — same pattern as
-  `npm run test:integration`. No new CI GCP project, no prod credentials, no LLM spend.
+- **Hermetic, free, no real GCP.** The suite runs against a **local Postgres**
+  (`scripts/smoke.sh`), not a real project — the same testcontainer-free local stack the
+  integration tests use under `npm test`. No CI GCP project, no prod credentials, no LLM spend.
 - **Runs the production build, not `next dev`.** The managed server is `next build &&
   next start` — the gate exercises the deployed artifact, and `next dev`'s server→browser
   log forwarding can't trip the error guard. Costs ~2 min of build; don't "speed it up"
@@ -19,8 +19,8 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   `console.error` / `pageerror` / same-origin 5xx (`e2e/lib/fixtures.ts`, no benign-error
   allowlist). To provoke an error on purpose, scope a local handler in that test.
 - **Auth is a forged cookie, not real OAuth.** `e2e/seed.ts` writes the `auth_user`
-  + `auth_session` rows into the local **Postgres** (auth state lives in Postgres;
-  apps stay in Firestore); `e2e/lib/session.ts` signs the cookie exactly like
+  + `auth_session` rows into the local **Postgres** (auth and app state both live
+  there); `e2e/lib/session.ts` signs the cookie exactly like
   `better-call`. Its validity is pinned by
   `lib/db/__tests__/sessionCookie.integration.test.ts` — a better-auth/better-call
   bump that breaks it fails *there*, not as a Playwright timeout, so re-verify the
@@ -28,10 +28,9 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
 - **Prod cookie name differs.** Local (`http`) is `better-auth.session_token`; a
   deployed (`https`) target is `__Secure-better-auth.session_token`. `sessionCookieName`
   switches on the scheme — only the credential-free `public` project runs against prod.
-- **`seed.ts` refuses to run without `FIRESTORE_EMULATOR_HOST` AND
-  `NOVA_DB_LOCAL_URL`** — hard guards so its app writes can only hit the Firestore
-  emulator and its auth writes can only hit the local Postgres, never the real
-  `commcare-nova-dev` / `commcare-nova` projects or Cloud SQL.
+- **`seed.ts` refuses to run without `NOVA_DB_LOCAL_URL`** — the one hard guard that
+  keeps its auth AND app-state writes on the local Postgres, never the real Cloud SQL
+  instance.
 - **No new RTL/jsdom tests.** UI logic is tested as `f(state)` in Vitest; real UI
   behavior is tested here in Playwright. Don't add `@testing-library/react` DOM tests.
 - **Selectors are roles / aria-labels / text** (the app has almost no `data-testid`) —
@@ -77,8 +76,8 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   - The seed writes a shared `auth_organization` + two `auth_member` rows through
     Better Auth's own adapter (a direct create bypasses the invitation
     domain-gate, which fires only on the invitation API path), and the shared app
-    carries a POPULATED, fixed-uuid blueprint written directly (`createApp` only
-    mints an empty doc) so both users deep-link straight to any entity.
+    carries a POPULATED, fixed-uuid blueprint installed via `appendSyntheticBatch`
+    (`createApp` only mints an empty doc) so both users deep-link straight to any entity.
   - The suite shares ONE seeded app and mutates it cumulatively, so each test
     asserts the CHANGE it makes (a unique marker), never a seed starting value a
     prior test may have already edited.

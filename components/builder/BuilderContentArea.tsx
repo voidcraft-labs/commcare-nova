@@ -55,7 +55,6 @@ import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	useBuilderIsReady,
 	useBuilderPhase,
-	useInReplayMode,
 	usePreviewing,
 	useSetSidebarOpen,
 	useSidebarState,
@@ -88,7 +87,6 @@ export function BuilderContentArea({
 	const phase = useBuilderPhase();
 	const isReady = useBuilderIsReady();
 	const hasData = useDocHasData();
-	const inReplayMode = useInReplayMode();
 
 	/* Back navigation for PreviewShell — reads directly from URL hooks
 	 * instead of being threaded as a prop from BuilderLayout. */
@@ -146,7 +144,7 @@ export function BuilderContentArea({
 	const chatParked = !isCentered && (previewing || railWidth === 0);
 
 	const rowRef = useRef<HTMLDivElement>(null);
-	const showProgress = phase === BuilderPhase.Generating && !inReplayMode;
+	const showProgress = phase === BuilderPhase.Generating;
 
 	return (
 		<div ref={rowRef} className="relative flex-1 overflow-hidden flex">

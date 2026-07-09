@@ -1,55 +1,49 @@
 /**
- * Integration coverage for the persistence boundary against the
- * Firestore emulator: every nullable nested blueprint field that the
- * reducer leaves at `undefined` after a clear must vanish from the
- * persisted document, not survive a deep merge against its prior value.
+ * Integration coverage for the persistence boundary against a REAL Postgres
+ * (the per-test-database harness): every nullable nested blueprint field the
+ * reducer leaves at `undefined` after a clear must VANISH from the persisted
+ * document, not survive as a stale key.
  *
- * Covers the four form-level nullable fields (`connect`,
- * `closeCondition`, `postSubmit`, `purpose`) driven through the unified
- * guarded writer (`commitGuardedBatch` → `writeCommittedSnapshot`, which
- * `update()`s the whole `blueprint` map wholesale). `completeApp`
- * (status-only, no blueprint payload) is pinned to leave the stored
- * blueprint untouched.
+ * On Postgres a form is a `blueprint_entities` row whose `data` jsonb is written
+ * with `JSON.stringify` — which DROPS `undefined` values — so a cleared slot
+ * disappears from the stored row rather than lingering (the entity-row analogue
+ * of the Firestore deep-merge survivor the old test guarded). Covers the four
+ * form-level nullable fields (`connect`, `closeCondition`, `postSubmit`,
+ * `purpose`) driven through `commitGuardedBatch`; `completeAndSettleRun`
+ * (status-only, no blueprint payload) is pinned to leave the entity rows untouched.
  *
- * Assertions check key absence (`'connect' in form === false`) rather
- * than `=== undefined`: the wire-level claim is that the key is GONE,
- * not "present with `undefined`."
+ * Assertions check key absence (`'connect' in data === false`) on the raw entity
+ * `data`, not `=== undefined`: the claim is that the key is GONE from storage.
  *
- * The guarded writer reauthorizes every commit against Project
- * membership (`projectRoleFor`, normally an `auth_member` Postgres read).
- * The emulator harness has no Postgres, so `projectRoleFor` is mocked to
- * grant the actor an `editor` role — the reauth path itself is exercised
- * against real Firestore in `commitGuardedBatch.integration.test.ts`.
+ * The guarded writer reauthorizes every commit against Project membership
+ * (`projectRoleFor`, normally an `auth_member` read). It is mocked to grant the
+ * actor an `editor` role — the reauth path itself is exercised in
+ * `commitGuardedBatch.integration.test.ts`.
  *
- * Auto-skipped when `FIRESTORE_EMULATOR_HOST` is unset; run via
- * `npm run test:integration`.
+ * Runs unconditionally under `npm test`.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mutation } from "@/lib/doc/types";
-import type { ConnectConfig, PersistableDoc } from "@/lib/domain";
+import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
+import { setupAppStateTestDb } from "./appStateTestDb";
 
-// Reauth reads the actor's role from `auth_member` (Postgres) via
-// `projectRoleFor`. The emulator harness has no Postgres, so grant `editor`.
+// Reauth reads the actor's role from `auth_member` via `projectRoleFor`; grant
+// `editor` so the commit's reauth passes without a seeded membership row.
 vi.mock("@/lib/db/projectMembership", () => ({
 	projectRoleFor: vi.fn(async () => "editor"),
 }));
 
-const { commitGuardedBatch, completeAndSettleRun, createApp } = await import(
-	"../apps"
-);
-const { getDb } = await import("../firestore");
-
-const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
+const h = setupAppStateTestDb("bp_clear_");
 
 const TEST_OWNER = "user-blueprint-clear-test";
 const TEST_PROJECT = "project-blueprint-clear-test";
+const APP_ID = "app-blueprint-clear";
 
 const MODULE_UUID = "11111111-1111-4111-8111-111111111111";
 const FORM_UUID = "22222222-2222-4222-8222-222222222222";
 
-/** A minimal legal Connect learn-module block — enough to land on disk so a
- *  subsequent clear has somewhere to clear from. */
+/** A minimal legal Connect learn-module block. */
 const CONNECT: ConnectConfig = {
 	learn_module: {
 		id: "lm_1",
@@ -59,16 +53,10 @@ const CONNECT: ConnectConfig = {
 	},
 };
 
-/**
- * Seed the stored app doc with one module + one survey form carrying every
- * clearable nullable field populated. Written via a raw `set` (the guarded
- * writer re-applies mutations onto whatever it reads fresh — this is the
- * fresh doc it will read), with `mutation_seq: 0` so the first guarded
- * commit lands at seq 1.
- */
-function populatedBlueprint(appId: string): PersistableDoc {
+/** One module + one survey form carrying every clearable nullable field. */
+function populatedBlueprint(): BlueprintDoc {
 	const doc = {
-		appId,
+		appId: APP_ID,
 		appName: "Blueprint clear test app",
 		connectType: null,
 		caseTypes: null,
@@ -97,215 +85,143 @@ function populatedBlueprint(appId: string): PersistableDoc {
 		moduleOrder: [MODULE_UUID],
 		formOrder: { [MODULE_UUID]: [FORM_UUID] },
 		fieldOrder: {},
+		fieldParent: {},
 	};
-	return doc as unknown as PersistableDoc;
+	return doc as unknown as BlueprintDoc;
 }
 
-/**
- * Overwrite the freshly-created app doc's blueprint with the populated
- * survey form. `createApp` writes an EMPTY blueprint; this raw `update`
- * installs the populated shape the clear will then act against, keeping
- * `mutation_seq` at 0 so the guarded commit's literal seq is 1.
- */
-async function seedPopulated(appId: string): Promise<void> {
-	const bp = populatedBlueprint(appId);
-	await getDb().collection("apps").doc(appId).update({
-		blueprint: bp,
-		module_count: 1,
-		form_count: 1,
+/** The RAW `data` jsonb of the persisted form entity — the wire-level key set,
+ *  before any Zod projection. */
+async function readPersistedFormData(): Promise<Record<string, unknown>> {
+	const row = await h
+		.db()
+		.selectFrom("blueprint_entities")
+		.select("data")
+		.where("app_id", "=", APP_ID)
+		.where("uuid", "=", FORM_UUID)
+		.executeTakeFirst();
+	if (!row) throw new Error(`Expected form entity ${FORM_UUID} to exist.`);
+	return row.data as Record<string, unknown>;
+}
+
+/** Seed the populated app (its module + form entity rows) at `mutation_seq: 0`. */
+async function seedPopulatedApp(): Promise<void> {
+	await h.seedAppWithBlueprint(populatedBlueprint(), {
+		id: APP_ID,
+		owner: TEST_OWNER,
+		projectId: TEST_PROJECT,
 	});
-}
-
-/**
- * Raw untyped read of the persisted form object — bypasses the typed
- * converter's Zod parse so the test sees the wire payload exactly as
- * Firestore stored it. The load-bearing claim is about the WIRE-level
- * key set, not the parsed object's optional-field projection.
- */
-async function readPersistedForm(
-	appId: string,
-): Promise<Record<string, unknown>> {
-	const snap = await getDb().collection("apps").doc(appId).get();
-	if (!snap.exists) {
-		throw new Error(`Expected app doc ${appId} to exist after seed.`);
+	const seeded = await readPersistedFormData();
+	if (!("connect" in seeded)) {
+		throw new Error("Seed precondition failed: form has no `connect` key.");
 	}
-	const data = snap.data() as {
-		blueprint?: { forms?: Record<string, Record<string, unknown>> };
-	};
-	const form = data.blueprint?.forms?.[FORM_UUID];
-	if (!form) {
-		throw new Error(`Expected form ${FORM_UUID} to exist in app ${appId}.`);
-	}
-	return form;
 }
 
-/** Raw untyped read of the persisted app doc — used for asserting the
- *  outer fields the write helpers don't pass survive untouched. */
-async function readPersistedApp(
-	appId: string,
-): Promise<Record<string, unknown>> {
-	const snap = await getDb().collection("apps").doc(appId).get();
-	if (!snap.exists) {
-		throw new Error(`Expected app doc ${appId} to exist after seed.`);
-	}
-	return snap.data() as Record<string, unknown>;
-}
+describe("blueprint clear nested field", () => {
+	beforeEach(seedPopulatedApp);
 
-/** Remove the test row so cases don't pollute each other. */
-async function deleteApp(appId: string): Promise<void> {
-	await getDb().collection("apps").doc(appId).delete();
-}
+	it("the guarded writer clears every nested form field wholesale — no stale-key survivor", async () => {
+		const { commitGuardedBatch } = await import("../apps");
+		// One `updateForm` mutation clearing every nullable slot. Each clear carries
+		// an explicit `null` (the wire-safe delete signal); the reducer maps
+		// `null → undefined`, and the entity-row write's `JSON.stringify` drops the
+		// undefined keys, so they vanish from the stored `data`.
+		const clearMutations: Mutation[] = [
+			{
+				kind: "updateForm",
+				uuid: FORM_UUID,
+				patch: {
+					connect: null,
+					closeCondition: null,
+					postSubmit: null,
+					purpose: null,
+				},
+			} as unknown as Mutation,
+		];
 
-describe.skipIf(!emulatorAvailable)(
-	"blueprint clear nested field (Firestore emulator)",
-	() => {
-		const createdAppIds: string[] = [];
-
-		beforeEach(() => {
-			createdAppIds.length = 0;
+		const result = await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: crypto.randomUUID(),
+			mutations: clearMutations,
+			actorUserId: TEST_OWNER,
+			kind: "autosave",
 		});
+		expect(result.seq).toBe(1);
+		expect(result.deduped).toBe(false);
 
-		afterEach(async () => {
-			await Promise.all(createdAppIds.map((id) => deleteApp(id)));
-		});
+		const form = await readPersistedFormData();
+		expect("connect" in form).toBe(false);
+		expect("closeCondition" in form).toBe(false);
+		expect("postSubmit" in form).toBe(false);
+		expect("purpose" in form).toBe(false);
+		// The surviving form keys are intact.
+		expect(form.uuid).toBe(FORM_UUID);
+		expect(form.id).toBe("f_form1");
+		expect(form.name).toBe("Form 1");
+		expect(form.type).toBe("survey");
+	});
 
-		/** Materialize a fresh app row + install the populated seed, returning
-		 *  its id. Every clearable field is present on disk before the clear. */
-		async function seedPopulatedApp(): Promise<string> {
-			const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-			const appId = await createApp(TEST_OWNER, TEST_PROJECT, runId, {
-				status: "complete",
-			});
-			createdAppIds.push(appId);
-			await seedPopulated(appId);
+	it("outer app-row fields the writer does not pass survive the guarded commit", async () => {
+		const { commitGuardedBatch } = await import("../apps");
+		const before = await h.readAppRow(APP_ID);
 
-			const seeded = await readPersistedForm(appId);
-			if (!("connect" in seeded)) {
-				throw new Error(
-					"Seed precondition failed: populated form has no `connect` key after seed write.",
-				);
-			}
-			return appId;
-		}
-
-		it("the guarded writer clears every nested form field wholesale — no deep-merge survivor", async () => {
-			const appId = await seedPopulatedApp();
-
-			/* One `updateForm` mutation clearing every nullable slot. Each clear
-			 * carries an explicit `null` (the wire-safe delete signal); the
-			 * reducer maps `null → undefined`, and `writeCommittedSnapshot`
-			 * replaces the whole `blueprint` map, so the cleared keys vanish
-			 * from disk rather than surviving a deep merge. */
-			const clearMutations: Mutation[] = [
+		await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: crypto.randomUUID(),
+			mutations: [
 				{
 					kind: "updateForm",
 					uuid: FORM_UUID,
-					patch: {
-						connect: null,
-						closeCondition: null,
-						postSubmit: null,
-						purpose: null,
-					},
+					patch: { purpose: null },
 				} as unknown as Mutation,
-			];
-
-			const result = await commitGuardedBatch({
-				appId,
-				batchId: crypto.randomUUID(),
-				mutations: clearMutations,
-				actorUserId: TEST_OWNER,
-				kind: "autosave",
-			});
-			// The commit advanced the stream from the seeded seq 0 to 1.
-			expect(result.seq).toBe(1);
-			expect(result.deduped).toBe(false);
-
-			const form = await readPersistedForm(appId);
-			expect("connect" in form).toBe(false);
-			expect("closeCondition" in form).toBe(false);
-			expect("postSubmit" in form).toBe(false);
-			expect("purpose" in form).toBe(false);
-
-			// The surviving form keys are intact — the wholesale replace didn't
-			// drop non-clearable fields.
-			expect(form.uuid).toBe(FORM_UUID);
-			expect(form.id).toBe("f_form1");
-			expect(form.name).toBe("Form 1");
-			expect(form.type).toBe("survey");
+			],
+			actorUserId: TEST_OWNER,
+			kind: "autosave",
 		});
 
-		it("outer doc fields the writer does not pass survive the guarded commit", async () => {
-			const appId = await seedPopulatedApp();
-			const before = await readPersistedApp(appId);
+		const after = await h.readAppRow(APP_ID);
+		// The committed-batch write touches only the scalar/denorm snapshot +
+		// `mutation_seq` + the stream; the other columns come back untouched.
+		expect(after?.owner).toBe(TEST_OWNER);
+		expect(after?.project_id).toBe(TEST_PROJECT);
+		expect(after?.error_type).toBe(null);
+		expect(after?.deleted_at).toBe(null);
+		expect(after?.recoverable_until).toBe(null);
+		expect(after?.status).toBe("complete");
+		expect((after?.created_at as Date).getTime()).toBe(
+			(before?.created_at as Date).getTime(),
+		);
+	});
 
-			await commitGuardedBatch({
-				appId,
-				batchId: crypto.randomUUID(),
-				mutations: [
-					{
-						kind: "updateForm",
-						uuid: FORM_UUID,
-						patch: { purpose: null },
-					} as unknown as Mutation,
-				],
-				actorUserId: TEST_OWNER,
-				kind: "autosave",
-			});
+	it("completeAndSettleRun flips status only — the persisted blueprint is untouched", async () => {
+		const { completeAndSettleRun } = await import("../apps");
+		// Put the app in a live BUILD state (the drain-end state
+		// `completeAndSettleRun` acts on): `generating` with the run's UNSETTLED
+		// reservation marker owned by `build-run`.
+		await h
+			.db()
+			.updateTable("apps")
+			.set({
+				status: "generating",
+				res_period: "2026-07",
+				res_reserved: 100,
+				res_settled: false,
+				res_user_id: TEST_OWNER,
+				res_run_id: "build-run",
+			})
+			.where("id", "=", APP_ID)
+			.execute();
 
-			const after = await readPersistedApp(appId);
-			// `writeCommittedSnapshot` touches only the blueprint-snapshot fields
-			// + `mutation_seq` + the stream; everything else comes back untouched.
-			expect(after.owner).toBe(TEST_OWNER);
-			expect(after.project_id).toBe(TEST_PROJECT);
-			expect(after.error_type).toBe(null);
-			expect(after.deleted_at).toBe(null);
-			expect(after.recoverable_until).toBe(null);
-			expect(after.status).toBe("complete");
+		const before = await readPersistedFormData();
+		await completeAndSettleRun(APP_ID, "build-run");
 
-			const createdBefore = before.created_at as {
-				isEqual: (other: unknown) => boolean;
-			};
-			expect(createdBefore.isEqual(after.created_at)).toBe(true);
-		});
-
-		it("completeAndSettleRun flips status only — the persisted blueprint is byte-identical before and after", async () => {
-			const appId = await seedPopulatedApp();
-			// Put the app in a live BUILD state (the drain-end state
-			// `completeAndSettleRun` acts on): `generating` with the run's UNSETTLED
-			// reservation marker (every build reserved, so it has one — the writer's
-			// ownership gate is `markerSettleable && mine(runId)`), owned by `build-run`.
-			await getDb()
-				.collection("apps")
-				.doc(appId)
-				.set(
-					{
-						status: "generating",
-						reservation: {
-							period: "2026-07",
-							reserved: 100,
-							settled: false,
-							userId: TEST_OWNER,
-							runId: "build-run",
-						},
-					},
-					{ merge: true },
-				);
-
-			/* The drain-end finish carries NO blueprint payload by contract: the run's
-			 * guarded commits own the blueprint, so the status flip (+ atomic settle)
-			 * must not blind-overwrite a concurrent editor. */
-			const before = await readPersistedApp(appId);
-			await completeAndSettleRun(appId, "build-run");
-
-			const after = await readPersistedApp(appId);
-			expect(after.status).toBe("complete");
-			expect(after.error_type).toBeNull();
-			expect(after.blueprint).toEqual(before.blueprint);
-			const form = (
-				after.blueprint as { forms: Record<string, Record<string, unknown>> }
-			).forms[FORM_UUID];
-			if (!form) throw new Error(`Form ${FORM_UUID} missing after completion`);
-			expect("connect" in form).toBe(true);
-		});
-	},
-);
+		const after = await h.readAppRow(APP_ID);
+		expect(after?.status).toBe("complete");
+		expect(after?.error_type).toBeNull();
+		// The drain-end finish carries NO blueprint payload — the entity rows are
+		// byte-identical, so the form still carries its `connect` block.
+		const form = await readPersistedFormData();
+		expect(form).toEqual(before);
+		expect("connect" in form).toBe(true);
+	});
+});

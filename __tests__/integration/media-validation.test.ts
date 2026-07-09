@@ -12,7 +12,6 @@
  * per-rule contract.
  */
 
-import { Timestamp } from "@google-cloud/firestore";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
@@ -43,7 +42,7 @@ function record(
 		originalFilename: `${id}.png`,
 		displayName: id,
 		status: "ready",
-		created_at: Timestamp.fromMillis(0),
+		created_at: new Date(0),
 		...overrides,
 		id: asAssetId(overrides.id ?? id),
 	};

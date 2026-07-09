@@ -1,5 +1,5 @@
 /**
- * Event log writer — batched fire-and-forget Firestore sink.
+ * Event log writer — batched fire-and-forget Postgres sink.
  *
  * A single `LogWriter` instance is created per HTTP request (chat route).
  * Callers invoke `logEvent(event)` for each mutation/conversation event
@@ -7,44 +7,57 @@
  * via a timer, and drains on demand via `flush()` (called on request
  * finalization + abort).
  *
- * Failures never throw — the writer is off the critical path. A Firestore
+ * Failures never throw — the writer is off the critical path. A database
  * outage degrades observability but does NOT block generation or the
  * spend cap (usage tracking flushes via its own path).
  *
- * Doc IDs are Firestore's auto-generated 20-char IDs, so concurrent
- * writers (including multiple requests sharing a `runId`) cannot collide
- * on disk. Chronological order is recovered at read time by
- * `readEvents` via `orderBy("ts").orderBy("seq")`.
+ * Each event is a row in the `events` table; the `id` identity column is
+ * assigned by Postgres, so concurrent writers (including multiple requests
+ * sharing a `runId`) cannot collide. Chronological order is recovered at
+ * read time by `readEvents` ordering on `(ts, seq)`.
  */
-import { collections } from "@/lib/db/firestore";
+import { getAppDb } from "@/lib/db/pg";
 import { log } from "@/lib/logger";
 import type { Event } from "./types";
 
-/** Batch size beyond which the writer flushes synchronously. Matches the
- *  Firestore `WriteBatch` hard limit (500) with a safety margin. */
+/** Batch size beyond which the writer flushes synchronously. A plain
+ *  bound on how many rows one INSERT carries — coalescing SSE bursts
+ *  without letting a single flush grow unbounded. */
 const DEFAULT_MAX_BATCH = 450;
 
 /** Flush interval — coalesces SSE bursts into a single round-trip. */
 const DEFAULT_FLUSH_MS = 100;
 
 /** Persistence target the writer drains into. Tests inject a mock; the
- *  production default is `firestoreSink`. */
+ *  production default is `pgSink`. */
 export type EventSink = (
 	appId: string,
 	events: readonly Event[],
 ) => Promise<void>;
 
-/** Production sink: one document per event via `WriteBatch`. `.doc()`
- *  with no argument mints a fresh auto-ID — collision-free by
- *  construction, so concurrent writers (including multiple requests in
- *  the same run) never overwrite each other. */
-const firestoreSink: EventSink = async (appId, events) => {
-	const col = collections.events(appId);
-	const batch = col.firestore.batch();
-	for (const ev of events) {
-		batch.create(col.doc(), ev);
-	}
-	await batch.commit();
+/** Production sink: one INSERT for the whole batch into the `events`
+ *  table. The `id` identity column is assigned server-side, so
+ *  concurrent writers (including multiple requests in the same run)
+ *  never collide. The full event rides the `event` jsonb column; the
+ *  envelope fields (`run_id`, `ts`, `seq`, `source`, `kind`) are also
+ *  projected into their own columns so reads can filter and order
+ *  without parsing the payload. */
+const pgSink: EventSink = async (appId, events) => {
+	const db = await getAppDb();
+	await db
+		.insertInto("events")
+		.values(
+			events.map((ev) => ({
+				app_id: appId,
+				run_id: ev.runId,
+				ts: ev.ts,
+				seq: ev.seq,
+				source: ev.source,
+				kind: ev.kind,
+				event: JSON.stringify(ev),
+			})),
+		)
+		.execute();
 };
 
 interface LogWriterOptions {
@@ -77,7 +90,7 @@ export class LogWriter {
 	private readonly source: "chat" | "mcp";
 
 	/**
-	 * @param appId - Firestore app id the events belong to.
+	 * @param appId - App id the events belong to.
 	 * @param source - Entrypoint producing the events. Authoritative:
 	 *   overwrites any `source` field set by callers on individual
 	 *   events. Callers may still include `source` inline on the
@@ -93,7 +106,7 @@ export class LogWriter {
 		opts: LogWriterOptions = {},
 	) {
 		this.source = source;
-		this.sink = opts.sink ?? firestoreSink;
+		this.sink = opts.sink ?? pgSink;
 		this.flushMs = opts.flushMs ?? DEFAULT_FLUSH_MS;
 		this.maxBatch = opts.maxBatch ?? DEFAULT_MAX_BATCH;
 	}

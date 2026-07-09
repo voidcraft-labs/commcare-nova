@@ -2,7 +2,7 @@
  * BuilderSession store — ephemeral UI state for the builder.
  *
  * Owns preview mode, sidebar visibility + stash, active field tracking,
- * generation lifecycle, replay state, and app identity. Everything here
+ * generation lifecycle, and app identity. Everything here
  * lives only while the builder route is mounted and is NEVER undoable.
  * Separated from BlueprintDoc so UI state can't bleed into undo history
  * and there's no need for a partialize allow-list.
@@ -16,10 +16,10 @@
  * `set()` call so intermediate states never leak to subscribers.
  *
  * Generation lifecycle actions (`beginRun`, `endRun`, plus the
- * `pushEvents` / `pushEvent` / `replaceEvents` buffer mutators) bracket
- * agent runs and coordinate with the doc store's temporal middleware to
- * pause/resume undo tracking. Stage/error/status-message/postBuildEdit
- * are derived from the events buffer — see `lifecycle.ts`.
+ * `pushEvents` / `pushEvent` buffer mutators) bracket agent runs and
+ * coordinate with the doc store's temporal middleware to pause/resume undo
+ * tracking. Stage/error/status-message/postBuildEdit are derived from the
+ * events buffer — see `lifecycle.ts`.
  */
 
 import type { VirtualItem } from "@tanstack/react-virtual";
@@ -40,8 +40,6 @@ import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
 import type {
 	PreviewCaseTarget,
 	PreviewSelectedCase,
-	ReplayData,
-	ReplayInit,
 	StagedUpload,
 } from "./types";
 
@@ -117,7 +115,6 @@ export interface EditScrollMemory {
  *     derived phase are computed from `events` via
  *     `lib/session/lifecycle.ts`.
  *   - App identity (`appId`) — current app being built/edited.
- *   - Replay (`replay`) — build replay playback data.
  *   - Interaction (`previewing`, `activeFieldId`) — how the user is editing.
  *   - Chrome (`sidebars`) — layout visibility + stash for mode transitions.
  *   - Connect stash — learn↔deliver toggle preservation.
@@ -128,11 +125,9 @@ export interface BuilderSessionState {
 	/** In-memory event-log buffer. Holds events for the *currently active
 	 *  run only* — cleared at both `beginRun()` (opening a new run) and
 	 *  `endRun()` (closing it). An empty buffer means no run is in
-	 *  progress; a non-empty buffer means the SSE stream is open (live)
-	 *  or the replay cursor is past the chapter start (replay). Live:
-	 *  appended by the stream dispatcher as `data-mutations` +
-	 *  `data-conversation-event` envelopes arrive. Replay: seeded by the
-	 *  hydrator + replaced on scrub.
+	 *  progress; a non-empty buffer means the SSE stream is open. Appended
+	 *  by the stream dispatcher as `data-mutations` +
+	 *  `data-conversation-event` envelopes arrive.
 	 *
 	 *  Every lifecycle derivation (phase, stage, error, status message,
 	 *  validation attempt, postBuildEdit) reads from this buffer — see
@@ -148,7 +143,7 @@ export interface BuilderSessionState {
 	 *  initial build (its structural stages drive the Generating layout);
 	 *  a run that started on a populated doc is a post-build edit (the
 	 *  builder stays interactive while the agent works). Stays `false`
-	 *  outside a run and for replay (which always replays builds). */
+	 *  outside a run. */
 	runStartedWithData: boolean;
 
 	/** Timestamp of the most recent whole-build completion — stamped by
@@ -179,14 +174,6 @@ export interface BuilderSessionState {
 	 *  `useAutoSave` gates on it so a viewer's local change can never reach
 	 *  the server write path (which would 404 the under-privileged PUT). */
 	canEdit: boolean;
-
-	// ── Replay ───────────────────────────────────────────────────────────
-
-	/** Replay session data — present only during replay mode. Holds the
-	 *  raw event log, derived chapter metadata, the current scrub cursor
-	 *  (index into `events`), and the URL to navigate to on exit. Chat
-	 *  messages are derived on read via `useReplayMessages`. */
-	replay: ReplayData | undefined;
 
 	// ── Interaction ──────────────────────────────────────────────────────
 
@@ -369,36 +356,13 @@ export interface BuilderSessionState {
 	setLoading: (loading: boolean) => void;
 
 	/** Append events to the buffer. Used by the stream dispatcher's
-	 *  `data-mutations` and `data-conversation-event` handlers (live),
-	 *  and by the replay hydrator. No-ops on empty arrays — identity
-	 *  preserved so memoized subscribers don't needlessly fire. */
+	 *  `data-mutations` and `data-conversation-event` handlers. No-ops on
+	 *  empty arrays — identity preserved so memoized subscribers don't
+	 *  needlessly fire. */
 	pushEvents: (events: Event[]) => void;
 
 	/** Append a single event. Convenience wrapper over `pushEvents`. */
 	pushEvent: (event: Event) => void;
-
-	/** Replace the events buffer wholesale. Used by `ReplayController`
-	 *  when scrubbing — every scrub is a full reconstruction from
-	 *  `events[0..cursor]`, not a delta, so appending would corrupt the
-	 *  buffer. Not exposed as an SSE handler path. */
-	replaceEvents: (events: Event[]) => void;
-
-	// ── Replay actions ──────────────────────────────────────────────────
-
-	/** Load a replay session from a raw event log + derived chapters.
-	 *  `initialCursor` is the scrub position to mount at (typically
-	 *  `events.length - 1` so the user lands on the final frame).
-	 *
-	 *  Takes `ReplayInit` directly — the same shape the RSC page builds
-	 *  and the BuilderProvider forwards. One source of truth for the
-	 *  page → provider → store handoff. */
-	loadReplay: (init: ReplayInit) => void;
-
-	/** Update the replay scrub cursor. Clamps to `[0, events.length - 1]`
-	 *  so callers don't have to repeat the bounds check, and no-ops when
-	 *  replay is not loaded or the clamped cursor equals the current one.
-	 *  The store is the source of truth for scrub position. */
-	setReplayCursor: (cursor: number) => void;
 
 	// ── Connect stash actions ────────────────────────────────────────────
 
@@ -519,17 +483,10 @@ export interface BuilderSessionState {
 	 *  selector subscription). */
 	getEditScroll: (formUuid: string) => EditScrollMemory | undefined;
 
-	/** Reset all transient session state to the initial values.
-	 *
-	 *  Composed alongside `resetBuilder` (the doc + engine + signal-grid
-	 *  reset helper) by callers that want a full clean slate — notably
-	 *  `ReplayController.handleExit`, which wipes both when the user
-	 *  leaves replay mode. Scrub callers (e.g. `goToChapter`) call
-	 *  `resetBuilder` without `reset()` so `replay.*` survives the click.
-	 *  Restores all generation lifecycle, replay, preview mode, sidebars,
-	 *  connect stash, and one-shot UI hints to defaults. The private
-	 *  doc-store reference installed by SyncBridge is NOT cleared — the
-	 *  provider's effect owns its lifetime. */
+	/** Reset all transient session state to the initial values — generation
+	 *  lifecycle, preview mode, sidebars, connect stash, and one-shot UI
+	 *  hints. The private doc-store reference installed by SyncBridge is NOT
+	 *  cleared — the provider's effect owns its lifetime. */
 	reset: () => void;
 }
 
@@ -547,11 +504,11 @@ export type BuilderSessionStoreApi = ReturnType<
  *  FIRST render (e.g. `loading=true` for existing apps so `derivePhase`
  *  returns `Loading` before any effect runs). */
 export interface SessionStoreInit {
-	/** Start in loading state — used when hydrating an existing app or
-	 *  replaying a build so the builder shows the loading skeleton
-	 *  immediately rather than flashing the idle/chat state. */
+	/** Start in loading state — used when hydrating an existing app so the
+	 *  builder shows the loading skeleton immediately rather than flashing
+	 *  the idle/chat state. */
 	loading?: boolean;
-	/** Pre-set the Firestore app document ID. */
+	/** Pre-set the app id. */
 	appId?: string;
 	/** Pre-set the edit capability from the server-resolved Project role.
 	 *  Omitted (defaults `true`) for new builds — the creator always edits. */
@@ -589,9 +546,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				/* App identity */
 				appId: init?.appId as string | undefined,
 				canEdit: init?.canEdit ?? true,
-
-				/* Replay */
-				replay: undefined as ReplayData | undefined,
 
 				/* Interaction */
 				previewing: false,
@@ -683,10 +637,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set((s) => ({ events: [...s.events, event] }));
 				},
 
-				replaceEvents(events: Event[]) {
-					set({ events });
-				},
-
 				setAppId(id: string) {
 					if (id === get().appId) return;
 					set({ appId: id });
@@ -695,36 +645,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				setLoading(loading: boolean) {
 					if (loading === get().loading) return;
 					set({ loading });
-				},
-
-				// ── Replay actions ──────────────────────────────────────
-
-				loadReplay({ events, chapters, initialCursor, exitPath }) {
-					set({
-						replay: {
-							events,
-							chapters,
-							cursor: initialCursor,
-							exitPath,
-						},
-					});
-				},
-
-				setReplayCursor(cursor: number) {
-					const replay = get().replay;
-					/* No-op outside an active replay session — cursor has no
-					 * meaning without an event log to index into. */
-					if (!replay) return;
-					/* Clamp to valid event indices. Empty-events replay pins the
-					 * cursor at 0 (`max` collapses to 0). Clamping here lets UI
-					 * code pass deltas like `cursor - 1` without guarding. */
-					const max = Math.max(0, replay.events.length - 1);
-					const clamped = Math.min(Math.max(cursor, 0), max);
-					/* Skip redundant state writes — matches the setLoading /
-					 * setAppId idiom where same-value calls don't notify
-					 * subscribers. */
-					if (clamped === replay.cursor) return;
-					set({ replay: { ...replay, cursor: clamped } });
 				},
 
 				// ── Connect stash actions ───────────────────────────────
@@ -1184,9 +1104,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 						/* App identity */
 						appId: undefined,
-
-						/* Replay */
-						replay: undefined,
 
 						/* Interaction */
 						previewing: false,

@@ -1,4 +1,3 @@
-import type { Timestamp } from "@google-cloud/firestore";
 import { MAX_GENERATION_MINUTES, MAX_RUN_MINUTES } from "./constants";
 import type { AppDoc } from "./types";
 
@@ -28,34 +27,34 @@ import type { AppDoc } from "./types";
  */
 
 /** A `run_lock` deadline that has passed (a hard-killed edit's lapsed lease). A
- * missing or non-Timestamp `expireAt` reads as EXPIRED (dead) rather than
- * throwing — the safe default for a corrupt lock is "not live", keeping the
- * derivation total. */
+ * missing or non-Date `expireAt` reads as EXPIRED (dead) rather than throwing —
+ * the safe default for a corrupt lock is "not live", keeping the derivation
+ * total. */
 function lockExpired(
 	lock: NonNullable<AppDoc["run_lock"]>,
 	now: number,
 ): boolean {
-	const ts = lock.expireAt as Timestamp | undefined;
-	if (typeof ts?.toDate !== "function") return true;
-	return ts.toDate().getTime() <= now;
+	const ts = lock.expireAt as Date | undefined;
+	if (typeof ts?.getTime !== "function") return true;
+	return ts.getTime() <= now;
 }
 
 /** Whether a build's `updated_at` is inside the staleness window (a live build
- * advances it on every commit; a dead one goes quiet). A missing or non-Timestamp
+ * advances it on every commit; a dead one goes quiet). A missing or non-Date
  * `updated_at` reads as NOT fresh (dead) rather than throwing — the safe default
  * for a corrupt/absent timestamp is "stale", and it keeps the derivation total. */
 function generatingIsFresh(
 	updatedAt: AppDoc["updated_at"] | undefined,
 	now: number,
 ): boolean {
-	const ts = updatedAt as Timestamp | undefined;
-	if (typeof ts?.toDate !== "function") return false;
-	return now - ts.toDate().getTime() <= MAX_GENERATION_MINUTES * 60_000;
+	const ts = updatedAt as Date | undefined;
+	if (typeof ts?.getTime !== "function") return false;
+	return now - ts.getTime() <= MAX_GENERATION_MINUTES * 60_000;
 }
 
 /**
  * The derived run-lease view of an app doc. Every field is a DECISION, not a raw
- * read — consumers branch on these, never on the underlying Firestore leaves.
+ * read — consumers branch on these, never on the underlying row fields.
  */
 export interface RunLease {
 	/**
@@ -91,13 +90,13 @@ export interface RunLease {
 	 * Build: the reservation marker's `runId === runId` (a build has no lock to
 	 * carry an id), NON-LENIENT — a marker with NO `runId` is owned by NOBODY. That
 	 * is the reaper-race discriminator: a live run's marker carries its `runId`
-	 * (`reserveCredits` writes it), and the REAPERS CLEAR the `runId` when they
+	 * (`debitAndBookReservation` writes it), and the REAPERS CLEAR the `runId` when they
 	 * resolve a stranded run. So a settled/present marker that still carries a
 	 * `runId` is a run owning its own outcome (its terminal writer's `failApp` is
 	 * correct), while a `runId`-cleared marker is a reaped GHOST — `mine` returns
 	 * false, so the ghost's stale terminal writer can't `failApp` a taker that
-	 * re-claimed the freed app in the `[claim, reserveCredits)` window. A legacy
-	 * pre-P9 marker also lacks a `runId` and is likewise unowned by `mine`; both a
+	 * re-claimed the freed app. A migrated
+	 * legacy marker may also lack a `runId` and is likewise unowned by `mine`; both a
 	 * ghost and a legacy marker are resolved by the reapers' OWN lenient clauses
 	 * (`reapableStrandedEdit`/`reapableStaleBuild`), never through `mine`.
 	 */
@@ -107,8 +106,8 @@ export interface RunLease {
 	 * ownership gate for all three terminal writers (`completeAndSettleRun` /
 	 * `clearRunLockAndSettle` / `settleAndRelease`) and the flush `refundReservation`,
 	 * so they can't diverge. A run owns its app until it terminates, so on the happy
-	 * path this is trivially true; it guards the ONE race that remains without a
-	 * barge — a long no-commit BUILD whose `updated_at` went stale mid-run is REAPED
+	 * path this is trivially true; it guards the ONE surviving race
+	 * — a long no-commit BUILD whose `updated_at` went stale mid-run is REAPED
 	 * (flipped to `error` + settled) and the freed app RE-CLAIMED by another run
 	 * before this run's terminal write lands; the gate makes that stale write no-op
 	 * rather than clobber the new run. Per mode:
@@ -152,7 +151,7 @@ export interface RunLease {
 	 * The app's LAST run was resolved by a REAPER and nothing re-claimed since:
 	 * a marker present, SETTLED, with its `runId` CLEARED. Only the two reaper
 	 * refunds clear a marker's `runId` — a run's own terminal writers keep it,
-	 * and a re-claimant's `reserveCredits` books a fresh marker carrying its own
+	 * and a re-claimant's claim books a fresh marker carrying its own
 	 * — so this shape is the reaper's signature. Combined with `mode: "none"` +
 	 * `status: "error"` by the build completion's FALSE-REAP SELF-HEAL: a live
 	 * build reaped mid-run (a lapsed clock) that then finishes cleanly flips the
@@ -219,10 +218,10 @@ export function runLeaseState(
 			// reapers CLEAR a reaped marker's runId, so a settled marker still carrying
 			// a runId is a run that will resolve itself (its terminal writer's failApp
 			// is correct), while a runId-cleared marker is a run the reaper already
-			// resolved (its stale terminal writer must NOT failApp the taker's re-claim
-			// that landed in the [claim, reserveCredits) window). A marker ALWAYS carries
-			// a runId once reserved (`reserveCredits` writes it); an absent runId is
-			// either a legacy pre-P9 marker (resolved by the reapers' own lenient
+			// resolved (its stale terminal writer must NOT failApp a taker's
+			// re-claim). A marker ALWAYS carries a runId once reserved
+			// (`debitAndBookReservation` writes it); an absent runId is
+			// either a migrated legacy marker (resolved by the reapers' own lenient
 			// clauses, never through `mine`) or a reaped ghost — neither is "mine".
 			return reservation?.runId === runId;
 		}
@@ -258,11 +257,10 @@ export function runLeaseState(
 	// A recently-paused edit whose lease is still future is NOT reaped (lock in the
 	// future), and its own resume `reacquireLease`s and renews. `awaiting_input` is
 	// NOT excluded here — the lapsed lease is the reap signal, paused or not.
-	// The marker and the lapsed lock need NOT belong to the same run: a second
-	// edit hard-killed inside its own [claimRun, reserveCredits) window leaves the
-	// PRIOR run's unsettled marker under ITS OWN lapsed lock (the claim overwrites
-	// the lock but never touches the marker, and the taker died before its
-	// reserveCredits leftover-refund could hand the prior hold back) — a same-run
+	// The marker and the lapsed lock need NOT belong to the same run: the atomic
+	// claim+reserve books a fresh marker with every claim, so new data never
+	// produces the split shape — but MIGRATED legacy rows can carry a prior run's
+	// unsettled marker under a different run's lapsed lock, and a same-run
 	// clause would make that orphan shape permanently unreapable. A lapsed lock
 	// plus an unsettled marker means BOTH runs are dead, whoever each was; the
 	// refund targets the marker's own charged actor.

@@ -91,6 +91,17 @@ RUN npx esbuild scripts/migrate.ts \
       --tsconfig=tsconfig.json --external:pg-native \
       --outfile=migrate.cjs
 
+# Bundle the one-time Firestore→Postgres data-cutover entrypoint the same way.
+# Prod Cloud SQL is private-IP + IAM only, so the cutover must run inside the
+# VPC: a one-off execution of the migrate Job's image with a
+# `node cutover.cjs --project commcare-nova --apply` command override.
+# Cutover-only — this block and the script leave with the cutover scripts'
+# post-migration deletion commit.
+RUN npx esbuild scripts/migrate-firestore-to-pg.ts \
+      --bundle --platform=node --target=node22 --format=cjs \
+      --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=cutover.cjs
+
 # --- Stage 3: Production runner ---
 FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
@@ -113,6 +124,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # the builder stage) must be present. No external binary and no raw migration
 # files — the migration modules are bundled into `migrate.cjs`.
 COPY --from=builder --chown=nextjs:nodejs /app/migrate.cjs ./migrate.cjs
+# One-time data-cutover entrypoint (see the builder-stage note); leaves with
+# the cutover scripts' post-migration deletion commit.
+COPY --from=builder --chown=nextjs:nodejs /app/cutover.cjs ./cutover.cjs
 
 USER nextjs
 

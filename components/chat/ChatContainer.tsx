@@ -8,7 +8,6 @@
  * useChat here instead of in BuilderLayout, those per-token re-renders
  * are scoped to ChatSidebar — the only component that needs messages.
  *
- * Replay messages are read from the session store (written by ReplayController).
  * Server-rendered thread history is passed through as children.
  */
 "use client";
@@ -36,12 +35,7 @@ import {
 import { applyStreamEvent } from "@/lib/generation/streamDispatcher";
 import { useExternalNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
-import {
-	derivePhase,
-	useCanEdit,
-	useInReplayMode,
-	useReplayMessages,
-} from "@/lib/session/hooks";
+import { derivePhase, useCanEdit } from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { showToast } from "@/lib/ui/toastStore";
@@ -213,15 +207,10 @@ export function ChatContainer({
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
 	const reconcilerCtx = useReconcilerContext();
-	const inReplayMode = useInReplayMode();
 	/* Viewers (view-only Project members) get a read-only conversation — the
-	 * SA is the edit mechanism, so the composer hides exactly as it does in
-	 * replay. The write paths reject their edits server-side regardless. */
+	 * SA is the edit mechanism, so the composer hides. The write paths reject
+	 * their edits server-side regardless. */
 	const canEdit = useCanEdit();
-	/** Replay messages — derived on read from the session store's event
-	 *  log + cursor. ReplayController writes the cursor; this hook
-	 *  projects the events into `UIMessage[]`. */
-	const replayMessages = useReplayMessages();
 
 	// ── Stable refs so Chat callbacks always read the latest stores ──────
 	const docStoreRef = useRef(docStore);
@@ -230,7 +219,7 @@ export function ChatContainer({
 	sessionStoreRef.current = sessionApi;
 	/* The reconciler context (reconciler + activation), read through a ref so
 	 * the Chat callbacks always see the latest without recreating the Chat
-	 * instance. Null in replay (no reconciler mounts). */
+	 * instance. */
 	const reconcilerCtxRef = useRef(reconcilerCtx);
 	reconcilerCtxRef.current = reconcilerCtx;
 	const runIdRef = useRef<string | undefined>(undefined);
@@ -499,9 +488,9 @@ export function ChatContainer({
 
 	// ── Derived values ───────────────────────────────────────────────────
 
-	/* Viewers (view-only Project members) get a read-only conversation, as does
-	 * replay — the composer hides in both. */
-	const readOnly = inReplayMode || !canEdit;
+	/* Viewers (view-only Project members) get a read-only conversation — the
+	 * composer hides. */
+	const readOnly = !canEdit;
 
 	/* The SA is in play the moment a message exists — `useChat` appends the
 	 * user's turn optimistically, so this flips on the same tick as the send.
@@ -534,19 +523,19 @@ export function ChatContainer({
 				) : undefined
 			}
 			composerBusy={creatingBlankApp}
-			messages={inReplayMode ? replayMessages : messages}
-			status={inReplayMode ? "ready" : status}
+			messages={messages}
+			status={status}
 			onSend={handleSend}
 			addToolOutput={addToolOutput}
 			readOnly={readOnly}
 			readOnlyNotice={
-				!canEdit && !inReplayMode
+				!canEdit
 					? "You have view-only access to this app. Ask a Project admin for edit access to make changes."
 					: undefined
 			}
 			isExistingApp={isExistingApp}
 		>
-			{!inReplayMode && children}
+			{children}
 		</ChatSidebar>
 	);
 }

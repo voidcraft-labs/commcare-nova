@@ -1,7 +1,7 @@
 // lib/agent/index.ts
 //
 // Public barrel for the lib/agent layer. Server-only: every symbol here
-// transitively imports Anthropic and firebase-admin.
+// transitively imports Anthropic and the server data layer.
 
 // errorClassifier — shared error taxonomy + user-facing messages.
 export type { ClassifiedError, ErrorType } from "./errorClassifier";

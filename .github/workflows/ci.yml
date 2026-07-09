@@ -142,11 +142,6 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      # The Firestore emulator (scripts/smoke.sh) runs on a JVM.
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
       - run: npm ci
       # Cache the Chromium binary (~150MB) so it isn't re-downloaded every run.
       # Keyed on the whole lockfile (coarse — any dep bump re-saves, but
@@ -158,22 +153,14 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: playwright-${{ runner.os }}-
-      # Cache the Firestore emulator JAR (the emulator itself warns it is
-      # re-downloaded every run without this).
-      - name: Cache Firestore emulator
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/firebase/emulators
-          key: firebase-emulators-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: firebase-emulators-${{ runner.os }}-
       - name: Install Playwright (Chromium + OS deps)
         run: npx playwright install --with-deps chromium
-      # Hermetic: Firestore emulator + local Postgres + seeded session. No real
-      # GCP, no prod credentials, no LLM spend. Runs the credential-free
-      # `public` checks and the seeded-session `authed` checks. This catches
-      # UI / route / render / session-contract breaks — but NOT the outbound
-      # dependency breaks (the emulator stubs that network out); the
-      # `auth-healthz` job below is the gate for those.
+      # Hermetic: local Postgres + seeded session. No real GCP, no prod
+      # credentials, no LLM spend. Runs the credential-free `public` checks and
+      # the seeded-session `authed` checks. This catches UI / route / render /
+      # session-contract breaks — but NOT the outbound dependency breaks (the
+      # local stack networks nothing out); the `auth-healthz` job below is the
+      # gate for those.
       - name: Smoke suite
         run: npm run test:smoke -- --project=public --project=authed
       - name: Upload Playwright report
@@ -185,17 +172,15 @@ jobs:
           retention-days: 7
 
   auth-healthz:
-    # Kept under its existing required-check name ("Auth Firestore healthz") so the
-    # branch ruleset needs no change — it now runs TWO probes over the real
-    # outbound HTTP stack on the prod-pinned Node (the emulator-backed smoke can't
-    # catch this class). Either probe failing reds this required gate:
-    #   1. Auth credential path — login runs through the Cloud SQL connector,
-    #      which mints its cert + IAM token via google-auth-library → gaxios →
-    #      node-fetch (the #143/#145 outage class). scripts/ci/auth-healthz.ts
-    #      exercises that stack directly (a WIF token mint, no database).
-    #   2. Firestore app-data path — apps / threads / runs / credits / usage /
-    #      media stay on Firestore; scripts/ci/firestore-healthz.ts does a real
-    #      firebase-admin → Firestore round-trip.
+    # The required-check NAME below ("Auth Firestore healthz") is PINNED by the
+    # branch ruleset — keep it verbatim even though the job no longer probes
+    # Firestore. It now runs ONE probe over the real outbound HTTP stack on the
+    # prod-pinned Node (the local-Postgres smoke can't catch this class): the
+    # auth credential path — login runs through the Cloud SQL connector, which
+    # mints its cert + IAM token via google-auth-library → gaxios → node-fetch
+    # (the #143/#145 outage class). scripts/ci/auth-healthz.ts exercises that
+    # stack directly (a WIF token mint, no database). Its failure reds this
+    # required gate.
     name: Auth Firestore healthz
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -227,16 +212,6 @@ jobs:
       # here and reds the PR.
       - name: Auth credential — token mint over the prod outbound stack
         run: npx tsx scripts/ci/auth-healthz.ts
-      # Firestore app-data path: a real firebase-admin → Firestore round-trip.
-      # `!cancelled()` so it still runs (and reports) even when the auth probe
-      # above fails — both outbound paths get a verdict, not just the first to break.
-      - name: Firestore app-data round-trip on the prod Node
-        if: ${{ !cancelled() }}
-        run: npx tsx scripts/ci/firestore-healthz.ts
-        env:
-          # Set explicitly rather than relying on google-github-actions/auth to
-          # export it — the script requires GOOGLE_CLOUD_PROJECT.
-          GOOGLE_CLOUD_PROJECT: ${{ vars.CI_GCP_PROJECT }}
 
   auth-contract:
     # Gates the session-cookie contract (a forged cookie ⇄ the real

@@ -8,7 +8,7 @@
  * This pure function makes that choice deterministic and identical across the
  * two surfaces that upload: the MCP `upload_app_to_hq` tool and the HTTP
  * `/api/commcare/upload` route. Keeping it pure (no I/O) is what lets it be
- * exhaustively unit-tested without touching Firestore or HQ.
+ * exhaustively unit-tested without touching the database or HQ.
  *
  * It is generic over any space with a `name`, deliberately NOT importing
  * CommCare's `CommCareDomain` — the resolver only ever matches on `name` and

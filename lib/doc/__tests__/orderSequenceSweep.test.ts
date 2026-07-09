@@ -53,8 +53,6 @@ const SEQUENCE_CONSUMERS = [
 	"lib/doc/diffDocsToMutations.ts",
 	// Retirement reference placement.
 	"lib/doc/caseTypeRetirement.ts",
-	// Replay chapter subtitles resolve a stage tag's DISPLAY-order index.
-	"lib/log/replayChapters.ts",
 	// Close-field-ref resolution (must agree with the wire emitter's findField).
 	"lib/doc/expressionText.ts",
 	// Keyboard / inspector move-target resolution.

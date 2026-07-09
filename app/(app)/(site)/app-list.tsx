@@ -31,8 +31,6 @@ interface AppListProps {
 	projectId: string;
 	/** Signed-in user — resolves which Projects an app may move into. */
 	userId: string;
-	/** Whether to show admin-only replay buttons on active cards. */
-	isAdmin: boolean;
 }
 
 /**
@@ -43,7 +41,7 @@ interface AppListProps {
  */
 const PAGE_SIZE = 50;
 
-export async function AppList({ projectId, userId, isAdmin }: AppListProps) {
+export async function AppList({ projectId, userId }: AppListProps) {
 	const [activeRes, deletedRes, projects] = await Promise.all([
 		listApps(projectId, { limit: PAGE_SIZE, sort: "updated_desc" }),
 		listDeletedApps(projectId, { limit: PAGE_SIZE }),
@@ -97,7 +95,6 @@ export async function AppList({ projectId, userId, isAdmin }: AppListProps) {
 			<AppListBody
 				active={activeRes.apps}
 				deleted={deletedRes.apps}
-				showReplay={isAdmin}
 				canMove={canMove}
 				moveTargets={moveTargets}
 			/>

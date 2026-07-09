@@ -27,7 +27,6 @@ import { deleteApp, moveApp, restoreApp } from "./app-actions";
 interface AppListBodyProps {
 	active: AppSummary[];
 	deleted: DeletedAppSummary[];
-	showReplay: boolean;
 	/** Whether the user may move apps out of the active Project (admin/owner) —
 	 *  drives whether the move menu appears (even with no destinations). */
 	canMove: boolean;
@@ -40,7 +39,6 @@ type View = "active" | "deleted";
 export function AppListBody({
 	active,
 	deleted,
-	showReplay,
 	canMove,
 	moveTargets,
 }: AppListBodyProps) {
@@ -72,7 +70,6 @@ export function AppListBody({
 									app={app}
 									index={i}
 									href={app.status === "error" ? undefined : `/build/${app.id}`}
-									showReplay={showReplay}
 									onDelete={deleteApp}
 									onMove={moveApp}
 									canMove={canMove}

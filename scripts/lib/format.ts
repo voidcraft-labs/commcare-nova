@@ -47,9 +47,14 @@ export function truncate(str: string, maxLen = 120): string {
 	return `${str.slice(0, maxLen)}…`;
 }
 
-/** Firestore Timestamp → ISO string, with fallback for missing values. */
-export function tsToISO(ts: { toDate(): Date } | undefined | null): string {
-	return ts?.toDate?.().toISOString() ?? "(missing)";
+/**
+ * Timestamp → ISO string, with a fallback for missing values. Accepts the
+ * `Date` a Postgres timestamp column reads back as, an already-ISO string, or
+ * `null`/`undefined`.
+ */
+export function tsToISO(ts: Date | string | undefined | null): string {
+	if (ts == null) return "(missing)";
+	return ts instanceof Date ? ts.toISOString() : ts;
 }
 
 // ── Section chrome ──────────────────────────────────────────────────

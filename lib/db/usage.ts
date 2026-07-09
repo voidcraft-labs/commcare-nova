@@ -1,47 +1,66 @@
 /**
  * Usage tracking — per-user monthly ACTUAL-dollar cost aggregation.
  *
- * Reads and writes `usage/{userId}/months/{yyyy-mm}` documents (period string
- * = doc ID, so a read is a single document fetch). This is the accumulate-only
- * cost record: increments are atomic via FieldValue.increment(), and nothing
- * ever resets it — an admin credit reset/grant touches the parallel `credits/`
- * ledger, never this one. Its sole gate consumer is the invisible
+ * Reads and writes the `usage_months` row keyed `(user_id, period)`, so a read
+ * is a single primary-key fetch. This is the accumulate-only cost record:
+ * increments add to the stored counters in one UPSERT, and nothing ever resets
+ * it — an admin credit reset/grant touches the parallel `credit_months` ledger,
+ * never this one. Its sole gate consumer is the invisible
  * `ACTUAL_COST_BACKSTOP_USD` ($50) runaway guard, which reads the running
  * `cost_estimate` via `getMonthlyUsage`. The user-facing quota is credits,
  * not dollars — see `./credits`.
  *
  * Fail-closed: the route wraps the pre-request `getMonthlyUsage` read in a
- * try/catch — if Firestore is down, the read fails → 503. No separate retry or
- * pending mechanism: a Firestore outage that blocks writes also blocks reads.
+ * try/catch — if Postgres is down, the read fails → 503. No separate retry or
+ * pending mechanism: an outage that blocks writes also blocks reads.
  */
-import { FieldValue } from "@google-cloud/firestore";
+import { sql } from "kysely";
 import { log } from "@/lib/logger";
 import { DEFAULT_PRICING, MODEL_PRICING } from "@/lib/models";
 import { refundReservation } from "./credits";
-import { docs } from "./firestore";
 import { getCurrentPeriod } from "./period";
+import { getAppDb } from "./pg";
 import { writeRunSummary } from "./runSummary";
 import type { RunSummaryDoc, UsageDoc } from "./types";
 
 // ── Read ──────────────────────────────────────────────────────────
 
 /**
- * Load the current month's usage for a user. Returns null if no usage
- * document exists yet (first request of the month). The Zod converter
- * validates the read and fills defaults (all counters default to 0).
+ * Load the current month's usage for a user. Returns null if no usage row
+ * exists yet (first request of the month). The `bigint` token columns come
+ * back from pg as strings, so each is `Number(...)`-ed here.
  *
  * This is a blocking read — used for the pre-request actual-$ backstop check.
  */
 export async function getMonthlyUsage(
 	userId: string,
 ): Promise<UsageDoc | null> {
-	const snap = await docs.usage(userId, getCurrentPeriod()).get();
-	return snap.exists ? (snap.data() ?? null) : null;
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("usage_months")
+		.select([
+			"input_tokens",
+			"output_tokens",
+			"cost_estimate",
+			"request_count",
+			"updated_at",
+		])
+		.where("user_id", "=", userId)
+		.where("period", "=", getCurrentPeriod())
+		.executeTakeFirst();
+	if (!row) return null;
+	return {
+		input_tokens: Number(row.input_tokens),
+		output_tokens: Number(row.output_tokens),
+		cost_estimate: row.cost_estimate,
+		request_count: row.request_count,
+		updated_at: row.updated_at,
+	};
 }
 
 // ── Write ─────────────────────────────────────────────────────────
 
-/** Deltas to increment on the usage document after a request completes. */
+/** Deltas to add to the usage row after a request completes. */
 interface UsageIncrement {
 	input_tokens: number;
 	output_tokens: number;
@@ -49,30 +68,42 @@ interface UsageIncrement {
 }
 
 /**
- * Atomically increment the current month's usage counters for a user.
- * Single attempt, throws on failure — consistent with every other
- * Firestore write in the codebase. The pre-request backstop check (read)
- * is the fail-closed gate; if Firestore is down for writes, it's down
- * for reads too, and the route returns 503.
+ * Accumulate the current month's usage counters for a user. Single attempt,
+ * throws on failure — consistent with every other write here. The pre-request
+ * backstop check (read) is the fail-closed gate; if Postgres is down for
+ * writes, it's down for reads too, and the route returns 503.
  *
- * Uses set({ merge: true }) with FieldValue.increment() so the document
- * is created automatically on the first request of a new month. No
- * separate create path, no read-then-write race conditions.
+ * One `INSERT ... ON CONFLICT (user_id, period) DO UPDATE` seeds the row on the
+ * first request of a new month and otherwise adds this request's deltas
+ * (`request_count + 1`) to the stored totals in the same statement — so there
+ * is no separate create path and no read-then-write race.
  */
 export async function incrementUsage(
 	userId: string,
 	deltas: UsageIncrement,
 ): Promise<void> {
-	await docs.usage(userId, getCurrentPeriod()).set(
-		{
-			input_tokens: FieldValue.increment(deltas.input_tokens),
-			output_tokens: FieldValue.increment(deltas.output_tokens),
-			cost_estimate: FieldValue.increment(deltas.cost_estimate),
-			request_count: FieldValue.increment(1),
-			updated_at: FieldValue.serverTimestamp(),
-		},
-		{ merge: true },
-	);
+	const db = await getAppDb();
+	await db
+		.insertInto("usage_months")
+		.values({
+			user_id: userId,
+			period: getCurrentPeriod(),
+			input_tokens: deltas.input_tokens,
+			output_tokens: deltas.output_tokens,
+			cost_estimate: deltas.cost_estimate,
+			request_count: 1,
+			updated_at: new Date(),
+		})
+		.onConflict((oc) =>
+			oc.columns(["user_id", "period"]).doUpdateSet({
+				input_tokens: sql<number>`usage_months.input_tokens + excluded.input_tokens`,
+				output_tokens: sql<number>`usage_months.output_tokens + excluded.output_tokens`,
+				cost_estimate: sql<number>`usage_months.cost_estimate + excluded.cost_estimate`,
+				request_count: sql<number>`usage_months.request_count + 1`,
+				updated_at: new Date(),
+			}),
+		)
+		.execute();
 }
 
 // ── Cost estimation ───────────────────────────────────────────────
@@ -88,8 +119,9 @@ export async function incrementUsage(
  *
  * `uncachedInput` is floored at zero: if a caller mis-reports cache tokens
  * such that the sum exceeds `inputTokens`, a negative uncached count would
- * flow into `FieldValue.increment` and corrupt the monthly actual-$ counter
- * (and misreport the run summary). Clamp here rather than trust the source.
+ * flow into the monthly `incrementUsage` accumulation and corrupt the
+ * actual-$ counter (and misreport the run summary). Clamp here rather than
+ * trust the source.
  *
  * Exported so admin inspect scripts can recompute costs from stored run
  * summaries without depending on the accumulator class.
@@ -184,9 +216,9 @@ interface AccumulatorRunConfig {
 	sentMessageCount: number;
 	sentMessageChars: number;
 	/**
-	 * Credit-reservation context — see `AccumulatorSeed`. Seed-only until P9's
-	 * serialize-with-wait path, where a conflicting run reserves INSIDE the
-	 * stream (after the poll-wait + `claimRun`), so the accumulator — built
+	 * Credit-reservation context — see `AccumulatorSeed`. Seed-only except on
+	 * the serialize-with-wait path, where a conflicting run reserves INSIDE the
+	 * stream (the poll-wait winning `claimAndReserveRun`), so the accumulator — built
 	 * before the stream with no reservation context on that path — must be told
 	 * the reservation once it lands, or the flush-time refund/settle targets the
 	 * wrong period (or misfires entirely). All three travel together.

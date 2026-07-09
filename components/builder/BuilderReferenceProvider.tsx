@@ -5,9 +5,9 @@
  * The in-scope form lives on the URL, so `getRefContext` needs a
  * `useLocation()` read. Keeping that read here — rather than in
  * `BuilderLayout` — preserves the layout's "re-render only on app
- * lifecycle transitions and replay toggle" invariant: every selection
- * change issues a navigation, and a layout-level `useLocation()` would
- * cascade those into layout re-renders.
+ * lifecycle transitions" invariant: every selection change issues a
+ * navigation, and a layout-level `useLocation()` would cascade those
+ * into layout re-renders.
  *
  * This component owns the `useLocation()` subscription, constructs
  * `getRefContext` via the doc store imperatively (no reactive

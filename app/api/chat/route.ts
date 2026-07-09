@@ -28,20 +28,20 @@ import {
 } from "@/lib/db/appAccess";
 import {
 	type ClaimedRun,
-	claimRun,
+	claimAndReserveRun,
 	clearRunLock,
 	clearRunLockAndSettle,
 	completeAndSettleRun,
 	createApp,
 	editRunLockHeldBy,
 	failApp,
-	hasActiveGeneration,
+	GenerationInProgressError,
 	loadApp,
 	loadAppHolderName,
 	type ReacquireOutcome,
 	RunConflictError,
 	reacquireLease,
-	restoreRunState,
+	reserveForNewBuild,
 	setAwaitingInput,
 } from "@/lib/db/apps";
 import { ACTUAL_COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
@@ -49,7 +49,6 @@ import {
 	getCurrentCreditBalance,
 	OutOfCreditsError,
 	type Reservation,
-	reserveCredits,
 	settleAndRelease,
 } from "@/lib/db/credits";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
@@ -117,7 +116,7 @@ export async function POST(req: Request) {
 
 	// Messages come from the AI SDK's useChat. The route owns the SECURITY gate on
 	// them: the untrusted attachment metadata is re-resolved every turn (each ref
-	// → a Firestore load + a GCS/extract read) and persisted into the event log,
+	// → an asset-row load + a GCS/extract read) and persisted into the event log,
 	// so `validateChatMessages` bounds the message count + the request-wide
 	// attachment total and enforces the per-ref field caps. It deliberately does
 	// NOT re-parse the SDK-owned message `parts` — that shape is the SDK's contract.
@@ -182,7 +181,7 @@ export async function POST(req: Request) {
 	});
 
 	/* Credit gate — fast-fail read. Sits where the dollar cap used to, at the top
-	 * of the handler, and FAILS CLOSED: any Firestore read error rejects with 503
+	 * of the handler, and FAILS CLOSED: any database read error rejects with 503
 	 * rather than letting an ungated/uncharged generation through. This is the
 	 * cheap pre-flight read; the transactional reservation that actually books
 	 * the charge runs later, after every pre-stream rejection point.
@@ -234,24 +233,31 @@ export async function POST(req: Request) {
 	/* Stable per-request run identifier. Every event envelope (mutation or
 	 * conversation) carries this value; the client echoes it back on follow-up
 	 * requests so threads stay aligned across turns. Minted here — before any
-	 * Firestore work — so failure paths below can still surface it if needed. */
+	 * persistence work — so failure paths below can still surface it if needed. */
 	const effectiveRunId = runId ?? crypto.randomUUID();
 
 	/*
 	 * Resolve appId for authenticated users. Existing apps already have
-	 * an ID from the client. New builds create a real app document in Firestore
+	 * an ID from the client. New builds create a real app row
 	 * (status: 'generating') so log events have an app to live under from the start.
 	 *
 	 * The app doc is created BEFORE the concurrency check so it acts as a
-	 * lock — a second concurrent request will see this doc in `hasActiveGeneration`
+	 * lock — a second concurrent request will see this row in the in-transaction
+	 * concurrency scan
 	 * and reject. Without this ordering, two simultaneous requests could both
 	 * pass the check before either writes a doc (classic TOCTOU).
 	 */
 	let appId = parsed.data.appId;
 	let appCreated = false;
+	/* The credit reservation this run booked — set atomically with the claim
+	 * (`claimAndReserveRun` / `reserveForNewBuild`) pre-stream on the free /
+	 * first-claim paths, or inside `execute` after the serialize-with-wait poll
+	 * loop. Threaded into the accumulator so a failed or no-op run refunds the
+	 * exact charge against the exact month. */
+	let reservation: Reservation | undefined;
 	/* The persisted app doc for an EXISTING-app request — captured off the
 	 * authorization read below so the SA's working doc seeds from the saved
-	 * blueprint with no extra Firestore fetch. Undefined for a new build (no
+	 * blueprint with no extra load. Undefined for a new build (no
 	 * app exists yet); the seed falls back to the empty doc there. */
 	let loadedApp:
 		| Awaited<ReturnType<typeof resolveAppAccess>>["app"]
@@ -261,14 +267,14 @@ export async function POST(req: Request) {
 	 * used to scope chat-attachment resolution (`resolveAttachments`) to the
 	 * Project the documents live in. */
 	let projectId: string | undefined;
-	/* Set when this POST claimed an existing app's run window (`claimRun` —
-	 * a build flipped to `generating`, or an edit's `run_lock`). Carries the
-	 * shape the claim moved the app out of, so the post-claim bail-out arms
-	 * (concurrency, out-of-credits, reservation failure) can put the row back
-	 * exactly where the claim found it — failing a previously-`complete` app to
-	 * `error` over a rejected request would brick a working app. Set either
-	 * pre-stream (the free / first-claim path) or inside `execute` (after the
-	 * serialize-with-wait poll loop). */
+	/* Set when this POST claimed an existing app's run window
+	 * (`claimAndReserveRun` — a build flipped to `generating`, or an edit's
+	 * `run_lock` — with the credit debit in the SAME transaction). There is no
+	 * prior-state snapshot to carry: every claim rejection (busy, concurrency,
+	 * out-of-credits, infrastructure) is a transaction rollback that held
+	 * nothing, so there is nothing to restore. Set either pre-stream (the free
+	 * / first-claim path) or inside `execute` (after the serialize-with-wait
+	 * poll loop). */
 	let claimedRun: ClaimedRun | undefined;
 	/* Set when the pre-stream claim CONFLICTED — another run holds the app. The
 	 * route does NOT 429; it opens the SSE stream and, inside `execute`, emits a
@@ -330,6 +336,56 @@ export async function POST(req: Request) {
 				{ status: 503 },
 			);
 		}
+		/* Reserve the new build's credits — one transaction over the app row the
+		 * create just wrote (the row itself is the claim: `createApp` writes it
+		 * `generating` BEFORE this, so a second concurrent new build sees it in
+		 * the in-transaction concurrency scan). Every rejection is a rollback:
+		 * the concurrency cap and the out-of-credits arms fail the just-created
+		 * doc; an infrastructure fault leaves the row `generating` for the
+		 * reaper to refund-and-flip. */
+		if (chargeable) {
+			try {
+				reservation = await reserveForNewBuild(
+					appId,
+					userId,
+					cost,
+					effectiveRunId,
+				);
+			} catch (err) {
+				if (err instanceof GenerationInProgressError) {
+					/* Awaited: the reserve rolled back, so this fresh `generating` row
+					 * carries no marker — until it flips to `error` it reads as the
+					 * user's own live build and blocks their next POST. */
+					await failApp(appId, "generation_in_progress");
+					return Response.json(
+						{
+							error: MESSAGES.generation_in_progress,
+							type: "generation_in_progress",
+						},
+						{ status: 429 },
+					);
+				}
+				if (err instanceof OutOfCreditsError) {
+					await failApp(appId, "out_of_credits");
+					return Response.json(
+						{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
+						{ status: 429 },
+					);
+				}
+				log.error("[chat] credit reservation failed", err);
+				/* Infrastructure, not a balance problem — the message must not send
+				 * the user chasing their allowance, and it asserts nothing about the
+				 * charge (the transaction rolled back). */
+				return Response.json(
+					{
+						error:
+							"That message didn't go through. Please try again in a moment.",
+						type: "internal",
+					},
+					{ status: 503 },
+				);
+			}
+		}
 	} else {
 		/* Project-membership gate (edit) — apps are a root-level collection, so
 		 * the path doesn't scope writes; without this a crafted request with
@@ -351,33 +407,48 @@ export async function POST(req: Request) {
 		}
 		if (chargeable) {
 			/* EVERY chargeable POST against an existing app claims the run window
-			 * — a BUILD-mode instruction (`!appReady`) flips the row to
-			 * `generating`; an EDIT (`appReady`) takes a `run_lock` without
-			 * touching status. The claim is the per-app serialization lock:
-			 * `hasActiveGeneration` below excludes this appId (so a run isn't
-			 * blocked by its own row), so it can't arbitrate two POSTs on the SAME
-			 * app — the transactional compare-and-flip inside `claimRun` is what
-			 * serializes them, across BOTH modes (a build waits on a live edit-lock
-			 * and vice versa, and on a PAUSED run of either mode — a paused run blocks
-			 * a claim). A build claim covers every FREE shape the row can be in: a
-			 * retry of a failed build (`error`), a new instruction into a finished one
-			 * (`complete`), or a hard-killed `generating` row past its window.
+			 * AND reserves its credits in ONE transaction — a BUILD-mode
+			 * instruction (`!appReady`) flips the row to `generating`; an EDIT
+			 * (`appReady`) takes a `run_lock` without touching status. The claim is
+			 * the per-app serialization lock, across BOTH modes (a build waits on a
+			 * live edit-lock and vice versa, and on a PAUSED run of either mode — a
+			 * paused run blocks a claim); the cross-app concurrency cap and the
+			 * affordability check run INSIDE the same transaction, so every
+			 * rejection below is a rollback that held nothing.
 			 *
 			 * On a CONFLICT the route does not 429 — it defers the whole
-			 * claim/gate/run sequence into `execute` behind a poll-wait
+			 * claim+reserve sequence into `execute` behind a poll-wait
 			 * (`waitForClaim`), so a second collaborator's request serializes
-			 * behind the holder instead of bouncing. A NON-conflicting claim
-			 * (free / first) proceeds through the pre-stream gating below,
-			 * unchanged. */
+			 * behind the holder instead of bouncing. */
 			claimMode = parsed.data.appReady ? "edit" : "build";
 			try {
-				claimedRun = await claimRun(appId, claimMode, effectiveRunId, userId);
+				claimedRun = await claimAndReserveRun(
+					appId,
+					claimMode,
+					effectiveRunId,
+					userId,
+					cost,
+				);
+				reservation = claimedRun.reservation;
 			} catch (err) {
 				if (err instanceof RunConflictError) {
 					/* The app is held — wait inside the stream (below), don't reject. */
 					waitForClaim = true;
+				} else if (err instanceof GenerationInProgressError) {
+					return Response.json(
+						{
+							error: MESSAGES.generation_in_progress,
+							type: "generation_in_progress",
+						},
+						{ status: 429 },
+					);
+				} else if (err instanceof OutOfCreditsError) {
+					return Response.json(
+						{ error: MESSAGES.out_of_credits, type: "out_of_credits" },
+						{ status: 429 },
+					);
 				} else {
-					log.error("[chat] run claim write failed", err, { appId });
+					log.error("[chat] run claim failed", err, { appId });
 					return Response.json(
 						{
 							error: "Unable to start this run. Please try again shortly.",
@@ -402,159 +473,6 @@ export async function POST(req: Request) {
 		}
 	}
 
-	/**
-	 * Put a claimed run window back where `claimRun` found it — the bail-out arms
-	 * (concurrency, out-of-credits, reservation failure) call this so a rejected
-	 * request leaves the app EXACTLY as it was, whatever the claim moved out of (a
-	 * plain `complete` / `error` app, or a hard-killed `generating` row — a claim
-	 * only ever runs on a FREE app). `restoreRunState` writes the captured `prior`
-	 * snapshot back verbatim — a faithful revert, not a lossy from-enum
-	 * reconstruction. Fire-and-forget like `failApp`: a rejection must not block on
-	 * Firestore, and a dropped revert degrades to the reaper settling the still-held
-	 * row (refund-first). */
-	const restoreClaimedRun = (claim: ClaimedRun): void => {
-		void restoreRunState(appId, claim.prior);
-	};
-
-	/* The credit reservation this run booked — set by `runPostClaimGate` below
-	 * (pre-stream on the free/first path, or inside `execute` after the
-	 * serialize-with-wait poll loop). Threaded into the accumulator so a failed
-	 * or no-op run refunds the exact charge against the exact month. */
-	let reservation: Reservation | undefined;
-
-	/**
-	 * The post-`claimRun` gate: the cross-app concurrency check + the
-	 * transactional credit reservation, run in that order AFTER the run window is
-	 * claimed. Returns `null` on success (having set `reservation`), or a bail
-	 * descriptor when a gate rejects — the caller surfaces it (a pre-stream
-	 * `Response.json`, or an in-`execute` error data event) and, either way, this
-	 * has already restored the claimed run window so a rejected request leaves the
-	 * app exactly as it was.
-	 *
-	 * Shared by both paths because the serialize-with-wait flow moves the whole
-	 * post-claim sequence inside `execute` (a stream write can only happen there),
-	 * while the non-conflict path keeps it pre-stream — the gate logic must be
-	 * identical on both.
-	 */
-	const runPostClaimGate = async (): Promise<{
-		type: "generation_in_progress" | "out_of_credits" | "internal";
-		message: string;
-		status: number;
-	} | null> => {
-		// Cross-app concurrency guard — a NEW/retry BUILD only (`chargeable &&
-		// !appReady`). It enforces "one build at a time per user" via
-		// `hasActiveGeneration`, which queries `status === 'generating'` (only builds
-		// set it) across Cloud Run instances. Gated by BOTH:
-		//  - `!appReady` (build, not edit): an EDIT serializes PER-APP via its
-		//    `run_lock`, NOT per-user, so a user editing app B must NOT be blocked by
-		//    their own live BUILD on app A. Intended policy: edit one app while
-		//    building another.
-		//  - `chargeable` (a fresh instruction, not a free continuation): a paused-BUILD
-		//    RESUME is `!appReady` too, but it claims/reserves NOTHING new — it
-		//    continues a run that already passed this cap. Gating on `chargeable`
-		//    keeps a resume from being 429'd by the user's own live build elsewhere
-		//    (a bare `!appReady` gate would reject exactly that).
-		// Runs AFTER the claim so the durable claimed window acts as the lock;
-		// retries on the same app pass through (excludeAppId). A held-app WAITER
-		// reaches here only once the prior holder released, so its own fresh claim is
-		// what this now guards.
-		if (chargeable && !appReady) {
-			try {
-				const inFlight = await hasActiveGeneration(userId, appId);
-				if (inFlight) {
-					if (appCreated) {
-						failApp(appId, "generation_in_progress");
-					} else if (claimedRun) {
-						restoreClaimedRun(claimedRun);
-					}
-					return {
-						type: "generation_in_progress",
-						message: MESSAGES.generation_in_progress,
-						status: 429,
-					};
-				}
-			} catch (err) {
-				log.error("[chat] concurrency check failed", err);
-				// Fail open — if we can't check, let the request through rather than
-				// blocking users due to a transient Firestore read error. The credit
-				// gate's fast-fail read above already fails closed for budget
-				// protection, and the reservation transaction below is the true
-				// no-overshoot guard.
-			}
-		}
-
-		/* Reserve the credits for this run — the transactional no-overshoot guard.
-		 *
-		 * Placement is load-bearing: this runs AFTER every rejection point (the
-		 * concurrency guard just above) so a successful reservation is never
-		 * followed by an early return that would leak the booked charge. A failed
-		 * or no-op run refunds through the accumulator's `flush()`.
-		 *
-		 * Unlike the fast-fail balance read above (which can race a concurrent
-		 * run), the reservation reads-checks-debits atomically, closing the
-		 * cross-app concurrent-new-run race that `hasActiveGeneration` (per-app,
-		 * fail-open) does not. A free continuation never reserves. */
-		if (chargeable) {
-			try {
-				reservation = await reserveCredits(userId, cost, appId, effectiveRunId);
-			} catch (err) {
-				if (err instanceof OutOfCreditsError) {
-					// Lost the rare race: passed the fast-fail balance read, then a
-					// concurrent reservation depleted the balance before this debit.
-					// Fail the just-created build doc — and put a claimed run window
-					// back where the claim found it. An ordinary existing-app request
-					// with no claim stays untouched.
-					if (appCreated) {
-						failApp(appId, "out_of_credits");
-					} else if (claimedRun) {
-						restoreClaimedRun(claimedRun);
-					}
-					return {
-						type: "out_of_credits",
-						message: MESSAGES.out_of_credits,
-						status: 429,
-					};
-				}
-				// Any other failure is infrastructure (Firestore down / transaction
-				// contention exhausted). Fail closed — never silently skip the charge
-				// and let an uncharged generation through. A claimed run window is put
-				// back first — leaving it held would hand a working app to the reaper
-				// over a request that never ran.
-				if (claimedRun) {
-					restoreClaimedRun(claimedRun);
-				}
-				log.error("[chat] credit reservation failed", err);
-				/* The user-facing message must not read as a balance problem — this
-				 * arm is infrastructure, and a credits framing would send the user
-				 * chasing their allowance instead of retrying. It also asserts
-				 * NOTHING about the charge: the transaction usually rolled back,
-				 * but an ambiguous RPC outcome can leave the debit applied. */
-				return {
-					type: "internal",
-					message:
-						"That message didn't go through. Please try again in a moment.",
-					status: 503,
-				};
-			}
-		}
-		return null;
-	};
-
-	/* Non-conflict path: the claim already succeeded pre-stream (a free / first
-	 * claim), so run the concurrency + reservation gate pre-stream too, exactly
-	 * as before, and bail with a `Response.json` on rejection. On a CONFLICT
-	 * (`waitForClaim`), this whole sequence is DEFERRED into `execute` behind the
-	 * poll-wait — skip it here. */
-	if (!waitForClaim) {
-		const bail = await runPostClaimGate();
-		if (bail) {
-			return Response.json(
-				{ error: bail.message, type: bail.type },
-				{ status: bail.status },
-			);
-		}
-	}
-
 	/* The paused-run resume's pause-flag clear does NOT happen pre-stream — it
 	 * moves INSIDE `execute`, folded into `reacquireLease`'s success transaction,
 	 * for BOTH modes. A SUPERSEDED resume (of either shape) must touch NOTHING on
@@ -563,12 +481,12 @@ export async function POST(req: Request) {
 	 * doesn't own. `reacquireLease` clears the flag only on the owns-it branch, in
 	 * the same txn that renews the lease. */
 
-	/* Two collaborators replace the legacy EventLogger:
+	/* Two collaborators:
 	 *
-	 *  - `logWriter` batches durable event envelopes to Firestore (one doc per
-	 *    mutation/conversation event). Failures never throw.
+	 *  - `logWriter` batches durable event envelopes into the events table (one
+	 *    row per mutation/conversation event). Failures never throw.
 	 *  - `usage` accumulates per-call token counts for the actual-$ ledger and
-	 *    the per-run summary document, and carries this run's credit reservation
+	 *    the per-run summary row, and carries this run's credit reservation
 	 *    so a failed or no-op run can refund it. Flushed on every terminal path.
 	 *
 	 * Placeholder fields (`promptMode` / `freshEdit` / `appReady` / `cacheExpired`
@@ -591,12 +509,13 @@ export async function POST(req: Request) {
 		moduleCount: 0,
 		/* Reservation context for the refund branch in `flush()`. All three travel
 		 * together (a chargeable turn that reserved) or all absent (a free
-		 * continuation, which never reserves). On the NON-conflict path `reservation`
-		 * is already set (the pre-stream gate ran), so seed it here. On the
-		 * serialize-with-wait path the reservation lands INSIDE `execute` (after the
-		 * poll loop + `claimRun`), so seed nothing now and set all three via
-		 * `usage.configureRun` there — seeding a `didReserve` with no `chargePeriod`
-		 * would leave the flush's refund gate half-armed. */
+		 * continuation, which never reserves). On the NON-conflict path
+		 * `reservation` is already set (the claim reserved atomically pre-stream),
+		 * so seed it here. On the serialize-with-wait path the reservation lands
+		 * INSIDE `execute` (the poll loop winning `claimAndReserveRun`), so seed
+		 * nothing now and set all three via `usage.configureRun` there — seeding a
+		 * `didReserve` with no `chargePeriod` would leave the flush's refund gate
+		 * half-armed. */
 		didReserve: waitForClaim ? undefined : chargeable,
 		reservedAmount: waitForClaim ? undefined : chargeable ? cost : undefined,
 		chargePeriod: waitForClaim ? undefined : reservation?.period,
@@ -806,13 +725,13 @@ export async function POST(req: Request) {
 			};
 
 			/* Serialize-with-wait — the pre-stream claim CONFLICTED (another run
-			 * holds this app). Rather than 429, poll `claimRun` until the holder
-			 * releases (or the wait times out), then run the post-claim gate that
-			 * the non-conflict path already ran pre-stream. This whole
-			 * post-`claimRun` sequence lives inside the stream (a conversation event
-			 * / error can only be written here). A successful claim sets `claimedRun`
-			 * + `reservation`, so the rest of `execute` runs exactly as the
-			 * non-conflict path does. */
+			 * holds this app). Rather than 429, poll `claimAndReserveRun` until the
+			 * holder releases (or the wait times out). Each poll attempt is the
+			 * whole atomic claim+reserve, so a win arrives fully gated (concurrency
+			 * + affordability) and a rejection held nothing. This lives inside the
+			 * stream (a conversation event / error can only be written here). A
+			 * successful claim sets `claimedRun` + `reservation`, so the rest of
+			 * `execute` runs exactly as the non-conflict path does. */
 			if (waitForClaim && claimMode) {
 				const holderName = await loadAppHolderName(appId);
 				/* User-visible busy indicator: a non-fatal (recoverable) conversation
@@ -832,21 +751,59 @@ export async function POST(req: Request) {
 
 				const deadline = Date.now() + CLAIM_WAIT_MAX_MS;
 				let claimError: unknown;
+				/* A gate rejection from a WON poll (concurrency cap / out of credits)
+				 * — terminal for this POST, and it held nothing (the claim+reserve
+				 * transaction rolled back). */
+				let gateBail:
+					| {
+							type: "generation_in_progress" | "out_of_credits";
+							message: string;
+					  }
+					| undefined;
 				while (Date.now() < deadline) {
 					await new Promise((r) => setTimeout(r, CLAIM_WAIT_POLL_MS));
 					try {
-						claimedRun = await claimRun(
+						claimedRun = await claimAndReserveRun(
 							appId,
 							claimMode,
 							effectiveRunId,
 							userId,
+							cost,
 						);
+						reservation = claimedRun.reservation;
 						break;
 					} catch (err) {
 						if (err instanceof RunConflictError) continue; // still held — keep waiting
+						if (err instanceof GenerationInProgressError) {
+							gateBail = {
+								type: "generation_in_progress",
+								message: MESSAGES.generation_in_progress,
+							};
+							break;
+						}
+						if (err instanceof OutOfCreditsError) {
+							gateBail = {
+								type: "out_of_credits",
+								message: MESSAGES.out_of_credits,
+							};
+							break;
+						}
 						claimError = err;
 						break;
 					}
+				}
+
+				if (gateBail) {
+					ctx.emitError(
+						{
+							type: gateBail.type,
+							message: gateBail.message,
+							recoverable: false,
+						},
+						"route:serialize-wait-gate",
+					);
+					await finalizeRun(undefined, { heldApp: false });
+					return;
 				}
 
 				if (!claimedRun) {
@@ -875,22 +832,8 @@ export async function POST(req: Request) {
 					return;
 				}
 
-				/* Won the claim after waiting — run the deferred concurrency +
-				 * reservation gate. On a bail, surface it as a fatal conversation
-				 * event and end. The gate already RESTORED the claimed window
-				 * (`restoreClaimedRun`), so this POST no longer holds the app —
-				 * `heldApp: false` keeps the finalize from re-touching it. */
-				const bail = await runPostClaimGate();
-				if (bail) {
-					ctx.emitError(
-						{ type: bail.type, message: bail.message, recoverable: false },
-						"route:serialize-wait-gate",
-					);
-					await finalizeRun(undefined, { heldApp: false });
-					return;
-				}
-
-				/* Reservation landed inside the stream on this path — tell the
+				/* Won the claim after waiting — the win arrived fully gated and
+				 * reserved (the claim+reserve transaction is atomic). Tell the
 				 * accumulator so the flush-time refund/settle targets the right
 				 * period (the seed left these unset for the wait path). A free
 				 * continuation never reaches here (it doesn't claim), so `chargeable`
@@ -987,7 +930,7 @@ export async function POST(req: Request) {
 			 * IMMEDIATELY after an edit (with no typing in between) would be the
 			 * one case that could outrun the auto-save and need a flush.
 			 *
-			 * Brand-new builds get the empty doc stamped with the Firestore
+			 * Brand-new builds get the empty doc stamped with the
 			 * `appId` that `createApp` just minted. */
 			const sessionDoc: BlueprintDoc = hydratePersistedBlueprint(
 				loadedApp

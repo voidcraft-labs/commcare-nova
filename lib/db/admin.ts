@@ -4,12 +4,12 @@
  * Reads the user list from `auth_user` via Kysely (the shared `getAuthDb`)
  * rather than Better Auth's admin API (`listUsers`/`getUser`) because those
  * return `UserWithRole`, which doesn't include `additionalFields` (our
- * `lastActiveAt`) in its TypeScript types. The per-user usage / credits /
- * apps figures stay in Firestore — this is a fan-out, NOT a SQL join (those
- * collections live in the `lib/db` domain).
+ * `lastActiveAt`) in its TypeScript types. The per-user usage / credits / apps
+ * figures come from the app-state tables via `getAppDb`. Both handles ride the
+ * same Cloud SQL pool, but this is still a per-user FAN-OUT (one set of reads
+ * per user), NOT a single SQL join across them.
  */
 
-import { Timestamp } from "@google-cloud/firestore";
 import type {
 	AdminStats,
 	AdminUserDetailResponse,
@@ -20,19 +20,18 @@ import type {
 } from "@/lib/admin/types";
 import { getAuthDb } from "../auth/db";
 import { type AppSummary, listAppsByOwner } from "./apps";
-import { type CreditSummary, getCreditSummary } from "./credits";
-import { collections } from "./firestore";
+import {
+	type CreditSummary,
+	getCreditSummary,
+	listCreditGrants,
+} from "./credits";
 import { getCurrentPeriod } from "./period";
+import { getAppDb } from "./pg";
 
 // ── Date helper ──────────────────────────────────────────────────────
 
-/**
- * To an ISO string. The auth-user reads come back from Kysely as `Date`;
- * the credit-grant audit path reads Firestore (`Timestamp`) — handle both
- * shapes.
- */
-function toISOString(val: Timestamp | Date): string {
-	if (val instanceof Timestamp) return val.toDate().toISOString();
+/** To an ISO string — every timestamp here comes back from Kysely as a `Date`. */
+function toISOString(val: Date): string {
 	return val.toISOString();
 }
 
@@ -44,20 +43,20 @@ function toISOString(val: Timestamp | Date): string {
  *
  * Reads from three sources per user, fanned out via Promise.all:
  * - `auth_user` — profile, role, activity timestamps (Kysely read)
- * - `credits/{userId}/months` + `usage/{userId}/months` — full subcollection
- *   reads per user for credit figures and lifetime/current cost. We read the
- *   ENTIRE usage subcollection (not just the current-period doc) because the
- *   lifetime cost sum requires all months anyway — reading the current doc
- *   separately would pay for it twice. `getCreditSummary` similarly reads the
- *   entire credit-months subcollection to compute `lifetimeConsumed`.
- * - `apps` collection — per-user app count aggregations
+ * - `credit_months` + `usage_months` — full per-user month reads for the credit
+ *   figures and lifetime/current cost. We read EVERY usage month (not just the
+ *   current-period row) because the lifetime cost sum needs all of them anyway —
+ *   reading the current row separately would pay for it twice. `getCreditSummary`
+ *   similarly reads every credit month to compute `lifetimeConsumed`.
+ * - `apps` — a per-user live app count
  *
- * O(users) subcollection reads is accepted at current scale — same shape as
- * the existing per-user app-count Promise.all this function already ran.
+ * O(users) per-user reads is accepted at current scale — the same shape as the
+ * per-user app-count fan-out this function already ran.
  */
 export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
-	const db = await getAuthDb();
-	const allUsers = await db
+	const authDb = await getAuthDb();
+	const appDb = await getAppDb();
+	const allUsers = await authDb
 		.selectFrom("auth_user")
 		.select([
 			"id",
@@ -72,34 +71,33 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 	const period = getCurrentPeriod();
 
 	/* Fan out one inner Promise.all per user: credit summary, all usage months,
-	 * and app count — each in parallel across all users. */
+	 * and the live app count — each in parallel across all users. */
 	const enriched: AdminUserRow[] = await Promise.all(
 		allUsers.map(async (user) => {
-			const [creditSummary, usageSnap, appCountSnap] = await Promise.all([
-				/* Credit summary reads the full credit-months subcollection to compute
+			const [creditSummary, usageMonths, appCountRow] = await Promise.all([
+				/* Credit summary reads every credit-month row to compute
 				 * lifetimeConsumed and the current-period balance in one pass. */
 				getCreditSummary(user.id),
-				/* Full usage subcollection — needed for the lifetime cost sum. Reading
-				 * the whole collection here avoids a redundant single-doc read that
-				 * would otherwise re-read the current period to get `generations`/`cost`. */
-				collections.usage(user.id).get(),
-				/* App counts are aggregation queries. Filter by `deleted_at == null`
-				 * so the count reflects live apps only; soft-deleted rows would
-				 * otherwise inflate the admin view. */
-				collections
-					.apps()
-					.where("owner", "==", user.id)
-					.where("deleted_at", "==", null)
-					.count()
-					.get(),
+				/* Every usage month — needed for the lifetime cost sum; the
+				 * current-period figures are picked out of the same rows. */
+				appDb
+					.selectFrom("usage_months")
+					.select(["period", "request_count", "cost_estimate"])
+					.where("user_id", "=", user.id)
+					.execute(),
+				/* Live app count: `owner`-scoped, `deleted_at IS NULL` so
+				 * soft-deleted rows don't inflate the admin view. */
+				appDb
+					.selectFrom("apps")
+					.select((eb) => eb.fn.countAll<string>().as("count"))
+					.where("owner", "=", user.id)
+					.where("deleted_at", "is", null)
+					.executeTakeFirst(),
 			]);
 
-			/* Find the current-period usage doc from the full collection read. */
-			const currentUsage = usageSnap.docs.find((d) => d.id === period)?.data();
-
-			/* Sum cost_estimate across ALL periods for the lifetime figure. */
-			const cost_lifetime = usageSnap.docs.reduce(
-				(sum, d) => sum + (d.data().cost_estimate ?? 0),
+			const currentUsage = usageMonths.find((m) => m.period === period);
+			const cost_lifetime = usageMonths.reduce(
+				(sum, m) => sum + (m.cost_estimate ?? 0),
 				0,
 			);
 
@@ -117,7 +115,7 @@ export async function getAdminUsersWithStats(): Promise<AdminUsersResponse> {
 					: toISOString(user.createdAt),
 				generations: currentUsage?.request_count ?? 0,
 				cost: currentUsage?.cost_estimate ?? 0,
-				app_count: appCountSnap.data().count,
+				app_count: Number(appCountRow?.count ?? 0),
 				credits_used: creditSummary.consumed,
 				credits_remaining: creditSummary.balance,
 				credits_used_lifetime: creditSummary.lifetimeConsumed,
@@ -179,25 +177,22 @@ export async function getAdminUserProfile(
 export async function getAdminUserCredits(
 	userId: string,
 ): Promise<{ credits: CreditSummary; grants: CreditGrantAudit[] }> {
-	const [credits, grantsSnap] = await Promise.all([
+	const [credits, grantRows] = await Promise.all([
 		getCreditSummary(userId),
-		collections.creditGrants(userId).orderBy("created_at", "desc").get(),
+		listCreditGrants(userId),
 	]);
 
-	const grants: CreditGrantAudit[] = grantsSnap.docs.map((doc) => {
-		const data = doc.data();
-		return {
-			amount: data.amount,
-			type: data.type,
-			/* `actor` uid is intentionally omitted — the admin email is the
-			 * human-readable identity surfaced in the audit UI; the uid is
-			 * an implementation detail the dashboard never needs. */
-			actor_email: data.actor_email,
-			reason: data.reason,
-			period: data.period,
-			created_at: toISOString(data.created_at),
-		};
-	});
+	const grants: CreditGrantAudit[] = grantRows.map((grant) => ({
+		amount: grant.amount,
+		type: grant.type,
+		/* `actor` uid is intentionally omitted — the admin email is the
+		 * human-readable identity surfaced in the audit UI; the uid is
+		 * an implementation detail the dashboard never needs. */
+		actor_email: grant.actor_email,
+		reason: grant.reason,
+		period: grant.period,
+		created_at: toISOString(grant.created_at),
+	}));
 
 	return { credits, grants };
 }
@@ -205,51 +200,65 @@ export async function getAdminUserCredits(
 /**
  * Fetch a user's usage history — all monthly usage periods, newest first.
  *
- * Reads both the usage subcollection and the credit-months subcollection in
- * parallel, then joins them by period id so each `UsagePeriod` carries the
- * matching credit figures when they exist. Periods that predate the credit
- * system have no credit doc and will have
- * `credits_allowance`/`credits_consumed`/`credits_bonus` left undefined.
+ * Reads both the usage months and the credit months in parallel, then joins
+ * them by period so each `UsagePeriod` carries the matching credit figures when
+ * they exist. Periods that predate the credit system have no credit row and
+ * will have `credits_allowance`/`credits_consumed`/`credits_bonus` left
+ * undefined.
  *
  * Separated so the usage table can stream independently via Suspense.
  */
 export async function getAdminUserUsage(
 	userId: string,
 ): Promise<UsagePeriod[]> {
-	const [usageSnap, creditMonthsSnap] = await Promise.all([
-		collections.usage(userId).orderBy("updated_at", "desc").get(),
-		collections.creditMonths(userId).get(),
+	const appDb = await getAppDb();
+	const [usageMonths, creditMonths] = await Promise.all([
+		appDb
+			.selectFrom("usage_months")
+			.select([
+				"period",
+				"request_count",
+				"input_tokens",
+				"output_tokens",
+				"cost_estimate",
+			])
+			.where("user_id", "=", userId)
+			.orderBy("updated_at", "desc")
+			.execute(),
+		appDb
+			.selectFrom("credit_months")
+			.select(["period", "allowance", "consumed", "bonus"])
+			.where("user_id", "=", userId)
+			.execute(),
 	]);
 
-	/* Build a lookup map: period string → credit figures. Keyed by document id
-	 * (which equals the "yyyy-mm" period string) for an O(1) join below.
-	 * `allowance` rides along so the detail table can show the full credit
-	 * standing (allowance / consumed / bonus / balance) per period — balance is
-	 * derived in the render from these three, never stored. */
+	/* Build a lookup map: period string → credit figures, for an O(1) join
+	 * below. `allowance` rides along so the detail table can show the full
+	 * credit standing (allowance / consumed / bonus / balance) per period —
+	 * balance is derived in the render from these three, never stored. */
 	const creditByPeriod = new Map<
 		string,
 		{ allowance: number; consumed: number; bonus: number }
 	>(
-		creditMonthsSnap.docs.map((doc) => [
-			doc.id,
+		creditMonths.map((month) => [
+			month.period,
 			{
-				allowance: doc.data().allowance,
-				consumed: doc.data().consumed,
-				bonus: doc.data().bonus,
+				allowance: month.allowance,
+				consumed: month.consumed,
+				bonus: month.bonus,
 			},
 		]),
 	);
 
-	return usageSnap.docs.map((doc) => {
-		const data = doc.data();
-		const creditEntry = creditByPeriod.get(doc.id);
+	return usageMonths.map((month) => {
+		const creditEntry = creditByPeriod.get(month.period);
 		return {
-			period: doc.id,
-			request_count: data.request_count,
-			input_tokens: data.input_tokens,
-			output_tokens: data.output_tokens,
-			cost_estimate: data.cost_estimate,
-			/* Only present when a credit doc exists for this period. */
+			period: month.period,
+			request_count: month.request_count,
+			input_tokens: Number(month.input_tokens),
+			output_tokens: Number(month.output_tokens),
+			cost_estimate: month.cost_estimate,
+			/* Only present when a credit row exists for this period. */
 			...(creditEntry !== undefined
 				? {
 						credits_allowance: creditEntry.allowance,
@@ -272,7 +281,7 @@ export async function getAdminUserUsage(
 const ADMIN_LIST_PAGE_SIZE = 50;
 
 /**
- * Fetch a user's apps — delegates to `listApps`.
+ * Fetch a user's apps — delegates to `listAppsByOwner`.
  *
  * Separated so the app list can stream independently via Suspense.
  * Returns the flattened `AppSummary[]` (not `ListAppsResult`) because

@@ -16,7 +16,7 @@
 //      surface runs.
 //
 // The core is pure (doc + rows in → report/plan out); `loadAssetRowsForScan`
-// is the only Firestore-touching function and takes its client as a
+// is the only database-touching function and takes its handle as a
 // parameter, so no import-boundary stub is needed here.
 
 import { describe, expect, it } from "vitest";

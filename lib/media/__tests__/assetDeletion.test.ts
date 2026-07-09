@@ -3,10 +3,10 @@
 // Tests for the shared media-asset deletion logic both the SA tool and the
 // browser DELETE route go through:
 //   - `findAppReferencesToAsset` — the reference guard. Given the asset's
-//     `referencingAppIds` index it re-walks ONLY those candidate apps (names the
-//     app + carrier; skips a given app; ignores deleted/foreign-Project; drops
-//     stale candidates); given `undefined` (un-backfilled row) it falls back to
-//     the full Project-wide scan (`listApps`).
+//     `media_asset_refs` reverse-index candidate set it re-walks ONLY those
+//     candidate apps (names the app + carrier; skips a given app; ignores
+//     deleted/foreign-Project; drops stale candidates). There is no un-indexed
+//     full-scan fallback — the migration backfills the join table for every row.
 //   - `purgeAssetStorage` — drop the row always, delete bytes + sibling keys
 //     only when the bytes are unshared, fail closed on a probe error.
 //
@@ -76,22 +76,6 @@ function asset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 		status: "ready",
 		...over,
 	} as unknown as MediaAssetRecord;
-}
-
-/** A library list summary (only the fields the scan reads matter). */
-function appSummary(id: string, name: string): ListAppsResult["apps"][number] {
-	return {
-		id,
-		app_name: name,
-		connect_type: null,
-		module_count: 1,
-		form_count: 1,
-		status: "complete",
-		error_type: null,
-		logo: null,
-		created_at: "2026-05-29T00:00:00.000Z",
-		updated_at: "2026-05-29T00:00:00.000Z",
-	};
 }
 
 /** A single app-logo reference to the asset (describeCarrier → "the app logo"). */
@@ -213,42 +197,6 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 	});
 });
 
-describe("findAppReferencesToAsset — full-scan fallback (candidates undefined)", () => {
-	it("pages the Project's apps when the asset row was never backfilled", async () => {
-		listApps.mockResolvedValue({ apps: [appSummary("app-1", "App One")] });
-		loadApp.mockResolvedValue(appDoc());
-		walkAssetRefs.mockReturnValue(logoRef);
-		const refs = await findAppReferencesToAsset(PROJECT, "asset-1", undefined);
-		expect(listApps).toHaveBeenCalled();
-		expect(refs).toHaveLength(1);
-		expect(refs[0]).toContain("App One");
-		expect(refs[0]).toContain("the app logo");
-	});
-
-	it("returns empty when no app in the scan references the asset", async () => {
-		listApps.mockResolvedValue({ apps: [appSummary("app-1", "App One")] });
-		loadApp.mockResolvedValue(appDoc());
-		walkAssetRefs.mockReturnValue([]);
-		expect(
-			await findAppReferencesToAsset(PROJECT, "asset-1", undefined),
-		).toEqual([]);
-	});
-
-	it("skips the current app named by skipAppId during the scan", async () => {
-		// The SA tool checks its in-hand working doc separately, then scans every
-		// OTHER app — so a fallback scan must skip the current app even though
-		// listApps returns it.
-		listApps.mockResolvedValue({ apps: [appSummary("current", "Current")] });
-		loadApp.mockResolvedValue(appDoc({ app_name: "Current" }));
-		walkAssetRefs.mockReturnValue(logoRef);
-		const refs = await findAppReferencesToAsset(PROJECT, "asset-1", undefined, {
-			skipAppId: "current",
-		});
-		expect(refs).toEqual([]);
-		expect(loadApp).not.toHaveBeenCalled();
-	});
-});
-
 describe("purgeAssetStorage", () => {
 	it("deletes the row, the bytes, and the sibling keys when unshared", async () => {
 		await purgeAssetStorage(asset(), {
@@ -271,7 +219,7 @@ describe("purgeAssetStorage", () => {
 	});
 
 	it("fails closed (retains bytes) when the shared-bytes probe throws", async () => {
-		hasOtherAssetForGcsObjectKey.mockRejectedValue(new Error("firestore down"));
+		hasOtherAssetForGcsObjectKey.mockRejectedValue(new Error("db unavailable"));
 		await purgeAssetStorage(asset());
 		expect(deleteAssetRow).toHaveBeenCalledWith("asset-1");
 		expect(deleteGcsObject).not.toHaveBeenCalled();

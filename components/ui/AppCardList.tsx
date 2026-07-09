@@ -5,8 +5,6 @@ interface AppCardListProps {
 	apps: AppSummary[];
 	/** When true, non-error apps link to `/build/{id}`. Defaults to false. */
 	linkToApps?: boolean;
-	/** When true, replay buttons are shown (admin-only feature). Defaults to false. */
-	showReplay?: boolean;
 }
 
 /**
@@ -16,11 +14,7 @@ interface AppCardListProps {
  * concern admin should never inherit. Stays a Server Component because
  * `AppCard` is the only client island it needs.
  */
-export function AppCardList({
-	apps,
-	linkToApps = false,
-	showReplay = false,
-}: AppCardListProps) {
+export function AppCardList({ apps, linkToApps = false }: AppCardListProps) {
 	if (apps.length === 0) {
 		return (
 			<p className="py-12 text-center text-sm text-nova-text-muted">
@@ -41,7 +35,6 @@ export function AppCardList({
 							? `/build/${app.id}`
 							: undefined
 					}
-					showReplay={showReplay}
 				/>
 			))}
 		</div>

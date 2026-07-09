@@ -5,13 +5,16 @@
  * - `incrementUsage()` for the monthly spend cap (skipped on zero cost).
  * - `writeRunSummary()` for the per-run admin inspect summary doc.
  *
- * Both collaborators are mocked here so the tests stay unit-scoped — we
- * verify the accumulator's accounting + flush orchestration without
- * touching Firestore. `vi.mock` factories run before the import below,
- * so the imported `UsageAccumulator` sees the mocked `incrementUsage`
- * and `writeRunSummary` at flush time.
+ * `writeRunSummary` and `refundReservation` (separate modules) are mocked so the
+ * accounting + flush-orchestration tests stay unit-scoped; the monthly-usage
+ * increment (`incrementUsage`, INTRA-module — a module-level mock can't intercept
+ * it) runs for real against the per-test `usage_months` table (the app-state
+ * harness), so an increment shows up as a real row (`request_count`) rather than a
+ * spied `set` call.
  */
 import { describe, expect, it, vi } from "vitest";
+import { getCurrentPeriod } from "../period";
+import { setupAppStateTestDb } from "./appStateTestDb";
 
 // vi.mock is hoisted above imports by Vitest, so any identifiers referenced
 // inside the factory must be hoisted too — vi.hoisted lifts a block of setup
@@ -37,23 +40,26 @@ vi.mock("../credits", () => ({
 	refundReservation: refundReservationMock,
 }));
 
-// Mock Firestore at the adapter boundary — `incrementUsage` lives in the
-// same module as `UsageAccumulator`, so a module-level vi.mock can't
-// intercept an intra-module call. Stubbing `docs.usage(...).set` instead
-// keeps the real incrementUsage in play (fail-closed behavior untouched)
-// while swallowing the network write.
-const setMock = vi.fn().mockResolvedValue(undefined);
-vi.mock("../firestore", () => ({
-	docs: {
-		usage: () => ({ set: setMock }),
-	},
-}));
-
 // `@/lib/logger` is globally stubbed in vitest.setup.ts and `clearMocks: true`
 // wipes each stub's call history between tests, so the finalize-log tests
 // assert on the `log.info` stub directly (no per-test re-spy needed).
 import { log } from "@/lib/logger";
 import { UsageAccumulator } from "../usage";
+
+const h = setupAppStateTestDb("usage_acc_");
+
+/** The `usage_months.request_count` for a user this period, or undefined when
+ *  `incrementUsage` never wrote (a zero-cost run short-circuits it). */
+async function requestCount(userId: string): Promise<number | undefined> {
+	const row = await h
+		.db()
+		.selectFrom("usage_months")
+		.select("request_count")
+		.where("user_id", "=", userId)
+		.where("period", "=", getCurrentPeriod())
+		.executeTakeFirst();
+	return row?.request_count;
+}
 
 describe("UsageAccumulator", () => {
 	it("tracks cumulative tokens + cost across track() calls", () => {
@@ -117,7 +123,6 @@ describe("UsageAccumulator", () => {
 	});
 
 	it("flush() is idempotent", async () => {
-		setMock.mockClear();
 		writeRunSummaryMock.mockReset();
 		const acc = new UsageAccumulator({
 			appId: "a",
@@ -134,15 +139,13 @@ describe("UsageAccumulator", () => {
 		acc.track({ inputTokens: 1, outputTokens: 1 }, { step: true });
 		await acc.flush();
 		await acc.flush();
-		// setMock is the real Firestore write inside incrementUsage — one
-		// invocation proves the second flush short-circuited before the
-		// monthly-usage write ran.
-		expect(setMock).toHaveBeenCalledTimes(1);
+		// One increment (request_count 1, not 2) proves the second flush
+		// short-circuited before the monthly-usage write ran.
+		expect(await requestCount("u")).toBe(1);
 		expect(writeRunSummaryMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("flush() with zero cost skips the monthly increment", async () => {
-		setMock.mockClear();
 		writeRunSummaryMock.mockReset();
 		const acc = new UsageAccumulator({
 			appId: "a",
@@ -156,10 +159,9 @@ describe("UsageAccumulator", () => {
 			moduleCount: 5,
 		});
 		await acc.flush();
-		// No Firestore set at all — zero-cost runs short-circuit before
-		// incrementUsage. request_count would otherwise bump without
-		// matching spend.
-		expect(setMock).not.toHaveBeenCalled();
+		// No usage_months row at all — zero-cost runs short-circuit before
+		// incrementUsage. request_count would otherwise bump without matching spend.
+		expect(await requestCount("u")).toBeUndefined();
 		// Run summary still written so the inspect tools see the run at all —
 		// admins care about zero-cost replays too (e.g. cache-hit analysis).
 		expect(writeRunSummaryMock).toHaveBeenCalledTimes(1);
@@ -206,7 +208,6 @@ describe("UsageAccumulator", () => {
 		};
 
 		it("refunds the reservation on a zero-cost run and skips the increment", async () => {
-			setMock.mockClear();
 			writeRunSummaryMock.mockReset();
 			refundReservationMock.mockReset();
 			// No track() calls → zero cost → the run did no billable work.
@@ -217,26 +218,24 @@ describe("UsageAccumulator", () => {
 			// appId; the amount + booked period live on the durable marker.
 			expect(refundReservationMock).toHaveBeenCalledTimes(1);
 			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
-			// Zero cost short-circuits the increment — no Firestore write at all.
-			expect(setMock).not.toHaveBeenCalled();
+			// Zero cost short-circuits the increment — no usage_months row at all.
+			expect(await requestCount("u")).toBeUndefined();
 		});
 
 		it("charges (no refund) on a successful run with real cost", async () => {
-			setMock.mockClear();
 			writeRunSummaryMock.mockReset();
 			refundReservationMock.mockReset();
 			const acc = new UsageAccumulator(reservedSeed);
 			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
 			await acc.flush();
 
-			// Real cost accrues to the monthly spend doc (the Firestore set fires)…
-			expect(setMock).toHaveBeenCalledTimes(1);
+			// Real cost accrues to the monthly spend row (the increment fires)…
+			expect(await requestCount("u")).toBe(1);
 			// …and a healthy charge is never refunded.
 			expect(refundReservationMock).not.toHaveBeenCalled();
 		});
 
 		it("on a FAILED run with real cost it BOTH accrues the cost AND refunds", async () => {
-			setMock.mockClear();
 			writeRunSummaryMock.mockReset();
 			refundReservationMock.mockReset();
 			const acc = new UsageAccumulator(reservedSeed);
@@ -246,14 +245,13 @@ describe("UsageAccumulator", () => {
 
 			// The two branches are independent: the actual $ cost still accrues so
 			// the $50 backstop sees retry spam from a user hammering a broken app…
-			expect(setMock).toHaveBeenCalledTimes(1);
+			expect(await requestCount("u")).toBe(1);
 			// …while the user's credits are made whole because the app broke.
 			expect(refundReservationMock).toHaveBeenCalledTimes(1);
 			expect(refundReservationMock).toHaveBeenCalledWith("a", "r");
 		});
 
 		it("never refunds a free continuation that was never reserved", async () => {
-			setMock.mockClear();
 			writeRunSummaryMock.mockReset();
 			refundReservationMock.mockReset();
 			// didReserve:false — an assistant-tail continuation that booked nothing.
@@ -272,7 +270,6 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("the didReserve flag alone vetoes the refund even with amount + period present", async () => {
-			setMock.mockClear();
 			writeRunSummaryMock.mockReset();
 			refundReservationMock.mockReset();
 			// `reservedAmount` and `chargePeriod` are PRESENT but `didReserve` is
@@ -292,7 +289,6 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("triggers the refund for an edit's reservation (a non-build amount still fires the gate)", async () => {
-			setMock.mockClear();
 			writeRunSummaryMock.mockReset();
 			refundReservationMock.mockReset();
 			// An EDIT reserved 5, not a build's 100. The exact amount is no longer
@@ -309,7 +305,6 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("refunds at most once across repeated flush() calls", async () => {
-			setMock.mockClear();
 			writeRunSummaryMock.mockReset();
 			refundReservationMock.mockReset();
 			const acc = new UsageAccumulator(reservedSeed);
@@ -322,7 +317,6 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("still fires the refund gate when the reservation was booked to a prior month", async () => {
-			setMock.mockClear();
 			writeRunSummaryMock.mockReset();
 			refundReservationMock.mockReset();
 			// The cross-midnight period-capture now lives on the marker: reserveCredits

@@ -5,18 +5,17 @@
  * `ConversationEvent` captures user messages, assistant output, tool calls,
  * tool results, and classified errors. The log is supplemental: blueprint
  * state lives on the `AppDoc.blueprint` snapshot. If the event log is lost
- * or corrupt, the app still loads — only replay and admin inspection are
- * affected.
+ * or corrupt, the app still loads — only admin inspection is affected.
  *
  * Schema authority: Zod schemas below are the source of truth. TS types
- * infer via `z.infer`. Firestore reads validate via `eventSchema.parse()`.
+ * infer via `z.infer`. Reads re-validate each stored payload via
+ * `eventSchema.safeParse` (see `decodeEventsLenient`).
  *
- * Storage: one document per event at `apps/{appId}/events/{autoId}`, using
- * Firestore's auto-generated 20-char IDs. Chronological order is
- * recovered at read time via `.where("runId", "==", runId).orderBy("ts").orderBy("seq")` —
- * see `readEvents`. Doc IDs themselves carry no ordering semantics; every
- * write is guaranteed collision-free regardless of how many requests a
- * single run spans.
+ * Storage: one row per event in the `events` table, whose `id` identity
+ * column carries no ordering semantics — every write is collision-free
+ * regardless of how many requests a single run spans. Chronological order
+ * is recovered at read time by ordering on `(ts, seq)` for a `run_id`
+ * (see `readEvents`).
  */
 import { z } from "zod";
 import {
@@ -29,7 +28,7 @@ import { mutationSchema } from "@/lib/doc/types";
 
 /**
  * Attachment manifest for a user message — the same `AttachmentRef` shape the
- * composer sends and the stored thread keeps, so replay + admin-inspect can show
+ * composer sends and the stored thread keeps, so admin inspect can show
  * what was attached, and a reader can reach the bytes (`/api/media/{assetId}`)
  * and extract (`/api/media/{assetId}/extract`) from the `assetId`. Only the
  * manifest is logged, never the extract body — that lives durably on the asset.
@@ -140,11 +139,12 @@ export type ConversationPayload = z.infer<typeof conversationPayloadSchema>;
  * counter, the tiebreaker when multiple events share a `ts`).
  *
  * `seq` is per-request and resets to 0 on every HTTP request — follow-up
- * turns in the same thread reset it too. Doc IDs are auto-generated, so
- * per-request seqs cannot collide with earlier requests' events on disk.
- * Reads recover chronological order via `orderBy("ts").orderBy("seq")`
- * (see `readEvents`): `ts` separates across-request ordering, `seq`
- * orders the single-millisecond bursts that SSE emissions produce.
+ * turns in the same thread reset it too. Each event is its own row with a
+ * server-assigned `id`, so per-request seqs cannot collide with earlier
+ * requests' events on disk. Reads recover chronological order by ordering
+ * on `(ts, seq)` (see `readEvents`): `ts` separates across-request
+ * ordering, `seq` orders the single-millisecond bursts that SSE emissions
+ * produce.
  *
  * Inter-request `ts` ordering is *mostly* monotonic because the route's
  * concurrency guard serializes same-user generations. The one known gap
@@ -168,14 +168,11 @@ const envelopeSchema = z.object({
 	 * MCP-surface events (programmatic tool calls from an external
 	 * client) without reverse-engineering either from the payload.
 	 *
-	 * Required on every envelope — no optional, no default. Historical
-	 * events written before this field existed are backfilled by
-	 * `scripts/migrate-event-source.ts` (one-shot, idempotent, must run
-	 * before the schema-enforcing deploy lands). See
-	 * `lib/log/writer.ts` for the authoritative-stamping rule: the
-	 * writer's constructor-provided source overwrites whatever the
-	 * caller set, so the persisted value cannot drift from the
-	 * surface that built the writer.
+	 * Required on every envelope — no optional, no default; every stored
+	 * row carries it. See `lib/log/writer.ts` for the
+	 * authoritative-stamping rule: the writer's constructor-provided
+	 * source overwrites whatever the caller set, so the persisted value
+	 * cannot drift from the surface that built the writer.
 	 */
 	source: z.enum(["chat", "mcp"]),
 });
@@ -198,10 +195,10 @@ export const conversationEventSchema = envelopeSchema.extend({
 export type ConversationEvent = z.infer<typeof conversationEventSchema>;
 
 /**
- * Discriminated union over both event families. The Firestore converter's
- * `fromFirestore` runs `eventSchema.parse(snapshot.data())`, so any shape
- * drift on disk surfaces as a parse error at read time (caught by the
- * reader and logged via `@/lib/logger`).
+ * Discriminated union over both event families. Reads re-validate each
+ * stored `event` payload through `eventSchema.safeParse` (see
+ * `decodeEventsLenient`), so any shape drift on disk surfaces at read time
+ * as a dropped-and-counted row rather than a thrown read.
  */
 export const eventSchema = z.discriminatedUnion("kind", [
 	mutationEventSchema,

@@ -6,7 +6,6 @@
  * - `switchConnectMode` composite action manages the connect stash + doc
  *   mutations atomically
  * - Generation lifecycle actions bracket agent writes correctly
- * - Replay state loading and message updates
  * - `reset()` clears all fields
  *
  * Connect stash and generation tests use a real `createBlueprintDocStore()`
@@ -20,7 +19,6 @@ import { asUuid } from "@/lib/doc/types";
 import type { Event } from "@/lib/log/types";
 import { toastStore } from "@/lib/ui/toastStore";
 import { createBuilderSessionStore } from "../store";
-import type { ReplayChapter } from "../types";
 
 describe("BuilderSession store", () => {
 	it("1. initial state: not previewing, both sidebars open, no stash", () => {
@@ -832,193 +830,10 @@ describe("generation lifecycle", () => {
 	});
 });
 
-// ── Replay ──────────────────────────────────────────────────────────────
-
-describe("replay state", () => {
-	/**
-	 * Fixture event log — a minimal but realistic mix of conversation and
-	 * mutation events representing the shape the extractor emits. All events
-	 * share a runId and use monotonic seq numbers so they'd sort chronologically
-	 * on disk exactly as they appear here.
-	 */
-	const mockEvents: Event[] = [
-		{
-			kind: "conversation",
-			runId: "run-1",
-			ts: 1000,
-			seq: 0,
-			source: "chat",
-			payload: { type: "user-message", text: "Build me an app" },
-		},
-		{
-			kind: "conversation",
-			runId: "run-1",
-			ts: 1100,
-			seq: 1,
-			source: "chat",
-			payload: { type: "assistant-text", text: "Sure, building..." },
-		},
-		{
-			kind: "mutation",
-			runId: "run-1",
-			ts: 1200,
-			seq: 2,
-			source: "chat",
-			actor: "agent",
-			stage: "scaffold",
-			mutation: { kind: "setAppName", name: "Test App" },
-		},
-		{
-			kind: "conversation",
-			runId: "run-1",
-			ts: 1300,
-			seq: 3,
-			source: "chat",
-			payload: { type: "assistant-text", text: "Done." },
-		},
-	];
-
-	/**
-	 * Two chapters covering the four events above. The second chapter starts
-	 * where the first ends — chapters are contiguous scrub targets over the
-	 * same underlying stream, not separate event buckets.
-	 */
-	const mockChapters: ReplayChapter[] = [
-		{ header: "Setup", subtitle: "App meta", startIndex: 0, endIndex: 2 },
-		{ header: "Wrap-up", startIndex: 3, endIndex: 3 },
-	];
-
-	it("loadReplay stores events, chapters, cursor, and exitPath", () => {
-		const store = createBuilderSessionStore();
-
-		store.getState().loadReplay({
-			events: mockEvents,
-			chapters: mockChapters,
-			initialCursor: 2,
-			exitPath: "/build/abc",
-		});
-		const replay = store.getState().replay;
-
-		expect(replay).toBeDefined();
-		expect(replay?.events).toEqual(mockEvents);
-		expect(replay?.chapters).toEqual(mockChapters);
-		expect(replay?.cursor).toBe(2);
-		expect(replay?.exitPath).toBe("/build/abc");
-	});
-
-	it("loadReplay with initialCursor=0 lands on the first event", () => {
-		const store = createBuilderSessionStore();
-
-		store.getState().loadReplay({
-			events: mockEvents,
-			chapters: mockChapters,
-			initialCursor: 0,
-			exitPath: "/exit",
-		});
-
-		expect(store.getState().replay?.cursor).toBe(0);
-	});
-
-	it("setReplayCursor updates the cursor in place", () => {
-		const store = createBuilderSessionStore();
-		store.getState().loadReplay({
-			events: mockEvents,
-			chapters: mockChapters,
-			initialCursor: 0,
-			exitPath: "/exit",
-		});
-
-		store.getState().setReplayCursor(3);
-
-		const replay = store.getState().replay;
-		expect(replay?.cursor).toBe(3);
-		/* Events and chapters are untouched — only the cursor moves. */
-		expect(replay?.events).toEqual(mockEvents);
-		expect(replay?.chapters).toEqual(mockChapters);
-	});
-
-	it("setReplayCursor is a no-op when no replay is loaded", () => {
-		const store = createBuilderSessionStore();
-		const prev = store.getState();
-
-		store.getState().setReplayCursor(0);
-		expect(store.getState()).toBe(prev);
-	});
-
-	it("setReplayCursor clamps negative input to 0", () => {
-		const store = createBuilderSessionStore();
-		store.getState().loadReplay({
-			events: mockEvents,
-			chapters: mockChapters,
-			initialCursor: 2,
-			exitPath: "/exit",
-		});
-
-		store.getState().setReplayCursor(-1);
-
-		/* Negative cursors never make sense for an array index — clamp to 0
-		 * so UI callers can pass deltas like `cursor - 1` without guarding. */
-		expect(store.getState().replay?.cursor).toBe(0);
-	});
-
-	it("setReplayCursor clamps overflow to events.length - 1", () => {
-		const store = createBuilderSessionStore();
-		store.getState().loadReplay({
-			events: mockEvents,
-			chapters: mockChapters,
-			initialCursor: 0,
-			exitPath: "/exit",
-		});
-
-		/* events.length === 4, so the last valid index is 3. Passing
-		 * events.length must clamp down, not index past the array. */
-		store.getState().setReplayCursor(mockEvents.length);
-
-		expect(store.getState().replay?.cursor).toBe(mockEvents.length - 1);
-	});
-
-	it("setReplayCursor is a state-identity no-op when cursor is unchanged", () => {
-		const store = createBuilderSessionStore();
-		store.getState().loadReplay({
-			events: mockEvents,
-			chapters: mockChapters,
-			initialCursor: 2,
-			exitPath: "/exit",
-		});
-
-		const prev = store.getState();
-		/* Setting the same cursor must not allocate a new state object —
-		 * matches the setLoading / setAppId / setSidebarOpen no-op idiom
-		 * so subscribers don't re-render on redundant writes. */
-		store.getState().setReplayCursor(2);
-		expect(store.getState()).toBe(prev);
-	});
-
-	it("loadReplay with empty events/chapters pins cursor at 0", () => {
-		const store = createBuilderSessionStore();
-
-		/* Edge case: an admin replay for a run that produced no events.
-		 * `replay` should still be defined (replay mode is active), but the
-		 * cursor degenerates to 0 since there's nothing to index into. */
-		store.getState().loadReplay({
-			events: [],
-			chapters: [],
-			initialCursor: 0,
-			exitPath: "/exit",
-		});
-
-		const replay = store.getState().replay;
-		expect(replay).toBeDefined();
-		expect(replay?.events).toEqual([]);
-		expect(replay?.chapters).toEqual([]);
-		expect(replay?.cursor).toBe(0);
-	});
-});
-
 // ── Reset ───────────────────────────────────────────────────────────────
 
 describe("reset", () => {
-	it("clears all generation, replay, appId, and transient fields", () => {
+	it("clears all generation, appId, and transient fields", () => {
 		const { session } = createGenerationTestStores(true);
 
 		/* Populate every new field so we can verify reset clears them all. */
@@ -1038,12 +853,6 @@ describe("reset", () => {
 		session.getState().markRunCompleted();
 		session.getState().endRun();
 		session.getState().setAppId("app-123");
-		session.getState().loadReplay({
-			events: [],
-			chapters: [{ header: "S1", startIndex: 0, endIndex: 0 }],
-			initialCursor: 0,
-			exitPath: "/exit",
-		});
 		session.getState().setLoading(true);
 		session.getState().markNewField("q-1");
 		session.getState().setFocusHint("label");
@@ -1061,9 +870,6 @@ describe("reset", () => {
 
 		/* App identity */
 		expect(s.appId).toBeUndefined();
-
-		/* Replay */
-		expect(s.replay).toBeUndefined();
 
 		/* Interaction */
 		expect(s.previewing).toBe(false);
@@ -1138,17 +944,6 @@ describe("events buffer + run lifecycle", () => {
 		const prev = store.getState();
 		store.getState().pushEvents([]);
 		expect(store.getState()).toBe(prev);
-	});
-
-	it("replaceEvents swaps the buffer wholesale (scrub reconstruction)", () => {
-		const store = createBuilderSessionStore();
-		store.getState().pushEvents([makeMutationEvent("schema", 0)]);
-		const replacement = [
-			makeMutationEvent("scaffold", 0),
-			makeMutationEvent("module:0", 1),
-		];
-		store.getState().replaceEvents(replacement);
-		expect(store.getState().events).toEqual(replacement);
 	});
 
 	it("markRunCompleted stamps runCompletedAt", () => {

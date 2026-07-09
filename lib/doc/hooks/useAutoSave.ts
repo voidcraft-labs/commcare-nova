@@ -97,8 +97,8 @@ export function projectSaveSlice(s: BlueprintDoc) {
  * Auth is guaranteed by the server layout (`requireAuth` in
  * `app/build/layout.tsx`) — no client-side auth check needed. The reconciler
  * (from `useReconcilerContext`) owns the write path; this hook throttles the
- * dispatch and renders its status. In replay (no reconciler) it inertly stays
- * idle — replay never edits.
+ * dispatch and renders its status. With no reconciler in context it inertly
+ * stays idle.
  */
 export function useAutoSave(): SaveState {
 	const [state, setState] = useState<SaveState>(IDLE_STATE);
@@ -382,10 +382,6 @@ export function useAutoSave(): SaveState {
 				const sessionState = session.getState();
 				/* A viewer holds no `edit` capability — never dispatch. */
 				if (!sessionState.canEdit) return;
-				/* Never dispatch during replay — the doc is being rebuilt from a
-				 * historical event log; any mutation is a scrub reconstruction, not
-				 * a user edit. */
-				if (sessionState.replay !== undefined) return;
 
 				/* Gate on lifecycle phase + app existence. Only dispatch when the
 				 * builder is Ready or Completed (a usable blueprint, no initial

@@ -39,11 +39,12 @@ import { Input } from "@/components/shadcn/input";
 import { Badge } from "@/components/ui/Badge";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 // `import type` is mandatory here: this is a "use client" module, and the
-// VALUE side of `@/lib/db/credits` pulls in `@google-cloud/firestore`. A plain
-// import would drag server-only Firestore into the client bundle (a build-time
-// break that `tsc --noEmit` doesn't surface). The types are erased at compile
-// time, so this stays purely a type dependency. `@/lib/admin/types` is already
-// type-only by construction but we keep the same discipline for clarity.
+// VALUE side of `@/lib/db/credits` pulls in `kysely`/`pg` (the server data
+// layer). A plain import would drag those server-only packages into the client
+// bundle (a build-time break that `tsc --noEmit` doesn't surface). The types
+// are erased at compile time, so this stays purely a type dependency.
+// `@/lib/admin/types` is already type-only by construction but we keep the
+// same discipline for clarity.
 import type { CreditGrantAudit } from "@/lib/admin/types";
 import type { CreditSummary } from "@/lib/db/credits";
 import { useExternalNavigate } from "@/lib/routing/hooks";

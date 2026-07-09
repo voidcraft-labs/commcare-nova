@@ -1,26 +1,24 @@
 /**
- * Smoke-suite seed (local services only).
+ * Smoke-suite seed (local Postgres only).
  *
- * Run inside `firebase emulators:exec` (so `FIRESTORE_EMULATOR_HOST` is set) and
- * against the local compose Postgres (`NOVA_DB_LOCAL_URL`) BEFORE Playwright
+ * Run against the local compose Postgres (`NOVA_DB_LOCAL_URL`) BEFORE Playwright
  * starts. It writes the minimum an authenticated smoke run needs, then emits a
  * Playwright `storageState` carrying a forged-but-valid session cookie:
  *
- *   1. an `auth_user` row (the signed-in Dimagi user) in Postgres,
- *   2. an `auth_session` row (a live, non-expired session token) in Postgres,
+ *   1. an `auth_user` row (the signed-in Dimagi user),
+ *   2. an `auth_session` row (a live, non-expired session token),
  *   3. one `complete` app to open in the builder, plus a handful of throwaway
- *      `complete` apps for the delete test to consume — all in Firestore via the
- *      real no-LLM `createApp`, so the suite never calls Anthropic.
+ *      `complete` apps for the delete test to consume — all via the real no-LLM
+ *      `createApp`, so the suite never calls Anthropic.
  *
- * Auth state lives in Postgres; app/thread/run state lives in Firestore — hence
- * the two stores. The delete test mutates seeded state irreversibly, and
- * Playwright retries tests in CI; seeding several throwaway apps (one per
- * possible attempt) keeps the delete test idempotent so a retry always has a
- * fresh app to delete.
+ * Auth state and app/thread/run state both live in Postgres now (one store).
+ * The delete test mutates seeded state irreversibly, and Playwright retries
+ * tests in CI; seeding several throwaway apps (one per possible attempt) keeps
+ * the delete test idempotent so a retry always has a fresh app to delete.
  *
- * SAFETY: refuses to run unless both `FIRESTORE_EMULATOR_HOST` and
- * `NOVA_DB_LOCAL_URL` are set, so it can never write into the real
- * `commcare-nova-dev` / `commcare-nova` projects or the Cloud SQL instance.
+ * SAFETY: refuses to run unless `NOVA_DB_LOCAL_URL` is set — the one gate that
+ * keeps its writes on the local Postgres, never the real Cloud SQL instance
+ * (which holds BOTH auth and app state).
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -34,7 +32,6 @@ import {
 	getCaseStorePool,
 } from "@/lib/case-store/postgres/connection";
 import { createApp } from "@/lib/db/apps";
-import { getDb } from "@/lib/db/firestore";
 import { DELETE_APP_COUNT } from "./lib/config";
 import { MP_SEED, seedMultiplayerFixture } from "./lib/multiplayerSeed";
 import { buildSessionStorageState } from "./lib/session";
@@ -58,7 +55,7 @@ function requireEnv(name: string): string {
 	const value = process.env[name];
 	if (!value) {
 		throw new Error(
-			`e2e/seed.ts: ${name} is required but unset. Run this through scripts/smoke.sh, which boots the Firestore emulator + local Postgres and exports the smoke env.`,
+			`e2e/seed.ts: ${name} is required but unset. Run this through scripts/smoke.sh, which boots the local Postgres and exports the smoke env.`,
 		);
 	}
 	return value;
@@ -106,15 +103,15 @@ async function clearSeedAuthRows(pool: Pool): Promise<void> {
 }
 
 async function main(): Promise<void> {
-	// Hard guards: only ever touch local services. Without these, a stray run
-	// with real ADC / a real connector would write a fake session into
-	// production.
-	if (!process.env.FIRESTORE_EMULATOR_HOST) {
+	// Hard guard: only ever touch the local Postgres. `NOVA_DB_LOCAL_URL` is the
+	// ONLY safety gate now — it protects BOTH the auth tables and the app-state
+	// tables. Without it, a stray run with a real Cloud SQL connector would
+	// write a forged session AND throwaway apps into production.
+	if (!process.env.NOVA_DB_LOCAL_URL) {
 		throw new Error(
-			"e2e/seed.ts refuses to run without FIRESTORE_EMULATOR_HOST — its app writes must only hit the Firestore emulator, never a real project.",
+			"e2e/seed.ts refuses to run without NOVA_DB_LOCAL_URL — it is the only guard keeping the seed's auth AND app-state writes on the local Postgres, never the real Cloud SQL instance.",
 		);
 	}
-	requireEnv("NOVA_DB_LOCAL_URL");
 	const secret = requireEnv("BETTER_AUTH_SECRET");
 	const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 
@@ -173,7 +170,7 @@ async function main(): Promise<void> {
 	// same Project the user's session resolves to.
 	const seedProjectId = await ensurePersonalProject(SEED.userId);
 
-	// App state → Firestore (emulator), via the real no-LLM create path (status
+	// App state → Postgres, via the real no-LLM create path (status
 	// `complete`), one throwaway "delete me" app per possible Playwright attempt.
 	const openAppId = await createApp(SEED.userId, seedProjectId, randomUUID(), {
 		appName: SEED.openAppName,
@@ -216,10 +213,9 @@ async function main(): Promise<void> {
 		`[seed] user=${SEED.userId} openApp=${openAppId} deleteApps=${deleteAppIds.length}\n[seed] wrote ${path.relative(process.cwd(), STATE_FILE)} + ${path.relative(process.cwd(), SEED_FILE)}\n[seed] multiplayer app=${multiplayer.appId} project=shared users=${multiplayer.userA.id},${multiplayer.userB.id}`,
 	);
 
-	// Release both clients so the process exits promptly — the Firestore gRPC
-	// channel and the pg pool would otherwise keep the event loop alive and stall
-	// the `tsx e2e/seed.ts && playwright test` chain.
-	await getDb().terminate();
+	// Release the pg pool so the process exits promptly — an open pool would
+	// otherwise keep the event loop alive and stall the
+	// `tsx e2e/seed.ts && playwright test` chain.
 	await closeCaseStoreDatabase();
 }
 

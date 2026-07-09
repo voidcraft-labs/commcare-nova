@@ -3,7 +3,6 @@ import { Icon } from "@iconify/react/offline";
 import tablerApps from "@iconify-icons/tabler/apps";
 import tablerFolderSymlink from "@iconify-icons/tabler/folder-symlink";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
-import tablerPlayerPlay from "@iconify-icons/tabler/player-play";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
@@ -21,7 +20,6 @@ import { RelativeTime } from "@/components/ui/RelativeTime";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { AppSummary } from "@/lib/db/apps";
 import type { MoveTarget } from "@/lib/projects/moveTargets";
-import { useExternalNavigate } from "@/lib/routing/hooks";
 import { showToast } from "@/lib/ui/toastStore";
 import { STATUS_STYLES } from "@/lib/utils/format";
 import { ConnectBadge } from "./ConnectBadge";
@@ -53,8 +51,6 @@ interface AppCardProps {
 	index: number;
 	/** If provided, the card links to this URL on click (idle/error states only). */
 	href?: string;
-	/** Show the admin-only replay control. */
-	showReplay?: boolean;
 	/**
 	 * If provided, the card grows a trash control + per-card
 	 * confirm/spinner state machine. The handler is the home-page
@@ -97,13 +93,11 @@ export function AppCard({
 	app,
 	index,
 	href,
-	showReplay,
 	onDelete,
 	onMove,
 	canMove,
 	moveTargets,
 }: AppCardProps) {
-	const navigate = useExternalNavigate();
 	const [cardState, setCardState] = useState<CardState>({ type: "idle" });
 
 	const style = STATUS_STYLES[app.status];
@@ -126,11 +120,6 @@ export function AppCard({
 	 * which tells users to "use Move to Project"). */
 	const showMove = Boolean(onMove && canMove);
 	const hasMoveTargets = Boolean(moveTargets && moveTargets.length > 0);
-
-	/* Replay navigation lives on the card so admin and home callers don't
-	 * each have to wire a handler. The hook is cheap and unconditional —
-	 * we just don't expose the affordance unless `showReplay` is true. */
-	const handleReplay = () => navigate.push(`/build/replay/${app.id}`);
 
 	const handleConfirmDelete = async () => {
 		if (!onDelete) return;
@@ -287,22 +276,6 @@ export function AppCard({
 					</span>
 				) : (
 					<>
-						{showReplay && !isFailed && (
-							<Tooltip content="Replay generation">
-								<button
-									type="button"
-									onClick={(e) => {
-										e.preventDefault();
-										e.stopPropagation();
-										handleReplay();
-									}}
-									className="p-1.5 text-nova-text-muted hover:text-white transition-colors rounded-md hover:bg-nova-violet/10 cursor-pointer"
-									aria-label="Replay generation"
-								>
-									<Icon icon={tablerPlayerPlay} width="18" height="18" />
-								</button>
-							</Tooltip>
-						)}
 						<span
 							className={`text-xs px-2 py-1 rounded-md ${style.bg} ${style.text}`}
 						>

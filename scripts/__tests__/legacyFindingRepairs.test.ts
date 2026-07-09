@@ -16,15 +16,14 @@
 //      only strictly-fewer-findings-with-no-new-identities outcomes.
 //   4. Idempotence — repairing a repaired doc plans nothing and
 //      changes nothing.
-//   5. The legacy string-shaped load — `toLegacyBlueprintView` reads a
-//      pre-AST blueprint the way `migrate-expression-asts` does, so a
-//      resolvable legacy close-condition id never reads as a dangling
-//      finding.
+//   5. The legacy string-shaped load — `toLegacyBlueprintView` promotes a
+//      pre-AST blueprint to the boundary view, so a resolvable legacy
+//      close-condition id never reads as a dangling finding.
 //
 // The core is pure (BlueprintDoc in → report + repaired doc out) and
-// never crosses the Firestore boundary — the validator/gate imports
-// carry only type-level references to `lib/db` — so no import-boundary
-// stub is needed; only the CLI wrappers talk to Firestore.
+// never touches the database — the validator/gate imports carry only
+// type-level references to `lib/db` — so no import-boundary stub is
+// needed; only the CLI wrappers read the app-state tables.
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";

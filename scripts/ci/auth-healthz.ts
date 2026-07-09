@@ -12,16 +12,15 @@
  * two sequential HTTPS calls over that stack) on the exact Node patch prod ships.
  * A regression in the stack (a Node/undici/node-fetch bump that breaks
  * keep-alive, an ERR_STREAM_PREMATURE_CLOSE) throws or hangs here and reds the PR
- * — before it can merge. The emulator-backed Playwright smoke can't catch this
- * class: it replaces that exact network layer.
+ * — before it can merge. The local-Postgres Playwright smoke can't catch this
+ * class: it never touches that outbound network layer.
  *
  * `google-auth-library` is declared as a devDependency at the connector's own
- * range (`^10.6.2`), so npm dedupes it to the SINGLE shared copy the connector +
- * firebase-admin already use — the test exercises the exact library the connector
- * depends on. Keep this range in lockstep with the connector's: nothing enforces
- * it automatically, and a divergent range would split off a second copy this test
- * no longer shares. The Firestore app-data path keeps its own gate in
- * `scripts/ci/firestore-healthz.ts`.
+ * range (`^10.6.2`), so npm dedupes it to the SINGLE shared copy the connector
+ * uses — the test exercises the exact library the connector depends on. Keep
+ * this range in lockstep with the connector's: nothing enforces it
+ * automatically, and a divergent range would split off a second copy this test
+ * no longer shares.
  *
  * What it deliberately does NOT cover: the connector's OWN code — the Cloud SQL
  * Admin-API cert mint and the mTLS socket to the instance. That can only run

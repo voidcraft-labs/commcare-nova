@@ -88,8 +88,8 @@ function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	} as MediaAssetRecord;
 }
 
-/** An `extract` subobject at a given status/age, shaped like the Firestore doc
- *  (its `extractedAt` only needs `toMillis`). */
+/** An `extract` subobject at a given status/age, shaped like the stored
+ *  record (`extractedAt` is epoch ms). */
 function extractRecord(
 	status: "extracting" | "ready" | "failed",
 	{
@@ -106,7 +106,7 @@ function extractRecord(
 		model: "gemini-3.5-flash",
 		truncated: false,
 		charCount: 0,
-		extractedAt: { toMillis: () => Date.now() - ageMs } as never,
+		extractedAt: Date.now() - ageMs,
 	};
 }
 

@@ -1,84 +1,143 @@
 /**
- * Shape coverage for `mediaAssetDocSchema` — the Firestore-stored
- * media-asset record. The Firestore converter (`lib/db/firestore.ts`)
- * runs `schema.parse` on every read, so these constraints are what
- * catch data corruption / schema drift at the persistence boundary.
+ * Row → `MediaAssetRecord` mapping coverage, exercised through `loadAssetById`
+ * over the real per-test Postgres.
  *
- * Uses a real `Timestamp` for `created_at` (the schema is
- * `z.instanceof(Timestamp)`), so these run without an emulator.
+ * On Firestore the media-asset record was validated on every read by a Zod
+ * converter (`mediaAssetDocSchema.parse`); those shape-guard arms are gone with
+ * the converter. On Postgres the field invariants are column types + the
+ * write-boundary validation the upload/confirm routes run BEFORE the insert
+ * (`createPendingAsset` / `confirmAssetReady`), so a stored row is already
+ * well-formed. What remains is `mediaAssets.ts::toRecord` — the read-time mapping
+ * that `Number(...)`s the `bigint` columns (`size_bytes`, `duration_ms`), parses
+ * the `extract` jsonb through `mediaAssetExtractSchema`, and omits an optional
+ * whenever its column is null. This suite pins that mapping.
  */
 
-import { Timestamp } from "@google-cloud/firestore";
-import { describe, expect, it } from "vitest";
-import { mediaAssetDocSchema } from "../types";
+import { beforeEach, describe, expect, it } from "vitest";
+import { asAssetId, MEDIA_EXTRACT_STATUSES } from "@/lib/domain/multimedia";
+import { setupAppStateTestDb } from "./appStateTestDb";
 
-const baseDoc = {
-	owner: "user-1",
-	project_id: "project-1",
-	contentHash: "a".repeat(64),
-	mimeType: "image/png",
-	kind: "image" as const,
-	extension: ".png",
-	sizeBytes: 1024,
-	gcsObjectKey: "projects/project-1/aaa.png",
-	originalFilename: "logo.png",
-	displayName: "logo.png",
-	status: "ready" as const,
-	created_at: Timestamp.fromDate(new Date("2026-01-01T00:00:00Z")),
-};
+const h = setupAppStateTestDb("media_record_");
 
-describe("mediaAssetDocSchema", () => {
-	it("round-trips a minimal ready image record", () => {
-		const parsed = mediaAssetDocSchema.parse(baseDoc);
-		expect(parsed.kind).toBe("image");
-		expect(parsed.status).toBe("ready");
+interface RowOverrides {
+	mime_type?: string;
+	extension?: string;
+	kind?: string;
+	status?: string;
+	size_bytes?: number;
+	dimensions?: { width: number; height: number } | null;
+	duration_ms?: number | null;
+	display_name?: string | null;
+	extract?: Record<string, unknown> | null;
+}
+
+/** Insert a `media_assets` row, defaulting a `ready` image, and return its id. */
+async function seedRow(over: RowOverrides = {}): Promise<string> {
+	const id = crypto.randomUUID();
+	await h
+		.db()
+		.insertInto("media_assets")
+		.values({
+			id,
+			project_id: "project-1",
+			owner: "user-1",
+			content_hash: "a".repeat(64),
+			mime_type: over.mime_type ?? "image/png",
+			extension: over.extension ?? ".png",
+			size_bytes: over.size_bytes ?? 1024,
+			dimensions:
+				over.dimensions === undefined
+					? JSON.stringify({ width: 1920, height: 1080 })
+					: over.dimensions === null
+						? null
+						: JSON.stringify(over.dimensions),
+			duration_ms: over.duration_ms ?? null,
+			kind: over.kind ?? "image",
+			gcs_object_key: `projects/project-1/${id}${over.extension ?? ".png"}`,
+			original_filename: "logo.png",
+			display_name:
+				over.display_name === undefined ? "logo.png" : over.display_name,
+			status: over.status ?? "ready",
+			extract:
+				over.extract === undefined || over.extract === null
+					? null
+					: JSON.stringify(over.extract),
+		})
+		.execute();
+	return id;
+}
+
+describe("toRecord mapping (via loadAssetById)", () => {
+	let loadAssetById: typeof import("../mediaAssets")["loadAssetById"];
+	beforeEach(async () => {
+		({ loadAssetById } = await import("../mediaAssets"));
 	});
 
-	it("accepts dimensions on images", () => {
-		const parsed = mediaAssetDocSchema.parse({
-			...baseDoc,
-			dimensions: { width: 1920, height: 1080 },
+	it("maps a ready image row — bigint size_bytes → number, dimensions present", async () => {
+		const id = await seedRow();
+		const record = await loadAssetById(asAssetId(id));
+		expect(record).toMatchObject({
+			id,
+			kind: "image",
+			status: "ready",
+			mimeType: "image/png",
+			extension: ".png",
+			displayName: "logo.png",
 		});
-		expect(parsed.dimensions).toEqual({ width: 1920, height: 1080 });
+		// The `bigint` column comes back a number, not a string.
+		expect(record?.sizeBytes).toBe(1024);
+		expect(typeof record?.sizeBytes).toBe("number");
+		expect(record?.dimensions).toEqual({ width: 1920, height: 1080 });
+		expect(record?.durationMs).toBeUndefined();
+		expect(record?.created_at).toBeInstanceOf(Date);
 	});
 
-	it("accepts durationMs on audio", () => {
-		const parsed = mediaAssetDocSchema.parse({
-			...baseDoc,
-			mimeType: "audio/mpeg",
-			kind: "audio",
+	it("maps durationMs on audio (bigint → number), with no dimensions", async () => {
+		const id = await seedRow({
+			mime_type: "audio/mpeg",
 			extension: ".mp3",
-			durationMs: 30_000,
+			kind: "audio",
+			dimensions: null,
+			duration_ms: 30_000,
 		});
-		expect(parsed.durationMs).toBe(30_000);
+		const record = await loadAssetById(asAssetId(id));
+		expect(record?.durationMs).toBe(30_000);
+		expect(typeof record?.durationMs).toBe("number");
+		expect(record?.dimensions).toBeUndefined();
 	});
 
-	it("rejects an obviously-wrong content-hash format", () => {
-		expect(() =>
-			mediaAssetDocSchema.parse({ ...baseDoc, contentHash: "not-hex" }),
-		).toThrow();
+	it("parses the extract jsonb through mediaAssetExtractSchema", async () => {
+		const extract = {
+			status: MEDIA_EXTRACT_STATUSES[0],
+			version: 1,
+			model: "claude-extract",
+			truncated: false,
+			charCount: 512,
+			extractedAt: 1_700_000_000_000,
+			title: "A document",
+			summary: "It says things.",
+		};
+		const id = await seedRow({ kind: "document", extract });
+		const record = await loadAssetById(asAssetId(id));
+		expect(record?.extract).toEqual(extract);
 	});
 
-	it("rejects a non-leading-dot extension", () => {
-		expect(() =>
-			mediaAssetDocSchema.parse({ ...baseDoc, extension: "png" }),
-		).toThrow();
+	it("omits optional fields whose columns are null", async () => {
+		const id = await seedRow({
+			dimensions: null,
+			duration_ms: null,
+			display_name: null,
+			extract: null,
+		});
+		const record = await loadAssetById(asAssetId(id));
+		expect(record).not.toHaveProperty("dimensions");
+		expect(record).not.toHaveProperty("durationMs");
+		expect(record).not.toHaveProperty("displayName");
+		expect(record).not.toHaveProperty("extract");
 	});
 
-	it("rejects an unknown kind", () => {
-		expect(() =>
-			mediaAssetDocSchema.parse({ ...baseDoc, kind: "document" }),
-		).toThrow();
-	});
-
-	it("rejects an unknown status (no `failed` state exists)", () => {
-		expect(() =>
-			mediaAssetDocSchema.parse({ ...baseDoc, status: "failed" }),
-		).toThrow();
-	});
-
-	it("requires the denormalized kind field", () => {
-		const { kind: _dropped, ...withoutKind } = baseDoc;
-		expect(() => mediaAssetDocSchema.parse(withoutKind)).toThrow();
+	it("returns null for a missing id", async () => {
+		const record = await loadAssetById(asAssetId(crypto.randomUUID()));
+		expect(record).toBeNull();
 	});
 });

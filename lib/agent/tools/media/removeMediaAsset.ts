@@ -24,7 +24,7 @@
  */
 
 import { z } from "zod";
-import { loadAssetById } from "@/lib/db/mediaAssets";
+import { listReferencingAppIds, loadAssetById } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain";
 import { extractObjectKeyForAsset } from "@/lib/domain/multimedia";
@@ -97,12 +97,12 @@ export const removeMediaAssetTool = {
 
 		// Reference guard, part 2: every OTHER live app's persisted doc. The
 		// current app is covered by the working-doc check above, so skip it here.
-		// `asset.referencingAppIds` is the reverse index — the guard re-walks only
+		// `listReferencingAppIds` reads the reverse index — the guard re-walks only
 		// those candidates instead of loading every one of the Project's apps.
 		const otherAppReferences = await findAppReferencesToAsset(
 			projectId,
 			input.assetId,
-			asset.referencingAppIds,
+			await listReferencingAppIds(input.assetId),
 			{ skipAppId: ctx.appId },
 		);
 		if (otherAppReferences.length > 0) {

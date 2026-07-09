@@ -8,15 +8,18 @@
  *                Compares two explicit runs of the same app.
  *
  * Data sources per run:
- *   - `apps/{appId}/runs/{runId}` — `RunSummaryDoc` (cost + behavior).
- *   - `apps/{appId}/events/` filtered to `runId` — event-count and
- *     tool-usage deltas (the summary stores total tool calls but not
- *     per-tool breakdown).
+ *   - `run_summaries` — `RunSummaryDoc` (cost + behavior), via `readRunSummary`.
+ *   - `events` filtered to `runId` — event-count and tool-usage deltas (the
+ *     summary stores total tool calls but not the per-tool breakdown), via
+ *     `readEvents`.
  *
- * Read-only — never writes to Firestore. Run with `--help` for flags.
+ * Read-only. Reads the app-state database the env provides
+ * (`NOVA_DB_LOCAL_URL` locally, the Cloud SQL connector in the migrate-job
+ * image). Run with `--help` for flags.
  */
 import "dotenv/config";
 import { Command, InvalidArgumentError } from "commander";
+import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import type { RunSummaryDoc } from "@/lib/db/types";
 import { readEvents, readLatestRunId, readRunSummary } from "@/lib/log/reader";
 import {
@@ -486,4 +489,12 @@ async function main() {
 	}
 }
 
-runMain(main);
+// Close the shared case-store pool so the process exits promptly — an open
+// pool keeps the event loop alive.
+runMain(async () => {
+	try {
+		await main();
+	} finally {
+		await closeCaseStoreDatabase();
+	}
+});

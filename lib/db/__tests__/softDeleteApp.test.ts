@@ -1,137 +1,51 @@
 /**
- * `softDeleteApp` unit tests.
+ * `softDeleteApp` — the persistence helper `delete_app` (MCP) and the home-page
+ * Server Action sit on, against the real per-test Postgres.
  *
- * Locks the Firestore contract of the persistence-layer helper that
- * `delete_app` (MCP tool) and the home-page Server Action sit on top
- * of:
- *
- *   - The write targets the correct document and sets exactly two
- *     fields: `deleted_at` and `recoverable_until`. Lifecycle status
- *     is intentionally untouched — `deleted_at != null` is the sole
- *     soft-delete marker; soft-delete and lifecycle status are
- *     orthogonal axes.
- *   - `update()` is used, not `set()` — so a missing-row write rejects
- *     with NOT_FOUND instead of materializing a ghost row that lacks
- *     the `owner` / `blueprint` fields the Zod converter requires.
- *   - `deleted_at` and `recoverable_until` are both ISO-8601 strings
- *     and the gap between them matches the 30-day retention window.
- *
- * The Firestore module is mocked at the file boundary — only the
- * `docs.app(appId).update(...)` call path matters for this helper, so
- * we stub `collections` and `getDb` alongside to keep the module-level
- * import graph happy.
+ * Locks the contract:
+ *   - The write sets exactly `deleted_at` + `recoverable_until`; lifecycle
+ *     `status` is intentionally untouched (`deleted_at != null` is the sole
+ *     soft-delete marker; soft-delete and status are orthogonal axes).
+ *   - It returns the ISO `recoverable_until`, and the gap to `deleted_at` is the
+ *     30-day retention window.
+ *   - A write against a missing row THROWS (the Kysely `numUpdatedRows === 0`
+ *     guard) so callers surface a missing-row error rather than a silent no-op —
+ *     the Postgres analogue of the old Firestore `update()`-NOT-`set()` ghost-row
+ *     guarantee (there is no `set` upsert path to guard against anymore).
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { setupAppStateTestDb } from "./appStateTestDb";
 
-/* Hoisted spies — `vi.hoisted` lifts the spy references so the
- * `vi.mock` factory can capture them at hoist time. The factory returns
- * an object whose `docs.app` runs through to the same `update` + `set`
- * spies for every appId — we inspect `appMock.mock.calls` to confirm
- * the targeted id AND assert `setMock` stays untouched (the contract is
- * "soft-delete MUST use update()" — `set()` would materialize a ghost
- * row lacking the `owner`/`blueprint` the converter requires). */
-const { updateMock, setMock, appMock } = vi.hoisted(() => {
-	const update = vi.fn();
-	const set = vi.fn();
-	const app = vi.fn((_appId: string) => ({ update, set }));
-	return { updateMock: update, setMock: set, appMock: app };
-});
-
-vi.mock("../firestore", () => ({
-	/* `docs.app(appId)` returns a stub carrying `update` and `set`
-	 * spies. `set` is present only so the test can prove the helper
-	 * DOESN'T call it — leaving it off would mean a future regression
-	 * that switched to `set()` would throw "is not a function" at
-	 * runtime rather than producing a clean assertion failure. */
-	docs: { app: appMock },
-	/* `collections` and `getDb` aren't touched by `softDeleteApp`, but
-	 * `apps.ts` imports both at module scope; providing empty stand-ins
-	 * lets the module resolve under the mock. */
-	collections: { apps: vi.fn() },
-	getDb: vi.fn(),
-}));
-
-/* 30-day retention window in ms — mirrors the helper's constant. The
- * assertion below allows ~1s of drift between the helper's
- * `new Date()` and the test's re-computation, so the tolerance is
- * generous enough to survive any scheduler noise. */
+const h = setupAppStateTestDb("soft_delete_");
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const APP = "app-1";
 
 describe("softDeleteApp", () => {
-	beforeEach(() => {
-		updateMock.mockReset();
-		setMock.mockReset();
-		appMock.mockClear();
-	});
-
-	it("writes deleted_at + recoverable_until via update() and returns the recovery deadline", async () => {
-		updateMock.mockResolvedValueOnce(undefined);
-
+	it("writes deleted_at + recoverable_until and returns the recovery deadline, status untouched", async () => {
+		await h.seedApp({ id: APP, status: "complete" });
 		const { softDeleteApp } = await import("../apps");
-		const recoverableUntil = await softDeleteApp("app-1");
 
-		/* Targeting: the `docs.app` accessor is invoked with the exact
-		 * appId — a regression that rebuilds the ref under a different
-		 * id would silently write to the wrong document. */
-		expect(appMock).toHaveBeenCalledWith("app-1");
+		const recoverableUntil = await softDeleteApp(APP);
 
-		/* Single update(), payload shape pinned. */
-		expect(updateMock).toHaveBeenCalledTimes(1);
-		const [patch] = updateMock.mock.calls[0] ?? [];
-		const patchObj = patch as Record<string, unknown>;
-
-		/* The two fields the soft-delete contract sets. */
-		expect(typeof patchObj.deleted_at).toBe("string");
-		expect(typeof patchObj.recoverable_until).toBe("string");
-
-		/* Lifecycle status is intentionally untouched — soft-delete is
-		 * the existence axis, status is the lifecycle axis, and they
-		 * are independent. A regression that brings back the old
-		 * status-flip behavior would set `status: "deleted"` here. */
-		expect(patchObj).not.toHaveProperty("status");
-
-		/* The returned value is the same ISO string written into
-		 * `recoverable_until` — callers surface it to users as the
-		 * recovery deadline. */
-		expect(recoverableUntil).toBe(patchObj.recoverable_until);
-
-		/* Retention window: `recoverable_until` - `deleted_at` must be
-		 * ~30 days, to within ~1s of scheduler drift. */
+		const row = await h.readAppRow(APP);
+		expect(row?.deleted_at).toBeInstanceOf(Date);
+		expect(row?.recoverable_until).toBeInstanceOf(Date);
+		// Soft-delete is the existence axis — status stays exactly as it was.
+		expect(row?.status).toBe("complete");
+		// The returned value is the same ISO string written to `recoverable_until`.
+		expect(recoverableUntil).toBe(
+			(row?.recoverable_until as Date).toISOString(),
+		);
+		// The retention window: recoverable_until − deleted_at ≈ 30 days.
 		const delta =
-			new Date(recoverableUntil).getTime() -
-			new Date(patchObj.deleted_at as string).getTime();
+			(row?.recoverable_until as Date).getTime() -
+			(row?.deleted_at as Date).getTime();
 		expect(delta).toBeCloseTo(RETENTION_MS, -3);
 	});
 
-	it("propagates NOT_FOUND rejections so callers can surface a missing-row error", async () => {
-		/* Firestore's Admin SDK raises a `5 NOT_FOUND` error when
-		 * `update()` targets a non-existent document. The helper must
-		 * let that reject bubble — a silent ghost-row create would let
-		 * later reads through the full schema converter throw on the
-		 * missing `owner` / `blueprint` fields. */
-		const firestoreNotFound = new Error("5 NOT_FOUND: No document to update");
-		updateMock.mockRejectedValueOnce(firestoreNotFound);
-
+	it("throws on a missing row so callers can surface a missing-row error", async () => {
 		const { softDeleteApp } = await import("../apps");
-		await expect(softDeleteApp("missing")).rejects.toThrow(/NOT_FOUND/);
-	});
-
-	it("calls update(), not set() — guarantees NOT_FOUND on missing rows", async () => {
-		/* The load-bearing semantic difference: `set()` materializes a
-		 * new document when one doesn't exist; `update()` rejects with
-		 * NOT_FOUND. A ghost row with only the soft-delete fields
-		 * would be invalid at every read — the converter requires
-		 * `owner` + `blueprint`. Pin the contract explicitly so a
-		 * future contributor "fixing" this by switching to `set()`
-		 * (which would paper over transient read lag) trips a test
-		 * rather than landing silently. */
-		updateMock.mockResolvedValueOnce(undefined);
-
-		const { softDeleteApp } = await import("../apps");
-		await softDeleteApp("app-1");
-
-		expect(updateMock).toHaveBeenCalledTimes(1);
-		expect(setMock).not.toHaveBeenCalled();
+		await expect(softDeleteApp("does-not-exist")).rejects.toThrow();
 	});
 });

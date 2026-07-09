@@ -1,62 +1,196 @@
-# lib/db — Firestore client + the two-ledger credit model
+# lib/db — the app-state data layer (Postgres) + the two-ledger credit model
 
-The Firestore singleton, Zod-backed converters, typed collection/doc helpers, and the credit gate that meters generation. `firestore.ts` owns the wire (lazy singleton, `withConverter` reads parse through Zod); `types.ts` owns every document schema. The non-obvious part is the credit gate, below.
+Everything Nova persists about apps, runs, credits, threads, media metadata,
+and settings lives in Postgres tables on the shared Cloud SQL pool. `pg.ts`
+owns the wire: `getAppDb()` (a `Kysely<AppDatabase>` on the pool
+`lib/case-store/postgres/connection.ts` owns), `withAppTx` (the one
+transaction entry point — bounded deadlock/serialization retry; a body re-runs
+from scratch on retry, so it stays pure of side effects), the table types
+(lock-stepped with the DDL in `lib/case-store/migrations/`), and the
+LISTEN/NOTIFY poke helpers. `types.ts` owns the assembled record shapes.
 
-**Request-path writes ride out Firestore's write throttle** — every transaction goes through `runThrottledTransaction`, and the hot plain writes (app creation, blueprint snapshots) through `runThrottledWrite` (`firestore.ts`); never bare `runTransaction` or a raw hot-path write. Firestore sheds commits (429) outside its documented limits and the client owns the retry; the SDK's own retries can't classify the REST-transport error shape — mechanics live in the `runThrottledTransaction` docstring. Only the throttle retries (each bounce `log.warn`s); a transaction body's own rejection (`OutOfCreditsError`, commit-gate rejections) is recognized by identity and propagates immediately.
+**Lock ordering is the concurrency discipline.** Every transaction that
+decides anything about a run locks the APP ROW first (`SELECT … FOR UPDATE`
+via `lockAppRow`), then touches other rows (credit months, entities, the
+stream). Per-app contention resolves as row-lock waits; the in-transaction
+re-reads the old two-phase code needed are simply how the code reads.
 
-**Exception — the auth-read modules read Postgres, not Firestore.** `api-keys.ts`, `oauth-consents.ts`, and `admin.ts` (the user-list half) live here for proximity to the surfaces that use them, but auth state moved to Postgres: they read/write the `auth_*` tables through `getAuthDb` (`@/lib/auth/db`, a `Kysely<AuthDatabase>` on the shared case-store pool) — no `getDb`, no Zod converter. The Firestore/Zod description above covers the app-domain modules (apps, threads, runs, credits, usage, media), not these three. `admin.ts` still fans out to Firestore for per-user usage/credits (a fan-out, not a join).
+**There is no blueprint blob.** An app is its `apps` row (scalars +
+denormalized list fields + the run lease and credit marker as nullable column
+groups) plus one `blueprint_entities` row per module/form/field.
+`blueprintRows.ts` is the projection: `assembleBlueprint` (rows → the exact
+`PersistableDoc`, Zod-validated), `decomposeBlueprint` (inverse; membership
+arrays round-trip via the stored `ordinal`), `diffBlueprints` (the minimal
+row-set a commit changed — diffed per entity by content, NOT by mutation
+targets, because reducer side effects like a rename's prose cascade touch
+entities the batch never named). `apps.app_name` stores the TRUE (possibly
+empty) name; list projections apply the `UNTITLED_APP_NAME` display fallback.
+
+**`accepted_mutations` is permanent history.** Every committed batch appends
+one row — no TTL, no prune. It is the realtime catch-up stream AND the app's
+durable edit history: folding every batch from an app's first seq reproduces
+its entity rows (apps migrated from Firestore start at their cutover
+snapshot). `UNIQUE (app_id, batch_id)` is the idempotency latch (the guarded
+commit reads it under the app row lock; a concurrent same-batch retry that
+races past the read is caught by the constraint and converges on the deduped
+result). Future blueprint-shape migrations must migrate the STORED MUTATIONS
+alongside the entity rows or historical folds stop reproducing state — the
+scan script's fold check is the tripwire.
+
+**Realtime pokes ride LISTEN/NOTIFY.** `writeCommittedBatch` calls
+`pg_notify('nova_app_stream', {appId, seq})` INSIDE the commit transaction
+(delivered on commit, after the rows are visible); presence writes poke
+`nova_presence`. Payloads are pokes only — the relay
+(`app/api/apps/[id]/stream`) SELECTs since its cursor, so a missed
+notification degrades to the next poke/catch-up, never to lost data. The
+dedicated LISTEN connection lives in `streamListener.ts` (one per instance,
+outside the pool — see the connection budget in
+`lib/case-store/postgres/connection.ts`).
 
 ## Two ledgers, different lifecycles
 
-Cost and quota live in **separate collections** so an admin intervention on one never disturbs the other:
+Cost and quota live in **separate tables** so an admin intervention on one
+never disturbs the other:
 
-- `usage/{userId}/months/{period}` (`UsageDoc`) — the ACTUAL dollar cost, **accumulate-only**. Resets never touch it. Its sole gate consumer is the invisible `$50` backstop (`ACTUAL_COST_BACKSTOP_USD`), read via `getMonthlyUsage`. The user never sees this dollar figure.
-- `credits/{userId}/months/{period}` (`CreditMonthDoc`) — the **resettable** user-facing gate. Balance is derived, not stored: `allowance(2000) + bonus − consumed`.
-- `credits/{userId}/grants/{id}` (`CreditGrantDoc`) — append-only admin audit of every `reset` / `grant`, written in the **same transaction** as the balance change so effect and audit commit together or not at all.
+- `usage_months` (`UsageDoc`) — the ACTUAL dollar cost, **accumulate-only**.
+  Resets never touch it. Its sole gate consumer is the invisible `$50`
+  backstop (`ACTUAL_COST_BACKSTOP_USD`), read via `getMonthlyUsage`.
+- `credit_months` (`CreditMonthDoc`) — the **resettable** user-facing gate.
+  Balance is derived, not stored: `allowance(2000) + bonus − consumed`.
+- `credit_grants` (`CreditGrantDoc`) — append-only admin audit of every
+  `reset` / `grant`, written in the **same transaction** as the balance change.
 
-**A missing credit doc reads as a full 2000 balance everywhere** — gate (`getCurrentCreditBalance` → `creditBalance(undefined)`) and dashboard (`getCreditSummary`'s `snap.exists` defaults) both share that rule, so a never-touched month needs no pre-seeding write to read correctly. That, plus per-month doc IDs, is the entire "monthly refill, no cron": the first chargeable turn of a month lazily seeds *that* month's doc with explicit `{allowance, consumed, bonus}` (`allowance` has no Zod default — its value is credit policy, seeded in code). There is no future-month pre-seeding.
+**A missing credit row reads as a full 2000 balance everywhere** — gate and
+dashboard share that rule, so a never-touched month needs no pre-seeding
+write. That, plus per-month primary keys, is the entire "monthly refill, no
+cron": the first chargeable turn of a month lazily seeds *that* month's row
+with an explicit allowance (its value is credit policy, seeded in code).
 
 ## Pricing + the charge signal
 
-Build = 100 credits, edit = 5 (`chargeAmount(appReady)` — same `appReady` boolean the route uses to pick the editing prompt). `isChargeableTurn` decides charge vs. free continuation off the **last message's role**: a fresh instruction ends with `user` (charge); an answered-`askQuestions` auto-resend ends with the SA's `assistant` (free, belongs to the run already charged). It MUST read the **raw `body.messages`**, never the route's last-user-message-only cache-expiry transform — that transform leaves a `user` message last on every POST and would charge every clarification round-trip.
+Build = 100 credits, edit = 5 (`chargeAmount(appReady)`). `isChargeableTurn`
+decides charge vs. free continuation off the **last message's role**: a fresh
+instruction ends with `user` (charge); an answered-`askQuestions` auto-resend
+ends with the SA's `assistant` (free). It MUST read the **raw
+`body.messages`**, never the route's cache-expiry transform — that transform
+leaves a `user` message last on every POST and would charge every
+clarification round-trip.
 
-## Reserve-before-run
+## Claim and reserve are ONE transaction
 
-A Firestore transaction in `reserveCredits` debits credits up front (read-check-write the literal `consumed + cost`, not `FieldValue.increment`, so the cap holds atomically under contention). The route places it after every pre-stream rejection point, so a booked charge is never stranded by an early return. The refund folds into the idempotent `UsageAccumulator.flush()`, gated `didReserve && (runFailed || costEstimate === 0)` and targeting the period **captured at reservation** (`chargePeriod`), so a flush that crosses midnight un-books the right month. A **failed run still accrues actual-$** — the backstop must see retry-spam — only the credits are refunded; the two decisions are independent.
+`claimAndReserveRun(appId, mode, runId, actorUserId, cost)` (and its
+new-build sibling `reserveForNewBuild`) runs, inside a single app-row-locked
+transaction: the busy check (`lease.live || lease.paused` →
+`RunConflictError`; a paused run blocks — it is never a claimable takeover),
+the cross-app one-build-per-user scan (`GenerationInProgressError`), the
+unconditional refund of any leftover UNSETTLED marker (a superseded
+hard-killed run's stranded hold, refunded to ITS charged actor/period), the
+literal-balance affordability check (`OutOfCreditsError`), the debit, the
+fresh marker, and the claim writes (build → `status: generating` + fresh
+`updated_at`; edit → `run_lock` lease + `status → complete` normalize).
+
+The atomicity is the structural fix that retired a whole failure class: a
+claimed app ALWAYS carries its claimant's marker, "claimed but unreserved" is
+unrepresentable, and every rejection is a rollback that held nothing — so
+there is no prior-state capture, no restore path, and no bail-out arm that
+can leave an app in a shape it wasn't already in. The credit-debit body is
+`credits.ts::debitAndBookReservation`, which the claim owns; the route places
+the claim after every pre-stream rejection point so a booked charge is never
+stranded by an early return. The refund of a failed/no-op run folds into the
+idempotent `UsageAccumulator.flush()` targeting the period **captured at
+reservation**, so a flush that crosses midnight un-books the right month. A
+**failed run still accrues actual-$** — only the credits refund; the two
+decisions are independent.
 
 ## Client vs server split
 
-- `creditPolicy.ts` — **client-safe**: pure constants + rules (`chargeAmount`, `isChargeableTurn`, `creditBalance`), every import `import type` so no Firestore enters a bundle. Imported by the chat gate, the `ChatInput` send-button cost chip, and `AccountMenu`. Dropping a `type` keyword would drag `@google-cloud/firestore` client-side — keep every import type-only.
-- `credits.ts` — the **server** ledger: `reserveCredits` / `refundReservation` / `resetCredits` / `grantCredits` / `getCreditSummary` / `getCurrentCreditBalance`, all Firestore transactions.
-
-The reservation/refund/reset/grant transactions read through `docs.creditMonthRaw` (the converter-less ref), not the converter ref: a `withConverter` `tx.get()` routes the snapshot through `schema.parse`, which throws inside the transaction on a partially-seeded doc. They read raw, supply the missing-doc defaults in code, and merge back. Settled non-transactional reads (`getCreditSummary`, `getCurrentCreditBalance`) use the converter ref — a settled doc is always complete.
+- `creditPolicy.ts` — **client-safe**: pure constants + rules, every import
+  `import type` so no server data-layer package (`kysely`/`pg`) enters a
+  bundle. Imported by the chat gate, the send-button cost chip, and
+  `AccountMenu`.
+- `credits.ts` — the **server** ledger: the in-claim debit, the refund/settle
+  transactions, reset/grant, the summary reads.
 
 ## Finalization invariant — run-completion, not the request
 
-In `/api/chat`, finalization (the charge-vs-refund credit decision + run summary + actual-$ accrual) runs **once, on the run's true terminal state**, server-side, via the route's `finalizeRun()`. It is driven by the agent drain COMPLETING (`consumeStream()` advancing the tool loop to its terminal state), NOT by the browser connection: a closed tab neither cancels the run (no `req.signal` is forwarded into the agent anymore) nor finalizes it. The drain reaching its end is what keys the flush, so a zero-step model error — which fires no agent callback at all — still finalizes and the request can't hang.
+In `/api/chat`, finalization (the charge-vs-refund decision + run summary +
+actual-$ accrual) runs **once, on the run's true terminal state**, driven by
+the agent drain COMPLETING — not by the browser connection: a closed tab
+neither cancels the run nor finalizes it, and a zero-step model error still
+finalizes.
 
-**One reader for run liveness — `runLeaseState` (`runLiveness.ts`).** Every liveness / ownership / paused / settled decision — the claim busy check, `reacquireLease`, both reapers, the heartbeats, the failure-path lock decision — derives from ONE pure function `runLeaseState(fresh) → { mode, present, live, paused, mine(runId), terminalWriteOwned(runId), ownedByResume(runId, resumeMode), markerSettleable, reapableStrandedEdit, reapableStaleBuild }`. No other module reads `run_lock.expireAt`, `run_lock.runId`, or `reservation.runId` for a decision — a build-time grep guard (`runLivenessGrepGuard.test.ts`) fails on a raw read of those three PURE fields anywhere else. That single-reader invariant is the structural fix for a read-layer divergence class: the same question ("is this run alive / mine / paused") was computed independently at ~10 sites reading different field subsets, so they diverged; a new path now physically cannot diverge (no raw field to read → it consumes the same derived booleans). (`reservation.settled` is not hard-guarded — its only external readers are the atomic writers' settle-writes, and the settled/cleared skew was closed structurally by `settleAndRelease`, below.)
+**One reader for run liveness — `runLeaseState` (`runLiveness.ts`).** Every
+liveness / ownership / paused / settled decision derives from that ONE pure
+function; no other module reads the lease/marker columns for a decision (the
+grep-guard test enforces it; `apps.ts`/`credits.ts`'s `leaseView` /
+`rowReservation` / `rowRunLock` are the sanctioned row→view builders). A
+build holds its app via `status: 'generating'` + the `updated_at` window
+(`MAX_GENERATION_MINUTES`); an edit holds via its `run_lock` lease
+(`MAX_RUN_MINUTES`). Both horizons refresh on SA activity AND a wall-clock
+timer AND per commit (`refreshEditLease` / `refreshBuildLiveness` + the
+guarded commit's per-commit stamp), so a LIVE run never lapses; the heartbeat
+stops at finalize, so an abandoned paused run lapses for the reapers.
 
-**Two run modes, ONE per-app serialization primitive.** A run is a BUILD (no app yet, or a chargeable turn against a not-`complete` app) or an EDIT (a chargeable turn against a `complete` app). Both claim the app's run window through `claimRun(appId, mode, runId, actorUserId)` before the stream opens — the compare-and-flip that arbitrates same-app contenders across Cloud Run instances. A build HOLDS the app via `status: 'generating'` (`runLeaseState` reads its liveness off `updated_at` inside the `MAX_GENERATION_MINUTES` window); an edit HOLDS it via a `run_lock` `{ runId, actorUserId, expireAt }` while `status` stays `complete` (liveness off `run_lock.expireAt`, an initial `MAX_RUN_MINUTES` lease). Each mode's horizon is read in the ONE place (`lease.live`). BOTH horizons are refreshed on SA ACTIVITY (per agent step, debounced) AND on a wall-clock TIMER (so a single long no-step model turn can't lapse either) AND per commit: an edit's `run_lock` via `refreshEditLease` + `commitGuardedBatch`'s per-commit refresh, a build's `updated_at` via `refreshBuildLiveness` + every commit's snapshot stamp — so a LIVE run of either mode never lapses (a build's long no-commit stretch — planning, document extraction, a validator-rejection loop — would otherwise drift past its 10-min window and be reaped mid-run). Both refreshers are ownership-gated through the one reader; the heartbeat STOPS at run finalize (including a pause), so an abandoned paused run still lapses for the reapers. The residual false-reap (a missed heartbeat) self-heals at completion: `completeAndSettleRun` flips a reaped-but-UNCLAIMED build (`status: "error"` + `mode: "none"` + `lease.reaperResolved` — the reaper's settled/`runId`-cleared marker signature) back to `complete` without touching the marker, so the celebration and the dashboard agree and the reaper's refund stands. There is no second `reservation.expireAt` horizon (the reservation marker is a pure credit record + a per-run identity). `claimRun`'s busy check is `lease.live || lease.paused` — a live hold of either mode OR a paused run of either mode blocks either claim → `RunConflictError`. **A paused run is NOT a claimable takeover** (that cross-mode takeover / claim-time credit-transfer was descoped: its inherent `[claim, reserveCredits)` window produced real-money bugs, and cutting the barge deletes the whole class by construction). A second request on a busy app SERIALIZES-WITH-WAIT (below); the app frees when the holder completes / fails (its own terminal path) or is REAPED (a hard kill, or an abandoned paused run whose lease lapses). A paused run's OWN free-continuation resume re-acquires its own run before proceeding (`reacquireLease`, below) — the ONLY thing that re-enters a paused run. A claim therefore only ever runs on a FREE app (`complete` / `error`, or a hard-killed row past its horizon), so it NEVER mutates a prior run's marker/lock: a displaced hard-killed run's stranded hold is handed back by THIS run's own `reserveCredits` leftover-refund, not by the claim.
+**Serialize-with-wait, not 429.** A conflicting chargeable POST opens its SSE
+stream and polls `claimAndReserveRun` (each poll is the whole atomic
+claim+reserve), surfacing a "waiting on <holder>" event; a win arrives fully
+gated, a timeout ends friendly, and a gate rejection from a won poll held
+nothing.
 
-**Resume re-acquires — renew, don't get reaped.** A free-continuation resume of a paused run (build OR edit) calls `reacquireLease(appId, runId, mode)`: in ONE transaction it asserts `lease.ownedByResume(runId, mode)` (keyed on the RESUME's OWN mode, so a run re-claimed in the OTHER mode still reads the right discriminator — an edit-resume needs `mode === "edit" && mine`, a build-resume a paused-build shape `mode === "build" && paused && mine`) and, on success, RE-ESTABLISHES the mode's horizon (edit → re-stamp `run_lock.expireAt`; build → re-arm `updated_at`) AND clears `awaiting_input`. Re-establishing the lease is load-bearing: a paused run has no heartbeat, so its lease lapses while the user answers — a check that only asserted ownership would proceed on an already-lapsed lease and be reaped mid-run; renewal makes "still mine" and "not about to be reaped" the same atomic fact. A lost resume touched nothing and bails, and the return distinguishes WHY so the route's message can be true: `"superseded"` (another run occupies the freed app now — a genuine takeover) vs `"released"` (the reap simply freed it, no re-claim — on a personal Project the only lost shape, where a takeover message would always be false; the reaper also labels a paused-at-reap build `error_type: "paused_timeout"` rather than `"internal"` for the same honesty). This is the ONLY path that re-enters a paused run — a claim never can (a paused run blocks).
+**Terminal writers gate on ownership IN THEIR TRANSACTION** —
+`completeAndSettleRun` (build: `generating → complete` + settle, one commit;
+plus the false-reap SELF-HEAL: a reaped-but-unclaimed build that finished
+cleanly flips back to `complete` off the reaper's signature — settled marker,
+`runId` cleared, `run_id === runId`), `clearRunLockAndSettle` (edit: release +
+settle, one commit), `settleAndRelease` (the failed-run writer: refund-if-
+unsettled + settle + optional lock release in one commit; its `settled`
+return is the separate question "is this run's credit resolved — safe to
+`failApp`?"), and the flush-driven `refundReservation`. The gate makes a
+reaped-then-re-claimed run's stale terminal write a no-op rather than a
+clobber. A failed EDIT never flips its `complete` app to `error` (that would
+brick a working app over a transient model error).
 
-**Serialize-with-wait, not 429.** When the pre-stream `claimRun` conflicts, the route opens the SSE stream and polls `claimRun` (`CLAIM_WAIT_POLL_MS`, up to `CLAIM_WAIT_MAX_MS`) inside `execute`, surfacing a recoverable "waiting on <holder>" conversation event, then runs the post-claim gate (concurrency + `reserveCredits`) the non-conflict path already ran. The concurrency guard (`hasActiveGeneration`, per-user, `status === 'generating'`) is gated to a NEW/retry BUILD (`chargeable && !appReady`): an edit serializes per-app via its `run_lock` (so a user CAN edit one app while building another), and a free-continuation RESUME claims/reserves nothing new (so it must not be 429'd by the user's own live build elsewhere).
+**Reapers re-validate staleness IN-TXN.** `reapStaleGenerating` →
+`refundStaleGeneration` (stale build: refund + `generating → error` +
+`paused_timeout` classification for an abandoned pause) and
+`reapStaleReservation` → `refundStaleReservation` (stranded edit: refund +
+settle + release the lapsed lock) both re-derive `reapable*` off the locked
+row, so a fresh run that re-claimed between the scan and the reap is never
+clawed back. Both key on the LAPSED LEASE, not `awaiting_input`, so they free
+hard-killed AND abandoned-paused runs; both CLEAR the reaped marker's `runId`
+(the reaper's signature the self-heal + non-lenient `mine` read). Refunds
+always target the marker's charged actor (`res_user_id`, falling back to
+`owner` for migrated legacy markers).
 
-A failure (a fatal `{type:"error"}` stream chunk, or an init throw) funnels through `failRun()` → `markRunFailed()` + `flush()` (refund; actual-$ still accrues so the `$50` backstop sees retry-spam), THEN the atomic `settleAndRelease(appId, runId, { releaseLock })` — in ONE transaction it refunds-if-unsettled + settles the marker AND (for an edit) releases the `run_lock`. Its RETURN (`settled`) is the separate question "is this run's credit RESOLVED — safe for the route to `failApp`?": on the common failed-run path a run still owns its own app, so it returns `true`; it returns `false` only when a DIFFERENT run owns the app (the reaper-race — a stale run reaped + the freed app re-claimed), when the route must NOT flip the taker's app to `error`. THEN, for a BUILD, `failApp()` — but only if `settled === true` (a stranded settle leaves the build `generating` for the reaper to retry, mirroring `reapStaleGenerating`'s refund-before-flip). A failed EDIT does NOT flip its `complete` app to `error` (that would brick a working app over a transient model error); it settles + releases + surfaces the error, leaving the app open. **Failure-path atomicity invariant:** the `run_lock` is released ONLY inside the same commit that settles the marker, so "lock cleared + marker unsettled" (the strand that stranded credits) is impossible by construction — if the txn throws NOTHING changed (the lock stays for `reapStaleReservation`, which keys on a lock present-and-lapsed) and `settled` reports `false`. A non-fatal `tool-error` chunk is NOT a run failure (the SA loop recovers); the route keys failure on the fatal chunk type, not on any `onError` firing.
+**Resume re-acquires — renew, don't get reaped.** A free-continuation resume
+calls `reacquireLease`: one transaction asserting `ownedByResume` (keyed on
+the RESUME's own mode) and, on success, re-establishing the mode's horizon +
+clearing `awaiting_input`. A lost resume touched nothing; the return
+distinguishes `"superseded"` (another run occupies the app) from `"released"`
+(the reap simply freed it) so the route's message is true.
 
-**Clean completion settles the kept charge ATOMICALLY with the make-claimable transition** — a build's `completeAndSettleRun` flips `generating → complete` AND sets `reservation.settled` in one transaction; an edit's `clearRunLockAndSettle` deletes the `run_lock` AND settles in one. The atomicity closes the window where a run landing between a separate release and settle would see the still-unsettled marker and (per the unconditional leftover refund in `reserveCredits`) claw back this run's KEPT charge. So after a clean completion only a HARD-killed run ever leaves an unsettled marker. There is no status-only completion writer and no standalone settle primitive — the settle is always embedded in a make-claimable transition, so nothing can settle-without-releasing or release-without-settling. A deauthorized run (`CommitReauthError` from the per-commit reauth) `failRun`s off `ctx.reauthError()` — refund, not keep.
+## Guarded commit
 
-**Every terminal writer takes `runId` and gates on `runLeaseState().terminalWriteOwned(runId)` IN ITS TRANSACTION** — `completeAndSettleRun` / `clearRunLockAndSettle` / `settleAndRelease` / the flush-driven `refundReservation`. This is the WRITE-side counterpart of the single-reader consolidation. A run owns its app until it terminates, so on the happy path this is trivially true; it guards the ONE race that survives without a barge — a long no-commit BUILD (or a lapsed edit) whose lease went stale mid-run is REAPED and the freed app RE-CLAIMED by another run before this run's terminal write lands; the gate makes that stale write NO-OP rather than clobber the new run. `terminalWriteOwned` is per-mode: an EDIT owns via its `run_lock.runId` (a re-claim overwrote it); a BUILD owns via `markerSettleable && mine`, where **`mine` is NON-LENIENT** — a marker with no `runId` is owned by nobody. That is the reaper-race discriminator: the reapers CLEAR the marker's `runId` (and settle it) when they resolve a stranded run, so a REAPED-ghost build reads its own cleared marker as NOT mine (both `markerSettleable` false AND `mine` false) and no-ops rather than `failApp`-ing the taker that re-claimed the freed app; a live build still carries its `runId` and settles normally. `mode: "none"` (no run occupies the app) is owned (a bare stranded marker, no competing run). Re-reading ownership at write time is load-bearing (the stale `heldApp` flag captured at claim is NOT enough). All three terminal writers RETRY a transient Firestore fault (`withFirestoreRetry`) so a clean completion / a failed-edit release reliably lands — a dropped one would otherwise leave the lock present with a fresh `expireAt` (a collaborator lockout).
-
-**A claim NEVER mutates a prior run's marker/lock — the credit-transfer lives in `reserveCredits`.** Because a live/paused run always blocks the claim, the only prior run a claim ever displaces is HARD-KILLED (no running process) — so there is no concurrent writer and no `[claim, reserveCredits)` window. The claim writes ONLY liveness fields (build → flip to `generating` + fresh `updated_at`, delete any stale lock; edit → fresh `run_lock` + normalize `status → complete`). A displaced hard-killed run's stranded unsettled hold is handed back by THIS run's own `reserveCredits` (its unconditional leftover-refund) before it books its fresh marker — the ONE place a leftover is refunded, targeting the CHARGED actor (below). This is the descope: the cross-mode takeover / claim-time credit-transfer was cut because its inherent `[claim, reserveCredits)` window produced real-money bugs across four review rounds; deleting the barge deletes the class by construction, and the credit-transfer collapses onto the leftover-refund that already existed. A deauthorized run (`CommitReauthError` from the per-commit reauth) `failRun`s off `ctx.reauthError()` — refund, not keep.
-
-**Refunds target the charged actor, not the owner:** the marker records `reservation.userId` (the user `reserveCredits` debited) and `reservation.runId` (which run booked it); every refund hands the hold back to `reservation.userId ?? app.owner` — the two diverge once a Project co-member runs a shared app, so resolving off `owner` would over-credit the owner and strand the member's charge.
-
-**Dead + abandoned-paused runs are reaped per mode — each reaper RE-VALIDATES its staleness IN-TXN.** A stale BUILD (`lease.reapableStaleBuild`: `generating` whose `updated_at` fell outside its window) is reaped by `reapStaleGenerating` → `refundStaleGeneration`, which refunds + flips `generating → error` + clears `awaiting_input` in ONE transaction gated on `reapableStaleBuild` re-read inside it. A stale EDIT (`lease.reapableStrandedEdit`: `complete`, unsettled marker, `run_lock` present-and-lapsed — the marker and lock need NOT be the same run's: a taker hard-killed inside its own `[claimRun, reserveCredits)` window leaves the PRIOR run's unsettled marker under the taker's lapsed lock, and a same-run clause would strand that hold forever) is reaped by `reapStaleReservation` → `refundStaleReservation`, which refunds + settles + RELEASES the lapsed `run_lock` + clears `awaiting_input` in one transaction gated on `reapableStrandedEdit` re-read inside it. **Both `reapable*` derivations key on the LAPSED LEASE, not on `awaiting_input`** — so they reap a HARD-KILLED run AND an ABANDONED PAUSED one. A paused run has no heartbeat, so its lease lapses (`updated_at` freezes for a build; the `run_lock.expireAt` isn't refreshed for an edit); an abandoned paused run (the user never answered, the tab closed) MUST be reaped — under the descope a paused run BLOCKS a claim, so without reaping it would hold the app forever. A recently-paused run whose lease is still future is NOT reaped, and its OWN resume `reacquireLease`s and re-arms the clock, so only a genuinely-lapsed run is reaped (the accepted UX cost: an abandoned paused run frees after ~`MAX_*_MINUTES`). The in-txn re-check closes a TOCTOU: the reaps fire off an out-of-transaction `listApps` / `hasActiveGeneration` scan, so between the scan and the refund a FRESH run can re-claim — the in-txn re-validation makes the reaper no-op on a re-claimed run rather than claw its live charge (build) or hold (edit). The edit reaper RELEASING the lock (not just settling) is what clears a PERSISTENTLY-stranded lock so it can't block collaborators for the full lease. **Both reapers also CLEAR the reaped marker's `runId`** (keeping `userId`/`period`/`reserved`/`settled`): once the reaper has resolved a run, the run's own stale terminal writer (which may fire later — the build's turn finally fatal-errors after the reaper already ran) must NOT read the marker as `mine` and `failApp` the taker that re-claimed the freed app in the `[claim, reserveCredits)` window. Clearing `runId` + non-lenient `mine` is what makes a reaped ghost read as unowned; it does not affect idempotency (the `settled: true` / `status: error` guards already no-op a second reap before the runId clause is reached). Both reaps fire fire-and-forget, idempotent (a second reap reads a no-longer-stale row and no-ops). The identity + shape checks are folded INTO the `reapable*` derivations, so the pre-filter, the read-time fire, and the in-txn re-check are the one derivation and can't drift.
-
-Every pre-stream bail-out (serialize-wait timeout, concurrency 429, out-of-credits, reservation failure) restores the app to the EXACT shape `claimRun` moved it out of — `restoreRunState` reverts the captured `PriorRunState` (status / error_type / awaiting_input / `run_lock` / `updated_at`) verbatim, so a rejected request never leaves a previously-`complete` app anywhere but `complete`, never re-arms a stale-`generating` inference by re-stamping `updated_at`, nor overwrites why a build originally failed. The free-continuation resume path (no claim) re-acquires via `reacquireLease`, which renews the lease + clears `awaiting_input` only on the owns-it branch, so a rejected or superseded resume leaves the paused run flagged and touches nothing.
+`commitGuardedBatch` is the one blueprint write every surface shares (chat,
+MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
+→ reauth against the fresh row (owner fallback for null-Project apps; a
+concurrent move rejects retryably) → media expectations re-checked against
+rows read `FOR SHARE` → assemble + hydrate the fresh doc →
+`batchTargetsMissing` → re-run verdict → literal `seq + 1` → entity-row diff
+write + the permanent stream row + the in-commit NOTIFY. The per-commit edit
+lease refresh rides the same transaction when the committing run owns the
+lock.
 
 ## Period leaf
 
-`period.ts` is a deliberate dependency-free leaf holding `getCurrentPeriod` (UTC `yyyy-mm`). Both ledgers key on it, and `usage` imports the refund from `credits`; keeping the shared function out of `usage` breaks what would otherwise be a `usage ↔ credits` import cycle (`usage → credits → period`).
+`period.ts` is a dependency-free leaf holding `getCurrentPeriod` (UTC
+`yyyy-mm`). Both ledgers key on it; keeping it out of `usage` breaks the
+`usage ↔ credits` import cycle (`usage → credits → period`).
+
+## Auth-adjacent modules
+
+`api-keys.ts`, `oauth-consents.ts`, and `admin.ts`'s user-list half read the
+`auth_*` tables through `getAuthDb` (`@/lib/auth/db`) — Better Auth owns
+those tables' creation; this package reads/writes them directly for the admin
+dashboard, revocation checks, and the OAuth consent surface. `admin.ts` joins
+the per-user usage/credits/app-count figures from this package's own tables.

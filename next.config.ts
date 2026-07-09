@@ -29,20 +29,18 @@ const nextConfig: NextConfig = {
 	 * so EVERY deploy 500s every open tab's next Server Action call. */
 	deploymentId: process.env.NEXT_DEPLOYMENT_ID,
 
-	/* Run the Google Cloud server SDKs from node_modules instead of bundling
-	 * them into the minified server chunk.
+	/* Run the Google Cloud KMS SDK from node_modules instead of bundling it
+	 * into the minified server chunk.
 	 *
-	 * `proto3-json-serializer` (used by `@google-cloud/firestore` and
-	 * `@google-cloud/kms` via `google-gax` on the REST transport) detects
-	 * 64-bit integer values solely by `value.constructor.name === "Long"`.
-	 * When the SDK is bundled, the minifier renames the `long` package's
-	 * `Long` class to a short identifier, so the name check fails and EVERY
-	 * Firestore write carrying an int64 value (timestamps, counts, `seq`)
-	 * throws `toProto3JSON: don't know how to convert value <n>`. Loading the
-	 * SDKs externally keeps them unminified, so the class name — and the
-	 * check — survive. `firebase-admin` already gets this treatment via
-	 * Next's built-in default external list; these two we import directly. */
-	serverExternalPackages: ["@google-cloud/firestore", "@google-cloud/kms"],
+	 * `proto3-json-serializer` (used by `@google-cloud/kms` via `google-gax` on
+	 * the REST transport) detects 64-bit integer values solely by
+	 * `value.constructor.name === "Long"`. When the SDK is bundled, the minifier
+	 * renames the `long` package's `Long` class to a short identifier, so the
+	 * name check fails and every request carrying an int64 value throws
+	 * `toProto3JSON: don't know how to convert value <n>`. Loading the SDK
+	 * externally keeps it unminified, so the class name — and the check —
+	 * survive. */
+	serverExternalPackages: ["@google-cloud/kms"],
 
 	/* Built-in icon bytes (public/nova-icons/*.png) are read at runtime via `fs`
 	 * by the export pipeline (`lib/media/builtinIconAssets.ts` → the .ccz compile,

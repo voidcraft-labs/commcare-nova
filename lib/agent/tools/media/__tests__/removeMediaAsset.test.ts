@@ -2,7 +2,7 @@
  * Behavioral tests for `remove_media_asset`.
  *
  * Coverage:
- *   1. Deletes the Firestore row and unshared GCS object when no live reference
+ *   1. Deletes the asset row and unshared GCS object when no live reference
  *      exists.
  *   2. Refuses (and deletes nothing) when the current doc still
  *      references the asset, naming the carrier.
@@ -22,6 +22,7 @@ import { makeMediaFixture, TEXT_FIELD } from "./fixtures";
 // initialization" hoist error.
 const {
 	loadAssetById,
+	listReferencingAppIds,
 	deleteAssetRow,
 	hasOtherAssetForGcsObjectKey,
 	deleteGcsObject,
@@ -30,6 +31,9 @@ const {
 	loadAppProjectId,
 } = vi.hoisted(() => ({
 	loadAssetById: vi.fn(),
+	listReferencingAppIds: vi.fn<() => Promise<string[]>>(() =>
+		Promise.resolve([]),
+	),
 	deleteAssetRow: vi.fn(() => Promise.resolve()),
 	hasOtherAssetForGcsObjectKey: vi.fn(() => Promise.resolve(false)),
 	deleteGcsObject: vi.fn(() => Promise.resolve()),
@@ -45,6 +49,7 @@ vi.mock("@/lib/db/mediaAssets", async (importOriginal) => {
 	return {
 		...actual,
 		loadAssetById,
+		listReferencingAppIds,
 		deleteAsset: deleteAssetRow,
 		hasOtherAssetForGcsObjectKey,
 	};
@@ -62,14 +67,13 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	hasOtherAssetForGcsObjectKey.mockResolvedValue(false);
 	listApps.mockResolvedValue({ apps: [] });
+	// The reverse index (`media_asset_refs`) is now a separate query, not a field
+	// on the asset row — default to no other referencing app.
+	listReferencingAppIds.mockResolvedValue([]);
 });
 
-/** Minimal owned asset row for the load mock. `referencingAppIds` is the reverse
- *  index the guard reads — defaults to `[]` (no other app references it). */
-function ownedAsset(
-	id: string,
-	referencingAppIds: string[] = [],
-): MediaAssetRecord {
+/** Minimal owned asset row for the load mock. */
+function ownedAsset(id: string): MediaAssetRecord {
 	return {
 		id,
 		owner: "user-1",
@@ -82,7 +86,6 @@ function ownedAsset(
 		extension: ".png",
 		sizeBytes: 100,
 		status: "ready",
-		referencingAppIds,
 	} as unknown as MediaAssetRecord;
 }
 
@@ -167,9 +170,8 @@ describe("removeMediaAsset", () => {
 		const { doc, ctx } = makeMediaFixture();
 		// The reverse index names "other-app" as a candidate, so the guard loads
 		// ONLY it (not the owner's whole list) and re-walks it to confirm.
-		loadAssetById.mockResolvedValue(
-			ownedAsset("used-elsewhere", ["other-app"]),
-		);
+		loadAssetById.mockResolvedValue(ownedAsset("used-elsewhere"));
+		listReferencingAppIds.mockResolvedValue(["other-app"]);
 		loadApp.mockResolvedValue({
 			owner: "user-1",
 			project_id: "project-1",

@@ -8,9 +8,10 @@ import * as Sentry from "@sentry/nextjs";
 Sentry.init({
 	dsn: "https://1c43ea684bc94e3c53926a2ca3ab9a51@o4511537737039872.ingest.us.sentry.io/4511537747918848",
 
-	/* Off against the Firestore emulator — see sentry.server.config.ts: a local
-	 * E2E/integration run must not ship errors to PROD Sentry. */
-	enabled: !process.env.FIRESTORE_EMULATOR_HOST,
+	/* Off on a local run — see sentry.server.config.ts: a local run (keyed on
+	 * `NOVA_DB_LOCAL_URL`, which prod never sets) must not ship errors to PROD
+	 * Sentry. */
+	enabled: !process.env.NOVA_DB_LOCAL_URL,
 
 	// Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
 	tracesSampleRate: 1,

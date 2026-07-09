@@ -1,12 +1,12 @@
 /**
  * Two-user shared-Project fixture for the multiplayer E2E (`multiplayer.spec.ts`).
  *
- * Seeds the minimum a real-time co-editing test needs, all into local services
- * only (the caller — `e2e/seed.ts` — enforces the `FIRESTORE_EMULATOR_HOST` +
- * `NOVA_DB_LOCAL_URL` guards before calling in):
+ * Seeds the minimum a real-time co-editing test needs, all into the local
+ * Postgres only (the caller — `e2e/seed.ts` — enforces the `NOVA_DB_LOCAL_URL`
+ * guard before calling in):
  *
- *   1. Two `auth_user` rows (Ada, Grace) + one live `auth_session` each, in
- *      Postgres, through Better Auth's own adapter.
+ *   1. Two `auth_user` rows (Ada, Grace) + one live `auth_session` each,
+ *      through Better Auth's own adapter.
  *   2. One SHARED Project (`auth_organization`) with BOTH users as members —
  *      Ada `owner`, Grace `editor` — so each holds the `edit` app capability on
  *      it (`lib/auth/projectRoles.ts`). Written through the same adapter, so a
@@ -14,27 +14,23 @@
  *      timeout.
  *   3. One `complete` app whose `project_id` IS that shared Project, carrying a
  *      populated blueprint (one survey module → one survey form → one text
- *      field) with a FIXED module uuid, in Firestore (emulator). Because the
- *      build page authorizes purely on the app's own `project_id` +
- *      `auth_member` (no "active Project" gate — `resolveAppAccess`), both
- *      members open + co-edit it. `status: "complete"` is required or
- *      `/build/{id}` redirects to `/`.
+ *      field) with a FIXED module uuid. Because the build page authorizes
+ *      purely on the app's own `project_id` + `auth_member` (no "active
+ *      Project" gate — `resolveAppAccess`), both members open + co-edit it.
+ *      `status: "complete"` is required or `/build/{id}` redirects to `/`.
  *
  * Emits two Playwright `storageState` files (one signed session cookie per
  * user) and a manifest the spec reads for the concrete ids it navigates to and
  * asserts against.
  *
- * The app is minted directly (not via `createApp`, which only writes an empty
- * doc): the same field set `createApp` writes, but with the populated blueprint
- * and its denormalized counts. Every optional run-liveness field
- * (`reservation`, `run_lock`, `awaiting_input`) is absent — a plain at-rest
- * `complete` app, which is exactly what two collaborators open.
+ * The app is created empty (`createApp`) then given its populated fixed-uuid
+ * blueprint via `appendSyntheticBatch` — a plain at-rest `complete` app with no
+ * run-liveness markers, exactly what two collaborators open.
  */
 
 import { randomBytes } from "node:crypto";
-import { FieldValue } from "@google-cloud/firestore";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { collections } from "@/lib/db/firestore";
+import { appendSyntheticBatch, createApp } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
@@ -324,39 +320,20 @@ export async function seedMultiplayerFixture(args: {
 		});
 	}
 
-	// ── The shared app (Firestore emulator) ───────────────────────────────
-	// Minted directly with the populated blueprint + its denormalized counts —
-	// the fields `createApp` writes, in the at-rest `complete` shape (no run
-	// markers). `owner` is Ada; the tenant is the shared Project.
+	// ── The shared app (Postgres) ─────────────────────────────────────────
+	// Mint a `complete` app owned by Ada in the shared Project, then install
+	// the populated fixed-uuid blueprint. `createApp` only writes an empty
+	// doc, so `appendSyntheticBatch` replaces the blueprint wholesale + updates
+	// the denormalized counts + advances the stream — the at-rest `complete`
+	// shape (no run markers) two collaborators open. It does NOT re-run the
+	// validator, which is what lets the fixture pin its fixed uuids.
 	const doc = buildSeedBlueprint();
-	const ref = collections.apps().doc();
-	const appId = ref.id;
-	const persistable = toPersistableDoc({ ...doc, appId });
-	const moduleCount = persistable.moduleOrder.length;
-	const formCount = persistable.moduleOrder.reduce(
-		(sum, m) => sum + (persistable.formOrder[m]?.length ?? 0),
-		0,
-	);
-	// `app_name_lower` is a `listApps` sort key not declared on `appDocSchema`
-	// (it rides through `createApp`'s spread, which excess-property checks skip);
-	// this app is opened by direct URL, never listed, so it's omitted.
-	await ref.set({
-		owner: MP_SEED.userA.id,
-		project_id: projectId,
-		app_name: MP_SEED.appName,
-		connect_type: null,
-		module_count: moduleCount,
-		form_count: formCount,
-		blueprint: persistable,
-		mutation_seq: 0,
+	const persistable = toPersistableDoc(doc);
+	const appId = await createApp(MP_SEED.userA.id, projectId, "mp-seed", {
+		appName: MP_SEED.appName,
 		status: "complete",
-		error_type: null,
-		deleted_at: null,
-		recoverable_until: null,
-		run_id: "mp-seed",
-		created_at: FieldValue.serverTimestamp(),
-		updated_at: FieldValue.serverTimestamp(),
 	});
+	await appendSyntheticBatch(appId, persistable);
 
 	// ── Emit four storageStates + the manifest ────────────────────────────
 	const stateFiles = {

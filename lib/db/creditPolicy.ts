@@ -3,12 +3,12 @@
  *
  * This module is the single source of truth for the credit amounts. It is
  * deliberately dependency-free at runtime: every import is `import type`, so
- * nothing here pulls Firestore, Zod, or any server code into a bundle. That is
- * load-bearing — the server credit ledger, the `/api/chat` gate, AND the chat
- * send-button cost indicator all read the amounts and rules from here, and the
- * send-button runs in the browser. Were any import a value import (dropping the
- * `type` keyword), `creditPolicy` would drag `./types` — and through it
- * `@google-cloud/firestore` — into the client bundle. Keep every import
+ * nothing here pulls Kysely, `pg`, Zod, or any server code into a bundle. That
+ * is load-bearing — the server credit ledger, the `/api/chat` gate, AND the
+ * chat send-button cost indicator all read the amounts and rules from here, and
+ * the send-button runs in the browser. Were any import a value import (dropping
+ * the `type` keyword), `creditPolicy` would drag `./types` — and through it the
+ * Kysely / `pg` handle in `./pg` — into the client bundle. Keep every import
  * type-only.
  *
  * The constants live with the credit gate they govern (the credit family), not
@@ -38,7 +38,7 @@ export const CREDITS_PER_EDIT = 5;
 /**
  * Monthly per-user grant — roughly 20 builds, or hundreds of edits. Resets to a
  * fresh 2000 each calendar month with no rollover and no cron: each period is
- * its own doc, and the first chargeable turn of a new month seeds it.
+ * its own row, and the first chargeable turn of a new month seeds it.
  */
 export const MONTHLY_CREDIT_ALLOWANCE = 2000;
 
@@ -53,8 +53,8 @@ export const ACTUAL_COST_BACKSTOP_USD = 50;
 /**
  * Spendable balance for a period: `allowance + bonus − consumed`.
  *
- * An absent doc reads as a full monthly allowance. A period a user has never
- * touched has no Firestore doc, and the gate must treat that as a fresh
+ * An absent row reads as a full monthly allowance. A period a user has never
+ * touched has no `credit_months` row, and the gate must treat that as a fresh
  * 2000/2000 without forcing a pre-seeding write — so the gate, the dashboard,
  * and any read path share this one default by passing `undefined` here.
  *

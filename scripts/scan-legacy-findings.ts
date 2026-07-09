@@ -3,24 +3,21 @@
  * the pre-commit-gate debris the zero-tolerance export boundary would
  * refuse after the valid-by-construction merge.
  *
- * One-time merge choreography: the owner runs this against production
- * first, then `repair-legacy-findings.ts` (dry-run, then `--apply`),
- * then this scan again — which must report ZERO findings before the
- * expression-AST scan/migrate pair runs.
+ * Merge choreography: the owner runs this first, then
+ * `repair-legacy-findings.ts` (dry-run, then `--apply`), then this scan
+ * again — which must report ZERO findings.
  *
- * How each app is read: production blueprints may still be
- * STRING-expression shaped (written before the expression-AST
- * migration), so the scan loads them the way `migrate-expression-asts`
- * does — raw cast + the shared round-trip-gated converter on a CLONE —
- * never the strict runtime Zod gate, which rejects string slots. The
- * converted clone is the exact shape the deployed code reads.
+ * How each app is read: `loadApp` assembles the stored `blueprint_entities`
+ * rows into a `PersistableDoc`, and `guardedLegacyEvaluation` promotes it to
+ * the boundary view (derived `fieldParent` rebuilt, expression slots
+ * round-trip-checked). This is the exact shape the deployed code reads.
  *
  * What is evaluated: the full validator at full scope — the same
  * evaluation `collectBoundaryViolations` performs MINUS the media-asset
  * manifest arm (asset existence / readiness / kind and the export byte
  * budget). Asset state is environment, not blueprint content, so the
  * media arm runs as its own opt-in pass: `--media` resolves each app's
- * referenced assets against the live `mediaAssets` rows and reports
+ * referenced assets against the live `media_assets` rows and reports
  * dead references (row missing, or stuck pending past the one-day
  * upload window — `scripts/lib/legacyMediaRefs.ts` owns the judgment)
  * and the ambiguous ones the owner must decide. One further carve-out,
@@ -28,15 +25,19 @@
  * never counted — an empty app is at rest and its export refusal is
  * intentional).
  *
- * Exits non-zero when any findings exist. Run with `--help` for flags.
+ * Reads the app-state database the env provides (`NOVA_DB_LOCAL_URL`
+ * locally, the Cloud SQL connector in the migrate-job image). Exits
+ * non-zero when any findings exist. Run with `--help` for flags.
  */
-import { Firestore } from "@google-cloud/firestore";
 import { Command } from "commander";
+import { closeCaseStoreDatabase } from "../lib/case-store/postgres/connection";
 import type {
 	ValidationError,
 	ValidationErrorCode,
 } from "../lib/commcare/validator/errors";
 import { VALIDITY_CLASS_BY_CODE } from "../lib/commcare/validator/gate";
+import { loadApp } from "../lib/db/apps";
+import { getAppDb } from "../lib/db/pg";
 import { collectAssetRefs } from "../lib/domain/mediaRefs";
 import {
 	describeFindingLocation,
@@ -52,7 +53,6 @@ import {
 import { runMain } from "./lib/main";
 
 interface ScanOptions {
-	project: string;
 	media?: boolean;
 }
 
@@ -61,27 +61,26 @@ program
 	.name("scan-legacy-findings")
 	.description(
 		"Report every standing validator finding in stored apps (read-only) — the legacy debris the zero-tolerance export boundary would refuse. " +
-			"One-time: run against production before repair-legacy-findings.ts, and again after it (the re-scan must report zero findings). " +
+			"Run before repair-legacy-findings.ts, and again after it (the re-scan must report zero findings). " +
 			"Evaluates the export boundary's full validation MINUS the media-asset manifest arm (asset state is environment, not blueprint content); " +
 			"--media runs that arm as its own reference scan.",
 	)
-	.requiredOption(
-		"--project <id>",
-		'GCP project to scan (e.g. "commcare-nova-dev") — explicit so a scan can never land on an unintended project',
-	)
 	.option(
 		"--media",
-		"also resolve each app's referenced media assets and report dead references — asset row missing, or stuck pending past the one-day upload window (reads the mediaAssets rows; still read-only)",
+		"also resolve each app's referenced media assets and report dead references — asset row missing, or stuck pending past the one-day upload window (reads the media_assets rows; still read-only)",
 	)
 	.addHelpText(
 		"after",
-		"\nExamples:\n" +
-			"  $ npx tsx scripts/scan-legacy-findings.ts --project commcare-nova-dev\n" +
-			"  $ npx tsx scripts/scan-legacy-findings.ts --project commcare-nova-dev --media\n",
+		"\nDatabase:\n" +
+			"  Scans whatever the env points at — NOVA_DB_LOCAL_URL for a local\n" +
+			"  Postgres, or the Cloud SQL connector env in the migrate-job image.\n" +
+			"\nExamples:\n" +
+			"  $ npx tsx scripts/scan-legacy-findings.ts\n" +
+			"  $ npx tsx scripts/scan-legacy-findings.ts --media\n",
 	);
 
 program.parse();
-const { project, media } = program.opts<ScanOptions>();
+const { media } = program.opts<ScanOptions>();
 
 const JUDGMENT_LABEL = {
 	mechanical: "REPAIRABLE",
@@ -98,13 +97,12 @@ function findingLine(err: ValidationError): string {
 }
 
 async function main() {
-	const db = new Firestore({ projectId: project, preferRest: true });
-	console.log(`Scanning apps in project "${project}"…\n`);
+	const db = await getAppDb();
+	console.log("Scanning apps…\n");
 
-	const apps = await db.collection("apps").get();
+	const appRows = await db.selectFrom("apps").select("id").execute();
 	let appsWithFindings = 0;
 	let emptyApps = 0;
-	let blueprintless = 0;
 	let conversionFailures = 0;
 	let deadRefTotal = 0;
 	let ambiguousRefTotal = 0;
@@ -112,15 +110,22 @@ async function main() {
 	const failedApps: string[] = [];
 	const tally = new Map<ValidationErrorCode, number>();
 
-	for (const appSnap of apps.docs) {
-		const data = appSnap.data();
-		const label = `${appSnap.id} (${data.app_name ?? "unnamed"})`;
-
-		const blueprint = data.blueprint;
-		if (!blueprint) {
-			blueprintless++;
-			continue;
-		}
+	for (const { id } of appRows) {
+		// Assembly itself can throw on a stored doc broken enough that the
+		// entity rows won't reassemble into a valid `PersistableDoc` — that is
+		// this app's "too broken to scan" arm, isolated per app.
+		const appDoc = await loadApp(id).catch((err: unknown) => {
+			failedApps.push(id);
+			console.log(
+				`${id}\n  ✗ COULDN'T SCAN — the stored blueprint couldn't be assembled from its rows:\n` +
+					`      ${err instanceof Error ? err.message : String(err)}\n` +
+					"      Fix this app by hand (scripts/recover-app.ts), then re-scan; every other app was scanned normally.\n",
+			);
+			return null;
+		});
+		if (!appDoc) continue;
+		const label = `${id} (${appDoc.app_name || "unnamed"})`;
+		const blueprint = appDoc.blueprint;
 
 		// Per-app fault isolation: a stored doc broken enough to throw out
 		// of the loader/validator (a dangling moduleOrder uuid a rule
@@ -142,7 +147,7 @@ async function main() {
 				conversionFailures++;
 				console.log(
 					`${label}\n  EXPRESSION ROUND-TRIP FAIL [${failure.slot} on ${failure.entityUuid}] — ` +
-						"a parser/printer bug, owned by scan-expression-asts.ts; this scan evaluated the slot as stored.\n" +
+						"a parser/printer bug; this scan evaluated the slot as stored.\n" +
 						`      stored:  ${JSON.stringify(failure.text)}\n` +
 						`      printed: ${JSON.stringify(failure.printed)}`,
 				);
@@ -158,12 +163,9 @@ async function main() {
 				const ids = [...collectAssetRefs(doc)];
 				const rows =
 					ids.length === 0 ? new Map() : await loadAssetRowsForScan(db, ids);
-				mediaReport = classifyMediaRefs(
-					doc,
-					typeof data.owner === "string" ? data.owner : undefined,
-					rows,
-					{ nowMs: Date.now() },
-				);
+				mediaReport = classifyMediaRefs(doc, appDoc.owner, rows, {
+					nowMs: Date.now(),
+				});
 				refTotal += mediaReport.total;
 				deadRefTotal += mediaReport.dead.length;
 				ambiguousRefTotal += mediaReport.needsOwner.length;
@@ -230,8 +232,8 @@ async function main() {
 	}
 
 	console.log(
-		`${apps.size} app(s) scanned; ${appsWithFindings} with findings; ` +
-			`${emptyApps} empty (birth state, by design); ${blueprintless} with no stored blueprint; ` +
+		`${appRows.length} app(s) scanned; ${appsWithFindings} with findings; ` +
+			`${emptyApps} empty (birth state, by design); ` +
 			`${conversionFailures} expression round-trip failure(s).`,
 	);
 	if (media) {
@@ -248,7 +250,7 @@ async function main() {
 	}
 	if (appsWithFindings > 0) {
 		console.log(
-			`\nRepair with: npx tsx scripts/repair-legacy-findings.ts --project ${project} (dry run; add --apply to write, --apply-proposed for the proposed tier` +
+			"\nRepair with: npx tsx scripts/repair-legacy-findings.ts (dry run; add --apply to write, --apply-proposed for the proposed tier" +
 				(deadRefTotal > 0 ? ", --media for the dead media references" : "") +
 				")",
 		);
@@ -262,4 +264,12 @@ async function main() {
 	}
 }
 
-runMain(main);
+// Close the shared case-store pool so the process exits promptly — an open
+// pool keeps the event loop alive.
+runMain(async () => {
+	try {
+		await main();
+	} finally {
+		await closeCaseStoreDatabase();
+	}
+});

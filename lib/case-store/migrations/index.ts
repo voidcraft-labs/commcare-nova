@@ -19,6 +19,7 @@ import * as baseline from "./20260505152732_baseline";
 import * as addCaseNameColumn from "./20260506022302_add_case_name_column";
 import * as addCasesProjectId from "./20260627000000_add_cases_project_id";
 import * as addCaseTypeSchemasSyncedSeq from "./20260630000000_add_case_type_schemas_synced_seq";
+import * as appState from "./20260708000000_app_state";
 
 /** Migration name → module, in apply order (lexicographic by key). */
 export const caseStoreMigrations: Record<string, Migration> = {
@@ -27,6 +28,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260627000000_add_cases_project_id": addCasesProjectId,
 	"20260630000000_add_case_type_schemas_synced_seq":
 		addCaseTypeSchemasSyncedSeq,
+	"20260708000000_app_state": appState,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

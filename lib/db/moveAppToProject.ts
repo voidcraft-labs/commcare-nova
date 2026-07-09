@@ -2,16 +2,16 @@
 //
 // Move an app from one Project to another — the cross-store orchestrator behind
 // the `moveApp` Server Action (`app/(app)/(site)/app-actions.ts`). An app's
-// `project_id` is the tenant key for THREE stores at once (the Firestore app doc,
-// the Postgres `cases` rows, and the Project-scoped media assets), so a move has
-// to re-tenant all three or the app silently breaks in its new home.
+// `project_id` is the tenant key for THREE stores at once (the `apps` row, the
+// `cases` rows, and the Project-scoped media assets), so a move has to
+// re-tenant all three or the app silently breaks in its new home.
 //
 // Flip-first, cases-follow. `AppDoc.project_id` is the single authority every
 // authz path reads and the join key list queries use, so it is also the
 // concurrency arbiter: the order is
 //   A. copy the referenced media into the destination Project (non-destructive),
 //   B. the guarded commit — repoint the blueprint's media refs onto the copies and
-//      flip `project_id`, in ONE Firestore transaction, AND
+//      flip `project_id`, in ONE commit transaction, AND
 //   C. re-tenant the case rows to wherever the app doc now lives, keyed by
 //      `app_id` and idempotent.
 // The flip (B) is the commit point: of two concurrent moves only one transaction

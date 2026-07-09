@@ -1,19 +1,25 @@
 /**
- * Read-only inspection of an app document in Firestore.
+ * Read-only inspection of an app.
  *
  * Shows app metadata, status, blueprint structure (modules/forms/fields),
  * computed analytics, and thread history. Operates on the hydrated
- * `BlueprintDoc` — `hydrateBlueprint` attaches the derived `fieldParent`
- * index so the domain walkers in `lib/doc/fieldWalk.ts` accept it.
+ * `BlueprintDoc` — `hydratePersistedBlueprint` attaches the derived
+ * `fieldParent` index so the domain walkers in `lib/doc/fieldWalk.ts` accept
+ * it.
  *
- * Never writes to Firestore. Run with `--help` for the flag reference.
+ * Reads the app-state database the env provides (`NOVA_DB_LOCAL_URL` locally,
+ * the Cloud SQL connector in the migrate-job image). Never writes. Run with
+ * `--help` for the flag reference.
  */
 import { Command } from "commander";
+import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
+import { loadApp } from "@/lib/db/apps";
+import { loadThreads } from "@/lib/db/threads";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
 import { buildFieldTree, countFieldsUnder } from "@/lib/doc/fieldWalk";
 import { readRunSummary } from "@/lib/log/reader";
 import { analyzeBlueprint, extractLogicFields } from "./lib/blueprint-stats";
-import { db, hydrateBlueprint } from "./lib/firestore";
 import {
 	printHeader,
 	printKV,
@@ -42,9 +48,9 @@ const program = new Command();
 program
 	.name("inspect-app")
 	.description(
-		"Read-only inspection of an app document in Firestore. Shows metadata, blueprint structure, analytics, and chat threads.",
+		"Read-only inspection of an app. Shows metadata, blueprint structure, analytics, and chat threads.",
 	)
-	.argument("<appId>", "Firestore app document id (root-level apps collection)")
+	.argument("<appId>", "app id (apps.id)")
 	.option("--fields", "include the full ordered field tree under every form")
 	.option(
 		"--stats",
@@ -107,38 +113,33 @@ function printFieldTree(tree: FieldWithChildren[], indent = 0): void {
 // ── Main ────────────────────────────────────────────────────────────
 
 async function main() {
-	/* ── App document ─────────────────────────────────────────────── */
-	const snap = await db.collection("apps").doc(appId).get();
-	if (!snap.exists) {
+	/* ── App row ──────────────────────────────────────────────────── */
+	const data = await loadApp(appId);
+	if (!data) {
 		console.error(`App ${appId} not found.`);
 		process.exit(1);
 	}
 
-	// biome-ignore lint/style/noNonNullAssertion: guarded by snap.exists check above
-	const data = snap.data()!;
-	/* Firestore stores the `PersistableDoc` shape (no `fieldParent`).
-	 * `hydrateBlueprint` attaches the derived reverse index so the
-	 * domain walkers (`buildFieldTree`, `countFieldsUnder`) accept it. */
-	const doc: BlueprintDoc | undefined =
-		data.blueprint !== undefined ? hydrateBlueprint(data.blueprint) : undefined;
+	/* The app row carries the `PersistableDoc` shape (no `fieldParent`),
+	 * assembled from its `blueprint_entities` rows.
+	 * `hydratePersistedBlueprint` attaches the derived reverse index so the
+	 * domain walkers (`buildFieldTree`, `countFieldsUnder`) accept it. An
+	 * empty app assembles an empty (module-less) blueprint, which prints an
+	 * empty structure below rather than erroring. */
+	const doc: BlueprintDoc = hydratePersistedBlueprint(data.blueprint);
 
-	const moduleOrder = doc?.moduleOrder ?? [];
-	const modules: Module[] = moduleOrder
-		.map((uuid) => doc?.modules[uuid])
+	const modules: Module[] = doc.moduleOrder
+		.map((uuid) => doc.modules[uuid])
 		.filter((m): m is Module => m !== undefined);
 
 	const totalForms = modules.reduce(
-		(sum, m) => sum + (doc?.formOrder[m.uuid]?.length ?? 0),
+		(sum, m) => sum + (doc.formOrder[m.uuid]?.length ?? 0),
 		0,
 	);
 	const totalFields = modules.reduce((sum, m) => {
-		const formUuids = doc?.formOrder[m.uuid] ?? [];
+		const formUuids = doc.formOrder[m.uuid] ?? [];
 		return (
-			sum +
-			formUuids.reduce(
-				(s, fUuid) => s + (doc ? countFieldsUnder(doc, fUuid) : 0),
-				0,
-			)
+			sum + formUuids.reduce((s, fUuid) => s + countFieldsUnder(doc, fUuid), 0)
 		);
 	}, 0);
 
@@ -164,11 +165,6 @@ async function main() {
 		printSection("Full Blueprint JSON");
 		console.log(JSON.stringify(doc, null, 2));
 		/* --blueprint is standalone — skip structure view, stats, threads. */
-		return;
-	}
-
-	if (!doc) {
-		console.error("\n  App has no blueprint.");
 		return;
 	}
 
@@ -331,21 +327,16 @@ async function main() {
 	}
 
 	/* ── Threads ──────────────────────────────────────────────────── */
-	const threads = await db
-		.collection("apps")
-		.doc(appId)
-		.collection("threads")
-		.orderBy("created_at", "asc")
-		.get();
+	const threads = await loadThreads(appId);
 
-	if (!threads.empty) {
-		/* Pre-fetch per-run summary docs for every thread unconditionally.
-		 * The summary doc at apps/{appId}/runs/{runId} carries prompt mode,
-		 * app-ready state, cache-expiry flag, and module count — rendered
-		 * per thread below. Gating the fetch on `--threads` would silently
-		 * hide the "Run: ..." line in the default structure view. */
-		const runIds = threads.docs
-			.map((d) => d.data().run_id as string | undefined)
+	if (threads.length > 0) {
+		/* Pre-fetch the per-run summary for every thread unconditionally. The
+		 * run_summaries row (keyed by run_id) carries prompt mode, app-ready
+		 * state, cache-expiry flag, and module count — rendered per thread
+		 * below. Gating the fetch on `--threads` would silently hide the
+		 * "Run: ..." line in the default structure view. */
+		const runIds = threads
+			.map((t) => t.run_id)
 			.filter((id): id is string => Boolean(id));
 
 		const summaries = await Promise.all(
@@ -361,11 +352,12 @@ async function main() {
 
 		printSection("Chat Threads");
 
-		for (const threadDoc of threads.docs) {
-			const t = threadDoc.data();
-			const msgCount = t.messages?.length ?? 0;
+		for (const t of threads) {
+			const msgCount = t.messages.length;
+			/* Threads are keyed by run_id (the generation session UUID), so it
+			 * doubles as the thread's stable id. */
 			console.log(
-				`  Thread ${threadDoc.id.slice(0, 8)}… (${t.thread_type}) — ${msgCount} messages`,
+				`  Thread ${t.run_id.slice(0, 8)}… (${t.thread_type}) — ${msgCount} messages`,
 			);
 			console.log(`    Created:  ${t.created_at}`);
 			console.log(`    Summary:  ${truncate(t.summary ?? "", 100)}`);
@@ -409,4 +401,12 @@ async function main() {
 	}
 }
 
-runMain(main);
+// Close the shared case-store pool so the process exits promptly — an open
+// pool keeps the event loop alive.
+runMain(async () => {
+	try {
+		await main();
+	} finally {
+		await closeCaseStoreDatabase();
+	}
+});

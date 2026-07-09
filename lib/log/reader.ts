@@ -5,40 +5,40 @@
  *   - `readEvents(appId, runId)` — every event for one run, sorted
  *     chronologically by (ts, seq).
  *   - `readLatestRunId(appId)` — the runId of the single most recent
- *     event (by ts). Used when replay / admin tooling needs the "most
- *     recent run" without the user specifying it.
+ *     event (by ts). Used when admin tooling needs the "most recent
+ *     run" without the user specifying it.
  *   - `readRunSummary(appId, runId)` — the per-run cost/behavior summary
  *     written by `UsageAccumulator.flush`.
  *
- * All reads hit Firestore directly; no caching. Callers either live in
- * admin/replay surfaces (one-time loads) or diagnostic scripts (manual
+ * All reads hit Postgres directly; no caching. Callers either live in
+ * admin surfaces (one-time loads) or diagnostic scripts (manual
  * invocation), so cache complexity isn't justified.
  */
-import type { QueryDocumentSnapshot } from "@google-cloud/firestore";
-import { collections, docs, getDb } from "@/lib/db/firestore";
+import { getAppDb } from "@/lib/db/pg";
+import { loadRunSummary } from "@/lib/db/runSummary";
 import type { RunSummaryDoc } from "@/lib/db/types";
 import { log } from "@/lib/logger";
-import type { Event } from "./types";
+import { type Event, eventSchema } from "./types";
 
 /**
- * Decode a page of event docs, DROPPING any that fail schema validation
- * rather than letting one bad doc abort the whole read.
+ * Decode a page of stored event payloads, DROPPING any that fail schema
+ * validation rather than letting one bad row abort the whole read.
  *
  * The event stream is supplemental (the AppDoc snapshot is authoritative),
  * and a forward-version deploy can write a payload type an older reader
- * doesn't know — the strict Zod converter throws on `.data()` for such a
- * doc. Without this, a single unrecognized event makes EVERY reader (replay,
- * admin log inspection, diagnostic scripts) fail to load the entire app's
- * stream. Per-doc try/catch isolates the failure: known events still load,
- * the unknown ones are counted (caller logs), and the run stays inspectable.
+ * doesn't know — `eventSchema.parse` would throw on such a row. Without
+ * this, a single unrecognized event makes EVERY reader (admin log
+ * inspection, diagnostic scripts) fail to load the entire app's stream.
+ * Per-row `safeParse` isolates the failure: known events still load, the
+ * unknown ones are counted (caller logs), and the run stays inspectable.
  *
- * The throw is caught HERE (not surfaced) because there is no recovery a
- * caller could perform — the doc is undecodable under this build's schema,
- * and the only useful action is to skip it and report the count.
+ * Input is the raw `event` jsonb values as Postgres returns them (already
+ * parsed to plain objects by the pg driver); each is re-validated against
+ * `eventSchema` so a drifted row is skipped, not surfaced — there is no
+ * recovery a caller could perform, so the only useful action is to skip it
+ * and report the count.
  */
-export function decodeEventsLenient(
-	eventDocs: QueryDocumentSnapshot<Event>[],
-): {
+export function decodeEventsLenient(rawEvents: readonly unknown[]): {
 	events: Event[];
 	skipped: number;
 	sample?: string;
@@ -46,14 +46,18 @@ export function decodeEventsLenient(
 	const events: Event[] = [];
 	let skipped = 0;
 	let sample: string | undefined;
-	for (const doc of eventDocs) {
-		try {
-			events.push(doc.data());
-		} catch (err) {
-			skipped++;
-			if (sample === undefined) {
-				sample = err instanceof Error ? err.message.slice(0, 200) : String(err);
-			}
+	for (const raw of rawEvents) {
+		const parsed = eventSchema.safeParse(raw);
+		if (parsed.success) {
+			events.push(parsed.data);
+			continue;
+		}
+		skipped++;
+		if (sample === undefined) {
+			sample = (parsed.error.issues[0]?.message ?? "unparseable event").slice(
+				0,
+				200,
+			);
 		}
 	}
 	return { events, skipped, sample };
@@ -61,15 +65,15 @@ export function decodeEventsLenient(
 
 /**
  * Load every event for a specific generation run, sorted by `ts` then `seq`,
- * alongside a `skipped` count of docs dropped for failing `eventSchema`
+ * alongside a `skipped` count of rows dropped for failing `eventSchema`
  * (schema drift / forward-version payload — see `decodeEventsLenient`).
  *
  * `skipped` is part of the return, not just a server log, ON PURPOSE: a
  * dropped event makes the returned stream PARTIAL, and a consumer that
- * reconstructs from it (replay applies mutations in order — a missing
- * mutation can land a state that never existed) must be able to tell the
- * stream is incomplete. Forcing callers to read `{ events, skipped }` keeps
- * that partiality impossible to ignore. `skipped` is normally 0; it goes
+ * reconstructs from it (applying mutations in order — a missing mutation
+ * can land a state that never existed) must be able to tell the stream is
+ * incomplete. Forcing callers to read `{ events, skipped }` keeps that
+ * partiality impossible to ignore. `skipped` is normally 0; it goes
  * positive only when the reading code's schema is older than what wrote the
  * events (a transient cross-version-read window).
  */
@@ -77,13 +81,18 @@ export async function readEvents(
 	appId: string,
 	runId: string,
 ): Promise<{ events: Event[]; skipped: number }> {
-	const snap = await collections
-		.events(appId)
-		.where("runId", "==", runId)
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("events")
+		.select("event")
+		.where("app_id", "=", appId)
+		.where("run_id", "=", runId)
 		.orderBy("ts")
 		.orderBy("seq")
-		.get();
-	const { events, skipped, sample } = decodeEventsLenient(snap.docs);
+		.execute();
+	const { events, skipped, sample } = decodeEventsLenient(
+		rows.map((row) => row.event),
+	);
 	if (skipped > 0) {
 		log.warn(
 			`[readEvents] dropped ${skipped} unparseable event(s) for app=${appId} run=${runId} (schema drift / forward-version payload). First: ${sample}`,
@@ -98,54 +107,37 @@ export async function readEvents(
  *
  * Ordering is on `ts` (globally monotonic across runs) rather than `seq`
  * (per-run; resets to 0 per new run). A single top-1 query replaces the
- * full-collection scan.
+ * full-table scan.
+ *
+ * Reads the `run_id` COLUMN directly (never the `event` jsonb): it is
+ * present on every row regardless of payload validity, so a
+ * drifted/forward-version latest event still yields the correct
+ * most-recent run — parsing the payload here would strand admin/inspect on
+ * "no recent run" for an app whose newest event is undecodable.
  */
 export async function readLatestRunId(appId: string): Promise<string | null> {
-	// Raw read (no Zod converter): `runId` is an envelope field present on
-	// EVERY event regardless of payload validity, so a drifted/forward-version
-	// latest event still yields the correct most-recent run. Going through the
-	// converter here would throw on exactly that case and strand replay/admin
-	// on "no recent run" for an app whose newest event is undecodable.
-	const snap = await getDb()
-		.collection("apps")
-		.doc(appId)
-		.collection("events")
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("events")
+		.select("run_id")
+		.where("app_id", "=", appId)
 		.orderBy("ts", "desc")
 		.limit(1)
-		.get();
-	if (snap.empty) return null;
-	const runId = (snap.docs[0].data() as { runId?: unknown }).runId;
-	return typeof runId === "string" ? runId : null;
+		.executeTakeFirst();
+	return row?.run_id ?? null;
 }
 
 /**
  * Load the per-run summary doc. Returns `null` if none was written.
  *
- * The Zod converter on `docs.run` (see `lib/db/firestore.ts`) runs
- * `runSummaryDocSchema.parse()` inside `fromFirestore` and either returns
- * a valid `RunSummaryDoc` or throws — so when `snap.exists === true`,
- * `data()` cannot legitimately return `undefined`. TypeScript types it as
- * `T | undefined` only because `.exists` can't narrow through the
- * Firestore SDK's generic signature. The throw catches a hypothetical
- * future converter regression loudly instead of silently coercing to
- * `null` and masking it.
- *
- * (The writer in `lib/db/runSummary.ts` uses a raw doc ref without the
- * converter, so its "empty doc with exists=true" case is a different
- * scenario — not a converter contract violation — and is handled there
- * by treating the read as "no prev" and overwriting.)
+ * Delegates to `loadRunSummary` (`lib/db/runSummary.ts`), which owns the
+ * `run_summaries` table read; this reader keeps the export co-located with
+ * `readEvents` / `readLatestRunId` so a log consumer reaches the whole
+ * run-forensics surface through one module.
  */
 export async function readRunSummary(
 	appId: string,
 	runId: string,
 ): Promise<RunSummaryDoc | null> {
-	const snap = await docs.run(appId, runId).get();
-	if (!snap.exists) return null;
-	const data = snap.data();
-	if (!data) {
-		throw new Error(
-			`Run summary doc at apps/${appId}/runs/${runId} reported exists=true but returned undefined from data() — converter contract violated.`,
-		);
-	}
-	return data;
+	return loadRunSummary(appId, runId);
 }

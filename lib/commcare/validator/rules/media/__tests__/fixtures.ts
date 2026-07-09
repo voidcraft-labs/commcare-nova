@@ -16,7 +16,6 @@
  * fixture matches the manifest those rules see in production.
  */
 
-import { Timestamp } from "@google-cloud/firestore";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { AssetMimeType, MediaAssetStatus } from "@/lib/domain/multimedia";
 import { asAssetId } from "@/lib/domain/multimedia";
@@ -50,9 +49,10 @@ export function makeAssetRecord(
 		originalFilename: `${id}.png`,
 		displayName: id,
 		status,
-		// `Timestamp.fromMillis` constructs a deterministic stamp; tests
-		// don't care about the value, only that the field is present.
-		created_at: Timestamp.fromMillis(0),
+		// A deterministic `Date`; tests don't care about the value, only that the
+		// field is present (the `media_assets.created_at` column is `timestamptz`,
+		// read back as a `Date`).
+		created_at: new Date(0),
 		...overrides,
 		id: asAssetId(overrides.id ?? id),
 	};

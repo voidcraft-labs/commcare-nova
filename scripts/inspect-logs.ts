@@ -1,27 +1,30 @@
 /**
- * Read-only inspection of the Phase-4 event log for an app.
+ * Read-only inspection of the event log for an app.
  *
- * Sources data from two collections:
- *   - `apps/{appId}/events/{eventId}` — the unified mutation + conversation
- *     stream (`Event`). Read via `readEvents(runId)` when filtered to a run,
- *     or via a direct `collections.events(appId)` scan otherwise.
- *   - `apps/{appId}/runs/{runId}` — per-run cost/behavior summary
- *     (`RunSummaryDoc`). Read via `readRunSummary`.
+ * Sources data from two tables:
+ *   - `events` — the unified mutation + conversation stream (`Event`, in the
+ *     `event` jsonb column). Read via `readEvents(runId)` when filtered to a
+ *     run, or via a direct `events`-table scan otherwise.
+ *   - `run_summaries` — per-run cost/behavior summary (`RunSummaryDoc`). Read
+ *     via `readRunSummary`.
  *
  * Where cost data lives — read this before concluding "the log can't answer X":
- * the per-run summary (`runs/{runId}`) carries the token TOTALS (input/output/
- * cache read+write, aggregate per run). The event log carries no token COUNTS,
- * but it DOES carry the full tool I/O — every `tool-result.output` verbatim —
- * whose serialized SIZE is the per-TOOL context-cost proxy. So "how many tokens
- * did this run cost" → the summary; "WHICH tool's results inflated it" → the
- * event log (`--tools` reports per-tool result sizes). Don't mistake "no token
- * counts in the log" for "no cost signal in the log."
+ * the per-run summary carries the token TOTALS (input/output/cache read+write,
+ * aggregate per run). The event log carries no token COUNTS, but it DOES carry
+ * the full tool I/O — every `tool-result.output` verbatim — whose serialized
+ * SIZE is the per-TOOL context-cost proxy. So "how many tokens did this run
+ * cost" → the summary; "WHICH tool's results inflated it" → the event log
+ * (`--tools` reports per-tool result sizes). Don't mistake "no token counts in
+ * the log" for "no cost signal in the log."
  *
- * Never writes to Firestore. Run with `--help` for the flag reference.
+ * Reads the app-state database the env provides (`NOVA_DB_LOCAL_URL` locally,
+ * the Cloud SQL connector in the migrate-job image). Never writes. Run with
+ * `--help` for the flag reference.
  */
 import "dotenv/config";
 import { Command, InvalidArgumentError } from "commander";
-import { collections } from "@/lib/db/firestore";
+import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
+import { getAppDb } from "@/lib/db/pg";
 import type { RunSummaryDoc } from "@/lib/db/types";
 import {
 	decodeEventsLenient,
@@ -82,7 +85,7 @@ program
 	.description(
 		"Read-only inspection of the event log + per-run summary docs for an app.",
 	)
-	.argument("<appId>", "Firestore app document id")
+	.argument("<appId>", "app id (apps.id)")
 	.option(
 		"--verbose",
 		"multi-line rendering of every event (default: one-line)",
@@ -135,10 +138,10 @@ const hasAnalyticalView =
 
 /**
  * `--runs` is the only view that can render without touching the events
- * collection at all — it reads the `runs` subcollection directly. Every
- * other view (including the default event dump) needs `Event[]`. When the
- * user passes *only* `--runs` (no events-consuming companion view, no
- * `--run=` filter), we skip the full-events scan entirely.
+ * table at all — it reads `run_summaries` directly. Every other view
+ * (including the default event dump) needs `Event[]`. When the user passes
+ * *only* `--runs` (no events-consuming companion view, no `--run=` filter),
+ * we skip the full-events scan entirely.
  */
 const runsTableOnly =
 	showRunsTable && !showTimeline && !showTools && !showStages && !runFilter;
@@ -146,16 +149,11 @@ const runsTableOnly =
 // ── Data loading ────────────────────────────────────────────────────
 
 /**
- * Load every event for the app. If `runFilter` is set, push the filter
- * into Firestore via `readEvents` (covered by the `(runId, ts, seq)`
- * composite index). Otherwise scan the full events subcollection
- * unordered and sort client-side.
- *
- * Why client-side sort: an unfiltered `orderBy("ts").orderBy("seq")`
- * query would require a dedicated `(ts asc, seq asc)` composite index
- * that isn't worth maintaining for an ops script. The script already
- * pulls every doc into memory for display, so a JS sort is trivially
- * cheap and avoids the index-deployment coupling.
+ * Load every event for the app. If `runFilter` is set, push the filter into
+ * the query via `readEvents`. Otherwise scan the whole `events` table for the
+ * app, ordered by `(ts, seq)` — the same chronological order `readEvents`
+ * returns (the envelope `ts`/`seq` columns mirror the values inside the
+ * `event` jsonb).
  */
 async function loadEvents(): Promise<Event[]> {
 	if (runFilter) {
@@ -167,35 +165,56 @@ async function loadEvents(): Promise<Event[]> {
 		}
 		return events;
 	}
-	const snap = await collections.events(appId).get();
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("events")
+		.select("event")
+		.where("app_id", "=", appId)
+		.orderBy("ts")
+		.orderBy("seq")
+		.execute();
 	// Drop-and-warn on any event that fails schema validation (forward-version
-	// payload / schema drift) instead of letting one bad doc abort the whole
+	// payload / schema drift) instead of letting one bad row abort the whole
 	// scan — the failure that made this script crash on attachment-prep events.
-	const { events, skipped, sample } = decodeEventsLenient(snap.docs);
+	const { events, skipped, sample } = decodeEventsLenient(
+		rows.map((row) => row.event),
+	);
 	if (skipped > 0) {
 		console.warn(
 			`Skipped ${skipped} unparseable event(s) (schema drift / forward-version payload). First: ${sample}`,
 		);
 	}
-	events.sort((a, b) => a.ts - b.ts || a.seq - b.seq);
 	return events;
 }
 
 /**
- * Load every run-summary doc for the app, newest-first by `finishedAt`.
- * Sole data source for the `--runs` fast path — no events are scanned.
- * Runs that exist in the events collection but haven't been finalized
- * (no summary doc written yet) do not appear here; the view reports
- * what `runs/` contains.
+ * Load every run summary for the app, newest-first by `finished_at`. Sole
+ * data source for the `--runs` fast path — no events are scanned. Runs that
+ * logged events but never finalized (no `run_summaries` row) do not appear
+ * here; the view reports what `run_summaries` contains.
  */
 async function loadRunSummariesNewestFirst(): Promise<
 	Array<{ runId: string; summary: RunSummaryDoc }>
 > {
-	const snap = await collections
-		.runs(appId)
-		.orderBy("finishedAt", "desc")
-		.get();
-	return snap.docs.map((d) => ({ runId: d.id, summary: d.data() }));
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("run_summaries")
+		.select("run_id")
+		.where("app_id", "=", appId)
+		.orderBy("finished_at", "desc")
+		.execute();
+	// Re-read each row through `readRunSummary` so the canonical row→doc
+	// mapping (snake_case columns → camelCase `RunSummaryDoc`) lives in ONE
+	// place; `Promise.all` preserves the newest-first order.
+	const summaries = await Promise.all(
+		rows.map(async ({ run_id }) => ({
+			runId: run_id,
+			summary: await readRunSummary(appId, run_id),
+		})),
+	);
+	return summaries.filter(
+		(r): r is { runId: string; summary: RunSummaryDoc } => r.summary !== null,
+	);
 }
 
 // ── Event display ───────────────────────────────────────────────────
@@ -589,4 +608,12 @@ async function main() {
 	}
 }
 
-runMain(main);
+// Close the shared case-store pool so the process exits promptly — an open
+// pool keeps the event loop alive.
+runMain(async () => {
+	try {
+		await main();
+	} finally {
+		await closeCaseStoreDatabase();
+	}
+});

@@ -1,35 +1,36 @@
 /**
- * commitGuardedBatch — the seq-recompute-on-RETRY guarantee, deterministically.
+ * commitGuardedBatch — the seq-recompute guarantee, against a REAL Postgres.
  *
- * The durable-stream ordering property (P3) is: `mutation_seq` is a LITERAL
- * `(fresh.mutation_seq ?? 0) + 1` READ INSIDE the transaction closure, so a
- * Firestore abort-and-retry (the SDK re-invokes the whole closure) re-reads the
- * now-advanced `mutation_seq` and recomputes — never reuses a stale value captured
- * OUTSIDE the closure. A regression that cached the seq outside the closure would
- * leave a GAP or a DUPLICATE on retry (the exact hazard the guarantee guards).
+ * The durable-stream ordering property is: `mutation_seq` is a LITERAL
+ * `Number(fresh.mutation_seq) + 1` READ INSIDE the transaction closure under the
+ * app-row lock (`lockAppRow` → `SELECT … FOR UPDATE`), so it is recomputed off
+ * whatever the row currently carries and can never reuse a value cached OUTSIDE
+ * the closure — a regression that cached it would leave a GAP or DUPLICATE.
  *
- * The emulator can't test this: its `ReactiveLockManager` LIVELOCKS even 2-way
- * single-doc contention (see `commitGuardedBatch.integration.test.ts` + the
- * `credits.integration.test.ts` docblock), so it never produces the clean
- * abort-and-retry. This drives the REAL closure with a fake `runTransaction` that
- * INVOKES IT TWICE — the second invocation reads an ADVANCED `mutation_seq`,
- * exactly as the SDK's retry would — and asserts the recompute. Deterministic,
- * no emulator, no livelock. The reservation path's abort-retry is covered the same
- * way in `credits.test.ts`.
+ * The Firestore-era unit suite drove a fake `runTransaction` twice to SIMULATE an
+ * abort-retry, because the emulator livelocked on real 2-way contention. On
+ * Postgres the app-row `FOR UPDATE` lock makes the contention deterministic, so
+ * this drives it FOR REAL: two concurrent commits over separate connections
+ * serialize behind the row lock, and the second re-reads the advanced seq — a
+ * strictly stronger proof than the fake. (`withAppTx`'s deadlock/serialization
+ * retry loop is unit-tested in `withAppTx.test.ts`; the serial gap-free run is in
+ * `commitGuardedBatch.integration.test.ts`.)
  */
 
-import { FieldValue, Timestamp } from "@google-cloud/firestore";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
+import { Pool } from "pg";
+import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { __setAppDbForTests, type AppDatabase } from "../pg";
+import { setupAppStateTestDb } from "./appStateTestDb";
 
-const APP_ID = "app-1";
 const OWNER = "user-owner";
 
-/* A minimal valid registration doc — the REAL commit verdict runs against it, so
- * it must be a legal blueprint (two case properties on a `patient` type). */
+const h = setupAppStateTestDb("commit_unit_");
+
+/** A minimal valid registration doc — the REAL commit verdict runs against it. */
 function minDoc(): BlueprintDoc {
 	return buildDoc({
 		appName: "Test",
@@ -93,147 +94,101 @@ function renameVillageLabel(doc: BlueprintDoc, label: string): Mutation[] {
 	];
 }
 
-/* The fake app-doc state the closure reads. `mutation_seq` is mutated BETWEEN the
- * two closure invocations to model a competing commit landing during the retry. */
-type AppState = {
-	owner: string;
-	project_id: string | null;
-	mutation_seq: number;
-	blueprint: unknown;
-};
+async function readSeq(appId: string): Promise<number> {
+	return Number((await h.readAppRow(appId))?.mutation_seq);
+}
 
-/* One opaque ref per collection/doc the closure touches. `.get()` resolves off the
- * shared `state`; the writers are spied. `runTransaction` invokes the closure the
- * scripted number of times (an abort-retry simulation), each a FRESH read. */
-const { getDbMock, appUpdateSpy, state, invokeCount } = vi.hoisted(() => {
-	const state: {
-		app: AppState | null;
-		dedupExists: boolean;
-		invocations: number;
-	} = { app: null, dedupExists: false, invocations: 0 };
-	const invokeCount = { runs: 1 };
-	const appUpdateSpy = vi.fn();
-	const snapshotOf = (data: unknown) => ({
-		exists: data != null,
-		data: () => data,
-	});
-	const makeTx = () => ({
-		get: async (ref: { kind: string }) => {
-			if (ref.kind === "dedup")
-				return snapshotOf(state.dedupExists ? {} : null);
-			return snapshotOf(state.app);
-		},
-		update: (ref: { kind: string }, data: Record<string, unknown>) => {
-			if (ref.kind === "app") appUpdateSpy(data);
-		},
-		set: () => {},
-		delete: () => {},
-	});
-	const getDbMock = () => ({
-		runTransaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
-			let last: T | undefined;
-			for (let i = 0; i < invokeCount.runs; i++) {
-				state.invocations += 1;
-				last = await fn(makeTx());
-			}
-			return last as T;
-		},
-	});
-	return { getDbMock, appUpdateSpy, state, invokeCount };
-});
-
-vi.mock("../firestore", async () => ({
-	...(await import("./throttlePassthrough")).throttlePassthrough,
-	getDb: getDbMock,
-	docs: {
-		batchDedupRaw: () => ({ kind: "dedup" }),
-		app: () => ({ kind: "app" }),
-		appRaw: () => ({ kind: "app" }),
-		acceptedMutation: () => ({ kind: "accepted" }),
-		batchDedup: () => ({ kind: "batchDedup" }),
-	},
-	collections: {},
-	FieldValue,
-	Timestamp,
-}));
-
-const { commitGuardedBatch } = await import("../apps");
-
-describe("commitGuardedBatch — seq recompute on transaction retry", () => {
-	beforeEach(() => {
-		appUpdateSpy.mockClear();
-		state.invocations = 0;
-		invokeCount.runs = 1;
-	});
-
-	it("re-reads the ADVANCED mutation_seq on a retry — recomputes (fresh + 1), never a stale cached seq", async () => {
+describe("commitGuardedBatch — seq recompute", () => {
+	it("computes the literal (fresh + 1) off whatever mutation_seq the row carries (no cached zero)", async () => {
+		const { commitGuardedBatch } = await import("../apps");
 		const doc = minDoc();
-		state.app = {
+		// A null-project app (owner path — reauth passes on owner === actor).
+		const appId = await h.seedAppWithBlueprint(doc, {
+			projectId: null,
 			owner: OWNER,
-			project_id: null, // owner path — reauth passes on owner === actor
-			mutation_seq: 0,
-			blueprint: toPersistableDoc(doc),
-		};
-		state.dedupExists = false;
-
-		// The abort-retry simulation: the closure is invoked TWICE. Between the two
-		// invocations a competing commit lands, advancing the doc's mutation_seq
-		// 0 → 5. The SDK's real retry re-reads the doc, so the fake advances the state
-		// after the FIRST invocation (which itself computes off 0).
-		invokeCount.runs = 2;
-		const firstUpdate: { seq?: number } = {};
-		appUpdateSpy.mockImplementation((data: { mutation_seq: number }) => {
-			if (firstUpdate.seq === undefined) {
-				firstUpdate.seq = data.mutation_seq;
-				// A competing commit advanced the doc while we were "aborting".
-				if (state.app) state.app.mutation_seq = 5;
-			}
 		});
+		// A row already advanced by 41 prior commits.
+		await h
+			.db()
+			.updateTable("apps")
+			.set({ mutation_seq: 41 })
+			.where("id", "=", appId)
+			.execute();
 
-		await commitGuardedBatch({
-			appId: APP_ID,
+		const result = await commitGuardedBatch({
+			appId,
 			batchId: crypto.randomUUID(),
 			mutations: renameVillageLabel(doc, "Home"),
 			actorUserId: OWNER,
 			kind: "autosave",
-			preauthorized: { projectId: null }, // skip loadAppProjectId (no query fake)
 		});
 
-		// The closure ran twice (abort-retry), and each computed the seq off the
-		// value it RE-READ inside the closure:
-		expect(state.invocations).toBe(2);
-		// First invocation read mutation_seq 0 → wrote 1.
-		expect(firstUpdate.seq).toBe(1);
-		// The retry re-read the ADVANCED 5 → recomputed 6 (NOT the stale 1). A
-		// regression caching the seq outside the closure would write 1 again here.
-		const lastUpdate = appUpdateSpy.mock.calls.at(-1)?.[0] as {
-			mutation_seq: number;
-		};
-		expect(lastUpdate.mutation_seq).toBe(6);
+		expect(result.seq).toBe(42);
+		expect(await readSeq(appId)).toBe(42);
 	});
 
-	it("computes the literal (fresh + 1) off whatever mutation_seq the doc carries (no cached zero)", async () => {
+	it("two concurrent commits produce gap-free seqs — each re-reads the advanced seq under the app-row lock", async () => {
+		const { commitGuardedBatch } = await import("../apps");
 		const doc = minDoc();
-		state.app = {
+		const appId = await h.seedAppWithBlueprint(doc, {
+			projectId: null,
 			owner: OWNER,
-			project_id: null,
-			mutation_seq: 41, // a doc already advanced by 41 prior commits
-			blueprint: toPersistableDoc(doc),
-		};
-		state.dedupExists = false;
-
-		await commitGuardedBatch({
-			appId: APP_ID,
-			batchId: crypto.randomUUID(),
-			mutations: renameVillageLabel(doc, "Home"),
-			actorUserId: OWNER,
-			kind: "autosave",
-			preauthorized: { projectId: null },
 		});
 
-		const update = appUpdateSpy.mock.calls.at(-1)?.[0] as {
-			mutation_seq: number;
-		};
-		expect(update.mutation_seq).toBe(42);
+		// A multi-connection pool so the two commits genuinely contend on the app
+		// row's `FOR UPDATE` lock (the harness's per-test pool is max: 1).
+		const contendPool = new Pool({ connectionString: h.uri(), max: 4 });
+		contendPool.on("error", () => {});
+		__setAppDbForTests(
+			new Kysely<AppDatabase>({
+				dialect: new PostgresDialect({
+					pool: contendPool as unknown as PostgresPool,
+				}),
+			}),
+		);
+		try {
+			const [a, b] = await Promise.all([
+				commitGuardedBatch({
+					appId,
+					batchId: crypto.randomUUID(),
+					mutations: renameVillageLabel(doc, "Home A"),
+					actorUserId: OWNER,
+					kind: "autosave",
+				}),
+				commitGuardedBatch({
+					appId,
+					batchId: crypto.randomUUID(),
+					mutations: renameVillageLabel(doc, "Home B"),
+					actorUserId: OWNER,
+					kind: "autosave",
+				}),
+			]);
+
+			// The row lock serialized them: distinct, gap-free seqs (order arbitrary).
+			expect([a.seq, b.seq].sort()).toEqual([1, 2]);
+		} finally {
+			await contendPool.end();
+			// Restore getAppDb to the harness's per-test pool for the read below +
+			// any later test's setup before its own beforeEach re-injects.
+			__setAppDbForTests(
+				new Kysely<AppDatabase>({
+					dialect: new PostgresDialect({
+						pool: h.pool() as unknown as PostgresPool,
+					}),
+				}),
+			);
+		}
+
+		// Exactly two stream rows, seqs 1 and 2 with no gap/dup, and the counter
+		// landed at 2.
+		const rows = await h
+			.db()
+			.selectFrom("accepted_mutations")
+			.select("seq")
+			.where("app_id", "=", appId)
+			.orderBy("seq")
+			.execute();
+		expect(rows.map((r) => Number(r.seq))).toEqual([1, 2]);
+		expect(await readSeq(appId)).toBe(2);
 	});
 });

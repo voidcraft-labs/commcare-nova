@@ -8,10 +8,10 @@
 //   - `findAppReferencesToAsset` — find the live apps whose carriers still point
 //     at the asset, so a delete can refuse (and name the slots) rather than
 //     orphaning a live reference the export boundary gate would later reject far
-//     from where it could be fixed. It re-walks the asset's `referencingAppIds`
-//     reverse index (the 0–2 candidate apps), NOT the Project's whole app list;
-//     the Project-wide scan survives only as the fallback for un-indexed rows.
-//   - `purgeAssetStorage` — drop the Firestore row, then the GCS bytes (and any
+//     from where it could be fixed. It re-walks the asset's `media_asset_refs`
+//     reverse index (the 0–2 candidate apps the caller passes), NOT the
+//     Project's whole app list.
+//   - `purgeAssetStorage` — drop the asset row, then the GCS bytes (and any
 //     content-addressed siblings, e.g. a document's extract) only when no other
 //     asset row shares the bytes.
 //
@@ -19,7 +19,7 @@
 // so the refusal message and the upload-attach warning name a carrier the same
 // way — no wire vocabulary.
 
-import { listApps, loadApp } from "@/lib/db/apps";
+import { loadApp } from "@/lib/db/apps";
 import {
 	deleteAsset as deleteAssetRow,
 	hasOtherAssetForGcsObjectKey,
@@ -34,8 +34,6 @@ import {
 import { log } from "@/lib/logger";
 import { deleteAsset as deleteGcsObject } from "@/lib/storage/media";
 
-/** Apps scanned per page in the full-scan fallback (un-backfilled assets). */
-const APP_SCAN_PAGE_SIZE = 50;
 /** Stop after this many referencing apps — the refusal only needs to name a few
  *  to be actionable, and an unbounded scan over a large account is wasteful. */
 const APP_REF_LIMIT = 5;
@@ -89,18 +87,16 @@ async function describeAppReference(
  * human-readable description per referencing app (capped at `APP_REF_LIMIT`). An
  * empty array means no persisted app uses it — the asset is safe to delete.
  *
- * `candidateAppIds` is the asset's reverse index (`referencingAppIds`): the only
- * apps whose persisted blueprint has EVER referenced it. Passing it turns the
- * guard from "load every app the Project has" (measured 8s on an 83-app account)
- * into "load only the 0–2 apps that might reference it". The index is
- * append-only, so a candidate may be STALE — this re-walks each candidate's live
- * doc to confirm a real reference and name the carrier, so a stale entry simply
- * drops out (yields `null`).
+ * `candidateAppIds` is the asset's reverse index (`media_asset_refs`, read via
+ * `listReferencingAppIds`): the only apps whose persisted blueprint has EVER
+ * referenced it. Passing it turns the guard from "load every app the Project
+ * has" (measured 8s on an 83-app account) into "load only the 0–2 apps that
+ * might reference it". The index is append-only, so a candidate may be STALE —
+ * this re-walks each candidate's live doc to confirm a real reference and name
+ * the carrier, so a stale entry simply drops out (yields `null`).
  *
- * `undefined` candidates means the asset row predates the index and was never
- * backfilled — there's no candidate set to trust, so this falls back to the full
- * Project-wide scan (correct, just slow). After the backfill migration no live row
- * is `undefined`, so the fallback is transitional.
+ * The migration backfills `media_asset_refs` for every asset row, so the
+ * candidate set is always present — there is no un-indexed full-scan fallback.
  *
  * `skipAppId` omits one app the caller checks separately — the SA tool checks
  * its in-hand working doc (which may carry unsaved mutations the persisted copy
@@ -109,12 +105,9 @@ async function describeAppReference(
 export async function findAppReferencesToAsset(
 	projectId: string,
 	assetId: string,
-	candidateAppIds: readonly string[] | undefined,
+	candidateAppIds: readonly string[],
 	opts: { skipAppId?: string } = {},
 ): Promise<string[]> {
-	if (candidateAppIds === undefined) {
-		return scanAllAppsForReferences(projectId, assetId, opts);
-	}
 	const candidates = [...new Set(candidateAppIds)].filter(
 		(id) => id !== opts.skipAppId,
 	);
@@ -130,42 +123,7 @@ export async function findAppReferencesToAsset(
 }
 
 /**
- * Full Project-wide scan: page every live app in the Project, load its doc, walk
- * its refs. The pre-index behavior, kept ONLY as the fallback for an
- * un-backfilled asset row (`referencingAppIds` absent). Slow by construction — it
- * loads every app's blueprint — which is exactly why the index path above exists.
- */
-async function scanAllAppsForReferences(
-	projectId: string,
-	assetId: string,
-	opts: { skipAppId?: string },
-): Promise<string[]> {
-	const references: string[] = [];
-	let cursor: string | undefined;
-	do {
-		const page = await listApps(projectId, {
-			limit: APP_SCAN_PAGE_SIZE,
-			sort: "updated_desc",
-			cursor,
-		});
-		for (const summary of page.apps) {
-			if (summary.id === opts.skipAppId) continue;
-			const description = await describeAppReference(
-				summary.id,
-				projectId,
-				assetId,
-			);
-			if (description === null) continue;
-			references.push(description);
-			if (references.length >= APP_REF_LIMIT) return references;
-		}
-		cursor = page.nextCursor;
-	} while (cursor);
-	return references;
-}
-
-/**
- * Remove the asset's storage: drop the Firestore row FIRST (so a storage-cleanup
+ * Remove the asset's storage: drop the asset row FIRST (so a storage-cleanup
  * failure can only orphan a blob, never leave a `ready` row pointing at missing
  * bytes), then delete the GCS bytes and any `alsoDelete` siblings — but only when
  * no other asset row shares the bytes. The bytes object is content-hash keyed, so
