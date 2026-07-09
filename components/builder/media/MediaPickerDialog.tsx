@@ -17,8 +17,6 @@
 
 "use client";
 
-import { AlertDialog } from "@base-ui/react/alert-dialog";
-import { Dialog } from "@base-ui/react/dialog";
 import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
@@ -26,6 +24,23 @@ import tablerEye from "@iconify-icons/tabler/eye";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/shadcn/alert-dialog";
+import { Button } from "@/components/shadcn/button";
+import {
+	Dialog,
+	DialogClose,
+	DialogContent,
+	DialogTitle,
+} from "@/components/shadcn/dialog";
 import {
 	Tooltip,
 	TooltipContent,
@@ -60,11 +75,6 @@ import {
 	mediaSrc,
 } from "./mediaClient";
 import { useMediaLibrary, useMediaUpload } from "./useMedia";
-
-const BACKDROP_CLS =
-	"fixed inset-0 z-modal bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0";
-const POPUP_CLS =
-	"fixed z-modal top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl bg-nova-deep border border-nova-border shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
 
 type Tab = "upload" | "library" | "icons";
 /** Library browse filter: one allowed kind, or "all" of them. */
@@ -158,48 +168,48 @@ export function MediaPickerDialog({
 	// carrier to pick into, so library clicks preview and Upload just lands files.
 	const manage = onPick === undefined;
 	// The data hooks (`useMediaLibrary`) live in `PickerBody`, which is
-	// a child of `Dialog.Popup` — Base UI only mounts the Popup's
+	// a child of `DialogContent` — Base UI only mounts the popup's
 	// subtree while the dialog is open, so the library fetch fires when
 	// the user opens the picker, NOT eagerly on every slot's mount.
 	// (An always-mounted hook here would fire one library GET per slot
 	// before any click.) The thin shell stays mounted so the open/close
 	// transition still animates.
 	return (
-		<Dialog.Root open={open} onOpenChange={onOpenChange}>
-			<Dialog.Portal>
-				<Dialog.Backdrop className={BACKDROP_CLS} />
-				<Dialog.Popup className={POPUP_CLS}>
-					<PickerBody
-						manage={manage}
-						kinds={kinds}
-						appId={appId}
-						onPick={(asset) => {
-							// Never called in manage mode — library clicks preview there.
-							onPick?.(asset);
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent
+				showCloseButton={false}
+				className="flex max-h-[80vh] flex-col gap-0 p-0 sm:max-w-lg"
+			>
+				<PickerBody
+					manage={manage}
+					kinds={kinds}
+					appId={appId}
+					onPick={(asset) => {
+						// Never called in manage mode — library clicks preview there.
+						onPick?.(asset);
+						onOpenChange(false);
+					}}
+					onUploadStart={
+						onUploadStart &&
+						((file, kind) => {
+							// Hand the file off and close — the slot's staged chip
+							// takes over (progress + cancel); the picker has nothing
+							// left to show.
+							onUploadStart(file, kind);
 							onOpenChange(false);
-						}}
-						onUploadStart={
-							onUploadStart &&
-							((file, kind) => {
-								// Hand the file off and close — the slot's staged chip
-								// takes over (progress + cancel); the picker has nothing
-								// left to show.
-								onUploadStart(file, kind);
-								onOpenChange(false);
-							})
-						}
-						onAssetsLoaded={onAssetsLoaded}
-						attachedAssetIds={attachedAssetIds}
-						onAssetDeleted={onAssetDeleted}
-						iconLibrary={iconLibrary}
-					/>
-				</Dialog.Popup>
-			</Dialog.Portal>
-		</Dialog.Root>
+						})
+					}
+					onAssetsLoaded={onAssetsLoaded}
+					attachedAssetIds={attachedAssetIds}
+					onAssetDeleted={onAssetDeleted}
+					iconLibrary={iconLibrary}
+				/>
+			</DialogContent>
+		</Dialog>
 	);
 }
 
-/** Mounted only while the dialog is open (child of `Dialog.Popup`). Owns
+/** Mounted only while the dialog is open (child of `DialogContent`). Owns
  *  the library fetch + tab/filter state so none of it runs until open. */
 function PickerBody({
 	manage,
@@ -363,15 +373,13 @@ function PickerBody({
 	return (
 		<>
 			<header className="flex items-center justify-between border-b border-nova-border px-4 py-3">
-				<Dialog.Title className="text-base font-display font-semibold text-nova-text">
-					{title}
-				</Dialog.Title>
-				<Dialog.Close
-					className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+				<DialogTitle className="font-display">{title}</DialogTitle>
+				<DialogClose
+					render={<Button variant="ghost" size="icon-sm" />}
 					aria-label="Close"
 				>
 					<Icon icon={tablerX} className="size-4" />
-				</Dialog.Close>
+				</DialogClose>
 			</header>
 
 			<div
@@ -613,14 +621,14 @@ function UploadTab({
 				<p className="text-sm text-nova-text-muted">
 					Drag {nounPhrase} here, or
 				</p>
-				<button
+				<Button
 					type="button"
+					size="sm"
 					onClick={() => inputRef.current?.click()}
 					disabled={status.state === "uploading"}
-					className="rounded-md bg-nova-action px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright disabled:opacity-40"
 				>
 					{status.state === "uploading" ? "Uploading…" : "Browse files"}
-				</button>
+				</Button>
 				<input
 					ref={inputRef}
 					type="file"
@@ -864,14 +872,16 @@ function LibraryTab({
 				</ul>
 			)}
 			{hasMore && (
-				<button
+				<Button
 					type="button"
+					variant="outline"
+					size="xs"
+					className="self-center"
 					onClick={loadMore}
 					disabled={isLoading}
-					className="self-center rounded-md border border-nova-border px-3 py-1 text-xs text-nova-text-muted transition-colors hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:opacity-40"
 				>
 					{isLoading ? "Loading…" : "Load more"}
-				</button>
+				</Button>
 			)}
 		</div>
 	);
@@ -999,12 +1009,10 @@ function IconLibraryTab({
 }
 
 /**
- * Confirm-before-delete dialog for a library asset. Built on Base UI's
- * alert-dialog rather than the shadcn `AlertDialog` because that component is
- * pinned to the z-popover tier and would render BEHIND this z-modal picker; this
- * matches the picker + preview dialogs in the same file (z-modal, nova-themed,
- * stacking over the picker by portal order). Alert semantics — no outside-press
- * dismissal, Cancel / Delete only — which is right for a destructive action.
+ * Confirm-before-delete dialog for a library asset. Stacks over the z-modal
+ * picker by portal order (its portal mounts later, on the same z plane).
+ * Alert semantics — no outside-press dismissal, Cancel / Delete only — which
+ * is right for a destructive action.
  */
 function MediaDeleteConfirmDialog({
 	target,
@@ -1026,54 +1034,51 @@ function MediaDeleteConfirmDialog({
 }) {
 	const name = target ? (target.displayName ?? target.originalFilename) : "";
 	return (
-		<AlertDialog.Root
+		<AlertDialog
 			open={target !== null}
 			onOpenChange={(open) => {
 				// Ignore close attempts (e.g. Escape) while the delete is in flight.
 				if (!open && !deleting) onCancel();
 			}}
 		>
-			<AlertDialog.Portal>
-				<AlertDialog.Backdrop className="fixed inset-0 z-modal bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
-				<AlertDialog.Popup className="fixed top-1/2 left-1/2 z-modal w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-nova-border bg-nova-deep p-5 shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
-					<AlertDialog.Title className="font-display text-base font-semibold text-nova-text">
+			<AlertDialogContent className="text-left">
+				<AlertDialogHeader>
+					<AlertDialogTitle className="font-display">
 						Delete file?
-					</AlertDialog.Title>
-					<AlertDialog.Description className="mt-1.5 text-sm text-nova-text-muted">
+					</AlertDialogTitle>
+					<AlertDialogDescription>
 						<span className="font-medium text-nova-text-secondary">{name}</span>{" "}
 						will be removed from your library. This can't be undone.
-					</AlertDialog.Description>
-					{attached && (
-						<p className="mt-2 flex items-start gap-2 rounded-md border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-left text-xs leading-relaxed text-nova-text-secondary">
-							<Icon
-								icon={tablerAlertTriangle}
-								className="mt-0.5 size-3.5 shrink-0 text-nova-amber"
-							/>
-							<span>
-								It's attached to your current message — deleting it will also
-								remove it from the chat.
-							</span>
-						</p>
-					)}
-					<div className="mt-4 flex justify-end gap-2">
-						<AlertDialog.Close
-							disabled={deleting}
-							className="rounded-md border border-nova-border px-3 py-1.5 text-sm text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:opacity-40"
-						>
-							Cancel
-						</AlertDialog.Close>
-						<button
-							type="button"
-							onClick={onConfirm}
-							disabled={deleting}
-							className="rounded-md bg-nova-rose px-3 py-1.5 text-sm font-medium text-nova-void transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-rose disabled:opacity-40"
-						>
-							{deleting ? "Deleting…" : "Delete"}
-						</button>
-					</div>
-				</AlertDialog.Popup>
-			</AlertDialog.Portal>
-		</AlertDialog.Root>
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				{attached && (
+					<p className="flex items-start gap-2 rounded-md border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-left text-xs leading-relaxed text-nova-text-secondary">
+						<Icon
+							icon={tablerAlertTriangle}
+							className="mt-0.5 size-3.5 shrink-0 text-nova-amber"
+						/>
+						<span>
+							It's attached to your current message — deleting it will also
+							remove it from the chat.
+						</span>
+					</p>
+				)}
+				<AlertDialogFooter>
+					<AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+					{/* Solid rose with dark text (light accents carry dark text) —
+					 * the confirm side of a destructive alert is the one place the
+					 * fill is full-strength rather than the tinted `destructive`
+					 * button variant. */}
+					<AlertDialogAction
+						onClick={onConfirm}
+						disabled={deleting}
+						className="bg-nova-rose text-nova-void not-disabled:hover:bg-[color-mix(in_oklab,var(--nova-rose),black_14%)] focus-visible:ring-nova-rose/40"
+					>
+						{deleting ? "Deleting…" : "Delete"}
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
 	);
 }
 

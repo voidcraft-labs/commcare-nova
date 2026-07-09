@@ -9,7 +9,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerSquare from "@iconify-icons/tabler/square";
 import tablerSquareCheck from "@iconify-icons/tabler/square-check-filled";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { isOrdered } from "@/lib/domain";
 import {
 	between,
@@ -226,7 +226,7 @@ function BoundEditor({
 	return (
 		<div>
 			<div className="flex items-center justify-between mb-1">
-				<Tooltip
+				<SimpleTooltip
 					content={toggleDisabled ? "At least one end must stay on" : undefined}
 				>
 					<button
@@ -260,7 +260,7 @@ function BoundEditor({
 					>
 						{label}
 					</button>
-				</Tooltip>
+				</SimpleTooltip>
 				<InclusiveToggle
 					inclusive={inclusive}
 					setInclusive={setInclusive}
@@ -301,7 +301,7 @@ function InclusiveToggle({
 	readonly disabled: boolean;
 }) {
 	return (
-		<Tooltip
+		<SimpleTooltip
 			content={
 				inclusive
 					? "The end itself counts as a match (≤)"
@@ -328,6 +328,6 @@ function InclusiveToggle({
 				/>
 				<span>Inclusive</span>
 			</button>
-		</Tooltip>
+		</SimpleTooltip>
 	);
 }

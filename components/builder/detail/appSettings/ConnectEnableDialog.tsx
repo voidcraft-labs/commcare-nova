@@ -1,5 +1,4 @@
 "use client";
-import { Dialog } from "@base-ui/react/dialog";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerX from "@iconify-icons/tabler/x";
@@ -7,7 +6,14 @@ import { type ReactNode, useCallback, useId, useState } from "react";
 import { LabeledXPathField } from "@/components/builder/detail/formSettings/LabeledXPathField";
 import { useConnectLintContext } from "@/components/builder/detail/formSettings/useConnectLintContext";
 import { RejectionBody } from "@/components/builder/RejectionNotice";
-import { Toggle } from "@/components/ui/Toggle";
+import { Button } from "@/components/shadcn/button";
+import {
+	Dialog,
+	DialogClose,
+	DialogContent,
+	DialogTitle,
+} from "@/components/shadcn/dialog";
+import { Switch } from "@/components/shadcn/switch";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import {
 	assignConnectId,
@@ -55,14 +61,9 @@ import { assertNever } from "@/lib/utils/assertNever";
  *     placeholder); clearing one and leaving the field snaps it back to that
  *     derived id on blur — the same blur-commit the XPath slots do.
  *
- * The dialog mounts through `Dialog.Portal` (the media picker's pattern) so
- * it escapes the app-settings popover's transformed positioner.
+ * The dialog mounts through a portal (the media picker's pattern) so it
+ * escapes the app-settings popover's transformed positioner.
  */
-
-const BACKDROP_CLS =
-	"fixed inset-0 z-modal bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0";
-const POPUP_CLS =
-	"fixed z-modal top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl bg-nova-deep border border-nova-border shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
 
 /** One form the dialog collects a block for. */
 export interface ConnectStagingTarget {
@@ -513,13 +514,13 @@ function AdvancedDisclosure({ children }: { children: ReactNode }) {
 /** One sub-config card: an opt-in toggle revealing its fields. */
 function SubConfigCard({
 	title,
-	enabled,
-	onToggle,
+	checked,
+	onCheckedChange,
 	children,
 }: {
 	title: string;
-	enabled: boolean;
-	onToggle: () => void;
+	checked: boolean;
+	onCheckedChange: () => void;
 	children?: ReactNode;
 }) {
 	return (
@@ -528,9 +529,9 @@ function SubConfigCard({
 				<span className="text-[11px] font-medium uppercase tracking-wider text-nova-text-secondary">
 					{title}
 				</span>
-				<Toggle enabled={enabled} onToggle={onToggle} variant="sub" />
+				<Switch checked={checked} onCheckedChange={onCheckedChange} size="sm" />
 			</div>
-			{enabled && children && (
+			{checked && children && (
 				<div className="space-y-2.5 border-t border-white/[0.06] px-3 pb-3 pt-2.5">
 					{children}
 				</div>
@@ -683,8 +684,8 @@ export function FormSubConfigs({
 			<>
 				<SubConfigCard
 					title="Learn Module"
-					enabled={draft.learnOn}
-					onToggle={() => toggleSub("learn_module")}
+					checked={draft.learnOn}
+					onCheckedChange={() => toggleSub("learn_module")}
 				>
 					<DraftField
 						label="Name"
@@ -719,8 +720,8 @@ export function FormSubConfigs({
 				</SubConfigCard>
 				<SubConfigCard
 					title="Assessment"
-					enabled={draft.assessmentOn}
-					onToggle={() => toggleSub("assessment")}
+					checked={draft.assessmentOn}
+					onCheckedChange={() => toggleSub("assessment")}
 				>
 					<ConnectXPathField
 						label="User Score"
@@ -745,8 +746,8 @@ export function FormSubConfigs({
 			<>
 				<SubConfigCard
 					title="Deliver Unit"
-					enabled={draft.deliverOn}
-					onToggle={() => toggleSub("deliver_unit")}
+					checked={draft.deliverOn}
+					onCheckedChange={() => toggleSub("deliver_unit")}
 				>
 					<DraftField
 						label="Name"
@@ -781,8 +782,8 @@ export function FormSubConfigs({
 				</SubConfigCard>
 				<SubConfigCard
 					title="Task"
-					enabled={draft.taskOn}
-					onToggle={() => toggleSub("task")}
+					checked={draft.taskOn}
+					onCheckedChange={() => toggleSub("task")}
 				>
 					<DraftField
 						label="Name"
@@ -855,25 +856,25 @@ export function ConnectEnableDialog({
 	// Stays mounted across open/close so Base UI plays BOTH transitions; the
 	// stateful body mounts only while open, so its per-form drafts reset.
 	return (
-		<Dialog.Root
+		<Dialog
 			open={request !== undefined}
 			onOpenChange={(next) => {
 				if (!next) onCancel();
 			}}
 		>
-			<Dialog.Portal>
-				<Dialog.Backdrop className={BACKDROP_CLS} />
-				<Dialog.Popup className={POPUP_CLS}>
-					{request && (
-						<DialogBody
-							request={request}
-							onCancel={onCancel}
-							onConfirm={onConfirm}
-						/>
-					)}
-				</Dialog.Popup>
-			</Dialog.Portal>
-		</Dialog.Root>
+			<DialogContent
+				showCloseButton={false}
+				className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-lg"
+			>
+				{request && (
+					<DialogBody
+						request={request}
+						onCancel={onCancel}
+						onConfirm={onConfirm}
+					/>
+				)}
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -957,19 +958,17 @@ function DialogBody({
 		<>
 			<header className="flex items-center justify-between border-b border-nova-border px-5 py-3.5">
 				<div className="flex items-center gap-2">
-					<Dialog.Title className="font-display text-base font-semibold text-nova-text">
-						Set up Connect
-					</Dialog.Title>
+					<DialogTitle className="font-display">Set up Connect</DialogTitle>
 					<span className="flex h-[18px] items-center rounded border border-nova-violet/20 bg-nova-violet/10 px-1.5 text-[10px] font-medium text-nova-violet-bright">
 						{mode === "learn" ? "Learn" : "Deliver"}
 					</span>
 				</div>
-				<Dialog.Close
-					className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+				<DialogClose
+					render={<Button variant="ghost" size="icon-sm" />}
 					aria-label="Close"
 				>
 					<Icon icon={tablerX} className="size-4" />
-				</Dialog.Close>
+				</DialogClose>
 			</header>
 
 			<div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
@@ -1014,21 +1013,22 @@ function DialogBody({
 				<div className="flex items-center justify-between gap-3">
 					<span className="text-[11px] text-nova-text-muted">{hint}</span>
 					<div className="flex gap-2">
-						<button
+						<Button
 							type="button"
+							variant="outline"
+							size="sm"
 							onClick={onCancel}
-							className="cursor-pointer rounded-lg border border-nova-border px-3 py-1.5 text-xs font-medium text-nova-text-secondary transition-colors hover:text-nova-text"
 						>
 							Cancel
-						</button>
-						<button
+						</Button>
+						<Button
 							type="button"
+							size="sm"
 							onClick={confirm}
 							disabled={!canConfirm}
-							className="rounded-lg bg-nova-action px-3 py-1.5 text-xs font-medium text-white transition-colors enabled:cursor-pointer enabled:hover:brightness-110 disabled:opacity-40"
 						>
 							Enable Connect
-						</button>
+						</Button>
 					</div>
 				</div>
 			</div>

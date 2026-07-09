@@ -18,7 +18,7 @@ import tablerTable from "@iconify-icons/tabler/table";
 import { memo } from "react";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useFormIds, useModuleIds } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/domain";
@@ -33,7 +33,7 @@ export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 	const moduleIds = useModuleIds();
 	return (
 		<aside className="w-14 shrink-0 h-full border-r border-nova-border-bright bg-nova-deep flex flex-col items-center gap-1 py-2 overflow-y-auto">
-			<Tooltip content="Expand structure" placement="right">
+			<SimpleTooltip content="Expand structure" side="right">
 				<button
 					type="button"
 					onClick={onExpand}
@@ -42,7 +42,7 @@ export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 				>
 					<Icon icon={tablerLayoutSidebarLeftExpand} width="18" height="18" />
 				</button>
-			</Tooltip>
+			</SimpleTooltip>
 			{moduleIds.map((moduleUuid) => (
 				<RailModuleGroup key={moduleUuid} moduleUuid={moduleUuid} />
 			))}
@@ -149,7 +149,7 @@ function RailButton({
 	children: React.ReactNode;
 }) {
 	return (
-		<Tooltip content={label} placement="right">
+		<SimpleTooltip content={label} side="right">
 			<button
 				type="button"
 				onClick={onClick}
@@ -162,6 +162,6 @@ function RailButton({
 			>
 				{children}
 			</button>
-		</Tooltip>
+		</SimpleTooltip>
 	);
 }

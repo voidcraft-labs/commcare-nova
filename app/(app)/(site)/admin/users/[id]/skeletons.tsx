@@ -4,7 +4,7 @@
  * Used as Suspense fallbacks in the user detail page. See
  * `app/admin/skeletons.tsx` for why these live here instead of `loading.tsx`.
  */
-import { Skeleton } from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/shadcn/skeleton";
 
 /**
  * Header column widths for the usage table skeleton — one per real column
@@ -33,7 +33,7 @@ export function ProfileSkeleton() {
 		<div className="bg-nova-deep border border-nova-border rounded-xl p-6">
 			<div className="flex items-center justify-between">
 				<div className="flex items-center gap-4">
-					<Skeleton variant="circle" className="w-12 h-12" />
+					<Skeleton className="rounded-full w-12 h-12" />
 					<div>
 						<Skeleton className="w-32 h-5" />
 						<Skeleton className="w-48 h-4 mt-1.5" />

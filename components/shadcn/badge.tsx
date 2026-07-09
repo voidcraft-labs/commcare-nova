@@ -19,6 +19,11 @@ const badgeVariants = cva(
 				ghost:
 					"hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
 				link: "text-nova-violet-bright underline-offset-4 hover:underline",
+				// Nova brand-accent chip — violet-tinted fill with the bright text
+				// tier (the fill is translucent, so text must be violet-bright to
+				// clear AA on dark surfaces).
+				violet:
+					"border-nova-violet/20 bg-nova-violet/15 text-nova-violet-bright",
 			},
 		},
 		defaultVariants: {

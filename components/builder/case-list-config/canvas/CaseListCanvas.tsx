@@ -30,7 +30,7 @@ import {
 	ReorderableRow,
 	useReorderableList,
 } from "@/components/builder/shared/useReorderableList";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseListConfig, Column } from "@/lib/domain";
 import { renderColumnCell } from "../columnCellRenderer";
@@ -124,7 +124,7 @@ export function CaseListCanvas({
 			{/* Title row — the list-panel selection target — plus the
 			 *  human-language filter affordance. */}
 			<div className="flex items-center gap-3 mb-4 min-h-10">
-				<Tooltip content="List settings — sort order and sample data">
+				<SimpleTooltip content="List settings — sort order and sample data">
 					<button
 						type="button"
 						onClick={() => onSelect({ type: "list-panel" })}
@@ -138,7 +138,7 @@ export function CaseListCanvas({
 							{moduleName}
 						</h1>
 					</button>
-				</Tooltip>
+				</SimpleTooltip>
 				<button
 					type="button"
 					onClick={() => onSelect({ type: "filter" })}
@@ -224,17 +224,19 @@ export function CaseListCanvas({
 									)}
 								</ReorderableRow>
 							))}
-							<Tooltip content={addColumnDisabledReason ?? "Add a Column"}>
+							<SimpleTooltip
+								content={addColumnDisabledReason ?? "Add a Column"}
+							>
 								<button
 									type="button"
 									onClick={onAddColumn}
 									disabled={addColumnDisabledReason !== undefined}
 									aria-label="Add a Column"
-									className="grid place-items-center min-h-11 border-l border-dashed border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+									className="grid place-items-center min-h-11 border-l border-dashed border-nova-border-bright text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
 								>
 									<Icon icon={tablerPlus} width="16" height="16" />
 								</button>
-							</Tooltip>
+							</SimpleTooltip>
 						</div>
 
 						{/* Live rows align to the header grid. Every non-rows state —
@@ -363,7 +365,7 @@ function HeaderCell({
 			: column.header || column.field || "untitled";
 	const direction = column.sort?.direction;
 	return (
-		<Tooltip content="Click to set up · drag to reorder">
+		<SimpleTooltip content="Click to set up · drag to reorder">
 			<button
 				type="button"
 				ref={setHandleEl}
@@ -409,7 +411,7 @@ function HeaderCell({
 					</span>
 				)}
 			</button>
-		</Tooltip>
+		</SimpleTooltip>
 	);
 }
 

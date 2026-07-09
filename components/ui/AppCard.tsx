@@ -16,8 +16,8 @@ import {
 	DropdownMenuLabel,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { RelativeTime } from "@/components/ui/RelativeTime";
-import { Tooltip } from "@/components/ui/Tooltip";
 import type { AppSummary } from "@/lib/db/apps";
 import type { MoveTarget } from "@/lib/projects/moveTargets";
 import { showToast } from "@/lib/ui/toastStore";
@@ -294,7 +294,7 @@ export function AppCard({
 									)
 								}
 							>
-								<Tooltip content="Move to another Project">
+								<SimpleTooltip content="Move to another Project">
 									<DropdownMenuTrigger
 										aria-label="Move to another Project"
 										onClick={(e) => {
@@ -305,7 +305,7 @@ export function AppCard({
 									>
 										<Icon icon={tablerFolderSymlink} width="18" height="18" />
 									</DropdownMenuTrigger>
-								</Tooltip>
+								</SimpleTooltip>
 								<DropdownMenuContent align="end">
 									<DropdownMenuGroup>
 										<DropdownMenuLabel>Move to Project</DropdownMenuLabel>
@@ -332,7 +332,7 @@ export function AppCard({
 							</DropdownMenu>
 						)}
 						{onDelete && (
-							<Tooltip content="Move to recently deleted">
+							<SimpleTooltip content="Move to recently deleted">
 								<button
 									type="button"
 									onClick={(e) => {
@@ -345,7 +345,7 @@ export function AppCard({
 								>
 									<Icon icon={tablerTrash} width="18" height="18" />
 								</button>
-							</Tooltip>
+							</SimpleTooltip>
 						)}
 					</>
 				)}

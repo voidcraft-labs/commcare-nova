@@ -15,7 +15,7 @@ import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import type { ReactNode } from "react";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 
 /** Etched console label above the mapping list. */
 export function MappingSectionLabel() {
@@ -85,29 +85,29 @@ export function MappingRowShell({
 					Entry {index + 1}
 				</span>
 				<div className="flex-1" />
-				<Tooltip content="Move up — earlier entries match first">
+				<SimpleTooltip content="Move up — earlier entries match first">
 					<button
 						type="button"
 						aria-label="Move entry up"
 						onClick={onMoveUp}
 						disabled={isFirst}
-						className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-violet-bright hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+						className="size-11 grid place-items-center rounded-md text-nova-text-muted not-disabled:hover:text-nova-violet-bright not-disabled:hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
 					>
 						<Icon icon={tablerArrowUp} width="13" height="13" />
 					</button>
-				</Tooltip>
-				<Tooltip content="Move down">
+				</SimpleTooltip>
+				<SimpleTooltip content="Move down">
 					<button
 						type="button"
 						aria-label="Move entry down"
 						onClick={onMoveDown}
 						disabled={isLast}
-						className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-violet-bright hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+						className="size-11 grid place-items-center rounded-md text-nova-text-muted not-disabled:hover:text-nova-violet-bright not-disabled:hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
 					>
 						<Icon icon={tablerArrowDown} width="13" height="13" />
 					</button>
-				</Tooltip>
-				<Tooltip content="Remove this entry">
+				</SimpleTooltip>
+				<SimpleTooltip content="Remove this entry">
 					<button
 						type="button"
 						aria-label="Remove entry"
@@ -116,7 +116,7 @@ export function MappingRowShell({
 					>
 						<Icon icon={tablerTrash} width="13" height="13" />
 					</button>
-				</Tooltip>
+				</SimpleTooltip>
 			</div>
 			{children}
 		</div>

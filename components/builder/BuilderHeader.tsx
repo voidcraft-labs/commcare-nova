@@ -23,10 +23,10 @@ import { ExportPanel } from "@/components/builder/ExportPanel";
 import { PresenceRoster } from "@/components/builder/PresenceRoster";
 import { PreviewToggle } from "@/components/builder/PreviewToggle";
 import { SaveIndicator } from "@/components/builder/SaveIndicator";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { AccountMenu } from "@/components/ui/AccountMenu";
 import { ImpersonationBanner } from "@/components/ui/ImpersonationBanner";
 import { Logo } from "@/components/ui/Logo";
-import { Tooltip } from "@/components/ui/Tooltip";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useCanRedo, useCanUndo } from "@/lib/doc/hooks/useUndoRedo";
 import { shortcutLabel } from "@/lib/platform";
@@ -98,30 +98,30 @@ export function BuilderHeader({
 							<>
 								<SaveIndicator />
 								<AppSettingsButton />
-								<Tooltip content={`Undo (${shortcutLabel("mod", "Z")})`}>
+								<SimpleTooltip content={`Undo (${shortcutLabel("mod", "Z")})`}>
 									<button
 										type="button"
 										onClick={undo}
 										disabled={!canUndo}
-										className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-40 disabled:cursor-default"
+										className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:not-disabled:hover:text-nova-text enabled:not-disabled:hover:bg-white/5 disabled:opacity-40 disabled:cursor-default"
 										aria-label="Undo"
 									>
 										<Icon icon={tablerArrowBackUp} width="18" height="18" />
 									</button>
-								</Tooltip>
-								<Tooltip
+								</SimpleTooltip>
+								<SimpleTooltip
 									content={`Redo (${shortcutLabel("mod", "shift", "Z")})`}
 								>
 									<button
 										type="button"
 										onClick={redo}
 										disabled={!canRedo}
-										className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:hover:text-nova-text enabled:hover:bg-white/5 disabled:opacity-40 disabled:cursor-default"
+										className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted transition-colors cursor-pointer enabled:not-disabled:hover:text-nova-text enabled:not-disabled:hover:bg-white/5 disabled:opacity-40 disabled:cursor-default"
 										aria-label="Redo"
 									>
 										<Icon icon={tablerArrowForwardUp} width="18" height="18" />
 									</button>
-								</Tooltip>
+								</SimpleTooltip>
 							</>
 						) : (
 							/* ml-[13px] mirrors the icon buttons' glyph inset so the

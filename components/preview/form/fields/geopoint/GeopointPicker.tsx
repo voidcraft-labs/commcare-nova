@@ -186,7 +186,7 @@ export function GeopointPicker({
 							type="button"
 							onClick={handleUseMyLocation}
 							disabled={locating}
-							className="absolute right-2 top-2 z-raised flex items-center gap-1.5 rounded-md border border-pv-input-border bg-pv-surface/90 px-2.5 py-1.5 text-xs font-medium text-nova-text shadow-sm backdrop-blur-sm transition-colors hover:border-pv-input-focus disabled:opacity-60"
+							className="absolute right-2 top-2 z-raised flex items-center gap-1.5 rounded-md border border-pv-input-border bg-pv-surface/90 px-2.5 py-1.5 text-xs font-medium text-nova-text shadow-sm backdrop-blur-sm transition-colors not-disabled:hover:border-pv-input-focus disabled:opacity-40"
 						>
 							<Icon
 								icon={tablerCurrentLocation}

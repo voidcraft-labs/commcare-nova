@@ -14,7 +14,7 @@ import {
 } from "@tanstack/react-table";
 import Image from "next/image";
 import { useState } from "react";
-import { Badge } from "@/components/ui/Badge";
+import { Badge } from "@/components/shadcn/badge";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import type { AdminUserRow } from "@/lib/admin/types";
 import { useExternalNavigate } from "@/lib/routing/hooks";
@@ -58,7 +58,9 @@ const columns: ColumnDef<AdminUserRow>[] = [
 		cell: ({ getValue }) => {
 			const role = getValue<"user" | "admin">();
 			return (
-				<Badge variant={role === "admin" ? "violet" : "muted"}>{role}</Badge>
+				<Badge variant={role === "admin" ? "violet" : "secondary"}>
+					{role}
+				</Badge>
 			);
 		},
 	},

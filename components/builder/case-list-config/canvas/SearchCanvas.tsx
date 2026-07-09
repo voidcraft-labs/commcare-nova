@@ -27,7 +27,7 @@ import {
 	ReorderableRow,
 	useReorderableList,
 } from "@/components/builder/shared/useReorderableList";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseSearchConfig, CaseType, SearchInputDef } from "@/lib/domain";
 import type { ValueExpression } from "@/lib/domain/predicate";
@@ -258,7 +258,7 @@ function InputRow({
 		>
 			{/* Grab rail — the row's full height, so the drag target is
 			 *  never smaller than the row itself. */}
-			<Tooltip content="Drag to reorder" placement="left">
+			<SimpleTooltip content="Drag to reorder" side="left">
 				<button
 					type="button"
 					ref={setHandleEl}
@@ -268,7 +268,7 @@ function InputRow({
 				>
 					<Icon icon={tablerGripVertical} width="14" height="14" />
 				</button>
-			</Tooltip>
+			</SimpleTooltip>
 			<div className="flex items-center gap-1.5 mb-1.5">
 				<span
 					className={`text-[13px] font-medium ${input.label ? "text-nova-text" : "italic text-nova-text-muted"}`}
@@ -276,7 +276,7 @@ function InputRow({
 					{input.label || "untitled field"}
 				</span>
 				{hasError && (
-					<Tooltip content="This field has a problem — open it to see what.">
+					<SimpleTooltip content="This field has a problem — open it to see what.">
 						<span
 							role="img"
 							className="inline-flex"
@@ -289,7 +289,7 @@ function InputRow({
 								className="text-nova-rose"
 							/>
 						</span>
-					</Tooltip>
+					</SimpleTooltip>
 				)}
 			</div>
 			<AppField input={input} defaultText={dflt} />

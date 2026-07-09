@@ -3,6 +3,7 @@
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import type * as React from "react";
 
+import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 import { cn } from "@/lib/utils";
 
 function Popover({ ...props }: PopoverPrimitive.Root.Props) {
@@ -30,18 +31,26 @@ function PopoverContent({
 		// co-planar with dialogs. A popover opened from inside a Dialog stacks on
 		// top because its portal mounts after the dialog's; a page-level popover is
 		// still covered when a dialog opens afterward, by the same portal ordering.
+		//
+		// Nova chrome: the frosted-glass surface (shared constant from
+		// `lib/styles.ts`) lives on the POSITIONER — `will-change: transform`
+		// there creates a compositing boundary that would break a descendant
+		// `backdrop-filter` — while the popup carries only the animation.
+		// `z-modal` re-overrides the constant's `z-popover` for the portal-order
+		// reasoning above.
 		<PopoverPrimitive.Portal>
 			<PopoverPrimitive.Positioner
 				align={align}
 				alignOffset={alignOffset}
 				side={side}
 				sideOffset={sideOffset}
-				className="isolate z-modal"
+				className={cn("isolate", POPOVER_POSITIONER_GLASS_CLS, "z-modal")}
 			>
 				<PopoverPrimitive.Popup
 					data-slot="popover-content"
 					className={cn(
-						"z-50 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-lg bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+						POPOVER_POPUP_CLS,
+						"flex w-72 flex-col gap-2.5 p-3 text-sm text-nova-text outline-hidden",
 						className,
 					)}
 					{...props}

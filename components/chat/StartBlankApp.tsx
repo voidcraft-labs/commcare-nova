@@ -17,8 +17,9 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerFilePlus from "@iconify-icons/tabler/file-plus";
-import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import { AnimatePresence, motion } from "motion/react";
+import { Button } from "@/components/shadcn/button";
+import { Spinner } from "@/components/shadcn/spinner";
 
 interface StartBlankAppProps {
 	/** The user has sent a message — the SA is taking over, so this collapses away. */
@@ -38,9 +39,9 @@ export function StartBlankApp({
 		<AnimatePresence>
 			{!agentEngaged && (
 				<motion.div
-					/* `-mt-6` cancels the column's `gap-6` and the inner `pt-6` restores
-					 * the spacing, so a fully collapsed box contributes exactly zero and
-					 * `height` can be the only animated dimension. It is measured at
+					/* `-mt-6` cancels the column's `gap-6` and the inner `pt-3` supplies
+					 * the real spacing, so a fully collapsed box contributes exactly zero
+					 * and `height` can be the only animated dimension. It is measured at
 					 * exit-start and driven to 0; `overflow-hidden` keeps the contents
 					 * from spilling as the box closes. */
 					className="-mt-6 pointer-events-auto w-full max-w-2xl shrink-0 overflow-hidden"
@@ -66,7 +67,9 @@ export function StartBlankApp({
 						delay: 0.4,
 					}}
 				>
-					<div className="flex flex-col items-center gap-3 pt-6">
+					{/* `pt-3` matches the column's `gap-3` so the "or" divider sits
+					 *  equidistant from the chat card above and the button below. */}
+					<div className="flex flex-col items-center gap-3 pt-3">
 						<div className="flex w-full items-center gap-3">
 							<span className="h-px flex-1 bg-nova-border" />
 							<span className="font-mono text-[10px] uppercase leading-none tracking-[0.18em] text-nova-text-muted">
@@ -82,20 +85,15 @@ export function StartBlankApp({
 						 *  Don't try to drive attributes off `agentEngaged` here either:
 						 *  `AnimatePresence` re-renders the LEAVING child with its last
 						 *  props, so anything keyed on it can't change during the exit. */}
-						<button
-							type="button"
+						<Button
+							variant="outline"
+							size="lg"
 							onClick={onCreate}
 							aria-busy={creating || undefined}
-							className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-nova-border bg-nova-surface px-4 py-2.5 text-sm font-medium text-nova-text transition-colors hover:border-nova-border-bright hover:bg-white/[0.06] focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
 						>
-							<Icon
-								icon={creating ? tablerLoader2 : tablerFilePlus}
-								width="16"
-								height="16"
-								className={creating ? "animate-spin" : undefined}
-							/>
+							{creating ? <Spinner /> : <Icon icon={tablerFilePlus} />}
 							{creating ? "Creating blank app…" : "Start with a blank app"}
-						</button>
+						</Button>
 
 						<p className="text-xs text-nova-text-muted">
 							Skip the chat and build it yourself.

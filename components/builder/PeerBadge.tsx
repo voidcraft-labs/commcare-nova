@@ -18,7 +18,7 @@
 "use client";
 
 import Image from "next/image";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { PeerColor } from "@/lib/collab/presence";
 import { usePeersAt } from "@/lib/collab/usePeersAt";
 import { getInitials } from "@/lib/utils";
@@ -49,7 +49,7 @@ export function PeerBadge({
 			aria-hidden
 		>
 			{peers.map((peer) => (
-				<Tooltip
+				<SimpleTooltip
 					key={peer.userId}
 					content={`${peer.name || "A collaborator"} is here`}
 				>
@@ -70,7 +70,7 @@ export function PeerBadge({
 							{getInitials(peer.name)}
 						</span>
 					)}
-				</Tooltip>
+				</SimpleTooltip>
 			))}
 		</span>
 	);

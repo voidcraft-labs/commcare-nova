@@ -12,7 +12,12 @@ export const POPOVER_GLASS =
  * `will-change: transform` on the Positioner creates a compositing boundary,
  * so `backdrop-filter` on a descendant would sample that empty layer instead
  * of the page behind it. This constraint applies to all floating elements
- * (menus, popovers, tooltips). */
+ * (menus, popovers, tooltips).
+ *
+ * These constants are the ONE definition of Nova's floating chrome: the
+ * shadcn wrappers (`components/shadcn/{dropdown-menu,select,popover}.tsx`)
+ * and the raw Base UI call sites both consume them, so the two layers cannot
+ * drift apart visually. */
 
 /** Base classes shared by every menu item (normal, disabled, submenu trigger). */
 export const MENU_ITEM_BASE =

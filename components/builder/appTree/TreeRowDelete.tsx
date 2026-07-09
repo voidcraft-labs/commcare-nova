@@ -15,7 +15,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
 import { useState } from "react";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useCanEdit } from "@/lib/session/hooks";
 
 export function TreeRowDelete({
@@ -72,7 +72,7 @@ export function TreeRowDelete({
 	}
 
 	return (
-		<Tooltip content={label}>
+		<SimpleTooltip content={label}>
 			<button
 				type="button"
 				aria-label={label}
@@ -84,6 +84,6 @@ export function TreeRowDelete({
 			>
 				<Icon icon={tablerTrash} width="15" height="15" />
 			</button>
-		</Tooltip>
+		</SimpleTooltip>
 	);
 }

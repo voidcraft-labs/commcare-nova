@@ -16,7 +16,7 @@ import tablerInfoCircle from "@iconify-icons/tabler/info-circle";
 import tablerShieldCheck from "@iconify-icons/tabler/shield-check";
 import { motion } from "motion/react";
 import { type ReactNode, useState } from "react";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/shadcn/button";
 import { authClient } from "@/lib/auth-client";
 import { deriveCapabilities } from "@/lib/oauth/capabilities";
 import { deriveOAuthClientDisclosure } from "@/lib/oauth/client-display";
@@ -349,7 +349,7 @@ export function ConsentForm({
 					<Button
 						type="button"
 						variant="secondary"
-						size="lg"
+						size="xl"
 						disabled={pending !== null}
 						onClick={() => submit(false)}
 						className="flex-1"
@@ -358,11 +358,10 @@ export function ConsentForm({
 					</Button>
 					<Button
 						type="button"
-						variant="primary"
-						size="lg"
+						size="xl"
 						disabled={pending !== null}
 						onClick={() => submit(true)}
-						className="flex-1"
+						className="flex-1 shadow-[var(--nova-glow-violet)]"
 					>
 						{pending === "accept" ? "Approving…" : "Allow"}
 					</Button>

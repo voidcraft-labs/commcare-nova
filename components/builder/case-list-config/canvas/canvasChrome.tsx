@@ -10,7 +10,7 @@ import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerColumns from "@iconify-icons/tabler/columns";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { Column } from "@/lib/domain";
 import type { CaseListPreviewState } from "../useCaseListPreview";
 
@@ -124,17 +124,17 @@ export function AddGhostButton({
 	readonly className?: string;
 }) {
 	return (
-		<Tooltip content={disabledReason}>
+		<SimpleTooltip content={disabledReason}>
 			<button
 				type="button"
 				onClick={onClick}
 				disabled={disabledReason !== undefined}
-				className={`inline-flex items-center justify-center gap-2 px-4 min-h-11 text-[13px] rounded-lg border border-dashed border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
+				className={`inline-flex items-center justify-center gap-2 px-4 min-h-11 text-[13px] rounded-lg border border-dashed border-nova-border-bright text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
 			>
 				<Icon icon={icon} width="14" height="14" />
 				<span>{label}</span>
 			</button>
-		</Tooltip>
+		</SimpleTooltip>
 	);
 }
 

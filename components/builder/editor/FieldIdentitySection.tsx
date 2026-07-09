@@ -35,7 +35,7 @@ import {
 	RejectionBody,
 } from "@/components/builder/RejectionNotice";
 import { tablerCopyPlus } from "@/components/icons/tablerExtras";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
@@ -354,11 +354,11 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 						}`}
 					>
 						{/* Icon adornment — violet-tinted badge flush with the input */}
-						<Tooltip content={typeLabel} placement="bottom">
+						<SimpleTooltip content={typeLabel} side="bottom">
 							<span className="flex items-center justify-center w-10 shrink-0 text-nova-violet-bright border-r border-white/[0.06] rounded-l-lg bg-nova-violet/10">
 								<Icon icon={typeIcon} width="16" height="16" />
 							</span>
-						</Tooltip>
+						</SimpleTooltip>
 						<input
 							ref={setIdInputRef}
 							value={idField.draft}
@@ -536,13 +536,13 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 											</Menu.Portal>
 										</Menu.SubmenuRoot>
 									) : (
-										<Tooltip content="This field type doesn't support conversion">
+										<SimpleTooltip content="This field type doesn't support conversion">
 											<MenuItem
 												icon={tablerArrowsExchange}
 												label="Convert Type"
 												disabled
 											/>
-										</Tooltip>
+										</SimpleTooltip>
 									)}
 
 									{/* Duplicate */}
