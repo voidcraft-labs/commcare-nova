@@ -6,10 +6,16 @@ node_modules
 .env*
 .playwright-mcp
 # The scripts directory holds inspect / dev / one-off tooling the image
-# doesn't need — exclude it to keep the build context small. The exception is
-# the bundled migrate entrypoint: the builder stage runs `npx esbuild` over it
-# to inline it into a self-contained `.cjs`, so that file (and its `lib/`
-# imports) must reach the build context. Keep this negation in lockstep with the
-# Dockerfile's esbuild step.
+# doesn't need — exclude it to keep the build context small. The exceptions are
+# the bundled entrypoints: the builder stage runs `npx esbuild` over each to
+# inline it into a self-contained `.cjs`, so those files (and their scripts-
+# local imports) must reach the build context. Keep these negations in
+# lockstep with the Dockerfile's esbuild steps. The cutover entries leave with
+# the cutover scripts' post-migration deletion commit.
 scripts
 !scripts/migrate.ts
+!scripts/migrate-firestore-to-pg.ts
+!scripts/lib/blueprintFold.ts
+!scripts/lib/firestoreRest.ts
+!scripts/lib/format.ts
+!scripts/lib/normalizeLegacyBlueprint.ts
