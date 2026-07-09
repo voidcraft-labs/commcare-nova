@@ -8,6 +8,12 @@
  * run (`npm run db:migrate`). `--apply` writes; the default is a dry run that
  * prints what it WOULD write.
  *
+ * Each blueprint passes through `lib/normalizeLegacyBlueprint.ts` before
+ * decomposition — the lossless legacy projection (vestigial v0 case-list
+ * keys, orphan module/form subtrees, mode-mismatched repeat slots, absent
+ * property labels) that today's lenient Firestore loader tolerated but the
+ * strict Postgres loader rejects. Touched apps are listed in the report.
+ *
  * Idempotency is by delete-then-insert / upsert, keyed on each table's natural
  * key, so a re-run converges (a full overwrite, not an append). Per app,
  * everything (the `apps` row, its `blueprint_entities`, `accepted_mutations`,
@@ -83,6 +89,10 @@ import {
 	stableStringify,
 } from "./lib/firestoreRest";
 import { printHeader, printSection, printTable } from "./lib/format";
+import {
+	normalizationSummary,
+	normalizeLegacyBlueprint,
+} from "./lib/normalizeLegacyBlueprint";
 
 // ── CLI ─────────────────────────────────────────────────────────────
 
@@ -183,6 +193,8 @@ interface MigrateContext {
 	/** appId → stable-stringified expected blueprint, for PG verification. */
 	expectedBlueprint: Map<string, string>;
 	migratedAppIds: string[];
+	/** One line per app the legacy normalization touched. */
+	normalized: string[];
 	/** Rows written (or that WOULD be written) per table. */
 	counts: Record<TableName, number>;
 	/** Undecodable / skipped docs per collection label. */
@@ -203,6 +215,7 @@ function newContext(): MigrateContext {
 		assetToApps: new Map(),
 		expectedBlueprint: new Map(),
 		migratedAppIds: [],
+		normalized: [],
 		counts,
 		skips: {},
 		appFailures: newSkip(),
@@ -480,9 +493,13 @@ async function migrateOneApp(
 		if (!blueprintRaw || typeof blueprintRaw !== "object") {
 			throw new Error("app document carries no blueprint");
 		}
-		const persistable = toPersistableDoc(
-			hydratePersistedBlueprint(blueprintRaw as PersistableDoc),
+		const { doc: persistable, report: normReport } = normalizeLegacyBlueprint(
+			toPersistableDoc(
+				hydratePersistedBlueprint(blueprintRaw as PersistableDoc),
+			),
 		);
+		const normSummary = normalizationSummary(normReport);
+		if (normSummary !== null) ctx.normalized.push(`${appId}: ${normSummary}`);
 		const entityRows = decomposeBlueprint(persistable);
 		const appRow = buildAppRow(appId, data, persistable);
 
@@ -1034,6 +1051,14 @@ function printSummary(ctx: MigrateContext): void {
 	if (ctx.appFailures.n > 0) {
 		console.log(`\n  App failures (not migrated): ${ctx.appFailures.n}`);
 		for (const s of ctx.appFailures.samples) console.log(`    • ${s}`);
+	}
+
+	printSection("Legacy normalization applied");
+	if (ctx.normalized.length === 0) {
+		console.log("  no app needed normalization");
+	} else {
+		console.log(`  ${ctx.normalized.length} app(s) normalized:`);
+		for (const line of ctx.normalized) console.log(`    • ${line}`);
 	}
 
 	printSection("Fold tripwire (accepted_mutations replay == entity snapshot)");

@@ -10,9 +10,11 @@
  *   1. How many documents live in each collection, and how many fail to decode
  *      (a value type the REST decoder doesn't understand) — with sample paths.
  *   2. Does every app's blueprint survive the entity-row projection? Each app's
- *      stored blueprint is hydrated, stripped to `PersistableDoc`, decomposed
- *      to entity rows, and reassembled; a byte-difference (stable-stringified)
- *      means the migration would not round-trip that app, so it's reported.
+ *      stored blueprint is hydrated, stripped to `PersistableDoc`, legacy-
+ *      normalized (`lib/normalizeLegacyBlueprint.ts` — the same lossless
+ *      projection the migrate applies), decomposed to entity rows, and
+ *      reassembled; a byte-difference (stable-stringified) means the migration
+ *      would not round-trip that app, so it's reported.
  *   3. Do the event + thread documents still parse against today's schemas
  *      (`eventSchema` / `threadDocSchema`)? A drifted row is counted + sampled.
  *
@@ -54,6 +56,10 @@ import {
 } from "./lib/firestoreRest";
 import { printHeader, printSection, printTable } from "./lib/format";
 import { runMain } from "./lib/main";
+import {
+	normalizationSummary,
+	normalizeLegacyBlueprint,
+} from "./lib/normalizeLegacyBlueprint";
 
 // ── CLI ─────────────────────────────────────────────────────────────
 
@@ -165,7 +171,7 @@ interface FoldStats {
 async function scanApps(
 	fs: FirestoreRest,
 	foldSample: number,
-): Promise<{ apps: CollectionStat; fold: FoldStats }> {
+): Promise<{ apps: CollectionStat; fold: FoldStats; normalized: string[] }> {
 	const stat = newStat("apps", "blueprint round-trip checked");
 	const fold: FoldStats = {
 		sampled: 0,
@@ -173,32 +179,41 @@ async function scanApps(
 		incomplete: 0,
 		errors: [],
 	};
+	const normalized: string[] = [];
 	for await (const doc of fs.scanRootCollection("apps")) {
 		stat.count++;
 		const data = decodeInto(stat, doc);
 		if (!data) continue;
 		const appId = docIdFromName(doc.name);
-		const expectedStable = checkBlueprintRoundTrip(stat, appId, data.blueprint);
+		const expectedStable = checkBlueprintRoundTrip(
+			stat,
+			appId,
+			data.blueprint,
+			normalized,
+		);
 		// Fold-validity sampling: replay the first `foldSample` apps'
 		// accepted_mutations from empty genesis (an extra subcollection read each).
 		if (expectedStable !== null && fold.sampled < foldSample) {
 			await foldCheckApp(fs, appId, expectedStable, fold);
 		}
 	}
-	return { apps: stat, fold };
+	return { apps: stat, fold, normalized };
 }
 
 /**
- * Hydrate → persistable → decompose → assemble and assert stable-equality with
- * the pre-assemble persistable. A mismatch (or a throw from the Zod
- * `assembleBlueprint` parse) is the migration-risk signal this scan exists to
- * surface. Returns the reassembled blueprint's stable string (the fold check's
- * expected snapshot) on a clean assembly, else `null`.
+ * Hydrate → persistable → legacy-normalize → decompose → assemble and assert
+ * stable-equality with the pre-assemble (normalized) persistable. A mismatch
+ * (or a throw from the Zod `assembleBlueprint` parse) is the migration-risk
+ * signal this scan exists to surface. Normalization actions (the migrate
+ * script applies the same ones) are collected into `normalized`, one line per
+ * touched app. Returns the reassembled blueprint's stable string (the fold
+ * check's expected snapshot) on a clean assembly, else `null`.
  */
 function checkBlueprintRoundTrip(
 	stat: CollectionStat,
 	appId: string,
 	blueprint: unknown,
+	normalized: string[],
 ): string | null {
 	if (!blueprint || typeof blueprint !== "object") {
 		stat.invalid++;
@@ -206,9 +221,11 @@ function checkBlueprintRoundTrip(
 		return null;
 	}
 	try {
-		const persistable = toPersistableDoc(
-			hydratePersistedBlueprint(blueprint as PersistableDoc),
+		const { doc: persistable, report } = normalizeLegacyBlueprint(
+			toPersistableDoc(hydratePersistedBlueprint(blueprint as PersistableDoc)),
 		);
+		const summary = normalizationSummary(report);
+		if (summary !== null) normalized.push(`${appId}: ${summary}`);
 		const before = stableStringify(persistable);
 		const reassembled = stableStringify(
 			assembleBlueprint(
@@ -348,7 +365,7 @@ async function main(): Promise<void> {
 
 	// Migrated collections.
 	const foldSample = opts.foldSample ?? 25;
-	const { apps, fold } = await scanApps(fs, foldSample);
+	const { apps, fold, normalized } = await scanApps(fs, foldSample);
 	const acceptedMutations = await scanValidated(
 		fs.scanCollectionGroup("acceptedMutations"),
 		newStat("acceptedMutations", "natural-key shape checked"),
@@ -415,6 +432,14 @@ async function main(): Promise<void> {
 			"  counts — the migrate enumerates subcollections per surviving app, so docs\n" +
 			"  orphaned under a hard-deleted app parent are counted here but not migrated.",
 	);
+
+	printSection("Legacy normalization (the migrate applies the same rules)");
+	if (normalized.length === 0) {
+		console.log("  no app needed normalization");
+	} else {
+		console.log(`  ${normalized.length} app(s) normalized:`);
+		for (const line of normalized) console.log(`    • ${line}`);
+	}
 
 	printSection(
 		"Fold tripwire (sampled) — accepted_mutations replay == entity snapshot",
