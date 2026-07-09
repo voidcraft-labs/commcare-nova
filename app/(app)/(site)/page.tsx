@@ -118,6 +118,7 @@ function GetStarted() {
 			</p>
 			<Button
 				render={<Link href="/build/new" />}
+				nativeButton={false}
 				size="xl"
 				className="shadow-[var(--nova-glow-violet)]"
 			>

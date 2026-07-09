@@ -86,6 +86,7 @@ export async function AppList({ projectId, userId }: AppListProps) {
 				<h1 className="text-2xl font-display font-semibold">Your Apps</h1>
 				<Button
 					render={<Link href="/build/new" />}
+					nativeButton={false}
 					size="lg"
 					className="shadow-[var(--nova-glow-violet)]"
 				>
