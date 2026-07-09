@@ -6,7 +6,7 @@
  * increments add to the stored counters in one UPSERT, and nothing ever resets
  * it — an admin credit reset/grant touches the parallel `credit_months` ledger,
  * never this one. Its sole gate consumer is the invisible
- * `ACTUAL_COST_BACKSTOP_USD` ($50) runaway guard, which reads the running
+ * `ACTUAL_COST_BACKSTOP_USD` runaway guard, which reads the running
  * `cost_estimate` via `getMonthlyUsage`. The user-facing quota is credits,
  * not dollars — see `./credits`.
  *
@@ -250,7 +250,7 @@ export class UsageAccumulator {
 	private toolCallCount = 0;
 	private _finalized = false;
 	/* Flipped by `markRunFailed` when the run broke the app. A failed run still
-	 * accrues its actual $ cost (the $50 backstop must see retry spam) but hands
+	 * accrues its actual $ cost (the actual-$ backstop must see retry spam) but hands
 	 * the reserved credits back — the user isn't charged for a broken result. */
 	private _runFailed = false;
 	/* Set true iff a credit refund was owed this run AND its (cross-document)
@@ -352,7 +352,7 @@ export class UsageAccumulator {
 	 *   zero-cost edit replays, so inspect tools have a row to display
 	 *   and multi-turn threads accumulate correctly.
 	 * - Monthly increment fires whenever there was real cost — failed runs
-	 *   included. The actual $ spend always accrues so the $50 backstop sees
+	 *   included. The actual $ spend always accrues so the actual-$ backstop sees
 	 *   retry spam from a user hammering a broken app. (Zero-cost runs skip it:
 	 *   `incrementUsage` would bump `request_count` without matching spend.)
 	 * - Credit refund fires when a reservation was booked AND the run did no
@@ -388,7 +388,7 @@ export class UsageAccumulator {
 		);
 
 		// Branch 1 — actual spend. Accrues whenever the SA ran (including a
-		// failed run, so the $50 backstop counts retry spam). Independent of the
+		// failed run, so the actual-$ backstop counts retry spam). Independent of the
 		// refund below.
 		if (summary.costEstimate > 0) {
 			try {
