@@ -53,7 +53,7 @@ Cost and quota live in **separate tables** so an admin intervention on one
 never disturbs the other:
 
 - `usage_months` (`UsageDoc`) — the ACTUAL dollar cost, **accumulate-only**.
-  Resets never touch it. Its sole gate consumer is the invisible `$50`
+  Resets never touch it. Its sole gate consumer is the invisible actual-$
   backstop (`ACTUAL_COST_BACKSTOP_USD`), read via `getMonthlyUsage`.
 - `credit_months` (`CreditMonthDoc`) — the **resettable** user-facing gate.
   Balance is derived, not stored: `allowance(2000) + bonus − consumed`.

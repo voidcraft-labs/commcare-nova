@@ -187,7 +187,7 @@ describe("UsageAccumulator", () => {
 	// A reservation booked at request start (didReserve) is handed back to the
 	// user when the run did no billable work: it either FAILED (broke the app)
 	// or produced zero cost. The two flush() branches are INDEPENDENT — a failed
-	// run with real cost both accrues the cost (so the $50 backstop sees retry
+	// run with real cost both accrues the cost (so the actual-$ backstop sees retry
 	// spam) AND refunds the reserved credits. These cases cover every branch of
 	// that guard, not just a representative one.
 	describe("credit refund branch", () => {
@@ -244,7 +244,7 @@ describe("UsageAccumulator", () => {
 			await acc.flush();
 
 			// The two branches are independent: the actual $ cost still accrues so
-			// the $50 backstop sees retry spam from a user hammering a broken app…
+			// the actual-$ backstop sees retry spam from a user hammering a broken app…
 			expect(await requestCount("u")).toBe(1);
 			// …while the user's credits are made whole because the app broke.
 			expect(refundReservationMock).toHaveBeenCalledTimes(1);
