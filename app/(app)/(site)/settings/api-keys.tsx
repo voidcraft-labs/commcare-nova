@@ -27,9 +27,8 @@
 "use client";
 
 import { Checkbox } from "@base-ui/react/checkbox";
-import { Dialog } from "@base-ui/react/dialog";
+import type { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Field } from "@base-ui/react/field";
-import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import tablerCircleCheck from "@iconify-icons/tabler/circle-check";
@@ -47,6 +46,19 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogTitle,
+} from "@/components/shadcn/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
+import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -60,11 +72,6 @@ import {
 } from "@/lib/auth-public";
 import type { ApiKeySummary } from "@/lib/db/api-keys";
 import { docsLink } from "@/lib/hostnames";
-import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
 import {
 	type ExpiryOption,
 	editApiKeyScopes,
@@ -540,7 +547,7 @@ function ScopeCheckboxGrid({
 						checked={selectedScopes.has(scope)}
 						disabled={locked}
 						onCheckedChange={() => onToggle(scope)}
-						className="group flex w-full cursor-pointer items-center gap-2 rounded-md border border-nova-border bg-transparent px-2.5 py-2 text-sm text-nova-text outline-none transition-colors not-data-[disabled]:hover:border-nova-violet/30 not-data-[disabled]:hover:bg-nova-violet/[0.05] data-[checked]:border-nova-violet/40 data-[checked]:bg-nova-violet/[0.10] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 focus-visible:border-nova-violet focus-visible:ring-1 focus-visible:ring-nova-violet/40"
+						className="group flex w-full cursor-pointer items-center gap-2 rounded-md border border-nova-border bg-transparent px-2.5 py-2 text-sm text-nova-text outline-none transition-colors not-data-[disabled]:hover:border-nova-violet/30 not-data-[disabled]:hover:bg-nova-violet/[0.05] data-[checked]:border-nova-violet/40 data-[checked]:bg-nova-violet/[0.10] data-[disabled]:cursor-not-allowed data-[disabled]:opacity-40 focus-visible:border-nova-violet focus-visible:ring-1 focus-visible:ring-nova-violet/40"
 					>
 						<span
 							aria-hidden
@@ -621,46 +628,34 @@ function RowActions({
 
 	/* idle / error: kebab menu with Edit / Revoke */
 	return (
-		<Menu.Root>
-			<Menu.Trigger
-				aria-label="Actions for this key"
-				className="w-9 h-9 flex items-center justify-center rounded-md transition-colors text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] cursor-pointer outline-none data-[popup-open]:bg-white/[0.06]"
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={
+					<Button
+						variant="ghost"
+						size="icon-lg"
+						aria-label="Actions for this key"
+						className="text-nova-text-muted"
+					/>
+				}
 			>
 				<Icon icon={tablerDotsVertical} width="18" height="18" />
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					className={MENU_POSITIONER_CLS}
-					sideOffset={4}
-					align="end"
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end" sideOffset={4} className="min-w-[180px]">
+				<DropdownMenuItem onClick={onEditScopes}>
+					<Icon icon={tablerPencil} className="text-nova-text-muted" />
+					Edit scopes
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
+				<DropdownMenuItem
+					variant="destructive"
+					onClick={() => onRequestConfirm(keyId)}
 				>
-					<Menu.Popup className={MENU_POPUP_CLS} style={{ minWidth: 180 }}>
-						<Menu.Item className={MENU_ITEM_CLS} onClick={onEditScopes}>
-							<Icon
-								icon={tablerPencil}
-								width="15"
-								height="15"
-								className="text-nova-text-muted"
-							/>
-							Edit scopes
-						</Menu.Item>
-						<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
-						<Menu.Item
-							className={`${MENU_ITEM_CLS} data-[highlighted]:bg-nova-rose/[0.08] data-[highlighted]:text-nova-rose`}
-							onClick={() => onRequestConfirm(keyId)}
-						>
-							<Icon
-								icon={tablerTrash}
-								width="15"
-								height="15"
-								className="text-nova-rose"
-							/>
-							Revoke
-						</Menu.Item>
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+					<Icon icon={tablerTrash} />
+					Revoke
+				</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 
@@ -686,12 +681,6 @@ function EmptyState() {
 }
 
 // ── Mint dialog ────────────────────────────────────────────────────
-
-const DIALOG_BACKDROP_CLS =
-	"fixed inset-0 z-modal bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0";
-
-const DIALOG_POPUP_CLS =
-	"fixed z-modal top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md rounded-xl bg-nova-deep border border-nova-border shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
 
 interface MintDialogProps {
 	open: boolean;
@@ -847,7 +836,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 	 * carry `reason: "none"` and pass through.
 	 */
 	const handleDialogOpenChange = useCallback(
-		(next: boolean, details: Dialog.Root.ChangeEventDetails) => {
+		(next: boolean, details: DialogPrimitive.Root.ChangeEventDetails) => {
 			const isDismissReason =
 				details.reason === "outside-press" ||
 				details.reason === "escape-key" ||
@@ -864,35 +853,32 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 	);
 
 	return (
-		<Dialog.Root open={open} onOpenChange={handleDialogOpenChange}>
-			<Dialog.Portal>
-				<Dialog.Backdrop className={DIALOG_BACKDROP_CLS} />
-				<Dialog.Popup className={DIALOG_POPUP_CLS}>
-					{phase === "form" ? (
-						<MintForm
-							name={name}
-							onNameChange={setName}
-							selectedScopes={selectedScopes}
-							onToggleScope={toggleScope}
-							expiry={expiry}
-							onExpiryChange={setExpiry}
-							submitting={submitting}
-							error={error}
-							onSubmit={handleSubmit}
-							onCancel={() => onOpenChange(false)}
-						/>
-					) : (
-						<RevealedKey
-							revealedKey={revealedKey ?? ""}
-							copied={copied}
-							error={error}
-							onCopy={handleCopy}
-							onAcknowledge={handleAcknowledge}
-						/>
-					)}
-				</Dialog.Popup>
-			</Dialog.Portal>
-		</Dialog.Root>
+		<Dialog open={open} onOpenChange={handleDialogOpenChange}>
+			<DialogContent showCloseButton={false} className="gap-0 p-0">
+				{phase === "form" ? (
+					<MintForm
+						name={name}
+						onNameChange={setName}
+						selectedScopes={selectedScopes}
+						onToggleScope={toggleScope}
+						expiry={expiry}
+						onExpiryChange={setExpiry}
+						submitting={submitting}
+						error={error}
+						onSubmit={handleSubmit}
+						onCancel={() => onOpenChange(false)}
+					/>
+				) : (
+					<RevealedKey
+						revealedKey={revealedKey ?? ""}
+						copied={copied}
+						error={error}
+						onCopy={handleCopy}
+						onAcknowledge={handleAcknowledge}
+					/>
+				)}
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -941,12 +927,10 @@ function MintForm({
 		>
 			<div className="flex items-start justify-between border-b border-nova-border/40 px-6 py-4">
 				<div>
-					<Dialog.Title className="text-base font-display font-semibold text-nova-text">
-						New API key
-					</Dialog.Title>
-					<Dialog.Description className="mt-0.5 text-xs text-nova-text-muted">
+					<DialogTitle className="font-display">New API key</DialogTitle>
+					<DialogDescription className="mt-0.5 text-xs text-nova-text-muted">
 						You'll see the full key once. Store it somewhere safe.
-					</Dialog.Description>
+					</DialogDescription>
 				</div>
 				<Button
 					type="button"
@@ -1045,7 +1029,7 @@ function MintForm({
 			 * row exists hashed in Firestore consuming a slot):
 			 *   - Button level (here): Escape / outside-press still
 			 *     work without these but the buttons themselves bypass
-			 *     `Dialog.Root.onOpenChange`, so the dialog-level guard
+			 *     the dialog's `onOpenChange`, so the dialog-level guard
 			 *     can't reach them.
 			 *   - Dialog level (`handleDialogOpenChange`): cancels
 			 *     dismiss reasons during reveal-phase AND during
@@ -1113,14 +1097,12 @@ function RevealedKey({
 						height="16"
 						className="text-nova-violet-bright"
 					/>
-					<Dialog.Title className="text-base font-display font-semibold text-nova-text">
-						Key created
-					</Dialog.Title>
+					<DialogTitle className="font-display">Key created</DialogTitle>
 				</div>
-				<Dialog.Description className="mt-1 text-xs text-nova-text-muted leading-relaxed">
+				<DialogDescription className="mt-1 text-xs text-nova-text-muted leading-relaxed">
 					Copy this key now. Nova won't keep the full value — close this and
 					it's gone.
-				</Dialog.Description>
+				</DialogDescription>
 			</div>
 
 			<div className="space-y-3 px-6 py-5">
@@ -1263,7 +1245,7 @@ function EditScopesDialog({
 	 * carry `reason: "none"` and pass through.
 	 */
 	const handleDialogOpenChange = useCallback(
-		(next: boolean, details: Dialog.Root.ChangeEventDetails) => {
+		(next: boolean, details: DialogPrimitive.Root.ChangeEventDetails) => {
 			const isDismissReason =
 				details.reason === "outside-press" ||
 				details.reason === "escape-key" ||
@@ -1280,80 +1262,75 @@ function EditScopesDialog({
 	if (!target) return null;
 
 	return (
-		<Dialog.Root open={!!target} onOpenChange={handleDialogOpenChange}>
-			<Dialog.Portal>
-				<Dialog.Backdrop className={DIALOG_BACKDROP_CLS} />
-				<Dialog.Popup className={DIALOG_POPUP_CLS}>
-					<div className="flex items-start justify-between border-b border-nova-border/40 px-6 py-4">
-						<div className="min-w-0">
-							<Dialog.Title className="text-base font-display font-semibold text-nova-text">
-								Edit scopes
-							</Dialog.Title>
-							<Dialog.Description className="mt-0.5 text-xs text-nova-text-muted truncate">
-								{target.name}
-							</Dialog.Description>
-						</div>
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-sm"
-							onClick={onCancel}
-							disabled={submitting}
-							aria-label="Close"
-						>
-							<Icon icon={tablerX} width="16" height="16" />
-						</Button>
+		<Dialog open={!!target} onOpenChange={handleDialogOpenChange}>
+			<DialogContent showCloseButton={false} className="gap-0 p-0">
+				<div className="flex items-start justify-between border-b border-nova-border/40 px-6 py-4">
+					<div className="min-w-0">
+						<DialogTitle className="font-display">Edit scopes</DialogTitle>
+						<DialogDescription className="mt-0.5 text-xs text-nova-text-muted truncate">
+							{target.name}
+						</DialogDescription>
 					</div>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						onClick={onCancel}
+						disabled={submitting}
+						aria-label="Close"
+					>
+						<Icon icon={tablerX} width="16" height="16" />
+					</Button>
+				</div>
 
-					<div className="space-y-3 px-6 py-5">
-						<ScopeCheckboxGrid
-							selectedScopes={selectedScopes}
-							onToggle={toggleScope}
-						/>
+				<div className="space-y-3 px-6 py-5">
+					<ScopeCheckboxGrid
+						selectedScopes={selectedScopes}
+						onToggle={toggleScope}
+					/>
 
-						<AnimatePresence>
-							{error && (
-								<motion.p
-									key="error"
-									initial={{ opacity: 0, y: -4 }}
-									animate={{ opacity: 1, y: 0 }}
-									exit={{ opacity: 0, y: -4 }}
-									transition={{ duration: 0.2 }}
-									className="text-xs leading-relaxed text-nova-rose"
-								>
-									{error}
-								</motion.p>
-							)}
-						</AnimatePresence>
-					</div>
+					<AnimatePresence>
+						{error && (
+							<motion.p
+								key="error"
+								initial={{ opacity: 0, y: -4 }}
+								animate={{ opacity: 1, y: 0 }}
+								exit={{ opacity: 0, y: -4 }}
+								transition={{ duration: 0.2 }}
+								className="text-xs leading-relaxed text-nova-rose"
+							>
+								{error}
+							</motion.p>
+						)}
+					</AnimatePresence>
+				</div>
 
-					<div className="flex items-center justify-end gap-2 border-t border-nova-border/40 bg-nova-surface/10 px-6 py-3.5">
-						<Button
-							type="button"
-							variant="ghost"
-							onClick={onCancel}
-							disabled={submitting}
-						>
-							Cancel
-						</Button>
-						<Button
-							type="button"
-							onClick={handleSave}
-							disabled={!dirty || submitting}
-						>
-							{submitting && (
-								<Icon
-									icon={tablerLoader2}
-									width="13"
-									height="13"
-									className="animate-spin"
-								/>
-							)}
-							{submitting ? "Saving…" : "Save scopes"}
-						</Button>
-					</div>
-				</Dialog.Popup>
-			</Dialog.Portal>
-		</Dialog.Root>
+				<div className="flex items-center justify-end gap-2 border-t border-nova-border/40 bg-nova-surface/10 px-6 py-3.5">
+					<Button
+						type="button"
+						variant="ghost"
+						onClick={onCancel}
+						disabled={submitting}
+					>
+						Cancel
+					</Button>
+					<Button
+						type="button"
+						onClick={handleSave}
+						disabled={!dirty || submitting}
+					>
+						{submitting && (
+							<Icon
+								icon={tablerLoader2}
+								width="13"
+								height="13"
+								className="animate-spin"
+							/>
+						)}
+						{submitting ? "Saving…" : "Save scopes"}
+					</Button>
+				</div>
+			</DialogContent>
+		</Dialog>
 	);
 }

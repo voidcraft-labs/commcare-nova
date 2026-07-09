@@ -22,7 +22,7 @@ import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerUpload from "@iconify-icons/tabler/upload";
 import Link from "next/link";
 import { useState } from "react";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -54,14 +54,14 @@ export function ExportDropdown({
 
 	return (
 		<Popover.Root open={open} onOpenChange={setOpen}>
-			<Tooltip content="Export">
+			<SimpleTooltip content="Export">
 				<Popover.Trigger
 					aria-label="Export"
 					className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-nova-text-muted hover:text-nova-text hover:bg-white/5 transition-colors cursor-pointer"
 				>
 					<Icon icon={tablerUpload} width={18} height={18} />
 				</Popover.Trigger>
-			</Tooltip>
+			</SimpleTooltip>
 
 			<Popover.Portal>
 				<Popover.Positioner

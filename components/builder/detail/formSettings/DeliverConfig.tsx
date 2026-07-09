@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
 import { DraftField } from "@/components/builder/detail/appSettings/ConnectEnableDialog";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
-import { Toggle } from "@/components/ui/Toggle";
+import { Switch } from "@/components/shadcn/switch";
 import { deriveConnectId } from "@/lib/commcare/connectSlugs";
 import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
 import {
@@ -248,10 +248,10 @@ export function DeliverConfig({
 					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 						Deliver Unit
 					</span>
-					<Toggle
-						enabled={deliverEnabled || stagedDeliver !== undefined}
-						onToggle={toggleDeliver}
-						variant="sub"
+					<Switch
+						checked={deliverEnabled || stagedDeliver !== undefined}
+						onCheckedChange={toggleDeliver}
+						size="sm"
 					/>
 				</div>
 				<AnimatePresence>
@@ -343,10 +343,10 @@ export function DeliverConfig({
 					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 						Task
 					</span>
-					<Toggle
-						enabled={taskEnabled || stagedTask !== undefined}
-						onToggle={toggleTask}
-						variant="sub"
+					<Switch
+						checked={taskEnabled || stagedTask !== undefined}
+						onCheckedChange={toggleTask}
+						size="sm"
 					/>
 				</div>
 				<AnimatePresence>

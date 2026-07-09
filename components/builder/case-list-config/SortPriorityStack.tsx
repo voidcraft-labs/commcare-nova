@@ -19,7 +19,7 @@ import {
 	ReorderableRow,
 	useReorderableList,
 } from "@/components/builder/shared/useReorderableList";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { Column, ColumnSort } from "@/lib/domain";
 import { resolveSortedColumns } from "./sortPriority";
 
@@ -159,9 +159,9 @@ function SortPriorityRowItem({
 			: column.header || column.field || "(unnamed)";
 	return (
 		<div className="relative flex items-center gap-2 min-h-11 pl-8 pr-1 rounded-lg border border-nova-violet/25 bg-nova-violet/[0.06]">
-			<Tooltip
+			<SimpleTooltip
 				content="Drag to reorder — the top one sorts first"
-				placement="left"
+				side="left"
 			>
 				<button
 					type="button"
@@ -171,7 +171,7 @@ function SortPriorityRowItem({
 				>
 					<Icon icon={tablerGripVertical} width="14" height="14" />
 				</button>
-			</Tooltip>
+			</SimpleTooltip>
 			<span className="font-mono text-[10px] text-nova-violet-bright shrink-0">
 				{position}
 			</span>
@@ -182,7 +182,7 @@ function SortPriorityRowItem({
 				<Icon icon={directionIcon} width="13" height="13" aria-hidden="true" />
 				{directionLabel}
 			</span>
-			<Tooltip content="Stop sorting by this column">
+			<SimpleTooltip content="Stop sorting by this column">
 				<button
 					type="button"
 					onClick={onRemove}
@@ -191,7 +191,7 @@ function SortPriorityRowItem({
 				>
 					<Icon icon={tablerX} width="14" height="14" />
 				</button>
-			</Tooltip>
+			</SimpleTooltip>
 		</div>
 	);
 }

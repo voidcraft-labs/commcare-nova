@@ -1,10 +1,9 @@
 "use client";
 
-import {
-	ChevronDownIcon,
-	ChevronLeftIcon,
-	ChevronRightIcon,
-} from "lucide-react";
+import { Icon } from "@iconify/react/offline";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
+import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import * as React from "react";
 import {
 	type DayButton,
@@ -130,7 +129,7 @@ function Calendar({
 					defaultClassNames.outside,
 				),
 				disabled: cn(
-					"text-muted-foreground opacity-50",
+					"text-muted-foreground opacity-40",
 					defaultClassNames.disabled,
 				),
 				hidden: cn("invisible", defaultClassNames.hidden),
@@ -147,24 +146,15 @@ function Calendar({
 						/>
 					);
 				},
-				Chevron: ({ className, orientation, ...props }) => {
-					if (orientation === "left") {
-						return (
-							<ChevronLeftIcon className={cn("size-4", className)} {...props} />
-						);
-					}
-
-					if (orientation === "right") {
-						return (
-							<ChevronRightIcon
-								className={cn("size-4", className)}
-								{...props}
-							/>
-						);
-					}
-
+				Chevron: ({ className, orientation, size: _size, ...props }) => {
+					const icon =
+						orientation === "left"
+							? tablerChevronLeft
+							: orientation === "right"
+								? tablerChevronRight
+								: tablerChevronDown;
 					return (
-						<ChevronDownIcon className={cn("size-4", className)} {...props} />
+						<Icon icon={icon} className={cn("size-4", className)} {...props} />
 					);
 				},
 				DayButton: ({ ...props }) => (

@@ -16,6 +16,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import Link from "next/link";
+import { Button } from "@/components/shadcn/button";
 import { roleIsOwner } from "@/lib/auth/projectRoles";
 import { listApps, listDeletedApps } from "@/lib/db/apps";
 import { listUserProjects, projectOwnerId } from "@/lib/projects/membership";
@@ -83,13 +84,14 @@ export async function AppList({ projectId, userId }: AppListProps) {
 		<>
 			<div className="flex items-center justify-between mb-8">
 				<h1 className="text-2xl font-display font-semibold">Your Apps</h1>
-				<Link
-					href="/build/new"
-					className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-nova-action text-white border border-transparent hover:bg-nova-action-hover shadow-[var(--nova-glow-violet)] transition-all duration-200"
+				<Button
+					render={<Link href="/build/new" />}
+					size="lg"
+					className="shadow-[var(--nova-glow-violet)]"
 				>
 					<Icon icon={tablerPlus} width="14" height="14" />
 					New App
-				</Link>
+				</Button>
 			</div>
 
 			<AppListBody

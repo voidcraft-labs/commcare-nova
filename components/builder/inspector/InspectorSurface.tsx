@@ -26,7 +26,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useInspectorContext } from "@/lib/ui/inspector";
 
 interface InspectorSurfaceProps {
@@ -80,7 +80,7 @@ export function InspectorSurface({
 						{title}
 					</div>
 				</div>
-				<Tooltip content="Close (Esc)" placement="left">
+				<SimpleTooltip content="Close (Esc)" side="left">
 					<button
 						type="button"
 						onClick={onClose}
@@ -89,7 +89,7 @@ export function InspectorSurface({
 					>
 						<Icon icon={tablerX} width="16" height="16" />
 					</button>
-				</Tooltip>
+				</SimpleTooltip>
 			</div>
 			{/* `@container` so editor bodies can adapt to the rail's width —
 			 *  the predicate/expression cards stack their operand grids in

@@ -49,7 +49,7 @@ export function ImpersonateButton({
 				onClick={handleImpersonate}
 				disabled={loading}
 				title={`View app as ${userName}`}
-				className="inline-flex items-center gap-1.5 rounded-lg border border-nova-border bg-nova-surface px-3 py-1.5 text-sm font-medium text-nova-text transition-all hover:border-nova-border-bright hover:bg-nova-elevated cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+				className="inline-flex items-center gap-1.5 rounded-lg border border-nova-border bg-nova-surface px-3 py-1.5 text-sm font-medium text-nova-text transition-all not-disabled:hover:border-nova-border-bright not-disabled:hover:bg-nova-elevated cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
 			>
 				<Icon icon={tablerSpy} width="16" height="16" />
 				{loading ? "Impersonating..." : "Impersonate"}

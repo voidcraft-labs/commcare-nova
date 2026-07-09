@@ -3,7 +3,7 @@ import tablerMail from "@iconify-icons/tabler/mail";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import Link from "next/link";
 import { Suspense } from "react";
-import { Skeleton } from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/shadcn/skeleton";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import { projectHasApps } from "@/lib/db/apps";
 import { listIncomingInvitations } from "@/lib/projects/membership";

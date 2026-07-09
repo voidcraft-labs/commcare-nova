@@ -1,8 +1,14 @@
 "use client";
-import { Dialog } from "@base-ui/react/dialog";
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { useMemo, useState } from "react";
+import { Button } from "@/components/shadcn/button";
+import {
+	Dialog,
+	DialogClose,
+	DialogContent,
+	DialogTitle,
+} from "@/components/shadcn/dialog";
 import { parseXPathForForm, printXPathInDoc } from "@/lib/doc/expressionText";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -49,14 +55,9 @@ import {
  *     A rejected commit keeps the drafts with the gate's findings inline.
  *   - "Turn off Connect" disables it entirely (the stash preserves the work).
  *
- * Mounts through `Dialog.Portal` so it escapes the app-settings popover's
+ * Mounts through a portal so it escapes the app-settings popover's
  * transformed positioner, the same pattern as `ConnectEnableDialog`.
  */
-
-const BACKDROP_CLS =
-	"fixed inset-0 z-modal bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0";
-const POPUP_CLS =
-	"fixed z-modal top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl bg-nova-deep border border-nova-border shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
 
 /** One form row the manager renders + drafts for. */
 interface FormRow {
@@ -193,19 +194,19 @@ export function ConnectManagerDialog({
 	// Stays mounted across open/close so Base UI plays BOTH transitions; the
 	// stateful body mounts only while open, so its drafts re-seed every open.
 	return (
-		<Dialog.Root
+		<Dialog
 			open={open}
 			onOpenChange={(next) => {
 				if (!next) onClose();
 			}}
 		>
-			<Dialog.Portal>
-				<Dialog.Backdrop className={BACKDROP_CLS} />
-				<Dialog.Popup className={POPUP_CLS}>
-					{open && <ManagerBody onClose={onClose} />}
-				</Dialog.Popup>
-			</Dialog.Portal>
-		</Dialog.Root>
+			<DialogContent
+				showCloseButton={false}
+				className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-lg"
+			>
+				{open && <ManagerBody onClose={onClose} />}
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -381,9 +382,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 		<>
 			<header className="flex items-center justify-between border-b border-nova-border px-5 py-3.5">
 				<div className="flex items-center gap-3">
-					<Dialog.Title className="font-display text-base font-semibold text-nova-text">
-						CommCare Connect
-					</Dialog.Title>
+					<DialogTitle className="font-display">CommCare Connect</DialogTitle>
 					{/* Mode selector — the active mode carries a dot. */}
 					<div
 						className="flex items-center gap-1 rounded-lg bg-white/[0.04] p-0.5"
@@ -421,12 +420,12 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 						})}
 					</div>
 				</div>
-				<Dialog.Close
-					className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+				<DialogClose
+					render={<Button variant="ghost" size="icon-sm" />}
 					aria-label="Close"
 				>
 					<Icon icon={tablerX} className="size-4" />
-				</Dialog.Close>
+				</DialogClose>
 			</header>
 
 			<div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
@@ -477,14 +476,14 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 					)}
 					<div className="flex items-center gap-3">
 						<span className="text-[11px] text-nova-text-muted">{hint}</span>
-						<button
+						<Button
 							type="button"
+							size="sm"
 							onClick={apply}
 							disabled={!canApply}
-							className="rounded-lg bg-nova-action px-3 py-1.5 text-xs font-medium text-white transition-colors enabled:cursor-pointer enabled:hover:brightness-110 disabled:opacity-40"
 						>
 							{primaryLabel}
-						</button>
+						</Button>
 					</div>
 				</div>
 			</div>

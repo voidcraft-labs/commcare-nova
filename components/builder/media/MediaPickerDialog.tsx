@@ -18,7 +18,6 @@
 "use client";
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
-import { Dialog } from "@base-ui/react/dialog";
 import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
@@ -26,6 +25,13 @@ import tablerEye from "@iconify-icons/tabler/eye";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/shadcn/button";
+import {
+	Dialog,
+	DialogClose,
+	DialogContent,
+	DialogTitle,
+} from "@/components/shadcn/dialog";
 import {
 	Tooltip,
 	TooltipContent,
@@ -60,11 +66,6 @@ import {
 	mediaSrc,
 } from "./mediaClient";
 import { useMediaLibrary, useMediaUpload } from "./useMedia";
-
-const BACKDROP_CLS =
-	"fixed inset-0 z-modal bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0";
-const POPUP_CLS =
-	"fixed z-modal top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl bg-nova-deep border border-nova-border shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
 
 type Tab = "upload" | "library" | "icons";
 /** Library browse filter: one allowed kind, or "all" of them. */
@@ -158,48 +159,48 @@ export function MediaPickerDialog({
 	// carrier to pick into, so library clicks preview and Upload just lands files.
 	const manage = onPick === undefined;
 	// The data hooks (`useMediaLibrary`) live in `PickerBody`, which is
-	// a child of `Dialog.Popup` — Base UI only mounts the Popup's
+	// a child of `DialogContent` — Base UI only mounts the popup's
 	// subtree while the dialog is open, so the library fetch fires when
 	// the user opens the picker, NOT eagerly on every slot's mount.
 	// (An always-mounted hook here would fire one library GET per slot
 	// before any click.) The thin shell stays mounted so the open/close
 	// transition still animates.
 	return (
-		<Dialog.Root open={open} onOpenChange={onOpenChange}>
-			<Dialog.Portal>
-				<Dialog.Backdrop className={BACKDROP_CLS} />
-				<Dialog.Popup className={POPUP_CLS}>
-					<PickerBody
-						manage={manage}
-						kinds={kinds}
-						appId={appId}
-						onPick={(asset) => {
-							// Never called in manage mode — library clicks preview there.
-							onPick?.(asset);
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent
+				showCloseButton={false}
+				className="flex max-h-[80vh] flex-col gap-0 p-0 sm:max-w-lg"
+			>
+				<PickerBody
+					manage={manage}
+					kinds={kinds}
+					appId={appId}
+					onPick={(asset) => {
+						// Never called in manage mode — library clicks preview there.
+						onPick?.(asset);
+						onOpenChange(false);
+					}}
+					onUploadStart={
+						onUploadStart &&
+						((file, kind) => {
+							// Hand the file off and close — the slot's staged chip
+							// takes over (progress + cancel); the picker has nothing
+							// left to show.
+							onUploadStart(file, kind);
 							onOpenChange(false);
-						}}
-						onUploadStart={
-							onUploadStart &&
-							((file, kind) => {
-								// Hand the file off and close — the slot's staged chip
-								// takes over (progress + cancel); the picker has nothing
-								// left to show.
-								onUploadStart(file, kind);
-								onOpenChange(false);
-							})
-						}
-						onAssetsLoaded={onAssetsLoaded}
-						attachedAssetIds={attachedAssetIds}
-						onAssetDeleted={onAssetDeleted}
-						iconLibrary={iconLibrary}
-					/>
-				</Dialog.Popup>
-			</Dialog.Portal>
-		</Dialog.Root>
+						})
+					}
+					onAssetsLoaded={onAssetsLoaded}
+					attachedAssetIds={attachedAssetIds}
+					onAssetDeleted={onAssetDeleted}
+					iconLibrary={iconLibrary}
+				/>
+			</DialogContent>
+		</Dialog>
 	);
 }
 
-/** Mounted only while the dialog is open (child of `Dialog.Popup`). Owns
+/** Mounted only while the dialog is open (child of `DialogContent`). Owns
  *  the library fetch + tab/filter state so none of it runs until open. */
 function PickerBody({
 	manage,
@@ -363,15 +364,13 @@ function PickerBody({
 	return (
 		<>
 			<header className="flex items-center justify-between border-b border-nova-border px-4 py-3">
-				<Dialog.Title className="text-base font-display font-semibold text-nova-text">
-					{title}
-				</Dialog.Title>
-				<Dialog.Close
-					className="rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+				<DialogTitle className="font-display">{title}</DialogTitle>
+				<DialogClose
+					render={<Button variant="ghost" size="icon-sm" />}
 					aria-label="Close"
 				>
 					<Icon icon={tablerX} className="size-4" />
-				</Dialog.Close>
+				</DialogClose>
 			</header>
 
 			<div
@@ -613,14 +612,14 @@ function UploadTab({
 				<p className="text-sm text-nova-text-muted">
 					Drag {nounPhrase} here, or
 				</p>
-				<button
+				<Button
 					type="button"
+					size="sm"
 					onClick={() => inputRef.current?.click()}
 					disabled={status.state === "uploading"}
-					className="rounded-md bg-nova-action px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright disabled:opacity-40"
 				>
 					{status.state === "uploading" ? "Uploading…" : "Browse files"}
-				</button>
+				</Button>
 				<input
 					ref={inputRef}
 					type="file"
@@ -864,14 +863,16 @@ function LibraryTab({
 				</ul>
 			)}
 			{hasMore && (
-				<button
+				<Button
 					type="button"
+					variant="outline"
+					size="xs"
+					className="self-center"
 					onClick={loadMore}
 					disabled={isLoading}
-					className="self-center rounded-md border border-nova-border px-3 py-1 text-xs text-nova-text-muted transition-colors hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:opacity-40"
 				>
 					{isLoading ? "Loading…" : "Load more"}
-				</button>
+				</Button>
 			)}
 		</div>
 	);
@@ -1058,7 +1059,7 @@ function MediaDeleteConfirmDialog({
 					<div className="mt-4 flex justify-end gap-2">
 						<AlertDialog.Close
 							disabled={deleting}
-							className="rounded-md border border-nova-border px-3 py-1.5 text-sm text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:opacity-40"
+							className="rounded-md border border-nova-border px-3 py-1.5 text-sm text-nova-text-muted transition-colors not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:opacity-40"
 						>
 							Cancel
 						</AlertDialog.Close>
@@ -1066,7 +1067,7 @@ function MediaDeleteConfirmDialog({
 							type="button"
 							onClick={onConfirm}
 							disabled={deleting}
-							className="rounded-md bg-nova-rose px-3 py-1.5 text-sm font-medium text-nova-void transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-rose disabled:opacity-40"
+							className="rounded-md bg-nova-rose px-3 py-1.5 text-sm font-medium text-nova-void transition-opacity not-disabled:hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-rose disabled:opacity-40"
 						>
 							{deleting ? "Deleting…" : "Delete"}
 						</button>

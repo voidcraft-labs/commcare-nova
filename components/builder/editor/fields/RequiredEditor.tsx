@@ -23,7 +23,7 @@ import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton
 import { useFormLintContext } from "@/components/builder/editor/fields/useFormLintContext";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
-import { Toggle } from "@/components/ui/Toggle";
+import { Switch } from "@/components/shadcn/switch";
 import {
 	useParseXPathForField,
 	useXPathText,
@@ -90,6 +90,16 @@ export function RequiredEditor<F extends Field>({
 	const shouldFocusToggle = autoFocus || focusHint === "required";
 	const shouldOpenCondition = focusHint === "required_condition";
 
+	// Focuses the switch on mount when requested (undo/redo focus hints or
+	// editor-level autoFocus). A ref callback instead of the HTML autoFocus
+	// attribute satisfies the a11y lint rule (noAutofocus).
+	const focusRef = useCallback(
+		(el: HTMLButtonElement | null) => {
+			if (el && shouldFocusToggle) el.focus({ preventScroll: true });
+		},
+		[shouldFocusToggle],
+	);
+
 	// ── Save helpers ──────────────────────────────────────────────────
 	// Each transition resets local flags explicitly because the editor
 	// may unmount in the same React batch, bypassing any internal
@@ -143,19 +153,18 @@ export function RequiredEditor<F extends Field>({
 	return (
 		<div data-field-id="required">
 			{/* ToggleRow-shaped frame so the field inspector's Required reads as
-			    the same control the case-list inspector's toggles do. Span, not
-			    label — Toggle is a custom control (div+button), not a native
-			    input, so <label for="..."> would mislead AT. */}
+			    the same control the case-list inspector's toggles do. */}
 			<div className="flex items-center gap-3 w-full min-h-11 px-3 py-2 rounded-lg border border-white/[0.04] bg-nova-deep/30">
 				<span className="flex-1 min-w-0 flex items-center gap-1.5 text-[13px] text-nova-text">
 					{label}
 					{editing && <SaveShortcutHint />}
 				</span>
-				<Toggle
-					enabled={enabled}
-					onToggle={enabled ? handleToggleOff : handleToggleOn}
-					autoFocus={shouldFocusToggle}
-					dataFieldId="required"
+				<Switch
+					ref={focusRef}
+					checked={enabled}
+					onCheckedChange={enabled ? handleToggleOff : handleToggleOn}
+					data-field-id="required"
+					aria-label={label}
 				/>
 			</div>
 			<AnimatePresence initial={false}>

@@ -290,7 +290,7 @@ export function ChatInput({
 										onClick={() => setPickerOpen(true)}
 										disabled={disabled || answerPending}
 										aria-label="Attach a file"
-										className="flex size-11 cursor-pointer items-center justify-center rounded-lg text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:cursor-default disabled:opacity-40"
+										className="flex size-11 cursor-pointer items-center justify-center rounded-lg text-nova-text-muted transition-colors not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:cursor-default disabled:opacity-40"
 									>
 										<Icon icon={tablerPaperclip} className="size-4" />
 									</button>

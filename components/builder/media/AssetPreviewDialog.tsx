@@ -18,11 +18,17 @@
 
 "use client";
 
-import { Dialog } from "@base-ui/react/dialog";
 import { Icon } from "@iconify/react/offline";
 import tablerDownload from "@iconify-icons/tabler/download";
 import tablerX from "@iconify-icons/tabler/x";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/shadcn/button";
+import {
+	Dialog,
+	DialogClose,
+	DialogContent,
+	DialogTitle,
+} from "@/components/shadcn/dialog";
 import {
 	Tabs,
 	TabsContent,
@@ -63,11 +69,6 @@ export interface AssetPreviewTarget {
 	summary?: string;
 }
 
-const BACKDROP_CLS =
-	"fixed inset-0 z-modal bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0";
-const POPUP_CLS =
-	"fixed z-modal top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl bg-nova-deep border border-nova-border shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
-
 export interface AssetPreviewDialogProps {
 	/** The asset to preview; `null` closes the dialog. */
 	target: AssetPreviewTarget | null;
@@ -79,18 +80,18 @@ export function AssetPreviewDialog({
 	onOpenChange,
 }: AssetPreviewDialogProps) {
 	return (
-		<Dialog.Root open={target !== null} onOpenChange={onOpenChange}>
-			<Dialog.Portal>
-				<Dialog.Backdrop className={BACKDROP_CLS} />
-				<Dialog.Popup className={POPUP_CLS}>
-					{target && <PreviewBody target={target} />}
-				</Dialog.Popup>
-			</Dialog.Portal>
-		</Dialog.Root>
+		<Dialog open={target !== null} onOpenChange={onOpenChange}>
+			<DialogContent
+				showCloseButton={false}
+				className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-3xl"
+			>
+				{target && <PreviewBody target={target} />}
+			</DialogContent>
+		</Dialog>
 	);
 }
 
-/** Mounted only while open (child of `Dialog.Popup`), so the extract fetch fires
+/** Mounted only while open (child of `DialogContent`), so the extract fetch fires
  *  on open, not on every chip mount. */
 function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 	const name = target.filename;
@@ -125,13 +126,13 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 					 *  drops to a small subline aligned under it. Without an extracted
 					 *  title (media, or a not-yet-extracted doc) the filename IS the
 					 *  title, and the subline is omitted so nothing repeats. */}
-					<Dialog.Title className="flex min-w-0 items-center gap-2 text-base font-display font-semibold text-nova-text">
+					<DialogTitle className="flex min-w-0 items-center gap-2 font-display">
 						<Icon
 							icon={ASSET_KIND_META[target.kind].icon}
 							className="size-4 shrink-0 text-nova-text-muted"
 						/>
 						<span className="truncate">{title ?? name}</span>
-					</Dialog.Title>
+					</DialogTitle>
 					{title && (
 						<Tooltip>
 							<TooltipTrigger
@@ -145,12 +146,18 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 						</Tooltip>
 					)}
 				</div>
-				<Dialog.Close
-					className="shrink-0 rounded-md p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+				<DialogClose
+					render={
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							className="shrink-0 text-nova-text-muted"
+						/>
+					}
 					aria-label="Close"
 				>
 					<Icon icon={tablerX} className="size-4" />
-				</Dialog.Close>
+				</DialogClose>
 			</header>
 
 			{/* The summary gets its own zone below the header — document-level

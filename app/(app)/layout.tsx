@@ -22,8 +22,8 @@
  */
 import { ErrorReporter } from "@/components/ErrorReporter";
 import { SentryUser } from "@/components/SentryUser";
+import { TooltipProvider } from "@/components/shadcn/tooltip";
 import { ToastContainer } from "@/components/ui/ToastContainer";
-import { TooltipProvider } from "@/components/ui/TooltipProvider";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
 	return (
