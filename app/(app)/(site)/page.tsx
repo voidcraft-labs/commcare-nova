@@ -3,6 +3,7 @@ import tablerMail from "@iconify-icons/tabler/mail";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import Link from "next/link";
 import { Suspense } from "react";
+import { Button } from "@/components/shadcn/button";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import { projectHasApps } from "@/lib/db/apps";
@@ -115,13 +116,14 @@ function GetStarted() {
 			<p className="text-nova-text-muted mb-8 max-w-md">
 				Describe what you need and Nova will generate a CommCare app for you.
 			</p>
-			<Link
-				href="/build/new"
-				className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-lg bg-nova-action text-white hover:bg-nova-action-hover shadow-[var(--nova-glow-violet)] transition-all duration-200"
+			<Button
+				render={<Link href="/build/new" />}
+				size="xl"
+				className="shadow-[var(--nova-glow-violet)]"
 			>
 				<Icon icon={tablerSparkles} width="16" height="16" />
 				Get Started
-			</Link>
+			</Button>
 		</div>
 	);
 }

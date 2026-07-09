@@ -17,7 +17,6 @@
 
 "use client";
 
-import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
@@ -25,6 +24,16 @@ import tablerEye from "@iconify-icons/tabler/eye";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/shadcn/alert-dialog";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
@@ -1000,12 +1009,10 @@ function IconLibraryTab({
 }
 
 /**
- * Confirm-before-delete dialog for a library asset. Built on Base UI's
- * alert-dialog rather than the shadcn `AlertDialog` because that component is
- * pinned to the z-popover tier and would render BEHIND this z-modal picker; this
- * matches the picker + preview dialogs in the same file (z-modal, nova-themed,
- * stacking over the picker by portal order). Alert semantics — no outside-press
- * dismissal, Cancel / Delete only — which is right for a destructive action.
+ * Confirm-before-delete dialog for a library asset. Stacks over the z-modal
+ * picker by portal order (its portal mounts later, on the same z plane).
+ * Alert semantics — no outside-press dismissal, Cancel / Delete only — which
+ * is right for a destructive action.
  */
 function MediaDeleteConfirmDialog({
 	target,
@@ -1027,54 +1034,51 @@ function MediaDeleteConfirmDialog({
 }) {
 	const name = target ? (target.displayName ?? target.originalFilename) : "";
 	return (
-		<AlertDialog.Root
+		<AlertDialog
 			open={target !== null}
 			onOpenChange={(open) => {
 				// Ignore close attempts (e.g. Escape) while the delete is in flight.
 				if (!open && !deleting) onCancel();
 			}}
 		>
-			<AlertDialog.Portal>
-				<AlertDialog.Backdrop className="fixed inset-0 z-modal bg-black/60 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
-				<AlertDialog.Popup className="fixed top-1/2 left-1/2 z-modal w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-nova-border bg-nova-deep p-5 shadow-xl outline-none transition-[transform,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
-					<AlertDialog.Title className="font-display text-base font-semibold text-nova-text">
+			<AlertDialogContent className="text-left">
+				<AlertDialogHeader>
+					<AlertDialogTitle className="font-display">
 						Delete file?
-					</AlertDialog.Title>
-					<AlertDialog.Description className="mt-1.5 text-sm text-nova-text-muted">
+					</AlertDialogTitle>
+					<AlertDialogDescription>
 						<span className="font-medium text-nova-text-secondary">{name}</span>{" "}
 						will be removed from your library. This can't be undone.
-					</AlertDialog.Description>
-					{attached && (
-						<p className="mt-2 flex items-start gap-2 rounded-md border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-left text-xs leading-relaxed text-nova-text-secondary">
-							<Icon
-								icon={tablerAlertTriangle}
-								className="mt-0.5 size-3.5 shrink-0 text-nova-amber"
-							/>
-							<span>
-								It's attached to your current message — deleting it will also
-								remove it from the chat.
-							</span>
-						</p>
-					)}
-					<div className="mt-4 flex justify-end gap-2">
-						<AlertDialog.Close
-							disabled={deleting}
-							className="rounded-md border border-nova-border px-3 py-1.5 text-sm text-nova-text-muted transition-colors not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright disabled:opacity-40"
-						>
-							Cancel
-						</AlertDialog.Close>
-						<button
-							type="button"
-							onClick={onConfirm}
-							disabled={deleting}
-							className="rounded-md bg-nova-rose px-3 py-1.5 text-sm font-medium text-nova-void transition-opacity not-disabled:hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-rose disabled:opacity-40"
-						>
-							{deleting ? "Deleting…" : "Delete"}
-						</button>
-					</div>
-				</AlertDialog.Popup>
-			</AlertDialog.Portal>
-		</AlertDialog.Root>
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				{attached && (
+					<p className="flex items-start gap-2 rounded-md border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-left text-xs leading-relaxed text-nova-text-secondary">
+						<Icon
+							icon={tablerAlertTriangle}
+							className="mt-0.5 size-3.5 shrink-0 text-nova-amber"
+						/>
+						<span>
+							It's attached to your current message — deleting it will also
+							remove it from the chat.
+						</span>
+					</p>
+				)}
+				<AlertDialogFooter>
+					<AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+					{/* Solid rose with dark text (light accents carry dark text) —
+					 * the confirm side of a destructive alert is the one place the
+					 * fill is full-strength rather than the tinted `destructive`
+					 * button variant. */}
+					<AlertDialogAction
+						onClick={onConfirm}
+						disabled={deleting}
+						className="bg-nova-rose text-nova-void not-disabled:hover:bg-[color-mix(in_oklab,var(--nova-rose),black_14%)] focus-visible:ring-nova-rose/40"
+					>
+						{deleting ? "Deleting…" : "Delete"}
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
 	);
 }
 
