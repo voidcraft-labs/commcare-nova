@@ -124,7 +124,16 @@ async function readPresence(appId: string, userId: string, sessionId: string) {
 
 beforeEach(async () => {
 	await runCaseStoreMigrations(dbHandle.db);
-	appPool = new Pool({ connectionString: dbHandle.uri, max: 4 });
+	/* The same bounded-pool shape as the stream relay suite: `Pool.end()` (via
+	 * `appDb.destroy()` in `afterEach`) waits with no deadline of its own on a
+	 * mid-connect or checked-out client, so on a starved engine an unbounded
+	 * straggler holds the hook past its 30 s timeout. */
+	appPool = new Pool({
+		connectionString: dbHandle.uri,
+		max: 4,
+		connectionTimeoutMillis: 10_000,
+		query_timeout: 10_000,
+	});
 	appPool.on("error", () => {});
 	appDb = new Kysely<AppDatabase>({
 		dialect: new PostgresDialect({ pool: appPool as unknown as PostgresPool }),
