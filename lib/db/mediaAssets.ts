@@ -225,7 +225,7 @@ export async function confirmAssetReady(args: {
 	durationMs?: number;
 }): Promise<void> {
 	const db = await getAppDb();
-	await db
+	const result = await db
 		.updateTable("media_assets")
 		.set({
 			status: "ready",
@@ -244,7 +244,16 @@ export async function confirmAssetReady(args: {
 			...(args.durationMs !== undefined && { duration_ms: args.durationMs }),
 		})
 		.where("id", "=", args.assetId)
-		.execute();
+		.executeTakeFirst();
+	/* The row can vanish between the confirm's byte validation and this flip
+	 * (a co-member's library delete, a retried confirm) — a 0-row update must
+	 * FAIL the confirm request at the race, not report a ready asset whose
+	 * dangling reference then rejects far away at the commit gate or export. */
+	if (Number(result.numUpdatedRows) === 0) {
+		throw new Error(
+			`[confirmAssetReady] asset row missing for assetId=${args.assetId} — it was deleted while the upload was being confirmed.`,
+		);
+	}
 }
 
 /**
@@ -326,13 +335,21 @@ export async function setAssetExtractStatus(
 	extract: Omit<MediaAssetExtract, "extractedAt">,
 ): Promise<void> {
 	const db = await getAppDb();
-	await db
+	const result = await db
 		.updateTable("media_assets")
 		.set({
 			extract: JSON.stringify({ ...extract, extractedAt: Date.now() }),
 		})
 		.where("id", "=", assetId)
-		.execute();
+		.executeTakeFirst();
+	/* A deleted-mid-extraction asset must surface here (the extraction store
+	 * treats a thrown status write as the job failing), not read as a recorded
+	 * status on a row that no longer exists. */
+	if (Number(result.numUpdatedRows) === 0) {
+		throw new Error(
+			`[setAssetExtractStatus] asset row missing for assetId=${assetId} — it was deleted while its document was being extracted.`,
+		);
+	}
 }
 
 /**

@@ -24,7 +24,8 @@ import { describe, expect, it } from "vitest";
  *   - `lib/db/runLiveness.ts` in full (the ONE decision reader — it consumes the
  *     derived-view fields to compute the booleans everyone else branches on);
  *   - the row→view mapping helpers `leaseView` / `rowReservation` / `rowRunLock`
- *     (`lib/db/apps.ts` and `lib/db/credits.ts`), the ONLY sites that member-read
+ *     (`lib/db/leaseView.ts`, shared by `apps.ts` + `credits.ts`), the ONLY
+ *     sites that member-read
  *     the raw COLUMNS — to reassemble the nullable column groups into the
  *     `AppReservation` / `AppRunLock` shapes `runLeaseState` reads. Their bodies
  *     are stripped before the scan so the columns they legitimately read don't

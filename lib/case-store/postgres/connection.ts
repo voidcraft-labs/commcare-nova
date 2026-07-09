@@ -81,6 +81,16 @@ export const CLOUD_RUN_MAX_INSTANCES = 5;
 /**
  * Per-Cloud-Run-instance `pg.Pool` `max`. For the current shape, including the
  * dedicated relay LISTEN connection: `5 * (3 + 1) = 20 = 25 - 5`. Fits exactly.
+ *
+ * Capacity note: these 3 pooled connections now carry the WHOLE app-state
+ * workload (apps/blueprint/credits/events/threads/media reads and writes, the
+ * relay's per-poke SELECTs, presence heartbeats + sweeps) alongside the
+ * case-store, preview, and auth traffic they always carried. Under many
+ * concurrent open streams the pool can saturate; `POOL_CONNECTION_TIMEOUT_MS`
+ * then fails queries fast rather than queueing to the request ceiling. The
+ * headroom lever is the Cloud SQL side — raise the instance's
+ * `max_connections` flag (and `CLOUD_SQL_MAX_CONNECTIONS` here) or tier up —
+ * BEFORE raising `CLOUD_RUN_MAX_INSTANCES` or the pool size.
  */
 export const POOL_MAX_PER_INSTANCE = 3;
 

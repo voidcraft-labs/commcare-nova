@@ -68,6 +68,12 @@ import {
 	refundStaleGeneration,
 	refundStaleReservation,
 } from "./credits";
+import {
+	LEASE_COLUMNS,
+	leaseView,
+	rowReservation,
+	rowRunLock,
+} from "./leaseView";
 import { addReferencingApp, getAssetsInTransaction } from "./mediaAssets";
 import { getCurrentPeriod } from "./period";
 import {
@@ -78,12 +84,7 @@ import {
 	withAppTx,
 } from "./pg";
 import { editLeaseDeadlineMs, runLeaseState } from "./runLiveness";
-import type {
-	AcceptedMutationDoc,
-	AppDoc,
-	AppReservation,
-	AppRunLock,
-} from "./types";
+import type { AcceptedMutationDoc, AppDoc } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -183,68 +184,6 @@ export const UNTITLED_APP_NAME = "Untitled";
 type AppRow = Selectable<AppsTable>;
 
 // ── Row projections ────────────────────────────────────────────────
-
-/** The nullable column groups reassembled as the optional objects the
- *  liveness reader consumes. */
-function rowReservation(row: {
-	res_period: string | null;
-	res_reserved: number | null;
-	res_settled: boolean | null;
-	res_user_id: string | null;
-	res_run_id: string | null;
-}): AppReservation | undefined {
-	if (row.res_period === null) return undefined;
-	return {
-		period: row.res_period,
-		reserved: row.res_reserved ?? 0,
-		settled: !!row.res_settled,
-		...(row.res_user_id !== null && { userId: row.res_user_id }),
-		...(row.res_run_id !== null && { runId: row.res_run_id }),
-	};
-}
-
-function rowRunLock(row: {
-	lock_run_id: string | null;
-	lock_actor_user_id: string | null;
-	lock_expire_at: Date | null;
-}): AppRunLock | undefined {
-	if (row.lock_run_id === null) return undefined;
-	return {
-		runId: row.lock_run_id,
-		actorUserId: row.lock_actor_user_id ?? "",
-		expireAt: row.lock_expire_at ?? new Date(0),
-	};
-}
-
-/** The run-liveness slice `runLeaseState` reads, off a raw row. */
-function leaseView(
-	row: Pick<
-		AppRow,
-		| "status"
-		| "awaiting_input"
-		| "updated_at"
-		| "owner"
-		| "run_id"
-		| "res_period"
-		| "res_reserved"
-		| "res_settled"
-		| "res_user_id"
-		| "res_run_id"
-		| "lock_run_id"
-		| "lock_actor_user_id"
-		| "lock_expire_at"
-	>,
-): Partial<AppDoc> {
-	return {
-		status: row.status as AppDoc["status"],
-		awaiting_input: row.awaiting_input,
-		updated_at: row.updated_at,
-		owner: row.owner,
-		run_id: row.run_id,
-		reservation: rowReservation(row),
-		run_lock: rowRunLock(row),
-	};
-}
 
 /** Assemble the full `AppDoc` from a row + its entity rows. */
 function rowToAppDoc(row: AppRow, entities: EntityRow[]): AppDoc {
@@ -388,22 +327,7 @@ async function scanActiveGeneration(
 ): Promise<{ live: boolean; reapable: string[] }> {
 	let query = db
 		.selectFrom("apps")
-		.select([
-			"id",
-			"owner",
-			"status",
-			"awaiting_input",
-			"updated_at",
-			"run_id",
-			"res_period",
-			"res_reserved",
-			"res_settled",
-			"res_user_id",
-			"res_run_id",
-			"lock_run_id",
-			"lock_actor_user_id",
-			"lock_expire_at",
-		])
+		.select(["id", ...LEASE_COLUMNS])
 		.where("deleted_at", "is", null)
 		.where("status", "=", "generating")
 		.where((eb) =>
@@ -1379,21 +1303,7 @@ export async function editRunLockHeldBy(
 	const db = await getAppDb();
 	const row = await db
 		.selectFrom("apps")
-		.select([
-			"status",
-			"awaiting_input",
-			"updated_at",
-			"owner",
-			"run_id",
-			"res_period",
-			"res_reserved",
-			"res_settled",
-			"res_user_id",
-			"res_run_id",
-			"lock_run_id",
-			"lock_actor_user_id",
-			"lock_expire_at",
-		])
+		.select(LEASE_COLUMNS)
 		.where("id", "=", appId)
 		.executeTakeFirst();
 	if (!row) return false;
@@ -1527,25 +1437,10 @@ export async function reapStaleReservation(appId: string): Promise<void> {
 		const db = await getAppDb();
 		const row = await db
 			.selectFrom("apps")
-			.select([
-				"status",
-				"awaiting_input",
-				"updated_at",
-				"owner",
-				"run_id",
-				"res_period",
-				"res_reserved",
-				"res_settled",
-				"res_user_id",
-				"res_run_id",
-				"lock_run_id",
-				"lock_actor_user_id",
-				"lock_expire_at",
-			])
+			.select(LEASE_COLUMNS)
 			.where("id", "=", appId)
 			.executeTakeFirst();
-		if (!row || !runLeaseState(leaseView(row as AppRow)).reapableStrandedEdit)
-			return;
+		if (!row || !runLeaseState(leaseView(row)).reapableStrandedEdit) return;
 		await refundStaleReservation(appId);
 	} catch (err) {
 		log.error("[reapStaleReservation] reservation refund failed", err, {

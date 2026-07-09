@@ -10,7 +10,7 @@
 //   - the eager upload-time route (`POST /api/media/[assetId]/extract`), fired
 //     by the file-manager extraction badge, and
 //   - the chat resolve step's lazy backstop (`resolveAttachments`).
-// The route had the real single-flight (claim `extracting` in Firestore, 202 a
+// The route had the real single-flight (claim `extracting` on the asset row, 202 a
 // job already in flight); the backstop had a dumber copy that read the GCS
 // object directly and, on a miss, just ran its OWN extraction — never consulting
 // the `extracting` status, so it couldn't see the eager job and double-billed
@@ -18,7 +18,7 @@
 // `ensureStoredExtract`, so there is no second path that can bypass the lock.
 //
 // `extractDocument` (in `documentExtraction.ts`) stays the pure bytes→text core;
-// THIS module is the impure half — Firestore status + GCS object + the
+// THIS module is the impure half — the asset row's extract status + GCS object + the
 // single-flight policy — composed over it.
 
 import {

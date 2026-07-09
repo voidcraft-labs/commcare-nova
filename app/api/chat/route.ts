@@ -116,7 +116,7 @@ export async function POST(req: Request) {
 
 	// Messages come from the AI SDK's useChat. The route owns the SECURITY gate on
 	// them: the untrusted attachment metadata is re-resolved every turn (each ref
-	// → a Firestore load + a GCS/extract read) and persisted into the event log,
+	// → an asset-row load + a GCS/extract read) and persisted into the event log,
 	// so `validateChatMessages` bounds the message count + the request-wide
 	// attachment total and enforces the per-ref field caps. It deliberately does
 	// NOT re-parse the SDK-owned message `parts` — that shape is the SDK's contract.
@@ -181,7 +181,7 @@ export async function POST(req: Request) {
 	});
 
 	/* Credit gate — fast-fail read. Sits where the dollar cap used to, at the top
-	 * of the handler, and FAILS CLOSED: any Firestore read error rejects with 503
+	 * of the handler, and FAILS CLOSED: any database read error rejects with 503
 	 * rather than letting an ungated/uncharged generation through. This is the
 	 * cheap pre-flight read; the transactional reservation that actually books
 	 * the charge runs later, after every pre-stream rejection point.
@@ -233,12 +233,12 @@ export async function POST(req: Request) {
 	/* Stable per-request run identifier. Every event envelope (mutation or
 	 * conversation) carries this value; the client echoes it back on follow-up
 	 * requests so threads stay aligned across turns. Minted here — before any
-	 * Firestore work — so failure paths below can still surface it if needed. */
+	 * persistence work — so failure paths below can still surface it if needed. */
 	const effectiveRunId = runId ?? crypto.randomUUID();
 
 	/*
 	 * Resolve appId for authenticated users. Existing apps already have
-	 * an ID from the client. New builds create a real app document in Firestore
+	 * an ID from the client. New builds create a real app row
 	 * (status: 'generating') so log events have an app to live under from the start.
 	 *
 	 * The app doc is created BEFORE the concurrency check so it acts as a
@@ -257,7 +257,7 @@ export async function POST(req: Request) {
 	let reservation: Reservation | undefined;
 	/* The persisted app doc for an EXISTING-app request — captured off the
 	 * authorization read below so the SA's working doc seeds from the saved
-	 * blueprint with no extra Firestore fetch. Undefined for a new build (no
+	 * blueprint with no extra load. Undefined for a new build (no
 	 * app exists yet); the seed falls back to the empty doc there. */
 	let loadedApp:
 		| Awaited<ReturnType<typeof resolveAppAccess>>["app"]
@@ -930,7 +930,7 @@ export async function POST(req: Request) {
 			 * IMMEDIATELY after an edit (with no typing in between) would be the
 			 * one case that could outrun the auto-save and need a flush.
 			 *
-			 * Brand-new builds get the empty doc stamped with the Firestore
+			 * Brand-new builds get the empty doc stamped with the
 			 * `appId` that `createApp` just minted. */
 			const sessionDoc: BlueprintDoc = hydratePersistedBlueprint(
 				loadedApp

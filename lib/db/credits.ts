@@ -15,10 +15,16 @@
  */
 import type { Transaction } from "kysely";
 import { creditBalance, MONTHLY_CREDIT_ALLOWANCE } from "./creditPolicy";
+import {
+	LEASE_COLUMNS,
+	type LeaseRow,
+	leaseView,
+	rowReservation,
+} from "./leaseView";
 import { getCurrentPeriod } from "./period";
 import { type AppDatabase, getAppDb, withAppTx } from "./pg";
 import { runLeaseState } from "./runLiveness";
-import type { AppDoc, AppReservation, CreditGrantDoc } from "./types";
+import type { AppReservation, CreditGrantDoc } from "./types";
 
 /**
  * Thrown when the user's remaining balance can't cover the charge. The chat
@@ -42,70 +48,6 @@ export class OutOfCreditsError extends Error {
 export interface Reservation {
 	period: string;
 	reserved: number;
-}
-
-/** The run-liveness slice of an `apps` row the refund/settle transactions
- *  read — selected raw so the helpers here stay row-shaped. */
-const LEASE_COLUMNS = [
-	"status",
-	"awaiting_input",
-	"updated_at",
-	"owner",
-	"run_id",
-	"res_period",
-	"res_reserved",
-	"res_settled",
-	"res_user_id",
-	"res_run_id",
-	"lock_run_id",
-	"lock_actor_user_id",
-	"lock_expire_at",
-] as const;
-
-type LeaseRow = {
-	status: string;
-	awaiting_input: boolean;
-	updated_at: Date;
-	owner: string;
-	run_id: string | null;
-	res_period: string | null;
-	res_reserved: number | null;
-	res_settled: boolean | null;
-	res_user_id: string | null;
-	res_run_id: string | null;
-	lock_run_id: string | null;
-	lock_actor_user_id: string | null;
-	lock_expire_at: Date | null;
-};
-
-function rowReservation(row: LeaseRow): AppReservation | undefined {
-	if (row.res_period === null) return undefined;
-	return {
-		period: row.res_period,
-		reserved: row.res_reserved ?? 0,
-		settled: !!row.res_settled,
-		...(row.res_user_id !== null && { userId: row.res_user_id }),
-		...(row.res_run_id !== null && { runId: row.res_run_id }),
-	};
-}
-
-function leaseView(row: LeaseRow): Partial<AppDoc> {
-	return {
-		status: row.status as AppDoc["status"],
-		awaiting_input: row.awaiting_input,
-		updated_at: row.updated_at,
-		owner: row.owner,
-		run_id: row.run_id,
-		reservation: rowReservation(row),
-		run_lock:
-			row.lock_run_id === null
-				? undefined
-				: {
-						runId: row.lock_run_id,
-						actorUserId: row.lock_actor_user_id ?? "",
-						expireAt: row.lock_expire_at ?? new Date(0),
-					},
-	};
 }
 
 /** Lock + read one app's liveness slice inside a refund transaction. */
@@ -134,6 +76,34 @@ async function lockCreditMonth(
 		.where("period", "=", period)
 		.forUpdate()
 		.executeTakeFirst();
+}
+
+/**
+ * Guarantee the month row EXISTS before a writer locks it. `SELECT … FOR
+ * UPDATE` locks NOTHING when the row is absent, so two first-of-month writers
+ * would each read absent-row defaults and the loser's upsert would clobber
+ * the winner's committed write with a stale absolute value. Seeding the row
+ * first (`ON CONFLICT DO NOTHING` — the second writer blocks on the first's
+ * insert, then no-ops) makes the subsequent `FOR UPDATE` a real lock, so
+ * every read-check-write here serializes exactly as documented.
+ */
+async function ensureCreditMonthRow(
+	tx: Transaction<AppDatabase>,
+	userId: string,
+	period: string,
+): Promise<void> {
+	await tx
+		.insertInto("credit_months")
+		.values({
+			user_id: userId,
+			period,
+			allowance: MONTHLY_CREDIT_ALLOWANCE,
+			consumed: 0,
+			bonus: 0,
+			updated_at: new Date(),
+		})
+		.onConflict((oc) => oc.columns(["user_id", "period"]).doNothing())
+		.execute();
 }
 
 /** Write a complete credit-month row (insert-or-update — every writer seeds
@@ -238,6 +208,7 @@ export async function debitAndBookReservation(
 		userId < crossRefund.user ||
 		(userId === crossRefund.user && period < crossRefund.period);
 	let row: Awaited<ReturnType<typeof lockCreditMonth>>;
+	await ensureCreditMonthRow(tx, userId, period);
 	if (debitFirst) {
 		row = await lockCreditMonth(tx, userId, period);
 		if (crossRefund) {
@@ -475,6 +446,7 @@ export async function resetCredits(
 ): Promise<void> {
 	const period = getCurrentPeriod();
 	await withAppTx(async (tx) => {
+		await ensureCreditMonthRow(tx, userId, period);
 		const row = await lockCreditMonth(tx, userId, period);
 		await upsertCreditMonth(tx, userId, period, {
 			allowance: row?.allowance ?? MONTHLY_CREDIT_ALLOWANCE,
@@ -508,6 +480,7 @@ export async function grantCredits(
 ): Promise<void> {
 	const period = getCurrentPeriod();
 	await withAppTx(async (tx) => {
+		await ensureCreditMonthRow(tx, userId, period);
 		const row = await lockCreditMonth(tx, userId, period);
 		await upsertCreditMonth(tx, userId, period, {
 			allowance: row?.allowance ?? MONTHLY_CREDIT_ALLOWANCE,

@@ -207,12 +207,12 @@ function scheduleReconnect(): void {
 	reconnectTimer = setTimeout(() => {
 		reconnectTimer = null;
 		if (torndown || client !== null) return;
-		void establish().catch((err) => {
-			log.warn("[streamListener] reconnect failed (will retry)", {
-				err: err instanceof Error ? err.message : String(err),
-			});
-			scheduleReconnect();
-		});
+		/* Route through `ensureConnected` so this establish is recorded in
+		 * `connecting` — a subscriber arriving mid-reconnect joins the same
+		 * in-flight attempt instead of launching a second client that would
+		 * overwrite (and leak) whichever latched first. Its catch already logs
+		 * and schedules the next backoff. */
+		void ensureConnected();
 	}, delayMs);
 	// Never let a pending reconnect keep the process (or a test worker) alive.
 	reconnectTimer.unref();

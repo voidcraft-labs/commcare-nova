@@ -85,14 +85,19 @@ export type RunSummaryWriteAction =
  * read-modify-write would drop whichever delta lost the commit race.
  * The `SELECT … FOR UPDATE` here serializes the two against the row, and
  * `withAppTx` retries a serialization/deadlock failure until it commits.
+ *
+ * The FIRST write has no row to lock, so two overlapping first-turn flushes
+ * can both take the insert path — the loser's 23505 unique violation is
+ * caught here and the write re-runs ONCE, now finding the winner's row and
+ * accumulating onto it, so neither turn's deltas are dropped.
  */
 export async function writeRunSummary(
 	appId: string,
 	runId: string,
 	summary: RunSummaryDoc,
 ): Promise<RunSummaryWriteAction> {
-	try {
-		return await withAppTx(async (tx): Promise<RunSummaryWriteAction> => {
+	const attempt = () =>
+		withAppTx(async (tx): Promise<RunSummaryWriteAction> => {
 			const existing = await tx
 				.selectFrom("run_summaries")
 				.selectAll()
@@ -151,6 +156,14 @@ export async function writeRunSummary(
 				.execute();
 			return "incremented";
 		});
+	try {
+		try {
+			return await attempt();
+		} catch (err) {
+			if ((err as { code?: unknown })?.code !== "23505") throw err;
+			// Lost the concurrent first-insert race — the row exists now.
+			return await attempt();
+		}
 	} catch (err) {
 		log.error("[writeRunSummary] Postgres write failed", err, {
 			appId,

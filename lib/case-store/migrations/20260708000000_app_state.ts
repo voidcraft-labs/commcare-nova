@@ -11,9 +11,14 @@
 // `referencingAppIds` array), and the two per-user monthly ledgers.
 //
 // Design invariants the DDL encodes:
-//  - An app's current state is `apps` + its `blueprint_entities`; sequence is
-//    DERIVED (entities carry fractional `order` keys inside `data`), so the
-//    membership arrays are rebuilt as sort-by-(order, uuid) on load.
+//  - An app's current state is `apps` + its `blueprint_entities`; the
+//    membership arrays round-trip byte-identically via the stored `ordinal`
+//    (DISPLAY sequence stays derived from the entities' fractional `order`
+//    keys inside `data`, as ever).
+//  - Every timestamptz is `(3)` — millisecond precision — so a stored value
+//    (including a `DEFAULT now()`) round-trips exactly through a JS `Date`;
+//    the list/library cursors compare `(timestamp, id)` tuples and a sub-ms
+//    residue would let boundary rows slip between pages.
 //  - The reservation marker is "present" iff `res_period IS NOT NULL`; the
 //    edit lock iff `lock_run_id IS NOT NULL` — the same optional-map
 //    semantics the Firestore doc had, as nullable column groups.
@@ -39,8 +44,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			status text NOT NULL DEFAULT 'complete',
 			awaiting_input boolean NOT NULL DEFAULT false,
 			error_type text,
-			deleted_at timestamptz,
-			recoverable_until timestamptz,
+			deleted_at timestamptz(3),
+			recoverable_until timestamptz(3),
 			run_id text,
 			res_period text,
 			res_reserved integer,
@@ -49,9 +54,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			res_run_id text,
 			lock_run_id text,
 			lock_actor_user_id text,
-			lock_expire_at timestamptz,
-			created_at timestamptz NOT NULL DEFAULT now(),
-			updated_at timestamptz NOT NULL DEFAULT now()
+			lock_expire_at timestamptz(3),
+			created_at timestamptz(3) NOT NULL DEFAULT now(),
+			updated_at timestamptz(3) NOT NULL DEFAULT now()
 		)
 	`.execute(db);
 	// The live listing matrix: project- and owner-scoped, updated/name sorts,
@@ -105,7 +110,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			actor_id text NOT NULL,
 			kind text NOT NULL,
 			mutations jsonb NOT NULL,
-			ts timestamptz NOT NULL DEFAULT now(),
+			ts timestamptz(3) NOT NULL DEFAULT now(),
 			PRIMARY KEY (app_id, seq),
 			UNIQUE (app_id, batch_id)
 		)
@@ -176,8 +181,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			email text NOT NULL DEFAULT '',
 			color text NOT NULL,
 			location jsonb NOT NULL,
-			updated_at timestamptz NOT NULL DEFAULT now(),
-			expire_at timestamptz NOT NULL,
+			updated_at timestamptz(3) NOT NULL DEFAULT now(),
+			expire_at timestamptz(3) NOT NULL,
 			PRIMARY KEY (app_id, user_id, session_id)
 		)
 	`.execute(db);
@@ -192,7 +197,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			commcare_api_key text NOT NULL,
 			commcare_server text,
 			approved_domains jsonb NOT NULL DEFAULT '[]'::jsonb,
-			updated_at timestamptz NOT NULL DEFAULT now()
+			updated_at timestamptz(3) NOT NULL DEFAULT now()
 		)
 	`.execute(db);
 
@@ -204,7 +209,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			output_tokens bigint NOT NULL DEFAULT 0,
 			cost_estimate double precision NOT NULL DEFAULT 0,
 			request_count integer NOT NULL DEFAULT 0,
-			updated_at timestamptz NOT NULL DEFAULT now(),
+			updated_at timestamptz(3) NOT NULL DEFAULT now(),
 			PRIMARY KEY (user_id, period)
 		)
 	`.execute(db);
@@ -216,7 +221,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			allowance integer NOT NULL,
 			consumed integer NOT NULL DEFAULT 0,
 			bonus integer NOT NULL DEFAULT 0,
-			updated_at timestamptz NOT NULL DEFAULT now(),
+			updated_at timestamptz(3) NOT NULL DEFAULT now(),
 			PRIMARY KEY (user_id, period),
 			CHECK (allowance >= 0 AND consumed >= 0 AND bonus >= 0)
 		)
@@ -232,7 +237,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			actor_email text NOT NULL,
 			reason text,
 			period text NOT NULL,
-			created_at timestamptz NOT NULL DEFAULT now()
+			created_at timestamptz(3) NOT NULL DEFAULT now()
 		)
 	`.execute(db);
 	await sql`CREATE INDEX IF NOT EXISTS credit_grants_user ON credit_grants (user_id, created_at DESC)`.execute(
@@ -256,7 +261,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			display_name text,
 			status text NOT NULL,
 			extract jsonb,
-			created_at timestamptz NOT NULL DEFAULT now()
+			created_at timestamptz(3) NOT NULL DEFAULT now()
 		)
 	`.execute(db);
 	await sql`CREATE INDEX IF NOT EXISTS media_assets_dedup ON media_assets (project_id, content_hash) WHERE status = 'ready'`.execute(
