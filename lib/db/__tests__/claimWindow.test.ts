@@ -14,7 +14,8 @@
  *     `owner` (the two diverge once a Project co-member runs a shared app);
  *   - a hard-killed leftover nets out (refund + fresh debit → one cost, not two);
  *   - the build reaper CLEARS `res_run_id` so a reaped ghost reads unowned;
- *   - a claim on a PAUSED app THROWS and touches nothing (a paused run blocks).
+ *   - another actor's claim on a PAUSED app THROWS and touches nothing (their
+ *     pause blocks; only the pause's own actor supersedes it).
  *
  * (A KEPT settled charge surviving a claim, and a failed run's full refund, are
  * covered by `claimRun.integration.test.ts`.)
@@ -149,7 +150,7 @@ describe("claim credit-transfer + build reaper runId-clear", () => {
 		).toBe(false);
 	});
 
-	it("a claim on a PAUSED app THROWS — a paused run blocks (no takeover), touching nothing", async () => {
+	it("another actor's claim on a PAUSED app THROWS — their pause blocks (no takeover), touching nothing", async () => {
 		const { claimAndReserveRun, RunConflictError } = await import("../apps");
 		await h.seedApp({
 			id: APP,

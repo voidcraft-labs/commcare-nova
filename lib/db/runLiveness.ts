@@ -78,13 +78,29 @@ export interface RunLease {
 	live: boolean;
 	/**
 	 * The run is PAUSED on an `askQuestions` round (present + `awaiting_input`). A
-	 * paused run of either mode is alive-but-process-less. It BLOCKS a claim (busy is
-	 * `live || paused` — a paused run is NOT a claimable takeover); its own
-	 * free-continuation resume re-enters it via `reacquireLease`, and an ABANDONED
-	 * one is freed by the reapers once its lease lapses (`reapable*` key on the
-	 * lapsed lease, not on `paused`).
+	 * paused run of either mode is alive-but-process-less. It BLOCKS another
+	 * actor's claim (busy is `live || (paused && !pausedBy(claimant))` — a paused
+	 * run is not a claimable takeover, but its OWN actor's new claim supersedes
+	 * it); its own free-continuation resume re-enters it via `reacquireLease`,
+	 * and an ABANDONED one is freed by the reapers once its lease lapses
+	 * (`reapable*` key on the lapsed lease, not on `paused`).
 	 */
 	paused: boolean;
+	/**
+	 * Whether the PAUSED run occupying the app belongs to `actorUserId` — the
+	 * same-actor supersede gate in `claimAndReserveRun`'s busy check. A paused
+	 * run is alive-but-process-less, and its ask card may be unreachable
+	 * entirely (a reload opens a fresh conversation), so when its OWN actor
+	 * sends a new chargeable instruction the pause is abandoned — the claim
+	 * supersedes it (refunding its unsettled hold to this same actor) instead
+	 * of blocking behind a lease that can only lapse. The holder per mode
+	 * mirrors the reapers' refund-actor rule: an edit's `run_lock.actorUserId`;
+	 * a build's marker `userId`, falling back to `owner` for a migrated legacy
+	 * marker. Always false when the app isn't paused — a LIVE run is never
+	 * supersedable (that would kill an in-flight generation), and another
+	 * actor's pause still blocks (their answer round is theirs to finish).
+	 */
+	pausedBy: (actorUserId: string) => boolean;
 	/**
 	 * Whether `runId` OWNS the occupying run. Edit: `run_lock.runId === runId`.
 	 * Build: the reservation marker's `runId === runId` (a build has no lock to
@@ -228,6 +244,19 @@ export function runLeaseState(
 		return false;
 	};
 
+	const pausedBy = (actorUserId: string): boolean => {
+		if (!paused) return false;
+		// The pause's actor, per mode — the same identity the reapers refund:
+		// an edit's lock actor; a build's charged marker actor (owner for a
+		// migrated legacy marker). An unresolvable holder never matches, so a
+		// corrupt shape blocks rather than hands the app over.
+		const holder =
+			mode === "edit"
+				? lock?.actorUserId
+				: (reservation?.userId ?? fresh.owner);
+		return holder !== undefined && holder !== "" && holder === actorUserId;
+	};
+
 	const markerSettleable = !!reservation && !reservation.settled;
 	// The reaper's signature: settled marker, runId CLEARED (only the reaper
 	// refunds clear it; every other writer keeps or freshly books it).
@@ -252,8 +281,9 @@ export function runLeaseState(
 	// `run_lock` PRESENT but PAST its lease. Reaps a HARD-KILLED edit AND an
 	// ABANDONED PAUSED edit — a paused run has no heartbeat, so its lease lapses
 	// ~MAX_RUN_MINUTES after its last activity; once lapsed, an abandoned paused
-	// edit (the user never answered, the tab closed) must be freed so a waiter can
-	// proceed (a paused run BLOCKS in the descoped model, so it can't hold forever).
+	// edit (the user never answered, the tab closed) must be freed so a waiter
+	// can proceed (another actor's pause BLOCKS their claim, so it can't be left
+	// holding forever; only the pause's own actor supersedes it sooner).
 	// A recently-paused edit whose lease is still future is NOT reaped (lock in the
 	// future), and its own resume `reacquireLease`s and renews. `awaiting_input` is
 	// NOT excluded here — the lapsed lease is the reap signal, paused or not.
@@ -285,6 +315,7 @@ export function runLeaseState(
 		present,
 		live,
 		paused,
+		pausedBy,
 		mine,
 		terminalWriteOwned,
 		ownedByResume,

@@ -80,8 +80,11 @@ clarification round-trip.
 
 `claimAndReserveRun(appId, mode, runId, actorUserId, cost)` (and its
 new-build sibling `reserveForNewBuild`) runs, inside a single app-row-locked
-transaction: the busy check (`lease.live || lease.paused` →
-`RunConflictError`; a paused run blocks — it is never a claimable takeover),
+transaction: the busy check (`lease.live`, or a paused run of ANOTHER actor →
+`RunConflictError`; the claimant's OWN paused run is SUPERSEDED instead — an
+abandoned `askQuestions` round must not lock its own user out until the lease
+lapses; the leftover refund + claim writes below resolve it and its late
+answer bails via `reacquireLease`),
 the cross-app one-build-per-user scan (`GenerationInProgressError`), the
 unconditional refund of any leftover UNSETTLED marker (a superseded
 hard-killed run's stranded hold, refunded to ITS charged actor/period), the

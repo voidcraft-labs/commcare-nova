@@ -439,7 +439,8 @@ describe("run-lifecycle invariant matrix", () => {
 	});
 
 	it("a waiter behind a PAUSED run is blocked, and proceeds once the paused run's lease lapses and it is REAPED", async () => {
-		// A PAUSED edit holds the app — a paused run now BLOCKS (no takeover).
+		// Another actor's PAUSED edit holds the app — their pause BLOCKS (no
+		// takeover); only the pause's own actor supersedes it.
 		await seedApp(APP, { status: "complete" });
 		await claimAndReserveRun(APP, "edit", "e1", OWNER, CREDITS_PER_EDIT);
 		await patchApp(APP, { awaiting_input: true });
