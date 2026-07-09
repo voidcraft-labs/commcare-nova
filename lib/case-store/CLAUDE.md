@@ -274,6 +274,14 @@ sets the var, so it still goes through the connector and its loud
 unconditional localhost fallback would cause is what the connection
 layer guards against; an opt-in URL doesn't).
 
+The read-only inspect scripts (`scripts/inspect-*.ts`) take `--prod`,
+which points this same connection layer at the production instance
+over its PUBLIC IP (`NOVA_DB_IP_TYPE=PUBLIC`) authenticating as YOUR
+gcloud identity via IAM — per-developer prerequisites in
+`scripts/lib/prodDb.ts`. The instance has no authorized networks, so
+the connector's IAM-authenticated path is the only way in; Cloud Run
+keeps riding the private IP (it never sets `NOVA_DB_IP_TYPE`).
+
 Data lives in the persistent `nova-cases-data` Docker volume, so
 sample / case rows survive restarts. `npm run db:dev:down` stops the
 container (volume persists); `docker compose down -v` wipes it. The

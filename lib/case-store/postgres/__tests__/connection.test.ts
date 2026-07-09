@@ -24,6 +24,7 @@
 // harness at `lib/case-store/sql/__tests__/`, which provides its own
 // `Kysely<Database>` instance bound to a per-test transaction.
 
+import { IpAddressTypes } from "@google-cloud/cloud-sql-connector";
 import type { Kysely } from "kysely";
 import type { PoolConfig } from "pg";
 import { Pool } from "pg";
@@ -40,6 +41,7 @@ import {
 	POOL_MAX_PER_INSTANCE,
 	REQUIRED_ENV_VARS,
 	readCaseStoreEnvConfig,
+	readCaseStoreIpType,
 } from "../connection";
 
 // ---------------------------------------------------------------
@@ -120,6 +122,51 @@ describe("readCaseStoreEnvConfig", () => {
 		expect(() => readCaseStoreEnvConfig(env)).toThrowError(
 			/gcloud run services update/,
 		);
+	});
+});
+
+// ---------------------------------------------------------------
+// IP-type resolution
+// ---------------------------------------------------------------
+//
+// `readCaseStoreIpType` accepts the same env-like stub pattern as
+// `readCaseStoreEnvConfig`. The load-bearing contract is the default:
+// Cloud Run never sets `NOVA_DB_IP_TYPE`, so an absent (or empty —
+// `--update-env-vars` accepts empty silently) variable MUST resolve
+// to the private IP. `PUBLIC` is the laptop-inspection opt-in.
+
+describe("readCaseStoreIpType", () => {
+	it("defaults to PRIVATE when NOVA_DB_IP_TYPE is absent", () => {
+		expect(readCaseStoreIpType({})).toBe(IpAddressTypes.PRIVATE);
+	});
+
+	it("treats an empty string as absent (defaults to PRIVATE)", () => {
+		expect(readCaseStoreIpType({ NOVA_DB_IP_TYPE: "" })).toBe(
+			IpAddressTypes.PRIVATE,
+		);
+	});
+
+	it("resolves the PUBLIC opt-in", () => {
+		expect(readCaseStoreIpType({ NOVA_DB_IP_TYPE: "PUBLIC" })).toBe(
+			IpAddressTypes.PUBLIC,
+		);
+	});
+
+	it("accepts an explicit PRIVATE", () => {
+		expect(readCaseStoreIpType({ NOVA_DB_IP_TYPE: "PRIVATE" })).toBe(
+			IpAddressTypes.PRIVATE,
+		);
+	});
+
+	it("rejects unrecognized values rather than guessing", () => {
+		// Lowercase included — a silent case-fold would let `public` in a
+		// shell one-liner resolve to PRIVATE-by-fallthrough on a future
+		// refactor; requiring the exact literal keeps the failure loud.
+		for (const bad of ["public", "psc", "PSC", "both"]) {
+			expect(() => readCaseStoreIpType({ NOVA_DB_IP_TYPE: bad })).toThrowError(
+				/unrecognized NOVA_DB_IP_TYPE/,
+			);
+		}
 	});
 });
 

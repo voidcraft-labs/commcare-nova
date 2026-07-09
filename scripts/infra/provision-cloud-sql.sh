@@ -4,8 +4,10 @@
 #
 #   - Cloud SQL Admin + Service Networking APIs (Phase 0)
 #   - VPC peering range and Service Networking peering (Phase 1)
-#   - The Postgres 18 instance with private IP only, IAM auth, daily backup,
-#     and PITR with 4-day WAL retention (Phase 2)
+#   - The Postgres 18 instance with a private IP (Cloud Run's path), a public
+#     IP (the laptop inspect-script path — no authorized networks, so the
+#     connector's IAM-authenticated path is the only way in), IAM auth, daily
+#     backup, and PITR with 4-day WAL retention (Phase 2)
 #   - The application database (Phase 3)
 #   - Project IAM bindings + Cloud SQL database users for the runtime SA and
 #     the developer principal (Phase 4)
@@ -119,13 +121,19 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 2 — Create the Cloud SQL Postgres 18 instance with private IP only.
+# Phase 2 — Create the Cloud SQL Postgres 18 instance.
 #
 # Notable flags:
 #   --edition=ENTERPRISE      db-f1-micro is rejected on ENTERPRISE_PLUS; the
 #                             API defaulted there in 2026 and ENTERPRISE must
 #                             be explicit for shared-core tiers.
-#   --no-assign-ip            no public IP is assigned; private-only.
+#   --assign-ip               a public IP alongside the private one. NO
+#                             authorized networks are configured, so the raw
+#                             Postgres port is unreachable; only the Cloud SQL
+#                             connector/proxy (SQL Admin API + IAM-minted TLS)
+#                             can connect. Cloud Run rides the private IP; the
+#                             public IP serves the laptop inspect scripts
+#                             (scripts/inspect-*.ts --prod).
 #   --enable-point-in-time-recovery + --retained-transaction-log-days=4
 #                             PITR with 4-day WAL retention.
 #   --retained-backups-count  flag name on PG; --backup-retention is rejected.
@@ -136,12 +144,20 @@ fi
 echo "=== Phase 2: Create Cloud SQL instance ==="
 if gcloud sql instances describe "$INSTANCE_ID" --format='value(name)' >/dev/null 2>&1; then
 	echo "Instance '$INSTANCE_ID' already exists; skipping P2-1."
+	# P2-2: converge the public-IP setting on the existing instance.
+	ipv4_enabled="$(gcloud sql instances describe "$INSTANCE_ID" \
+		--format='value(settings.ipConfiguration.ipv4Enabled)')"
+	if [[ "$ipv4_enabled" == "True" ]]; then
+		echo "Public IP already enabled; skipping P2-2."
+	else
+		run gcloud sql instances patch "$INSTANCE_ID" --assign-ip --quiet
+	fi
 else
 	run gcloud beta sql instances create "$INSTANCE_ID" \
 		--project="$PROJECT_ID" \
 		--edition="$EDITION" \
 		--network="projects/${PROJECT_ID}/global/networks/${NETWORK}" \
-		--no-assign-ip \
+		--assign-ip \
 		--database-version="$DATABASE_VERSION" \
 		--tier="$TIER" \
 		--region="$REGION" \
@@ -214,14 +230,22 @@ else
 		--type=CLOUD_IAM_USER
 fi
 
+# P4-7: developer read access. `pg_read_all_data` membership is what lets the
+# read-only inspect scripts (scripts/inspect-*.ts --prod) SELECT tables owned
+# by the runtime SA. Control-plane grant — no superuser session needed.
+# Additive (no --revoke-existing-roles); re-running is a harmless re-grant.
+run gcloud sql users assign-roles "$DEVELOPER_USER" \
+	--instance="$INSTANCE_ID" \
+	--type=CLOUD_IAM_USER \
+	--database-roles=pg_read_all_data
+
 # ---------------------------------------------------------------------------
 # Phase 5 — INTENTIONALLY NOT IN THIS SCRIPT.
 #
 # Extension installs (pg_trgm / fuzzystrmatch / postgis) require the
 # cloudsqlsuperuser role, which only the built-in `postgres` account has at
-# instance creation. The instance is private-IP-only, so there is no
-# laptop-to-private-IP path; this work runs through Cloud SQL Studio in the
-# Google Cloud Console:
+# instance creation — and no human knows its password. This work runs through
+# Cloud SQL Studio in the Google Cloud Console:
 #
 #   1. Set a temporary postgres password
 #      (gcloud sql users set-password postgres --prompt-for-password).

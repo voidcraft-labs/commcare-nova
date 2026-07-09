@@ -52,4 +52,4 @@ npm run db:migrate               # apply case-store migrations (Kysely Migrator)
 npx tsx scripts/test-schema.ts   # verify SA tool-input schemas are API-accepted
 ```
 
-`npm run dev` needs Docker (it boots the local Postgres); the app reaches it via `NOVA_DB_LOCAL_URL` in `.env` (an explicit opt-in — prod uses the Cloud SQL connector). `scripts/` also has read-only inspectors and a `recover-app` writer (⚠️); run any with `--help`.
+`npm run dev` needs Docker (it boots the local Postgres); the app reaches it via `NOVA_DB_LOCAL_URL` in `.env` (an explicit opt-in — prod uses the Cloud SQL connector). `scripts/` also has read-only inspectors and a `recover-app` writer (⚠️); run any with `--help`. The inspectors take `--prod` to read production Cloud SQL over its public IP as your gcloud IAM identity (`scripts/lib/prodDb.ts`).
