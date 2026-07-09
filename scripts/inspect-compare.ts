@@ -15,7 +15,8 @@
  *
  * Read-only. Reads the app-state database the env provides
  * (`NOVA_DB_LOCAL_URL` locally, the Cloud SQL connector in the migrate-job
- * image). Run with `--help` for flags.
+ * image); `--prod` targets the production instance over its public IP (see
+ * `./lib/prodDb.ts`). Run with `--help` for flags.
  */
 import "dotenv/config";
 import { Command, InvalidArgumentError } from "commander";
@@ -34,6 +35,7 @@ import {
 } from "./lib/format";
 import { computeEventKindCounts, computeToolUsage } from "./lib/log-stats";
 import { requireArg, runMain } from "./lib/main";
+import { targetProdDb } from "./lib/prodDb";
 import type { Event } from "./lib/types";
 
 // ── CLI argument parsing ────────────────────────────────────────────
@@ -55,6 +57,7 @@ type CompareTarget =
 
 interface InspectCompareOptions {
 	runs?: [string, string];
+	prod?: boolean;
 }
 
 /**
@@ -85,6 +88,10 @@ program
 		"same-app mode: compare these two runs of appIdA",
 		parseRunsPair,
 	)
+	.option(
+		"--prod",
+		"inspect the production Cloud SQL instance (public IP + your gcloud IAM identity)",
+	)
 	.addHelpText(
 		"after",
 		"\nExamples:\n" +
@@ -100,6 +107,9 @@ program.parse();
 const positionalA = requireArg(program.args, 0, "appIdA");
 const positionalB = program.args[1]; // optional — only required in cross-app mode
 const compareOpts = program.opts<InspectCompareOptions>();
+if (compareOpts.prod === true) {
+	targetProdDb();
+}
 
 /* Validate up-front so the `cross-app` branch narrows `positionalB` to
  * `string` naturally. `program.error` returns `never` (calls

@@ -190,7 +190,7 @@ export async function POST(req: Request) {
 	 *   (a) Actual-$ backstop — runs on EVERY POST (continuations included), so a
 	 *       user hammering a broken app on free continuations still trips it. The
 	 *       dollar threshold is never surfaced to the user (the message must not
-	 *       leak "$50").
+	 *       leak the figure).
 	 *   (b) Credit balance — only on CHARGEABLE POSTs. A continuation never
 	 *       reserves, so it has no balance to check; gating it here would also
 	 *       create an orphan app in the common out-of-credits case. */

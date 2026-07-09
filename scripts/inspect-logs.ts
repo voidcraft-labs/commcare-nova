@@ -18,8 +18,9 @@
  * the log" for "no cost signal in the log."
  *
  * Reads the app-state database the env provides (`NOVA_DB_LOCAL_URL` locally,
- * the Cloud SQL connector in the migrate-job image). Never writes. Run with
- * `--help` for the flag reference.
+ * the Cloud SQL connector in the migrate-job image); `--prod` targets the
+ * production instance over its public IP (see `./lib/prodDb.ts`). Never
+ * writes. Run with `--help` for the flag reference.
  */
 import "dotenv/config";
 import { Command, InvalidArgumentError } from "commander";
@@ -50,6 +51,7 @@ import {
 	groupByRun,
 } from "./lib/log-stats";
 import { requireArg, runMain } from "./lib/main";
+import { targetProdDb } from "./lib/prodDb";
 import type { ConversationPayload, Event } from "./lib/types";
 
 // ── CLI argument parsing ────────────────────────────────────────────
@@ -62,6 +64,7 @@ interface InspectLogsOptions {
 	stages?: boolean;
 	run?: string;
 	last?: number;
+	prod?: boolean;
 }
 
 /**
@@ -103,6 +106,10 @@ program
 		"trim the event stream to the last N events (positive integer)",
 		parsePositiveInt,
 	)
+	.option(
+		"--prod",
+		"inspect the production Cloud SQL instance (public IP + your gcloud IAM identity)",
+	)
 	.addHelpText(
 		"after",
 		"\nExamples:\n" +
@@ -117,6 +124,9 @@ program.parse();
 
 const appId = requireArg(program.args, 0, "appId");
 const opts = program.opts<InspectLogsOptions>();
+if (opts.prod === true) {
+	targetProdDb();
+}
 
 const verbose = opts.verbose === true;
 const showRunsTable = opts.runs === true;

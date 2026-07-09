@@ -272,7 +272,19 @@ async function collectUntil(
 
 beforeEach(async () => {
 	await runCaseStoreMigrations(dbHandle.db);
-	appPool = new Pool({ connectionString: dbHandle.uri, max: 4 });
+	/* Both waits bounded because the route's pump/roster reads are
+	 * fire-and-forget (`void pump()`): a SELECT — or the fresh physical
+	 * connection the pool spawns for it — can straggle past the stream teardown
+	 * by design, and `Pool.end()` (via `appDb.destroy()` below) waits with no
+	 * deadline of its own for a mid-connect client to settle and a checked-out
+	 * one to release. Unbounded, a straggler on a starved engine holds the
+	 * `afterEach` past the 30 s hook timeout. */
+	appPool = new Pool({
+		connectionString: dbHandle.uri,
+		max: 4,
+		connectionTimeoutMillis: 10_000,
+		query_timeout: 10_000,
+	});
 	// Swallow the connection-termination error the per-test DROP DATABASE (FORCE)
 	// provokes on teardown — the same expected-teardown-noise the harness's own
 	// pools swallow (see `perTestDatabase.ts`).

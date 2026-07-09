@@ -31,7 +31,7 @@ export const CREDITS_PER_BUILD = 100;
  * Cost of an edit to an existing app ($0.05). Deliberately cheap — priced on
  * perceived value so iterating feels nearly free, decoupled from the fact that
  * an edit can currently cost more in actual dollars than a build (a cache-expiry
- * artifact the $50 backstop and the cost ledger guard and track separately).
+ * artifact the actual-$ backstop and the cost ledger guard and track separately).
  */
 export const CREDITS_PER_EDIT = 5;
 
@@ -48,7 +48,7 @@ export const MONTHLY_CREDIT_ALLOWANCE = 2000;
  * runaway (and refund-farming, since a failed run still accrues cost). Never
  * trips in normal use; the dollar figure is never surfaced to the user.
  */
-export const ACTUAL_COST_BACKSTOP_USD = 50;
+export const ACTUAL_COST_BACKSTOP_USD = 300;
 
 /**
  * Spendable balance for a period: `allowance + bonus − consumed`.
