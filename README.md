@@ -6,7 +6,7 @@ A web app for designing CommCare applications through natural language conversat
 
 Nova uses a single AI agent — the **Solutions Architect (SA)** — powered by Anthropic's Claude via the Vercel AI SDK. The SA converses with users to understand requirements, generates a complete app blueprint through tool calls, and handles subsequent edits in the same conversational interface.
 
-Users authenticate via Google OAuth, and each app is persisted to Firestore with full ownership tracking. After initial generation, users can revisit their apps, edit them through chat or the visual builder, and pick up where they left off. Chat history is preserved per-app as threaded conversations.
+Users authenticate via Google OAuth, and each app is persisted to Cloud SQL Postgres with full ownership tracking. After initial generation, users can revisit their apps, edit them through chat or the visual builder, and pick up where they left off. Chat history is preserved per-app as threaded conversations.
 
 Three routes do all the work: `/` (app list or get-started), `/build/[id]` (the builder — generation, editing, and upload to CommCare HQ), and `/settings` (CommCare HQ credentials). An admin dashboard at `/admin` provides user management and usage visibility.
 
@@ -20,14 +20,14 @@ One Cloud Run service serves three hostnames, separated by middleware (`proxy.ts
 - `mcp.commcare.app` — MCP API only. Externally exposed `/mcp` rewrites internally to `/api/mcp`.
 - `docs.commcare.app` — public docs site (fumadocs). Per-host allowlists in `lib/hostnames.ts` 404 anything off the list.
 
-Per-host details — including the route-group layout under `app/`, the chat-vs-MCP split, and the fail-closed Firestore persistence model — live in [`CLAUDE.md`](./CLAUDE.md).
+Per-host details — including the route-group layout under `app/`, the chat-vs-MCP split, and the fail-closed persistence model — live in [`CLAUDE.md`](./CLAUDE.md).
 
 ## Getting started
 
 ### Local
 
 ```bash
-cp .env.example .env   # Fill in auth + Firestore credentials
+cp .env.example .env   # Fill in auth + GCP credentials
 npm install
 npm run dev
 ```
@@ -57,7 +57,7 @@ docker run -p 8080:8080 commcare-nova
 gcloud run deploy nova --source . --region <region>
 ```
 
-Cloud Run builds the image from the Dockerfile automatically. Configure auth secrets, Anthropic API key, and Firestore project via environment variables or Secret Manager.
+Cloud Run builds the image from the Dockerfile automatically. Configure auth secrets, the Anthropic API key, and the Cloud SQL connection via environment variables or Secret Manager.
 
 ### Cloud KMS setup
 
@@ -86,8 +86,7 @@ npm run dev               # Turbopack dev server
 npm run build             # production build
 npm run lint              # Biome lint + format check
 npm run format            # Biome auto-format
-npm test                  # vitest (unit tests)
-npm run test:integration  # vitest against the Firestore emulator (see below)
+npm test                  # vitest (unit + integration; boots a Postgres testcontainer)
 ```
 
 Production diagnostic scripts live in `scripts/` and are excluded from Docker. Run any with `--help` for usage. Requires `gcloud auth application-default login`.
@@ -96,33 +95,7 @@ A [Lefthook](https://github.com/evilmartians/lefthook) pre-commit hook runs `bio
 
 ## Integration tests
 
-Some tests run against a real Firestore emulator instead of hand-rolled mocks — they catch schema-boundary bugs that pure unit tests can't, since the test author chooses both sides of a mock and a wrong assumption goes undetected. These live in files matching `**/*.integration.test.ts` and are skipped by default in `npm test`.
-
-To run them:
-
-```bash
-npm run test:integration
-```
-
-The script wraps `firebase emulators:exec` around vitest, so the emulator starts and stops automatically per run. **Java 21+ is required** — the Firestore emulator is a JVM process, and `firebase-tools` 14+ rejects older JDKs.
-
-On macOS:
-
-```bash
-brew install openjdk
-```
-
-Then add to your shell profile (`.zshrc` / `.bashrc`):
-
-```bash
-export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"   # Apple Silicon
-# export PATH="/usr/local/opt/openjdk/bin:$PATH"    # Intel
-export JAVA_HOME="/opt/homebrew/opt/openjdk"        # adjust accordingly
-```
-
-Verify with `java -version` (should report 21+). On Linux, install OpenJDK 21+ via your package manager (`apt install openjdk-21-jdk` or similar) and ensure `JAVA_HOME` points at it.
-
-Tests that need the emulator self-skip when `FIRESTORE_EMULATOR_HOST` is unset, so contributors who only run `npm test` don't have to install Java.
+Some tests run against a real Postgres engine instead of hand-rolled mocks — they catch schema-boundary bugs that pure unit tests can't, since the test author chooses both sides of a mock and a wrong assumption goes undetected. These live in files matching `**/*.integration.test.ts` and run as part of `npm test`: the suite boots one [testcontainers](https://testcontainers.com/) Postgres per run (Docker required) and applies the real migrations, so tests exercise exactly the schema production runs.
 
 ## Stack
 
@@ -130,7 +103,7 @@ Tests that need the emulator self-skip when `FIRESTORE_EMULATOR_HOST` is unset, 
 - **Vercel AI SDK** + **Anthropic Claude** — streaming chat, tool calls, structured output
 - **mcp-handler** + **@modelcontextprotocol/sdk** — `/api/mcp` streamable-HTTP server exposing the SA's tools to external clients
 - **Better Auth** + **@better-auth/oauth-provider** — Google OAuth for the app, OAuth 2.1 authorization server for MCP clients
-- **Google Cloud Firestore** — app persistence, chat threads, event logging, usage
+- **Cloud SQL Postgres** (Kysely) — app persistence, case data, chat threads, event logging, usage, realtime fan-out via LISTEN/NOTIFY
 - **Google Cloud KMS** — credential encryption at rest
 - **Zustand** (builder state) · **Motion** (animations) · **Pragmatic Drag and Drop** · **TipTap 3** (rich text) · **Base UI** (floating elements)
 - **fumadocs** — docs.commcare.app static site

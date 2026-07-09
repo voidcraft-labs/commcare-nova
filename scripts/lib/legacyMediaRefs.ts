@@ -22,11 +22,8 @@
  * needs-owner, never auto-cleared.
  */
 
-import {
-	FieldPath,
-	type Firestore,
-	type Timestamp,
-} from "@google-cloud/firestore";
+import type { Kysely } from "kysely";
+import type { AppDatabase } from "../../lib/db/pg";
 import type { BlueprintDoc, Mutation, Uuid } from "../../lib/doc/types";
 import { asUuid, type Media, type SelectOption } from "../../lib/domain";
 import {
@@ -39,9 +36,10 @@ import {
  *  rule reaps `pending/` objects after one day, so the bytes are gone. */
 export const STALE_PENDING_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** The asset-row fields the media-ref judgment reads, loaded raw by the
- *  scripts' own Firestore client (the scripts target `--project`
- *  explicitly, never the env-bound `lib/db` singleton). */
+/** The asset-row fields the media-ref judgment reads, loaded from the
+ *  app-state `media_assets` table (the scripts run against whatever
+ *  database the env provides — `NOVA_DB_LOCAL_URL` locally, the Cloud SQL
+ *  connector in the migrate-job image). */
 export interface ScanAssetRow {
 	id: string;
 	owner: string | undefined;
@@ -50,33 +48,28 @@ export interface ScanAssetRow {
 	createdAtMs: number | undefined;
 }
 
-/** Firestore caps a `documentId() in [...]` query at 30 values. */
-const SCAN_ID_BATCH_SIZE = 30;
-
-/** Batch-load the named `mediaAssets` rows with the scan's own client.
- *  Missing rows are simply absent from the map. */
+/** Bulk-load the named `media_assets` rows through the shared app-state
+ *  handle. Missing rows are simply absent from the map. */
 export async function loadAssetRowsForScan(
-	db: Firestore,
+	db: Kysely<AppDatabase>,
 	ids: readonly string[],
 ): Promise<Map<string, ScanAssetRow>> {
 	const unique = [...new Set(ids)].filter((id) => id.length > 0);
 	const out = new Map<string, ScanAssetRow>();
-	for (let i = 0; i < unique.length; i += SCAN_ID_BATCH_SIZE) {
-		const chunk = unique.slice(i, i + SCAN_ID_BATCH_SIZE);
-		const snap = await db
-			.collection("mediaAssets")
-			.where(FieldPath.documentId(), "in", chunk)
-			.get();
-		for (const docSnap of snap.docs) {
-			const data = docSnap.data();
-			out.set(docSnap.id, {
-				id: docSnap.id,
-				owner: typeof data.owner === "string" ? data.owner : undefined,
-				status: typeof data.status === "string" ? data.status : undefined,
-				kind: typeof data.kind === "string" ? data.kind : undefined,
-				createdAtMs: (data.created_at as Timestamp | undefined)?.toMillis?.(),
-			});
-		}
+	if (unique.length === 0) return out;
+	const rows = await db
+		.selectFrom("media_assets")
+		.select(["id", "owner", "status", "kind", "created_at"])
+		.where("id", "in", unique)
+		.execute();
+	for (const row of rows) {
+		out.set(row.id, {
+			id: row.id,
+			owner: row.owner,
+			status: row.status,
+			kind: row.kind,
+			createdAtMs: row.created_at.getTime(),
+		});
 	}
 	return out;
 }

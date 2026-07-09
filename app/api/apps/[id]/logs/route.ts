@@ -1,5 +1,5 @@
 /**
- * App logs API — load generation run logs from Firestore.
+ * App logs API — load generation run logs from the events table.
  *
  * GET /api/apps/{id}/logs            — load entries for the latest run
  * GET /api/apps/{id}/logs?runId={id} — load entries for a specific run

@@ -27,6 +27,7 @@ const {
 	requireSessionMock,
 	userInProjectMock,
 	loadAssetByIdMock,
+	listReferencingAppIdsMock,
 	findAppReferencesToAssetMock,
 	purgeAssetStorageMock,
 	streamAssetMock,
@@ -35,6 +36,7 @@ const {
 	requireSessionMock: vi.fn(),
 	userInProjectMock: vi.fn(() => Promise.resolve(true)),
 	loadAssetByIdMock: vi.fn(),
+	listReferencingAppIdsMock: vi.fn(() => Promise.resolve<string[]>([])),
 	findAppReferencesToAssetMock: vi.fn(() => Promise.resolve([] as string[])),
 	purgeAssetStorageMock: vi.fn(() => Promise.resolve()),
 	streamAssetMock: vi.fn(),
@@ -45,6 +47,7 @@ vi.mock("@/lib/auth-utils", () => ({ requireSession: requireSessionMock }));
 vi.mock("@/lib/db/appAccess", () => ({ userInProject: userInProjectMock }));
 vi.mock("@/lib/db/mediaAssets", () => ({
 	loadAssetById: loadAssetByIdMock,
+	listReferencingAppIds: listReferencingAppIdsMock,
 }));
 vi.mock("@/lib/media/assetDeletion", () => ({
 	findAppReferencesToAsset: findAppReferencesToAssetMock,
@@ -59,8 +62,9 @@ vi.mock("@/lib/storage/media", () => ({
 	getStoredObjectSize: getStoredObjectSizeMock,
 }));
 
-/** A ready document asset row, overridable per test. `referencingAppIds` is the
- *  reverse index the route must thread to the guard as its candidate set. */
+/** A ready document asset row, overridable per test. The reverse-index candidate
+ *  set the route threads to the guard comes from `listReferencingAppIds` (mocked
+ *  to `["app-x"]`), not a field on the row. */
 function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	return {
 		id: "asset-1",
@@ -74,7 +78,6 @@ function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 		extension: ".pdf",
 		sizeBytes: 100,
 		status: "ready",
-		referencingAppIds: ["app-x"],
 		...over,
 	} as unknown as MediaAssetRecord;
 }
@@ -89,6 +92,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	requireSessionMock.mockResolvedValue({ user: { id: "user-1" } });
 	userInProjectMock.mockResolvedValue(true);
+	listReferencingAppIdsMock.mockResolvedValue(["app-x"]);
 	findAppReferencesToAssetMock.mockResolvedValue([]);
 	purgeAssetStorageMock.mockResolvedValue(undefined);
 	getStoredObjectSizeMock.mockResolvedValue(100);

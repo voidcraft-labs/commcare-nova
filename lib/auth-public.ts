@@ -2,7 +2,7 @@
  * Public auth constants importable from client components.
  *
  * `lib/auth.ts` runs Better Auth's `betterAuth(...)` factory which
- * transitively pulls in `firebase-admin` and Node-only modules. Client
+ * transitively pulls in `pg`/`kysely` and Node-only modules. Client
  * components that need only the public *values* (scope vocabularies,
  * prefix literals) would otherwise force the bundler to ship those
  * server modules to the browser, which fails the build.

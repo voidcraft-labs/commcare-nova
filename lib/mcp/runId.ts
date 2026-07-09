@@ -12,10 +12,9 @@
  * `WINDOW_MS` of inactivity, the next mutation mints a fresh id and the
  * old run is "closed" in the event log.
  *
- * Pure function — the caller extracts primitives from the Firestore
- * `AppDoc` and passes them in. Keeping the signature free of Firestore
- * types makes this trivially unit-testable and decouples the derivation
- * logic from the `Timestamp` wire type.
+ * Pure function — the caller extracts primitives from the `AppDoc` and
+ * passes them in, keeping the signature free of storage types so the
+ * derivation is trivially unit-testable.
  */
 
 /**
@@ -36,11 +35,10 @@ export interface DeriveRunIdInput {
 	/** Currently recorded run_id on the app doc, or null if never set. */
 	currentRunId: string | null;
 	/**
-	 * Epoch-ms of the app's last write (i.e. `updated_at.toMillis()`). Null
+	 * Epoch-ms of the app's last write (i.e. `updated_at.getTime()`). Null
 	 * when the app has never been written — shouldn't happen in practice
 	 * (create_app always seeds both fields) but the null case is handled
-	 * defensively so the derivation doesn't crash if a malformed row leaks
-	 * past the Zod converter.
+	 * defensively so the derivation doesn't crash on a malformed row.
 	 */
 	lastActiveMs: number | null;
 	/** Wall-clock at the moment the tool call is handled. */
@@ -68,19 +66,17 @@ export function deriveRunId(input: DeriveRunIdInput): string {
 	return crypto.randomUUID();
 }
 
-/** Anything carrying a Firestore-style `.toMillis()` method. */
+/** Anything carrying a `.toMillis()` method (a fabricated test double). */
 interface MillisCarrier {
 	toMillis(): number;
 }
 
 /**
- * Extract epoch-ms from the `updated_at` value on an `AppDoc`.
- *
- * In production the Zod converter validates this field as a Firestore
- * `Timestamp` instance; in tests it's commonly fabricated as a plain
- * `Date`. The signature accepts both — and `null`/`undefined` for
- * never-written app rows. Unknown shapes fall through to `null`, which
- * the derivation treats as "closed run" and mints a fresh id from.
+ * Extract epoch-ms from the `updated_at` value on an `AppDoc` — a `Date` in
+ * production, a `.toMillis()` carrier in some test doubles, and
+ * `null`/`undefined` for never-written rows. Unknown shapes fall through to
+ * `null`, which the derivation treats as "closed run" and mints a fresh id
+ * from.
  */
 export function timestampToMillis(
 	ts: MillisCarrier | Date | null | undefined,

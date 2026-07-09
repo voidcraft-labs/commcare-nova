@@ -1,63 +1,73 @@
 /**
- * The presence write route against the Firestore emulator — P5's POST/DELETE
- * half of the relay.
+ * The presence write route against a real Postgres testcontainer — the
+ * POST/DELETE half of the relay.
  *
  * What this pins:
  *   - POST server-stamps `userId` (never trusts a client-asserted one), keys the
- *     doc at `{userId}:{sessionId}`, and stamps `updatedAt` + `expireAt`.
- *   - A user's two tabs (two `sessionId`s) write two distinct docs — one DELETE
+ *     row at `(app_id, user_id, session_id)`, and stamps `updated_at` +
+ *     `expire_at`; avatar/email come from the SESSION, never the body.
+ *   - A user's two tabs (two `sessionId`s) write two distinct rows — one DELETE
  *     removes only its own session.
- *   - Both verbs gate on `resolveAppScope` (a denial 404s, IDOR-safe).
+ *   - Each POST opportunistically sweeps the app's expired rows (bounds the
+ *     table; the roster read already filters expired rows).
+ *   - Both verbs gate on `resolveAppScope` (a denial 404s, IDOR-safe); a
+ *     malformed body / non-UUID sessionId 400s.
  *
- * `requireSession` / `resolveAppScope` are mocked (no Better Auth / Postgres in
- * the emulator harness). Auto-skipped when `FIRESTORE_EMULATOR_HOST` is unset.
+ * `requireSession` / `resolveAppScope` are mocked; the `presence` writes hit the
+ * per-test Postgres directly (the `presence` table has no FK to `apps`, so no
+ * app row is seeded). Runs on the per-test-database harness booted by the
+ * case-store testcontainer `globalSetup`.
  */
 
+import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
+import { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
+import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
+import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 
 const { requireSessionMock, resolveAppScopeMock } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
 	resolveAppScopeMock: vi.fn(),
 }));
 
+class MockAppAccessError extends Error {
+	readonly name = "AppAccessError";
+	constructor(readonly reason?: string) {
+		super(reason);
+	}
+}
+
 vi.mock("@/lib/auth-utils", () => ({
 	requireSession: requireSessionMock,
 }));
 vi.mock("@/lib/db/appAccess", () => ({
 	resolveAppScope: resolveAppScopeMock,
-	AppAccessError: class AppAccessError extends Error {
-		readonly name = "AppAccessError";
-	},
+	AppAccessError: MockAppAccessError,
 }));
 
 const { POST, DELETE } = await import("../route");
-const { getDb, docs } = await import("@/lib/db/firestore");
 
-/** Per-tab session ids are shape-pinned to UUIDs (they ride the doc path). */
+/** Per-tab session ids are shape-pinned to UUIDs. */
 const SESS_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SESS_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-
-const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
 
 const USER = "user-1";
 const PROJECT = "project-1";
 
-const createdAppIds: string[] = [];
-let appCounter = 0;
+const dbHandle = setupPerTestDatabase({
+	databaseNamePrefix: "presence_route_",
+});
+
+let appDb: Kysely<AppDatabase>;
+let appPool: Pool;
 
 function sessionFor(userId: string) {
 	return { user: { id: userId } } as never;
 }
 
-async function seedApp(): Promise<string> {
-	appCounter += 1;
-	const appId = `presence-test-${appCounter}-${crypto.randomUUID()}`;
-	createdAppIds.push(appId);
-	await getDb()
-		.collection("apps")
-		.doc(appId)
-		.set({ project_id: PROJECT, owner: USER, mutation_seq: 0 });
-	return appId;
+function freshAppId(): string {
+	return `presence-${crypto.randomUUID()}`;
 }
 
 function postReq(appId: string, body: unknown): Request {
@@ -80,14 +90,12 @@ function deleteReq(appId: string, body: unknown): Request {
  *
  * Draining is load-bearing under the async-leak gate, not a convenience:
  * `postReq`/`deleteReq` build real `Request`s with a JSON body, and the route
- * returns a bodied `Response` on every path (`Response.json({ ok: true })` on
- * success, `handleApiError`'s JSON on 4xx). An unconsumed body stream — request
+ * returns a bodied `Response` on every path. An unconsumed body stream — request
  * OR response — leaves its pull promise pending, which `--detect-async-leaks`
- * flags as a leaked PROMISE. The RESPONSE is drained here so a status-only
- * assertion still settles it; the REQUEST is drained on paths that short-circuit
- * before the route's own `readJsonBody` (the scope-denial 404 rejects at
- * `resolveAppScope` first), guarded on `bodyUsed` so a body the route already
- * consumed is never re-read (which throws).
+ * flags. The RESPONSE is drained here so a status-only assertion still settles
+ * it; the REQUEST is drained on paths that short-circuit before the route's own
+ * `readJsonBody` (the scope-denial 404 rejects at `resolveAppScope` first),
+ * guarded on `bodyUsed` so a body the route already consumed is never re-read.
  */
 async function call(
 	handler: (
@@ -103,8 +111,26 @@ async function call(
 	return res.status;
 }
 
-beforeEach(() => {
-	createdAppIds.length = 0;
+/** Read one presence row back. */
+async function readPresence(appId: string, userId: string, sessionId: string) {
+	return appDb
+		.selectFrom("presence")
+		.selectAll()
+		.where("app_id", "=", appId)
+		.where("user_id", "=", userId)
+		.where("session_id", "=", sessionId)
+		.executeTakeFirst();
+}
+
+beforeEach(async () => {
+	await runCaseStoreMigrations(dbHandle.db);
+	appPool = new Pool({ connectionString: dbHandle.uri, max: 4 });
+	appPool.on("error", () => {});
+	appDb = new Kysely<AppDatabase>({
+		dialect: new PostgresDialect({ pool: appPool as unknown as PostgresPool }),
+	});
+	__setAppDbForTests(appDb);
+
 	requireSessionMock.mockReset();
 	resolveAppScopeMock.mockReset();
 	requireSessionMock.mockResolvedValue(sessionFor(USER));
@@ -116,146 +142,179 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-	await Promise.all(
-		createdAppIds.map(async (id) => {
-			const ref = getDb().collection("apps").doc(id);
-			const snap = await ref.collection("presence").get();
-			await Promise.all(snap.docs.map((d) => d.ref.delete()));
-			await ref.delete();
-		}),
-	);
+	__setAppDbForTests(null);
+	await appDb.destroy().catch(() => {});
 });
 
-describe.skipIf(!emulatorAvailable)(
-	"/presence route (Firestore emulator)",
-	() => {
-		it("POST upserts a session doc keyed {userId}:{sessionId} with a server-stamped userId", async () => {
-			const appId = await seedApp();
-			const status = await call(
-				POST,
-				postReq(appId, {
-					sessionId: SESS_A,
-					name: "Ada",
-					color: "#abcdef",
-					location: { kind: "home" },
-				}),
-				appId,
-			);
-			expect(status).toBe(200);
-
-			const snap = await docs.presence(appId, `${USER}:${SESS_A}`).get();
-			expect(snap.exists).toBe(true);
-			const data = snap.data();
-			expect(data?.userId).toBe(USER);
-			expect(data?.sessionId).toBe(SESS_A);
-			expect(data?.name).toBe("Ada");
-			expect(data?.location).toEqual({ kind: "home" });
-			expect(data?.expireAt).toBeDefined();
-			// No image on the session → stored as an explicit null.
-			expect(data?.image).toBeNull();
-		});
-
-		it("POST stamps avatar + email from the SESSION, never the body (a client can't wear someone else's identity)", async () => {
-			const appId = await seedApp();
-			requireSessionMock.mockResolvedValue({
-				user: {
-					id: USER,
-					image: "https://lh3.googleusercontent.com/a/ada",
-					email: "ada@dimagi.com",
-				},
-			} as never);
-			// A body-supplied `image`/`email` isn't even accepted: the strict body
-			// schema 400s an unknown key (pinned by the malformed-body test below),
-			// so the session is structurally the ONLY identity source.
-			const status = await call(
-				POST,
-				postReq(appId, {
-					sessionId: SESS_A,
-					name: "Ada",
-					color: "#abcdef",
-					location: { kind: "home" },
-				}),
-				appId,
-			);
-			expect(status).toBe(200);
-			const data = (
-				await docs.presence(appId, `${USER}:${SESS_A}`).get()
-			).data();
-			expect(data?.image).toBe("https://lh3.googleusercontent.com/a/ada");
-			expect(data?.email).toBe("ada@dimagi.com");
-		});
-
-		it("keeps two tabs' sessions distinct; DELETE removes only the named session", async () => {
-			const appId = await seedApp();
-			const base = {
+describe("/presence route (Postgres)", () => {
+	it("POST upserts a row keyed (app_id,user_id,session_id) with a server-stamped userId", async () => {
+		const appId = freshAppId();
+		const status = await call(
+			POST,
+			postReq(appId, {
+				sessionId: SESS_A,
 				name: "Ada",
 				color: "#abcdef",
 				location: { kind: "home" },
-			};
-			await call(POST, postReq(appId, { ...base, sessionId: SESS_A }), appId);
-			await call(POST, postReq(appId, { ...base, sessionId: SESS_B }), appId);
+			}),
+			appId,
+		);
+		expect(status).toBe(200);
 
-			await call(DELETE, deleteReq(appId, { sessionId: SESS_A }), appId);
+		const row = await readPresence(appId, USER, SESS_A);
+		expect(row).toBeDefined();
+		expect(row?.user_id).toBe(USER);
+		expect(row?.session_id).toBe(SESS_A);
+		expect(row?.name).toBe("Ada");
+		expect(row?.location).toEqual({ kind: "home" });
+		expect(row?.expire_at).toBeDefined();
+		// No image on the session → stored as an explicit null.
+		expect(row?.image).toBeNull();
+	});
 
-			expect(
-				(await docs.presence(appId, `${USER}:${SESS_A}`).get()).exists,
-			).toBe(false);
-			expect(
-				(await docs.presence(appId, `${USER}:${SESS_B}`).get()).exists,
-			).toBe(true);
-		});
+	it("POST stamps avatar + email from the SESSION, never the body (a client can't wear someone else's identity)", async () => {
+		const appId = freshAppId();
+		requireSessionMock.mockResolvedValue({
+			user: {
+				id: USER,
+				image: "https://lh3.googleusercontent.com/a/ada",
+				email: "ada@dimagi.com",
+			},
+		} as never);
+		// A body-supplied `image`/`email` isn't even accepted: the strict body
+		// schema 400s an unknown key (pinned by the malformed-body test below), so
+		// the session is structurally the ONLY identity source.
+		const status = await call(
+			POST,
+			postReq(appId, {
+				sessionId: SESS_A,
+				name: "Ada",
+				color: "#abcdef",
+				location: { kind: "home" },
+			}),
+			appId,
+		);
+		expect(status).toBe(200);
+		const row = await readPresence(appId, USER, SESS_A);
+		expect(row?.image).toBe("https://lh3.googleusercontent.com/a/ada");
+		expect(row?.email).toBe("ada@dimagi.com");
+	});
 
-		it("POST 404s when scope resolution denies (IDOR-safe)", async () => {
-			const appId = await seedApp();
-			const { AppAccessError } = await import("@/lib/db/appAccess");
-			resolveAppScopeMock.mockRejectedValue(new AppAccessError("not_member"));
+	it("re-POST of the same session upserts in place (no duplicate row)", async () => {
+		const appId = freshAppId();
+		const base = { name: "Ada", color: "#abcdef", location: { kind: "home" } };
+		await call(POST, postReq(appId, { ...base, sessionId: SESS_A }), appId);
+		await call(
+			POST,
+			postReq(appId, { ...base, name: "Ada B.", sessionId: SESS_A }),
+			appId,
+		);
 
-			const status = await call(
-				POST,
-				postReq(appId, {
-					sessionId: SESS_A,
-					name: "Ada",
-					color: "#abcdef",
-					location: { kind: "home" },
-				}),
-				appId,
-			);
-			expect(status).toBe(404);
-		});
+		const rows = await appDb
+			.selectFrom("presence")
+			.selectAll()
+			.where("app_id", "=", appId)
+			.execute();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.name).toBe("Ada B.");
+	});
 
-		it("POST 400s on a malformed body (unknown key / bad location)", async () => {
-			const appId = await seedApp();
-			const status = await call(
-				POST,
-				postReq(appId, {
-					sessionId: SESS_A,
-					name: "Ada",
-					color: "#abcdef",
-					location: { kind: "not-a-real-kind" },
-				}),
-				appId,
-			);
-			expect(status).toBe(400);
-		});
+	it("keeps two tabs' sessions distinct; DELETE removes only the named session", async () => {
+		const appId = freshAppId();
+		const base = { name: "Ada", color: "#abcdef", location: { kind: "home" } };
+		await call(POST, postReq(appId, { ...base, sessionId: SESS_A }), appId);
+		await call(POST, postReq(appId, { ...base, sessionId: SESS_B }), appId);
 
-		it("POST 400s a path-hostile sessionId (non-UUID rides the doc path)", async () => {
-			// `sessionId` is interpolated into the presence document path, and
-			// Firestore's `.doc()` treats `/` as a path separator — a freeform
-			// string could address nested junk paths or throw synchronously (a 500
-			// any member could mint at will from a heartbeat endpoint). The UUID
-			// shape pin rejects it at the boundary.
-			const appId = await seedApp();
-			const status = await call(
-				POST,
-				postReq(appId, {
-					sessionId: "a/b",
-					name: "Ada",
-					color: "#abcdef",
-					location: { kind: "home" },
-				}),
-				appId,
-			);
-			expect(status).toBe(400);
-		});
-	},
-);
+		await call(DELETE, deleteReq(appId, { sessionId: SESS_A }), appId);
+
+		expect(await readPresence(appId, USER, SESS_A)).toBeUndefined();
+		expect(await readPresence(appId, USER, SESS_B)).toBeDefined();
+	});
+
+	it("sweeps the app's expired rows on a POST (bounds the table)", async () => {
+		const appId = freshAppId();
+		// A dead session whose TTL already lapsed.
+		await appDb
+			.insertInto("presence")
+			.values({
+				app_id: appId,
+				user_id: "ghost",
+				session_id: crypto.randomUUID(),
+				name: "Ghost",
+				image: null,
+				email: "",
+				color: "#000000",
+				location: JSON.stringify({ kind: "home" }),
+				updated_at: new Date(Date.now() - 120_000),
+				expire_at: new Date(Date.now() - 60_000),
+			})
+			.execute();
+
+		const status = await call(
+			POST,
+			postReq(appId, {
+				sessionId: SESS_A,
+				name: "Ada",
+				color: "#abcdef",
+				location: { kind: "home" },
+			}),
+			appId,
+		);
+		expect(status).toBe(200);
+
+		const rows = await appDb
+			.selectFrom("presence")
+			.select("session_id")
+			.where("app_id", "=", appId)
+			.execute();
+		// The expired ghost was swept; only the fresh (future-`expire_at`) row survives.
+		expect(rows.map((r) => r.session_id)).toEqual([SESS_A]);
+	});
+
+	it("POST 404s when scope resolution denies (IDOR-safe)", async () => {
+		const appId = freshAppId();
+		resolveAppScopeMock.mockRejectedValue(new MockAppAccessError("not_member"));
+
+		const status = await call(
+			POST,
+			postReq(appId, {
+				sessionId: SESS_A,
+				name: "Ada",
+				color: "#abcdef",
+				location: { kind: "home" },
+			}),
+			appId,
+		);
+		expect(status).toBe(404);
+	});
+
+	it("POST 400s on a malformed body (unknown key / bad location)", async () => {
+		const appId = freshAppId();
+		const status = await call(
+			POST,
+			postReq(appId, {
+				sessionId: SESS_A,
+				name: "Ada",
+				color: "#abcdef",
+				location: { kind: "not-a-real-kind" },
+			}),
+			appId,
+		);
+		expect(status).toBe(400);
+	});
+
+	it("POST 400s a non-UUID sessionId (the per-tab key is shape-pinned)", async () => {
+		const appId = freshAppId();
+		const status = await call(
+			POST,
+			postReq(appId, {
+				sessionId: "not-a-uuid",
+				name: "Ada",
+				color: "#abcdef",
+				location: { kind: "home" },
+			}),
+			appId,
+		);
+		expect(status).toBe(400);
+	});
+});

@@ -1,86 +1,108 @@
 /**
- * `addReferencingApp` unit tests — the reverse-index WRITE the delete guard's
- * candidate set depends on.
+ * `addReferencingApp` — the reverse-index WRITE the delete guard's candidate set
+ * depends on, against the real per-test Postgres.
  *
+ * On Postgres the reverse index is the `media_asset_refs` join table (one row per
+ * `(asset, app)` edge, PK `(asset_id, app_id)`, FK `asset_id → media_assets(id)`).
  * Locks three contracts:
  *   - An empty asset list writes NOTHING (the no-media common case is free).
- *   - Each unique asset id gets one `update({ referencingAppIds: arrayUnion })`
- *     — deduped, append-only.
- *   - Writes are INDEPENDENT (Promise.allSettled): one asset's update rejecting
- *     (a dangling ref → Firestore NOT_FOUND) is logged and SKIPPED, and the
- *     other valid edges still land. A single bad ref must not drop every edge —
- *     that's why this isn't one atomic batch.
- *
- * The Firestore module is mocked at the file boundary; `docs.mediaAsset(id)`
- * returns a stub whose `update` runs through an id-aware spy so a single id can
- * be made to reject. `FieldValue.arrayUnion` is the real sentinel.
+ *   - Each UNIQUE asset id gets one edge, deduped + idempotent (`ON CONFLICT DO
+ *     NOTHING` — re-adding a present edge leaves the set unchanged).
+ *   - Writes are INDEPENDENT (Promise.allSettled): a dangling ref (no
+ *     `media_assets` row → an FK violation) is logged and SKIPPED, and the other
+ *     valid edges still land. A single bad ref must not drop every edge — that's
+ *     why this isn't one atomic batch.
  */
 
-import { FieldValue } from "@google-cloud/firestore";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addReferencingApp } from "../mediaAssets";
+import { setupAppStateTestDb } from "./appStateTestDb";
 
-const { updateSpy, mediaAssetMock, warnSpy } = vi.hoisted(() => {
-	const update = vi.fn((_id: string, _data: unknown) => Promise.resolve());
-	const mediaAsset = vi.fn((id: string) => ({
-		update: (data: unknown) => update(id, data),
-	}));
-	const warn = vi.fn();
-	return { updateSpy: update, mediaAssetMock: mediaAsset, warnSpy: warn };
-});
-
-vi.mock("../firestore", () => ({
-	docs: { mediaAsset: mediaAssetMock },
-	// `addReferencingApp` touches neither, but `mediaAssets.ts` imports both at
-	// module scope; empty stand-ins keep the module graph resolvable.
-	collections: { mediaAssets: vi.fn() },
-	getDb: vi.fn(),
+const { warnSpy } = vi.hoisted(() => ({ warnSpy: vi.fn() }));
+vi.mock("@/lib/logger", () => ({
+	log: { warn: warnSpy, error: vi.fn(), info: vi.fn(), critical: vi.fn() },
 }));
-vi.mock("@/lib/logger", () => ({ log: { warn: warnSpy, error: vi.fn() } }));
 
-beforeEach(() => {
-	vi.clearAllMocks();
-	updateSpy.mockResolvedValue(undefined);
-});
+const h = setupAppStateTestDb("add_ref_");
+
+/** Seed a `ready` `media_assets` row so a `media_asset_refs` edge can reference it. */
+async function seedAsset(id: string): Promise<void> {
+	await h
+		.db()
+		.insertInto("media_assets")
+		.values({
+			id,
+			project_id: "project-1",
+			owner: "owner-1",
+			content_hash: "a".repeat(64),
+			mime_type: "image/png",
+			extension: ".png",
+			size_bytes: 1024,
+			kind: "image",
+			gcs_object_key: `projects/project-1/${id}.png`,
+			original_filename: `${id}.png`,
+			status: "ready",
+		})
+		.execute();
+}
+
+/** The referencing-app ids recorded for an asset. */
+async function refsFor(assetId: string): Promise<string[]> {
+	const rows = await h
+		.db()
+		.selectFrom("media_asset_refs")
+		.select("app_id")
+		.where("asset_id", "=", assetId)
+		.execute();
+	return rows.map((r) => r.app_id).sort();
+}
 
 describe("addReferencingApp", () => {
+	beforeEach(() => {
+		warnSpy.mockClear();
+	});
+
 	it("writes nothing for an empty asset list", async () => {
+		const { addReferencingApp } = await import("../mediaAssets");
 		await addReferencingApp([], "app-1");
-		expect(updateSpy).not.toHaveBeenCalled();
+		const all = await h
+			.db()
+			.selectFrom("media_asset_refs")
+			.selectAll()
+			.execute();
+		expect(all).toHaveLength(0);
 	});
 
-	it("writes arrayUnion(appId) per UNIQUE asset id — the exact value, not just the key", async () => {
+	it("writes one edge per UNIQUE asset id and is idempotent on a re-add", async () => {
+		const { addReferencingApp } = await import("../mediaAssets");
+		await seedAsset("a");
+		await seedAsset("b");
+
 		await addReferencingApp(["a", "b", "a"], "app-1");
-		expect(updateSpy).toHaveBeenCalledTimes(2);
-		const ids = updateSpy.mock.calls.map((c) => c[0]).sort();
-		expect(ids).toEqual(["a", "b"]);
-		// Pin the VALUE, not just the key: each update must arrayUnion the correct
-		// app id (a wrong/stale id or a literal array would otherwise pass). The
-		// real `FieldValue.arrayUnion` sentinel is structurally comparable.
-		for (const [, data] of updateSpy.mock.calls) {
-			expect(data).toEqual({
-				referencingAppIds: FieldValue.arrayUnion("app-1"),
-			});
-		}
+		expect(await refsFor("a")).toEqual(["app-1"]);
+		expect(await refsFor("b")).toEqual(["app-1"]);
+
+		// A re-add of a present edge changes nothing (ON CONFLICT DO NOTHING).
+		await addReferencingApp(["a"], "app-1");
+		expect(await refsFor("a")).toEqual(["app-1"]);
 	});
 
-	it("a dangling ref (NOT_FOUND) is logged and skipped; valid edges still land", async () => {
-		updateSpy.mockImplementation((id: string) =>
-			id === "missing"
-				? Promise.reject(new Error("NOT_FOUND"))
-				: Promise.resolve(),
-		);
+	it("a dangling ref (no asset row → FK violation) is logged and skipped; valid edges still land", async () => {
+		const { addReferencingApp } = await import("../mediaAssets");
+		await seedAsset("good");
+		warnSpy.mockClear();
+
 		// Must NOT throw — the bad ref can't poison the batch.
 		await expect(
 			addReferencingApp(["good", "missing"], "app-1"),
 		).resolves.toBeUndefined();
-		// Both updates were attempted (independent, not short-circuited).
-		expect(updateSpy).toHaveBeenCalledTimes(2);
+
+		// The valid edge landed; the dangling one did not.
+		expect(await refsFor("good")).toEqual(["app-1"]);
+		expect(await refsFor("missing")).toEqual([]);
 		// The failure was logged, naming the offending asset.
-		expect(warnSpy).toHaveBeenCalledTimes(1);
-		expect(warnSpy.mock.calls[0][1]).toMatchObject({
-			assetId: "missing",
-			appId: "app-1",
-		});
+		const warned = warnSpy.mock.calls.find(
+			(c) => c[1]?.assetId === "missing" && c[1]?.appId === "app-1",
+		);
+		expect(warned).toBeDefined();
 	});
 });

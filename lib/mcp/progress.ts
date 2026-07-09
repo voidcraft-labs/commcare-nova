@@ -3,9 +3,9 @@
  *
  * Adapters emit fine-grained progress through this interface so clients
  * with a progress token on their tool call can observe stage
- * transitions in real time. The stage taxonomy aligns with
- * `deriveReplayChapters` so UIs consuming the replay vocabulary share
- * one parser across the live and replay paths.
+ * transitions in real time. The stage taxonomy mirrors the chapter tags
+ * emitted on `MutationEvent.stage`, so a UI consuming the stage
+ * vocabulary shares one parser across the live stream and this surface.
  *
  * When the client did not opt into progress (no progress token),
  * `notify()` is a no-op — adapters can call it unconditionally without
@@ -23,9 +23,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 /**
  * Stage vocabulary for MCP progress notifications. Mirrors the chapter
- * tags emitted on `MutationEvent.stage` and derived by
- * `deriveReplayChapters`. Additive — new stages should be added here
- * AND to the replay chapter deriver together.
+ * tags emitted on `MutationEvent.stage`. Additive — new stages are added
+ * here alongside any new stage tag.
  */
 export type ProgressStage =
 	| "app_created"

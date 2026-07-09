@@ -7,10 +7,10 @@ import { urlHost } from "./e2e/lib/url";
  *
  * Two ways to run, switched by `SMOKE_BASE_URL`:
  *
- *   • LOCAL / CI (default) — `scripts/smoke.sh` boots the Firestore emulator +
- *     a local Postgres, seeds data, and Playwright builds + serves the
- *     production server itself (the `webServer` block — `next build && next
- *     start`, not dev, for prod fidelity). Both projects run. This is the full gate.
+ *   • LOCAL / CI (default) — `scripts/smoke.sh` boots a local Postgres, seeds
+ *     data, and Playwright builds + serves the production server itself (the
+ *     `webServer` block — `next build && next start`, not dev, for prod
+ *     fidelity). Both projects run. This is the full gate.
  *
  *   • AGAINST A LIVE URL — `SMOKE_BASE_URL=https://commcare.app npm run
  *     test:smoke:url` skips the local server and the seeded-session project,
@@ -38,7 +38,7 @@ const isLocalTarget =
 	localHost === "localhost" || localHost === "127.0.0.1" || localHost === "::1";
 // Only manage our own server when scripts/smoke.sh is driving (it exports this).
 // Otherwise — e.g. `test:smoke:url` probing an already-running URL, even a
-// localhost one — don't spin up a server (and don't require the emulator env).
+// localhost one — don't spin up a server (and don't require the smoke env).
 const manageServer = process.env.SMOKE_MANAGE_SERVER === "1";
 
 /**
@@ -46,12 +46,11 @@ const manageServer = process.env.SMOKE_MANAGE_SERVER === "1";
  * explicitly so it wins over any `.env` the server would otherwise load.
  * `scripts/smoke.sh`
  * exports all of these; the REQUIRED ones must be present, or the seed and the
- * server silently disagree on the Firestore namespace / signing secret and the
- * authed tests fail with a confusing "no data" instead of a clear cause.
+ * server silently disagree on the database / signing secret and the authed
+ * tests fail with a confusing "no data" instead of a clear cause.
  */
 const REQUIRED_SERVER_ENV = [
 	"GOOGLE_CLOUD_PROJECT",
-	"FIRESTORE_EMULATOR_HOST",
 	"BETTER_AUTH_SECRET",
 	"BETTER_AUTH_URL",
 	"NOVA_DB_LOCAL_URL",
@@ -71,7 +70,7 @@ function smokeWebServerEnv(): Record<string, string> {
 	if (missing.length > 0) {
 		throw new Error(
 			`Smoke web server is missing required env: ${missing.join(", ")}. ` +
-				"Run the suite via `npm run test:smoke` (scripts/smoke.sh sets these and boots the emulator), not `playwright test` directly.",
+				"Run the suite via `npm run test:smoke` (scripts/smoke.sh sets these and boots the local Postgres), not `playwright test` directly.",
 		);
 	}
 	const env: Record<string, string> = {};
@@ -90,7 +89,7 @@ export default defineConfig({
 	forbidOnly: isCI,
 	// Single-sourced with the seed's throwaway-app count (e2e/lib/config.ts).
 	retries: SMOKE_RETRIES,
-	// One worker: the suite shares a single emulator + seeded dataset; the delete
+	// One worker: the suite shares a single Postgres + seeded dataset; the delete
 	// test mutates app rows, so parallel workers could race the app list.
 	workers: 1,
 	// Generous headroom for a full page load + assertions. `next start` serves
@@ -185,10 +184,10 @@ export default defineConfig({
 							: "npx fumadocs-mdx && npx next build && npx next start",
 					url: BASE_URL,
 					// Never reuse a stray server: a dev's own `npm run dev` on :3000
-					// points at REAL Firestore with a different secret, so reusing it
-					// would run the authed tests against the wrong backend (the forged
-					// emulator cookie fails to validate) — a confusing red. Always start
-					// the suite's own emulator-wired server.
+					// points at a different database with a different secret, so
+					// reusing it would run the authed tests against the wrong backend
+					// (the forged cookie fails to validate) — a confusing red. Always
+					// start the suite's own Postgres-wired server.
 					reuseExistingServer: false,
 					// Covers the production build (~2 min) + boot. `next start` serves
 					// pre-compiled routes, so per-test requests are fast after this.

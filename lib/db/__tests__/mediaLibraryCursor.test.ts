@@ -1,16 +1,16 @@
 /**
  * Round-trip + rejection coverage for the library pagination cursor.
  *
- * The cursor pins `(created_at, documentId)` so tied timestamps
- * don't straddle a page boundary. The load-bearing property: the
- * timestamp survives encode→decode WITHOUT losing sub-millisecond
- * nanoseconds — an ISO round-trip would truncate to ms and silently
- * skip same-millisecond rows. A malformed token must surface as
- * `MalformedCursorError` (→ 400), never a raw `Timestamp` throw
- * (→ 500).
+ * The cursor pins `(created_at, id)` so tied timestamps don't straddle a page
+ * boundary. The boundary is `{ createdAtMs, id }` — the `created_at` column is
+ * millisecond-precision, so the cursor carries epoch ms plus the row id; both
+ * must survive encode→decode or a same-millisecond pair could get skipped. A
+ * malformed token must surface as `MalformedCursorError` (→ 400), never a raw
+ * throw (→ 500). The decoder validates shape only (`createdAtMs` finite, `id` a
+ * string) and constructs no boundary itself, so there is no out-of-range failure
+ * mode to guard.
  */
 
-import { Timestamp } from "@google-cloud/firestore";
 import { describe, expect, it } from "vitest";
 import {
 	decodeLibraryCursor,
@@ -19,15 +19,12 @@ import {
 } from "../mediaAssets";
 
 describe("library cursor codec", () => {
-	it("round-trips a timestamp preserving sub-millisecond nanoseconds", () => {
-		// 123456789 ns is NOT a clean millisecond multiple — an ISO
-		// round-trip would truncate it to 123000000.
-		const ts = new Timestamp(1_700_000_000, 123_456_789);
-		const { boundary, id } = decodeLibraryCursor(
-			encodeLibraryCursor(ts, "asset-1"),
+	it("round-trips the created_at ms + id (the tie-break composite key)", () => {
+		const createdAt = new Date("2026-06-03T04:05:06.789Z");
+		const { createdAtMs, id } = decodeLibraryCursor(
+			encodeLibraryCursor(createdAt, "asset-1"),
 		);
-		expect(boundary.seconds).toBe(1_700_000_000);
-		expect(boundary.nanoseconds).toBe(123_456_789);
+		expect(createdAtMs).toBe(createdAt.getTime());
 		expect(id).toBe("asset-1");
 	});
 
@@ -39,31 +36,14 @@ describe("library cursor codec", () => {
 
 	it("rejects a token missing the id", () => {
 		const token = Buffer.from(
-			JSON.stringify({ seconds: 1, nanoseconds: 0 }),
+			JSON.stringify({ createdAtMs: 1_700_000_000_000 }),
 		).toString("base64url");
 		expect(() => decodeLibraryCursor(token)).toThrow(MalformedCursorError);
 	});
 
-	it("rejects non-integer seconds", () => {
+	it("rejects a non-finite createdAtMs", () => {
 		const token = Buffer.from(
-			JSON.stringify({ seconds: "banana", nanoseconds: 0, id: "x" }),
-		).toString("base64url");
-		expect(() => decodeLibraryCursor(token)).toThrow(MalformedCursorError);
-	});
-
-	it("rejects out-of-range seconds as MalformedCursorError, not a raw Timestamp throw", () => {
-		// Far outside Firestore's valid 0001–9999 range — the Timestamp
-		// constructor throws, and decode must convert that to the 400
-		// error rather than letting it escape as a 500.
-		const token = Buffer.from(
-			JSON.stringify({ seconds: 999_999_999_999, nanoseconds: 0, id: "x" }),
-		).toString("base64url");
-		expect(() => decodeLibraryCursor(token)).toThrow(MalformedCursorError);
-	});
-
-	it("rejects out-of-range nanoseconds", () => {
-		const token = Buffer.from(
-			JSON.stringify({ seconds: 1, nanoseconds: 2_000_000_000, id: "x" }),
+			JSON.stringify({ createdAtMs: "banana", id: "x" }),
 		).toString("base64url");
 		expect(() => decodeLibraryCursor(token)).toThrow(MalformedCursorError);
 	});

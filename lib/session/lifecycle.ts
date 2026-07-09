@@ -3,15 +3,14 @@
  *
  * These pure functions are the single source of truth for every UI
  * lifecycle signal: generation stage, classified error, status message,
- * validation attempt context, postBuildEdit latch. Both live and replay
- * paths feed the same `Event[]` into these functions — if the buffer
- * matches, the rendered layout matches.
+ * validation attempt context, postBuildEdit latch. The rendered layout is
+ * a pure function of the events buffer — the same buffer renders the same
+ * layout.
  *
- * Implementation note — each derivation walks the buffer every call,
- * but the buffer is only appended to (live) or replaced wholesale on
- * scrub (replay), so the cost is O(events). For realistic runs
- * (~1000 events) this is well under a millisecond. Callers cache via
- * `useMemo` where React re-renders demand it.
+ * Implementation note — each derivation walks the buffer every call, but
+ * the buffer is only appended to (the live stream), so the cost is
+ * O(events). For realistic runs (~1000 events) this is well under a
+ * millisecond. Callers cache via `useMemo` where React re-renders demand it.
  */
 
 import type { Event } from "@/lib/log/types";

@@ -36,6 +36,7 @@ import {
 	type Database,
 	enforceConnectionBudget,
 	getCaseStoreDatabase,
+	LISTENER_CONNECTIONS_PER_INSTANCE,
 	POOL_MAX_PER_INSTANCE,
 	REQUIRED_ENV_VARS,
 	readCaseStoreEnvConfig,
@@ -152,7 +153,10 @@ describe("buildPoolConfig", () => {
 		// connection-budget math.
 		const config = buildPoolConfig(stubClientOpts, env);
 		expect(config.max).toBe(POOL_MAX_PER_INSTANCE);
-		expect(config.max).toBe(4);
+		// Rebalanced from 4 → 3 to leave room for the relay's dedicated LISTEN
+		// connection (`LISTENER_CONNECTIONS_PER_INSTANCE`); the two sum to the
+		// former per-instance demand, so the total budget is unchanged.
+		expect(config.max).toBe(3);
 	});
 
 	it("forwards the connector's stream factory unchanged", () => {
@@ -198,6 +202,16 @@ describe("buildPoolConfig", () => {
 // ---------------------------------------------------------------
 
 describe("enforceConnectionBudget", () => {
+	it("reserves one dedicated LISTEN connection per instance", () => {
+		// The relay holds ONE `pg.Client` outside the pool per Cloud Run
+		// instance; `enforceConnectionBudget` (exercised below) folds this into
+		// its peak-demand math. Pin the split — a bump to either constant that
+		// blows the budget would trip the budget check, but pinning the values
+		// documents WHY the pool max dropped to 3.
+		expect(LISTENER_CONNECTIONS_PER_INSTANCE).toBe(1);
+		expect(POOL_MAX_PER_INSTANCE).toBe(3);
+	});
+
 	it("does not throw for the current constants", () => {
 		// Calls the production function directly — re-deriving the
 		// peak-demand-vs-budget formula in the test would share the

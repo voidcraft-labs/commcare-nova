@@ -50,7 +50,7 @@ import {
 	PostgresDialect,
 	type PostgresPool,
 } from "kysely";
-import type { PoolConfig } from "pg";
+import type { ClientConfig, PoolConfig } from "pg";
 import { Pool } from "pg";
 import type { Database } from "../sql/database.js";
 
@@ -60,9 +60,12 @@ import type { Database } from "../sql/database.js";
 
 export type { Database } from "../sql/database.js";
 
-// Pool-sizing invariant — named constants, not magic numbers. The
-// three deployment numbers below compose into the budget guarantee:
-// `CLOUD_RUN_MAX_INSTANCES * POOL_MAX_PER_INSTANCE` ≤
+// Pool-sizing invariant — named constants, not magic numbers. Each Cloud Run
+// instance opens the shared `pg.Pool` (up to `POOL_MAX_PER_INSTANCE`) PLUS one
+// dedicated LISTEN connection for the realtime relay
+// (`LISTENER_CONNECTIONS_PER_INSTANCE`), so the deployment numbers below compose
+// into the budget guarantee:
+// `CLOUD_RUN_MAX_INSTANCES * (POOL_MAX_PER_INSTANCE + LISTENER_CONNECTIONS_PER_INSTANCE)` ≤
 // `CLOUD_SQL_MAX_CONNECTIONS - CLOUD_SQL_RESERVED_CONNECTIONS`.
 // `enforceConnectionBudget` (below) fails loudly if the math drifts.
 
@@ -76,15 +79,23 @@ export const CLOUD_SQL_RESERVED_CONNECTIONS = 5;
 export const CLOUD_RUN_MAX_INSTANCES = 5;
 
 /**
- * Per-Cloud-Run-instance `pg.Pool` `max`. For the current shape:
- * `5 * 4 = 20 = 25 - 5`. Fits exactly.
+ * Per-Cloud-Run-instance `pg.Pool` `max`. For the current shape, including the
+ * dedicated relay LISTEN connection: `5 * (3 + 1) = 20 = 25 - 5`. Fits exactly.
  */
-export const POOL_MAX_PER_INSTANCE = 4;
+export const POOL_MAX_PER_INSTANCE = 3;
+
+/**
+ * Dedicated LISTEN connections per Cloud Run instance. The realtime relay
+ * (`lib/db/streamListener.ts`) holds ONE `pg.Client` OUTSIDE the pool — LISTEN
+ * can't ride a pooled connection Kysely reclaims per query — so every
+ * instance's peak demand is `POOL_MAX_PER_INSTANCE + this`.
+ */
+export const LISTENER_CONNECTIONS_PER_INSTANCE = 1;
 
 /**
  * Cap on how long a query waits to ACQUIRE a pooled connection before erroring.
  * Without it `pg.Pool` queues indefinitely; since the auth migration funnels a
- * per-request `isUserActive` read onto this 4-connection pool (which also serves
+ * per-request `isUserActive` read onto this small shared pool (which also serves
  * case-store/preview queries), a saturated pool could otherwise hang requests to
  * the route's 300s ceiling. A bounded timeout fails fast instead — the auth read
  * is fail-open on error (`sessionUserIsActive` allows the request), and
@@ -104,7 +115,8 @@ export const POOL_CONNECTION_TIMEOUT_MS = 10_000;
 export function enforceConnectionBudget(): void {
 	const applicationBudget =
 		CLOUD_SQL_MAX_CONNECTIONS - CLOUD_SQL_RESERVED_CONNECTIONS;
-	const peakDemand = CLOUD_RUN_MAX_INSTANCES * POOL_MAX_PER_INSTANCE;
+	const perInstance = POOL_MAX_PER_INSTANCE + LISTENER_CONNECTIONS_PER_INSTANCE;
+	const peakDemand = CLOUD_RUN_MAX_INSTANCES * perInstance;
 	if (peakDemand > applicationBudget) {
 		// Inline Elm-style throw — header / indented diagnostic / narrative /
 		// Hint. Configuration violations don't fit `compilerBugMessage`
@@ -115,16 +127,18 @@ export function enforceConnectionBudget(): void {
 			[
 				"Cloud SQL connection budget exceeded.",
 				"",
-				`    peak demand:        ${CLOUD_RUN_MAX_INSTANCES} (instances) * ${POOL_MAX_PER_INSTANCE} (pool max) = ${peakDemand}`,
+				`    peak demand:        ${CLOUD_RUN_MAX_INSTANCES} (instances) * (${POOL_MAX_PER_INSTANCE} (pool max) + ${LISTENER_CONNECTIONS_PER_INSTANCE} (listener)) = ${peakDemand}`,
 				`    available budget:   ${CLOUD_SQL_MAX_CONNECTIONS} - ${CLOUD_SQL_RESERVED_CONNECTIONS} = ${applicationBudget}`,
 				"",
-				"`pg.Pool` `max` × Cloud Run `--max-instances` must stay at or below",
-				"Cloud SQL `max_connections` minus the reserved-for-postgres slot count.",
+				"Each Cloud Run instance opens the shared `pg.Pool` (`max`) PLUS one",
+				"dedicated LISTEN connection for the realtime relay; that per-instance",
+				"sum × Cloud Run `--max-instances` must stay at or below Cloud SQL",
+				"`max_connections` minus the reserved-for-postgres slot count.",
 				"Crossing the budget can stall every Cloud Run instance against the",
 				"shared connection cap.",
 				"",
 				"Hint: tier up Cloud SQL (raises `CLOUD_SQL_MAX_CONNECTIONS`), reduce",
-				"`CLOUD_RUN_MAX_INSTANCES`, or reduce `POOL_MAX_PER_INSTANCE` so the four",
+				"`CLOUD_RUN_MAX_INSTANCES`, or reduce `POOL_MAX_PER_INSTANCE` so the",
 				"constants in `lib/case-store/postgres/connection.ts` stay consistent.",
 			].join("\n"),
 		);
@@ -349,6 +363,43 @@ export async function getCaseStoreDatabase(): Promise<Kysely<Database>> {
  */
 export async function getCaseStorePool(): Promise<Pool> {
 	return (await getHandles()).pool;
+}
+
+/**
+ * Build a `pg.ClientConfig` for a DEDICATED connection OUTSIDE the pool — the
+ * realtime relay's LISTEN client (`lib/db/streamListener.ts`), which can't ride
+ * a pooled connection Kysely reclaims per query. Shares the pool's config
+ * source: the local-dev URL when `NOVA_DB_LOCAL_URL` is set, otherwise the SAME
+ * Cloud SQL connector + IAM identity the pool uses — it REUSES the already-
+ * initialized connector (via `getHandles`) so a reconnecting listener never
+ * spins up a second one. No `max`: a `pg.Client` is one connection, counted in
+ * the budget via `LISTENER_CONNECTIONS_PER_INSTANCE`.
+ */
+export async function buildDedicatedClientConfig(): Promise<ClientConfig> {
+	const localUrl = process.env.NOVA_DB_LOCAL_URL;
+	if (localUrl !== undefined && localUrl.length > 0) {
+		return { connectionString: localUrl };
+	}
+	const { connector } = await getHandles();
+	if (connector === null) {
+		// The non-local path always constructs a connector; a null here would
+		// mean the handles were built on the local-dev branch while
+		// `NOVA_DB_LOCAL_URL` has since been cleared — an inconsistent runtime.
+		throw new Error(
+			"buildDedicatedClientConfig: the Cloud SQL connector is absent on a non-local run.",
+		);
+	}
+	const env = readCaseStoreEnvConfig();
+	const clientOpts = await connector.getOptions({
+		instanceConnectionName: env.NOVA_DB_INSTANCE_CONNECTION_NAME,
+		ipType: IpAddressTypes.PRIVATE,
+		authType: AuthTypes.IAM,
+	});
+	return {
+		stream: clientOpts.stream,
+		user: env.NOVA_DB_USER,
+		database: env.NOVA_DB_NAME,
+	};
 }
 
 /**

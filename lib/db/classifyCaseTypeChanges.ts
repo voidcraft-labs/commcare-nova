@@ -29,7 +29,7 @@
  *   3. **Empty result** — pure non-case-type mutations (module name
  *      edits, form text edits, field UI tweaks) yield no entries.
  *      The saga skips `applySchemaChange` entirely and just commits
- *      the Firestore blueprint write.
+ *      the blueprint write.
  *
  * Case-type removals between snapshots produce no entry. Existing
  * values for removed properties remain in JSONB until the next

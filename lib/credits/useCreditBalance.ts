@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 // `import type` is load-bearing: the value side of `lib/db/credits` pulls in
-// `@google-cloud/firestore`, and only the erased `type` form keeps that server
-// dependency out of the client bundle this hook ships in.
+// `kysely`/`pg` (the server data layer), and only the erased `type` form keeps
+// that server dependency out of the client bundle this hook ships in.
 import type { CreditSummary } from "@/lib/db/credits";
 
 /**

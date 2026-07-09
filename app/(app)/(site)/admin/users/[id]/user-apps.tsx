@@ -21,7 +21,7 @@ export async function UserAppsSection({ userId }: UserAppsSectionProps) {
 			<h3 className="text-lg font-display font-semibold mb-4">
 				Apps ({apps.length})
 			</h3>
-			<AppCardList apps={apps} showReplay />
+			<AppCardList apps={apps} />
 		</section>
 	);
 }

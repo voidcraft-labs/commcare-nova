@@ -3,28 +3,25 @@
  * stored apps, so legacy pre-commit-gate apps pass the zero-tolerance
  * export boundary after the valid-by-construction merge.
  *
- * One-time merge choreography: `scan-legacy-findings.ts` first, then
- * this script as a dry run, review, then `--apply` (and
- * `--apply-proposed` for the proposed tier, if accepted), then the scan
- * again — which must report ZERO findings. Needs-owner findings are
- * printed per app and never auto-fixed; the owner resolves those by
- * hand before the re-scan.
+ * Merge choreography: `scan-legacy-findings.ts` first, then this script
+ * as a dry run, review, then `--apply` (and `--apply-proposed` for the
+ * proposed tier, if accepted), then the scan again — which must report
+ * ZERO findings. Needs-owner findings are printed per app and never
+ * auto-fixed; the owner resolves those by hand before the re-scan.
  *
- * Per app: the stored blueprint loads the way `migrate-expression-asts`
- * reads it (raw cast + the shared round-trip-gated string→AST converter
- * on a clone — prod docs may predate the AST migration, and repairs
- * MUST run on the AST view because the current reducers track renames
- * through identity leaves, not text rewriting). Each repair is a
- * mutation batch through the REAL reducers, gated by the same commit
- * verdict every live write surface runs; after an app's repairs the
- * strictly-decreasing oracle must hold — finding count strictly down,
- * zero introduced identities (`diffIntroduced`) — or the app is
- * reported and NOT written. The judgment table (which classes are
- * mechanical / proposed / needs-owner, and why) lives in
+ * Per app: `loadApp` assembles the stored `blueprint_entities` rows and
+ * `guardedRepairApp` promotes them to the boundary view (derived
+ * `fieldParent` rebuilt, expression slots round-trip-checked). Each
+ * repair is a mutation batch through the REAL reducers, gated by the same
+ * commit verdict every live write surface runs; after an app's repairs
+ * the strictly-decreasing oracle must hold — finding count strictly down,
+ * zero introduced identities (`diffIntroduced`) — or the app is reported
+ * and NOT written. The judgment table (which classes are mechanical /
+ * proposed / needs-owner, and why) lives in
  * `scripts/lib/legacyFindingRepairs.ts`.
  *
  * `--media` adds the media-reference arm (`scripts/lib/legacyMediaRefs.ts`):
- * each app's referenced assets resolve against the live `mediaAssets`
+ * each app's referenced assets resolve against the live `media_assets`
  * rows, and a PROVABLY-dead reference — row missing, or stuck pending
  * past the one-day upload window (its bytes already reaped) — is
  * cleared through the same clear-safe mutation kinds the live surfaces
@@ -33,26 +30,27 @@
  * pending upload, a cross-account reference, an image-map row) is
  * reported needs-owner and never touched.
  *
- * A written blueprint lands in the expression-AST shape (the converter
- * runs as part of the load) — `migrate-expression-asts.ts` later reads
- * those slots as already current; event logs are untouched here and
- * convert in that script. The write goes through `appendSyntheticBatchTx`
- * (`lib/db/apps.ts` — the app writers' own snapshot-field shape plus a
- * `kind: "migration"` reload-sentinel stream entry), so a builder tab
- * still open across the migration window reloads onto the repaired row,
- * and any straggler auto-save is a mutation delta re-applied onto it by
- * the guarded commit — never a silent overwrite with its pre-repair doc.
+ * The write goes through `appendSyntheticBatch` (`lib/db/apps.ts` — it
+ * replaces the blueprint wholesale, advances `mutation_seq`, and appends a
+ * `kind: "migration"` reload-sentinel to the stream), so a builder tab
+ * still open across the write reloads onto the repaired row, and any
+ * straggler auto-save is a mutation delta re-applied onto it by the
+ * guarded commit — never a silent overwrite with its pre-repair doc.
  *
  * Idempotent (a repaired app re-evaluates clean, so a re-run plans
  * nothing) and resumable per app (each app loads, repairs, and writes
  * independently — a re-run after an interruption skips the finished
  * ones, and an app whose stored doc is too broken to even read is
- * reported and skipped without taking down the run). Run with `--help`
- * for flags.
+ * reported and skipped without taking down the run).
+ *
+ * Writes to whatever database the env provides (`NOVA_DB_LOCAL_URL`
+ * locally, the Cloud SQL connector in the migrate-job image). Run with
+ * `--help` for flags.
  */
-import { Firestore } from "@google-cloud/firestore";
 import { Command } from "commander";
-import { appendSyntheticBatchTx } from "../lib/db/apps";
+import { closeCaseStoreDatabase } from "../lib/case-store/postgres/connection";
+import { appendSyntheticBatch, loadApp } from "../lib/db/apps";
+import { getAppDb } from "../lib/db/pg";
 import { mutationCommitVerdict } from "../lib/doc/commitVerdicts";
 import { toPersistableDoc } from "../lib/doc/fieldParent";
 import { collectAssetRefs, walkAssetRefs } from "../lib/domain/mediaRefs";
@@ -70,7 +68,6 @@ import {
 import { runMain } from "./lib/main";
 
 interface RepairOptions {
-	project: string;
 	apply?: boolean;
 	applyProposed?: boolean;
 	media?: boolean;
@@ -83,11 +80,7 @@ program
 		"Repair the mechanically-repairable validator findings in stored apps. Defaults to a dry run — pass --apply to write. " +
 			"PROPOSED repairs (content-adjacent, e.g. seeding the case_name case-list column) print in every run but apply only under --apply-proposed. " +
 			"--media adds the media-reference arm: provably-dead references clear; anything ambiguous is reported. " +
-			"One-time: scan-legacy-findings.ts → this (dry run → --apply) → re-scan to zero, before the expression-AST migration pair.",
-	)
-	.requiredOption(
-		"--project <id>",
-		'GCP project to repair (e.g. "commcare-nova-dev") — explicit so a write can never land on an unintended project',
+			"Choreography: scan-legacy-findings.ts → this (dry run → --apply) → re-scan to zero.",
 	)
 	.option("--apply", "actually write the repairs (default: dry run)")
 	.option(
@@ -100,32 +93,27 @@ program
 	)
 	.addHelpText(
 		"after",
-		"\nExamples:\n" +
-			"  $ npx tsx scripts/repair-legacy-findings.ts --project commcare-nova-dev                           # dry run\n" +
-			"  $ npx tsx scripts/repair-legacy-findings.ts --project commcare-nova-dev --apply                   # write mechanical repairs\n" +
-			"  $ npx tsx scripts/repair-legacy-findings.ts --project commcare-nova-dev --apply --apply-proposed  # include the proposed tier\n" +
-			"  $ npx tsx scripts/repair-legacy-findings.ts --project commcare-nova-dev --apply --media           # also clear dead media refs\n",
+		"\nDatabase:\n" +
+			"  Repairs whatever the env points at — NOVA_DB_LOCAL_URL for a local\n" +
+			"  Postgres, or the Cloud SQL connector env in the migrate-job image.\n" +
+			"\nExamples:\n" +
+			"  $ npx tsx scripts/repair-legacy-findings.ts                           # dry run\n" +
+			"  $ npx tsx scripts/repair-legacy-findings.ts --apply                   # write mechanical repairs\n" +
+			"  $ npx tsx scripts/repair-legacy-findings.ts --apply --apply-proposed  # include the proposed tier\n" +
+			"  $ npx tsx scripts/repair-legacy-findings.ts --apply --media           # also clear dead media refs\n",
 	);
 
 program.parse();
-const { project, apply, applyProposed, media } = program.opts<RepairOptions>();
+const { apply, applyProposed, media } = program.opts<RepairOptions>();
 
 async function main() {
-	// `ignoreUndefinedProperties` matches the app's own Firestore client:
-	// the drop-this-config repairs (close conditions, post-submit) clear
-	// their slot with an in-memory `undefined`, which the write must strip
-	// rather than throw on.
-	const db = new Firestore({
-		projectId: project,
-		preferRest: true,
-		ignoreUndefinedProperties: true,
-	});
+	const db = await getAppDb();
 	console.log(
-		`${apply ? "REPAIRING" : "Dry run over"} apps in project "${project}"` +
+		`${apply ? "REPAIRING" : "Dry run over"} apps` +
 			`${applyProposed ? " (proposed tier included)" : ""}…\n`,
 	);
 
-	const apps = await db.collection("apps").get();
+	const appRows = await db.selectFrom("apps").select("id").execute();
 	let appsRepaired = 0;
 	let findingsCleared = 0;
 	let proposedWithheld = 0;
@@ -135,11 +123,22 @@ async function main() {
 	const oracleFailures: string[] = [];
 	const failedApps: string[] = [];
 
-	for (const appSnap of apps.docs) {
-		const data = appSnap.data();
-		const label = `${appSnap.id} (${data.app_name ?? "unnamed"})`;
-		const blueprint = data.blueprint;
-		if (!blueprint) continue;
+	for (const { id: appId } of appRows) {
+		// Assembly itself can throw on a stored doc broken enough that the
+		// entity rows won't reassemble — that is this app's "too broken to
+		// process" arm, isolated per app.
+		const appDoc = await loadApp(appId).catch((err: unknown) => {
+			failedApps.push(appId);
+			console.log(
+				`${appId}\n  ✗ COULDN'T PROCESS — the stored blueprint couldn't be assembled from its rows:\n` +
+					`      ${err instanceof Error ? err.message : String(err)}\n` +
+					"      Nothing was written for it. Fix this app by hand (scripts/recover-app.ts), then re-run; every other app was processed normally.\n",
+			);
+			return null;
+		});
+		if (!appDoc) continue;
+		const label = `${appId} (${appDoc.app_name || "unnamed"})`;
+		const blueprint = appDoc.blueprint;
 
 		// Per-app fault isolation: a malformed stored doc costs THIS app's
 		// report, never the run — the catch at the bottom of the loop body
@@ -205,12 +204,9 @@ async function main() {
 				const ids = [...collectAssetRefs(working)];
 				const rows =
 					ids.length === 0 ? new Map() : await loadAssetRowsForScan(db, ids);
-				const report = classifyMediaRefs(
-					working,
-					typeof data.owner === "string" ? data.owner : undefined,
-					rows,
-					{ nowMs: Date.now() },
-				);
+				const report = classifyMediaRefs(working, appDoc.owner, rows, {
+					nowMs: Date.now(),
+				});
 				const plan = planMediaRefClears(working, report.dead);
 				const mediaIssues =
 					plan.notes.length +
@@ -270,17 +266,13 @@ async function main() {
 			if (changed) {
 				appsRepaired++;
 				if (apply) {
-					/* The app writers' snapshot-field shape plus a `kind:
-					 * "migration"` reload-sentinel stream entry — a builder tab
-					 * open across the migration window reloads onto the repaired
-					 * row instead of overwriting the repairs. Repairs only remove
-					 * or rename — never add an asset reference — so the writers'
-					 * reverse-index sync has nothing to add for this write. */
-					await appendSyntheticBatchTx(
-						db,
-						appSnap.id,
-						toPersistableDoc(working),
-					);
+					/* Replaces the blueprint wholesale + appends a `kind:
+					 * "migration"` reload-sentinel to the stream — a builder tab
+					 * open across the write reloads onto the repaired row instead
+					 * of overwriting the repairs. Repairs only remove or rename —
+					 * never add an asset reference — so the writers' reverse-index
+					 * sync has nothing to add for this write. */
+					await appendSyntheticBatch(appId, toPersistableDoc(working));
 				}
 			}
 			if (hasFindings || printedMediaLines) console.log("");
@@ -296,7 +288,7 @@ async function main() {
 
 	console.log(
 		`${apply ? "Repaired" : "Would repair"} ${findingsCleared} finding(s) across ${appsRepaired} app(s) ` +
-			`of ${apps.size} scanned. ${proposedWithheld} proposed repair(s) withheld; ` +
+			`of ${appRows.length} scanned. ${proposedWithheld} proposed repair(s) withheld; ` +
 			`${needsOwnerTotal} finding(s) need the owner.` +
 			(media
 				? ` Media: ${apply ? "cleared" : "would clear"} ${deadRefsCleared} dead reference(s); ${mediaNeedsOwnerTotal} need the owner.`
@@ -319,10 +311,16 @@ async function main() {
 	if (!apply) {
 		console.log("Re-run with --apply to write.");
 	} else {
-		console.log(
-			`Verify with: npx tsx scripts/scan-legacy-findings.ts --project ${project}`,
-		);
+		console.log("Verify with: npx tsx scripts/scan-legacy-findings.ts");
 	}
 }
 
-runMain(main);
+// Close the shared case-store pool so the process exits promptly — an open
+// pool keeps the event loop alive.
+runMain(async () => {
+	try {
+		await main();
+	} finally {
+		await closeCaseStoreDatabase();
+	}
+});

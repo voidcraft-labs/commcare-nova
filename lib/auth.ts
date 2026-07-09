@@ -71,7 +71,7 @@ import {
  * The OIDC trio (`openid`, `profile`, `email`) + `offline_access` is the
  * standard set clients expect for refresh-token flows. The Nova scopes
  * split into two layers: `nova.read` / `nova.write` cover Nova-internal
- * (Firestore-backed) operations and are enforced at the MCP route's
+ * (database-backed) operations and are enforced at the MCP route's
  * verify layer; `nova.hq.read` / `nova.hq.write` cover delegated access
  * to CommCare HQ via the user's stored API key and are enforced
  * per-tool inside the HQ handlers (see `lib/mcp/scopes.ts`'s
@@ -108,7 +108,7 @@ export const NOVA_OAUTH_ALLOWED_CLIENT_SCOPES = [
 /**
  * Public API-key constants live in `lib/auth-public.ts` so client
  * components can import them without pulling Better Auth's server-only
- * graph (firebase-admin, etc.) into the browser bundle. Re-exported
+ * graph (pg, kysely, etc.) into the browser bundle. Re-exported
  * here so server code already importing `@/lib/auth` doesn't have to
  * change.
  */

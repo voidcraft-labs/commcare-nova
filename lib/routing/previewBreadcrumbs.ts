@@ -8,9 +8,9 @@
  * session's case target binds THIS form, the bound case.
  *
  * This logic used to live inline in `BreadcrumbStrip`. It now lives here as a
- * pure, exhaustively unit-tested function (the sibling of `parentLocation` /
- * `buildReplayMessages`) for one reason: the breadcrumb and the preview
- * engine each derive from the SAME ephemeral session state
+ * pure, exhaustively unit-tested function (the sibling of `parentLocation`)
+ * for one reason: the breadcrumb and the preview engine each derive from the
+ * SAME ephemeral session state
  * (`previewCaseTarget`), and they had drifted — `PreviewShell` gated the
  * loaded case on `formUuid === loc.formUuid` while the breadcrumb did not, so
  * a register form opened after a follow-up form named a case it never loaded.

@@ -2,12 +2,12 @@
 //
 // End-to-end integration coverage for the cross-store saga.
 // Drives a real Postgres testcontainer (via `setupPerTestDatabase`)
-// and a hand-mocked Firestore boundary so the saga's two failure
+// and a mocked blueprint-commit boundary so the saga's two failure
 // paths can be exercised:
 //
 //   1. Phase 1 (Postgres `applySchemaChange`) succeeds + Phase 2
-//      (Firestore commit) succeeds → the prospective blueprint
-//      lands and the schema row reflects the new shape.
+//      (the guarded blueprint commit) succeeds → the prospective
+//      blueprint lands and the schema row reflects the new shape.
 //   2. Phase 2 fails after Phase 1 succeeded → compensation
 //      regenerates the prior schema; the new blueprint is NOT
 //      committed.
@@ -16,12 +16,14 @@
 //   - `setupPerTestDatabase` for Postgres (per-test database +
 //     migrations applied in a sibling `beforeEach`).
 //   - A `vi.mock` of `@/lib/db/apps` returning a controllable
-//     `loadApp` / `commitGuardedBatch` pair — the saga's Firestore
-//     commit chokepoint. The Postgres phase is REAL; only the
-//     Firestore write is mocked.
-//   - A `vi.mock` of `@/lib/db/firestore` stubbing `docs.batchDedupRaw`
-//     (the saga's non-transactional top-level dedup read) so the saga
-//     reaches the Postgres phase without a live Firestore.
+//     `loadApp` / `commitGuardedBatch` pair — the saga's blueprint
+//     commit chokepoint. The Postgres schema phase is REAL; only the
+//     blueprint write is mocked.
+//   - `__setAppDbForTests` pointing `getAppDb` at the per-test
+//     database, so the saga's non-transactional top-level dedup read
+//     (a SELECT on the `accepted_mutations (app_id, batch_id)` latch)
+//     hits the real — empty, since `commitGuardedBatch` is mocked —
+//     latch table and always proceeds to the Postgres phase.
 //   - A `vi.mock` of `@/lib/case-store` overriding
 //     `withSchemaContext` to construct a `PostgresCaseStore`
 //     against the per-test handle (production parity, just bypasses
@@ -31,7 +33,7 @@
 // pattern (`beforeEach` runs `runCaseStoreMigrations` — Kysely's
 // `Migrator` in process — against the per-test handle).
 
-import type { Kysely } from "kysely";
+import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { v7 as uuidv7 } from "uuid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildCaseTypeMap } from "@/lib/case-store";
@@ -40,6 +42,7 @@ import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
+import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc, CaseType, PersistableDoc } from "@/lib/domain";
 
@@ -50,19 +53,14 @@ import type { BlueprintDoc, CaseType, PersistableDoc } from "@/lib/domain";
 // references survive across tests for assertion access; each test's
 // `beforeEach` resets them.
 
-const {
-	loadAppMock,
-	loadAppProjectIdMock,
-	commitGuardedBatchMock,
-	batchDedupRawGetMock,
-} = vi.hoisted(() => {
-	return {
-		loadAppMock: vi.fn(),
-		loadAppProjectIdMock: vi.fn(),
-		commitGuardedBatchMock: vi.fn(),
-		batchDedupRawGetMock: vi.fn(),
-	};
-});
+const { loadAppMock, loadAppProjectIdMock, commitGuardedBatchMock } =
+	vi.hoisted(() => {
+		return {
+			loadAppMock: vi.fn(),
+			loadAppProjectIdMock: vi.fn(),
+			commitGuardedBatchMock: vi.fn(),
+		};
+	});
 
 // `withSchemaContextMock` is patched per-test once the per-test
 // database handle is bound — the test body itself can't call
@@ -80,14 +78,12 @@ vi.mock("@/lib/db/apps", () => ({
 	commitGuardedBatch: commitGuardedBatchMock,
 }));
 
-// The saga's top-level dedup read is `docs.batchDedupRaw(appId, batchId).get()`
-// — a non-transactional Firestore read. Stub just that ref factory so the saga
-// proceeds to the Postgres phase without a live Firestore client.
-vi.mock("@/lib/db/firestore", () => ({
-	docs: {
-		batchDedupRaw: () => ({ get: batchDedupRawGetMock }),
-	},
-}));
+// The saga's top-level dedup read is a non-transactional SELECT on the
+// `accepted_mutations (app_id, batch_id)` latch via `getAppDb()`. Pointing
+// `getAppDb` at the per-test database (in `beforeEach`, via `__setAppDbForTests`)
+// lets it hit the real latch table — empty, since `commitGuardedBatch` is mocked
+// and writes no stream rows — so the saga always sees "no prior latch" and
+// proceeds to the Postgres phase + commit.
 
 vi.mock("@/lib/case-store", async () => {
 	// Re-export the rest of the barrel so error classes / type
@@ -116,21 +112,26 @@ const dbHandle = setupPerTestDatabase({
 
 beforeEach(async () => {
 	await runCaseStoreMigrations(dbHandle.db);
+	// Point `getAppDb` (the saga's dedup latch read) at the per-test database.
+	__setAppDbForTests(
+		new Kysely<AppDatabase>({
+			dialect: new PostgresDialect({
+				pool: dbHandle.pool as unknown as PostgresPool,
+			}),
+		}),
+	);
 });
 
 beforeEach(() => {
 	loadAppMock.mockReset();
 	loadAppProjectIdMock.mockReset();
 	commitGuardedBatchMock.mockReset();
-	batchDedupRawGetMock.mockReset();
 	// A null-project (owner-scoped) app: `reauthorizeActorForCommit(null, …)`
 	// is a no-op, so the REAL helper runs without a live auth DB. The saga's
 	// reauth-before-DDL gate is unit-pinned in `applyBlueprintChangeGuard.test`.
 	loadAppProjectIdMock.mockResolvedValue(null);
-	// No prior dedup latch — the saga proceeds to the Postgres phase + commit.
-	batchDedupRawGetMock.mockResolvedValue({ exists: false });
-	// The Firestore commit succeeds by default. Additive tests that rely on
-	// the post-commit sweep override `committedDoc` (the sweep skips a
+	// The guarded blueprint commit succeeds by default. Additive tests that rely
+	// on the post-commit sweep override `committedDoc` (the sweep skips a
 	// `committedDoc`-undefined result); commit-failure tests reject it.
 	commitGuardedBatchMock.mockResolvedValue({
 		seq: 1,
@@ -152,6 +153,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	__setAppDbForTests(null);
 	vi.clearAllMocks();
 });
 

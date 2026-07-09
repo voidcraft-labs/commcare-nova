@@ -37,9 +37,8 @@ export async function GET(
 		 * / under-privileged) maps to a 404 in `handleApiError` — the shared
 		 * IDOR-safe not-found posture. */
 		const app = (await resolveAppAccess(id, session.user.id, "view")).app;
-		/* Return only the fields the client needs for hydration. Firestore Timestamp
-		 * objects on created_at/updated_at don't JSON-serialize cleanly, and the client
-		 * only needs the blueprint to hydrate the builder. */
+		/* Return only the fields the client needs for hydration — the builder
+		 * hydrates off the blueprint; row metadata stays server-side. */
 		return Response.json({
 			blueprint: app.blueprint,
 			app_name: app.app_name,
@@ -64,8 +63,8 @@ export async function PUT(
 		const session = await requireSession(req);
 		const { id } = await params;
 
-		/* Project-membership gate (edit). The resolver's single Firestore read
-		 * yields the `AppDoc` whose `blueprint` threads into the saga as
+		/* Project-membership gate (edit). The resolver's single app load yields
+		 * the `AppDoc` whose `blueprint` threads into the saga as
 		 * `priorBlueprint` (no second `loadApp`). An `AppAccessError` maps to 404
 		 * in `handleApiError` — the shared IDOR-safe not-found posture. */
 		const app = (await resolveAppAccess(id, session.user.id, "edit")).app;
@@ -102,10 +101,10 @@ export async function PUT(
 			throw new ApiError("Invalid mutations", 400);
 		}
 
-		/* Route through the cross-store saga so a property-surface mutation in
-		 * this auto-save (e.g. a renamed case property) syncs the Postgres
-		 * `case_type_schemas` row before Firestore commits; pure non-case-type
-		 * edits fast-path through. `guard` mode re-applies the delta onto the
+		/* Route through the schema saga so a property-surface mutation in
+		 * this auto-save (e.g. a renamed case property) syncs the case-store
+		 * `case_type_schemas` row before the blueprint commits; pure
+		 * non-case-type edits fast-path through. `guard` mode re-applies the delta onto the
 		 * FRESH stored blueprint and re-verdicts inside the transaction, so a
 		 * co-member's concurrent committed edit MERGES instead of being erased.
 		 * The pre-loaded `app.blueprint` threads through as `priorBlueprint` so

@@ -11,17 +11,13 @@
  *
  * ## How a stored app is read
  *
- * Production blueprints can still be STRING-expression shaped (written
- * before the expression-AST migration ran), so `toLegacyBlueprintView`
- * loads them the way `migrate-expression-asts.ts` does — raw cast +
- * `rebuildFieldParent` + the shared round-trip-gated converter
- * (`migrateDocExpressions`) on a clone — never the strict runtime Zod
- * gate, which rejects string slots outright. The converted view is the
- * shape the deployed code reads, and it is the shape repairs MUST run
- * on: the current reducers store expression references as identity
- * leaves, so a rename through a still-string-shaped doc would strand
- * text references the old string-rewrite machinery (now deleted) used
- * to chase.
+ * `toLegacyBlueprintView` promotes a stored blueprint to the boundary
+ * view — raw cast + `rebuildFieldParent` + the shared round-trip-gated
+ * converter (`migrateDocExpressions`) on a clone. This is the shape the
+ * deployed code reads, and the shape repairs MUST run on: the current
+ * reducers store expression references as identity leaves, so a rename
+ * through a still-string-shaped doc would strand text references the old
+ * string-rewrite machinery (now deleted) used to chase.
  *
  * ## What "the boundary view" means here
  *
@@ -429,7 +425,7 @@ export function judgmentFor(code: ValidationErrorCode): RepairJudgment {
 export interface LegacyBlueprintView {
 	doc: BlueprintDoc;
 	/** Round-trip failures here are parser/printer bugs, never repaired —
-	 *  the scan surfaces them verbatim (scan-expression-asts owns sizing). */
+	 *  the scan surfaces them verbatim. */
 	conversion: DocExpressionMigrationResult;
 }
 

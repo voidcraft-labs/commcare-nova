@@ -2,14 +2,14 @@ import { expect, test } from "../lib/fixtures";
 import { urlHost } from "../lib/url";
 
 /**
- * Public (unauthenticated) smoke checks — no seeded session, no Firestore data.
+ * Public (unauthenticated) smoke checks — no seeded session, no seeded data.
  *
  * These are the credential-free checks that also run against a live deployment
  * (`SMOKE_BASE_URL=https://commcare.app`). Every production auth outage we've
- * shipped (the Node 22.23 undici regression, the firebase-admin node-fetch v2
- * keep-alive bug) surfaced as exactly what these assert: the home page failing
- * to render its sign-in button, or `/api/auth/*` returning 500 instead of a
- * normal response — invisible to Sentry, caught only by a real request.
+ * shipped (e.g. the Node 22.23 undici regression) surfaced as exactly what
+ * these assert: the home page failing to render its sign-in button, or
+ * `/api/auth/*` returning 500 instead of a normal response — invisible to
+ * Sentry, caught only by a real request.
  */
 
 test.describe("public surface", () => {

@@ -1,14 +1,15 @@
 /**
- * User settings persistence — Firestore CRUD for `user_settings/{userId}`.
+ * User settings persistence — Postgres CRUD for the `user_settings` row
+ * (keyed by `user_id`).
  *
- * Handles CommCare HQ credential storage with Cloud KMS encryption.
- * API keys are encrypted via Google Cloud KMS before writing to Firestore
- * and decrypted on-demand when making API calls. Key rotation is handled
- * entirely by KMS — no application-level rotation logic needed.
+ * Handles CommCare HQ credential storage with Cloud KMS encryption. API keys
+ * are encrypted via Google Cloud KMS before writing and decrypted on-demand
+ * when making API calls. Key rotation is handled entirely by KMS — no
+ * application-level rotation logic needed.
  *
- * The settings document is separate from `auth_users` to avoid leaking
- * secrets into Better Auth session cookies and to keep auth concerns
- * cleanly separated from app preferences.
+ * The settings row is separate from `auth_users` to avoid leaking secrets into
+ * Better Auth session cookies and to keep auth concerns cleanly separated from
+ * app preferences.
  *
  * Multi-space keys: an HQ API key can reach several project spaces, so this
  * module stores the full reachable set (`approved_domains`). Which space an
@@ -17,7 +18,6 @@
  * default (a multi-space key exists to operate across spaces).
  */
 
-import { FieldValue } from "@google-cloud/firestore";
 import {
 	type CommCareApiError,
 	type CommCareCredentials,
@@ -27,8 +27,7 @@ import {
 import { decrypt, encrypt } from "@/lib/commcare/encryption";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { resolveUploadDomain } from "./domainResolution";
-import { docs } from "./firestore";
-import type { UserSettingsDoc } from "./types";
+import { getAppDb } from "./pg";
 
 // ── Public types ───────────────────────────────────────────────────
 
@@ -81,9 +80,12 @@ export type CredentialsForUploadResult =
 export async function getCommCareSettings(
 	userId: string,
 ): Promise<CommCareSettingsPublic> {
-	const snap = await docs.settings(userId).get();
-	if (!snap.exists) return { configured: false };
-	const data = snap.data();
+	const db = await getAppDb();
+	const data = await db
+		.selectFrom("user_settings")
+		.select(["commcare_username", "commcare_server", "approved_domains"])
+		.where("user_id", "=", userId)
+		.executeTakeFirst();
 	if (!data) return { configured: false };
 
 	const availableDomains = data.approved_domains ?? [];
@@ -98,14 +100,14 @@ export async function getCommCareSettings(
 	return {
 		configured: true,
 		username: data.commcare_username,
-		server: data.commcare_server,
+		server: data.commcare_server as CommCareServer,
 		availableDomains,
 	};
 }
 
 /**
  * Resolve decrypted credentials AND the target project space for an upload,
- * in a single Firestore read. `requested` is an optional explicit space name
+ * in a single Postgres read. `requested` is an optional explicit space name
  * (per-call MCP arg / per-request body field); with none supplied the resolver
  * uses the sole reachable space (single-space key) or returns `ambiguous` for a
  * multi-space key. Used by both the MCP upload tool and the HTTP upload route so
@@ -118,9 +120,17 @@ export async function getCredentialsForUpload(
 	userId: string,
 	requested?: string,
 ): Promise<CredentialsForUploadResult> {
-	const snap = await docs.settings(userId).get();
-	if (!snap.exists) return { ok: false, error: "not_configured" };
-	const data = snap.data();
+	const db = await getAppDb();
+	const data = await db
+		.selectFrom("user_settings")
+		.select([
+			"commcare_username",
+			"commcare_api_key",
+			"commcare_server",
+			"approved_domains",
+		])
+		.where("user_id", "=", userId)
+		.executeTakeFirst();
 	const availableDomains = data?.approved_domains ?? [];
 	if (
 		!data?.commcare_username ||
@@ -141,7 +151,7 @@ export async function getCredentialsForUpload(
 		creds: {
 			username: data.commcare_username,
 			apiKey,
-			server: data.commcare_server,
+			server: data.commcare_server as CommCareServer,
 		},
 		domain: resolved.domain,
 	};
@@ -163,25 +173,27 @@ export interface SaveCommCareSettingsInput {
  * Save (or update) a user's CommCare HQ credentials.
  *
  * Encrypts the API key via Cloud KMS and stores the full reachable space set.
- * No upload default is persisted — the target is chosen per-upload — so a
- * `merge: true` write of just these fields is safe.
+ * No upload default is persisted — the target is chosen per-upload — so an
+ * INSERT-or-UPDATE of exactly these fields is safe.
  */
 export async function saveCommCareSettings(
 	userId: string,
 	input: SaveCommCareSettingsInput,
 ): Promise<void> {
 	const encryptedKey = await encrypt(input.apiKey);
-
-	await docs.settings(userId).set(
-		{
-			commcare_username: input.username,
-			commcare_api_key: encryptedKey,
-			commcare_server: input.server,
-			approved_domains: input.approvedDomains,
-			updated_at: FieldValue.serverTimestamp(),
-		} as unknown as UserSettingsDoc,
-		{ merge: true },
-	);
+	const db = await getAppDb();
+	const values = {
+		commcare_username: input.username,
+		commcare_api_key: encryptedKey,
+		commcare_server: input.server,
+		approved_domains: JSON.stringify(input.approvedDomains),
+		updated_at: new Date(),
+	};
+	await db
+		.insertInto("user_settings")
+		.values({ user_id: userId, ...values })
+		.onConflict((oc) => oc.column("user_id").doUpdateSet(values))
+		.execute();
 }
 
 /** Outcome of a refresh — distinct failure kinds so the caller can compose
@@ -209,8 +221,12 @@ export type RefreshDomainsResult =
 export async function refreshApprovedDomains(
 	userId: string,
 ): Promise<RefreshDomainsResult> {
-	const snap = await docs.settings(userId).get();
-	const data = snap.exists ? snap.data() : undefined;
+	const db = await getAppDb();
+	const data = await db
+		.selectFrom("user_settings")
+		.select(["commcare_username", "commcare_api_key", "commcare_server"])
+		.where("user_id", "=", userId)
+		.executeTakeFirst();
 	if (
 		!data?.commcare_username ||
 		!data.commcare_api_key ||
@@ -224,19 +240,20 @@ export async function refreshApprovedDomains(
 		await discoverAccessibleDomains({
 			username: data.commcare_username,
 			apiKey,
-			server: data.commcare_server,
+			server: data.commcare_server as CommCareServer,
 		});
 	if (!Array.isArray(accessible))
 		return { ok: false, kind: "hq_error", status: accessible.status };
 	if (accessible.length === 0) return { ok: false, kind: "no_spaces" };
 
-	await docs.settings(userId).set(
-		{
-			approved_domains: accessible,
-			updated_at: FieldValue.serverTimestamp(),
-		} as unknown as UserSettingsDoc,
-		{ merge: true },
-	);
+	await db
+		.updateTable("user_settings")
+		.set({
+			approved_domains: JSON.stringify(accessible),
+			updated_at: new Date(),
+		})
+		.where("user_id", "=", userId)
+		.execute();
 
 	return { ok: true, settings: await getCommCareSettings(userId) };
 }
@@ -247,5 +264,6 @@ export async function refreshApprovedDomains(
  * Used when the user wants to disconnect their CommCare account.
  */
 export async function deleteCommCareSettings(userId: string): Promise<void> {
-	await docs.settings(userId).delete();
+	const db = await getAppDb();
+	await db.deleteFrom("user_settings").where("user_id", "=", userId).execute();
 }

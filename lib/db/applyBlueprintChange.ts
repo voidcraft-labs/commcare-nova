@@ -1,7 +1,7 @@
 /**
- * Cross-store saga for blueprint writes — orchestrates Firestore
- * (the blueprint document) and Postgres (the case-store schema +
- * row population) so the two stores never drift under concurrency.
+ * Cross-store saga for blueprint writes — orchestrates the app-state store
+ * (the blueprint) and the case-store (schema + row population) so the two
+ * never drift under concurrency.
  *
  * ## The two-arm sync
  *
@@ -47,9 +47,9 @@
  *   4. Run the MIGRATION-BEARING entries Postgres-first against the
  *      prospective; a mid-loop failure compensates the already-applied
  *      ones and rethrows.
- *   5. Commit the new blueprint to Firestore (`commitGuardedBatch`).
- *      On failure, compensate every migration-bearing entry from the
- *      current committed doc (seq-guarded) and rethrow.
+ *   5. Commit the new blueprint (`commitGuardedBatch`). On failure,
+ *      compensate every migration-bearing entry from the current
+ *      committed doc (seq-guarded) and rethrow.
  *   6. Unless the commit deduped, sweep every touched case type
  *      against the committed doc at the committed seq (post-commit,
  *      swallow + warn).
@@ -57,7 +57,7 @@
  * The saga is a no-op fast path for purely non-case-type
  * mutations (module name edits, form text edits, field UI
  * tweaks): `classifyCaseTypeChanges` returns an empty array and
- * the saga skips Postgres entirely, committing Firestore directly.
+ * the saga skips the case-store entirely, committing the blueprint directly.
  *
  * ## Where the saga is wired in
  *
@@ -76,10 +76,10 @@
  * Callers that already loaded the app document (the auto-save
  * PUT route does so for its ownership check) pass the prior
  * blueprint via `args.priorBlueprint` — the saga uses it
- * directly, no second Firestore read. Callers without a
+ * directly, no second app-state read. Callers without a
  * pre-loaded snapshot (the MCP path's `McpContext.saveBlueprint`)
  * omit the field, and the saga loads the doc itself. The auto-
- * save PUT path costs one Firestore read end-to-end (the
+ * save PUT path costs one app-state read end-to-end (the
  * ownership-check load that's then threaded through); the MCP
  * path costs the saga's internal load.
  */
@@ -103,7 +103,7 @@ import {
 	type SchemaChangeHint,
 } from "./classifyCaseTypeChanges";
 import { reauthorizeActorForCommit } from "./commitGuard";
-import { docs } from "./firestore";
+import { getAppDb } from "./pg";
 import { isTransientDbError } from "./schemaSyncRetry";
 import type { AcceptedMutationDoc } from "./types";
 
@@ -111,9 +111,9 @@ import type { AcceptedMutationDoc } from "./types";
  * Arguments for `applyBlueprintChange`.
  *
  * `runId` distinguishes a run-scoped write from a standalone one; it rides the
- * durable stream entry. Every path routes the Firestore write through the one
+ * durable stream entry. Every path routes the blueprint write through the one
  * guarded commit ({@link commitGuardedBatch}) — the transactional
- * read-evaluate-write below — after the Postgres schema saga.
+ * read-evaluate-write below — after the case-store schema saga.
  *
  * `hint` carries optional explicit per-row migration intent —
  * rename / retype / narrow-options. The classifier emits the
@@ -126,7 +126,7 @@ import type { AcceptedMutationDoc } from "./types";
  * the saga's internal `loadApp` round trip. Absent: the saga
  * loads the prior blueprint itself. Supplying it on every awaited
  * blueprint write that already paid the load cost halves the
- * Firestore-read budget on hot edit paths.
+ * app-state-read budget on hot edit paths.
  */
 export interface ApplyBlueprintChangeArgs {
 	readonly appId: string;
@@ -140,16 +140,16 @@ export interface ApplyBlueprintChangeArgs {
 	readonly prospective?: PersistedBlueprint;
 	readonly runId?: string;
 	/** Client-minted idempotency key for this whole change — pairs with the
-	 *  `batchDedup/{batchId}` latch. A top-level dedup hit short-circuits the
-	 *  Postgres saga; {@link commitGuardedBatch}'s in-txn latch is the durable
-	 *  guard. */
+	 *  `accepted_mutations (app_id, batch_id)` unique latch. A top-level dedup
+	 *  hit short-circuits the case-store saga; {@link commitGuardedBatch}'s
+	 *  in-txn latch is the durable guard. */
 	readonly batchId: string;
 	/** Which write path is committing — stamped on the durable stream entry. */
 	readonly kind: AcceptedMutationDoc["kind"];
 	readonly hint?: SchemaChangeHint;
 	readonly priorBlueprint?: PersistableDoc;
 	/**
-	 * Guarded MUTATION commit: the Firestore write is a transactional
+	 * Guarded MUTATION commit: the blueprint write is a transactional
 	 * read-evaluate-write — re-apply `mutations` onto the FRESH stored
 	 * blueprint and re-run the validity verdict before writing. A
 	 * concurrent committed batch can't be erased (the recomputed doc
@@ -190,8 +190,8 @@ export interface ApplyBlueprintChangeResult {
  * Run the cross-store saga and persist the prospective blueprint.
  *
  * Throws on any unrecoverable failure of the migration-bearing arm
- * (its Postgres schema sync failing with no recovery, or a
- * Firestore commit failure after its compensation completed). On
+ * (its case-store schema sync failing with no recovery, or a
+ * blueprint commit failure after its compensation completed). On
  * either, the migration-bearing Postgres work is compensated back
  * to the prior state and the original error rethrows — the caller
  * can retry without half-applied writes. The additive post-commit
@@ -207,10 +207,15 @@ export async function applyBlueprintChange(
 	// write is still caught by `commitGuardedBatch`'s in-transaction latch. A
 	// hit returns the recorded seq with no `committedDoc` (skips the
 	// app-doc read); MCP/auto-save tolerate its absence on a dedup hit.
-	const dedup = await docs.batchDedupRaw(args.appId, args.batchId).get();
-	if (dedup.exists) {
-		const latch = dedup.data() as { seq: number };
-		return { seq: latch.seq };
+	const db = await getAppDb();
+	const latch = await db
+		.selectFrom("accepted_mutations")
+		.select("seq")
+		.where("app_id", "=", args.appId)
+		.where("batch_id", "=", args.batchId)
+		.executeTakeFirst();
+	if (latch) {
+		return { seq: Number(latch.seq) };
 	}
 
 	const priorBlueprint = await resolvePriorBlueprint(args);
@@ -219,7 +224,7 @@ export async function applyBlueprintChange(
 	 * `PersistedBlueprint` back up to `PersistableDoc`; a direct cast can't
 	 * compile because the wall's `never` slots don't overlap `BlueprintDoc`'s
 	 * required `fieldParent`). The guarded MUTATION path sends no whole doc —
-	 * derive it by replaying the mutations on the prior. The Firestore commit
+	 * derive it by replaying the mutations on the prior. The guarded commit
 	 * re-applies on the FRESH doc, so a concurrent writer can make this
 	 * prior-based derivation momentarily trail; only `caseTypes` is read from
 	 * it (for the Postgres diff), and the next save re-syncs — the same
@@ -237,8 +242,8 @@ export async function applyBlueprintChange(
 		hint: args.hint,
 	});
 
-	// Fast path — pure non-case-type mutation, skip Postgres entirely and
-	// commit Firestore directly. `commitGuardedBatch`'s own reauth is the
+	// Fast path — pure non-case-type mutation, skip the case-store entirely and
+	// commit the blueprint directly. `commitGuardedBatch`'s own reauth is the
 	// single gate here (no pre-commit DDL to protect).
 	if (entries.length === 0) {
 		return (await persistBlueprint(args)).result;
@@ -246,7 +251,7 @@ export async function applyBlueprintChange(
 
 	// Tenant-free schema store: the saga only ever calls
 	// `applySchemaChange` / `dropSchema`, both app-scoped, so it binds no
-	// Project. (The media-expectation re-check inside the Firestore
+	// Project. (The media-expectation re-check inside the commit
 	// transaction below scopes to the fresh app doc's `project_id`.)
 	const store = await withSchemaContext();
 
@@ -315,8 +320,8 @@ export async function applyBlueprintChange(
 		throw forwardErr;
 	}
 
-	// Phase 2: commit Firestore. On failure, compensate every migration-bearing
-	// type from the current committed doc (seq-guarded).
+	// Phase 2: commit the blueprint. On failure, compensate every
+	// migration-bearing type from the current committed doc (seq-guarded).
 	let result: ApplyBlueprintChangeResult;
 	let deduped: boolean;
 	try {
@@ -346,7 +351,7 @@ export async function applyBlueprintChange(
  * Resolve the prior blueprint snapshot the diff runs against.
  * When the caller supplies `priorBlueprint` (the auto-save PUT
  * route already loaded the doc for the ownership check), use it
- * directly — saves a Firestore round trip on every save. Without
+ * directly — saves an app-state round trip on every save. Without
  * it (the MCP path's `McpContext.saveBlueprint`), the saga loads
  * the doc itself.
  *
@@ -417,8 +422,8 @@ async function persistBlueprint(
  * Post-commit additive sweep — sync the touched case types against the
  * COMMITTED doc at the committed seq.
  *
- * Runs after `commitGuardedBatch`, so it syncs the schema Firestore actually
- * holds (never the prior-derived prospective, which a concurrent writer can
+ * Runs after `commitGuardedBatch`, so it syncs the schema the committed doc
+ * actually holds (never the prior-derived prospective, which a concurrent writer can
  * make trail). Scoped to the case types `classifyCaseTypeChanges` named — a
  * non-case-type commit already took the `entries.length === 0` fast path and
  * never reaches here. `syncedSeq = result.seq` feeds the monotone
@@ -488,8 +493,8 @@ async function sweepCommittedSchemas(
 }
 
 /**
- * Reconcile Postgres back to the CURRENT committed state after a
- * migration-bearing forward-apply or Firestore commit failed.
+ * Reconcile the case-store back to the CURRENT committed state after a
+ * migration-bearing forward-apply or blueprint commit failed.
  *
  * `compensate` receives EVERY migration-bearing entry the saga tried (the
  * additive ones ride the post-commit sweep, which self-heals rather than

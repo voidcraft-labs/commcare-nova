@@ -79,9 +79,9 @@ export type StoredExtractResult =
 	| { status: "extracting" }
 	| { status: "failed"; reason: string };
 
-/** The minimal status snapshot the single-flight policy reasons over. Kept as a
- *  plain shape (milliseconds, not a Firestore `Timestamp`) so the policy is a
- *  pure function unit-testable without touching Firestore. */
+/** The minimal status snapshot the single-flight policy reasons over. Kept as
+ *  a plain shape (epoch milliseconds) so the policy is a pure function
+ *  unit-testable without touching storage. */
 interface ExtractStatusSnapshot {
 	status: MediaExtractStatus;
 	version: number;
@@ -131,16 +131,16 @@ function readyResult(text: string, truncated: boolean): StoredExtractResult {
 }
 
 /**
- * Re-read the asset's extract status FRESH from Firestore, normalized to the
+ * Re-read the asset's extract status FRESH from storage, normalized to the
  * pure-policy snapshot. The record handed to `ensureStoredExtract` may be a
  * turn-start batch snapshot that predates an eager job's claim, so the
  * single-flight decision must read current status rather than trust it.
  *
  * Loads id-only — the status read is a single-flight lock concern, not an
- * authorization one (the caller already resolved + authorized the asset). Degrades
- * to `null` (→ "no live job" → we extract) on any read failure: a transient
- * Firestore error must not break the turn — extracting ourselves is the safe
- * fallback.
+ * authorization one (the caller already resolved + authorized the asset).
+ * Degrades to `null` (→ "no live job" → we extract) on any read failure: a
+ * transient database error must not break the turn — extracting ourselves is
+ * the safe fallback.
  */
 async function reloadExtractStatus(
 	assetId: AssetId,
@@ -155,7 +155,7 @@ async function reloadExtractStatus(
 		snapshot: {
 			status: extract.status,
 			version: extract.version,
-			extractedAtMs: extract.extractedAt.toMillis(),
+			extractedAtMs: extract.extractedAt,
 		},
 		truncated: extract.truncated,
 	};

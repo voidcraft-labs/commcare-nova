@@ -39,21 +39,26 @@
  * frozen `kind` disagrees with the carrier slot's expected kind, and
  * `ready` otherwise.
  *
- * STRICTLY READ-ONLY. It calls only loaders + plain Firestore reads —
+ * STRICTLY READ-ONLY. It calls only loaders + plain app-state reads —
  * never `createPendingAsset`, `confirmAssetReady`, `deleteAsset`, or
- * any blueprint/app write. It mutates nothing in Firestore and deletes
- * nothing in GCS. Run with `--help` for the flag reference.
+ * any blueprint/app write. It mutates nothing and deletes nothing in GCS.
+ * Reads the app-state database the env provides (`NOVA_DB_LOCAL_URL`
+ * locally, the Cloud SQL connector in the migrate-job image). Run with
+ * `--help` for the flag reference.
  */
 import { Command } from "commander";
+import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { describeLocation } from "@/lib/commcare/validator/rules/media/shared";
+import { loadApp } from "@/lib/db/apps";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
 	listReadyAssetsForProject,
 	loadAssetsByIds,
 } from "@/lib/db/mediaAssets";
+import { getAppDb } from "@/lib/db/pg";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { AssetRef, MediaSlotKind } from "@/lib/domain/mediaRefs";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
-import { db, hydrateBlueprint } from "./lib/firestore";
 import { printHeader, printKV, printSection } from "./lib/format";
 import { runMain } from "./lib/main";
 import type { BlueprintDoc } from "./lib/types";
@@ -310,48 +315,37 @@ interface LoadedApp {
 }
 
 /**
- * Project a raw Firestore app doc to a `LoadedApp`, or `null` when the
- * doc carries no blueprint. The hydration attaches the derived
- * `fieldParent` index the domain walkers expect (mirrors the app's
+ * Load one app and reduce it to a `LoadedApp`. The hydration attaches the
+ * derived `fieldParent` index the domain walkers expect (mirrors the app's
  * load-time hydration), the same step `inspect-app` performs.
  */
-function loadApp(appId: string, data: FirebaseFirestoreData): LoadedApp | null {
-	if (data.blueprint === undefined) return null;
+async function loadOne(appId: string): Promise<LoadedApp | null> {
+	const app = await loadApp(appId);
+	if (!app) return null;
 	return {
 		appId,
-		appName: typeof data.app_name === "string" ? data.app_name : "(unnamed)",
-		doc: hydrateBlueprint(data.blueprint),
+		appName: app.app_name || "(unnamed)",
+		doc: hydratePersistedBlueprint(app.blueprint),
 	};
 }
 
 /**
- * The loosely-typed shape a script-side Firestore read returns. Scripts
- * read documents directly (no schema converter), so the fields this
- * scan touches are narrowed at use rather than trusted from a typed
- * converter.
- */
-type FirebaseFirestoreData = {
-	app_name?: unknown;
-	project_id?: unknown;
-	blueprint?: unknown;
-};
-
-/**
- * Load every app owned by `owner`. Unlike `inspect-usage`'s app list,
- * this fetches the FULL doc (no `.select()`) and is unbounded (no
- * `.limit()`): orphan analysis subtracts the union of references across
- * EVERY owned app from the ready-asset set, so a truncated or
- * field-projected read would under-count references and mislabel real
- * references as orphans.
+ * Load every app in `projectId` — INCLUDING soft-deleted apps: orphan
+ * analysis subtracts the union of references across EVERY app in the
+ * Project from the ready-asset set, so dropping any app would under-count
+ * references and mislabel real references as orphans. An empty app carries
+ * zero references, so it costs nothing to include.
  */
 async function loadProjectApps(projectId: string): Promise<LoadedApp[]> {
-	const snap = await db
-		.collection("apps")
-		.where("project_id", "==", projectId)
-		.get();
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("apps")
+		.select("id")
+		.where("project_id", "=", projectId)
+		.execute();
 	const apps: LoadedApp[] = [];
-	for (const doc of snap.docs) {
-		const loaded = loadApp(doc.id, doc.data() as FirebaseFirestoreData);
+	for (const { id } of rows) {
+		const loaded = await loadOne(id);
 		if (loaded) apps.push(loaded);
 	}
 	return apps;
@@ -366,8 +360,8 @@ async function loadProjectApps(projectId: string): Promise<LoadedApp[]> {
  * assets (ready library assets nothing references).
  *
  * The single batched `loadAssetsByIds` over the de-duplicated id union
- * — rather than a per-app load — avoids an N+1 read; the loader already
- * chunks the id list at Firestore's 30-value `in` cap internally.
+ * — rather than a per-app load — resolves every referenced asset in one
+ * query, avoiding an N+1 read.
  */
 async function scanProject(projectId: string): Promise<void> {
 	printHeader("MULTIMEDIA READINESS — PROJECT (read-only)");
@@ -505,17 +499,15 @@ async function loadAllReadyAssets(
 async function scanApp(appId: string): Promise<void> {
 	printHeader("MULTIMEDIA READINESS — APP (read-only)");
 
-	const snap = await db.collection("apps").doc(appId).get();
-	if (!snap.exists) {
+	const app = await loadApp(appId);
+	if (!app) {
 		console.error(
-			`Couldn't find an app with id "${appId}". Check the id against the apps collection, or pass --project to scan a whole Project.`,
+			`Couldn't find an app with id "${appId}". Check the id against the apps table, or pass --project to scan a whole Project.`,
 		);
 		process.exit(1);
 	}
 
-	const data = snap.data() as FirebaseFirestoreData;
-	const projectId =
-		typeof data.project_id === "string" ? data.project_id : undefined;
+	const projectId = app.project_id ?? undefined;
 	if (!projectId) {
 		console.error(
 			`App "${appId}" has no project_id, so its media assets can't be resolved (every asset read is Project-scoped).`,
@@ -528,11 +520,11 @@ async function scanApp(appId: string): Promise<void> {
 		["Project", projectId],
 	]);
 
-	const loaded = loadApp(appId, data);
-	if (!loaded) {
-		console.log("\n  App has no blueprint — nothing to scan.");
-		return;
-	}
+	const loaded: LoadedApp = {
+		appId,
+		appName: app.app_name || "(unnamed)",
+		doc: hydratePersistedBlueprint(app.blueprint),
+	};
 
 	const referencedIds = new Set<string>();
 	for (const ref of walkAssetRefs(loaded.doc)) referencedIds.add(ref.assetId);
@@ -579,4 +571,12 @@ async function main(): Promise<void> {
 	}
 }
 
-runMain(main);
+// Close the shared case-store pool so the process exits promptly — an open
+// pool keeps the event loop alive.
+runMain(async () => {
+	try {
+		await main();
+	} finally {
+		await closeCaseStoreDatabase();
+	}
+});

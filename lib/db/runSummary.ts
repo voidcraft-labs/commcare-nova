@@ -1,28 +1,28 @@
 /**
- * Per-run cost/behavior summary writer. One document per generation run
- * at `apps/{appId}/runs/{runId}`. Awaited from the usage accumulator's
- * flush path so Cloud Run cold-kills can't drop the write; errors log
- * but never bubble, so a Firestore outage degrades observability
+ * Per-run cost/behavior summary writer. One row per generation run in
+ * `run_summaries`, keyed `(app_id, run_id)`. Awaited from the usage
+ * accumulator's flush path so Cloud Run cold-kills can't drop the write;
+ * errors log but never bubble, so a storage outage degrades observability
  * without blocking the response.
  */
-import { FieldValue } from "@google-cloud/firestore";
 import { log } from "@/lib/logger";
-import { getDb, runThrottledTransaction } from "./firestore";
-import { type RunSummaryDoc, runSummaryDocSchema } from "./types";
+import { getAppDb, withAppTx } from "./pg";
+import type { RunSummaryDoc } from "./types";
 
 /**
- * What `writeRunSummary` did to the on-disk doc — surfaced so the per-run
+ * What `writeRunSummary` did to the stored row — surfaced so the per-run
  * finalize log can show whether a flush *accumulated* onto the run's running
  * totals or *replaced* them:
  *
- * - `"created"` — first write of this run; no prior doc existed.
- * - `"incremented"` — a prior doc parsed cleanly and this turn's deltas were
- *   added via `FieldValue.increment` (the healthy multi-turn path).
- * - `"overwritten"` — a prior doc existed but FAILED schema parse, so it was
- *   clobbered with this turn's totals only. This silently drops every earlier
- *   turn's accumulated counts/cost and is the signal an operator needs when a
- *   run summary undercounts — it is never a benign outcome.
- * - `"failed"` — the Firestore transaction threw; nothing was written.
+ * - `"created"` — first write of this run; no prior row existed.
+ * - `"incremented"` — a prior row existed and this turn's deltas were added to
+ *   it (the healthy multi-turn path).
+ * - `"overwritten"` — a legacy diagnostic for a prior row that failed to parse
+ *   and was clobbered. Unreachable on typed columns (every column comes back
+ *   typed, there is nothing to fail parsing), so it is never returned; the
+ *   variant is retained only so a reader that switches on the action stays
+ *   exhaustive.
+ * - `"failed"` — the transaction threw; nothing was written.
  */
 export type RunSummaryWriteAction =
 	| "created"
@@ -36,7 +36,7 @@ export type RunSummaryWriteAction =
  * A `runId` spans every request in the same thread — initial build plus
  * every follow-up edit turn — so `summary` is this request's contribution,
  * not the run's lifetime totals. The writer merges this turn's deltas
- * onto the existing doc via a Firestore transaction.
+ * onto the existing row inside a transaction.
  *
  * ## Field-accumulation policy
  *
@@ -44,32 +44,34 @@ export type RunSummaryWriteAction =
  * admin reader wants to see about the whole run:
  *
  * **Pinned (first write wins, never overwritten afterwards):**
- * - `runId` — immutable by construction.
- * - `startedAt` — wall-clock of the first turn's finalize.
- * - `promptMode` — a thread that starts as "build" stays a build thread
+ * - `run_id` — immutable by construction.
+ * - `started_at` — wall-clock of the first turn's finalize.
+ * - `prompt_mode` — a thread that starts as "build" stays a build thread
  *   in the summary, even after the follow-up edits switch prompts.
- * - `appReady` — same logic: was the app ready when the thread opened?
+ * - `app_ready` — same logic: was the app ready when the thread opened?
  * - `model` — would require a different field if we ever mix SA models
  *   inside a single thread, but `SA_MODEL` is a code constant today.
  *
  * **Scalar overwrite (latest turn wins):**
- * - `finishedAt` — last turn's finalize time. Note this means
- *   `finishedAt − startedAt` is the span of the thread's activity,
+ * - `finished_at` — last turn's finalize time. Note this means
+ *   `finished_at − started_at` is the span of the thread's activity,
  *   including any idle gaps between turns. Not the agent's wall-clock
  *   runtime.
- * - `moduleCount` — reflects the blueprint as of the latest turn, so
+ * - `module_count` — reflects the blueprint as of the latest turn, so
  *   "apps with N modules" filters in admin tools match reality. Pinning
  *   at turn-1 would permanently mark every successful build→edit thread
  *   as a zero-module app.
  *
  * **Union (boolean OR across turns):**
- * - `freshEdit`, `cacheExpired` — cost-relevant signals. An admin needs
+ * - `fresh_edit`, `cache_expired` — cost-relevant signals. An admin needs
  *   "did any turn hit a cold cache / run a fresh edit?" rather than
  *   "was turn 1 cold." OR-ing via `prev || delta` captures that.
  *
- * **Accumulated via `FieldValue.increment` (cumulative numeric deltas):**
- * - `stepCount`, `toolCallCount`, `inputTokens`, `outputTokens`,
- *   `cacheReadTokens`, `cacheWriteTokens`, `costEstimate`.
+ * **Accumulated (cumulative numeric deltas):**
+ * - `step_count`, `tool_call_count`, `input_tokens`, `output_tokens`,
+ *   `cache_read_tokens`, `cache_write_tokens`, `cost_estimate`. The `bigint`
+ *   token columns come back from pg as strings, so each is `Number(...)`-ed
+ *   before adding this turn's delta.
  *
  * ## Why the transaction
  *
@@ -79,24 +81,10 @@ export type RunSummaryWriteAction =
  * abort path is fire-and-forget, which makes it *possible* (on Cloud
  * Run in particular) for the abort-triggered write to overlap
  * request #2's synchronous flush. Both flushes target the same
- * `runs/{runId}` doc with non-overlapping deltas; a plain read-
- * modify-write would drop whichever delta lost the commit race.
- * `db.runTransaction` forces a re-read on contention; Firestore
- * retries the closure automatically until commit succeeds.
- *
- * `FieldValue.increment` composes correctly with transaction retries:
- * the sentinel is a server-side instruction that only fires on the
- * winning commit, not once per closure invocation.
- *
- * ## Schema-drift safety
- *
- * A Zod parse failure on the existing on-disk doc falls through to the
- * "no prev" branch — the current turn's summary overwrites it. We log
- * the full prior doc (RunSummaryDoc carries no user content — just
- * counters, timestamps, model/runId, flags) so an operator can
- * reconstruct what was lost. Overwriting corrupt data with fresh data
- * is strictly safer than dropping the current turn's contribution
- * just to preserve garbage.
+ * `(app_id, run_id)` row with non-overlapping deltas; a plain
+ * read-modify-write would drop whichever delta lost the commit race.
+ * The `SELECT … FOR UPDATE` here serializes the two against the row, and
+ * `withAppTx` retries a serialization/deadlock failure until it commits.
  */
 export async function writeRunSummary(
 	appId: string,
@@ -104,57 +92,67 @@ export async function writeRunSummary(
 	summary: RunSummaryDoc,
 ): Promise<RunSummaryWriteAction> {
 	try {
-		const db = getDb();
-		/* Raw doc ref (no converter) — transactions read and write
-		 * Zod-free DocumentData so we control the parse boundary
-		 * ourselves. The converter on `docs.run` would throw on malformed
-		 * docs, aborting the transaction before we can fall through to a
-		 * safe overwrite. */
-		const ref = db.collection("apps").doc(appId).collection("runs").doc(runId);
+		return await withAppTx(async (tx): Promise<RunSummaryWriteAction> => {
+			const existing = await tx
+				.selectFrom("run_summaries")
+				.selectAll()
+				.where("app_id", "=", appId)
+				.where("run_id", "=", runId)
+				.forUpdate()
+				.executeTakeFirst();
 
-		return await runThrottledTransaction(
-			db,
-			async (tx): Promise<RunSummaryWriteAction> => {
-				const snap = await tx.get(ref);
-				const raw = snap.exists ? (snap.data() ?? null) : null;
-				const prev = raw ? parseExistingSummary(raw) : null;
+			if (!existing) {
+				await tx
+					.insertInto("run_summaries")
+					.values({
+						app_id: appId,
+						run_id: runId,
+						started_at: summary.startedAt,
+						finished_at: summary.finishedAt,
+						prompt_mode: summary.promptMode,
+						fresh_edit: summary.freshEdit,
+						app_ready: summary.appReady,
+						cache_expired: summary.cacheExpired,
+						module_count: summary.moduleCount,
+						step_count: summary.stepCount,
+						model: summary.model,
+						input_tokens: summary.inputTokens,
+						output_tokens: summary.outputTokens,
+						cache_read_tokens: summary.cacheReadTokens,
+						cache_write_tokens: summary.cacheWriteTokens,
+						cost_estimate: summary.costEstimate,
+						tool_call_count: summary.toolCallCount,
+					})
+					.execute();
+				return "created";
+			}
 
-				if (!prev) {
-					tx.set(ref, summary);
-					/* No usable prior doc, so this is a full replace. Separate a
-					 * genuine first write (no doc existed) from a clobber of an
-					 * unparseable doc: `raw === null` means the run had no summary
-					 * yet; a non-null `raw` here means a doc existed but failed
-					 * `parseExistingSummary`, so its accumulated totals were just
-					 * dropped — the diagnostic an undercount investigation needs. */
-					return raw === null ? "created" : "overwritten";
-				}
-
-				/* Merge payload. Fields not included here retain their on-disk
-				 * values via Firestore's `{ merge: true }` semantics — that's
-				 * how the "pinned" bucket stays immutable across turns. */
-				tx.set(
-					ref,
-					{
-						finishedAt: summary.finishedAt,
-						moduleCount: summary.moduleCount,
-						freshEdit: prev.freshEdit || summary.freshEdit,
-						cacheExpired: prev.cacheExpired || summary.cacheExpired,
-						stepCount: FieldValue.increment(summary.stepCount),
-						toolCallCount: FieldValue.increment(summary.toolCallCount),
-						inputTokens: FieldValue.increment(summary.inputTokens),
-						outputTokens: FieldValue.increment(summary.outputTokens),
-						cacheReadTokens: FieldValue.increment(summary.cacheReadTokens),
-						cacheWriteTokens: FieldValue.increment(summary.cacheWriteTokens),
-						costEstimate: FieldValue.increment(summary.costEstimate),
-					},
-					{ merge: true },
-				);
-				return "incremented";
-			},
-		);
+			/* Pinned fields (started_at / prompt_mode / app_ready / model) are
+			 * omitted from the SET, so the first write's values stand. */
+			await tx
+				.updateTable("run_summaries")
+				.set({
+					finished_at: summary.finishedAt,
+					module_count: summary.moduleCount,
+					fresh_edit: existing.fresh_edit || summary.freshEdit,
+					cache_expired: existing.cache_expired || summary.cacheExpired,
+					step_count: existing.step_count + summary.stepCount,
+					tool_call_count: existing.tool_call_count + summary.toolCallCount,
+					input_tokens: Number(existing.input_tokens) + summary.inputTokens,
+					output_tokens: Number(existing.output_tokens) + summary.outputTokens,
+					cache_read_tokens:
+						Number(existing.cache_read_tokens) + summary.cacheReadTokens,
+					cache_write_tokens:
+						Number(existing.cache_write_tokens) + summary.cacheWriteTokens,
+					cost_estimate: existing.cost_estimate + summary.costEstimate,
+				})
+				.where("app_id", "=", appId)
+				.where("run_id", "=", runId)
+				.execute();
+			return "incremented";
+		});
 	} catch (err) {
-		log.error("[writeRunSummary] Firestore write failed", err, {
+		log.error("[writeRunSummary] Postgres write failed", err, {
 			appId,
 			runId,
 		});
@@ -163,22 +161,40 @@ export async function writeRunSummary(
 }
 
 /**
- * Parse an on-disk summary without throwing. Returns the parsed doc on
- * success, or `null` when the stored shape fails schema validation —
- * the caller then overwrites with the current turn's summary.
- *
- * The prior doc is logged in full on parse failure so an operator can
- * reconstruct what was lost (e.g. if the failure turns out to be a
- * schema-drift false positive, not genuine corruption). Safe to log:
- * `RunSummaryDoc` carries no user content — just numeric counters,
- * timestamps, model/runId identifiers, and booleans.
+ * Load the per-run summary. Returns `null` when none was written. Maps the
+ * snake_case columns to the `RunSummaryDoc` camelCase shape and `Number(...)`s
+ * the `bigint` token columns (pg returns them as strings). The SELECT-based
+ * building block the event-log reader (`lib/log/reader.ts`) surfaces as
+ * `readRunSummary`.
  */
-function parseExistingSummary(raw: unknown): RunSummaryDoc | null {
-	const parsed = runSummaryDocSchema.safeParse(raw);
-	if (parsed.success) return parsed.data;
-	log.warn("[writeRunSummary] existing doc failed schema parse; overwriting", {
-		issues: JSON.stringify(parsed.error.issues),
-		priorDoc: JSON.stringify(raw),
-	});
-	return null;
+export async function loadRunSummary(
+	appId: string,
+	runId: string,
+): Promise<RunSummaryDoc | null> {
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("run_summaries")
+		.selectAll()
+		.where("app_id", "=", appId)
+		.where("run_id", "=", runId)
+		.executeTakeFirst();
+	if (!row) return null;
+	return {
+		runId: row.run_id,
+		startedAt: row.started_at,
+		finishedAt: row.finished_at,
+		promptMode: row.prompt_mode as RunSummaryDoc["promptMode"],
+		freshEdit: row.fresh_edit,
+		appReady: row.app_ready,
+		cacheExpired: row.cache_expired,
+		moduleCount: row.module_count,
+		stepCount: row.step_count,
+		model: row.model,
+		inputTokens: Number(row.input_tokens),
+		outputTokens: Number(row.output_tokens),
+		cacheReadTokens: Number(row.cache_read_tokens),
+		cacheWriteTokens: Number(row.cache_write_tokens),
+		costEstimate: row.cost_estimate,
+		toolCallCount: row.tool_call_count,
+	};
 }

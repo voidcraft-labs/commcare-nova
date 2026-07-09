@@ -80,10 +80,6 @@ import {
 	unwrapList,
 } from "@/lib/domain/predicate";
 import { readCases } from "@/lib/preview/engine/caseDataBindingHelpers";
-import {
-	migrateAppBlueprint,
-	migrateOneModule,
-} from "@/scripts/migrate-case-list-schema-reshape";
 
 // The SA tool fixtures and the migration script both touch the
 // Firestore `apps` collection at module-import / write time. The
@@ -1277,134 +1273,6 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 });
 
 // =================================================================
-// 9. Migration v0 → v2 — pure-pipeline test against the migration
-//    script's exported transformation function. The CLI / Firestore
-//    side is covered by `scripts/__tests__/migrate-case-list-schema-reshape.test.ts`;
-//    this integration arm asserts a multi-module v0 blueprint
-//    migrates end-to-end via `migrateAppBlueprint`.
-// =================================================================
-
-describe("migration v0 → v2", () => {
-	it("walks a multi-module v0 blueprint, migrating each module to the v2 shape", () => {
-		// One module with `caseListColumns` only, one with both
-		// arrays plus a header collision, one with only
-		// `caseDetailColumns`.
-		const blueprint = {
-			appId: APP_ID,
-			modules: {
-				m1: {
-					uuid: "m1",
-					id: "patients",
-					name: "Patients",
-					caseListColumns: [
-						{ field: "case_name", header: "Name" },
-						{ field: "age", header: "Age" },
-					],
-				},
-				m2: {
-					uuid: "m2",
-					id: "households",
-					name: "Households",
-					caseListColumns: [{ field: "case_name", header: "Name" }],
-					caseDetailColumns: [
-						// Header collision — caseList header wins.
-						{ field: "case_name", header: "Full Name" },
-						{ field: "address", header: "Address" },
-					],
-				},
-				m3: {
-					uuid: "m3",
-					id: "visits",
-					name: "Visits",
-					caseDetailColumns: [{ field: "notes", header: "Notes" }],
-				},
-			},
-		};
-
-		const result = migrateAppBlueprint(blueprint, APP_ID);
-		expect(result.corruptModuleCount).toBe(0);
-		expect(result.migratedModules).toBe(3);
-
-		// `result.blueprint.modules` is typed as
-		// `MigrableModule` (the package-internal envelope shape) —
-		// each migrated module carries `caseListConfig` set to the
-		// v2 shape. The `extractMigratedModule` narrowing helper
-		// pulls the v2 `CaseListConfig` out without leaking the
-		// package-internal shape into the test bodies.
-		const m1Cols = extractMigratedModule(result.blueprint, "m1").columns;
-		expect(m1Cols).toHaveLength(2);
-		// m1: two list-only columns.
-		expect(m1Cols[0]).toMatchObject({
-			kind: "plain",
-			field: "case_name",
-			header: "Name",
-			visibleInList: true,
-			visibleInDetail: false,
-		});
-		expect(m1Cols[1]).toMatchObject({
-			kind: "plain",
-			field: "age",
-			header: "Age",
-			visibleInList: true,
-			visibleInDetail: false,
-		});
-
-		// m2: header collision — the caseList header ("Name") wins,
-		// the detail header ("Full Name") is dropped. The
-		// detail-only `address` row trails as visible-in-detail-only.
-		const m2Cols = extractMigratedModule(result.blueprint, "m2").columns;
-		expect(m2Cols).toHaveLength(2);
-		expect(m2Cols[0]).toMatchObject({
-			kind: "plain",
-			field: "case_name",
-			header: "Name",
-			visibleInList: true,
-			visibleInDetail: true,
-		});
-		expect(m2Cols[1]).toMatchObject({
-			kind: "plain",
-			field: "address",
-			header: "Address",
-			visibleInList: false,
-			visibleInDetail: true,
-		});
-
-		// m3: detail-only column. visibleInList false, detail true.
-		const m3Cols = extractMigratedModule(result.blueprint, "m3").columns;
-		expect(m3Cols).toHaveLength(1);
-		expect(m3Cols[0]).toMatchObject({
-			kind: "plain",
-			field: "notes",
-			header: "Notes",
-			visibleInList: false,
-			visibleInDetail: true,
-		});
-	});
-
-	it("classifies a v0 module via migrateOneModule with the v0 source-version tag", () => {
-		// `migrateOneModule` is the per-module entry point the
-		// per-app walker invokes; the test pins the v0 source-
-		// version tag so the tagging contract surfaces here.
-		const mod = {
-			uuid: "m1",
-			id: "patients",
-			name: "Patients",
-			caseListColumns: [{ field: "case_name", header: "Name" }],
-		};
-		const result = migrateOneModule(mod, {
-			appId: APP_ID,
-			moduleUuid: "m1",
-		});
-		expect(result.version).toBe("v0");
-		const config = result.nextConfig;
-		if (!config) throw new Error("expected nextConfig on v0 migration");
-		expect(config.columns).toHaveLength(1);
-		expect(config.searchInputs).toEqual([]);
-		expect(config.filter).toBeUndefined();
-	});
-});
-
-// =================================================================
 // 10. Preview rendering against PostgresCaseStore — predicate +
 //     sort + calculated column end-to-end. Pins the v2 case-store
 //     API (`store.query` returning `CaseRowWithCalculated[]`,
@@ -1501,31 +1369,6 @@ function collectColumns(doc: BlueprintDoc): Column[] {
 	const mod = doc.modules[moduleUuid];
 	if (!mod?.caseListConfig) return [];
 	return [...mod.caseListConfig.columns].sort(bySortKey);
-}
-
-/**
- * Pull the v2 `CaseListConfig` out of a migrated module on the
- * package-internal `BlueprintShape` shape `migrateAppBlueprint`
- * returns. `result.blueprint.modules` is typed loose (the
- * envelope shape carries v0 + v1 + v2 keys); after a successful
- * migration every module's `caseListConfig` is the v2 shape.
- * The narrowing helper validates against the live schema so a
- * regression in the migration surfaces as an assertion here, not
- * as a downstream type cast.
- */
-function extractMigratedModule(
-	blueprint: { modules?: { [uuid: string]: { caseListConfig?: unknown } } },
-	moduleUuid: string,
-): CaseListConfig {
-	const mod = blueprint.modules?.[moduleUuid];
-	if (!mod) throw new Error(`migrated blueprint missing module ${moduleUuid}`);
-	const parsed = caseListConfigSchema.safeParse(mod.caseListConfig);
-	if (!parsed.success) {
-		throw new Error(
-			`module ${moduleUuid} did not produce a valid v2 caseListConfig: ${parsed.error.message}`,
-		);
-	}
-	return parsed.data;
 }
 
 function collectSearchInputs(

@@ -16,15 +16,14 @@
  * - BuilderHeader — logo, Preview toggle (centered), undo/redo, save,
  *   export, account
  * - BuilderContentArea — sidebar wrappers, breadcrumb strip, preview, chat
- * - ReplayController — replay transport bar
  * - ChatContainer — useChat lifecycle, stream effects
  * - GenerationProgress — generation stage/error/status
  * - StructureSidebar — fully propless
  *
- * BuilderLayout subscribes to two store fields: `phase` and `inReplayMode`.
- * All other store subscriptions live in the child components listed above.
- * This means BuilderLayout re-renders only on app lifecycle transitions
- * and replay mode toggle — not on messages, keystrokes, or clicks.
+ * BuilderLayout subscribes to one store field: `phase`. All other store
+ * subscriptions live in the child components listed above. This means
+ * BuilderLayout re-renders only on app lifecycle transitions — not on
+ * messages, keystrokes, or clicks.
  */
 "use client";
 import {
@@ -39,7 +38,6 @@ import { BuilderContentArea } from "@/components/builder/BuilderContentArea";
 import { BuilderHeader } from "@/components/builder/BuilderHeader";
 import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceProvider";
 import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollRegistryContext";
-import { ReplayController } from "@/components/builder/ReplayController";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { Logo } from "@/components/ui/Logo";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
@@ -50,7 +48,6 @@ import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	useBuilderPhase,
-	useInReplayMode,
 	usePreviewing,
 	useSetPreviewing,
 } from "@/lib/session/hooks";
@@ -94,9 +91,6 @@ export function BuilderLayout({
 }: BuilderLayoutProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const phase = useBuilderPhase();
-
-	/* inReplayMode controls ReplayController mount in the header area. */
-	const inReplayMode = useInReplayMode();
 
 	/* CommCare settings — server-resolved, passed through to BuilderSubheader.
 	 * `commcareSettings` is a discriminated union; narrow on `configured` to
@@ -393,9 +387,6 @@ export function BuilderLayout({
 	return (
 		<BuilderReferenceProvider>
 			<div className="h-full flex flex-col overflow-hidden">
-				{/* Replay controller — self-sufficient, reads/writes replay state from store */}
-				{inReplayMode && <ReplayController />}
-
 				{/* Builder header — logo, centered Preview toggle, doc tools, account.
 				 *  Always rendered: it replaces the site AppHeader inside /build. */}
 				<BuilderHeader

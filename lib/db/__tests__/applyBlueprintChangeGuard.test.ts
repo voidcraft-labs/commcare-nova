@@ -8,17 +8,18 @@
  *      `kind`, `runId` (when present), `actorUserId` (the caller's `userId`),
  *      the guard's `mutations`, and any `mediaExpectations`.
  *   2. The result surfaces `seq` + the writer's hydrated `committedDoc`.
- *   3. A top-level `batchId` dedup hit (the latch already exists) short-circuits
- *      the WHOLE saga — no Postgres, no `loadApp`, no commit — returning the
- *      recorded `{ seq }` with no `committedDoc`.
+ *   3. A top-level `batchId` dedup hit (the `accepted_mutations (app_id, batch_id)`
+ *      latch already exists) short-circuits the WHOLE saga — no Postgres schema
+ *      work, no `loadApp`, no commit — returning the recorded `{ seq }` with no
+ *      `committedDoc`.
  *   4. A rejection from the writer (`BlueprintCommitRejectedError` /
  *      `CommitReauthError`) propagates and, after the Postgres phase ran,
  *      compensates the case-store work.
  *
  * The deep read-evaluate-write behavior the writer itself owns (re-apply on the
  * FRESH stored doc, the concurrent-delete guard, the fresh-doc re-verdict, the
- * per-commit reauth, the legacy-doc hydration) is exercised against the REAL
- * Firestore transaction in `commitGuardedBatch.integration.test.ts`.
+ * per-commit reauth, the legacy-doc hydration) is exercised against a REAL
+ * Postgres transaction in `commitGuardedBatch.integration.test.ts`.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,8 +51,11 @@ const { reauthorizeActorForCommitMock } = vi.hoisted(() => ({
 	reauthorizeActorForCommitMock: vi.fn(),
 }));
 
-const { batchDedupRawGetMock } = vi.hoisted(() => ({
-	batchDedupRawGetMock: vi.fn(),
+// The top-level dedup pre-check reads the `accepted_mutations (app_id, batch_id)`
+// latch via `getAppDb()`. `latchRowMock` scripts that single-row read: `undefined`
+// = no prior latch (proceed), `{ seq }` = a dedup hit.
+const { latchRowMock } = vi.hoisted(() => ({
+	latchRowMock: vi.fn(),
 }));
 
 vi.mock("@/lib/db/apps", () => ({
@@ -75,14 +79,23 @@ vi.mock("@/lib/db/commitGuard", async () => {
 	};
 });
 
-// The top-level dedup read is `docs.batchDedupRaw(appId, batchId).get()`. Stub
-// the firestore doc-ref factory so the non-transactional read is controllable
-// without a live Firestore.
-vi.mock("@/lib/db/firestore", () => ({
-	docs: {
-		batchDedupRaw: () => ({ get: batchDedupRawGetMock }),
-	},
-}));
+// The top-level dedup read is `getAppDb().selectFrom("accepted_mutations")…
+// .executeTakeFirst()`. Mock `getAppDb` to return a chainable stub whose terminal
+// `executeTakeFirst` resolves `latchRowMock()`, so the non-transactional latch
+// read is controllable without a live database. (`applyBlueprintChange` imports
+// only `getAppDb` from `./pg`; the rest of the module's pg surface stays real.)
+vi.mock("@/lib/db/pg", async () => {
+	const actual = (await vi.importActual("@/lib/db/pg")) as Record<
+		string,
+		unknown
+	>;
+	const chain: Record<string, unknown> = {};
+	chain.selectFrom = () => chain;
+	chain.select = () => chain;
+	chain.where = () => chain;
+	chain.executeTakeFirst = () => latchRowMock();
+	return { ...actual, getAppDb: async () => chain };
+});
 
 vi.mock("@/lib/case-store", async () => {
 	const actual = (await vi.importActual("@/lib/case-store")) as Record<
@@ -148,7 +161,7 @@ beforeEach(() => {
 	loadAppProjectIdMock.mockResolvedValue(null);
 	reauthorizeActorForCommitMock.mockResolvedValue(undefined);
 	// Default: no prior dedup latch — the saga proceeds to the guarded commit.
-	batchDedupRawGetMock.mockResolvedValue({ exists: false });
+	latchRowMock.mockResolvedValue(undefined);
 	withSchemaContextMock.mockResolvedValue({
 		applySchemaChange: applySchemaChangeMock,
 		dropSchema: dropSchemaMock,
@@ -268,10 +281,7 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 
 describe("applyBlueprintChange — top-level batchId dedup", () => {
 	it("short-circuits the whole saga on a pre-existing latch, doing zero commit / loadApp / Postgres work", async () => {
-		batchDedupRawGetMock.mockResolvedValue({
-			exists: true,
-			data: () => ({ seq: 42 }),
-		});
+		latchRowMock.mockResolvedValue({ seq: 42 });
 
 		const result = await applyBlueprintChange({
 			appId: "app-1",

@@ -4,9 +4,9 @@
  *
  * ## What this closes
  *
- * The SA's chat-side commit writes Firestore only (each tool batch
+ * The SA's chat-side commit writes the blueprint only (each tool batch
  * commits inline through `commitGuardedBatch`, which does not run the
- * Postgres schema saga), so `case_type_schemas` carries no row for
+ * case-store schema saga), so `case_type_schemas` carries no row for
  * any case type the SA just generated. Until the user's first
  * awaited write (auto-save PUT or MCP tool call) routes through
  * `applyBlueprintChange` and lands the schema sync, every

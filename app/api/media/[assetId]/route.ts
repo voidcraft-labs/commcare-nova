@@ -21,7 +21,7 @@ import type { NextRequest } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { userInProject } from "@/lib/db/appAccess";
-import { loadAssetById } from "@/lib/db/mediaAssets";
+import { listReferencingAppIds, loadAssetById } from "@/lib/db/mediaAssets";
 import { asAssetId, extractObjectKeyForAsset } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import {
@@ -113,7 +113,7 @@ export async function GET(
  * Project-gated (404 on missing OR non-member, so ids stay non-enumerable). Refuses
  * with a 409 — naming the carriers — if any of the owner's live apps still
  * reference the asset, so a delete can't silently orphan a reference the
- * export boundary gate would later reject. On success it purges the Firestore
+ * export boundary gate would later reject. On success it purges the asset
  * row, the GCS bytes, and the document-extract sibling (keeping shared bytes
  * intact), then returns 204. The deletion mechanics are shared with the SA's
  * `remove_media_asset` tool via `lib/media/assetDeletion`.
@@ -143,13 +143,13 @@ export async function DELETE(
 		}
 
 		// Reference guard: refuse if any live app in the asset's PROJECT still uses
-		// it. `asset.referencingAppIds` is the reverse index — the candidate set
-		// the guard re-walks, so it loads 0–2 apps instead of the Project's whole
-		// app list.
+		// it. `listReferencingAppIds` reads the `media_asset_refs` reverse index —
+		// the candidate set the guard re-walks, so it loads 0–2 apps instead of the
+		// Project's whole app list.
 		const references = await findAppReferencesToAsset(
 			asset.project_id,
 			assetId,
-			asset.referencingAppIds,
+			await listReferencingAppIds(assetId),
 		);
 		if (references.length > 0) {
 			throw new ApiError(

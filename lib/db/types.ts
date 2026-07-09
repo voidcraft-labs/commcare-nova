@@ -1,141 +1,97 @@
 /**
- * Firestore document schemas and derived types.
+ * App-state record shapes — the assembled, in-memory view of the Postgres
+ * rows (`lib/db/pg.ts` owns the table types; the DDL lives in
+ * `lib/case-store/migrations/20260708000000_app_state.ts`).
  *
- * Zod schemas are the single source of truth — TypeScript types are derived
- * via z.infer, and Firestore converters use schema.parse() for validated reads.
+ * Zod appears only where a jsonb column carries a shape the database can't
+ * type: thread messages, the media extract, presence locations, and the
+ * blueprint (validated in `lib/db/blueprintRows.ts::assembleBlueprint`).
+ * Scalar columns come back typed from Kysely, so the record builders in each
+ * module construct these shapes directly.
  *
- * Document hierarchy:
+ * Record hierarchy:
  *
- *   usage/{userId}/months/{yyyy-mm}    → UsageDoc         (monthly actual-$ cost, accumulate-only)
- *   credits/{userId}/months/{yyyy-mm}  → CreditMonthDoc   (monthly credit balance, the resettable gate)
- *   credits/{userId}/grants/{grantId}  → CreditGrantDoc   (append-only admin reset/grant audit)
- *   apps/{appId}                       → AppDoc           (root-level, owner field links to user)
- *   apps/{appId}/events/{eventId}      → Event            (unified mutation+conversation log)
- *   apps/{appId}/runs/{runId}          → RunSummaryDoc    (per-run cost/behavior summary)
- *   apps/{appId}/threads/{threadId}    → ThreadDoc        (chat conversation history)
- *
- * The Event union lives in `lib/log/types.ts` — its shape is shared with
- * runtime writer/reader code. This file owns every other Firestore schema.
+ *   usage_months(user_id, period)    → UsageDoc         (monthly actual-$ cost, accumulate-only)
+ *   credit_months(user_id, period)   → CreditMonthDoc   (monthly credit balance, the resettable gate)
+ *   credit_grants                    → CreditGrantDoc   (append-only admin reset/grant audit)
+ *   apps(id) + blueprint_entities    → AppDoc           (scalars + assembled blueprint)
+ *   events                           → Event            (unified mutation+conversation log — lib/log/types)
+ *   run_summaries(app_id, run_id)    → RunSummaryDoc    (per-run cost/behavior summary)
+ *   threads(app_id, thread_id)       → ThreadDoc        (chat conversation history)
+ *   accepted_mutations(app_id, seq)  → AcceptedMutationDoc (the durable, PERMANENT batch stream)
+ *   presence(app_id, user, session)  → PresenceDoc      (live roster; expire_at-swept)
+ *   media_assets / media_asset_refs  → MediaAssetDoc    (Project-scoped media metadata)
  *
  * User identity lives on `auth_users` (see lib/auth.ts).
  */
 
-import { Timestamp } from "@google-cloud/firestore";
 import { z } from "zod";
 import { attachmentRefSchema } from "@/lib/chat/attachmentRefs";
-import { COMMCARE_SERVER_IDS } from "@/lib/commcare/servers";
-import { mutationSchema } from "@/lib/doc/types";
-import { locationSchema } from "@/lib/routing/types";
-import { blueprintDocSchema } from "../domain/blueprint";
-import {
+import type { COMMCARE_SERVER_IDS } from "@/lib/commcare/servers";
+import type { Mutation } from "@/lib/doc/types";
+import { type Location, locationSchema } from "@/lib/routing/types";
+import type { PersistableDoc } from "../domain/blueprint";
+import type {
 	ALL_MIME_TYPES,
 	ASSET_KINDS,
 	MEDIA_ASSET_STATUSES,
-	MEDIA_EXTRACT_STATUSES,
 } from "../domain/multimedia";
-
-// ── Shared ──────────────────────────────────────────────────────────
-
-/**
- * Firestore Timestamp validator. On reads, Firestore always returns Timestamp
- * instances — this validates that invariant rather than blindly casting.
- */
-const timestamp = z.instanceof(Timestamp);
+import { MEDIA_EXTRACT_STATUSES } from "../domain/multimedia";
 
 // ── Usage ───────────────────────────────────────────────────────────
 
 /**
- * Monthly usage aggregation — stored at `usage/{userId}/months/{yyyy-mm}`.
- *
- * One document per user per calendar month. The document ID is the period
- * string (e.g. "2026-04") so spend-cap checks are a single document read,
- * not a query. Fields are atomically incremented via FieldValue.increment()
- * after each run completes.
+ * Monthly usage aggregation — one row per user per calendar month
+ * (`usage_months`), keyed by the `yyyy-mm` period so spend-cap checks are a
+ * single primary-key read. Counters accumulate via `SET x = x + $delta`.
  */
-export const usageDocSchema = z.object({
-	/** Total input tokens consumed across all runs this period. */
-	input_tokens: z.number().default(0),
-	/** Total output tokens produced across all runs this period. */
-	output_tokens: z.number().default(0),
-	/** Estimated cost in USD, summed across all runs. */
-	cost_estimate: z.number().default(0),
-	/** Number of chat requests (generation runs) this period. */
-	request_count: z.number().default(0),
-	/** Last time this document was updated via FieldValue.serverTimestamp(). */
-	updated_at: timestamp,
-});
-export type UsageDoc = z.infer<typeof usageDocSchema>;
+export interface UsageDoc {
+	input_tokens: number;
+	output_tokens: number;
+	cost_estimate: number;
+	request_count: number;
+	updated_at: Date;
+}
 
 // ── Credits ─────────────────────────────────────────────────────────
 
 /**
- * Monthly per-user credit balance — stored at `credits/{userId}/months/{yyyy-mm}`.
- *
- * The resettable *gate* ledger, parallel to `UsageDoc` but on its own
- * collection so an admin reset/grant never touches the cost record. Balance is
- * derived, not stored: `allowance + bonus − consumed`. Every quantity is a
- * non-negative integer — credits are discrete (build 100, edit 5), so a
- * fractional balance component is corruption, never a valid state.
- *
- * `allowance` has no default because its value (e.g. `2000`) is credit *policy*
- * that lives in the credit-amount module, not in this schema — baking it in here
- * would duplicate that policy and couple the two. Writers always seed `allowance`
- * explicitly in the reservation transaction, and a missing credit doc is treated
- * as a full balance by an in-code `snap.exists` check (gate and dashboard), never
- * filled by a schema default — the doc is never `parse`d into existence here.
+ * Monthly per-user credit balance (`credit_months`) — the resettable *gate*
+ * ledger, parallel to `UsageDoc` but its own table so an admin reset/grant
+ * never touches the cost record. Balance is derived, not stored:
+ * `allowance + bonus − consumed`. A missing row reads as a full allowance
+ * everywhere (gate and dashboard share the rule), so a never-touched month
+ * needs no pre-seeding write; the first chargeable turn lazily seeds the row
+ * with an explicit allowance (its value is credit policy, seeded in code).
  */
-export const creditMonthDocSchema = z.object({
-	/** Monthly grant, written explicitly on the first reservation of the period. */
-	allowance: z.number().int().nonnegative(),
-	/** Credits debited this period — the running sum of build/edit charges. */
-	consumed: z.number().int().nonnegative().default(0),
-	/** Additive admin grants (comps) applied to this period. */
-	bonus: z.number().int().nonnegative().default(0),
-	/** Last write, via FieldValue.serverTimestamp(); a Timestamp instance on read. */
-	updated_at: timestamp,
-});
-export type CreditMonthDoc = z.infer<typeof creditMonthDocSchema>;
+export interface CreditMonthDoc {
+	allowance: number;
+	consumed: number;
+	bonus: number;
+	updated_at: Date;
+}
 
 /**
- * Append-only audit row for one admin credit intervention — stored at
- * `credits/{userId}/grants/{grantId}`.
- *
- * Records who did what and when so a comp is traceable, and is written in the
- * same transaction as the balance mutation so audit and effect commit together.
- * This collection only ever grows; it never mutates the usage (cost) ledger.
+ * Append-only audit row for one admin credit intervention (`credit_grants`),
+ * written in the same transaction as the balance change so audit and effect
+ * commit together.
  */
-export const creditGrantDocSchema = z.object({
-	/**
-	 * Credits added by a grant; informational (0) for a reset, which zeroes
-	 * `consumed`. Always a non-negative integer — credits are discrete, a reset
-	 * writes 0 and a grant a positive whole amount, so the same
-	 * `.int().nonnegative()` floor as the credit-month quantities applies.
-	 */
-	amount: z.number().int().nonnegative(),
-	/** Which intervention this row records. */
-	type: z.enum(["reset", "grant"]),
-	/** Acting admin's userId. */
-	actor: z.string(),
-	/** Acting admin's email, denormalized so the audit list renders without a user join. */
-	actor_email: z.string(),
-	/** Free-text justification; null when the admin gave none. */
-	reason: z.string().nullable().default(null),
-	/** The yyyy-mm period the intervention affected. */
-	period: z.string(),
-	/** Set on write via FieldValue.serverTimestamp(); a Timestamp instance on read. */
-	created_at: timestamp,
-});
-export type CreditGrantDoc = z.infer<typeof creditGrantDocSchema>;
+export interface CreditGrantDoc {
+	amount: number;
+	type: "reset" | "grant";
+	actor: string;
+	actor_email: string;
+	reason: string | null;
+	period: string;
+	created_at: Date;
+}
 
 // ── Per-run summary ───────────────────────────────────────────────
 
 /**
- * Per-run cost + behavior summary written once on request finalization.
- *
- * Stored at `apps/{appId}/runs/{runId}`. Admin tools (inspect-logs,
- * inspect-compare) source cost breakdowns here — the event log itself
- * intentionally does NOT carry token usage (the log is supplemental
- * and captures mutations + conversation only).
+ * Per-run cost + behavior summary (`run_summaries`), accumulated across the
+ * turns of one run at finalization. Admin tools source cost breakdowns here —
+ * the event log intentionally does NOT carry token usage.
  */
 export const runSummaryDocSchema = z.object({
 	runId: z.string(),
@@ -159,12 +115,8 @@ export const runSummaryDocSchema = z.object({
 	model: z.string(),
 	/**
 	 * Total input tokens for the run, INCLUDING cache_read_tokens and
-	 * cache_write_tokens. This mirrors the existing estimateCost() convention
+	 * cache_write_tokens — the `estimateCost()` convention
 	 * (uncachedInput = inputTokens - cacheReadTokens - cacheWriteTokens).
-	 * If Anthropic's SDK reports `input_tokens` under a different convention,
-	 * adapters must convert to this contract before writing the summary.
-	 *
-	 * `cacheHitRate` (derived downstream) = cacheReadTokens / inputTokens.
 	 */
 	inputTokens: z.number().int().nonnegative(),
 	outputTokens: z.number().int().nonnegative(),
@@ -177,362 +129,151 @@ export type RunSummaryDoc = z.infer<typeof runSummaryDocSchema>;
 
 // ── User Settings ──────────────────────────────────────────────
 
-/**
- * User settings — stored at `user_settings/{userId}`.
- *
- * Separate from `auth_users` because API keys must not enter session
- * cookies (Better Auth's additionalFields propagate to sessions), and
- * settings grow independently of auth concerns.
- *
- * The `commcare_api_key` field stores a Cloud KMS-encrypted ciphertext
- * (base64-encoded). Decryption only happens server-side when proxying
- * API calls to CommCare HQ. Key rotation is handled by KMS automatically.
- */
-export const userSettingsDocSchema = z.object({
-	/** CommCare HQ username (typically email). */
-	commcare_username: z.string(),
-	/** Cloud KMS-encrypted CommCare HQ API key (base64). Never sent to the client. */
-	commcare_api_key: z.string(),
-	/**
-	 * Which CommCare HQ deployment the credentials live on. Each SaaS server
-	 * (US / India / EU) is a separate deployment with its own accounts, so a
-	 * key only authenticates against the server that issued it — the whole
-	 * connection (username, key, reachable spaces) is per-server.
-	 *
-	 * Optional at PARSE only, so a row the `migrate-commcare-server.ts`
-	 * backfill hasn't stamped yet still reads as data instead of throwing
-	 * inside the converter (which would 500 every page that touches
-	 * settings). A missing value is never treated as a server: every reader
-	 * in `lib/db/settings.ts` collapses it to "not configured", and the save
-	 * path always writes it.
-	 */
-	commcare_server: z.enum(COMMCARE_SERVER_IDS).optional(),
-	/**
-	 * Every project space the API key can actually upload to — the spaces
-	 * that passed an app-level access probe at credential save / refresh. An
-	 * unscoped HQ key reaches every space its owner belongs to, so this can
-	 * hold many; a project-scoped key holds one. The set is cached (slugs are
-	 * stable) but not permanent: a user joining a new project grows it, which
-	 * is what the "Refresh domains" action re-reads.
-	 */
-	approved_domains: z
-		.array(z.object({ name: z.string(), displayName: z.string() }))
-		.default([]),
-	/** Last time settings were modified. */
-	updated_at: timestamp,
+/** One HQ project space the stored API key can upload to. */
+export const approvedDomainSchema = z.object({
+	name: z.string(),
+	displayName: z.string(),
 });
-export type UserSettingsDoc = z.infer<typeof userSettingsDocSchema>;
+
+/**
+ * User settings (`user_settings`) — CommCare HQ credentials. Separate from
+ * `auth_users` because API keys must not enter session cookies, and settings
+ * grow independently of auth concerns. `commcare_api_key` stores a Cloud
+ * KMS-encrypted ciphertext (base64); decryption happens server-side only.
+ */
+export interface UserSettingsDoc {
+	commcare_username: string;
+	/** Cloud KMS-encrypted CommCare HQ API key (base64). Never sent to the client. */
+	commcare_api_key: string;
+	/** Which CommCare HQ deployment the credentials live on (US / India / EU).
+	 *  Null on a row a legacy backfill never stamped; readers collapse it to
+	 *  "not configured". */
+	commcare_server: (typeof COMMCARE_SERVER_IDS)[number] | null;
+	/** Every project space the API key can actually upload to. */
+	approved_domains: z.infer<typeof approvedDomainSchema>[];
+	updated_at: Date;
+}
 
 // ── App ─────────────────────────────────────────────────────────
 
-export const appDocSchema = z.object({
-	/** Owner userId (UUID) — the user who created this app. Used for list queries and authorization. */
-	owner: z.string(),
-	/**
-	 * Owning Project (Better Auth organizationId) — the tenancy key for shared
-	 * apps; `createApp` stamps it on every new app. Nullable only for rows that
-	 * predate the field (a backfill sets it).
-	 */
-	project_id: z.string().nullable().default(null),
-	/** App name — denormalized from the doc for list display. */
-	app_name: z.string(),
-	/**
-	 * The normalized blueprint doc. Firestore persists the `BlueprintDoc`
-	 * shape directly — no nested-tree conversion is needed on load.
-	 *
-	 * Note: `fieldParent` is NOT persisted (derived from `fieldOrder` on
-	 * load), so Zod validation against `blueprintDocSchema` will succeed
-	 * even when that field is absent in the stored document.
-	 */
-	blueprint: blueprintDocSchema,
-	/**
-	 * Monotonic per-app counter, advanced by exactly one on every committed
-	 * blueprint mutation batch. It is the per-app mutation stream's ordering
-	 * key, the client's recovery cursor, the export version boundary, and the
-	 * source for the Postgres `synced_seq` guard.
-	 * Defaults to 0 on rows that predate the field, and initializes on the
-	 * first committed write.
-	 */
-	mutation_seq: z.number().int().nonnegative().default(0),
-	/** Connect app type — denormalized for list filtering. Null for standard apps. */
-	connect_type: z.enum(["learn", "deliver"]).nullable().default(null),
-	/** Number of modules — denormalized for list display. */
-	module_count: z.number().default(0),
-	/** Number of forms across all modules — denormalized for list display. */
-	form_count: z.number().default(0),
-	/**
-	 * Run-liveness status. Never feeds the validity gate — every commit
-	 * gates identically whatever the status; this field exists for the
-	 * liveness machinery (the concurrency guard, the staleness reaper,
-	 * list display) and nothing else.
-	 *
-	 * - `generating` — a chat build run is in flight. `updated_at`
-	 *   advances on every intermediate write; a 10-minute gap trips the
-	 *   staleness inference in `listApps` and self-converts the row to
-	 *   `error`.
-	 * - `complete` — the at-rest state: no run is working on the app.
-	 *   Every non-chat creation (MCP `create_app` included) is born here,
-	 *   and the chat route flips a finished build here at drain end.
-	 * - `error` — a build run failed; see `error_type` for the bucket.
-	 *   Every chargeable build POST against an existing app — a retry of
-	 *   a failed build or a new instruction into a finished one — claims
-	 *   the run window back to `generating` (`claimRun` in build mode).
-	 * - `deleted` — legacy marker, retained in the enum for back-compat
-	 *   with rows soft-deleted before the marker moved off `status`.
-	 *   New code uses `deleted_at != null` as the soft-delete signal
-	 *   and never writes this value; lifecycle status and existence are
-	 *   independent axes (see `softDeleteApp` / `restoreApp`).
-	 */
-	status: z
-		.enum(["generating", "complete", "error", "deleted"])
-		.default("complete"),
-	/**
-	 * True while a build is PAUSED on an `askQuestions` round — the SA halted the
-	 * agent loop to await the user's answer, so the run is alive (a later POST will
-	 * resume it) even though no process is currently running and `updated_at` has
-	 * stopped advancing. The staleness reaper excludes `awaiting_input` rows so it
-	 * never mistakes a user taking their time on a clarification for a hard-killed
-	 * build and refunds its live hold. Set when the run pauses, cleared when a POST
-	 * resumes it; absent on apps that never paused (and on pre-field rows, which
-	 * read as not-awaiting and so stay reapable).
-	 */
-	awaiting_input: z.boolean().optional(),
-	/** Error classification — set when status is 'error'. Null for non-error apps. */
-	error_type: z.string().nullable().default(null),
-	/**
-	 * ISO-8601 timestamp marking the moment of soft-delete. Null for any
-	 * live row, non-null for any deleted row — `deleted_at` is the sole
-	 * soft-delete marker on this schema, fully orthogonal to `status`.
-	 * Set together with `recoverable_until` by `softDeleteApp` and
-	 * cleared together by `restoreApp`; lifecycle status is never
-	 * touched in either direction.
-	 */
-	deleted_at: z.string().nullable().default(null),
-	/**
-	 * ISO-8601 end of the recovery window — past this, the trash UI
-	 * stops surfacing the row. Null for any live row. Uses the same
-	 * ISO representation as `deleted_at` so consumers computing "days
-	 * remaining" work with one uniform timestamp type.
-	 */
-	recoverable_until: z.string().nullable().default(null),
+/** The credit-reservation marker — present when a chargeable run booked a
+ *  hold (`res_period IS NOT NULL` on the row). `userId` is the CHARGED actor
+ *  (refunds target it, never `owner`); `runId` is the booking run — the build
+ *  ownership identity `runLeaseState().mine` reads. The reapers CLEAR `runId`
+ *  when they resolve a stranded run (the reaper's signature the false-reap
+ *  self-heal keys on). */
+export interface AppReservation {
+	period: string;
+	reserved: number;
+	settled: boolean;
+	userId?: string;
+	runId?: string;
+}
+
+/** The exclusive edit-run lease (`lock_* IS NOT NULL`). An edit stays
+ *  `complete`, so this lock is its serialization primitive; a build holds via
+ *  `status: 'generating'` instead and never writes one. */
+export interface AppRunLock {
+	runId: string;
+	actorUserId: string;
+	expireAt: Date;
+}
+
+/**
+ * The assembled app record: the `apps` row's scalars plus the blueprint
+ * reassembled from `blueprint_entities` (see `lib/db/blueprintRows.ts`).
+ *
+ * `app_name` is the TRUE blueprint name (may be empty — `EMPTY_APP_NAME` is a
+ * real validator state); list surfaces apply the `UNTITLED_APP_NAME` display
+ * fallback at projection time.
+ *
+ * `status` is run-liveness only (never feeds the validity gate):
+ * `generating` = a build run in flight (liveness off `updated_at` inside
+ * `MAX_GENERATION_MINUTES`); `complete` = at rest; `error` = a build failed;
+ * `deleted` = legacy marker retained for rows soft-deleted before the marker
+ * moved to `deleted_at`. Soft-delete (`deleted_at != null`) is an independent
+ * axis.
+ */
+export interface AppDoc {
+	owner: string;
+	project_id: string | null;
+	app_name: string;
+	blueprint: PersistableDoc;
+	/** Monotonic per-app counter, advanced by exactly one on every committed
+	 *  mutation batch — the stream's ordering key, the client's recovery
+	 *  cursor, and the source for the Postgres `synced_seq` guard. */
+	mutation_seq: number;
+	connect_type: "learn" | "deliver" | null;
+	module_count: number;
+	form_count: number;
+	status: "generating" | "complete" | "error" | "deleted";
+	/** True while a run is PAUSED on an `askQuestions` round — alive with no
+	 *  process. The reapers key on the lapsed lease, not this flag. */
+	awaiting_input?: boolean;
+	error_type: string | null;
+	/** ISO-8601 soft-delete marker; null for any live row. */
+	deleted_at: string | null;
+	/** ISO-8601 end of the recovery window. */
+	recoverable_until: string | null;
 	/** Run ID of the generation/edit that last modified this app. */
-	run_id: z.string().nullable().default(null),
-	/**
-	 * Durable credit-reservation marker for the refunding reaper.
-	 *
-	 * Written ATOMICALLY with the credit debit when a chargeable turn reserves
-	 * (same `reserveCredits` transaction), so a committed charge always carries
-	 * the marker its refund needs. `settled` means the hold is RESOLVED — no
-	 * refund is owed: set by the refunding paths (flush / `failRun` /
-	 * `reapStaleGenerating` / `reapStaleReservation`, which hand the hold back),
-	 * by the atomic clean-completion writers on a KEPT charge (`completeAndSettleRun`
-	 * for a build, `clearRunLockAndSettle` for an edit — each settles in the SAME
-	 * transaction that makes the app claimable), and by `claimRun` (build mode) when
-	 * it displaces a finished run whose charge was KEPT. The claim-window rule is what makes "stale `generating` + unsettled
-	 * marker ⇒ refund it"
-	 * safe: a KEPT charge's marker stays unsettled only while its app sits at
-	 * `complete` — a shape the reaper never touches — and the moment a new run
-	 * claims that row back to `generating`, the claim transaction marks the
-	 * displaced marker settled-as-kept. A PAUSED run's unsettled marker is
-	 * different in kind: it is a LIVE hold, not a kept charge — the run is
-	 * alive (spared from the reaper by the `awaiting_input` flag, never by
-	 * settlement), and a failed resume of it refunds off this marker (the chat
-	 * route's post-flush `refundReservation`) — so the claim deliberately
-	 * leaves it untouched when it displaces a paused run. Either way a
-	 * `generating` row's unsettled marker only ever belongs to a hold that is
-	 * still genuinely refundable (the live claim's own charge, or a
-	 * displaced-paused run's live hold), so the reaper refunding off it can
-	 * never un-book a charge a previous run kept — even when a hard kill lands
-	 * between the claim and the new reservation. `reserved` is the exact
-	 * amount to return; `period` is the month the hold actually hit (the reaper
-	 * refunds that month, not whatever month it happens to run in). The marker
-	 * carries NO expiry of its own: an EDIT's stranded hold (its `complete` app
-	 * never enters the `generating`-keyed staleness inference) is reaped off the
-	 * `run_lock`'s single liveness horizon by `reapStaleReservation` — the reaper
-	 * refunds an unsettled marker only once the edit's `run_lock` is gone or past
-	 * its (per-commit-refreshed) `expireAt`.
-	 *
-	 * Absent on apps created before this field shipped and on turns that never
-	 * reserved (free continuations) — `refundReservation` treats an absent marker
-	 * as a clean no-op, so those rows reap to `error` with no refund.
-	 */
-	reservation: z
-		.object({
-			period: z.string(),
-			reserved: z.number(),
-			settled: z.boolean(),
-			/**
-			 * The user whose credits the reservation debited — the run's
-			 * ACTOR, NOT necessarily `owner` (a Project co-member can run a
-			 * build/edit against a shared app, and per-user billing charges the
-			 * one who ran it). `refundReservation` hands the hold back to THIS
-			 * user. Optional: markers written before per-actor billing carry
-			 * none and fall back to `owner` (the actor in the single-member
-			 * world those markers were written in).
-			 */
-			userId: z.string().optional(),
-			/**
-			 * The run that booked this hold — its `run_id`, the per-run BUILD-ownership
-			 * identity `runLeaseState().mine` reads (a build has no `run_lock` to carry
-			 * one). It answers "does a present marker belong to a run that will resolve
-			 * its OWN outcome, or to one already resolved for it?" — the reaper-race
-			 * discriminator. When a run reserves, `reserveCredits` writes its `runId`;
-			 * when the REAPERS resolve a stranded run they CLEAR the `runId` (keeping
-			 * `userId`/`period`/`reserved`/`settled`). So a marker still carrying a `runId`
-			 * is a live run that owns its terminal write (its `failApp` is correct); a
-			 * marker with its `runId` CLEARED is a reaped GHOST whose stale terminal writer
-			 * must NOT read it as `mine` and `failApp` a taker that re-claimed the freed app
-			 * in the `[claim, reserveCredits)` window. `mine` is NON-LENIENT (an absent
-			 * `runId` is nobody's), so a ghost and a legacy pre-P9 marker both read as
-			 * unowned, resolved only by the reapers' OWN lenient clauses. Optional: absent
-			 * on legacy pre-P9 markers, reaped markers, and free-continuation rows.
-			 */
-			runId: z.string().optional(),
-		})
-		.optional(),
-	/**
-	 * Exclusive edit-run lease — the per-app serialization lock an EDIT run
-	 * holds while it works. An edit stays `complete` (its status never flips to
-	 * `generating`), so it can't use the build path's status-as-lock; instead a
-	 * chargeable edit transactionally claims this field (`claimRun('edit')`) and
-	 * a concurrent build OR edit waits on it. Absent when no edit run holds the
-	 * app; `claimRun` treats an absent or past-`expireAt` lock as claimable, so a
-	 * hard kill that never released it (`clearRunLock`) self-heals at the lease's
-	 * expiry rather than starving the next run. Builds do NOT write this — they
-	 * hold the app via `status: 'generating'` — but `claimRun` reads it on both
-	 * modes so a build waits on a live edit-lock and vice versa (the full
-	 * cross-mode matrix).
-	 */
-	run_lock: z
-		.object({
-			/** The edit run holding the lease — the `run_id` of the claiming POST. */
-			runId: z.string(),
-			/** The user whose POST claimed the lease (attribution; not a tenant key). */
-			actorUserId: z.string(),
-			/** Absolute lease deadline (`now + MAX_RUN_MINUTES` at claim). */
-			expireAt: timestamp,
-		})
-		.optional(),
-	/** First save timestamp. Set once via FieldValue.serverTimestamp(). */
-	created_at: timestamp,
-	/** Updated on every save via FieldValue.serverTimestamp(). */
-	updated_at: timestamp,
-});
-export type AppDoc = z.infer<typeof appDocSchema>;
+	run_id: string | null;
+	reservation?: AppReservation;
+	run_lock?: AppRunLock;
+	created_at: Date;
+	updated_at: Date;
+}
 
-// ── Multiplayer stream — app subcollections ────────────────────────
-//
-// Three subcollections under `apps/{appId}` back the real-time stream:
-//
-//   acceptedMutations/{seq}   the durable, ordered stream of committed
-//                             mutation batches (seqDocId = padded `seq`)
-//   batchDedup/{batchId}      the idempotency latch a retried PUT keys on
-//   presence/{userId}:{sessionId}  the live roster, one doc per browser tab
-//
-// Every entry carries an absolute `expireAt` Timestamp; a Firestore TTL
-// policy provisioned out-of-band on that field reaps it. Durations live in
-// `lib/db/constants.ts`.
+// ── Multiplayer stream ──────────────────────────────────────────────
 
 /**
- * One committed mutation batch in the durable stream, stored at
- * `apps/{appId}/acceptedMutations/{seq}` (seqDocId = `String(seq).padStart(12,
- * '0')` so lexicographic doc-id order matches numeric `seq` order). Entries
- * store the DELTA, so folding the deltas from any retained `seq` reproduces
- * the stored blueprint snapshot. The relay pipes these to browsers as SSE
- * frames; a `kind: 'migration'` entry is a stream sentinel (its `mutations`
- * are empty) that tells a client to reload rather than replay.
+ * One committed mutation batch in the durable stream (`accepted_mutations`).
+ * Entries store the DELTA; the log is PERMANENT (no TTL, no prune) — it is
+ * both the realtime catch-up stream and the app's durable edit history, so
+ * folding every batch from an app's first seq reproduces its entity rows.
+ * `UNIQUE (app_id, batch_id)` is the idempotency latch a retried PUT keys on.
+ * A `kind: 'migration'` entry is a stream sentinel (empty `mutations`) that
+ * tells a live client to reload rather than replay.
  */
-export const acceptedMutationSchema = z.object({
-	/** The monotonic `mutation_seq` this batch committed at. */
-	seq: z.number().int().nonnegative(),
-	/** Client-minted idempotency key — pairs with `batchDedup/{batchId}`. */
-	batchId: z.string(),
-	/** The SA run that produced the batch (chat/mcp); absent for an autosave. */
-	runId: z.string().optional(),
-	/** The committed batch's delta. Empty for a `migration` sentinel. */
-	mutations: z.array(mutationSchema),
-	/** The user who authored the batch (echo-classification on the client). */
-	actorId: z.string(),
-	/** Which write path committed the batch. */
-	kind: z.enum(["autosave", "mcp", "chat", "migration"]),
-	/** Commit time, via FieldValue.serverTimestamp(); a Timestamp on read. */
-	ts: timestamp,
-	/** TTL deadline (`now + ACCEPTED_MUTATIONS_TTL_MS`). */
-	expireAt: timestamp,
-});
-export type AcceptedMutationDoc = z.infer<typeof acceptedMutationSchema>;
+export interface AcceptedMutationDoc {
+	seq: number;
+	batchId: string;
+	runId?: string;
+	mutations: Mutation[];
+	actorId: string;
+	kind: "autosave" | "mcp" | "chat" | "migration";
+	ts: Date;
+}
 
 /**
- * Idempotency latch for one committed batch, stored at
- * `apps/{appId}/batchDedup/{batchId}`. The guarded writer reads it FIRST
- * inside the commit transaction: a hit short-circuits to the recorded `seq`
- * and writes nothing, so a client's retry of a not-yet-acked PUT never
- * double-commits.
+ * One collaborator's live presence (`presence`, keyed per browser session so
+ * two tabs don't clobber). Posted on selection change and on a heartbeat;
+ * rows past `expire_at` are filtered on read and swept opportunistically.
+ * `location` parses against the routing schema (re-exported here for the
+ * relay's roster read) so a peer's location is a structurally valid builder
+ * URL on the wire.
  */
-export const batchDedupSchema = z.object({
-	seq: z.number().int().nonnegative(),
-	/** TTL deadline (`now + BATCH_DEDUP_TTL_MS`). */
-	expireAt: timestamp,
-});
-export type BatchDedupDoc = z.infer<typeof batchDedupSchema>;
-
-/**
- * One collaborator's live presence, stored at
- * `apps/{appId}/presence/{userId}:{sessionId}`. Keyed per browser session so a
- * user's two tabs don't clobber each other; the roster dedupes self by
- * `userId`. Posted on selection change and on a heartbeat; the TTL reaps a
- * tab that stopped heartbeating. `location` is validated against the same
- * `locationSchema` the routing hooks consume, so a peer's location is a
- * structurally valid builder URL on read.
- */
-export const presenceDocSchema = z.object({
-	userId: z.string(),
-	sessionId: z.string(),
-	/** Display name, denormalized from `auth_user` so the roster needs no join. */
-	name: z.string(),
-	/**
-	 * Avatar URL (the Google profile photo), or null when the account has
-	 * none. Stamped SERVER-SIDE from the heartbeat's session — never
-	 * client-asserted — so a peer can't wear someone else's face. The roster
-	 * renders it with the palette color as ring + fallback.
-	 */
-	image: z.string().nullable().default(null),
-	/**
-	 * Account email, stamped SERVER-SIDE from the heartbeat's session (same
-	 * authoritative-source rule as `image`). Shown on the roster's hover
-	 * profile card so co-members can tell same-named collaborators apart.
-	 */
-	email: z.string().default(""),
-	/** Stable per-user avatar/marker color (`hash(userId) → palette`). */
-	color: z.string(),
-	/** Where this session is in the builder — a peer's avatar follows this. */
-	location: locationSchema,
-	/** Last heartbeat/selection-change time; the roster hides a stale entry. */
-	updatedAt: timestamp,
-	/** TTL deadline (`now + PRESENCE_TTL_MS`). */
-	expireAt: timestamp,
-});
-export type PresenceDoc = z.infer<typeof presenceDocSchema>;
+export interface PresenceDoc {
+	userId: string;
+	sessionId: string;
+	name: string;
+	image: string | null;
+	email: string;
+	color: string;
+	location: Location;
+	updatedAt: Date;
+	expireAt: Date;
+}
+export { locationSchema };
 
 // ── Chat Threads ──────────────────────────────────────────────────
 
 /**
- * Chat threads — stored at `apps/{appId}/threads/{threadId}`.
- *
- * A thread captures one conversation session (initial build or subsequent
- * edit). Messages are embedded in the document — threads are small (2–10
- * messages) and always loaded together, so a subcollection would just add
- * unnecessary reads.
- *
- * The threadId is the `runId` from that session — a 1:1 mapping that
- * also links the thread to the event log for detailed replay.
- *
+ * Chat threads (`threads`) — one row per conversation session, messages
+ * embedded as jsonb (threads are 2–10 messages, always loaded together). The
+ * threadId is the session's `runId`, linking the thread to the event log.
  * Only display-relevant parts are stored: user text and answered
- * askQuestions. Tool calls, data-* parts, and step-start markers are
- * omitted — they're in the event log if needed for debugging.
+ * askQuestions; tool calls live in the event log.
  */
-
-/** A visible chat part preserved for historical display. */
 const storedMessagePartSchema = z.discriminatedUnion("type", [
 	z.object({
 		type: z.literal("text"),
@@ -556,31 +297,26 @@ const storedMessagePartSchema = z.discriminatedUnion("type", [
 ]);
 export type StoredMessagePart = z.infer<typeof storedMessagePartSchema>;
 
-/** A single display message within a stored thread. */
 const storedThreadMessageSchema = z.object({
 	/** Original UIMessage ID — used for deduplication on incremental saves. */
 	id: z.string(),
 	role: z.enum(["user", "assistant"]),
-	/** Visible parts only — text and answered askQuestions. */
 	parts: z.array(storedMessagePartSchema),
 	/** Attachment manifest for a user turn — the same `AttachmentRef` shape the
-	 *  live transcript + replay use, so loaded history renders the chips (and
-	 *  their previews) through the one render path. */
+	 *  live transcript uses, so loaded history renders the chips through the
+	 *  one render path. */
 	attachments: z.array(attachmentRefSchema).optional(),
 });
 export type StoredThreadMessage = z.infer<typeof storedThreadMessageSchema>;
 
-/** Thread document at `apps/{appId}/threads/{threadId}`. */
 export const threadDocSchema = z.object({
 	/** ISO 8601 timestamp when the thread started. */
 	created_at: z.string(),
-	/** Whether this was the initial build or a subsequent edit session. */
 	thread_type: z.enum(["build", "edit"]),
-	/** First user message text, truncated to ~200 chars — for collapsed display. */
+	/** First user message text, truncated to ~200 chars — collapsed display. */
 	summary: z.string(),
-	/** Generation run ID — links to the event log at `apps/{appId}/events/`. */
+	/** Generation run ID — links to the event log. */
 	run_id: z.string(),
-	/** Ordered array of display messages. Embedded, not a subcollection. */
 	messages: z.array(storedThreadMessageSchema),
 });
 export type ThreadDoc = z.infer<typeof threadDocSchema>;
@@ -588,184 +324,56 @@ export type ThreadDoc = z.infer<typeof threadDocSchema>;
 // ── Media Assets ───────────────────────────────────────────────────
 
 /**
- * Project-scoped, content-hash-deduped media. Lives at root collection
- * `mediaAssets/{assetId}` (the doc id is the asset's UUID; not mirrored in the
- * body). `project_id` (Project membership) gates every read/list/compile/delete
- * site — the same tenancy axis apps + case rows use; `owner` is the uploader,
- * attribution only, no longer the access gate or the GCS-path namespace.
- *
- * Root collection (not a per-app subcollection) because dedup + the library
- * picker span a whole Project, and a subcollection scope would force per-app
- * copies + a collection-group query per filter clause.
- *
- * Composite indexes (see `firestore.indexes.json`):
- *
- *   (project_id ASC, contentHash ASC, status ASC)        — dedup probe at upload
- *   (project_id ASC, status ASC, created_at DESC)        — library pagination
- *   (project_id ASC, status ASC, kind ASC, created_at DESC) — library, kind-filtered
- *
- * The shared-byte deletion guard (`hasOtherAssetForGcsObjectKey`) queries
- * `gcsObjectKey` alone — a single-field equality Firestore auto-indexes, so it
- * needs no composite entry.
+ * Requirements-extract metadata for a DOCUMENT asset — stored as jsonb on the
+ * row (`extractedAt` as epoch ms; jsonb carries no Date). The extract TEXT
+ * lives in GCS; this is only the status + the metadata the UI and the chat
+ * resolve step need without fetching the body.
  */
-export const mediaAssetDocSchema = z.object({
-	/**
-	 * The Project (Better Auth organization) the asset belongs to — the tenant,
-	 * and the ONLY access gate. Set authoritatively at upload (the app's Project
-	 * for an app-context upload, else the uploader's active Project), NEVER
-	 * self-asserted — so referencing a foreign asset's id can't grant access:
-	 * every read / list / compile / delete site authorizes the caller's
-	 * membership in THIS project_id, and the manifest filters a doc's referenced
-	 * ids to it. The same tenancy axis apps + case rows use.
-	 */
-	project_id: z.string().min(1),
-	/**
-	 * User id of the uploader — provenance only (e.g. a future "uploaded by"
-	 * label). NOT an access gate (that's `project_id`) and NOT in the GCS path
-	 * (bytes live at `projects/<project_id>/…`). Recorded at upload.
-	 */
-	owner: z.string().min(1),
-	/**
-	 * SHA-256 of the validated bytes, lowercase hex. Computed at
-	 * the validation gate from the actual stored bytes, NOT
-	 * trusted from the client. Dedup key paired with `project_id`.
-	 */
-	contentHash: z.string().regex(/^[a-f0-9]{64}$/),
-	/**
-	 * Sniffed MIME from `file-type`'s magic-bytes scan — NOT the
-	 * client's claim. Constrained to the shared accepted-types set.
-	 */
-	mimeType: z.enum(ALL_MIME_TYPES),
-	/**
-	 * Canonical extension derived from the sniffed MIME, leading
-	 * dot included. Forms the suffix of the GCS object key.
-	 */
-	extension: z.string().regex(/^\.[a-z0-9]+$/),
-	sizeBytes: z.number().int().positive(),
-	/** Image-only — width × height in pixels. Read by sharp at confirm time. */
-	dimensions: z
-		.object({
-			width: z.number().int().positive(),
-			height: z.number().int().positive(),
-		})
-		.optional(),
-	/**
-	 * Audio/video-only — duration in milliseconds, parsed from the
-	 * container at confirm time. Best-effort: absent when the container
-	 * exposes no duration (e.g. a video-only mp4 with no audio track),
-	 * so optional even on audio/video assets. Informational only.
-	 */
-	durationMs: z.number().int().positive().optional(),
-	/**
-	 * Coarse asset kind, denormalized so the library list can filter
-	 * "images only" with a server-side equality query instead of an
-	 * in-memory scan over a page (which returns lopsided page sizes when
-	 * one kind is sparse). One of image/audio/video (wire-attachable) or
-	 * pdf/text/docx/xlsx (library-only documents). Derived at upload from
-	 * the sniffed MIME (or the extension, for text); the kind is stable
-	 * across the confirm step.
-	 */
-	kind: z.enum(ASSET_KINDS),
-	/**
-	 * GCS object key (without the `gs://<bucket>/` prefix) the
-	 * bytes live at. Browser uploads start at a per-attempt pending key,
-	 * then confirm promotes validated bytes to the content-hash final key
-	 * (`users/<owner>/<contentHash>.<ext>`). Storing the key explicitly
-	 * anchors the bucket layout against schema drift if the layout ever
-	 * changes.
-	 */
-	gcsObjectKey: z.string().min(1),
-	/** Filename as supplied by the client at upload. Display only. */
-	originalFilename: z.string().min(1),
-	/**
-	 * User-editable display name, set to `originalFilename` at
-	 * upload. The library UI lets the user rename without affecting
-	 * the underlying bytes.
-	 */
-	displayName: z.string().min(1).optional(),
-	/**
-	 * Lifecycle status. `pending` rows are dropped by the
-	 * library-list endpoint; the validator gate rejects shipping
-	 * any blueprint that still references a `pending` asset. The
-	 * confirm step flips this to `ready` once the validator
-	 * approves the bytes; on failure the row is deleted, so there
-	 * is no `failed` state to track.
-	 */
-	status: z.enum(MEDIA_ASSET_STATUSES),
-	/**
-	 * Requirements-extract metadata for a DOCUMENT (pdf/text/docx/xlsx).
-	 * Absent on media assets (image/audio/video carry no extract — they reach
-	 * the model as pixels) and on a document whose extraction hasn't been
-	 * triggered yet. The extract TEXT lives in GCS at
-	 * `extractGcsObjectKeyFor(owner, contentHash, version)`, NOT here — a
-	 * 64k-token extract would bloat every library-list read and flirt with
-	 * Firestore's 1 MB doc cap. This is only the status + the metadata the UI
-	 * and the chat resolve step need without fetching the body.
-	 *
-	 *  - `version` is the `EXTRACTOR_VERSION` the extract was produced at; a
-	 *    mismatch against the current version means the stored extract is
-	 *    stale and a fresh extraction is owed (the GCS key embeds it too).
-	 *  - `truncated` flags an extract that hit the model's output ceiling.
-	 *  - `charCount` is the extract length (for a "long document" hint in UI).
-	 *  - `failureReason` is set only when `status === "failed"`.
-	 *  - `title` / `summary` are a short label + a few-sentence précis of the
-	 *    document, produced in the SAME single structured extraction call as the
-	 *    extract (the schema writes them before the extract body, in schema order).
-	 *    Both are optional/best-effort (absent when that call failed, or on an older
-	 *    extractor version). They exist for a future "browse my attachments" tool
-	 *    to scan attachments without opening each extract — not read by the SA.
-	 */
-	extract: z
-		.object({
-			status: z.enum(MEDIA_EXTRACT_STATUSES),
-			version: z.number().int().positive(),
-			model: z.string().min(1),
-			truncated: z.boolean(),
-			charCount: z.number().int().nonnegative(),
-			extractedAt: timestamp,
-			failureReason: z.string().optional(),
-			title: z.string().optional(),
-			summary: z.string().optional(),
-		})
-		.optional(),
-	created_at: timestamp,
-	/**
-	 * Reverse index: ids of apps whose PERSISTED blueprint references this asset on
-	 * some carrier. Maintained append-only by the blueprint writers
-	 * (`syncMediaReferences` arrayUnions the app id on every save that references
-	 * the asset) so the delete reference guard reads a tiny candidate set instead
-	 * of loading every one of the owner's apps. Entries are CANDIDATES, not proof:
-	 * a save never removes them, so the guard re-walks each candidate's live doc to
-	 * confirm a real reference (and names the carrier) — a stale entry that no
-	 * longer references the asset simply yields no carrier and doesn't block.
-	 *
-	 * The set is APPEND-ONLY and never pruned (no writer calls `arrayRemove`), so
-	 * it grows toward the count of DISTINCT apps that ever referenced the asset —
-	 * tiny for per-question field media, larger only for an asset reused as a logo
-	 * across many apps. There is deliberately no prune (it would mean writes on the
-	 * read-path guard); the guard re-walk tolerates stale entries at the cost of
-	 * one extra app load each. If a single asset's set ever became genuinely large,
-	 * the fix is a prune pass, not a re-run of the additive backfill — note that
-	 * the backfill only `arrayUnion`s, so it can NEVER shrink an existing set.
-	 *
-	 * Ids are NOT owner-filtered: a blueprint that references a foreign asset id
-	 * writes a cross-owner candidate here, harmless because the guard re-walk drops
-	 * any app whose `owner` isn't the asset's owner.
-	 *
-	 * Server-only — never projected onto `WireMediaAsset`.
-	 *
-	 * `undefined` marks a row written before the index shipped and not yet
-	 * backfilled. The guard full-scans those (correct, slow), so the field's value
-	 * for the index's CORRECTNESS is the backfill having run before the writers go
-	 * live: once a writer arrayUnions a single app onto an absent field, the field
-	 * becomes DEFINED-but-partial and the full-scan fallback no longer fires, so a
-	 * still-referenced asset whose other apps haven't re-saved could be wrongly
-	 * deletable in that window. A one-time deploy backfill seeded the existing
-	 * rows; the export media-validator is
-	 * the backstop if a partial edge ever slips through. New rows are born `[]`
-	 * (see `createPendingAsset`), so post-backfill no live row is `undefined`.
-	 */
-	referencingAppIds: z.array(z.string()).optional(),
+export const mediaAssetExtractSchema = z.object({
+	status: z.enum(MEDIA_EXTRACT_STATUSES),
+	version: z.number().int().positive(),
+	model: z.string().min(1),
+	truncated: z.boolean(),
+	charCount: z.number().int().nonnegative(),
+	/** Epoch ms. */
+	extractedAt: z.number(),
+	failureReason: z.string().optional(),
+	title: z.string().optional(),
+	summary: z.string().optional(),
 });
-export type MediaAssetDoc = z.infer<typeof mediaAssetDocSchema>;
-export type MediaAssetExtract = NonNullable<MediaAssetDoc["extract"]>;
+export type MediaAssetExtract = z.infer<typeof mediaAssetExtractSchema>;
+
+/**
+ * Project-scoped, content-hash-deduped media metadata (`media_assets`; bytes
+ * live in GCS). `project_id` is the tenant and the ONLY access gate — set
+ * authoritatively at upload, never self-asserted; `owner` is upload
+ * provenance only. The referencing-apps reverse index lives in
+ * `media_asset_refs` (one row per (asset, app) candidate edge — append-only;
+ * the deletion guard re-walks each candidate to confirm, so a stale edge
+ * costs one extra app load, never a wrong block).
+ */
+export interface MediaAssetDoc {
+	project_id: string;
+	owner: string;
+	/** SHA-256 of the validated bytes, lowercase hex — dedup key with project_id. */
+	contentHash: string;
+	/** Sniffed MIME from magic bytes — never the client's claim. */
+	mimeType: (typeof ALL_MIME_TYPES)[number];
+	/** Canonical extension derived from the sniffed MIME, leading dot included. */
+	extension: string;
+	sizeBytes: number;
+	/** Image-only — width × height in pixels. */
+	dimensions?: { width: number; height: number };
+	/** Audio/video-only — container duration in ms; best-effort. */
+	durationMs?: number;
+	kind: (typeof ASSET_KINDS)[number];
+	/** GCS object key (without the `gs://<bucket>/` prefix) the bytes live at. */
+	gcsObjectKey: string;
+	originalFilename: string;
+	displayName?: string;
+	/** `pending` rows are dropped by the library list; the validator gate
+	 *  rejects shipping a blueprint that references one. */
+	status: (typeof MEDIA_ASSET_STATUSES)[number];
+	extract?: MediaAssetExtract;
+	created_at: Date;
+}

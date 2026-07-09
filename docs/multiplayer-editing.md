@@ -1,11 +1,19 @@
 # Real-time multiplayer editing — implementation plan
 
+> **Substrate:** app state lives in Cloud SQL Postgres. The durable stream is the
+> permanent `accepted_mutations` table, the relay's change signal is LISTEN/NOTIFY
+> pokes, and the idempotency latch is `UNIQUE (app_id, batch_id)` — the SSE wire
+> contract, the reconciler, and every invariant in this spec are unchanged. Where the
+> phases below name Firestore collections (`acceptedMutations` / `batchDedup` /
+> `presence` docs, `onSnapshot`), read the matching table + LISTEN mechanics in
+> `lib/db/CLAUDE.md` and `app/api/apps/[id]/stream/route.ts`.
+
 Multiplayer editing lets several members of a shared Project edit one app — through the
 visual builder, the chat Solutions Architect, and the MCP API — at the same time, with
 edits merging live and a presence layer showing who is doing what. It keeps Nova's
 document authority and validation gate exactly where they are and adds an ordered,
-durable stream of accepted mutations inside Firestore, delivered to browsers over a
-server-relayed SSE channel. No new datastore, no message broker, no second service.
+durable stream of accepted mutations, delivered to browsers over a
+server-relayed SSE channel. No second datastore, no message broker, no second service.
 
 This is a build spec. §Decision and §Architecture fix the model; §Implementation plan
 is **nine phases**, each a self-contained hand-off unit (Goal · Files & changes · Seams

@@ -1,11 +1,14 @@
 /**
- * Real-time relay — Server-Sent Events over a gRPC Firestore listen.
+ * Real-time relay — Server-Sent Events over a Postgres LISTEN/NOTIFY poke.
  *
  * GET /api/apps/{id}/stream — a same-origin SSE channel that pipes the app's
- * durable mutation stream (`acceptedMutations`) and live presence roster to the
- * browser. The browser carries no Firestore SDK and no second identity: this
- * route holds the gRPC `onSnapshot` and authorizes with the Better Auth session
- * cookie, exactly like every other authenticated app route.
+ * durable mutation stream (`accepted_mutations`) and live presence roster to the
+ * browser. The browser carries no database client and no second identity: this
+ * route subscribes to the process-wide LISTEN connection (`lib/db/streamListener`)
+ * and authorizes with the Better Auth session cookie, exactly like every other
+ * authenticated app route. On each poke it SELECTs the rows since its cursor —
+ * the poke carries no data, so no notification content is ever lost; a missed
+ * poke degrades to the next poke or the reconnect catch-up, never to lost data.
  *
  * Auth is enforced twice: once at connect (`requireSession` + `resolveAppScope`
  * at `view`) and continuously by a ~10 s cadence that re-checks the session +
@@ -14,8 +17,8 @@
  * the next reconnect. `resolveAppScope` reads only `project_id` + the
  * `auth_member` role and does NOT check ban/deletion, so the cadence also reads
  * `isUserActive` for the ban/deletion signal. A transient backend blip (pool
- * exhaustion, a Firestore hiccup) is NOT a denial — the cadence skips that tick
- * and leaves the stream open rather than booting an authorized collaborator.
+ * exhaustion, a DB hiccup) is NOT a denial — the cadence skips that tick and
+ * leaves the stream open rather than booting an authorized collaborator.
  *
  * The 60-minute Cloud Run request cap surfaces as a transparent EventSource
  * reconnect via the `Last-Event-ID` header (where `requireSession` re-runs);
@@ -24,29 +27,31 @@
  * Frames:
  *   event: mutation  id:<seq>  — one committed batch (the `AcceptedMutationDoc`).
  *   event: presence            — the full presence roster snapshot.
- *   event: reload              — replay is impossible (below retention, a gap,
- *                                or a migration sentinel); the client GETs the
- *                                fresh blueprint. Seq-less, no `id:` line.
+ *   event: reload              — replay is impossible (below the retention
+ *                                efficiency bound, a gap, or a migration
+ *                                sentinel); the client GETs the fresh blueprint.
+ *                                Seq-less, no `id:` line.
  *   event: revoked             — access was revoked; the client stops. Seq-less.
  */
 
-import type { QuerySnapshot } from "@google-cloud/firestore";
+import { sql } from "kysely";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { getSessionSafe, requireSession } from "@/lib/auth-utils";
 import type { PresenceEntry } from "@/lib/collab/presenceTypes";
 import { isUserActive } from "@/lib/db/api-keys";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { RETENTION_COUNT } from "@/lib/db/constants";
-import { collections, docs } from "@/lib/db/firestore";
-import { getListenDb } from "@/lib/db/firestoreListen";
-import type { AcceptedMutationDoc, PresenceDoc } from "@/lib/db/types";
+import { getAppDb } from "@/lib/db/pg";
+import { subscribeAppStream } from "@/lib/db/streamListener";
 import { log } from "@/lib/logger";
+import { locationSchema } from "@/lib/routing/types";
 
-/* Node runtime — the route holds a long-lived gRPC listen (`@google-cloud/firestore`)
- * and a `setInterval`, neither of which the Edge runtime supports. */
+/* Node runtime — the route holds a long-lived subscription to the Postgres
+ * LISTEN connection and `setInterval`s, neither of which the Edge runtime
+ * supports. */
 export const runtime = "nodejs";
 /* Never statically prerender or cache — every connection is a live per-user
- * listen keyed on the session cookie. */
+ * stream keyed on the session cookie. */
 export const dynamic = "force-dynamic";
 /* Advisory: the platform caps a request at 60 min regardless; the client
  * reconnects transparently via `Last-Event-ID`. */
@@ -54,9 +59,9 @@ export const maxDuration = 3600;
 
 /**
  * Re-check session + scope on this cadence and close on a CONFIRMED denial. ~10 s
- * in prod; the emulator revocation tests override it via `NOVA_STREAM_CADENCE_MS`
- * so they don't have to wait a full 10 s per case (a testability seam only —
- * prod never sets the var).
+ * in prod; the revocation tests override it via `NOVA_STREAM_CADENCE_MS` so they
+ * don't have to wait a full 10 s per case (a testability seam only — prod never
+ * sets the var).
  */
 const REVOCATION_CADENCE_MS = (() => {
 	const parsed = Number.parseInt(
@@ -68,6 +73,14 @@ const REVOCATION_CADENCE_MS = (() => {
 	// coerces to ~0 ms — a full session+scope re-check spinning per tick.
 	return Number.isNaN(parsed) || parsed <= 0 ? 10_000 : parsed;
 })();
+
+/**
+ * Re-emit the presence roster on this cadence too (not only on a poke): a
+ * roster entry silently EXPIRES when its `expire_at` lapses with no write to
+ * poke us, so a periodic re-query lets the client drop a collaborator whose tab
+ * died without a DELETE.
+ */
+const PRESENCE_ROSTER_INTERVAL_MS = 15_000;
 
 /**
  * Parse the recovery cursor from the reconnect header (`Last-Event-ID`, set by
@@ -83,26 +96,37 @@ function parseCursor(req: Request): number {
 	return Number.isNaN(parsed) || parsed < 0 ? 0 : parsed;
 }
 
+/** A `presence` row as read back from Postgres (`selectAll`). */
+interface PresenceRow {
+	user_id: string;
+	session_id: string;
+	name: string;
+	image: string | null;
+	email: string;
+	color: string;
+	location: unknown;
+	updated_at: Date;
+}
+
 /**
- * Project a stored `PresenceDoc` into the client's `PresenceEntry` wire shape —
- * the exact contract `lib/collab/presence.ts` parses. The raw doc's `updatedAt`
- * is a Firestore `Timestamp`, which serializes as `{_seconds,_nanoseconds}`; the
- * client types `updatedAt` as epoch millis and does arithmetic on it
- * (`now − updatedAt` for stale-hide, `>` for newest-wins dedup), so shipping the
- * raw object makes both compute `NaN`. Convert it to millis and drop the
- * server-only `expireAt` TTL, mirroring the `mutation`-frame projection that
- * strips its own Timestamps.
+ * Project a `presence` row into the client's `PresenceEntry` wire shape — the
+ * exact contract `lib/collab/presence.ts` parses. `updated_at` becomes epoch
+ * millis (the client does `now − updatedAt` arithmetic for stale-hide and `>`
+ * for newest-wins dedup), the server-only `expire_at` TTL is dropped, and
+ * `location` is validated against the routing schema so a peer's location is a
+ * structurally valid builder URL on the wire. THROWS on an invalid `location`;
+ * the caller skips the row.
  */
-function projectPresence(doc: PresenceDoc): PresenceEntry {
+function projectPresence(row: PresenceRow): PresenceEntry {
 	return {
-		userId: doc.userId,
-		sessionId: doc.sessionId,
-		name: doc.name,
-		image: doc.image ?? null,
-		email: doc.email ?? "",
-		color: doc.color,
-		location: doc.location,
-		updatedAt: doc.updatedAt.toMillis(),
+		userId: row.user_id,
+		sessionId: row.session_id,
+		name: row.name,
+		image: row.image ?? null,
+		email: row.email ?? "",
+		color: row.color,
+		location: locationSchema.parse(row.location),
+		updatedAt: row.updated_at.getTime(),
 	};
 }
 
@@ -113,9 +137,10 @@ export async function GET(
 	let userId: string;
 	let cursor: number;
 	let head: number;
+	let appId: string;
 	try {
 		const session = await requireSession(req);
-		const { id: appId } = await params;
+		({ id: appId } = await params);
 		userId = session.user.id;
 
 		/* Connect-time membership gate (view). An `AppAccessError` (absent /
@@ -128,30 +153,18 @@ export async function GET(
 		cursor = parseCursor(req);
 
 		/* Head at connect — the retention-overrun check compares the cursor against
-		 * `head − RETENTION_COUNT`. Read the RAW doc (not the converter ref): only
-		 * `mutation_seq` is needed, and parsing the full `AppDoc` through the Zod
-		 * converter would throw the whole stream on a legacy/partial doc for a field
-		 * this route doesn't read. A stale value only ever over-triggers a reload
-		 * (safe); the first delivered seq is the authoritative gap check below. */
-		const appSnap = await docs.appRaw(appId).get();
-		head = (appSnap.data()?.mutation_seq as number | undefined) ?? 0;
+		 * `head − RETENTION_COUNT`. Only `mutation_seq` is needed; a stale value
+		 * only ever over-triggers a reload (safe), and the first delivered seq is
+		 * the authoritative gap check below. */
+		const db = await getAppDb();
+		const appRow = await db
+			.selectFrom("apps")
+			.select("mutation_seq")
+			.where("id", "=", appId)
+			.executeTakeFirst();
+		head = appRow ? Number(appRow.mutation_seq) : 0;
 
-		/* TTL floor check. The count-based retention check (below, in the stream
-		 * body) can PASS while the 7-day `expireAt` TTL already deleted the
-		 * entries the client needs: a tab resurrected after a week idle (cursor
-		 * behind head by fewer than RETENTION_COUNT) would subscribe, receive
-		 * NOTHING — the seq-gap check fires only on a DELIVERED frame — and
-		 * silently render a stale blueprint until some future commit finally
-		 * arrives. When the client is behind the head, one doc read proves the
-		 * replay floor (`cursor + 1`) still exists; a TTL-pruned floor means
-		 * replay is impossible → tell the client to reload the snapshot. */
-		let replayUnavailable = false;
-		if (cursor < head) {
-			const floor = await docs.acceptedMutation(appId, cursor + 1).get();
-			replayUnavailable = !floor.exists;
-		}
-
-		return openStream({ appId, userId, cursor, head, replayUnavailable, req });
+		return openStream({ appId, userId, cursor, head, req });
 	} catch (err) {
 		/* Pre-stream failure (auth, membership, the head read) — OR a client
 		 * disconnect that aborted an in-flight await here. `handleApiError`
@@ -175,11 +188,9 @@ function openStream(args: {
 	userId: string;
 	cursor: number;
 	head: number;
-	/** The connect-time floor read proved replay impossible (TTL-pruned). */
-	replayUnavailable: boolean;
 	req: Request;
 }): Response {
-	const { appId, userId, cursor, head, replayUnavailable, req } = args;
+	const { appId, userId, cursor, head, req } = args;
 
 	const encoder = new TextEncoder();
 
@@ -191,19 +202,29 @@ function openStream(args: {
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
 			/* Set on teardown (client abort). Every enqueue/close checks it first,
-			 * so a cadence tick or an `onSnapshot` callback that resolves AFTER
-			 * teardown is a no-op — no enqueue on a closed controller, no leaked
-			 * timer or listener. */
+			 * so a poke-driven pump or a cadence tick that resolves AFTER teardown is
+			 * a no-op — no enqueue on a closed controller, no leaked timer or
+			 * subscription. */
 			let closed = false;
-			/* The next seq we expect to deliver. The first `mutation` frame must be
+			/* The highest seq delivered so far. The first `mutation` frame must be
 			 * `cursor + 1`; any hole means the browser missed entries → reload. */
-			let expectedSeq = cursor + 1;
+			let deliveredThrough = cursor;
+			/* Overlapping-pump coalescing: a poke arriving mid-pump sets `pending`,
+			 * and the in-flight pump re-queries once more when it finishes rather
+			 * than launching a racing SELECT. */
+			let pumpInFlight = false;
+			let pumpPending = false;
+			/* The same single-flight coalescing for the roster emit: the initial
+			 * emit, the connect-time catch-up poke, presence pokes, and the
+			 * freshness interval must never launch two racing presence SELECTs. */
+			let rosterInFlight = false;
+			let rosterPending = false;
 			/* Subscription + interval holders — nullable so `teardown` is safe to
-			 * call BEFORE the listeners attach (the retention-overrun early return
-			 * below reloads-and-closes before any subscribe). */
-			let unsubMutations: (() => void) | null = null;
-			let unsubPresence: (() => void) | null = null;
+			 * call BEFORE they attach (the retention-overrun early return below
+			 * reloads-and-closes before any subscribe). */
+			let unsubscribe: (() => void) | null = null;
 			let cadence: ReturnType<typeof setInterval> | null = null;
+			let rosterInterval: ReturnType<typeof setInterval> | null = null;
 
 			function send(event: string, data: unknown, seqId?: number): void {
 				if (closed) return;
@@ -219,7 +240,7 @@ function openStream(args: {
 					 * listener ran, so the controller is already closed ("Invalid
 					 * state: Controller is already closed"). Treat the first failed
 					 * write as the disconnect: tear everything down rather than let the
-					 * throw escape an onSnapshot/cadence callback as an unhandled error. */
+					 * throw escape a pump/cadence callback as an unhandled error. */
 					teardown();
 				}
 			}
@@ -227,9 +248,9 @@ function openStream(args: {
 			function teardown(): void {
 				if (closed) return;
 				closed = true;
-				unsubMutations?.();
-				unsubPresence?.();
+				unsubscribe?.();
 				if (cadence) clearInterval(cadence);
+				if (rosterInterval) clearInterval(rosterInterval);
 				try {
 					controller.close();
 				} catch {
@@ -249,131 +270,177 @@ function openStream(args: {
 				teardown();
 			}
 
-			/* If the cursor fell below the retention window — or the connect-time
-			 * floor read found the needed entries TTL-pruned — the entries the
-			 * client missed are already gone: it must reload rather than replay. */
-			if (cursor < head - RETENTION_COUNT || replayUnavailable) {
+			/* SELECT every committed batch past the delivered cursor and emit it. The
+			 * `accepted_mutations` log is PERMANENT, so the entries always exist above
+			 * the retention efficiency bound — a gap here means the cursor is a real
+			 * hole, not a pruned window. */
+			async function deliverSince(): Promise<void> {
+				if (closed) return;
+				const db = await getAppDb();
+				const rows = await db
+					.selectFrom("accepted_mutations")
+					.select([
+						"seq",
+						"batch_id",
+						"run_id",
+						"actor_id",
+						"kind",
+						"mutations",
+					])
+					.where("app_id", "=", appId)
+					.where("seq", ">", deliveredThrough)
+					.orderBy("seq")
+					.execute();
+				for (const row of rows) {
+					if (closed) return;
+					const seq = Number(row.seq);
+					/* A hole — the browser missed entries between its cursor and the
+					 * first delivered seq. Replay is impossible; reload. */
+					if (seq !== deliveredThrough + 1) {
+						reloadAndClose();
+						return;
+					}
+					deliveredThrough = seq;
+					/* A migration sentinel (empty `mutations`, `kind: 'migration'`)
+					 * can't be replayed — the client reloads the snapshot instead. */
+					if (row.kind === "migration") {
+						reloadAndClose();
+						return;
+					}
+					/* Project the client-relevant shape — the reconciler keys on these
+					 * fields (echo classification, gap detection, apply). The row's
+					 * server-only `ts` is not on the wire. */
+					send(
+						"mutation",
+						{
+							seq,
+							batchId: row.batch_id,
+							runId: row.run_id ?? undefined,
+							actorId: row.actor_id,
+							kind: row.kind,
+							mutations: row.mutations,
+						},
+						seq,
+					);
+				}
+			}
+
+			/* Coalesce overlapping pokes into one follow-up query (a poke during a
+			 * running pump re-runs it once at the end, never a racing SELECT). */
+			async function pump(): Promise<void> {
+				if (closed) return;
+				if (pumpInFlight) {
+					pumpPending = true;
+					return;
+				}
+				pumpInFlight = true;
+				try {
+					do {
+						pumpPending = false;
+						await deliverSince();
+					} while (pumpPending && !closed);
+				} catch (err) {
+					/* A transient read fault (pool blip) — warn (Cloud-Logging-only),
+					 * not error; the next poke or the reconnect catch-up re-queries. */
+					log.warn("[stream] mutation pump error", {
+						appId,
+						err: err instanceof Error ? err.message : String(err),
+					});
+				} finally {
+					pumpInFlight = false;
+				}
+			}
+
+			/* Read the live roster (unexpired rows) and emit a full snapshot. Each
+			 * row is projected best-effort: a row whose `location` fails the schema
+			 * is skipped (never blows up the whole roster), mirroring the presence
+			 * contract. */
+			async function emitRosterOnce(): Promise<void> {
+				if (closed) return;
+				const db = await getAppDb();
+				const rows = await db
+					.selectFrom("presence")
+					.select([
+						"user_id",
+						"session_id",
+						"name",
+						"image",
+						"email",
+						"color",
+						"location",
+						"updated_at",
+					])
+					.where("app_id", "=", appId)
+					.where(sql<boolean>`expire_at > now()`)
+					.execute();
+				if (closed) return;
+				const roster: PresenceEntry[] = [];
+				for (const row of rows) {
+					try {
+						roster.push(projectPresence(row as PresenceRow));
+					} catch (parseErr) {
+						log.warn("[stream] malformed presence row (skipped)", {
+							appId,
+							sessionId: row.session_id,
+							err:
+								parseErr instanceof Error ? parseErr.message : String(parseErr),
+						});
+					}
+				}
+				send("presence", roster);
+			}
+
+			/* Coalesce overlapping roster emits into one follow-up query — a poke or
+			 * interval tick arriving mid-emit re-runs it once at the end, never a
+			 * racing presence SELECT on the pool (two concurrent identical roster
+			 * queries churn fresh pool connections needlessly). */
+			async function emitRoster(): Promise<void> {
+				if (closed) return;
+				if (rosterInFlight) {
+					rosterPending = true;
+					return;
+				}
+				rosterInFlight = true;
+				try {
+					do {
+						rosterPending = false;
+						await emitRosterOnce();
+					} while (rosterPending && !closed);
+				} catch (err) {
+					/* Transient read fault — warn; the interval / next poke re-queries. */
+					log.warn("[stream] presence roster error", {
+						appId,
+						err: err instanceof Error ? err.message : String(err),
+					});
+				} finally {
+					rosterInFlight = false;
+				}
+			}
+
+			/* If the cursor fell below the retention window, the client is too far
+			 * behind to replay economically. The log is PERMANENT so the entries DO
+			 * exist, but replaying thousands of batches is slower than a single
+			 * blueprint reload — the retention bound is now purely an efficiency cap. */
+			if (cursor < head - RETENTION_COUNT) {
 				reloadAndClose();
 				return;
 			}
 
-			unsubMutations = collections
-				.acceptedMutations(appId, getListenDb())
-				.where("seq", ">", cursor)
-				.orderBy("seq")
-				.onSnapshot(
-					(snap: QuerySnapshot<AcceptedMutationDoc>) => {
-						if (closed) return;
-						/* Only `added` changes carry new commits. A retention-prune
-						 * `removed` (the writer deletes `seq − RETENTION_COUNT`) must
-						 * NOT re-emit the window. */
-						for (const change of snap.docChanges()) {
-							if (change.type !== "added") continue;
-							/* `.data()` runs the Zod converter, which THROWS synchronously
-							 * on a malformed/legacy entry — inside this success callback,
-							 * so it would bypass the `err` handler and leak the other
-							 * listener + the interval. A malformed frame means the client
-							 * can't trust the incremental stream, so reload rather than
-							 * throw. */
-							let entry: AcceptedMutationDoc;
-							try {
-								entry = change.doc.data();
-							} catch (parseErr) {
-								log.warn("[stream] malformed acceptedMutations entry", {
-									appId,
-									docId: change.doc.id,
-									err:
-										parseErr instanceof Error
-											? parseErr.message
-											: String(parseErr),
-								});
-								reloadAndClose();
-								return;
-							}
-							/* A hole — the client missed entries between its cursor and
-							 * the first delivered seq (retention pruned them, or a gap).
-							 * Replay is impossible; reload. */
-							if (entry.seq !== expectedSeq) {
-								reloadAndClose();
-								return;
-							}
-							expectedSeq = entry.seq + 1;
-							/* A migration sentinel (empty `mutations`) can't be replayed —
-							 * the client reloads the snapshot instead. */
-							if (entry.kind === "migration") {
-								reloadAndClose();
-								return;
-							}
-							/* Project the client-relevant shape — the reconciler keys on
-							 * these fields (echo classification, gap detection, apply). The
-							 * raw doc's server-only `ts`/`expireAt` are Firestore
-							 * `Timestamp`s that would serialize as `{_seconds,_nanoseconds}`
-							 * and don't belong on the wire. */
-							send(
-								"mutation",
-								{
-									seq: entry.seq,
-									batchId: entry.batchId,
-									runId: entry.runId,
-									actorId: entry.actorId,
-									kind: entry.kind,
-									mutations: entry.mutations,
-								},
-								entry.seq,
-							);
-						}
-					},
-					(err) => {
-						/* A recoverable gRPC transport blip (channel reset) hits here; the
-						 * client's EventSource reconnects and resumes at `Last-Event-ID`.
-						 * Warn (Cloud-Logging-only), not error — this is not a Sentry-worthy
-						 * fault, it's the expected lifecycle of a long-lived listen. */
-						log.warn("[stream] mutation listen error (reconnecting)", {
-							appId,
-							err: err instanceof Error ? err.message : String(err),
-						});
-						teardown();
-					},
-				);
-
-			unsubPresence = collections.presence(appId, getListenDb()).onSnapshot(
-				(snap: QuerySnapshot<PresenceDoc>) => {
-					if (closed) return;
-					/* Presence is best-effort: a single malformed/legacy presence doc's
-					 * converter throw must not blow up the whole roster (and, in this
-					 * success callback, bypass the `err` handler → leak). Skip the bad
-					 * doc and continue building the roster. Each surviving doc is
-					 * PROJECTED to the client's `PresenceEntry` wire shape — the raw
-					 * doc's `updatedAt` Timestamp would serialize as
-					 * `{_seconds,_nanoseconds}`, which the client's numeric stale-hide /
-					 * newest-wins arithmetic reads as `NaN`. */
-					const roster: PresenceEntry[] = [];
-					for (const d of snap.docs) {
-						try {
-							roster.push(projectPresence(d.data()));
-						} catch (parseErr) {
-							log.warn("[stream] malformed presence doc (skipped)", {
-								appId,
-								docId: d.id,
-								err:
-									parseErr instanceof Error
-										? parseErr.message
-										: String(parseErr),
-							});
-						}
-					}
-					send("presence", roster);
+			/* Subscribe FIRST, then do the initial reads: a commit landing between
+			 * the initial SELECT and the subscribe would otherwise be missed, and the
+			 * listener's connect-time catch-up re-pokes us anyway (it treats any poke
+			 * as "re-query from your cursor"). */
+			unsubscribe = subscribeAppStream(
+				appId,
+				() => {
+					void pump();
 				},
-				(err) => {
-					/* Recoverable transport blip — warn (Cloud-Logging-only), not error;
-					 * the client reconnects. Same rationale as the mutation listen. */
-					log.warn("[stream] presence listen error (reconnecting)", {
-						appId,
-						err: err instanceof Error ? err.message : String(err),
-					});
-					teardown();
+				() => {
+					void emitRoster();
 				},
 			);
+			void pump();
+			void emitRoster();
 
 			/* Continuous revocation: re-run the session + scope check on a cadence and
 			 * close ONLY on a CONFIRMED denial — never on a transient backend blip.
@@ -387,11 +454,11 @@ function openStream(args: {
 			 *     insufficient-role.
 			 * Everything else — a bare `getSessionSafe` null (its own `getSession`
 			 * throw is swallowed to null, so null is ambiguous), an `isUserActive`
-			 * throw, a non-`AppAccessError` `resolveAppScope` throw (Cloud SQL pool
-			 * exhaustion, Firestore blip) — SKIPS this tick and leaves the stream
-			 * open. The next tick re-checks; a real loss confirms then. This keeps
-			 * the cadence at least as forgiving as the connect path, which lets
-			 * EventSource auto-reconnect through a transient 500. */
+			 * throw, a non-`AppAccessError` `resolveAppScope` throw (pool exhaustion,
+			 * a DB blip) — SKIPS this tick and leaves the stream open. The next tick
+			 * re-checks; a real loss confirms then. This keeps the cadence at least as
+			 * forgiving as the connect path, which lets EventSource auto-reconnect
+			 * through a transient 500. */
 			cadence = setInterval(() => {
 				void (async () => {
 					if (closed) return;
@@ -424,7 +491,7 @@ function openStream(args: {
 					if (closed) return;
 
 					/* Confirmed membership loss — `AppAccessError` only. Any other throw
-					 * (pool exhaustion, Firestore blip) is transient → skip. */
+					 * (pool exhaustion, a DB blip) is transient → skip. */
 					try {
 						await resolveAppScope(appId, userId, "view");
 					} catch (err) {
@@ -433,17 +500,26 @@ function openStream(args: {
 					}
 				})();
 			}, REVOCATION_CADENCE_MS);
+			cadence.unref?.();
+
+			/* Re-emit the roster periodically so an expired-but-un-DELETEd peer drops
+			 * off the client's view (their `expire_at` lapsed with no write to poke
+			 * us). */
+			rosterInterval = setInterval(() => {
+				void emitRoster();
+			}, PRESENCE_ROSTER_INTERVAL_MS);
+			rosterInterval.unref?.();
 
 			/* Client disconnect (tab closed, navigation, EventSource.close) — tear
-			 * down both listeners + the cadence. Handle an already-aborted signal
-			 * (the client vanished before `start` ran) — a late `addEventListener`
-			 * never fires for a past abort, so tear down now. */
+			 * down the subscription + both intervals. Handle an already-aborted
+			 * signal (the client vanished before `start` ran) — a late
+			 * `addEventListener` never fires for a past abort, so tear down now. */
 			if (req.signal.aborted) teardown();
 			else req.signal.addEventListener("abort", teardown);
 		},
 		/* A consumer/platform `cancel()` that doesn't also abort `req.signal` would
-		 * otherwise leak both listeners + the interval — tear down here too. Runs
-		 * the same idempotent teardown, so an abort+cancel pair is a no-op the
+		 * otherwise leak the subscription + both intervals — tear down here too.
+		 * Runs the same idempotent teardown, so an abort+cancel pair is a no-op the
 		 * second time. */
 		cancel() {
 			teardownRef?.();

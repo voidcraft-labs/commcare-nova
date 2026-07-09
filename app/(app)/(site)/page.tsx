@@ -64,8 +64,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 		);
 	}
 
-	const isAdmin = session.user.role === "admin";
-
 	return (
 		<main className="max-w-4xl mx-auto px-6 py-12">
 			{inviteCount > 0 && (
@@ -74,11 +72,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 				</div>
 			)}
 			<Suspense fallback={<AppListFallback />}>
-				<AppList
-					projectId={activeProjectId}
-					userId={session.user.id}
-					isAdmin={isAdmin}
-				/>
+				<AppList projectId={activeProjectId} userId={session.user.id} />
 			</Suspense>
 		</main>
 	);

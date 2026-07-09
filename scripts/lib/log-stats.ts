@@ -11,7 +11,7 @@
  * summary's aggregates can't attribute cost to a specific tool.
  *
  * All functions are pure: they take event arrays and return computed
- * results. No Firestore access.
+ * results. No database access.
  */
 
 import type { Event } from "./types";

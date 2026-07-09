@@ -2,8 +2,8 @@
  * BuilderProvider — the top-level provider stack for the builder route.
  *
  * Mounts the complete provider tree for a specific buildId and hydrates
- * the session + doc stores depending on whether the session is a new build,
- * an existing-app load, or a replay.
+ * the session + doc stores depending on whether the session is a new build
+ * or an existing-app load.
  *
  * The provider tree (outer -> inner) is:
  *   BlueprintDocProvider        — doc store (entities, undo/redo)
@@ -15,7 +15,6 @@
  *     SyncBridge                — wires doc store ref into session store
  *     LocationRecoveryEffect    — repairs stale URL selection mid-session
  *     LoadAppHydrator           — clears loading flag for existing apps
- *     ReplayHydrator            — replays emissions for replay mode
  *     {children}
  *
  * Lifecycle:
@@ -23,8 +22,6 @@
  * - `/build/A` -> `/build/B`: buildId changes, fresh stores, loads B
  * - `/build/*` -> `/`: provider unmounts, stores are garbage collected
  * - `/build/new` generation: buildId stays 'new' (replaceState), no reset
- * - `/build/replay/{id}`: replay prop provided, hydrates store with the raw
- *   event log + derived chapters, then walks events up to the initial cursor
  */
 "use client";
 
@@ -36,13 +33,11 @@ import { PresenceProvider } from "@/lib/collab/PresenceProvider";
 import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
-import { replayEventsSync } from "@/lib/log/replay";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import {
 	BuilderSessionContext,
 	BuilderSessionProvider,
 } from "@/lib/session/provider";
-import type { ReplayInit } from "@/lib/session/types";
 import { InspectorProvider } from "@/lib/ui/inspector";
 
 // ── Provider ────────────────────────────────────────────────────────────
@@ -58,7 +53,6 @@ import { InspectorProvider } from "@/lib/ui/inspector";
 export function BuilderProvider({
 	buildId,
 	children,
-	replay,
 	initialDoc,
 	canEdit = true,
 	baseSeq,
@@ -66,28 +60,24 @@ export function BuilderProvider({
 }: {
 	buildId: string;
 	children: ReactNode;
-	replay?: ReplayInit;
 	/** Server-fetched normalized doc — hydrates the doc store synchronously
-	 *  in the provider so the first render sees populated entities. Firestore
-	 *  now persists the normalized `BlueprintDoc` shape directly. */
+	 *  in the provider so the first render sees populated entities. Persisted
+	 *  as the normalized `BlueprintDoc` shape directly. */
 	initialDoc?: PersistableDoc;
 	/** Whether the viewing user holds `edit` on the app's Project (the build
 	 *  page's server-resolved role). Defaults `true` for new builds. A viewer
 	 *  (`false`) gets the read-only builder; see `useCanEdit`. */
 	canEdit?: boolean;
 	/** The app's `mutation_seq` at server load — the reconciler's `baseSeq`
-	 *  recovery cursor. Omitted for new builds (reconciler mounts dormant at 0)
-	 *  and replay (no reconciler). */
+	 *  recovery cursor. Omitted for new builds (reconciler mounts dormant at 0). */
 	baseSeq?: number;
-	/** The session user id — the reconciler's echo classification keys on it.
-	 *  Omitted only in replay (no reconciler mounts). */
+	/** The session user id — the reconciler's echo classification keys on it. */
 	userId?: string;
 }) {
 	return (
 		<BuilderProviderInner
 			key={buildId}
 			buildId={buildId}
-			replay={replay}
 			initialDoc={initialDoc}
 			canEdit={canEdit}
 			baseSeq={baseSeq}
@@ -108,7 +98,6 @@ export function BuilderProvider({
 function BuilderProviderInner({
 	buildId,
 	children,
-	replay,
 	initialDoc,
 	canEdit,
 	baseSeq,
@@ -116,43 +105,33 @@ function BuilderProviderInner({
 }: {
 	buildId: string;
 	children: ReactNode;
-	replay?: ReplayInit;
 	initialDoc?: PersistableDoc;
 	canEdit: boolean;
 	baseSeq?: number;
 	userId?: string;
 }) {
 	/* Pre-compute session store init so `derivePhase` returns the correct
-	 * phase on the very first render — `Loading` for existing apps and
-	 * replays, `Idle` for new builds. The session store captures these
-	 * values in its lazy `useState` initializer and never re-reads them. */
-	const hasExistingData = Boolean(initialDoc || replay);
+	 * phase on the very first render — `Loading` for existing apps, `Idle`
+	 * for new builds. The session store captures these values in its lazy
+	 * `useState` initializer and never re-reads them. */
+	const hasExistingData = Boolean(initialDoc);
 	const sessionInit = useState(() => ({
 		loading: hasExistingData,
 		appId: buildId === "new" ? undefined : buildId,
 		canEdit,
 	}))[0];
 
-	/* The builder provider stack below the two stores. In non-replay mode it
-	 * is wrapped in `ReconcilerProvider` (which reads both stores + owns the
-	 * single reconciler + EventSource); replay mounts no reconciler. */
+	/* The builder provider stack below the two stores, wrapped in
+	 * `ReconcilerProvider` (which reads both stores + owns the single
+	 * reconciler + EventSource). */
 	const inner = (
 		<ScrollRegistryProvider>
 			<EditGuardProvider>
 				<InspectorProvider>
 					<BuilderFormEngineProvider>
 						<SyncBridge />
-						{/* LocationRecoveryEffect assumes a `/build/{id}/{...path}`
-						 *  URL shape (it slices the first two segments as the
-						 *  base path). Replay mounts at `/build/replay/{id}`
-						 *  where segment[1] is the literal "replay", not the
-						 *  app id — running the effect there would treat
-						 *  "replay" as the id and strip the real id on
-						 *  recovery. Replay is read-only + scoped to its own
-						 *  route, so stale-ref stripping doesn't apply. */}
-						{replay ? null : <LocationRecoveryEffect />}
-						{replay ? <ReplayHydrator replay={replay} /> : null}
-						{!replay && initialDoc ? <LoadAppHydrator /> : null}
+						<LocationRecoveryEffect />
+						{initialDoc ? <LoadAppHydrator /> : null}
 						{children}
 					</BuilderFormEngineProvider>
 				</InspectorProvider>
@@ -164,121 +143,29 @@ function BuilderProviderInner({
 		<BlueprintDocProvider
 			appId={buildId === "new" ? undefined : buildId}
 			initialDoc={initialDoc}
-			startTracking={Boolean(initialDoc || replay)}
+			startTracking={Boolean(initialDoc)}
 			canEdit={canEdit}
 		>
 			<BuilderSessionProvider init={sessionInit}>
-				{replay ? (
-					inner
-				) : (
-					<ReconcilerProvider
-						appId={buildId === "new" ? undefined : buildId}
-						baseSeq={baseSeq ?? 0}
-						userId={userId ?? ""}
-					>
-						{/* The presence layer rides the reconciler's single
-						 *  EventSource (`subscribePresence`) and reads `useLocation`,
-						 *  so it mounts inside the reconciler + below the stores.
-						 *  It reads the LIVE app id from the session store (not
-						 *  `buildId`), so a new build's creator heartbeats the instant
-						 *  the SA mints the app. Replay mounts neither reconciler nor
-						 *  presence. */}
-						<PresenceProvider userId={userId ?? ""}>{inner}</PresenceProvider>
-					</ReconcilerProvider>
-				)}
+				<ReconcilerProvider
+					appId={buildId === "new" ? undefined : buildId}
+					baseSeq={baseSeq ?? 0}
+					userId={userId ?? ""}
+				>
+					{/* The presence layer rides the reconciler's single
+					 *  EventSource (`subscribePresence`) and reads `useLocation`,
+					 *  so it mounts inside the reconciler + below the stores.
+					 *  It reads the LIVE app id from the session store (not
+					 *  `buildId`), so a new build's creator heartbeats the instant
+					 *  the SA mints the app. */}
+					<PresenceProvider userId={userId ?? ""}>{inner}</PresenceProvider>
+				</ReconcilerProvider>
 			</BuilderSessionProvider>
 		</BlueprintDocProvider>
 	);
 }
 
 // ── Hydrators & bridge ──────────────────────────────────────────────────
-
-/**
- * ReplayHydrator — seeds the session store with the replay script and
- * walks the event log up to the initial cursor so the user lands on the
- * final frame of the build. Scrub navigation backward through the log
- * is owned by `ReplayController`.
- *
- * Why a child component rather than inline in `BuilderProviderInner`?
- * Replay mutations call `docStore.getState().applyMany(...)`. If the
- * hydration loop ran in `BuilderProviderInner`, it would sit OUTSIDE
- * `BlueprintDocProvider` and have no way to read the doc store from
- * context. By placing the loop here, inside both `BlueprintDocContext`
- * and `BuilderSessionContext`, we can read both stores and dispatch
- * mutations faithfully.
- *
- * The hydration runs once per mount (gated by `hydratedRef`) — replay
- * is immutable for the lifetime of a build session, so any later
- * re-runs would be redundant at best and corrupting at worst.
- */
-function ReplayHydrator({ replay }: { replay: ReplayInit }) {
-	const docStore = useContext(BlueprintDocContext);
-	const sessionStore = useContext(BuilderSessionContext);
-	const hydratedRef = useRef(false);
-
-	useEffect(() => {
-		if (hydratedRef.current || !docStore || !sessionStore) return;
-		hydratedRef.current = true;
-
-		/* Seed the session store with the replay script so navigation hooks
-		 * (`useReplayMessages`, `ReplayController`) have the full
-		 * events/chapters/cursor view to scrub through. */
-		sessionStore.getState().loadReplay({
-			events: replay.events,
-			chapters: replay.chapters,
-			initialCursor: replay.initialCursor,
-			exitPath: replay.exitPath,
-		});
-
-		/* Mirror the replayed slice into the session events buffer so
-		 * lifecycle derivations (stage, error, status message, postBuildEdit)
-		 * reflect exactly the frame the doc store now holds.
-		 *
-		 * Exception: when the cursor lands on the terminal frame (the last
-		 * event of the log), the buffer stays empty — the run is *done*
-		 * from the UI's perspective, and `derivePhase` must return Ready,
-		 * not Generating. This mirrors live's post-`endRun` state (buffer
-		 * cleared, doc populated). Without this guard the final frame would
-		 * render as Generating with stale stage-tagged mutations in the
-		 * buffer. Scrubs back through `ReplayController.goToChapter` apply
-		 * the same rule. */
-		const eventsToReplay = replay.events.slice(0, replay.initialCursor + 1);
-		const atTerminal = replay.initialCursor >= replay.events.length - 1;
-		if (!atTerminal) {
-			sessionStore.getState().pushEvents(eventsToReplay);
-		}
-
-		/* Replay events up to the initial cursor synchronously — the user
-		 * sees the final state immediately. The transport bar then lets
-		 * them scrub backward through chapters.
-		 *
-		 * `replayEventsSync` (not `replayEvents`) so the doc store is
-		 * guaranteed fully populated by the time we call `setLoading(false)`
-		 * below. A future async variant of the paced helper could drift
-		 * here; the sync contract is load-bearing. */
-		replayEventsSync(
-			eventsToReplay,
-			(m) => docStore.getState().applyMany([m]),
-			() => {
-				/* Conversation events have no doc effect at hydrate time —
-				 * `useReplayMessages` derives chat messages from the raw
-				 * `replay.events` + cursor directly, so there's nothing for
-				 * us to push into a side channel. */
-			},
-		);
-
-		/* Finalize the session lifecycle — the session store was seeded with
-		 * `loading: true` so `derivePhase` returned `Loading` on the first
-		 * render. Replay hydration is now complete (doc store populated,
-		 * replay script loaded), so clear the flag to transition the phase
-		 * to `Ready`. Mirrors `LoadAppHydrator` for existing-app loads —
-		 * without this, `BuilderLayout` stays stuck on its Loading skeleton
-		 * forever. */
-		sessionStore.getState().setLoading(false);
-	}, [replay, docStore, sessionStore]);
-
-	return null;
-}
 
 /**
  * SyncBridge — installs the doc store reference on the session store
@@ -312,8 +199,7 @@ function SyncBridge() {
  * store was already hydrated synchronously by `BlueprintDocProvider`
  * from `initialBlueprint`, so entity data is available).
  *
- * Runs once per mount (gated by `hydratedRef`). Replay hydration uses
- * `ReplayHydrator` instead — the two paths are mutually exclusive.
+ * Runs once per mount (gated by `hydratedRef`).
  */
 function LoadAppHydrator() {
 	const sessionStore = useContext(BuilderSessionContext);

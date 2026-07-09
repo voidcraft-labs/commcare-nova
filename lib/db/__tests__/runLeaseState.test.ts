@@ -1,4 +1,3 @@
-import { Timestamp } from "@google-cloud/firestore";
 import { describe, expect, it } from "vitest";
 import { MAX_GENERATION_MINUTES, MAX_RUN_MINUTES } from "../constants";
 import { editLeaseDeadlineMs, runLeaseState } from "../runLiveness";
@@ -11,6 +10,10 @@ import type { AppDoc } from "../types";
  * `live` / `paused` / `mine` / `terminalWriteOwned` / `ownedByResume` /
  * `markerSettleable` / `reapableStrandedEdit` / `reapableStaleBuild` mean. A
  * behavior change to the model must change a row here.
+ *
+ * The run-state timestamps are plain `Date`s now (Postgres `timestamptz`
+ * columns come back as `Date` — `runLeaseState` reads `.getTime()`), so a
+ * corrupt/non-Date leaf reads as dead rather than throwing.
  */
 
 const NOW = Date.UTC(2026, 6, 1, 12, 0, 0);
@@ -21,11 +24,11 @@ const OTHER = "run-other";
 const lockAt = (mins: number, runId = RUN) => ({
 	runId,
 	actorUserId: "u1",
-	expireAt: Timestamp.fromMillis(NOW + mins * 60_000),
+	expireAt: new Date(NOW + mins * 60_000),
 });
 /** An `updated_at` `mins` minutes before NOW (a build's staleness clock). */
 const updatedAgo = (mins: number) =>
-	Timestamp.fromMillis(NOW - mins * 60_000) as AppDoc["updated_at"];
+	new Date(NOW - mins * 60_000) as AppDoc["updated_at"];
 
 const marker = (
 	over: Partial<NonNullable<AppDoc["reservation"]>> = {},
@@ -98,7 +101,7 @@ describe("runLeaseState — live (within the mode's horizon, not paused)", () =>
 	it("none is never live", () => {
 		expect(lease({ status: "complete" }).live).toBe(false);
 	});
-	it("a non-Timestamp updated_at / expireAt reads as NOT live (total, never throws)", () => {
+	it("a non-Date updated_at / expireAt reads as NOT live (total, never throws)", () => {
 		// A corrupt/partial doc must not throw the whole derivation — it reads dead.
 		expect(
 			lease({
@@ -112,7 +115,7 @@ describe("runLeaseState — live (within the mode's horizon, not paused)", () =>
 				run_lock: {
 					runId: RUN,
 					actorUserId: "u1",
-					expireAt: 12345 as unknown as Timestamp,
+					expireAt: 12345 as unknown as Date,
 				},
 			}).live,
 		).toBe(false);

@@ -4,16 +4,15 @@
 #
 # Stands up the hermetic stack the Playwright smoke suite needs and runs it:
 #   1. local Postgres (the case store) via docker compose + Kysely migrations,
-#   2. the Firestore emulator (project `demo-test`, fully offline),
-#   3. seeds a user/session/apps into the emulator,
-#   4. runs Playwright, which builds + starts the production server, pointed at both.
+#   2. seeds a user/session/apps into that Postgres,
+#   3. runs Playwright, which builds + starts the production server pointed at it.
 #
 # No real GCP project, no prod credentials, no LLM spend. Extra args are passed
 # through to Playwright, e.g.:
 #   scripts/smoke.sh --project=public          # public checks only
 #   scripts/smoke.sh e2e/tests/authed.spec.ts  # one file
 #
-# Requires: docker and a JDK (the Firestore emulator).
+# Requires: docker.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -32,9 +31,9 @@ export SMOKE_MANAGE_SERVER=1
 export GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-smoke-dummy.apps.googleusercontent.com}"
 export GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-smoke-dummy-secret}"
 export NOVA_MEDIA_BUCKET="${NOVA_MEDIA_BUCKET:-demo-test-multimedia}"
-# Don't probe the GCE metadata server: the credential-free emulator env isn't on
-# GCP, so google-auth's probe just emits a noisy MetadataLookupWarning to stdout.
-# `none` skips the probe entirely (keeps the smoke logs clean).
+# Don't probe the GCE metadata server: the credential-free smoke env isn't on
+# GCP, so google-auth (pulled in by the KMS / GCS clients) would emit a noisy
+# MetadataLookupWarning. `none` skips the probe entirely (keeps the logs clean).
 export METADATA_SERVER_DETECTION="${METADATA_SERVER_DETECTION:-none}"
 # Keep the smoke logs clean: opt out of Next.js's anonymous CLI telemetry so the
 # webServer's `next build` doesn't print its telemetry notice. Playwright merges
@@ -69,20 +68,9 @@ for attempt in $(seq 1 8); do
   sleep 2
 done
 
-# ── 3+4. Emulator → seed → Playwright ────────────────────────────────
-# emulators:exec sets FIRESTORE_EMULATOR_HOST for everything it spawns, so the
-# seed and the dev server share one offline Firestore. The emulator is torn down
-# when the wrapped command exits (data is ephemeral — no cleanup needed).
-# Forward extra args to Playwright. `emulators:exec` re-parses the command string
-# under /bin/sh (dash on CI), so POSIX-single-quote each arg — bash's `printf %q`
-# emits `$'...'` escapes dash doesn't understand. Replace `'` with `'\''`, wrap.
-playwright_cmd="node_modules/.bin/playwright test"
-for arg in "$@"; do
-  playwright_cmd="$playwright_cmd '${arg//\'/\'\\\'\'}'"
-done
-
-echo "[smoke] starting Firestore emulator, seeding, running Playwright…"
-node_modules/.bin/firebase emulators:exec \
-  --only firestore \
-  --project demo-test \
-  "node_modules/.bin/tsx e2e/seed.ts && $playwright_cmd"
+# ── 3+4. Seed → Playwright ───────────────────────────────────────────
+# Seed the local Postgres, then run Playwright (which builds + starts the
+# production server). Extra args pass straight through to Playwright via "$@".
+echo "[smoke] seeding local Postgres, running Playwright…"
+node_modules/.bin/tsx e2e/seed.ts
+node_modules/.bin/playwright test "$@"

@@ -16,8 +16,8 @@ Same as `lib/doc`: the store is private. Consumers go through the named hooks in
 
 Four session fields describe "what phase is the builder in":
 
-- `events: Event[]` — the current active run's events. **Cleared at both `beginRun()` and `endRun()`**, so `events.length > 0` is itself the "a run is in progress" signal — no `agentActive` shadow flag, no mirror to drift. Live: stream dispatcher appends as `data-mutations` + `data-conversation-event` envelopes arrive. Replay: hydrator seeds + `ReplayController` replaces on scrub.
-- `runStartedWithData: boolean` — captured once in `beginRun()` (did the doc already have data when the run opened?). The build-vs-edit discriminator: builds and edits emit the SAME stage tags now (`app`, `module:create`, `form:M-F`), so the buffer alone can't tell them apart, and a build's own mutations populating the doc mid-run must not flip the derivation. False outside runs and in replay (which always replays builds).
+- `events: Event[]` — the current active run's events. **Cleared at both `beginRun()` and `endRun()`**, so `events.length > 0` is itself the "a run is in progress" signal — no `agentActive` shadow flag, no mirror to drift. The stream dispatcher appends as `data-mutations` + `data-conversation-event` envelopes arrive.
+- `runStartedWithData: boolean` — captured once in `beginRun()` (did the doc already have data when the run opened?). The build-vs-edit discriminator: builds and edits emit the SAME stage tags now (`app`, `module:create`, `form:M-F`), so the buffer alone can't tell them apart, and a build's own mutations populating the doc mid-run must not flip the derivation. False outside runs.
 - `runCompletedAt: number | undefined` — stamped by the dispatcher's `data-done` handler (the chat route's drain-end build-finished signal). Cleared by `acknowledgeCompletion()` after the celebration timer. askQuestions / clarifying-text / edit-tool runs never stamp — they close silently.
 - `loading: boolean` — initial hydration flag (existing app load or replay).
 
@@ -28,7 +28,7 @@ Run-boundary actions are orthogonal and atomic:
 - `markRunCompleted()` — stamp runCompletedAt. Does NOT touch events or doc undo.
 - `acknowledgeCompletion()` — clear runCompletedAt.
 
-**Every other lifecycle signal is derived from these fields** via pure functions in `lifecycle.ts`: phase, stage, classified error, validation attempt, status message, postBuildEdit. No `agentActive` / `agentStage` / `agentError` / `statusMessage` / `postBuildEdit` / `justCompleted` flags exist — those were shadow state populated only by the live SSE path, causing replay to render the wrong layout mid-chapter. Live and replay now share one code path.
+**Every other lifecycle signal is derived from these fields** via pure functions in `lifecycle.ts`: phase, stage, classified error, validation attempt, status message, postBuildEdit. No `agentActive` / `agentStage` / `agentError` / `statusMessage` / `postBuildEdit` / `justCompleted` flags exist — those were shadow state populated only by the live SSE path; deriving from the buffer instead keeps the layout a pure function of the events.
 
 **Disambiguation: initial build vs post-build edit.** Both emit the same stage tags (`module:create` during construction, `form:M-F` for field work). `derivePhase` and `derivePostBuildEdit` key on `runStartedWithData` — a run that opened on an empty doc is an initial build (Generating layout); one that opened on a populated doc is an edit (the builder stays Ready/interactive while the agent works).
 

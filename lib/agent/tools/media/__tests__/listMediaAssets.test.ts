@@ -49,14 +49,9 @@ function readyRecord(id: string): MediaAssetRecord {
 		displayName: `${id}.png`,
 		status: "ready",
 		gcsObjectKey: `projects/project-1/abc.png`,
-		// Server-only reverse index — must never reach the wire (it would leak the
-		// owner's app ids to the client).
-		referencingAppIds: ["app-x"],
-		// `created_at` is a Firestore Timestamp at runtime; the wire
-		// projector calls `.toDate().toISOString()` on it.
-		created_at: {
-			toDate: () => new Date("2026-01-01T00:00:00Z"),
-		} as unknown as MediaAssetRecord["created_at"],
+		// `created_at` is a `Date` (Postgres timestamptz); the wire projector calls
+		// `.toISOString()` on it.
+		created_at: new Date("2026-01-01T00:00:00Z"),
 	} as MediaAssetRecord;
 }
 
@@ -73,12 +68,10 @@ describe("listMediaAssets", () => {
 		expect(result.kind).toBe("read");
 		expect(result.data.assets).toHaveLength(2);
 		expect(result.data.assets[0].id).toBe("a1");
-		// Wire shape drops the server-only fields `owner` + `gcsObjectKey` +
-		// `referencingAppIds` (the reverse index must never leak the owner's app
-		// ids to the client).
+		// Wire shape drops the server-only fields `owner` + `gcsObjectKey` (the
+		// reverse index lives in its own table now — never on the record).
 		expect(result.data.assets[0]).not.toHaveProperty("owner");
 		expect(result.data.assets[0]).not.toHaveProperty("gcsObjectKey");
-		expect(result.data.assets[0]).not.toHaveProperty("referencingAppIds");
 		expect(result.data.nextCursor).toBe("cursor-2");
 	});
 
@@ -100,9 +93,8 @@ describe("listMediaAssets", () => {
 				model: "gemini-3.5-flash",
 				truncated: false,
 				charCount: 1234,
-				extractedAt: {
-					toDate: () => new Date("2026-01-02T00:00:00Z"),
-				},
+				// `extractedAt` is epoch ms (jsonb carries no Date).
+				extractedAt: Date.parse("2026-01-02T00:00:00Z"),
 				failureReason: "internal detail that must stay server-side",
 				title: "ANC Program — Data Collection Requirements",
 				summary: "A few-sentence précis the preview header shows.",

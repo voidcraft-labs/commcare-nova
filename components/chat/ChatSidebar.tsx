@@ -119,8 +119,7 @@ interface ChatSidebarProps {
 	}) => void;
 	readOnly?: boolean;
 	/** When `readOnly`, an optional note shown where the composer would be —
-	 *  explains why the user can't send (view-only Project access). Replay
-	 *  passes none (it has its own transport bar). */
+	 *  explains why the user can't send (view-only Project access). */
 	readOnlyNotice?: ReactNode;
 	/** Whether the app was loaded from Firestore (not a new build).
 	 *  Drives the empty-state prompt text. */
@@ -650,8 +649,8 @@ export function ChatSidebar({
 				</div>
 
 				{/* A view-only member sees why they can't send, where the composer
-				 *  would be. Replay passes no notice (its transport bar owns that
-				 *  strip), so this only renders for the read-only-access case. */}
+				 *  would be — only when a notice is supplied for the
+				 *  read-only-access case. */}
 				{readOnly && readOnlyNotice && (
 					<div className="shrink-0 px-4 py-3 text-sm text-nova-text-muted border-t border-nova-border">
 						{readOnlyNotice}

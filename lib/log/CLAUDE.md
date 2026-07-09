@@ -12,36 +12,39 @@ No client-side code emits events. Users' doc edits via `applyMany` are
 NOT mirrored to the event log — the AppDoc snapshot is authoritative for
 user-side mutations. But the chat route DOES log the current request's
 user message as a `ConversationEvent` (payload type `user-message`) so
-replay and admin inspect can reconstruct turn-by-turn what the user
-asked. Read this as "the log captures every server-observed moment of a
-run"; client-only local edits stay implicit in the AppDoc.
+admin inspect can reconstruct turn-by-turn what the user asked. Read this
+as "the log captures every server-observed moment of a run"; client-only
+local edits stay implicit in the AppDoc.
 
-## Ordering
+## Storage + ordering
 
-Two event families (mutation + conversation), one stream at
-`apps/{appId}/events/`. Doc IDs are Firestore auto-IDs and carry no
-ordering — reads order by `(ts, seq)`: `ts` is monotonic-ish across
-requests (the concurrency guard serializes per user); `seq` tiebreaks
-events inside a single-millisecond SSE burst.
+Two event families (mutation + conversation), one row per event in the
+`events` table (`lib/db/pg.ts` owns the table type; DDL in
+`lib/case-store/migrations/20260708000000_app_state.ts`). The `id`
+identity column carries no ordering — reads order by `(ts, seq)` for a
+`run_id`: `ts` is monotonic-ish across requests (the concurrency guard
+serializes per user); `seq` tiebreaks events inside a single-millisecond
+SSE burst. The full event rides the `event` jsonb column; the envelope
+fields (`run_id`, `ts`, `seq`, `source`, `kind`) are projected into their
+own columns so reads filter and order without parsing the payload.
+`readEvents` re-validates each payload through `eventSchema.safeParse`
+(`decodeEventsLenient`), dropping and counting any forward-version /
+drifted row rather than failing the whole read.
 
 ## No-usage-in-events rule
 
-Token usage and cost live on the per-run summary doc at
-`apps/{appId}/runs/{runId}`, not on the event stream. Spec §5 keeps the
-event log supplemental; cost is a separate concern owned by
-`UsageAccumulator` in `lib/db/usage.ts`.
+Token usage and cost live on the per-run summary (`run_summaries`), not on
+the event stream. The event log is supplemental; cost is a separate
+concern owned by `UsageAccumulator` in `lib/db/usage.ts` and read back via
+`readRunSummary` (which delegates to `lib/db/runSummary.ts::loadRunSummary`).
 
 ## Writer semantics
 
 Fire-and-forget. `LogWriter.logEvent(event)` enqueues; a 100ms timer (or
-a 450-event buffer threshold — 50 under Firestore's `WriteBatch` hard
-limit of 500) triggers a `WriteBatch` commit of `.create()` calls
-(auto-IDs). `flush()` drains on request end (finally block, onFinish,
-abort handler). Errors log but never throw — observability failures
-must not block generation. Multiple requests sharing a `runId` (the
-normal edit-thread case) cannot overwrite each other's events because
-doc IDs are minted by Firestore per write.
-
-## Replay
-
-The async dispatcher (`replayEvents`) serves abortable live playback; the sync variant is the scrub/hydrate path, where the cursor commit runs immediately after dispatch — every mutation must have landed by then, so there is NO await between events. Chapter derivation is pure data shaping; subtitle resolution walks a running `BlueprintDoc` chapter-by-chapter so stage tags resolve to the display names the live SA observed at chapter start. No state reconstruction anywhere — mutations are the state delta.
+a 450-event buffer threshold — a plain bound on how many rows one INSERT
+carries) triggers one batched INSERT into `events`. `flush()` drains on
+request end (finally block, onFinish, abort handler). Errors log but never
+throw — observability failures must not block generation. Multiple
+requests sharing a `runId` (the normal edit-thread case) cannot overwrite
+each other's events because the `id` identity column is server-assigned
+per row.
