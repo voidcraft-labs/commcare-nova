@@ -139,6 +139,65 @@ describe("runLeaseState — paused", () => {
 	});
 });
 
+describe("runLeaseState — pausedBy (the same-actor supersede gate)", () => {
+	it("edit pause belongs to its lock actor — same actor supersedes, another blocks", () => {
+		const l = lease({
+			status: "complete",
+			run_lock: lockAt(5),
+			awaiting_input: true,
+		});
+		expect(l.pausedBy("u1")).toBe(true);
+		expect(l.pausedBy("u2")).toBe(false);
+	});
+	it("build pause belongs to its marker's charged actor", () => {
+		const l = lease({
+			status: "generating",
+			awaiting_input: true,
+			updated_at: updatedAgo(1),
+			reservation: marker(),
+		});
+		expect(l.pausedBy("u1")).toBe(true);
+		expect(l.pausedBy("u2")).toBe(false);
+	});
+	it("build pause with a legacy actor-less marker falls back to owner (the refund-actor rule)", () => {
+		const l = lease({
+			status: "generating",
+			awaiting_input: true,
+			updated_at: updatedAgo(1),
+			owner: "u1",
+			reservation: marker({ userId: undefined }),
+		});
+		expect(l.pausedBy("u1")).toBe(true);
+		expect(l.pausedBy("u2")).toBe(false);
+	});
+	it("a LIVE run is never pausedBy anyone — supersede must not kill an in-flight generation", () => {
+		expect(
+			lease({ status: "complete", run_lock: lockAt(5) }).pausedBy("u1"),
+		).toBe(false);
+		expect(
+			lease({ status: "generating", updated_at: updatedAgo(1) }).pausedBy("u1"),
+		).toBe(false);
+	});
+	it("an unresolvable holder never matches — a corrupt pause blocks rather than hands over", () => {
+		// Empty lock actor (a corrupt row maps null → "").
+		expect(
+			lease({
+				status: "complete",
+				run_lock: { runId: RUN, actorUserId: "", expireAt: lockAt(5).expireAt },
+				awaiting_input: true,
+			}).pausedBy(""),
+		).toBe(false);
+		// Paused build with neither a marker actor nor an owner on the slice.
+		expect(
+			lease({
+				status: "generating",
+				awaiting_input: true,
+				updated_at: updatedAgo(1),
+			}).pausedBy("u1"),
+		).toBe(false);
+	});
+});
+
 describe("runLeaseState — mine", () => {
 	it("edit owns via run_lock.runId", () => {
 		const l = lease({ status: "complete", run_lock: lockAt(5, RUN) });

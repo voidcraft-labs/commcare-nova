@@ -37,7 +37,7 @@ import {
 	failApp,
 	GenerationInProgressError,
 	loadApp,
-	loadAppHolderName,
+	loadAppHolder,
 	type ReacquireOutcome,
 	RunConflictError,
 	reacquireLease,
@@ -411,10 +411,12 @@ export async function POST(req: Request) {
 			 * instruction (`!appReady`) flips the row to `generating`; an EDIT
 			 * (`appReady`) takes a `run_lock` without touching status. The claim is
 			 * the per-app serialization lock, across BOTH modes (a build waits on a
-			 * live edit-lock and vice versa, and on a PAUSED run of either mode — a
-			 * paused run blocks a claim); the cross-app concurrency cap and the
-			 * affordability check run INSIDE the same transaction, so every
-			 * rejection below is a rollback that held nothing.
+			 * live edit-lock and vice versa, and on ANOTHER actor's PAUSED run of
+			 * either mode — this user's own paused run is superseded by the claim
+			 * instead, so an abandoned askQuestions round never locks them out);
+			 * the cross-app concurrency cap and the affordability check run INSIDE
+			 * the same transaction, so every rejection below is a rollback that
+			 * held nothing.
 			 *
 			 * On a CONFLICT the route does not 429 — it defers the whole
 			 * claim+reserve sequence into `execute` behind a poll-wait
@@ -489,24 +491,33 @@ export async function POST(req: Request) {
 	 *    the per-run summary row, and carries this run's credit reservation
 	 *    so a failed or no-op run can refund it. Flushed on every terminal path.
 	 *
-	 * Placeholder fields (`promptMode` / `freshEdit` / `appReady` / `cacheExpired`
-	 * / `moduleCount`) are rewritten via `usage.configureRun()` inside the
-	 * execute block once we know the editing mode. */
+	 * The run-shape fields are seeded from what this POST already knows
+	 * (`appReady` from the request, `lastResponseAt` for cache expiry, the
+	 * authorization read's module count) and re-written via
+	 * `usage.configureRun()` inside the execute block at their authoritative
+	 * moment. The seed must be REAL, not placeholder: `prompt_mode` /
+	 * `app_ready` are PINNED on the summary row by its first write, and a POST
+	 * that dies before `configureRun` (a serialize-wait timeout) still flushes —
+	 * a placeholder seed there would pin an edit thread's summary as a
+	 * zero-module build. */
 	/* Chat-surface writer — every event out of this route is stamped
 	 * `source: "chat"`. The MCP endpoint constructs its own LogWriter
 	 * with `source: "mcp"`; the writer is the single authority on the
 	 * surface tag so the two cannot drift. */
 	const logWriter = new LogWriter(appId, "chat");
+	const seedCacheExpired =
+		!lastResponseAt ||
+		Date.now() - new Date(lastResponseAt).getTime() > CACHE_TTL_MS;
 	const usage = new UsageAccumulator({
 		appId,
 		userId,
 		runId: effectiveRunId,
 		model: SA_MODEL,
-		promptMode: "build",
-		freshEdit: false,
-		appReady: false,
-		cacheExpired: false,
-		moduleCount: 0,
+		promptMode: appReady ? "edit" : "build",
+		freshEdit: !!appReady && seedCacheExpired,
+		appReady: !!appReady,
+		cacheExpired: seedCacheExpired,
+		moduleCount: loadedApp?.module_count ?? 0,
 		/* Reservation context for the refund branch in `flush()`. All three travel
 		 * together (a chargeable turn that reserved) or all absent (a free
 		 * continuation, which never reserves). On the NON-conflict path
@@ -733,7 +744,20 @@ export async function POST(req: Request) {
 			 * successful claim sets `claimedRun` + `reservation`, so the rest of
 			 * `execute` runs exactly as the non-conflict path does. */
 			if (waitForClaim && claimMode) {
-				const holderName = await loadAppHolderName(appId);
+				/* A same-actor conflict is real (the requester's OWN still-running
+				 * request from another tab, or one whose tab they closed — a closed
+				 * tab neither cancels nor finalizes a run), and naming the user to
+				 * themselves reads as a phantom collaborator. Their own PAUSED run
+				 * never reaches here — the claim supersedes it. Re-resolved per
+				 * message rather than captured once: the holder can change while we
+				 * wait (a release + another claim), and the timeout toast two
+				 * minutes in must not name a long-gone holder. */
+				const holderLabel = async (): Promise<string> => {
+					const holder = await loadAppHolder(appId);
+					return holder.userId === userId
+						? "your previous request"
+						: `${holder.name}'s request`;
+				};
 				/* User-visible busy indicator: a non-fatal (recoverable) conversation
 				 * event the client toasts + shows in the signal panel, so the waiter
 				 * sees WHY nothing is happening yet. `recoverable: true` renders it as
@@ -743,7 +767,7 @@ export async function POST(req: Request) {
 				ctx.emitError(
 					{
 						type: "generation_in_progress",
-						message: `Waiting — ${holderName}'s request is running on this app. Only one request runs at a time; yours will start automatically when theirs finishes.`,
+						message: `Waiting — ${await holderLabel()} is still running on this app. Only one request runs at a time; this one will start automatically when it finishes.`,
 						recoverable: true,
 					},
 					"route:serialize-wait",
@@ -821,7 +845,7 @@ export async function POST(req: Request) {
 							type: claimError ? "internal" : "generation_in_progress",
 							message: claimError
 								? "Couldn't start your request just now. Please try again shortly."
-								: `Still busy — ${holderName}'s request is taking a while. Please try again in a moment.`,
+								: `Still busy — ${await holderLabel()} is taking a while. Please try again in a moment.`,
 							recoverable: false,
 						},
 						"route:serialize-wait-timeout",
@@ -883,29 +907,34 @@ export async function POST(req: Request) {
 					log.error("[chat] resume reacquire failed", err, { appId });
 				}
 				if (reacquire !== "owned") {
-					/* The two lost shapes read very differently to the person answering,
-					 * so tell the truth per shape: "superseded" means another run
-					 * actually holds the app now; "released" means the run simply timed
-					 * out waiting and a scan reaped it (refund + free) with no
-					 * re-claim — on a personal Project that is the ONLY lost shape, so
-					 * a takeover message there would always be false. */
+					/* The lost shapes read very differently to the person answering, so
+					 * tell the truth per shape: "superseded" means another run actually
+					 * holds the app now — the requester's OWN newer request (a paused
+					 * round the same actor's claim superseded) or a co-member's;
+					 * "released" means the run simply timed out waiting and a scan
+					 * reaped it (refund + free) with no re-claim. The holder read is a
+					 * best-effort projection for the message only. */
+					let superseded: { type: ErrorType; message: string } | undefined;
+					if (reacquire === "superseded") {
+						const holder = await loadAppHolder(appId);
+						superseded = {
+							type: "generation_in_progress",
+							message:
+								holder.userId === userId
+									? "You started a newer request on this app, so this answer round was superseded. Continue from your newer conversation."
+									: "Someone else started working on this app while you were answering, so this request was superseded. Refresh to pick up their changes, then try again.",
+						};
+					}
 					ctx.emitError(
-						reacquire === "superseded"
-							? {
-									type: "generation_in_progress",
-									message:
-										"Someone else started working on this app while you were answering, so this request was superseded. Refresh to pick up their changes, then try again.",
-									recoverable: false,
-								}
+						superseded
+							? { ...superseded, recoverable: false }
 							: {
 									type: "run_released",
 									message:
 										"This run waited for your answer longer than its window allows, so it was released and its hold was refunded. Refresh to get the latest state, then send your answer again.",
 									recoverable: false,
 								},
-						reacquire === "superseded"
-							? "route:resume-superseded"
-							: "route:resume-released",
+						superseded ? "route:resume-superseded" : "route:resume-released",
 					);
 					await finalizeRun(undefined, { heldApp: false });
 					return;

@@ -317,7 +317,17 @@ afterEach(async () => {
 	__setListenerConfigForTests(null);
 	__setAppDbForTests(null);
 	await appDb.destroy().catch(() => {});
-});
+}, 60_000);
+/* ^ This hook's budget must exceed the SUM of the bounded waits it stacks,
+ * which the global 30s `hookTimeout` does not. Every wait inside is
+ * individually bounded — `closeStreamListener` awaits an in-flight establish
+ * (`CONNECT_TIMEOUT_MS` + two `QUERY_TIMEOUT_MS` LISTENs) plus its
+ * `END_TIMEOUT_MS` end (≤22s), and `appDb.destroy()`'s `Pool.end()` waits on
+ * a mid-connect or checked-out straggler bounded by the pool's
+ * `connectionTimeoutMillis` + `query_timeout` (≤20s) — but a starved CI
+ * runner can walk several bounds at once (~42s worst case), and a budget
+ * below the sum turns that into a nondeterministic hook timeout. On healthy
+ * hardware each wait is milliseconds. */
 
 describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 	it("replays committed entries past the cursor as mutation frames with id:<seq>", async () => {

@@ -24,9 +24,11 @@
  *   - A hard-killed edit's hold is reaped off the SINGLE run-liveness horizon —
  *     its `run_lock` present but past its `lock_expire_at`; a live long edit
  *     (refreshed lock) is never reaped, and a build (no lock) is never touched.
- *   - A paused run of EITHER shape BLOCKS a claim (it is not a takeover); an
- *     abandoned paused run is freed by the reapers once its lease lapses, and a
- *     paused run's OWN resume (build OR edit) re-acquires or bails if superseded.
+ *   - ANOTHER actor's paused run BLOCKS a claim (it is not a takeover); the
+ *     claimant's OWN paused run is SUPERSEDED (its abandoned hold refunds, the
+ *     claim proceeds, its late answer bails). An abandoned paused run is freed
+ *     by the reapers once its lease lapses, and a paused run's OWN resume
+ *     (build OR edit) re-acquires or bails if superseded.
  *
  * Runs unconditionally under `npm test` — the case-store testcontainer boots in
  * globalSetup and each test gets a fresh database via the app-state harness.
@@ -480,6 +482,109 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		expect(await readConsumed(OWNER)).toBe(0);
 	});
 
+	// ── Same-actor supersede: your own paused run never locks you out ─────
+
+	it("the claimant's OWN paused edit is SUPERSEDED, not blocked — the abandoned round refunds and the claim proceeds", async () => {
+		const { claimAndReserveRun, reacquireLease } = await import("../apps");
+		// The lockout shape: an askQuestions round paused the run, the user
+		// reloaded (the ask card is gone — a reload opens a fresh conversation),
+		// then sent a new instruction. The pause's lease is still in the FUTURE,
+		// so without the supersede the user is locked out of their own app until
+		// it lapses for the reaper.
+		await seedCredits(OWNER, CREDITS_PER_EDIT);
+		await seedApp({
+			status: "complete",
+			awaiting_input: true,
+			run_lock: { runId: "p", actorUserId: OWNER, expireAt: lockExpiry(10) },
+			reservation: {
+				period,
+				reserved: CREDITS_PER_EDIT,
+				settled: false,
+				userId: OWNER,
+				runId: "p",
+			},
+		});
+
+		const claim = await claimAndReserveRun(
+			APP_ID,
+			"edit",
+			"new-run",
+			OWNER,
+			CREDITS_PER_EDIT,
+		);
+		expect(claim.mode).toBe("edit");
+		// The abandoned round's hold refunded, the new debit booked — net ONE charge.
+		expect(await readConsumed(OWNER)).toBe(CREDITS_PER_EDIT);
+		expect(await h.readReservation(APP_ID)).toMatchObject({
+			settled: false,
+			runId: "new-run",
+		});
+		expect((await h.readRunLock(APP_ID))?.runId).toBe("new-run");
+		expect(await readAwaiting()).toBeFalsy();
+		// The superseded round's late answer bails instead of double-running.
+		expect(await reacquireLease(APP_ID, "p", "edit")).toBe("superseded");
+	});
+
+	it("the claimant's OWN paused build is likewise superseded (fresh clock, marker-actor match)", async () => {
+		const { claimAndReserveRun, reacquireLease } = await import("../apps");
+		await seedCredits(OWNER, CREDITS_PER_BUILD);
+		await seedApp({
+			status: "generating",
+			awaiting_input: true,
+			// Recently paused — the staleness clock is FRESH, so only the
+			// supersede (not a reap) can free it.
+			updated_at: new Date(),
+			reservation: {
+				period,
+				reserved: CREDITS_PER_BUILD,
+				settled: false,
+				userId: OWNER,
+				runId: "p",
+			},
+		});
+
+		const claim = await claimAndReserveRun(
+			APP_ID,
+			"build",
+			"new-run",
+			OWNER,
+			CREDITS_PER_BUILD,
+		);
+		expect(claim.mode).toBe("build");
+		expect(await readConsumed(OWNER)).toBe(CREDITS_PER_BUILD);
+		expect(await h.readReservation(APP_ID)).toMatchObject({
+			settled: false,
+			runId: "new-run",
+		});
+		expect(await readAwaiting()).toBeFalsy();
+		expect(await reacquireLease(APP_ID, "p", "build")).toBe("superseded");
+	});
+
+	it("ANOTHER actor's recently-paused run still blocks — an open answer round is not stolen", async () => {
+		const { claimAndReserveRun, RunConflictError } = await import("../apps");
+		await seedCredits(OWNER, CREDITS_PER_EDIT);
+		await seedApp({
+			status: "complete",
+			awaiting_input: true,
+			run_lock: { runId: "p", actorUserId: OWNER, expireAt: lockExpiry(10) },
+			reservation: {
+				period,
+				reserved: CREDITS_PER_EDIT,
+				settled: false,
+				userId: OWNER,
+				runId: "p",
+			},
+		});
+
+		await expect(
+			claimAndReserveRun(APP_ID, "edit", "waiter", MEMBER, CREDITS_PER_EDIT),
+		).rejects.toBeInstanceOf(RunConflictError);
+		// Touched nothing — the pause, its lock, and its hold all stand.
+		expect(await readAwaiting()).toBe(true);
+		expect((await h.readRunLock(APP_ID))?.runId).toBe("p");
+		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: false });
+	});
+
 	it("an abandoned-pause build reap labels the row `paused_timeout`, a hard-kill reap `internal`", async () => {
 		const { refundStaleGeneration } = await import("../credits");
 		// Paused at reap time: the run expired waiting for an answer — not an
@@ -779,21 +884,23 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: true });
 	});
 
-	// ── loadAppHolderName projected read ──────────────────────────────────
+	// ── loadAppHolder projected read ──────────────────────────────────────
 
-	it("loadAppHolderName resolves the holder from a projected read without pulling the blueprint", async () => {
-		const { loadAppHolderName } = await import("../apps");
+	it("loadAppHolder resolves the holder from a projected read without pulling the blueprint", async () => {
+		const { loadAppHolder } = await import("../apps");
 		// The projected read must pick up the holder id without a full `loadApp`. No
 		// auth DB is injected here, so the `auth_user` name lookup fails-safe to
-		// "someone" — this asserts the projected APP read succeeds and yields a string.
+		// "someone" — this asserts the projected APP read succeeds and still carries
+		// the holder's user id (the route's is-this-you comparison).
 		await seedApp({
 			status: "complete",
 			run_lock: { runId: "e1", actorUserId: OWNER, expireAt: lockExpiry(10) },
 		});
 
-		const name = await loadAppHolderName(APP_ID);
-		expect(typeof name).toBe("string");
-		expect(name.length).toBeGreaterThan(0);
+		const holder = await loadAppHolder(APP_ID);
+		expect(typeof holder.name).toBe("string");
+		expect(holder.name.length).toBeGreaterThan(0);
+		expect(holder.userId).toBe(OWNER);
 	});
 
 	// ── A live long edit (lease refreshed) is NOT reaped ──────────────────

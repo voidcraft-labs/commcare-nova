@@ -940,8 +940,9 @@ export async function commitAppProjectMove(
 
 /**
  * Thrown by `claimAndReserveRun` when the app's run window is already held —
- * a live build or edit, OR a paused run of either mode (a paused run is not a
- * claimable takeover). The chat route serializes-with-wait on it. Carries the
+ * a live build or edit, OR another actor's paused run (a paused run is not a
+ * claimable takeover; the claimant's OWN paused run is superseded instead of
+ * conflicting). The chat route serializes-with-wait on it. Carries the
  * reapable flags so the waiter-side nudge can free an abandoned holder.
  */
 export class RunConflictError extends Error {
@@ -981,10 +982,14 @@ export interface ClaimedRun {
  * transaction, the per-app serialization primitive for both SA modes.
  *
  * Inside the transaction, in order:
- *  1. Lock the app row. Busy (`lease.live || lease.paused`) throws
- *     {@link RunConflictError} — a paused run blocks; only a FREE app
- *     (`complete`/`error` at rest, or a hard-killed run past its horizon)
- *     falls through.
+ *  1. Lock the app row. Busy (`lease.live`, or another actor's paused run)
+ *     throws {@link RunConflictError}. The claimant's OWN paused run does NOT
+ *     block — it is SUPERSEDED: an abandoned `askQuestions` round (its ask
+ *     card lost to a reload) would otherwise hold the app until its lease
+ *     lapses, locking the user out of their own app; steps 3–4 already refund
+ *     its hold and overwrite its lock/pause, and its late answer bails via
+ *     `reacquireLease`. A FREE app (`complete`/`error` at rest, or a
+ *     hard-killed run past its horizon) falls through.
  *  2. For a BUILD claim, the cross-app concurrency scan
  *     ({@link GenerationInProgressError} when the actor has another live
  *     build) — the same check-after-claim ordering as ever, now atomic with
@@ -1026,7 +1031,16 @@ export async function claimAndReserveRun(
 				);
 			}
 			const lease = runLeaseState(leaseView(fresh));
-			if (lease.live || lease.paused) {
+			/* Busy — with one carve-out: the claimant's OWN paused run does not
+			 * block. A paused run is process-less and its ask card may be gone
+			 * entirely (a reload opens a fresh conversation), so the same actor's
+			 * new instruction supersedes it: the marker refund below returns the
+			 * abandoned round's hold to this same actor, the claim writes clear
+			 * `awaiting_input` + the lock in both arms, and the old run's answer
+			 * (if it ever arrives) bails through `reacquireLease`'s supersede
+			 * guard. Another actor's pause still blocks — their answer round is
+			 * theirs to finish — and a LIVE run always blocks. */
+			if (lease.live || (lease.paused && !lease.pausedBy(actorUserId))) {
 				throw new RunConflictError(
 					lease.reapableStaleBuild,
 					lease.reapableStrandedEdit,
@@ -1506,21 +1520,31 @@ export async function loadApp(appId: string): Promise<AppDoc | null> {
 	return rowToAppDoc(row, entities);
 }
 
+/** Whoever currently HOLDS the app's run window — see {@link loadAppHolder}.
+ *  `userId` is undefined when no holder could be resolved. */
+export interface AppHolder {
+	name: string;
+	userId: string | undefined;
+}
+
 /**
- * Resolve the display name of whoever currently HOLDS the app's run window,
- * for the serialize-with-wait "busy: <name>'s request" status. The edit
- * lock's actor wins when both are present; best-effort `"someone"` fallback.
+ * Resolve whoever currently HOLDS the app's run window, for the
+ * serialize-with-wait "busy" status and the superseded-resume bail. The edit
+ * lock's actor wins when both are present. `userId` lets the route tell a
+ * requester blocked by their OWN other request the truth ("your previous
+ * request") instead of naming them to themselves; best-effort `"someone"`
+ * name fallback.
  */
-export async function loadAppHolderName(appId: string): Promise<string> {
+export async function loadAppHolder(appId: string): Promise<AppHolder> {
 	const db = await getAppDb();
 	const row = await db
 		.selectFrom("apps")
 		.select(["lock_actor_user_id", "res_user_id", "owner"])
 		.where("id", "=", appId)
 		.executeTakeFirst();
-	if (!row) return "someone";
+	if (!row) return { name: "someone", userId: undefined };
 	const holderId = row.lock_actor_user_id ?? row.res_user_id ?? row.owner;
-	if (!holderId) return "someone";
+	if (!holderId) return { name: "someone", userId: undefined };
 	try {
 		const authDb = await getAuthDb();
 		const user = await authDb
@@ -1528,10 +1552,10 @@ export async function loadAppHolderName(appId: string): Promise<string> {
 			.select(["name"])
 			.where("id", "=", holderId)
 			.executeTakeFirst();
-		return user?.name || "someone";
+		return { name: user?.name || "someone", userId: holderId };
 	} catch (err) {
-		log.error("[loadAppHolderName] auth_user lookup failed", err, { appId });
-		return "someone";
+		log.error("[loadAppHolder] auth_user lookup failed", err, { appId });
+		return { name: "someone", userId: holderId };
 	}
 }
 
