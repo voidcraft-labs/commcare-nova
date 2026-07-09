@@ -1,6 +1,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useXPathText } from "@/lib/doc/hooks/useXPathSlots";
 import {
 	fieldRegistry,
@@ -42,7 +42,7 @@ export function HiddenField({ field }: { field: HiddenFieldEntity }) {
 			{expr && (
 				<>
 					<div className="w-px h-4 bg-nova-text-muted/15 shrink-0" />
-					<Tooltip content={expr}>
+					<SimpleTooltip content={expr}>
 						<span className="min-w-0 text-[11px] font-mono text-nova-text-muted truncate">
 							{field.calculate ? (
 								<>
@@ -55,7 +55,7 @@ export function HiddenField({ field }: { field: HiddenFieldEntity }) {
 							)}
 							<ExpressionContent expr={expr} />
 						</span>
-					</Tooltip>
+					</SimpleTooltip>
 				</>
 			)}
 		</div>

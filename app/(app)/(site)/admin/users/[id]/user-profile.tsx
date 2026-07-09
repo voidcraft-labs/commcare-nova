@@ -8,7 +8,7 @@
  */
 import Image from "next/image";
 import { notFound } from "next/navigation";
-import { Badge } from "@/components/ui/Badge";
+import { Badge } from "@/components/shadcn/badge";
 import { getSession } from "@/lib/auth-utils";
 import { getAdminUserProfile } from "@/lib/db/admin";
 import { formatRelativeDate } from "@/lib/utils/format";
@@ -63,7 +63,7 @@ export async function UserProfileSection({ userId }: UserProfileSectionProps) {
 					{!isSelf && (
 						<ImpersonateButton userId={userId} userName={user.name} />
 					)}
-					<Badge variant={user.role === "admin" ? "violet" : "muted"}>
+					<Badge variant={user.role === "admin" ? "violet" : "secondary"}>
 						{user.role}
 					</Badge>
 				</div>

@@ -16,7 +16,7 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
 import { useMemo, useRef } from "react";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { CaseProperty } from "@/lib/domain";
 import {
 	type Literal,
@@ -229,7 +229,7 @@ function TokenChip({
 			: "border-nova-violet/25 bg-nova-violet/10 text-nova-violet-bright",
 	].join(" ");
 	return (
-		<Tooltip
+		<SimpleTooltip
 			content={
 				invalid ? errors.join("\n") : value !== label ? value : undefined
 			}
@@ -247,7 +247,7 @@ function TokenChip({
 					</button>
 				)}
 			</span>
-		</Tooltip>
+		</SimpleTooltip>
 	);
 }
 

@@ -978,7 +978,7 @@ export const PromptInputTextarea = ({
 			// overlays on every text control.
 			autoComplete="off"
 			data-1p-ignore
-			// Dim the placeholder to match Nova's prior chat input (and ui/Input):
+			// Dim the placeholder to match Nova's chat input:
 			// the base Textarea's `placeholder:text-muted-foreground` (nova-text-
 			// secondary) reads a shade too prominent for a placeholder.
 			className={cn(
@@ -1097,7 +1097,7 @@ export const PromptInputSubmit = ({
 		<InputGroupButton
 			aria-label={isGenerating ? "Stop" : "Submit"}
 			className={cn(
-				"text-nova-violet-bright transition-colors hover:text-white disabled:opacity-40",
+				"text-nova-violet-bright transition-colors not-disabled:hover:text-white disabled:opacity-40",
 				className,
 			)}
 			onClick={handleClick}

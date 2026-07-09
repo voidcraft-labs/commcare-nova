@@ -171,7 +171,7 @@ export function ProjectSwitcher({
 											type="button"
 											disabled={busy}
 											onClick={() => switchTo(p.id)}
-											className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+											className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-nova-text not-disabled:hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
 										>
 											<span className="flex-1 text-left truncate font-medium">
 												{p.name}
@@ -222,7 +222,7 @@ export function ProjectSwitcher({
 											type="button"
 											disabled={!newName.trim() || busy}
 											onClick={createProject}
-											className="rounded-lg bg-nova-action px-2.5 py-1.5 text-sm font-medium text-white hover:bg-nova-action-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+											className="rounded-lg bg-nova-action px-2.5 py-1.5 text-sm font-medium text-white not-disabled:hover:bg-nova-action-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
 										>
 											Create
 										</button>

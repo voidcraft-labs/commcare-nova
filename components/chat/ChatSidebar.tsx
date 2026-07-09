@@ -23,7 +23,7 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import {
 	BlueprintDocContext,
@@ -539,9 +539,9 @@ export function ChatSidebar({
 						 *  unmissable and the target spans the rail at full height.
 						 *  Clicking it closes the properties panel and gives the
 						 *  rail back to the conversation. */}
-						<Tooltip
+						<SimpleTooltip
 							content="Back to the conversation — closes properties"
-							placement="left"
+							side="left"
 						>
 							<button
 								type="button"
@@ -564,7 +564,7 @@ export function ChatSidebar({
 									className="ml-auto text-nova-text-muted group-hover:text-nova-text transition-colors"
 								/>
 							</button>
-						</Tooltip>
+						</SimpleTooltip>
 					</>
 				)}
 

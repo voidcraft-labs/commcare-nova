@@ -6,7 +6,7 @@ import {
 	type ConnectStagingTarget,
 } from "@/components/builder/detail/appSettings/ConnectEnableDialog";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
-import { Toggle } from "@/components/ui/Toggle";
+import { Switch } from "@/components/shadcn/switch";
 import { dedupeRestoredConnectIds } from "@/lib/doc/connectConfig";
 import { useAppConnectIds } from "@/lib/doc/hooks/useAppConnectIds";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -184,7 +184,7 @@ export function ConnectSection({
 						{connectType}
 					</span>
 				</div>
-				<Toggle enabled={enabled} onToggle={toggle} />
+				<Switch checked={enabled} onCheckedChange={toggle} />
 			</div>
 
 			{/* A refused toggle-off explains itself where the gesture happened —

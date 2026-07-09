@@ -16,7 +16,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPlayerPause from "@iconify-icons/tabler/player-pause";
 import tablerPlayerPlay from "@iconify-icons/tabler/player-play";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { usePreviewing } from "@/lib/session/hooks";
 
 interface PreviewToggleProps {
@@ -27,11 +27,11 @@ interface PreviewToggleProps {
 export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {
 	const previewing = usePreviewing();
 	return (
-		<Tooltip
+		<SimpleTooltip
 			content={
 				previewing ? "Back to editing (P)" : "Try your app as it runs (P)"
 			}
-			placement="bottom"
+			side="bottom"
 		>
 			<button
 				type="button"
@@ -53,6 +53,6 @@ export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {
 				/>
 				Preview
 			</button>
-		</Tooltip>
+		</SimpleTooltip>
 	);
 }

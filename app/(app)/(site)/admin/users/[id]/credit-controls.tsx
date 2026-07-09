@@ -34,9 +34,9 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from "@/components/shadcn/alert-dialog";
+import { Badge } from "@/components/shadcn/badge";
 import { Field, FieldLabel } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
-import { Badge } from "@/components/ui/Badge";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 // `import type` is mandatory here: this is a "use client" module, and the
 // VALUE side of `@/lib/db/credits` pulls in `kysely`/`pg` (the server data
@@ -405,7 +405,9 @@ export function CreditControls({
 								key={`${grant.created_at}-${grant.actor_email}-${grant.type}-${grant.amount}`}
 								className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-nova-border bg-nova-surface px-4 py-3 text-sm"
 							>
-								<Badge variant={grant.type === "grant" ? "violet" : "muted"}>
+								<Badge
+									variant={grant.type === "grant" ? "violet" : "secondary"}
+								>
 									{grant.type}
 								</Badge>
 								{grant.type === "grant" && (

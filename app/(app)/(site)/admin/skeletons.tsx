@@ -6,7 +6,7 @@
  * whose layouts use `headers()` — a known framework bug. Using explicit
  * `<Suspense fallback={...}>` in each page avoids the issue entirely.
  */
-import { Skeleton } from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/shadcn/skeleton";
 
 /** Header column widths matching the real UserTable columns (user, email, role, apps, generations, spend, last active). */
 const ADMIN_TABLE_HEADER_WIDTHS = [
@@ -75,7 +75,7 @@ export function AdminContentSkeleton() {
 							className="flex items-center gap-4 px-4 py-3 border-b border-nova-border/50"
 						>
 							<div className="flex items-center gap-2.5">
-								<Skeleton variant="circle" className="w-6 h-6" />
+								<Skeleton className="rounded-full w-6 h-6" />
 								<Skeleton className="w-24 h-4" />
 							</div>
 							<Skeleton className="w-36 h-4" />

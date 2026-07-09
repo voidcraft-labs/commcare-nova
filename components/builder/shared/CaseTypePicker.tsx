@@ -148,7 +148,7 @@ export function CaseTypePickerContent({
 						type="button"
 						onClick={commitNew}
 						disabled={!verdict.ok}
-						className="shrink-0 min-h-11 flex items-center gap-1 px-3 rounded-lg text-[13px] font-medium bg-nova-violet/15 text-nova-violet-bright hover:bg-nova-violet/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+						className="shrink-0 min-h-11 flex items-center gap-1 px-3 rounded-lg text-[13px] font-medium bg-nova-violet/15 text-nova-violet-bright not-disabled:hover:bg-nova-violet/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
 					>
 						<Icon icon={tablerPlus} width="15" height="15" />
 						Create

@@ -2,7 +2,7 @@
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import { useCallback } from "react";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { asUuid, type Uuid } from "@/lib/doc/types";
@@ -129,13 +129,13 @@ export function FormTypeButton({
 									);
 
 									return needsCase ? (
-										<Tooltip
+										<SimpleTooltip
 											key={opt.value}
 											content="Requires a case type on this module"
-											placement="right"
+											side="right"
 										>
 											{item}
-										</Tooltip>
+										</SimpleTooltip>
 									) : (
 										item
 									);

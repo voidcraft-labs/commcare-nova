@@ -30,7 +30,7 @@ import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useMemo } from "react";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import {
 	ANY_CONSTRAINT,
 	compatibleTypesFor,
@@ -322,7 +322,7 @@ function CaseRow({
 				</span>
 				<div className="flex-1" />
 				{!isOnlyOne && (
-					<Tooltip content="Remove this case">
+					<SimpleTooltip content="Remove this case">
 						<button
 							type="button"
 							aria-label="Remove case"
@@ -331,7 +331,7 @@ function CaseRow({
 						>
 							<Icon icon={tablerTrash} width="13" height="13" />
 						</button>
-					</Tooltip>
+					</SimpleTooltip>
 				)}
 			</div>
 

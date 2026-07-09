@@ -31,6 +31,7 @@ import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import {
 	INSERTION_CIRCLE_CLS,
 	insertionCircleStyle,
@@ -38,7 +39,6 @@ import {
 	insertionLineCls,
 	insertionLineStyle,
 } from "@/components/ui/insertionReveal";
-import { Tooltip } from "@/components/ui/Tooltip";
 import type { Uuid } from "@/lib/doc/types";
 import { useCanEdit, useEditMode } from "@/lib/session/hooks";
 import {
@@ -206,7 +206,7 @@ function InsertionPointContent({
 			{/* Detached trigger connected to the shared Menu.Root in
 			 *  VirtualFormList. The payload carries this InsertionPoint's location
 			 *  so the shared FieldTypePickerPopup knows where to insert. */}
-			<Tooltip content="Insert field">
+			<SimpleTooltip content="Insert field">
 				<Menu.Trigger
 					ref={triggerRef}
 					handle={pickerCtx?.handle}
@@ -220,7 +220,7 @@ function InsertionPointContent({
 				>
 					<Icon icon={tablerPlus} width="12" height="12" />
 				</Menu.Trigger>
-			</Tooltip>
+			</SimpleTooltip>
 
 			<div
 				className={insertionLineCls("left")}

@@ -6,7 +6,7 @@ import {
 	parseTimeEstimate,
 } from "@/components/builder/detail/appSettings/ConnectEnableDialog";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
-import { Toggle } from "@/components/ui/Toggle";
+import { Switch } from "@/components/shadcn/switch";
 import {
 	connectIdConflictError,
 	connectIdError,
@@ -248,10 +248,10 @@ export function LearnConfig({
 					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 						Learn Module
 					</span>
-					<Toggle
-						enabled={learnEnabled || stagedLearn !== undefined}
-						onToggle={toggleLearn}
-						variant="sub"
+					<Switch
+						checked={learnEnabled || stagedLearn !== undefined}
+						onCheckedChange={toggleLearn}
+						size="sm"
 					/>
 				</div>
 				<AnimatePresence>
@@ -361,10 +361,10 @@ export function LearnConfig({
 					<span className="text-[10px] text-nova-text-muted uppercase tracking-wider">
 						Assessment
 					</span>
-					<Toggle
-						enabled={assessmentEnabled}
-						onToggle={toggleAssessment}
-						variant="sub"
+					<Switch
+						checked={assessmentEnabled}
+						onCheckedChange={toggleAssessment}
+						size="sm"
 					/>
 				</div>
 				<AnimatePresence>

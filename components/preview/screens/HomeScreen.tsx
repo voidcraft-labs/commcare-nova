@@ -6,7 +6,7 @@ import { useCallback } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { EditableTitle } from "@/components/builder/EditableTitle";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
-import { Badge } from "@/components/ui/Badge";
+import { Badge } from "@/components/shadcn/badge";
 import { useAppLogo } from "@/lib/doc/hooks/useAppLogo";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
@@ -116,7 +116,7 @@ export function HomeScreen() {
 									{mod.name}
 								</div>
 								{mod.caseType && (
-									<Badge variant="muted" className="mt-1">
+									<Badge variant="secondary" className="mt-1">
 										{mod.caseType}
 									</Badge>
 								)}

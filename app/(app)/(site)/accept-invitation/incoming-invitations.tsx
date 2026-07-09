@@ -102,7 +102,7 @@ export function IncomingInvitations({
 						type="button"
 						disabled={busy}
 						onClick={() => decline(inv)}
-						className="rounded-lg px-3 py-2 text-sm text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+						className="rounded-lg px-3 py-2 text-sm text-nova-text-muted not-disabled:hover:text-nova-text transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
 					>
 						Decline
 					</button>
@@ -110,7 +110,7 @@ export function IncomingInvitations({
 						type="button"
 						disabled={busy}
 						onClick={() => accept(inv)}
-						className="rounded-lg bg-nova-action px-3 py-2 text-sm font-medium text-white hover:bg-nova-action-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+						className="rounded-lg bg-nova-action px-3 py-2 text-sm font-medium text-white not-disabled:hover:bg-nova-action-hover transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
 					>
 						Accept
 					</button>

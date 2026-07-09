@@ -12,12 +12,12 @@
 import { Icon } from "@iconify/react/offline";
 import tablerLayoutSidebarRightExpand from "@iconify-icons/tabler/layout-sidebar-right-expand";
 import tablerMessageChatbot from "@iconify-icons/tabler/message-chatbot";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 
 export function ChatRail({ onExpand }: { onExpand: () => void }) {
 	return (
 		<aside className="w-14 shrink-0 h-full border-l border-nova-border-bright bg-nova-deep flex flex-col items-center gap-1 py-2">
-			<Tooltip content="Expand chat" placement="left">
+			<SimpleTooltip content="Expand chat" side="left">
 				<button
 					type="button"
 					onClick={onExpand}
@@ -26,9 +26,9 @@ export function ChatRail({ onExpand }: { onExpand: () => void }) {
 				>
 					<Icon icon={tablerLayoutSidebarRightExpand} width="18" height="18" />
 				</button>
-			</Tooltip>
+			</SimpleTooltip>
 			<div className="w-7 h-px bg-nova-border my-1" aria-hidden="true" />
-			<Tooltip content="Chat with Nova" placement="left">
+			<SimpleTooltip content="Chat with Nova" side="left">
 				<button
 					type="button"
 					onClick={onExpand}
@@ -37,7 +37,7 @@ export function ChatRail({ onExpand }: { onExpand: () => void }) {
 				>
 					<Icon icon={tablerMessageChatbot} width="17" height="17" />
 				</button>
-			</Tooltip>
+			</SimpleTooltip>
 		</aside>
 	);
 }

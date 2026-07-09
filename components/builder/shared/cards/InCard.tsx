@@ -9,7 +9,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import {
 	compatibleTypesFor,
 	inValueConstraint,
@@ -200,7 +200,7 @@ function ValueRow({
 					/>
 				</div>
 				{!isOnlyOne && (
-					<Tooltip content="Remove this value">
+					<SimpleTooltip content="Remove this value">
 						<button
 							type="button"
 							aria-label="Remove value"
@@ -209,7 +209,7 @@ function ValueRow({
 						>
 							<Icon icon={tablerX} width="13" height="13" />
 						</button>
-					</Tooltip>
+					</SimpleTooltip>
 				)}
 			</div>
 			<InlineError errors={errors} />

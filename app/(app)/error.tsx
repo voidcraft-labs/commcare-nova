@@ -1,6 +1,6 @@
 "use client";
 import { useEffect } from "react";
-import { Button } from "@/components/ui/Button";
+import { Button } from "@/components/shadcn/button";
 import { Logo } from "@/components/ui/Logo";
 import { reportClientError } from "@/lib/clientErrorReporter";
 
@@ -44,10 +44,12 @@ export default function GlobalError({
 				</p>
 			</div>
 			<div className="flex gap-3">
-				<Button variant="ghost" onClick={() => reset()}>
+				<Button variant="ghost" size="lg" onClick={() => reset()}>
 					Try Again
 				</Button>
 				<Button
+					size="lg"
+					className="shadow-[var(--nova-glow-violet)]"
 					onClick={() => {
 						window.location.href = "/";
 					}}

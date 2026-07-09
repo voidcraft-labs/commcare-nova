@@ -33,7 +33,7 @@ import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings
 import { EditableTitle } from "@/components/builder/EditableTitle";
 import { InspectorSurface } from "@/components/builder/inspector/InspectorSurface";
 import { RemoveRow } from "@/components/builder/inspector/inspectorChrome";
-import { Tooltip } from "@/components/ui/Tooltip";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule } from "@/lib/doc/hooks/useEntity";
@@ -588,14 +588,14 @@ function WorkspaceTabs({
 						const active = tab === id;
 						const hasErrors = errorAreas[id];
 						return (
-							<Tooltip
+							<SimpleTooltip
 								key={id}
 								content={
 									hasErrors
 										? `${label} needs attention — open it to see what's wrong`
 										: label
 								}
-								placement="bottom"
+								side="bottom"
 							>
 								<button
 									type="button"
@@ -654,7 +654,7 @@ function WorkspaceTabs({
 										</span>
 									</span>
 								</button>
-							</Tooltip>
+							</SimpleTooltip>
 						);
 					})}
 				</div>
