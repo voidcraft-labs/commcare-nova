@@ -18,17 +18,24 @@
 // its dialect, so the close path destroys Kysely and then closes
 // the connector.
 //
-// ## Two connection modes
+// ## Three connection modes
 //
-// **Production** targets Cloud Run → Cloud SQL: the instance is
-// `--no-assign-ip`, so the connector resolves a private IP via the SQL
-// Admin API and authenticates with IAM. `cloud-sql-proxy --private-ip`
-// from a laptop can't reach that IP (it's outside the VPC).
+// **Production** targets Cloud Run → Cloud SQL: the connector resolves the
+// instance's private IP via the SQL Admin API and authenticates with IAM.
+// Cloud Run never sets `NOVA_DB_IP_TYPE`, so the private IP is always the
+// production path.
+//
+// **Laptop inspection** sets `NOVA_DB_IP_TYPE=PUBLIC` (the
+// `scripts/inspect-*.ts --prod` flag does this): the connector resolves the
+// instance's public IP instead — reachable from outside the VPC — and
+// authenticates with the caller's own IAM identity via ADC. The public IP
+// has NO authorized networks, so connector/proxy traffic (SQL Admin API +
+// IAM-minted TLS) is the only way in; the raw Postgres port is not exposed.
 //
 // **Local dev** is an EXPLICIT opt-in via `NOVA_DB_LOCAL_URL`: when that var
 // is set, `initialize()` connects to a plain Postgres at that URL — the
 // docker-compose container `npm run dev` boots (`compose.yaml` at the repo
-// root) — with no connector, IAM, or private-IP resolution. It is NOT a
+// root) — with no connector, IAM, or IP resolution. It is NOT a
 // silent `NODE_ENV` fallback: production never sets the var, so a missing
 // `NOVA_DB_*` there still fails loudly via `readCaseStoreEnvConfig`. That is
 // the distinction the earlier "no localhost fallback" rule was protecting —
@@ -37,7 +44,8 @@
 //
 // Tests use the testcontainers harness under
 // `lib/case-store/sql/__tests__/`. Ad-hoc prod DB inspection runs through
-// Cloud SQL Studio in the Google Cloud Console.
+// `scripts/inspect-*.ts --prod`, or Cloud SQL Studio in the Google Cloud
+// Console for raw SQL.
 
 import {
 	AuthTypes,
@@ -229,6 +237,45 @@ export function readCaseStoreEnvConfig(
 }
 
 /**
+ * Resolve which of the instance's IPs the connector targets, from the
+ * OPTIONAL `NOVA_DB_IP_TYPE` env var. Absent (or empty — Cloud Run's
+ * `--update-env-vars` accepts empty values silently) means `PRIVATE`:
+ * Cloud Run never sets the var, so production always rides the private
+ * IP. Laptop tooling (`scripts/inspect-*.ts --prod`) sets `PUBLIC` to
+ * reach the instance from outside the VPC; authentication is IAM via
+ * the connector either way. Tests pass a stub `env`.
+ */
+export function readCaseStoreIpType(
+	env: Readonly<Partial<Record<string, string>>> = process.env,
+): IpAddressTypes.PUBLIC | IpAddressTypes.PRIVATE {
+	const raw = env.NOVA_DB_IP_TYPE;
+	if (raw === undefined || raw.length === 0) {
+		return IpAddressTypes.PRIVATE;
+	}
+	if (raw === "PUBLIC") {
+		return IpAddressTypes.PUBLIC;
+	}
+	if (raw === "PRIVATE") {
+		return IpAddressTypes.PRIVATE;
+	}
+	throw new Error(
+		[
+			"Cloud SQL case store got an unrecognized NOVA_DB_IP_TYPE.",
+			"",
+			`    NOVA_DB_IP_TYPE: ${JSON.stringify(raw)}`,
+			"",
+			"The connector can target the instance's private IP (the Cloud Run",
+			"path) or its public IP (the laptop inspection path). Only the",
+			"uppercase literals `PRIVATE` and `PUBLIC` are accepted; leaving the",
+			"variable unset means `PRIVATE`.",
+			"",
+			"Hint: unset NOVA_DB_IP_TYPE, or set it to exactly `PUBLIC` when",
+			"running the inspect scripts against production from a laptop.",
+		].join("\n"),
+	);
+}
+
+/**
  * The shape `Connector.getOptions` returns for a pg-driver
  * connection. Exposed structurally so the test harness can pass a
  * stub without booting a real connector.
@@ -319,7 +366,7 @@ async function initialize(): Promise<CaseStoreHandles> {
 	const connector = new Connector();
 	const clientOpts = await connector.getOptions({
 		instanceConnectionName: env.NOVA_DB_INSTANCE_CONNECTION_NAME,
-		ipType: IpAddressTypes.PRIVATE,
+		ipType: readCaseStoreIpType(),
 		authType: AuthTypes.IAM,
 	});
 	const pool = new Pool(buildPoolConfig(clientOpts, env));
@@ -402,7 +449,7 @@ export async function buildDedicatedClientConfig(): Promise<ClientConfig> {
 	const env = readCaseStoreEnvConfig();
 	const clientOpts = await connector.getOptions({
 		instanceConnectionName: env.NOVA_DB_INSTANCE_CONNECTION_NAME,
-		ipType: IpAddressTypes.PRIVATE,
+		ipType: readCaseStoreIpType(),
 		authType: AuthTypes.IAM,
 	});
 	return {

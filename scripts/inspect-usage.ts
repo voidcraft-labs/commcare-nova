@@ -3,10 +3,12 @@
  *
  * Shows monthly token consumption and cost estimates. Reads the app-state
  * database the env provides (`NOVA_DB_LOCAL_URL` locally, the Cloud SQL
- * connector in the migrate-job image). Never writes. Run with `--help` for
- * flags.
+ * connector in the migrate-job image); `--prod` targets the production
+ * instance over its public IP (see `./lib/prodDb.ts`). Never writes. Run
+ * with `--help` for flags.
  */
 
+import "dotenv/config";
 import { Command } from "commander";
 import type { Kysely } from "kysely";
 import { getAuthDb } from "@/lib/auth/db";
@@ -17,9 +19,11 @@ import type { AppDatabase } from "@/lib/db/pg";
 import { getAppDb } from "@/lib/db/pg";
 import { printHeader, printSection, tok, tsToISO, usd } from "./lib/format";
 import { requireArg, runMain } from "./lib/main";
+import { targetProdDb } from "./lib/prodDb";
 
 interface InspectUsageOptions {
 	all?: boolean;
+	prod?: boolean;
 }
 
 const program = new Command();
@@ -30,17 +34,26 @@ program
 	)
 	.argument("<userId>", "Better Auth user id (auth_user.id)")
 	.option("--all", "show every month on record (default: current month only)")
+	.option(
+		"--prod",
+		"inspect the production Cloud SQL instance (public IP + your gcloud IAM identity)",
+	)
 	.addHelpText(
 		"after",
 		"\nExamples:\n" +
 			"  $ npx tsx scripts/inspect-usage.ts <userId>\n" +
-			"  $ npx tsx scripts/inspect-usage.ts <userId> --all\n",
+			"  $ npx tsx scripts/inspect-usage.ts <userId> --all\n" +
+			"  $ npx tsx scripts/inspect-usage.ts <userId> --prod\n",
 	);
 
 program.parse();
 
 const userId = requireArg(program.args, 0, "userId");
-const showAll = program.opts<InspectUsageOptions>().all === true;
+const usageOpts = program.opts<InspectUsageOptions>();
+if (usageOpts.prod === true) {
+	targetProdDb();
+}
+const showAll = usageOpts.all === true;
 
 /** One month's usage row, normalized for display (bigint token columns read
  *  back as strings, so they're coerced to numbers here). */

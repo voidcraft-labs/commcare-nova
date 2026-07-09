@@ -8,9 +8,11 @@
  * it.
  *
  * Reads the app-state database the env provides (`NOVA_DB_LOCAL_URL` locally,
- * the Cloud SQL connector in the migrate-job image). Never writes. Run with
- * `--help` for the flag reference.
+ * the Cloud SQL connector in the migrate-job image); `--prod` targets the
+ * production instance over its public IP (see `./lib/prodDb.ts`). Never
+ * writes. Run with `--help` for the flag reference.
  */
+import "dotenv/config";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { loadApp } from "@/lib/db/apps";
@@ -29,6 +31,7 @@ import {
 	tsToISO,
 } from "./lib/format";
 import { requireArg, runMain } from "./lib/main";
+import { targetProdDb } from "./lib/prodDb";
 import type { BlueprintDoc, Form, Module, RunSummaryDoc } from "./lib/types";
 
 // ── CLI argument parsing ────────────────────────────────────────────
@@ -42,6 +45,7 @@ interface InspectAppOptions {
 	stats?: boolean;
 	caseLists?: boolean;
 	logic?: boolean;
+	prod?: boolean;
 }
 
 const program = new Command();
@@ -66,19 +70,27 @@ program
 		"dump the raw BlueprintDoc JSON (standalone; skips other views)",
 	)
 	.option("--threads", "include full message content of every chat thread")
+	.option(
+		"--prod",
+		"inspect the production Cloud SQL instance (public IP + your gcloud IAM identity)",
+	)
 	.addHelpText(
 		"after",
 		"\nExamples:\n" +
 			"  $ npx tsx scripts/inspect-app.ts <appId>\n" +
 			"  $ npx tsx scripts/inspect-app.ts <appId> --stats\n" +
 			"  $ npx tsx scripts/inspect-app.ts <appId> --stats --case-lists\n" +
-			"  $ npx tsx scripts/inspect-app.ts <appId> --blueprint    # raw JSON\n",
+			"  $ npx tsx scripts/inspect-app.ts <appId> --blueprint    # raw JSON\n" +
+			"  $ npx tsx scripts/inspect-app.ts <appId> --prod         # against prod\n",
 	);
 
 program.parse();
 
 const appId = requireArg(program.args, 0, "appId");
 const opts = program.opts<InspectAppOptions>();
+if (opts.prod === true) {
+	targetProdDb();
+}
 const showFields = opts.fields === true;
 const showThreads = opts.threads === true;
 const showBlueprint = opts.blueprint === true;
