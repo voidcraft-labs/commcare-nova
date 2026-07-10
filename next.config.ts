@@ -9,6 +9,14 @@ const nextConfig: NextConfig = {
 	/* Produces a self-contained build with only necessary node_modules. */
 	output: "standalone",
 
+	/* typescript@7 is the native compiler and ships no JS compiler API, which
+	 * is how `next build` drives its type-check step — pointing Next at the
+	 * package crashes the build worker. Skip Next's checker and gate instead on
+	 * the native `tsc --noEmit` the `build` script runs after `next build`
+	 * (after, so the check sees the `.next/types` route types the build
+	 * generates). Retire this once Next can drive the TS 7.1+ API itself. */
+	typescript: { ignoreBuildErrors: true },
+
 	/* Version-skew protection. Stamps the build with a per-build id (the Cloud
 	 * Build `$BUILD_ID`) so a client still holding an OLD build hard-reloads onto
 	 * the new one (rather than erroring) when it requests a JS chunk or a Server
