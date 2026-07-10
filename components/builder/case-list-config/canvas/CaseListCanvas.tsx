@@ -55,7 +55,7 @@ const ADD_CELL_WIDTH = 48;
 export interface CaseListCanvasProps {
 	readonly config: CaseListConfig;
 	/** Columns with a configuration error (`configValidity.ts::
-	 *  brokenColumnUuids`) — the header cell carries a rose dot +
+	 *  caseListConfigVerdicts`) — the header cell carries a rose dot +
 	 *  explanation so the tab strip's dot points at something findable. */
 	readonly brokenColumns: ReadonlySet<string>;
 	/** The case list's title — the module IS the case-list title (no
@@ -424,6 +424,13 @@ function HeaderCell({
 						{direction === "asc" ? "↑" : "↓"}
 						{sortPosition}
 					</span>
+				)}
+				{broken && (
+					<span
+						role="img"
+						aria-label="This column has a configuration error"
+						className="ml-auto inline-flex shrink-0 size-1.5 rounded-full bg-nova-rose"
+					/>
 				)}
 			</button>
 		</SimpleTooltip>

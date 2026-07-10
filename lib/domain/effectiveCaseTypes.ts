@@ -115,7 +115,7 @@ const MATERIALIZABLE_CASE_TYPES_CACHE = new WeakMap<
 export function effectiveCaseTypes(doc: PersistableDoc): readonly CaseType[] {
 	const cached = EFFECTIVE_CASE_TYPES_CACHE.get(doc);
 	if (cached !== undefined) return cached;
-	const built = buildEffectiveCaseTypes(doc, { includeStandard: true });
+	const built = buildEffectiveCaseTypes(doc);
 	EFFECTIVE_CASE_TYPES_CACHE.set(doc, built);
 	return built;
 }
@@ -136,16 +136,37 @@ export function effectiveCaseTypes(doc: PersistableDoc): readonly CaseType[] {
  * document, so a schema entry for it would constrain a key inserts
  * never carry.)
  *
- * The query/validation view stays `effectiveCaseTypes`: the type
- * checker admits `date_opened` references, so the SQL compiler's
- * `lookupDataType` must resolve them rather than throw.
+ * The SQL compiler's schema map consumes this flavor too: standard
+ * values are not stored in the JSONB document, so resolving one
+ * would compile a silently-NULL read — the loud `lookupDataType`
+ * failure is the honest behavior until standard names map onto
+ * their scalar columns. Only the type CHECKER's admission set
+ * (`effectiveCaseTypes`) carries the standard entries.
  */
 export function materializableCaseTypes(
 	doc: PersistableDoc,
 ): readonly CaseType[] {
 	const cached = MATERIALIZABLE_CASE_TYPES_CACHE.get(doc);
 	if (cached !== undefined) return cached;
-	const built = buildEffectiveCaseTypes(doc, { includeStandard: false });
+	// A projection over the one memoized build — an entry is
+	// standard-INJECTED (dropped here) iff its name is standard and no
+	// declaration carries it; everything else, including a declared
+	// standard-named property, passes through by reference.
+	const declaredByType = new Map(
+		(doc.caseTypes ?? []).map((ct) => [
+			ct.name,
+			new Set(ct.properties.map((p) => p.name)),
+		]),
+	);
+	const built = effectiveCaseTypes(doc).map((ct) => {
+		const declared = declaredByType.get(ct.name);
+		const properties = ct.properties.filter(
+			(p) => !isStandardCaseListProperty(p.name) || declared?.has(p.name),
+		);
+		return properties.length === ct.properties.length
+			? ct
+			: { ...ct, properties };
+	});
 	MATERIALIZABLE_CASE_TYPES_CACHE.set(doc, built);
 	return built;
 }
@@ -166,10 +187,7 @@ export function resolveEffectivePropertyType(
 	return ct?.properties.find((p) => p.name === property)?.data_type;
 }
 
-function buildEffectiveCaseTypes(
-	doc: PersistableDoc,
-	opts: { includeStandard: boolean },
-): readonly CaseType[] {
+function buildEffectiveCaseTypes(doc: PersistableDoc): readonly CaseType[] {
 	const writers = buildWriterIndex(doc);
 	// Memo + in-progress guard shared across the whole build so the
 	// copy-chain recursion (hidden field reading another property)
@@ -207,7 +225,12 @@ function buildEffectiveCaseTypes(
 			// disagreement (a legacy doc the writer-agreement rules
 			// haven't repaired) is unknown rather than a coin flip.
 			const resolved = types.size === 1 ? [...types][0] : undefined;
-			memo.set(key, resolved);
+			// Memoize only at the OUTERMOST frame. A nested resolution can
+			// have been truncated by the cycle guard above (an in-flight
+			// ancestor read as unknown), so caching it would freeze an
+			// order-dependent answer; the outermost frame saw no ancestor
+			// and its result is the true fixpoint.
+			if (resolving.size === 1) memo.set(key, resolved);
 			return resolved;
 		} finally {
 			resolving.delete(key);
@@ -223,16 +246,14 @@ function buildEffectiveCaseTypes(
 			return derived === undefined ? p : { ...p, data_type: derived };
 		});
 
-		if (opts.includeStandard) {
-			for (const name of Object.keys(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES)) {
-				if (declaredNames.has(name)) continue;
-				if (!isStandardCaseListProperty(name)) continue;
-				properties.push({
-					name,
-					label: name,
-					data_type: STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[name],
-				});
-			}
+		for (const name of Object.keys(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES)) {
+			if (declaredNames.has(name)) continue;
+			if (!isStandardCaseListProperty(name)) continue;
+			properties.push({
+				name,
+				label: name,
+				data_type: STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[name],
+			});
 		}
 
 		const written = writers.get(ct.name);
@@ -313,14 +334,18 @@ function inferExpressionType(
 		case "text":
 			return WHOLE_EXPRESSION_TYPES.get(part.text.trim());
 		case "case-ref": {
-			// A copy of another property — its effective type. Declared
-			// annotation wins (same precedence the catalog build applies);
-			// otherwise the writer derivation, which the shared
+			// A copy of another property — its effective type, in the same
+			// precedence the catalog build applies: declared annotation,
+			// else the standard set (a copy of `date_opened` IS a
+			// datetime), else the writer derivation, which the shared
 			// `resolving` set cycle-guards.
 			const declared = (doc.caseTypes ?? [])
 				.find((ct) => ct.name === part.caseType)
 				?.properties.find((p) => p.name === part.property)?.data_type;
 			if (declared !== undefined) return declared;
+			if (isStandardCaseListProperty(part.property)) {
+				return STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[part.property];
+			}
 			return writerType(part.caseType, part.property);
 		}
 		case "field-ref":

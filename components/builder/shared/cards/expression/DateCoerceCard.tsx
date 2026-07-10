@@ -14,31 +14,32 @@
 //
 // Type-checker rule (per `checkExpression`'s `case "date-coerce" |
 // "datetime-coerce":`): the operand must be text-shaped (`text` /
-// `single_select` / `multi_select`). The `_any` sentinel bypasses
-// the check uniformly. Errors land at `[..., "value"]`; the editor
-// captures them inline next to the operand picker.
+// `single_select` / `multi_select`) or already date-shaped (`date` /
+// `datetime` — identity / widening coercion). The `_any` sentinel
+// bypasses the check uniformly. Errors land at `[..., "value"]`; the
+// editor captures them inline next to the operand picker.
 
 "use client";
 import {
+	coerceOperandConstraint,
 	dateCoerce,
 	datetimeCoerce,
 	literal,
 	term,
-	textShapedConstraint,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 
-/** Both coercion operators read a text-shaped operand — module-const
- *  for a stable identity across renders. */
-const OPERAND_CONSTRAINT = textShapedConstraint();
+/** Both coercion operators read a text-shaped or date-shaped operand
+ *  — module-const for a stable identity across renders. */
+const OPERAND_CONSTRAINT = coerceOperandConstraint();
 
 /** Default `date-coerce` — `date-coerce(literal(""))`. The empty
  *  literal lets the user immediately see the operand picker; the
- *  type checker surfaces "requires text-shaped" only when the
- *  operand resolves to a non-text type. */
+ *  type checker surfaces the operand-shape error only when the
+ *  operand resolves to an incompatible type. */
 export function dateCoerceDefault(
 	_ctx: ExpressionEditContext,
 ): Extract<ValueExpression, { kind: "date-coerce" }> {
@@ -88,7 +89,7 @@ export function DateCoerceCard({ value, onChange, path }: DateCoerceCardProps) {
 			</div>
 			<div>
 				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
-					Source value (text-shaped)
+					Source value
 				</div>
 				<ExpressionPicker
 					value={value.value}

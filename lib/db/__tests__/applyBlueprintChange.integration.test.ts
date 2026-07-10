@@ -36,7 +36,7 @@
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { v7 as uuidv7 } from "uuid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildMaterializableCaseTypeMap } from "@/lib/case-store";
+import { buildCaseTypeMap } from "@/lib/case-store";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
@@ -183,7 +183,7 @@ function makeBlueprint(caseTypes: CaseType[] | null): PersistableDoc {
 /**
  * The `committedDoc` a successful `commitGuardedBatch` returns — the hydrated
  * committed blueprint the post-commit sweep re-derives schemas from. The sweep
- * reads `.caseTypes` + `.fields` only (via `buildMaterializableCaseTypeMap`), so a `PersistableDoc`
+ * reads `.caseTypes` + `.fields` only (via `buildCaseTypeMap`), so a `PersistableDoc`
  * widened to `BlueprintDoc` is sufficient for the fixture. An additive test
  * MUST supply this (the sweep skips a `committedDoc`-undefined result).
  */
@@ -402,7 +402,7 @@ describe("applyBlueprintChange — retype mutations", () => {
 		await initialStore.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(initialBlueprint),
+			caseTypeSchemas: buildCaseTypeMap(initialBlueprint),
 		});
 
 		const aliceId = uuidv7();
@@ -499,7 +499,7 @@ describe("applyBlueprintChange — retype mutations", () => {
 		await seedStore.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(initialBlueprint),
+			caseTypeSchemas: buildCaseTypeMap(initialBlueprint),
 		});
 
 		// Insert one row whose `age` value will fail the cast
@@ -634,7 +634,7 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 		await seedStore.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(initialBlueprint),
+			caseTypeSchemas: buildCaseTypeMap(initialBlueprint),
 		});
 
 		// Capture the prior schema so we can compare after compensation runs.
@@ -766,7 +766,7 @@ describe("applyBlueprintChange — compensation on Firestore commit failure", ()
 		await seedStore.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(currentBlueprint),
+			caseTypeSchemas: buildCaseTypeMap(currentBlueprint),
 			syncedSeq: 10, // the peer's committed seq
 		});
 

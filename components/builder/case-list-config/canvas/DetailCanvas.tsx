@@ -31,8 +31,8 @@ import { AddGhostButton, CanvasNotice, previewNotice } from "./canvasChrome";
 export interface DetailCanvasProps {
 	readonly config: CaseListConfig;
 	/** Columns with a configuration error (`configValidity.ts::
-	 *  brokenColumnUuids`) — the row carries a rose dot + explanation
-	 *  so the tab strip's dot points at something findable. */
+	 *  caseListConfigVerdicts`) — the row carries a rose dot +
+	 *  explanation so the tab strip's dot points at something findable. */
 	readonly brokenColumns: ReadonlySet<string>;
 	readonly preview: CaseListPreviewState;
 	readonly selection: WorkspaceSelection | null;

@@ -761,8 +761,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 
 	it("accepts `range` against a writer-derived property whose writer is numeric", () => {
 		// Writer-derived `weight` RESOLVES to int under the effective view
-		// (its writer is an int field), and `range` admits numerics — the
-		// old text-stamp convention rejected this legitimate shape.
+		// (its writer is an int field), and `range` admits numerics.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [

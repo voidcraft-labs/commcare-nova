@@ -13,7 +13,11 @@
 
 "use client";
 
-import { type CaseType, effectiveCaseTypes } from "@/lib/domain";
+import {
+	type CaseType,
+	effectiveCaseTypes,
+	materializableCaseTypes,
+} from "@/lib/domain";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 
 const EMPTY: readonly CaseType[] = [];
@@ -26,11 +30,10 @@ export function useCaseTypes(): CaseType[] {
  * The EFFECTIVE case-type view (`lib/domain/effectiveCaseTypes.ts`) —
  * declared annotations with writer-derived `data_type`s filled, plus
  * the standard + writer-derived properties. The case-list workspace
- * reads THIS view (verdicts, pickers, editor type contexts) because
- * the commit gate's validator resolves properties against the same
- * function — consuming the raw catalog here is how the workspace and
- * the gate historically came to disagree about whether a column was
- * broken.
+ * reads THIS view for its verdicts, pickers, and editor type
+ * contexts, because the commit gate's validator resolves properties
+ * against the same function — one admission set, so the two can't
+ * disagree about whether a column is broken.
  *
  * Referential stability rides the domain memo: `effectiveCaseTypes`
  * caches per doc reference, and the store replaces the doc reference
@@ -39,4 +42,17 @@ export function useCaseTypes(): CaseType[] {
  */
 export function useEffectiveCaseTypes(): readonly CaseType[] {
 	return useBlueprintDoc((s) => effectiveCaseTypes(s));
+}
+
+/**
+ * The MATERIALIZABLE flavor — the effective view minus the implicit
+ * standard entries; exactly what the stored `case_type_schemas` row
+ * (and so AJV insert validation) is derived from. Anything that
+ * GENERATES case-row payloads (sample data) must consume this view:
+ * a generator fed the standard-inflated view writes keys like
+ * `date_opened` into the JSONB document, which the stored schema's
+ * `additionalProperties: false` rejects wholesale.
+ */
+export function useMaterializableCaseTypes(): readonly CaseType[] {
+	return useBlueprintDoc((s) => materializableCaseTypes(s));
 }

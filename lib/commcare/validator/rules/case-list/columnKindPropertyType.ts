@@ -83,10 +83,11 @@ function buildMismatchError(
 		requirement === null
 			? "a compatible property" // unreachable — universal kinds always accept
 			: REQUIREMENT_PHRASE[requirement];
+	const columnName = col.header || col.field;
 	return validationError(
 		"CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH",
 		"module",
-		`Column "${col.header}" (column #${index + 1}) on the case list of module "${mod.name}" is a ${col.kind} column reading the case property "${col.field}", but that property's type is "${resolvedType}" and a ${col.kind} column needs ${phrase}. Either point the column at ${phrase}, change the column's kind to one that renders "${resolvedType}" values (plain always works), or change the type of the fields that write "${col.field}".`,
+		`The "${columnName}" column (column #${index + 1}) on the case list of module "${mod.name}" formats the case property "${col.field}" as ${phrase}, but that property's type is "${resolvedType}". Either point the column at ${phrase}, change the column's kind to one that renders "${resolvedType}" values (plain always works), or change the type of the fields that write "${col.field}".`,
 		{ moduleUuid, moduleName: mod.name },
 		{
 			field: col.field,

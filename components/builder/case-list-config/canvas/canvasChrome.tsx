@@ -57,7 +57,7 @@ export function previewNotice(
 		case "paused":
 			// The message names the offending thing (filter / calculated
 			// column) — composed by `configValidity.ts::
-			// caseListPreviewObstacle`, the same walk that marks it.
+			// caseListConfigVerdicts`, the same walk that marks it.
 			return { tone: "warning", text: preview.message };
 		case "empty":
 			return {

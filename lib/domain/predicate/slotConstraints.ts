@@ -59,6 +59,12 @@ export const ANY_CONSTRAINT: SlotConstraint = { accepts: "any" };
 const NUMERIC_TYPES: ReadonlySet<ResolvedType> = new Set(
 	ALL_RESOLVED_TYPES.filter(isNumeric),
 );
+const TEXT_OR_DATE_TYPES: ReadonlySet<ResolvedType> = new Set([
+	...TEXT_SHAPED_TYPES,
+	"date",
+	"datetime",
+]);
+
 const DATE_TYPES: ReadonlySet<ResolvedType> = new Set(
 	ALL_RESOLVED_TYPES.filter(isDateOrDatetime),
 );
@@ -138,7 +144,15 @@ export function dateOperandConstraint(): SlotConstraint {
 	return { accepts: DATE_TYPES };
 }
 
-/** A `date-coerce` / `datetime-coerce` operand: a text-shaped value. */
+/** A `date-coerce` / `datetime-coerce` operand: a text-shaped value,
+ *  or an already-date-shaped one (identity / widening coercion — the
+ *  checker's coerce arms accept both, and the offered-set must match
+ *  the accept-set). */
+export function coerceOperandConstraint(): SlotConstraint {
+	return { accepts: TEXT_OR_DATE_TYPES };
+}
+
+/** A text-shaped value. */
 export function textShapedConstraint(): SlotConstraint {
 	return { accepts: TEXT_SHAPED_TYPES };
 }

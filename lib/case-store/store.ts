@@ -29,7 +29,6 @@ import {
 	type CasePropertyDataType,
 	type CaseType,
 	type Column,
-	effectiveCaseTypes,
 	materializableCaseTypes,
 	type PersistableDoc,
 } from "@/lib/domain";
@@ -566,18 +565,24 @@ export interface CaseStore extends SchemaCaseStore {
  * the case-store interface stays decoupled from the full blueprint
  * shape. A `null` `caseTypes` yields an empty map.
  *
- * The entries are the EFFECTIVE case types
- * (`lib/domain/effectiveCaseTypes.ts`) — declared annotations with
- * writer-derived `data_type`s filled, plus the standard + writer-
- * derived properties — the SAME view the validator's type checker
- * approves expressions against. The lockstep is load-bearing: a
- * comparison the checker admits as date-typed must compile with a
- * date cast, or the emitted SQL mis-compares; and a property the
- * checker resolves (a standard one like `date_opened`, or a writer-
- * derived one) must resolve in `compileTerm.lookupDataType` rather
- * than throw its type-checker-bypass error. Properties the view
- * leaves untyped (honest unknown) read as text via the
- * `data_type ?? "text"` convention — the checker's fallback exactly.
+ * The entries are the MATERIALIZABLE case types
+ * (`lib/domain/effectiveCaseTypes.ts::materializableCaseTypes`) —
+ * declared annotations with writer-derived `data_type`s filled, plus
+ * writer-derived entries, WITHOUT the implicit standard entries. Both
+ * halves are load-bearing:
+ *
+ *   - Derived types keep the compiler in lockstep with the type
+ *     checker: a comparison the checker admits as date-typed compiles
+ *     with a date cast, and a writer-derived property resolves in
+ *     `compileTerm.lookupDataType` rather than throwing.
+ *   - Standard entries stay OUT because their values are not stored
+ *     in the JSONB `properties` document (`date_opened` lives in the
+ *     `opened_on` column): a map entry would make a reference compile
+ *     to a silently-NULL JSONB read, and on the schema-write side
+ *     would put `format` constraints + expression indexes on keys
+ *     inserts never carry. A standard-name reference instead fails
+ *     loudly in `lookupDataType` — mapping those names onto their
+ *     scalar columns is the (pre-existing) gap's real fix.
  *
  * Reads `caseTypes` + `fields` only — never the in-memory
  * `fieldParent` index — so the parameter is the persisted shape
@@ -586,28 +591,6 @@ export interface CaseStore extends SchemaCaseStore {
  * only the persisted shape needs no cast.
  */
 export function buildCaseTypeMap(
-	blueprint: PersistableDoc | undefined,
-): ReadonlyMap<string, CaseType> {
-	if (blueprint === undefined) {
-		return new Map();
-	}
-	const map = new Map<string, CaseType>();
-	for (const caseType of effectiveCaseTypes(blueprint)) {
-		map.set(caseType.name, caseType);
-	}
-	return map;
-}
-
-/**
- * The map the SCHEMA MATERIALIZATION consumers (`applySchemaChange`
- * feeders — `materializeCaseStoreSchemas`, the blueprint-change
- * saga) build from: the effective view minus the implicit standard
- * entries (`lib/domain/effectiveCaseTypes.ts::materializableCaseTypes`
- * — see its doc for why standard names must not reach the JSON
- * schema or the index DDL). Query/validation call sites stay on
- * `buildCaseTypeMap`.
- */
-export function buildMaterializableCaseTypeMap(
 	blueprint: PersistableDoc | undefined,
 ): ReadonlyMap<string, CaseType> {
 	if (blueprint === undefined) {

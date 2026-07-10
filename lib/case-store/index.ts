@@ -49,4 +49,4 @@ export type {
 	SchemaChangeKind,
 	SortKey,
 } from "./store";
-export { buildCaseTypeMap, buildMaterializableCaseTypeMap } from "./store";
+export { buildCaseTypeMap } from "./store";

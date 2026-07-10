@@ -58,14 +58,10 @@
  *
  * ## Memoization
  *
- * The augmented list is computed once per `BlueprintDoc` reference
- * and cached in a module-scope `WeakMap`. The doc-store layer
- * (`@/lib/doc/store` via Immer) replaces the doc reference on every
- * mutation, so a stale cache entry is structurally unreachable —
- * the GC collects it once the doc reference drops. This keeps the
- * common case (multiple validation passes against the same doc, or
- * multiple module rules within one pass) at one augmentation walk
- * rather than `3N × C` walks.
+ * The admission set is memoized per `BlueprintDoc` reference INSIDE
+ * `effectiveCaseTypes` (the doc-store layer replaces the doc
+ * reference on every mutation, so staleness is unreachable); this
+ * module adds no cache layer of its own.
  */
 
 import type { BlueprintDoc, CaseType, Module } from "@/lib/domain";
@@ -85,33 +81,21 @@ import type {
  * the rule-set-wide property admission set, which IS the domain's
  * effective case-type view (declared + standard + writer-derived,
  * with writer-derived `data_type`s resolved and honest-unknown kept
- * absent — see `lib/domain/effectiveCaseTypes.ts`).
- *
- * Computed once per `BlueprintDoc` reference; subsequent reads hit
- * the WeakMap cache. Consumers route every property lookup through
- * this list so the priority order has exactly one structural home.
+ * absent — see `lib/domain/effectiveCaseTypes.ts`). Consumers route
+ * every property lookup through this list so the priority order has
+ * exactly one structural home.
  */
 export interface ValidationContext {
 	readonly augmentedCaseTypes: readonly CaseType[];
 }
 
-const VALIDATION_CONTEXT_CACHE = new WeakMap<BlueprintDoc, ValidationContext>();
-
 /**
- * Get the cached `ValidationContext` for the doc, computing it on
- * first access. Module-scope WeakMap so the cache persists across
- * rule invocations within a single validation pass; the doc-store
- * layer replaces the doc reference on every mutation, so stale
- * entries get GC'd as soon as the doc is dropped.
+ * The `ValidationContext` for the doc. The admission set itself is
+ * memoized per doc reference inside `effectiveCaseTypes`, so this is
+ * a cheap wrapper construction — no second cache layer.
  */
 export function validationContextFor(doc: BlueprintDoc): ValidationContext {
-	const cached = VALIDATION_CONTEXT_CACHE.get(doc);
-	if (cached !== undefined) return cached;
-	const ctx: ValidationContext = {
-		augmentedCaseTypes: buildAugmentedCaseTypes(doc),
-	};
-	VALIDATION_CONTEXT_CACHE.set(doc, ctx);
-	return ctx;
+	return { augmentedCaseTypes: effectiveCaseTypes(doc) };
 }
 
 /**
@@ -270,15 +254,4 @@ function lookupInAugmented(
 	const ct = augmented.find((c) => c.name === caseType);
 	const property = ct?.properties.find((p) => p.name === propertyName);
 	return property ? effectiveDataType(property) : undefined;
-}
-
-/**
- * The rule-set-wide admission set — the domain's effective case-type
- * view. Kept as a named seam (rather than call sites reaching for
- * `effectiveCaseTypes` directly) so the file header's contract has
- * one anchor; the domain function owns the priority order and its
- * own per-doc memo.
- */
-function buildAugmentedCaseTypes(doc: BlueprintDoc): readonly CaseType[] {
-	return effectiveCaseTypes(doc);
 }

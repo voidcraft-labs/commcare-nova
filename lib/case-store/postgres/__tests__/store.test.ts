@@ -63,7 +63,7 @@ import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { POSTGRES_CAST_FOR_DATA_TYPE } from "../../sql";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
-import { buildMaterializableCaseTypeMap } from "../../store";
+import { buildCaseTypeMap } from "../../store";
 import {
 	desiredIndexForProperty,
 	indexScopeTag,
@@ -209,13 +209,12 @@ function buildBlueprint(caseType: CaseType): BlueprintDoc {
 
 /**
  * Build the schema map `applySchemaChange` accepts directly. Pure
- * sugar over `buildMaterializableCaseTypeMap(buildBlueprint(...))` — the
- * flavor every production `applySchemaChange` feeder builds — every test in
+ * sugar over `buildCaseTypeMap(buildBlueprint(...))` — every test in
  * this file converts a one-case-type fixture into the map shape, so
  * the helper keeps the call sites to one line each.
  */
 function buildSchemaMap(caseType: CaseType): ReadonlyMap<string, CaseType> {
-	return buildMaterializableCaseTypeMap(buildBlueprint(caseType));
+	return buildCaseTypeMap(buildBlueprint(caseType));
 }
 
 /**
@@ -1336,7 +1335,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: "app-explain",
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(
+			caseTypeSchemas: buildCaseTypeMap(
 				buildSimpleBlueprint(
 					[
 						{
@@ -1370,7 +1369,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: "app-explain",
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(
+			caseTypeSchemas: buildCaseTypeMap(
 				buildSimpleBlueprint(
 					[
 						{
@@ -1402,7 +1401,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: "app-explain",
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(
+			caseTypeSchemas: buildCaseTypeMap(
 				buildSimpleBlueprint(
 					[
 						{
@@ -1437,7 +1436,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		await store.applySchemaChange({
 			appId: "app-explain",
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(
+			caseTypeSchemas: buildCaseTypeMap(
 				buildSimpleBlueprint(
 					[
 						{
@@ -1958,7 +1957,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 		await store.applySchemaChange({
 			appId: SEQ_APP,
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(
+			caseTypeSchemas: buildCaseTypeMap(
 				buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
 			),
 			syncedSeq: 3,
@@ -1972,7 +1971,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 		await store.applySchemaChange({
 			appId: SEQ_APP,
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(
+			caseTypeSchemas: buildCaseTypeMap(
 				buildSimpleBlueprint([patientWith(["name", "village"])], SEQ_APP),
 			),
 			syncedSeq: 7,
@@ -1988,7 +1987,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 		await store.applySchemaChange({
 			appId: SEQ_APP,
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(
+			caseTypeSchemas: buildCaseTypeMap(
 				buildSimpleBlueprint([patientWith(["name", "village"])], SEQ_APP),
 			),
 			syncedSeq: 5,
@@ -2007,7 +2006,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 		await store.applySchemaChange({
 			appId: SEQ_APP,
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(
+			caseTypeSchemas: buildCaseTypeMap(
 				buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
 			),
 			syncedSeq: 2,
@@ -2041,7 +2040,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 		await store.applySchemaChange({
 			appId: SEQ_APP,
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(
+			caseTypeSchemas: buildCaseTypeMap(
 				buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
 			),
 			syncedSeq: 1,
@@ -2050,7 +2049,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 		const winner = store.applySchemaChange({
 			appId: SEQ_APP,
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(
+			caseTypeSchemas: buildCaseTypeMap(
 				buildSimpleBlueprint([patientWith(["name", "village"])], SEQ_APP),
 			),
 			syncedSeq: 3,
@@ -2058,7 +2057,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 		const loser = store.applySchemaChange({
 			appId: SEQ_APP,
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(
+			caseTypeSchemas: buildCaseTypeMap(
 				buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
 			),
 			syncedSeq: 2,
@@ -2085,7 +2084,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 		await store.applySchemaChange({
 			appId: SEQ_APP,
 			caseType: "patient",
-			caseTypeSchemas: buildMaterializableCaseTypeMap(
+			caseTypeSchemas: buildCaseTypeMap(
 				buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
 			),
 			syncedSeq: 1,
@@ -2100,10 +2099,10 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 		//   - B's sweep (seq 3, all three) then A's (seq 2, {name, village}):
 		//     A is now STALE (2 < 3) and no-ops — B's three-property state
 		//     survives. This is the convergence the monotone gate guarantees.
-		const bState = buildMaterializableCaseTypeMap(
+		const bState = buildCaseTypeMap(
 			buildSimpleBlueprint([patientWith(["name", "village", "age"])], SEQ_APP),
 		);
-		const aState = buildMaterializableCaseTypeMap(
+		const aState = buildCaseTypeMap(
 			buildSimpleBlueprint([patientWith(["name", "village"])], SEQ_APP),
 		);
 		// Apply B (fresher) first, then A (stale) — the harder ordering.
@@ -2138,7 +2137,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 			store.applySchemaChange({
 				appId: SEQ_APP,
 				caseType: "patient",
-				caseTypeSchemas: buildMaterializableCaseTypeMap(
+				caseTypeSchemas: buildCaseTypeMap(
 					buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
 				),
 				property: "name",

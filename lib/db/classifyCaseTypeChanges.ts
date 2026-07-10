@@ -152,7 +152,7 @@ export function classifyCaseTypeChanges(
 ): readonly CaseTypeChangeEntry[] {
 	// Diff the MATERIALIZABLE views, not the raw catalogs — the schema
 	// rows the saga writes are built from that view
-	// (`buildMaterializableCaseTypeMap`), so the diff must see exactly
+	// (`buildCaseTypeMap`), so the diff must see exactly
 	// what the rows will hold. Concretely: converting a writer field's
 	// kind (or editing a hidden writer's expression) changes a
 	// property's DERIVED `data_type` without touching `doc.caseTypes`;

@@ -96,10 +96,7 @@
  * is less likely to hit the same blip.
  */
 
-import {
-	buildMaterializableCaseTypeMap,
-	withSchemaContext,
-} from "@/lib/case-store";
+import { buildCaseTypeMap, withSchemaContext } from "@/lib/case-store";
 import type { PersistableDoc } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { isTransientDbError, withTransientRetry } from "./schemaSyncRetry";
@@ -176,11 +173,11 @@ export async function materializeCaseStoreSchemas(
 	// `applySchemaChange` accepts a case-type schema map; the boundary
 	// builds it once from the persisted blueprint, using the
 	// MATERIALIZABLE flavor (derived property types included, implicit
-	// standard entries excluded — see `buildMaterializableCaseTypeMap`).
+	// standard entries excluded — see `buildCaseTypeMap`).
 	// It reads `caseTypes` + `fields` only, so the `PersistableDoc`
 	// goes through directly — no cast to the in-memory `BlueprintDoc`
 	// shape.
-	const caseTypeSchemas = buildMaterializableCaseTypeMap(args.blueprint);
+	const caseTypeSchemas = buildCaseTypeMap(args.blueprint);
 	for (const caseType of caseTypes) {
 		try {
 			await withTransientRetry(() =>

@@ -35,7 +35,7 @@ export function useCaseListPreview(args: {
 	caseListConfig: CaseListConfig;
 	currentCaseType: string;
 	/** Why the preview can't run (`configValidity.ts::
-	 *  caseListPreviewObstacle`), or `null` when it can. Scoped to the
+	 *  caseListConfigVerdicts`), or `null` when it can. Scoped to the
 	 *  SQL-reaching ASTs — an applicability mismatch or search-input
 	 *  problem never pauses the live rows. */
 	previewObstacle: string | null;
