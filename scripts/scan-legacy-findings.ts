@@ -26,9 +26,12 @@
  * intentional).
  *
  * Reads the app-state database the env provides (`NOVA_DB_LOCAL_URL`
- * locally, the Cloud SQL connector in the migrate-job image). Exits
- * non-zero when any findings exist. Run with `--help` for flags.
+ * locally, the Cloud SQL connector in the migrate-job image); `--prod`
+ * targets the production instance over its public IP (see
+ * `./lib/prodDb.ts`). Exits non-zero when any findings exist. Run with
+ * `--help` for flags.
  */
+import "dotenv/config";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "../lib/case-store/postgres/connection";
 import type {
@@ -51,9 +54,11 @@ import {
 	type MediaRefReport,
 } from "./lib/legacyMediaRefs";
 import { runMain } from "./lib/main";
+import { targetProdDb } from "./lib/prodDb";
 
 interface ScanOptions {
 	media?: boolean;
+	prod?: boolean;
 }
 
 const program = new Command();
@@ -69,18 +74,27 @@ program
 		"--media",
 		"also resolve each app's referenced media assets and report dead references — asset row missing, or stuck pending past the one-day upload window (reads the media_assets rows; still read-only)",
 	)
+	.option(
+		"--prod",
+		"scan the production Cloud SQL instance (public IP + your gcloud IAM identity)",
+	)
 	.addHelpText(
 		"after",
 		"\nDatabase:\n" +
 			"  Scans whatever the env points at — NOVA_DB_LOCAL_URL for a local\n" +
-			"  Postgres, or the Cloud SQL connector env in the migrate-job image.\n" +
+			"  Postgres, or the Cloud SQL connector env. --prod is the shorthand\n" +
+			"  for the per-developer prod-read setup (see scripts/lib/prodDb.ts).\n" +
 			"\nExamples:\n" +
 			"  $ npx tsx scripts/scan-legacy-findings.ts\n" +
-			"  $ npx tsx scripts/scan-legacy-findings.ts --media\n",
+			"  $ npx tsx scripts/scan-legacy-findings.ts --media\n" +
+			"  $ npx tsx scripts/scan-legacy-findings.ts --prod\n",
 	);
 
 program.parse();
-const { media } = program.opts<ScanOptions>();
+const { media, prod } = program.opts<ScanOptions>();
+if (prod === true) {
+	targetProdDb();
+}
 
 const JUDGMENT_LABEL = {
 	mechanical: "REPAIRABLE",

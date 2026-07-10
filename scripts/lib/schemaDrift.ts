@@ -52,14 +52,30 @@ export interface RetypedProperty {
 	readonly toSpec: string;
 }
 
+/** Spec strings are canonical (sorted-key) JSON, ready to print. */
+export interface RefinedProperty {
+	readonly property: string;
+	readonly fromSpec: string;
+	readonly toSpec: string;
+}
+
+/**
+ * A stored spec no current schema arm emits. The spec itself is the
+ * owner's decision input, so it rides along in canonical JSON.
+ */
+export interface UnresolvableProperty {
+	readonly property: string;
+	readonly storedSpec: string;
+}
+
 export interface CaseTypeDrift {
 	readonly caseType: string;
 	readonly missingRow: boolean;
 	readonly added: readonly string[];
 	readonly removed: readonly string[];
-	readonly refined: readonly string[];
+	readonly refined: readonly RefinedProperty[];
 	readonly retyped: readonly RetypedProperty[];
-	readonly unresolvable: readonly string[];
+	readonly unresolvable: readonly UnresolvableProperty[];
 }
 
 /**
@@ -163,9 +179,9 @@ export async function computeSchemaDrift(
 			(stored as { properties?: Record<string, unknown> }).properties ?? {};
 		const added: string[] = [];
 		const removed: string[] = [];
-		const refined: string[] = [];
+		const refined: RefinedProperty[] = [];
 		const retyped: RetypedProperty[] = [];
-		const unresolvable: string[] = [];
+		const unresolvable: UnresolvableProperty[] = [];
 
 		for (const [name, desiredSpec] of Object.entries(desired.properties)) {
 			const storedSpec = storedProps[name];
@@ -187,11 +203,11 @@ export async function computeSchemaDrift(
 			const toType =
 				ct.properties.find((p) => p.name === name)?.data_type ?? "text";
 			if (fromType === undefined) {
-				unresolvable.push(name);
+				unresolvable.push({ property: name, storedSpec: fromSpec });
 				continue;
 			}
 			if (fromType === toType) {
-				refined.push(name);
+				refined.push({ property: name, fromSpec, toSpec });
 				continue;
 			}
 			retyped.push({ property: name, fromType, toType, fromSpec, toSpec });

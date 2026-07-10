@@ -116,7 +116,7 @@ async function main() {
 				}
 				if (drift.unresolvable.length > 0) {
 					console.log(
-						`    ✗ skipping unresolvable spec(s) — needs owner: ${drift.unresolvable.join(", ")}`,
+						`    ✗ skipping unresolvable spec(s) — needs owner: ${drift.unresolvable.map((u) => u.property).join(", ")}`,
 					);
 				}
 				if (!execute) {
