@@ -45,7 +45,7 @@ Cache TTL is 30 minutes — the guaranteed retention floor (`CACHE_TTL_MS`); Ope
 
 ## Provider options shape
 
-SA shape: `{ reasoningEffort, reasoningSummary: 'auto' }` under the `openai` key, plus `GATEWAY_PROVIDER_OPTIONS` (`disallowPromptTraining: true` — user content never trains a provider model) under the `gateway` key on EVERY call (SA, sub-gens, extraction, scripts). `reasoningSummary: 'auto'` is required for human-readable reasoning summaries to stream back as `reasoning-delta` parts. The AI SDK's Zod schema silently strips misplaced/unknown fields, so a typo'd option appears to work and silently doesn't reach the wire — always check provider options against `OpenAIResponsesProviderOptions` via `satisfies` on the literal, not an annotation; never type them `Record<string, JSONValue>`.
+SA shape: `{ reasoningEffort, reasoningSummary: 'auto' }` under the `openai` key, plus `GATEWAY_PROVIDER_OPTIONS` (`disallowPromptTraining: true` — user content never trains a provider model — and `caching: "auto"` for the gateway's automatic prompt caching) under the `gateway` key on EVERY call (SA, sub-gens, extraction, scripts). `reasoningSummary: 'auto'` is required for human-readable reasoning summaries to stream back as `reasoning-delta` parts. The AI SDK's Zod schema silently strips misplaced/unknown fields, so a typo'd option appears to work and silently doesn't reach the wire — always check provider options against `OpenAIResponsesProviderOptions` via `satisfies` on the literal, not an annotation; never type them `Record<string, JSONValue>`.
 
 ## Two tool groups: planning + shared
 

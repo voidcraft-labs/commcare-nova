@@ -32,10 +32,12 @@ export const MODEL_DEFAULT = "openai/gpt-5.6-terra";
  * `gateway` key of `providerOptions`, beside the `openai` reasoning options).
  * `disallowPromptTraining` restricts routing to providers that do not train
  * on prompt data — user content never becomes training data, on any surface
- * (SA, extraction, scripts).
+ * (SA, extraction, scripts). `caching: "auto"` opts into the gateway's
+ * automatic prompt-caching behavior wherever the routed provider supports it.
  */
 export const GATEWAY_PROVIDER_OPTIONS = {
 	disallowPromptTraining: true,
+	caching: "auto",
 } as const satisfies GatewayProviderOptions;
 
 /**
