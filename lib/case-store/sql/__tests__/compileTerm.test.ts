@@ -25,9 +25,9 @@
 //      because the predicate compiler's `multi-select-contains`
 //      operators (`?|` / `?&` / `@>`) require JSONB on the
 //      left-hand side.
-//   3. Names in `RESERVED_SCALAR_COLUMNS` (from `dataTypeTokens.ts`)
-//      read from the table's scalar columns, not from the JSONB
-//      `properties` document.
+//   3. Names in `RESERVED_SCALAR_COLUMN_BY_PROPERTY` (from
+//      `dataTypeTokens.ts`) read from their MAPPED scalar columns,
+//      not from the JSONB `properties` document.
 //   4. Property reads with non-self `via` route through the
 //      relation-path leaf alias, leaving the actual join to the
 //      caller (the term compiler returns the column-read
@@ -105,7 +105,7 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "nickname", label: "Nickname", data_type: "text" },
 		{ name: "age", label: "Age", data_type: "int" },
 		{ name: "bmi", label: "BMI", data_type: "decimal" },
 		{ name: "dob", label: "DOB", data_type: "date" },
@@ -171,7 +171,7 @@ function compileTerm_(expr: ReturnType<typeof compileTerm>): CompiledQuery {
 
 describe("compileTerm — prop (self via) cast mapping", () => {
 	const cases = [
-		{ name: "text", property: "name", cast: "text", arrow: "->>" },
+		{ name: "text", property: "nickname", cast: "text", arrow: "->>" },
 		{ name: "int", property: "age", cast: "integer", arrow: "->>" },
 		{ name: "decimal", property: "bmi", cast: "numeric", arrow: "->>" },
 		{ name: "date", property: "dob", cast: "date", arrow: "->>" },
@@ -206,7 +206,7 @@ describe("compileTerm — prop (self via) cast mapping", () => {
 			// JSONB read shape — `c.properties` is the anchor read,
 			// `arrow` is the operator, and the property name inlines as a
 			// quoted JSON key. Kysely 0.29's `ref(col, op).key(name)`
-			// serializes the key literally (`properties->>'name'`),
+			// serializes the key literally (`properties->>'nickname'`),
 			// matching the inlined key in the expression-index DDL. Kysely's
 			// typed `eb.cast<T>(expr, type)` emits the SQL-standard
 			// `cast(<expr> as <type>)` shape rather than the
@@ -223,31 +223,40 @@ describe("compileTerm — prop (self via) cast mapping", () => {
 // `prop` — reserved scalar columns
 // ---------------------------------------------------------------
 //
-// `case_id` / `case_type` / `owner_id` / `status` are first-class
-// columns on the `cases` table. The Term compiler reads them via
-// `eb.ref(...)` rather than through the JSONB document — they're
-// indexed scalar columns and reading them through `properties` would
-// (a) miss the column and (b) skip the index.
+// CommCare's standard case-metadata names resolve onto first-class
+// `cases` columns (`RESERVED_SCALAR_COLUMN_BY_PROPERTY`). The Term
+// compiler reads them via `eb.ref(...)` on the MAPPED column rather
+// than through the JSONB document — the values live in the columns,
+// and reading through `properties` would return `NULL`.
 //
-// The other scalar columns (`opened_on` / `modified_on` /
-// `closed_on` / `parent_case_id`) are NOT routed through `prop` at
-// the term layer. Those timestamp / FK columns belong to query
-// surfaces that read the case's identity, not the case's
-// authored data; if/when they grow term-level support they get a
-// dedicated AST shape rather than `prop`-as-scalar overloading.
+// Truly internal columns (`closed_on` / `parent_case_id`) are NOT
+// routed through `prop` at the term layer — plumbing columns with
+// no authoring-vocabulary name.
 
 describe("compileTerm — prop (self via) reserved scalar columns", () => {
-	const reserved = ["case_id", "case_type", "owner_id", "status"] as const;
+	const reserved: ReadonlyArray<readonly [property: string, column: string]> = [
+		["case_id", "case_id"],
+		["case_type", "case_type"],
+		["owner_id", "owner_id"],
+		["status", "status"],
+		["case_name", "case_name"],
+		["name", "case_name"],
+		["external_id", "external_id"],
+		["external-id", "external_id"],
+		["date_opened", "opened_on"],
+		["date-opened", "opened_on"],
+		["last_modified", "modified_on"],
+	];
 
-	for (const column of reserved) {
-		it(`reads ${column} from the scalar column, not from JSONB`, () => {
+	for (const [property, column] of reserved) {
+		it(`reads ${property} from the ${column} scalar column, not from JSONB`, () => {
 			const compiled = compileTerm_(
-				compileTerm(prop("patient", column), makeCtx()),
+				compileTerm(prop("patient", property), makeCtx()),
 			);
 			// Anchor's scalar column reference: `"c"."<column>"`.
 			expect(compiled.sql).toContain(`"c"."${column}"`);
 			// JSONB document is NOT consulted for reserved columns.
-			expect(compiled.sql).not.toContain(`'${column}'`);
+			expect(compiled.sql).not.toContain(`'${property}'`);
 			expect(compiled.sql).not.toContain('"properties" ->>');
 		});
 	}
@@ -352,9 +361,9 @@ describe("compileTerm — prop (non-self via)", () => {
 		// `via`. The compiler must accept both shapes and emit the
 		// same anchor read.
 		const compiled = compileTerm_(
-			compileTerm(prop("patient", "name", selfPath()), makeCtx()),
+			compileTerm(prop("patient", "nickname", selfPath()), makeCtx()),
 		);
-		expect(compiled.sql).toContain(`"c"."properties"->>'name'`);
+		expect(compiled.sql).toContain(`"c"."properties"->>'nickname'`);
 		expect(compiled.sql).toContain("as text)");
 		// Self-via reads emit no scalar subquery — the read is a
 		// direct JSONB extraction off the anchor's `cases` row.
@@ -376,7 +385,7 @@ describe("compileTerm — prop (non-self via)", () => {
 describe("compileTerm — prop schema-lookup errors", () => {
 	it("throws when the case type is absent from the schema map", () => {
 		expect(() =>
-			compileTerm(prop("missing-case-type", "name"), makeCtx()),
+			compileTerm(prop("missing-case-type", "nickname"), makeCtx()),
 		).toThrow(/case type/i);
 	});
 
@@ -530,7 +539,7 @@ describe("compileTerm — session-context", () => {
 describe("compileTerm — tenant scope contract", () => {
 	it("does not emit appId or ownerId parameters from a self-via term", () => {
 		const compiled = compileTerm_(
-			compileTerm(prop("patient", "name"), makeCtx()),
+			compileTerm(prop("patient", "nickname"), makeCtx()),
 		);
 		// The tenant scope is on the context surface but the
 		// compiler doesn't read it for self-via property reads.
@@ -561,12 +570,12 @@ describe("compileTerm — anchor alias contract", () => {
 			.selectFrom("cases as outer_case")
 			.select(
 				compileTerm(
-					prop("patient", "name"),
+					prop("patient", "nickname"),
 					makeCtx({ anchorAlias: "outer_case" }),
 				).as("v"),
 			)
 			.compile();
-		expect(compiled.sql).toContain(`"outer_case"."properties"->>'name'`);
+		expect(compiled.sql).toContain(`"outer_case"."properties"->>'nickname'`);
 	});
 
 	it("honors a custom anchor alias for reserved scalar reads", () => {

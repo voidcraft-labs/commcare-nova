@@ -84,7 +84,7 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "nickname", label: "Nickname", data_type: "text" },
 		{ name: "age", label: "Age", data_type: "int" },
 		{ name: "registered_at", label: "When", data_type: "datetime" },
 	],
@@ -342,7 +342,7 @@ describe("compileExpression — round-trip — concat arm", () => {
 		db,
 	}) => {
 		// Insert a row with `name` ABSENT from the JSONB document.
-		// `properties->>'name'` returns SQL `NULL`; Postgres's
+		// `properties->>'nickname'` returns SQL `NULL`; Postgres's
 		// `concat(...)` coerces that to empty string. A regression to
 		// `||` (NULL-propagating string concatenation) would return
 		// `NULL` and the assertion below would fail.
@@ -362,7 +362,7 @@ describe("compileExpression — round-trip — concat arm", () => {
 		const expr = compileExpression(
 			concat(
 				term({ kind: "literal", value: "[", data_type: "text" }),
-				term(prop("patient", "name")),
+				term(prop("patient", "nickname")),
 				term({ kind: "literal", value: "]", data_type: "text" }),
 			),
 			makeCtx(db),
@@ -398,7 +398,7 @@ describe("compileExpression — round-trip — coalesce arm", () => {
 			.execute();
 
 		const expr = compileExpression(
-			coalesce(term(prop("patient", "name")), term(literal("default"))),
+			coalesce(term(prop("patient", "nickname")), term(literal("default"))),
 			makeCtx(db),
 		);
 		const rows = await db
@@ -420,13 +420,13 @@ describe("compileExpression — round-trip — coalesce arm", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice" }),
+					properties: JSON.stringify({ nickname: "Alice" }),
 				}),
 			)
 			.execute();
 
 		const expr = compileExpression(
-			coalesce(term(prop("patient", "name")), term(literal("default"))),
+			coalesce(term(prop("patient", "nickname")), term(literal("default"))),
 			makeCtx(db),
 		);
 		const rows = await db

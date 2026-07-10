@@ -7,7 +7,7 @@
 // reduces to a `pg_trgm` operator over `compileTerm(prop)`.
 //
 // Arms: `prop` (typed JSONB read with cast, or scalar-column read
-// for `RESERVED_SCALAR_COLUMNS`), `literal` (delegates to
+// for `RESERVED_SCALAR_COLUMN_BY_PROPERTY`), `literal` (delegates to
 // `compileLiteral`), `input` / `session-user` / `session-context`
 // (parameter-bound from `ctx.bindings`; missing bindings throw
 // rather than emit `NULL`).
@@ -50,7 +50,7 @@ import type { Database } from "./database";
 import {
 	JSONB_READ_OPERATOR_FOR_DATA_TYPE,
 	POSTGRES_CAST_FOR_DATA_TYPE,
-	RESERVED_SCALAR_COLUMNS,
+	RESERVED_SCALAR_COLUMN_BY_PROPERTY,
 } from "./dataTypeTokens";
 
 // ---------------------------------------------------------------
@@ -238,8 +238,9 @@ function compileSelfViaPropertyRef(args: {
 	schemas: ReadonlyMap<string, CaseType>;
 }): AliasableExpression<unknown> {
 	const { anchorAlias, caseType, property, schemas } = args;
-	if (RESERVED_SCALAR_COLUMNS.has(property)) {
-		return scalarColumnRef(anchorAlias, property);
+	const reserved = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(property);
+	if (reserved !== undefined) {
+		return scalarColumnRef(anchorAlias, reserved.column);
 	}
 	const dataType = lookupDataType(caseType, property, schemas);
 	return jsonbColumnRead({ sourceAlias: anchorAlias, property, dataType });
@@ -286,13 +287,19 @@ function compileNonSelfViaPropertyRef(args: {
 	}
 
 	const leafAlias = compiledPath.leafAlias;
-	const innerRead = RESERVED_SCALAR_COLUMNS.has(property)
-		? scalarColumnRef(leafAlias, property)
-		: jsonbColumnRead({
-				sourceAlias: leafAlias,
-				property,
-				dataType: lookupDataType(lookupCaseType, property, ctx.caseTypeSchemas),
-			});
+	const leafReserved = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(property);
+	const innerRead =
+		leafReserved !== undefined
+			? scalarColumnRef(leafAlias, leafReserved.column)
+			: jsonbColumnRead({
+					sourceAlias: leafAlias,
+					property,
+					dataType: lookupDataType(
+						lookupCaseType,
+						property,
+						ctx.caseTypeSchemas,
+					),
+				});
 
 	// `LIMIT 1` keeps the subquery scalar — the term compiler's
 	// contract is "value-bearing expression". Without it, a

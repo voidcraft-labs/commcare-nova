@@ -6,7 +6,20 @@
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { effectiveCaseTypes, resolveEffectivePropertyType } from "@/lib/domain";
+import type { CasePropertyDataType, PersistableDoc } from "@/lib/domain";
+import { effectiveCaseTypes } from "@/lib/domain";
+
+/** Test-local single-property read over the effective view —
+ *  `undefined` conflates missing-and-unknown, which is fine for
+ *  assertions but exactly why this is not a production API. */
+function resolveEffectivePropertyType(
+	doc: PersistableDoc,
+	caseType: string,
+	property: string,
+): CasePropertyDataType | undefined {
+	const ct = effectiveCaseTypes(doc).find((c) => c.name === caseType);
+	return ct?.properties.find((p) => p.name === property)?.data_type;
+}
 
 /** A doc with one module/form so writer fields have a home. */
 function docWith(args: {

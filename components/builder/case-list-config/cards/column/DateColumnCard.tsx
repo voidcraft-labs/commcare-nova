@@ -29,10 +29,17 @@ import {
 	CustomDatePatternInput,
 	type DatePatternPreset,
 } from "@/components/builder/shared/primitives/CustomDatePatternInput";
-import type { Column } from "@/lib/domain";
-import { dateColumn, isDateTyped } from "@/lib/domain";
+import type { CaseProperty, Column } from "@/lib/domain";
+import { columnKindAcceptsPropertyType, dateColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { ColumnFieldRow } from "./ColumnFieldRow";
+
+/** The gate's own accept-set (`columnKindAcceptsPropertyType`) — an
+ *  unknown-typed property is admissible, so the dropdown must offer
+ *  it; a stricter picker would refuse a selection every verdict
+ *  accepts. */
+const acceptsDateColumn = (p: CaseProperty) =>
+	columnKindAcceptsPropertyType("date", p.data_type);
 
 /**
  * Preset table for the column's date pattern. Labels are CCHQ's
@@ -91,7 +98,7 @@ export function DateColumnCard({
 				onFieldChange={setField}
 				header={value.header}
 				onHeaderChange={setHeader}
-				propertyFilter={isDateTyped}
+				propertyFilter={acceptsDateColumn}
 				errors={errors}
 			/>
 			<div className="space-y-1.5">

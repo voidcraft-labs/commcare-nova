@@ -94,12 +94,12 @@ const OWNER_ID = "owner-uuid";
 // `patient` schema: every property the expression compiler reads
 // must exist on the case-type schema. The shape below mirrors the
 // term-compiler test fixture so `prop("patient", "age")` resolves to
-// `int` and `prop("patient", "name")` resolves to `text`.
+// `int` and `prop("patient", "nickname")` resolves to `text`.
 const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "nickname", label: "Nickname", data_type: "text" },
 		{ name: "age", label: "Age", data_type: "int" },
 		{ name: "bmi", label: "BMI", data_type: "decimal" },
 		{ name: "dob", label: "DOB", data_type: "date" },
@@ -178,11 +178,11 @@ function compileExpression_(
 describe("compileExpression — term arm", () => {
 	it("delegates a property-ref term to the Term compiler", () => {
 		const compiled = compileExpression_(
-			compileExpression(term(prop("patient", "name")), makeCtx()),
+			compileExpression(term(prop("patient", "nickname")), makeCtx()),
 		);
 		// JSONB read shape from `compileTerm`'s self-via property arm.
 		// The property key inlines as a quoted JSON key (kysely 0.29).
-		expect(compiled.sql).toContain(`"c"."properties"->>'name'`);
+		expect(compiled.sql).toContain(`"c"."properties"->>'nickname'`);
 		expect(compiled.sql).toContain("as text)");
 	});
 
@@ -367,7 +367,7 @@ describe("compileExpression — if arm", () => {
 		const compiled = compileExpression_(
 			compileExpression(
 				ifExpr(
-					eq(prop("patient", "name"), literal("Alice")),
+					eq(prop("patient", "nickname"), literal("Alice")),
 					term(literal(1)),
 					term(literal(0)),
 				),
@@ -387,7 +387,7 @@ describe("compileExpression — if arm", () => {
 		const { thunk, log } = makeStubPredicateThunk();
 		compileExpression(
 			ifExpr(
-				eq(prop("patient", "name"), literal("Alice")),
+				eq(prop("patient", "nickname"), literal("Alice")),
 				term(literal(1)),
 				term(literal(0)),
 			),
@@ -401,7 +401,7 @@ describe("compileExpression — if arm", () => {
 		expect(() =>
 			compileExpression(
 				ifExpr(
-					eq(prop("patient", "name"), literal("Alice")),
+					eq(prop("patient", "nickname"), literal("Alice")),
 					term(literal(1)),
 					term(literal(0)),
 				),
@@ -737,14 +737,14 @@ describe("compileExpression — composition", () => {
 	it("composes coalesce around two prop reads", () => {
 		const compiled = compileExpression_(
 			compileExpression(
-				coalesce(term(prop("patient", "name")), term(literal("unknown"))),
+				coalesce(term(prop("patient", "nickname")), term(literal("unknown"))),
 				makeCtx(),
 			),
 		);
 		expect(compiled.sql.toLowerCase()).toContain("coalesce(");
 		// The property key inlines as a quoted JSON key (kysely 0.29);
 		// the literal coalesce fallback stays a bound parameter.
-		expect(compiled.sql).toContain(`->>'name'`);
+		expect(compiled.sql).toContain(`->>'nickname'`);
 		expect(compiled.parameters).toContain("unknown");
 	});
 

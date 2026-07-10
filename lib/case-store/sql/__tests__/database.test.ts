@@ -209,6 +209,7 @@ describe("Database.cases", () => {
 			modified_on: new Date(),
 			closed_on: null,
 			case_name: "Alice",
+			external_id: null,
 			parent_case_id: null,
 			properties: { name: "Alice" },
 		};

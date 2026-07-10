@@ -136,15 +136,3 @@ export const MAX_CASE_TYPE_LENGTH = 255;
 
 /** Maximum length for case property names (CommCare Core CaseXmlParser constraint). */
 export const MAX_CASE_PROPERTY_LENGTH = 255;
-
-// The standard case-property table lives in the domain
-// (`lib/domain/standardCaseProperties.ts`) so the effective case-type
-// view can fold the standard set into the one property admission set
-// every surface reads; re-exported here so wire-side consumers keep
-// their import path.
-export {
-	isStandardCaseListProperty,
-	STANDARD_CASE_LIST_PROPERTIES,
-	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
-	type StandardCaseListProperty,
-} from "@/lib/domain/standardCaseProperties";

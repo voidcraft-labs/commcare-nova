@@ -130,7 +130,7 @@ export interface SortKey {
  * map to pick the column cast. Optional when the query is
  * predicate-free, sort-free, and calc-free, OR when every operand
  * touches only the reserved scalar columns at
- * `lib/case-store/sql/dataTypeTokens.ts`'s `RESERVED_SCALAR_COLUMNS`.
+ * `lib/case-store/sql/dataTypeTokens.ts`'s `RESERVED_SCALAR_COLUMN_BY_PROPERTY`.
  *
  * `calculated` projections evaluate inline at the SQL layer keyed
  * by the column's `uuid`. The Postgres compiler is the single

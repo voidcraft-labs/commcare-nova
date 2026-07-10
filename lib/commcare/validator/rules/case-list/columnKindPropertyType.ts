@@ -24,7 +24,6 @@ import {
 	type BlueprintDoc,
 	type CasePropertyDataType,
 	type Column,
-	type ColumnKind,
 	columnKindAcceptsPropertyType,
 	columnKindPropertyRequirement,
 	type Module,
@@ -57,15 +56,26 @@ export function columnKindPropertyType(
 	for (let index = 0; index < config.columns.length; index++) {
 		const col = config.columns[index];
 		if (col.kind === "calculated") continue;
+		const requirement = columnKindPropertyRequirement(col.kind);
+		if (requirement === null) continue; // universal kinds accept everything
 		// Raw `data_type` off the effective view, NOT
 		// `effectiveDataType(...)` — absent must stay absent (unknown
 		// is permissive here), and an unresolvable property is
-		// `columnReferences`' finding.
-		const property = properties.find((p) => p.name === col.field);
-		if (property === undefined) continue;
-		if (columnKindAcceptsPropertyType(col.kind, property.data_type)) continue;
+		// `columnReferences`' finding, not a second one here.
+		const resolvedType = properties.find(
+			(p) => p.name === col.field,
+		)?.data_type;
+		if (resolvedType === undefined) continue;
+		if (columnKindAcceptsPropertyType(col.kind, resolvedType)) continue;
 		errors.push(
-			buildMismatchError(mod, moduleUuid, index, col, property.data_type),
+			buildMismatchError(
+				mod,
+				moduleUuid,
+				index,
+				col,
+				resolvedType,
+				requirement,
+			),
 		);
 	}
 	return errors;
@@ -76,13 +86,10 @@ function buildMismatchError(
 	moduleUuid: Uuid,
 	index: number,
 	col: Exclude<Column, { kind: "calculated" }>,
-	resolvedType: CasePropertyDataType | undefined,
+	resolvedType: CasePropertyDataType,
+	requirement: keyof typeof REQUIREMENT_PHRASE,
 ): ValidationError {
-	const requirement = columnKindPropertyRequirement(col.kind as ColumnKind);
-	const phrase =
-		requirement === null
-			? "a compatible property" // unreachable — universal kinds always accept
-			: REQUIREMENT_PHRASE[requirement];
+	const phrase = REQUIREMENT_PHRASE[requirement];
 	const columnName = col.header || col.field;
 	return validationError(
 		"CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH",
@@ -94,7 +101,7 @@ function buildMismatchError(
 			columnUuid: col.uuid,
 			index: String(index),
 			columnKind: col.kind,
-			resolvedType: resolvedType ?? "",
+			resolvedType,
 		},
 	);
 }

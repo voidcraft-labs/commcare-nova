@@ -13,10 +13,15 @@
 //   - `header` — column display label.
 
 "use client";
-import type { Column } from "@/lib/domain";
-import { isTextShaped, phoneColumn } from "@/lib/domain";
+import type { CaseProperty, Column } from "@/lib/domain";
+import { columnKindAcceptsPropertyType, phoneColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { ColumnFieldRow } from "./ColumnFieldRow";
+
+/** The gate's own accept-set — unknown-typed properties are
+ *  admissible, so the dropdown offers them (see `DateColumnCard`). */
+const acceptsPhoneColumn = (p: CaseProperty) =>
+	columnKindAcceptsPropertyType("phone", p.data_type);
 
 interface PhoneColumnCardProps {
 	readonly value: Extract<Column, { kind: "phone" }>;
@@ -40,7 +45,7 @@ export function PhoneColumnCard({
 			onFieldChange={setField}
 			header={value.header}
 			onHeaderChange={setHeader}
-			propertyFilter={isTextShaped}
+			propertyFilter={acceptsPhoneColumn}
 			errors={errors}
 		/>
 	);

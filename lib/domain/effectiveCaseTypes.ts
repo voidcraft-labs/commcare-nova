@@ -68,12 +68,12 @@
 import type { CaseProperty, CaseType, PersistableDoc } from "./blueprint";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { caseDataTypeForFieldKind, fieldCasePropertyOn } from "./caseTypes";
-import type { Field } from "./fields";
+import type { Field, HiddenField } from "./fields";
 import {
 	isStandardCaseListProperty,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 } from "./standardCaseProperties";
-import { isXPathExpression, type XPathExpression } from "./xpath";
+import type { XPathExpression } from "./xpath";
 
 /**
  * Whole-expression text runs that resolve to a known type. String
@@ -171,22 +171,6 @@ export function materializableCaseTypes(
 	return built;
 }
 
-/**
- * Resolve one property's effective `data_type` against the doc —
- * `undefined` is honest unknown (nothing declared it, no writer
- * pins it, or the case type itself isn't declared). Reads the same
- * memoized view `effectiveCaseTypes` builds, so the two can never
- * disagree.
- */
-export function resolveEffectivePropertyType(
-	doc: PersistableDoc,
-	caseType: string,
-	property: string,
-): CasePropertyDataType | undefined {
-	const ct = effectiveCaseTypes(doc).find((c) => c.name === caseType);
-	return ct?.properties.find((p) => p.name === property)?.data_type;
-}
-
 function buildEffectiveCaseTypes(doc: PersistableDoc): readonly CaseType[] {
 	const writers = buildWriterIndex(doc);
 	// Memo + in-progress guard shared across the whole build so the
@@ -207,7 +191,7 @@ function buildEffectiveCaseTypes(doc: PersistableDoc): readonly CaseType[] {
 		caseType: string,
 		property: string,
 	): CasePropertyDataType | undefined => {
-		const key = `${caseType} ${property}`;
+		const key = `${caseType}\u0000${property}`;
 		if (memo.has(key)) return memo.get(key);
 		if (resolving.has(key)) return undefined; // reference cycle
 		resolving.add(key);
@@ -300,17 +284,15 @@ function buildWriterIndex(doc: PersistableDoc): WriterIndex {
  * the setvalue seed).
  */
 function inferHiddenWriterType(
-	field: Field,
+	field: HiddenField,
 	doc: PersistableDoc,
 	writerType: (
 		caseType: string,
 		property: string,
 	) => CasePropertyDataType | undefined,
 ): CasePropertyDataType | undefined {
-	const source =
-		(field as { calculate?: unknown }).calculate ??
-		(field as { default_value?: unknown }).default_value;
-	if (!isXPathExpression(source)) return undefined;
+	const source = field.calculate ?? field.default_value;
+	if (source === undefined) return undefined;
 	return inferExpressionType(source, doc, writerType);
 }
 

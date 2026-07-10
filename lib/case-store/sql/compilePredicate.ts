@@ -65,7 +65,7 @@ import { compileLiteral } from "./compileLiteral";
 import { compileRelationPath } from "./compileRelationPath";
 import { compileTerm, type TermCompileContext } from "./compileTerm";
 import type { Database } from "./database";
-import { RESERVED_SCALAR_COLUMNS } from "./dataTypeTokens";
+import { RESERVED_SCALAR_COLUMN_BY_PROPERTY } from "./dataTypeTokens";
 
 /** Module-scoped expression builder. Same shape as the sibling compilers. */
 const eb = expressionBuilder<Database, keyof Database>();
@@ -1064,10 +1064,16 @@ function compilePropertyAbsenceCheck(
 ): Expression<SqlBool> {
 	const isSelfVia = property.via === undefined || property.via.kind === "self";
 	const propertyName = property.property;
+	const reserved = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(propertyName);
+	// A non-blankable reserved scalar (a timestamp column) collapses
+	// `is-blank` to plain `IS NULL` — `''` isn't a value the column
+	// can hold, and comparing a timestamp to `''` is a Postgres type
+	// error, not `false`.
+	const blankApplies = reserved === undefined || reserved.blankable;
 
 	if (!isSelfVia) {
 		const valueRead = compileTerm(property, ctx);
-		if (op === "is-null") {
+		if (op === "is-null" || !blankApplies) {
 			return eb(valueRead, "is", null);
 		}
 		return eb.or([eb(valueRead, "is", null), eb(valueRead, "=", eb.val(""))]);
@@ -1076,11 +1082,11 @@ function compilePropertyAbsenceCheck(
 	// Reserved scalars live outside the JSONB document, so `?`
 	// doesn't apply — fall back to standard `IS NULL`.
 	const sourceAlias = ctx.anchorAlias;
-	if (RESERVED_SCALAR_COLUMNS.has(propertyName)) {
+	if (reserved !== undefined) {
 		const columnRef = (eb as DynamicExprBuilder).ref(
-			`${sourceAlias}.${propertyName}`,
+			`${sourceAlias}.${reserved.column}`,
 		);
-		if (op === "is-null") {
+		if (op === "is-null" || !reserved.blankable) {
 			return eb(columnRef, "is", null);
 		}
 		return eb.or([eb(columnRef, "is", null), eb(columnRef, "=", eb.val(""))]);

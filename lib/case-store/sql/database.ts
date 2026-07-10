@@ -94,7 +94,7 @@ export interface CasesTable {
 	 * first-class field reserved for that access-control axis, never to
 	 * be repurposed or dropped. Nullable — HQ-imported cases
 	 * pre-assignment carry null. Stays a queryable reserved scalar
-	 * column (`RESERVED_SCALAR_COLUMNS`).
+	 * column (`RESERVED_SCALAR_COLUMN_BY_PROPERTY`).
 	 */
 	owner_id: string | null;
 
@@ -137,11 +137,22 @@ export interface CasesTable {
 	 * always false.** The column is `NOT NULL` with `length > 0`,
 	 * so the predicate compiler's emitted SQL is trivially false.
 	 * The type checker doesn't reject these AST shapes today
-	 * (admits any `RESERVED_SCALAR_COLUMNS` entry on the left
+	 * (admits any `RESERVED_SCALAR_COLUMN_BY_PROPERTY` entry on the left
 	 * operand without a nullability check), so the SQL compiler
 	 * emits the trivially-false predicate rather than throwing.
 	 */
 	case_name: string;
+
+	/**
+	 * CommCare's standard `external_id` case metadata — a cross-system
+	 * traceability slot beside `case_name` / `status`, never a JSONB
+	 * key. Nothing writes it yet (HQ import / future features will);
+	 * it exists so the standard-name reads
+	 * (`RESERVED_SCALAR_COLUMN_BY_PROPERTY`'s `external_id` /
+	 * `external-id` entries) resolve to an honest column instead of
+	 * throwing.
+	 */
+	external_id: string | null;
 
 	/** Denormalized first parent for the common single-parent case. Full ancestor walks go through `case_indices`. */
 	parent_case_id: string | null;
