@@ -29,7 +29,7 @@ Three data-model states: key absent, key present with JSON null, key present wit
 
 ## JSON Schema generator
 
-`caseTypeToJsonSchema` feeds the case-store's write-time AJV validator (rationale for TS-side validation lives in `lib/case-store/CLAUDE.md`). Properties without a declared `data_type` default to `{ type: "string" }` — deliberately matching the term compiler's `text` default at the same site.
+`caseTypeToJsonSchema` feeds the case-store's write-time AJV validator (rationale for TS-side validation lives in `lib/case-store/CLAUDE.md`). Properties without a declared `data_type` default to `{ type: "string" }` — deliberately matching the term compiler's `text` default at the same site. `int` emits a bounded `{ type: "integer", minimum, maximum }` at int4's signed-32-bit range so AJV's acceptance set matches the Postgres `::integer` cast — an out-of-range value fails as a typed validation error, never a raw Postgres error at INSERT.
 
 ## Two simplification layers — opposite contracts
 

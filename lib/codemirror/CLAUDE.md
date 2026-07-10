@@ -8,4 +8,4 @@ Autocomplete's per-case-type namespaces (`#<type>/`) and properties come from th
 
 ## Node type comparisons
 
-Always compare pre-resolved `NodeType` objects from `parser.nodeSet.types` (the `T` lookup re-exported alongside `parser`), never string names. Applies to operators, delimiters, keywords, and composite node types.
+Always compare pre-resolved `NodeType` objects from `parser.nodeSet.types` (each consumer builds its own `T` lookup from it, as `xpath-format.ts` does), never string names. Applies to operators, delimiters, keywords, and composite node types.

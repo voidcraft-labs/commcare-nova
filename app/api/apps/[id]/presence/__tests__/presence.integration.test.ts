@@ -19,11 +19,14 @@
  * case-store testcontainer `globalSetup`.
  */
 
-import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
-import { Pool } from "pg";
+import type { Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
+import {
+	createPerTestAppDb,
+	type PerTestAppDb,
+} from "@/lib/db/__tests__/perTestAppDb";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 
 const { requireSessionMock, resolveAppScopeMock } = vi.hoisted(() => ({
@@ -60,7 +63,7 @@ const dbHandle = setupPerTestDatabase({
 });
 
 let appDb: Kysely<AppDatabase>;
-let appPool: Pool;
+let harness: PerTestAppDb;
 
 function sessionFor(userId: string) {
 	return { user: { id: userId } } as never;
@@ -124,20 +127,8 @@ async function readPresence(appId: string, userId: string, sessionId: string) {
 
 beforeEach(async () => {
 	await runCaseStoreMigrations(dbHandle.db);
-	/* The same bounded-pool shape as the stream relay suite: `Pool.end()` (via
-	 * `appDb.destroy()` in `afterEach`) waits with no deadline of its own on a
-	 * mid-connect or checked-out client, so on a starved engine an unbounded
-	 * straggler holds the hook past its 30 s timeout. */
-	appPool = new Pool({
-		connectionString: dbHandle.uri,
-		max: 4,
-		connectionTimeoutMillis: 10_000,
-		query_timeout: 10_000,
-	});
-	appPool.on("error", () => {});
-	appDb = new Kysely<AppDatabase>({
-		dialect: new PostgresDialect({ pool: appPool as unknown as PostgresPool }),
-	});
+	harness = createPerTestAppDb(dbHandle.uri);
+	appDb = harness.appDb;
 	__setAppDbForTests(appDb);
 
 	requireSessionMock.mockReset();
@@ -152,7 +143,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	__setAppDbForTests(null);
-	await appDb.destroy().catch(() => {});
+	await harness.destroy();
 });
 
 describe("/presence route (Postgres)", () => {
