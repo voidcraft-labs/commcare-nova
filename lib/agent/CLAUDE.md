@@ -2,13 +2,15 @@
 
 Owns every module the Solutions Architect reaches into during generation or edit. No other directory constructs an LLM provider (every model call rides the Vercel AI Gateway — one `AI_GATEWAY_API_KEY`, gateway-format model ids from `lib/models.ts`), renders the SA system prompt, or generates tool schemas.
 
-## The wire forces every key — null is the only absence
+## Strict-mode normalization — omission is fragile, null is the fallback, filler is never
 
-Constrained tool decoding lists EVERY property as required on the wire, so the model cannot omit a key it has no value for (verified live: prompted to omit, it invents filler — `"none"`, `"unused"` — while a nullable slot gets a clean `null`; told to "change only the label", it sent `null` for every other slot). Three consequences every tool obeys:
+OpenAI's Responses API "will attempt to normalize your schema into strict mode when possible" (function-calling guide) — strict mode requires EVERY property in `required`, with optionality expressed as null-unions — "and will fall back to non-strict, best-effort function calling if the schema cannot be made compatible." Under normalization the model cannot omit a key: a plain-optional slot gets invented filler (`"none"`, `"unused"` — observed across five live retries while the chat text claimed removal), and only a nullable slot gets a clean `null`. Every SA tool therefore sets **`strict: false`** (the documented opt-out, stamped in `solutionsArchitect.ts`'s `wrapMutating`/`wrapRead`), so the model omits what doesn't apply — fewer output tokens, less context echo — and our SDK-side Zod validation remains the real gate.
 
-- **Every optional slot is `.nullable()`** and `null` means "nothing here" — collapsed to absence on the add path (`stripEmpty`, `cleanCaseTypeRecord`, `buildConnectConfig`), and meaning "leave unchanged" on the edit path (`editField`, `updateForm`, `updateModule`, `updateApp`).
-- **No slot's meaning may depend on omitted-vs-null** — the model can't express omission. The old "null = clear" edit convention mass-wiped untouched properties on every GPT-5.6 edit; clears are now EXPLICIT (`editField.clear`, `updateForm.clear`, `updateApp`'s `connect_type: "off"`). The wholesale tools (`setCaseListFilter`, case-search-config, media items) keep required-and-nullable null-clears — there the CALL is the intent and every slot named is deliberately set.
-- **Validation rejects only what the model can fix** — a rejection message must name a state the wire can express (usually "pass null"), or the model escalates to fabricating passing values (observed: `"unused"` → `"dummy"` → `"x"` → `"not_applicable"` → `"remove"` across five retries, with chat text claiming each was a removal).
+The defensive invariants stay regardless of mode, because normalization is "when possible" (schema- and adapter-dependent) and MCP clients send arbitrary shapes:
+
+- **Every optional slot is `.nullable()`** and `null` ≡ omitted ≡ "nothing here" — collapsed to absence on the add path (`stripEmpty`, `cleanCaseTypeRecord`, `buildConnectConfig`), "leave unchanged" on the edit path (`editField`, `updateForm`, `updateModule`, `updateApp`).
+- **No slot's meaning may depend on omitted-vs-null** — under strict normalization the model can't express omission. The old "null = clear" edit convention mass-wiped untouched properties on every GPT-5.6 edit; clears are EXPLICIT (`editField.clear`, `updateForm.clear`, `updateApp`'s `connect_type: "off"`). The wholesale tools (`setCaseListFilter`, case-search-config, media items) keep required-and-nullable null-clears — there the CALL is the intent and every slot named is deliberately set.
+- **Validation rejects only what the model can fix** — a rejection message must name a state the model can express (drop the slot / pass null), or it escalates to fabricating passing values.
 
 ## Boundary rule
 

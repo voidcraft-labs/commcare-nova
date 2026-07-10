@@ -201,6 +201,14 @@ export function createSolutionsArchitect(
 		return {
 			description: t.description,
 			inputSchema: t.inputSchema,
+			// Opt out of the Responses API's default strict-mode schema
+			// normalization, which forces EVERY property present on every
+			// call (optionals become required; the model pads unused slots
+			// with null — or invents filler where null isn't in the type).
+			// Non-strict lets the model omit what doesn't apply — fewer
+			// output tokens per call, less context echo on every later step
+			// — and our own Zod validation remains the real gate either way.
+			strict: false,
 			execute: (input: I) =>
 				serial(async () => {
 					try {
@@ -265,6 +273,8 @@ export function createSolutionsArchitect(
 		return {
 			description: t.description,
 			inputSchema: t.inputSchema,
+			// Same strict-mode opt-out as `wrapMutating` — see the note there.
+			strict: false,
 			execute: (input: I) =>
 				serial(async () => {
 					/* `kind: "read"` discriminator is internal to the shared
@@ -305,6 +315,7 @@ export function createSolutionsArchitect(
 		askQuestions: {
 			description: askQuestionsTool.description,
 			inputSchema: askQuestionsTool.inputSchema,
+			strict: false,
 		},
 
 		addFields: wrapMutating(addFieldsTool),

@@ -304,6 +304,10 @@ console.log(`Testing with ${model}...`);
 					[test.name]: tool({
 						description: test.description,
 						inputSchema: test.schema,
+						// Mirrors production (`solutionsArchitect.ts` wrappers): opt
+						// out of Responses strict-mode normalization so optionals
+						// stay omittable.
+						strict: false,
 						execute: async () => "ok",
 					}),
 				},
