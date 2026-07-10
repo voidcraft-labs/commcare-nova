@@ -62,7 +62,12 @@
  */
 
 import type { SchemaChangeKind } from "@/lib/case-store";
-import type { BlueprintDoc, CaseProperty, CaseType } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type CaseProperty,
+	type CaseType,
+	materializableCaseTypes,
+} from "@/lib/domain";
 
 /**
  * One change entry the saga issues to the case store. Mirrors the
@@ -145,8 +150,18 @@ export interface ClassifyArgs {
 export function classifyCaseTypeChanges(
 	args: ClassifyArgs,
 ): readonly CaseTypeChangeEntry[] {
-	const priorByName = indexCaseTypes(args.prior.caseTypes);
-	const prospectiveByName = indexCaseTypes(args.prospective.caseTypes);
+	// Diff the MATERIALIZABLE views, not the raw catalogs — the schema
+	// rows the saga writes are built from that view
+	// (`buildCaseTypeMap`), so the diff must see exactly
+	// what the rows will hold. Concretely: converting a writer field's
+	// kind (or editing a hidden writer's expression) changes a
+	// property's DERIVED `data_type` without touching `doc.caseTypes`;
+	// a raw-catalog diff would skip the schema re-sync and leave
+	// `case_type_schemas` stale against the compiler's view.
+	const priorByName = indexCaseTypes(materializableCaseTypes(args.prior));
+	const prospectiveByName = indexCaseTypes(
+		materializableCaseTypes(args.prospective),
+	);
 
 	const entries: CaseTypeChangeEntry[] = [];
 
@@ -219,15 +234,14 @@ function entryFromHint(hint: SchemaChangeHint): CaseTypeChangeEntry {
 }
 
 /**
- * Build a name → CaseType map for fast lookup. A `null` `caseTypes`
- * (the empty-blueprint shape `createApp` writes) yields an empty
- * map, mirroring `buildCaseTypeMap` from `lib/case-store/store.ts`.
+ * Build a name → CaseType map for fast lookup over the effective
+ * view (an empty blueprint yields an empty map), mirroring
+ * `buildCaseTypeMap` from `lib/case-store/store.ts`.
  */
 function indexCaseTypes(
-	caseTypes: BlueprintDoc["caseTypes"],
+	caseTypes: readonly CaseType[],
 ): ReadonlyMap<string, CaseType> {
 	const map = new Map<string, CaseType>();
-	if (caseTypes === null) return map;
 	for (const ct of caseTypes) {
 		map.set(ct.name, ct);
 	}

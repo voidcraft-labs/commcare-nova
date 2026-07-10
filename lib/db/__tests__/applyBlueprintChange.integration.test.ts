@@ -183,7 +183,7 @@ function makeBlueprint(caseTypes: CaseType[] | null): PersistableDoc {
 /**
  * The `committedDoc` a successful `commitGuardedBatch` returns — the hydrated
  * committed blueprint the post-commit sweep re-derives schemas from. The sweep
- * reads `.caseTypes` only (via `buildCaseTypeMap`), so a `PersistableDoc`
+ * reads `.caseTypes` + `.fields` only (via `buildCaseTypeMap`), so a `PersistableDoc`
  * widened to `BlueprintDoc` is sufficient for the fixture. An additive test
  * MUST supply this (the sweep skips a `committedDoc`-undefined result).
  */

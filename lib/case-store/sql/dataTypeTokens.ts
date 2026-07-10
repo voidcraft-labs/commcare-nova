@@ -65,31 +65,55 @@ export const JSONB_READ_OPERATOR_FOR_DATA_TYPE: Readonly<
 };
 
 /**
- * `cases` columns that surface as first-class scalar reads instead
- * of JSONB-document keys. A `prop` term whose `property` matches
- * routes through `eb.ref(...)` because the column is indexed and
- * because the column isn't in the JSONB document (a JSONB read
- * would return `NULL`). The `is-null` / `is-blank` arms read the
- * same set so both compilers stay in lockstep.
- *
- * Other scalar columns (`app_id`, `opened_on`, `modified_on`,
- * `closed_on`, `parent_case_id`) are intentionally NOT routed
- * through `prop` — they're tenant / timestamp / FK columns whose
- * authoring belongs to query-shape primitives, not the case's
- * authored property document. Future term-level support gets a
- * dedicated AST shape rather than `prop`-as-scalar overloading.
- *
- * **Shadowing:** these names are also valid CommCare property
- * identifiers. A blueprint declaring a property with one of these
- * names is silently shadowed by the scalar-column read. The
- * blueprint validator is responsible for rejecting these names
- * (CommCare's wire layer reserves them too); the compilers trust
- * that rejection upstream.
+ * One resolved standard-name read: the `cases` column carrying the
+ * value, plus the column's shape. `blankable` drives the `is-blank`
+ * arm — `''` is a possible stored value only on text-shaped columns;
+ * comparing a timestamp column to `''` is a Postgres type error, so
+ * non-blankable columns collapse `is-blank` to plain `IS NULL`.
  */
-export const RESERVED_SCALAR_COLUMNS: ReadonlySet<string> = new Set([
-	"case_id",
-	"case_type",
-	"owner_id",
-	"status",
-	"case_name",
+export interface ReservedScalarColumn {
+	readonly column: string;
+	readonly blankable: boolean;
+}
+
+/**
+ * CommCare's standard case-metadata property names resolved onto the
+ * `cases` scalar columns that carry their values. A `prop` term whose
+ * name matches routes through `eb.ref(...)` on the MAPPED column
+ * instead of a JSONB-document read — the value lives in the column,
+ * never the JSONB document (a JSONB read would return `NULL`), and
+ * these names ARE the wire's authoring vocabulary for case metadata
+ * (a CommCare detail column's `field` says `date_opened`; the device
+ * reads the case's open timestamp). The `is-null` / `is-blank` arms
+ * read the same map so both compilers stay in lockstep, and the
+ * running-preview display seam
+ * (`lib/preview/engine/caseDataBindingClient.ts::caseRowDisplayValue`)
+ * resolves the same names off the row object.
+ *
+ * Truly internal columns (`app_id`, `project_id`, `closed_on`,
+ * `parent_case_id`) stay unmapped — tenant / FK plumbing with no
+ * authoring-vocabulary name.
+ *
+ * **Shadowing:** these names are also syntactically valid property
+ * identifiers, but a field cannot write one — the validator's
+ * `RESERVED_CASE_PROPERTY` rule rejects every entry here except
+ * `case_name` as a `case_property_on` target — so the scalar read
+ * can never shadow authored case data; the compilers trust that
+ * rejection upstream.
+ */
+export const RESERVED_SCALAR_COLUMN_BY_PROPERTY: ReadonlyMap<
+	string,
+	ReservedScalarColumn
+> = new Map([
+	["case_id", { column: "case_id", blankable: true }],
+	["case_type", { column: "case_type", blankable: true }],
+	["owner_id", { column: "owner_id", blankable: true }],
+	["status", { column: "status", blankable: true }],
+	["case_name", { column: "case_name", blankable: true }],
+	["name", { column: "case_name", blankable: true }],
+	["external_id", { column: "external_id", blankable: true }],
+	["external-id", { column: "external_id", blankable: true }],
+	["date_opened", { column: "opened_on", blankable: false }],
+	["date-opened", { column: "opened_on", blankable: false }],
+	["last_modified", { column: "modified_on", blankable: false }],
 ]);

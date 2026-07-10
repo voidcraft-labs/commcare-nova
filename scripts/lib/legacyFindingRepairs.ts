@@ -177,6 +177,9 @@ export const REPAIR_JUDGMENTS: Readonly<
 	CASE_LIST_COLUMN_UNKNOWN_FIELD: owner(
 		"pointing the column at a real case property (or dropping it) is content",
 	),
+	CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH: owner(
+		"resolving the kind-vs-property mismatch is content — flipping the column to plain drops the formatting the author wanted, and retyping the property changes what the writing fields collect",
+	),
 	CASE_LIST_FILTER_TYPE_ERROR: owner(
 		"rewriting the filter expression changes what the list shows",
 	),

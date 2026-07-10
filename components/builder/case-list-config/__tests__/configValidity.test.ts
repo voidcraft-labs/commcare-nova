@@ -1,9 +1,10 @@
 // components/builder/case-list-config/__tests__/configValidity.test.ts
 //
-// Pins the pure whole-config validity gate the workspace's live
-// preview sits behind. The verdict must mirror what the entity
-// editors surface: a config every editor would render error-free is
-// valid; a config any editor would flag is invalid.
+// Pins the pure whole-config verdicts (tab dots, in-canvas marks,
+// preview gate). The verdicts must mirror what the entity editors
+// surface: a config every editor would render error-free carries no
+// dots or marks; a config any editor would flag does — and the
+// preview pauses ONLY for the ASTs the SQL compiler consumes.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -25,7 +26,7 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 import { asUuid } from "@/lib/domain/uuid";
-import { isCaseListConfigValid } from "../configValidity";
+import { caseListConfigVerdicts } from "../configValidity";
 
 const CASE_TYPES: CaseType[] = [
 	{
@@ -41,13 +42,22 @@ function config(partial: Partial<CaseListConfig>): CaseListConfig {
 	return { columns: [], searchInputs: [], ...partial };
 }
 
-describe("isCaseListConfigValid", () => {
-	it("accepts an empty config", () => {
-		expect(isCaseListConfigValid(config({}), CASE_TYPES, "patient")).toBe(true);
+function verdicts(partial: Partial<CaseListConfig>) {
+	return caseListConfigVerdicts(config(partial), CASE_TYPES, "patient");
+}
+
+const CLEAN = { search: false, list: false, detail: false };
+
+describe("caseListConfigVerdicts", () => {
+	it("reports an empty config clean", () => {
+		const v = verdicts({});
+		expect(v.errorAreas).toEqual(CLEAN);
+		expect(v.brokenColumns.size).toBe(0);
+		expect(v.previewObstacle).toBeNull();
 	});
 
-	it("accepts well-typed columns, filter, and inputs", () => {
-		const ok = config({
+	it("reports well-typed columns, filter, and inputs clean", () => {
+		const v = verdicts({
 			columns: [
 				plainColumn(asUuid("c1"), "name", "Name"),
 				dateColumn(asUuid("c2"), "dob", "DOB", "%d/%m/%Y"),
@@ -67,18 +77,43 @@ describe("isCaseListConfigValid", () => {
 				),
 			],
 		});
-		expect(isCaseListConfigValid(ok, CASE_TYPES, "patient")).toBe(true);
+		expect(v.errorAreas).toEqual(CLEAN);
+		expect(v.previewObstacle).toBeNull();
 	});
 
-	it("rejects a kind-vs-property mismatch (date column on a text property)", () => {
-		const bad = config({
+	it("marks a kind-vs-property mismatch (date column on a DECLARED text property) without pausing the preview", () => {
+		const v = verdicts({
 			columns: [dateColumn(asUuid("c1"), "name", "Name", "%d/%m/%Y")],
 		});
-		expect(isCaseListConfigValid(bad, CASE_TYPES, "patient")).toBe(false);
+		// The mark + both tab dots (both canvases render every column)…
+		expect(v.brokenColumns.has(asUuid("c1"))).toBe(true);
+		expect(v.errorAreas.list).toBe(true);
+		expect(v.errorAreas.detail).toBe(true);
+		// …but the live rows keep running: an applicability mismatch is a
+		// formatting concern, not an AST the SQL compiler would choke on.
+		expect(v.previewObstacle).toBeNull();
 	});
 
-	it("rejects a calculated column whose expression fails its type check", () => {
-		const bad = config({
+	it("accepts a date column on a property with NO resolved type (honest unknown)", () => {
+		const caseTypes: CaseType[] = [
+			{
+				name: "patient",
+				properties: [{ name: "mystery", label: "Mystery" }],
+			} as CaseType,
+		];
+		const v = caseListConfigVerdicts(
+			config({
+				columns: [dateColumn(asUuid("c1"), "mystery", "M", "%d/%m/%Y")],
+			}),
+			caseTypes,
+			"patient",
+		);
+		expect(v.errorAreas).toEqual(CLEAN);
+		expect(v.brokenColumns.size).toBe(0);
+	});
+
+	it("pauses the preview for a calculated column whose expression fails its type check, naming it", () => {
+		const v = verdicts({
 			columns: [
 				// References a property that doesn't exist on the case type.
 				calculatedColumn(
@@ -88,47 +123,66 @@ describe("isCaseListConfigValid", () => {
 				),
 			],
 		});
-		expect(isCaseListConfigValid(bad, CASE_TYPES, "patient")).toBe(false);
+		expect(v.brokenColumns.has(asUuid("c1"))).toBe(true);
+		expect(v.previewObstacle).toContain('the calculated column "Calc"');
+		expect(v.previewObstacle).toContain("has an error");
 	});
 
-	it("rejects a filter that references an unknown property", () => {
-		const bad = config({
+	it("pauses the preview for a filter that references an unknown property", () => {
+		const v = verdicts({
 			filter: {
 				kind: "eq",
 				left: term(prop("patient", "missing_prop")),
 				right: term(literal("x")),
 			},
 		});
-		expect(isCaseListConfigValid(bad, CASE_TYPES, "patient")).toBe(false);
+		expect(v.errorAreas.list).toBe(true);
+		expect(v.previewObstacle).toContain("the filter has an error");
 	});
 
-	it("rejects structural search-input errors (empty label, duplicate names)", () => {
-		const emptyLabel = config({
+	it("pluralizes the obstacle across the filter and several calculated columns", () => {
+		const v = verdicts({
+			columns: [
+				calculatedColumn(
+					asUuid("c1"),
+					"A",
+					term(prop("patient", "missing_prop")),
+				),
+				calculatedColumn(
+					asUuid("c2"),
+					"B",
+					term(prop("patient", "missing_prop")),
+				),
+			],
+			filter: {
+				kind: "eq",
+				left: term(prop("patient", "missing_prop")),
+				right: term(literal("x")),
+			},
+		});
+		expect(v.previewObstacle).toContain(
+			"the filter and 2 calculated columns have errors",
+		);
+	});
+
+	it("flags structural search-input errors on the search tab only, without pausing", () => {
+		const v = verdicts({
 			searchInputs: [
 				simpleSearchInputDef(asUuid("s1"), "a", "", "text", "name"),
-			],
-		});
-		expect(isCaseListConfigValid(emptyLabel, CASE_TYPES, "patient")).toBe(
-			false,
-		);
-
-		const duplicateNames = config({
-			searchInputs: [
-				simpleSearchInputDef(asUuid("s1"), "a", "First", "text", "name"),
 				simpleSearchInputDef(asUuid("s2"), "a", "Second", "text", "name"),
 			],
 		});
-		expect(isCaseListConfigValid(duplicateNames, CASE_TYPES, "patient")).toBe(
-			false,
-		);
+		expect(v.errorAreas.search).toBe(true);
+		expect(v.errorAreas.list).toBe(false);
+		expect(v.previewObstacle).toBeNull();
 	});
 
 	it("accepts an advanced input whose condition references its own input", () => {
 		// The custom-condition seed self-references the row's own input
 		// via the when-input-present envelope. The edited row must be in
-		// scope for that to resolve — otherwise the gate pauses the
-		// preview on a condition the commit gate and wire emitter accept.
-		const ok = config({
+		// scope for that to resolve — otherwise the gate flags a condition
+		// the commit gate and wire emitter accept.
+		const v = verdicts({
 			searchInputs: [
 				advancedSearchInputDef(
 					asUuid("s1"),
@@ -139,16 +193,12 @@ describe("isCaseListConfigValid", () => {
 				),
 			],
 		});
-		expect(isCaseListConfigValid(ok, CASE_TYPES, "patient")).toBe(true);
+		expect(v.errorAreas).toEqual(CLEAN);
 	});
 
 	it("accepts a match-all filter (the empty-filter seed)", () => {
-		expect(
-			isCaseListConfigValid(
-				config({ filter: matchAll() }),
-				CASE_TYPES,
-				"patient",
-			),
-		).toBe(true);
+		const v = verdicts({ filter: matchAll() });
+		expect(v.errorAreas).toEqual(CLEAN);
+		expect(v.previewObstacle).toBeNull();
 	});
 });

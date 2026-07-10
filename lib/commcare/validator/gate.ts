@@ -113,6 +113,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	MISSING_CASE_LIST_COLUMNS: "completeness",
 	// ── Case-list-config rules ───────────────────────────────────────
 	CASE_LIST_COLUMN_UNKNOWN_FIELD: "soundness",
+	CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH: "soundness",
 	CASE_LIST_FILTER_TYPE_ERROR: "soundness",
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: "soundness",
 	CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY: "soundness",
@@ -436,6 +437,7 @@ export function errorIdentity(err: ValidationError): string {
 
 		// Module-scope: stable sub-entity uuid from details.
 		case "CASE_LIST_COLUMN_UNKNOWN_FIELD":
+		case "CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH":
 		case "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR":
 		case "CASE_LIST_ID_MAPPING_EMPTY_VALUE":
 			parts.push(part("m", loc.moduleUuid), part("col", det?.columnUuid));

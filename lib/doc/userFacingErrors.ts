@@ -144,6 +144,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 	// ── Case-list config ─────────────────────────────────────────────
 	CASE_LIST_COLUMN_UNKNOWN_FIELD: (e) =>
 		`One of ${q(modName(e))}'s case list columns shows ${q(det(e, "field", "a property"))}, which isn't a property on this case type. Point it at one that exists.`,
+	CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH: (e) =>
+		`A column in ${q(modName(e))} shows ${q(det(e, "field", "a property"))}, but that property holds ${det(e, "resolvedType", "a different kind of")} values, which the column's style can't format. Pick a matching property, or switch the column to a style that fits — plain text always works.`,
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: (e) =>
 		`A calculated column in ${q(modName(e))} has a calculation that doesn't quite add up. Open it and take a look.`,
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>

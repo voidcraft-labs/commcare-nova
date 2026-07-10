@@ -1,16 +1,18 @@
 // components/builder/case-list-config/configValidity.ts
 //
-// Pure whole-config validity for `CaseListConfig` — the gate the
-// workspace's live preview sits behind. The magazine-era workspace
-// aggregated validity from MOUNTED editors; the artifact-first
-// workspace mounts at most one editor (the inspected entity), so the
-// gate has to be derivable from the config alone.
+// Pure whole-config verdicts for `CaseListConfig`. The workspace
+// mounts at most one editor (the inspected entity), so every verdict
+// is derived from the config alone. Callers pass the EFFECTIVE case
+// types (`useEffectiveCaseTypes` — the same view the commit gate's
+// validator resolves against), so these verdicts can't disagree with
+// the gate.
 //
 // Each check mirrors the corresponding editor's own verdict source so
-// the gate can't disagree with what the inspector shows:
+// the derivation can't disagree with what the inspector shows:
 //
 //   - columns: the per-kind applicability predicate from
-//     `columnEditorSchemas` (what `ColumnEditor` surfaces inline);
+//     `columnEditorSchemas` (what `ColumnEditor` surfaces inline, and
+//     the same domain predicate the gate's kind-vs-type rule runs);
 //     calculated columns run `checkValueExpression` with the same
 //     bare context `CalculatedColumnCard`'s editor builds.
 //   - filter: `checkPredicate` with the full search-input list as
@@ -21,11 +23,25 @@
 //     inputs in scope) / advanced-predicate (every named row in scope)
 //     checks — exactly the editors `SearchInputEditor` mounts.
 //
-// An invalid verdict pauses the preview rather than letting a
-// malformed AST reach the case-store compiler, where it would surface
-// as a raw SQL-layer error arm.
+// ONE walk produces three answers, because they gate different
+// surfaces:
+//
+//   - `errorAreas` — which tabs carry the error dot: every finding,
+//     including search-input problems and column-kind applicability
+//     mismatches. A broken column badges BOTH the list and detail
+//     tabs — both canvases render every column (hidden ones dim), so
+//     the entity is findable and fixable from either.
+//   - `brokenColumns` — the per-column set behind the in-canvas
+//     error marks (a tab dot must point at something findable).
+//   - `previewObstacle` — why the live preview can't run, or `null`:
+//     ONLY the ASTs the case-store SQL compiler actually consumes
+//     (the filter + calculated-column expressions), where an invalid
+//     AST would throw at the SQL layer. An applicability mismatch or
+//     a search-input problem never blanks the live table — those
+//     rows still load and render fine; the marks + inspector carry
+//     the signal.
 
-import type { CaseListConfig, CaseType } from "@/lib/domain";
+import type { CaseListConfig, CaseType, Column, Uuid } from "@/lib/domain";
 import {
 	checkPredicate,
 	checkValueExpression,
@@ -52,11 +68,17 @@ export interface CaseListConfigErrorAreas {
 	readonly detail: boolean;
 }
 
-export function caseListConfigErrorAreas(
+export interface CaseListConfigVerdicts {
+	readonly errorAreas: CaseListConfigErrorAreas;
+	readonly brokenColumns: ReadonlySet<Uuid>;
+	readonly previewObstacle: string | null;
+}
+
+export function caseListConfigVerdicts(
 	config: CaseListConfig,
 	caseTypes: readonly CaseType[],
 	currentCaseType: string,
-): CaseListConfigErrorAreas {
+): CaseListConfigVerdicts {
 	const editCtx = { caseTypes, currentCaseType };
 	const bareCtx: TypeContext = {
 		caseTypes: [...caseTypes],
@@ -64,38 +86,39 @@ export function caseListConfigErrorAreas(
 		currentCaseType,
 	};
 
-	let search = false;
-	let list = false;
-	let detail = false;
-
+	// ── Columns — one pass feeds the marks, the tab dots, AND the
+	// preview gate's calculated arm. ──
+	const brokenColumns = new Set<Uuid>();
+	const brokenCalculated: Column[] = [];
 	for (const col of config.columns) {
-		const broken =
-			col.kind === "calculated"
-				? !checkValueExpression(col.expression, bareCtx).ok
-				: !columnCardSchemas[col.kind].applicableForProperty(
-						resolveColumnProperty(editCtx, col.field),
-					);
-		if (broken) {
-			// The list canvas renders every column (hidden ones dim), so a
-			// broken column always badges the list tab; the detail tab is
-			// badged only when the column participates there.
-			list = true;
-			if (col.visibleInDetail !== false) detail = true;
+		if (col.kind === "calculated") {
+			if (checkValueExpression(col.expression, bareCtx).ok) continue;
+			brokenColumns.add(col.uuid);
+			brokenCalculated.push(col);
+			continue;
 		}
+		const applicable = columnCardSchemas[col.kind].applicableForProperty(
+			resolveColumnProperty(editCtx, col.field),
+		);
+		if (!applicable) brokenColumns.add(col.uuid);
 	}
 
+	// ── Filter ──
+	let filterIsBroken = false;
 	if (config.filter !== undefined) {
 		const filterCtx: TypeContext = {
 			caseTypes: [...caseTypes],
 			knownInputs: [...config.searchInputs],
 			currentCaseType,
 		};
-		if (!checkPredicate(config.filter, filterCtx).ok) list = true;
+		filterIsBroken = !checkPredicate(config.filter, filterCtx).ok;
 	}
 
-	// An advanced predicate resolves `input(...)` against EVERY named row
-	// — the full scope the validator's `moduleTypeContext` and the wire
-	// emitter use. Hoisted out of the loop: it doesn't vary per row.
+	// ── Search inputs ──
+	// An advanced predicate resolves `input(...)` against EVERY named
+	// row — the full scope the validator's `moduleTypeContext` and the
+	// wire emitter use. Hoisted out of the loop: it doesn't vary per row.
+	let search = false;
 	const inputDecls = searchInputDecls(
 		config.searchInputs,
 		caseTypes,
@@ -138,14 +161,36 @@ export function caseListConfigErrorAreas(
 		}
 	}
 
-	return { search, list, detail };
+	const columnsBroken = brokenColumns.size > 0;
+	return {
+		errorAreas: {
+			search,
+			list: columnsBroken || filterIsBroken,
+			detail: columnsBroken,
+		},
+		brokenColumns,
+		previewObstacle: composePreviewObstacle(filterIsBroken, brokenCalculated),
+	};
 }
 
-export function isCaseListConfigValid(
-	config: CaseListConfig,
-	caseTypes: readonly CaseType[],
-	currentCaseType: string,
-): boolean {
-	const areas = caseListConfigErrorAreas(config, caseTypes, currentCaseType);
-	return !areas.search && !areas.list && !areas.detail;
+/** The paused-preview notice, naming the thing to open. */
+function composePreviewObstacle(
+	filterIsBroken: boolean,
+	brokenCalculated: readonly Column[],
+): string | null {
+	const total = (filterIsBroken ? 1 : 0) + brokenCalculated.length;
+	if (total === 0) return null;
+
+	const parts: string[] = [];
+	if (filterIsBroken) parts.push("the filter");
+	if (brokenCalculated.length === 1) {
+		const header = brokenCalculated[0]?.header;
+		parts.push(
+			header ? `the calculated column "${header}"` : "a calculated column",
+		);
+	} else if (brokenCalculated.length > 1) {
+		parts.push(`${brokenCalculated.length} calculated columns`);
+	}
+	const verb = total === 1 ? "has an error" : "have errors";
+	return `Preview paused — ${parts.join(" and ")} ${verb} on this case list. Click the marked item to fix it.`;
 }

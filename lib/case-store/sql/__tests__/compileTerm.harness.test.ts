@@ -77,7 +77,7 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "nickname", label: "Nickname", data_type: "text" },
 		{ name: "age", label: "Age", data_type: "int" },
 		{ name: "bmi", label: "BMI", data_type: "decimal" },
 		{ name: "dob", label: "DOB", data_type: "date" },
@@ -133,12 +133,12 @@ describe("compileTerm — round-trip — prop (self via)", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice" }),
+					properties: JSON.stringify({ nickname: "Alice" }),
 				}),
 			)
 			.execute();
 
-		const left = compileTerm(prop("patient", "name"), makeCtx(db));
+		const left = compileTerm(prop("patient", "nickname"), makeCtx(db));
 		const right = compileTerm(literal("Alice"), makeCtx(db));
 		const rows = await db
 			.selectFrom("cases as c")
@@ -575,7 +575,7 @@ describe("compileTerm — round-trip — Postgres-strict null semantics", () => 
 			)
 			.execute();
 
-		const left = compileTerm(prop("patient", "name"), makeCtx(db));
+		const left = compileTerm(prop("patient", "nickname"), makeCtx(db));
 		const empty = compileTerm(literal(""), makeCtx(db));
 		const rows = await db
 			.selectFrom("cases as c")

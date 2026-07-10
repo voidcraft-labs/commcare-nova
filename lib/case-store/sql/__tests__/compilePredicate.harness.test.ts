@@ -91,7 +91,7 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "nickname", label: "Nickname", data_type: "text" },
 		{ name: "age", label: "Age", data_type: "int" },
 		{ name: "bmi", label: "BMI", data_type: "decimal" },
 		{ name: "dob", label: "DOB", data_type: "date" },
@@ -111,7 +111,7 @@ const HOUSEHOLD_SCHEMA: CaseType = {
 
 const VILLAGE_SCHEMA: CaseType = {
 	name: "village",
-	properties: [{ name: "name", label: "Village name", data_type: "text" }],
+	properties: [{ name: "nickname", label: "Village name", data_type: "text" }],
 };
 
 const SCHEMAS = new Map<string, CaseType>([
@@ -221,19 +221,19 @@ describe("compilePredicate — round-trip — logical operators", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice", age: 30 }),
+					properties: JSON.stringify({ nickname: "Alice", age: 30 }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice", age: 25 }),
+					properties: JSON.stringify({ nickname: "Alice", age: 25 }),
 				}),
 			])
 			.execute();
 		const pred = and(
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "nickname"), literal("Alice")),
 			eq(prop("patient", "age"), literal(30)),
 		);
 		const rows = await executeAgainstPredicate(
@@ -252,20 +252,20 @@ describe("compilePredicate — round-trip — logical operators", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice" }),
+					properties: JSON.stringify({ nickname: "Alice" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Bob" }),
+					properties: JSON.stringify({ nickname: "Bob" }),
 				}),
 			])
 			.execute();
 		const pred = or(
-			eq(prop("patient", "name"), literal("Alice")),
-			eq(prop("patient", "name"), literal("Bob")),
+			eq(prop("patient", "nickname"), literal("Alice")),
+			eq(prop("patient", "nickname"), literal("Bob")),
 		);
 		const rows = await executeAgainstPredicate(
 			db,
@@ -285,18 +285,18 @@ describe("compilePredicate — round-trip — logical operators", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice" }),
+					properties: JSON.stringify({ nickname: "Alice" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Bob" }),
+					properties: JSON.stringify({ nickname: "Bob" }),
 				}),
 			])
 			.execute();
-		const pred = not(eq(prop("patient", "name"), literal("Alice")));
+		const pred = not(eq(prop("patient", "nickname"), literal("Alice")));
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -365,14 +365,14 @@ describe("compilePredicate — round-trip — comparison operators", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Bob" }),
+					properties: JSON.stringify({ nickname: "Bob" }),
 				}),
 			)
 			.execute();
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(
-				eq(prop("patient", "name"), literal("bob")),
+				eq(prop("patient", "nickname"), literal("bob")),
 				makeCtx(db),
 			),
 		);
@@ -418,7 +418,7 @@ describe("compilePredicate — round-trip — Postgres-strict null semantics", (
 					app_id: APP_ID,
 					project_id: OWNER_ID,
 					// `name` present with empty string.
-					properties: JSON.stringify({ name: "" }),
+					properties: JSON.stringify({ nickname: "" }),
 				}),
 				makeCaseRow({
 					case_id: "30000000-0000-0000-0000-000000000003",
@@ -426,11 +426,11 @@ describe("compilePredicate — round-trip — Postgres-strict null semantics", (
 					app_id: APP_ID,
 					project_id: OWNER_ID,
 					// `name` present with JSON null.
-					properties: JSON.stringify({ name: null }),
+					properties: JSON.stringify({ nickname: null }),
 				}),
 			])
 			.execute();
-		const pred = isNull(prop("patient", "name"));
+		const pred = isNull(prop("patient", "nickname"));
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -460,18 +460,18 @@ describe("compilePredicate — round-trip — Postgres-strict null semantics", (
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "" }),
+					properties: JSON.stringify({ nickname: "" }),
 				}),
 				makeCaseRow({
 					case_id: "30000000-0000-0000-0000-000000000003",
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: null }),
+					properties: JSON.stringify({ nickname: null }),
 				}),
 			])
 			.execute();
-		const pred = isBlank(prop("patient", "name"));
+		const pred = isBlank(prop("patient", "nickname"));
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -506,18 +506,18 @@ describe("compilePredicate — round-trip — Postgres-strict null semantics", (
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "" }),
+					properties: JSON.stringify({ nickname: "" }),
 				}),
 				makeCaseRow({
 					case_id: "30000000-0000-0000-0000-000000000003",
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: null }),
+					properties: JSON.stringify({ nickname: null }),
 				}),
 			])
 			.execute();
-		const pred = eq(prop("patient", "name"), literal(""));
+		const pred = eq(prop("patient", "nickname"), literal(""));
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -550,18 +550,18 @@ describe("compilePredicate — round-trip — Postgres-strict null semantics", (
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "" }),
+					properties: JSON.stringify({ nickname: "" }),
 				}),
 				makeCaseRow({
 					case_id: "30000000-0000-0000-0000-000000000003",
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: null }),
+					properties: JSON.stringify({ nickname: null }),
 				}),
 			])
 			.execute();
-		const pred = eq(prop("patient", "name"), literal(null));
+		const pred = eq(prop("patient", "nickname"), literal(null));
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -584,18 +584,18 @@ describe("compilePredicate — round-trip — in", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice" }),
+					properties: JSON.stringify({ nickname: "Alice" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Bob" }),
+					properties: JSON.stringify({ nickname: "Bob" }),
 				}),
 			])
 			.execute();
-		const pred = isIn(prop("patient", "name"), literal("Alice"));
+		const pred = isIn(prop("patient", "nickname"), literal("Alice"));
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -612,26 +612,26 @@ describe("compilePredicate — round-trip — in", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice" }),
+					properties: JSON.stringify({ nickname: "Alice" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Bob" }),
+					properties: JSON.stringify({ nickname: "Bob" }),
 				}),
 				makeCaseRow({
 					case_id: HOUSEHOLD_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Carol" }),
+					properties: JSON.stringify({ nickname: "Carol" }),
 				}),
 			])
 			.execute();
 		const pred = isIn(
-			prop("patient", "name"),
+			prop("patient", "nickname"),
 			literal("Alice"),
 			literal("Bob"),
 		);
@@ -937,18 +937,18 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice" }),
+					properties: JSON.stringify({ nickname: "Alice" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Bob" }),
+					properties: JSON.stringify({ nickname: "Bob" }),
 				}),
 			])
 			.execute();
-		const pred = match(prop("patient", "name"), "Ali", "starts-with");
+		const pred = match(prop("patient", "nickname"), "Ali", "starts-with");
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -976,18 +976,18 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Smyth" }),
+					properties: JSON.stringify({ nickname: "Smyth" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Bob" }),
+					properties: JSON.stringify({ nickname: "Bob" }),
 				}),
 			])
 			.execute();
-		const pred = match(prop("patient", "name"), "smith", "fuzzy");
+		const pred = match(prop("patient", "nickname"), "smith", "fuzzy");
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -1004,18 +1004,18 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "bob" }),
+					properties: JSON.stringify({ nickname: "bob" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "alice" }),
+					properties: JSON.stringify({ nickname: "alice" }),
 				}),
 			])
 			.execute();
-		const pred = match(prop("patient", "name"), "BOB", "fuzzy");
+		const pred = match(prop("patient", "nickname"), "BOB", "fuzzy");
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -1037,11 +1037,11 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "bob" }),
+					properties: JSON.stringify({ nickname: "bob" }),
 				}),
 			])
 			.execute();
-		const pred = match(prop("patient", "name"), "bo", "fuzzy");
+		const pred = match(prop("patient", "nickname"), "bo", "fuzzy");
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -1066,7 +1066,7 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Felipe Khan" }),
+					properties: JSON.stringify({ nickname: "Felipe Khan" }),
 				}),
 			])
 			.execute();
@@ -1074,7 +1074,7 @@ describe("compilePredicate — round-trip — match", () => {
 		const matches = await executeAgainstPredicate(
 			db,
 			compilePredicate(
-				match(prop("patient", "name"), "felipe kan", "fuzzy"),
+				match(prop("patient", "nickname"), "felipe kan", "fuzzy"),
 				makeCtx(db),
 			),
 		);
@@ -1083,7 +1083,7 @@ describe("compilePredicate — round-trip — match", () => {
 		const noMatch = await executeAgainstPredicate(
 			db,
 			compilePredicate(
-				match(prop("patient", "name"), "kan", "fuzzy"),
+				match(prop("patient", "nickname"), "kan", "fuzzy"),
 				makeCtx(db),
 			),
 		);
@@ -1101,11 +1101,11 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "bob" }),
+					properties: JSON.stringify({ nickname: "bob" }),
 				}),
 			])
 			.execute();
-		const pred = match(prop("patient", "name"), "xyz", "fuzzy");
+		const pred = match(prop("patient", "nickname"), "xyz", "fuzzy");
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -1133,21 +1133,21 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice" }),
+					properties: JSON.stringify({ nickname: "Alice" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Zelda" }),
+					properties: JSON.stringify({ nickname: "Zelda" }),
 				}),
 			])
 			.execute();
 		// "Alise" (5 chars → 1 edit) reaches "Alice" via the term-
 		// level fuzzy clause; "Zelda" shares neither prefix nor token.
 		const pred = match(
-			prop("patient", "name"),
+			prop("patient", "nickname"),
 			term(input("name_search")),
 			"fuzzy",
 		);
@@ -1177,11 +1177,11 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "bob" }),
+					properties: JSON.stringify({ nickname: "bob" }),
 				}),
 			])
 			.execute();
-		const pred = match(prop("patient", "name"), "—", "fuzzy");
+		const pred = match(prop("patient", "nickname"), "—", "fuzzy");
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -1204,18 +1204,18 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Smyth" }),
+					properties: JSON.stringify({ nickname: "Smyth" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Johnson" }),
+					properties: JSON.stringify({ nickname: "Johnson" }),
 				}),
 			])
 			.execute();
-		const pred = match(prop("patient", "name"), "smith", "phonetic");
+		const pred = match(prop("patient", "nickname"), "smith", "phonetic");
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -1237,18 +1237,18 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "bob smith" }),
+					properties: JSON.stringify({ nickname: "bob smith" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "alice" }),
+					properties: JSON.stringify({ nickname: "alice" }),
 				}),
 			])
 			.execute();
-		const pred = match(prop("patient", "name"), "bob", "phonetic");
+		const pred = match(prop("patient", "nickname"), "bob", "phonetic");
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -1267,11 +1267,11 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "alice" }),
+					properties: JSON.stringify({ nickname: "alice" }),
 				}),
 			])
 			.execute();
-		const pred = match(prop("patient", "name"), "bob", "phonetic");
+		const pred = match(prop("patient", "nickname"), "bob", "phonetic");
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -1292,11 +1292,11 @@ describe("compilePredicate — round-trip — match", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "bob" }),
+					properties: JSON.stringify({ nickname: "bob" }),
 				}),
 			])
 			.execute();
-		const pred = match(prop("patient", "name"), "—", "phonetic");
+		const pred = match(prop("patient", "nickname"), "—", "phonetic");
 		const rows = await executeAgainstPredicate(
 			db,
 			compilePredicate(pred, makeCtx(db)),
@@ -1607,14 +1607,14 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 					case_type: "village",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "North" }),
+					properties: JSON.stringify({ nickname: "North" }),
 				}),
 				makeCaseRow({
 					case_id: VILLAGE_SOUTH,
 					case_type: "village",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "South" }),
+					properties: JSON.stringify({ nickname: "South" }),
 				}),
 			])
 			.execute();
@@ -1655,7 +1655,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 			ancestorPath(relationStep("parent", "household")),
 			exists(
 				ancestorPath(relationStep("parent", "village")),
-				eq(prop("village", "name"), literal("North")),
+				eq(prop("village", "nickname"), literal("North")),
 			),
 		);
 		const rows = await executeAgainstPredicate(
@@ -1725,14 +1725,14 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 					case_type: "village",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "North" }),
+					properties: JSON.stringify({ nickname: "North" }),
 				}),
 				makeCaseRow({
 					case_id: VILLAGE_SOUTH,
 					case_type: "village",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "South" }),
+					properties: JSON.stringify({ nickname: "South" }),
 				}),
 			])
 			.execute();
@@ -1774,7 +1774,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 			eq(
 				prop(
 					"household",
-					"name",
+					"nickname",
 					ancestorPath(relationStep("parent", "village")),
 				),
 				literal("North"),
@@ -1802,20 +1802,20 @@ describe("compilePredicate — round-trip — when-input-present", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice" }),
+					properties: JSON.stringify({ nickname: "Alice" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Bob" }),
+					properties: JSON.stringify({ nickname: "Bob" }),
 				}),
 			])
 			.execute();
 		const pred = whenInput(
 			input("name_filter"),
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const rows = await executeAgainstPredicate(
 			db,
@@ -1839,20 +1839,20 @@ describe("compilePredicate — round-trip — when-input-present", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice" }),
+					properties: JSON.stringify({ nickname: "Alice" }),
 				}),
 				makeCaseRow({
 					case_id: PATIENT_2_CASE_ID,
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Bob" }),
+					properties: JSON.stringify({ nickname: "Bob" }),
 				}),
 			])
 			.execute();
 		const pred = whenInput(
 			input("name_filter"),
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const rows = await executeAgainstPredicate(
 			db,

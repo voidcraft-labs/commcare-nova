@@ -127,6 +127,7 @@ describe("case-store harness — schema", () => {
 				"modified_on",
 				"closed_on",
 				"case_name",
+				"external_id",
 				"parent_case_id",
 				"properties",
 			]),

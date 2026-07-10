@@ -32,6 +32,7 @@ import {
 	type Column,
 	type ColumnKind,
 	calculatedColumn,
+	columnKindAcceptsPropertyType,
 	dateColumn,
 	effectiveDataType,
 	idMappingColumn,
@@ -126,47 +127,24 @@ export interface ColumnCardSchema<K extends ColumnKind> {
 
 // ── Property applicability ────────────────────────────────────────
 //
-// Per-kind property compatibility. The case-list column kinds fall
-// into three families:
-//
-//   - **Date-typed** — Date, Interval. Their wire emitters compute
-//     calendar arithmetic against the property's value; a non-date
-//     property would silently misformat / produce nonsense thresholds.
-//   - **Text-shaped** — Phone. The wire emitter renders the value as
-//     a tappable telephone link; numeric-typed phone numbers are
-//     valid CCHQ practice but the runtime tap binding expects a
-//     string. Un-annotated properties fall back to `text` per the
-//     type checker's `data_type ?? "text"` convention.
-//   - **Universal** — Plain, ID-Mapping, Calculated. Plain renders
-//     the raw value; ID-Mapping looks up via a value→label table;
-//     Calculated has no field at all (the expression is the source).
-//
-// `undefined` from the caller (no property selected yet, or the
-// field references a property the case type doesn't declare)
-// short-circuits to `true` so the kind picker stays open while the
-// user is choosing.
+// Per-kind property compatibility — thin arrows over the DOMAIN
+// predicate (`lib/domain/columnApplicability.ts`), the same one the
+// commit gate's `CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH` rule
+// runs, so the menu's offered-set can't drift from the gate's
+// accept-set. The verdict is honest-unknown-permissive: a property
+// whose `data_type` the effective view leaves absent (neither a
+// declaration nor the writing fields pin one) accepts every kind —
+// missing metadata never manufactures an error. Same for `undefined`
+// from the caller (no property selected yet, or a name the admission
+// set doesn't resolve): the kind picker stays open while the user is
+// choosing.
 
-/** Plain / ID-Mapping / Calculated — accept every property
- *  (Calculated has no field but the predicate is still consulted
- *  by the kind-replace menu, so it must return true unconditionally). */
-function applicableForAny(_: CaseProperty | undefined): boolean {
-	return true;
-}
-
-/** Date / Interval — require a date-typed property. Permissive when
- *  the field slot is unset so the kind picker stays available; the
- *  inline-validity surface catches the mismatch once a field is
- *  chosen. */
-function applicableForDate(property: CaseProperty | undefined): boolean {
-	if (property === undefined) return true;
-	return isDateTyped(property);
-}
-
-/** Phone — require a text-shaped property. Same unset-permissive
- *  contract as `applicableForDate`. */
-function applicableForText(property: CaseProperty | undefined): boolean {
-	if (property === undefined) return true;
-	return isTextShaped(property);
+/** Thin per-kind arrow over the domain predicate — the kind→family
+ *  mapping itself lives ONLY in `columnKindPropertyRequirement`. */
+function applicableFor(
+	kind: ColumnKind,
+): (property: CaseProperty | undefined) => boolean {
+	return (property) => columnKindAcceptsPropertyType(kind, property?.data_type);
 }
 
 // ── Default-value seeds ───────────────────────────────────────────
@@ -222,7 +200,7 @@ export const columnCardSchemas: {
 		description: "Show the value exactly as it's stored.",
 		component: PlainColumnCard,
 		defaultValue: (ctx) => plainColumn(newUuid(), pickFirstAny(ctx), ""),
-		applicableForProperty: applicableForAny,
+		applicableForProperty: applicableFor("plain"),
 		applicabilityRequirement: null,
 	},
 	date: {
@@ -233,7 +211,7 @@ export const columnCardSchemas: {
 		component: DateColumnCard,
 		defaultValue: (ctx) =>
 			dateColumn(newUuid(), pickFirstDate(ctx), "", "%Y-%m-%d"),
-		applicableForProperty: applicableForDate,
+		applicableForProperty: applicableFor("date"),
 		applicabilityRequirement: "a date-typed property",
 	},
 	phone: {
@@ -243,7 +221,7 @@ export const columnCardSchemas: {
 		description: "Tap the number to call it.",
 		component: PhoneColumnCard,
 		defaultValue: (ctx) => phoneColumn(newUuid(), pickFirstText(ctx), ""),
-		applicableForProperty: applicableForText,
+		applicableForProperty: applicableFor("phone"),
 		applicabilityRequirement: "a text-typed property",
 	},
 	"id-mapping": {
@@ -254,7 +232,7 @@ export const columnCardSchemas: {
 		component: IdMappingCard,
 		defaultValue: (ctx) =>
 			idMappingColumn(newUuid(), pickFirstAny(ctx), "", []),
-		applicableForProperty: applicableForAny,
+		applicableForProperty: applicableFor("id-mapping"),
 		applicabilityRequirement: null,
 	},
 	"image-map": {
@@ -264,7 +242,7 @@ export const columnCardSchemas: {
 		description: "Show an image in place of each stored value.",
 		component: ImageMapColumnCard,
 		defaultValue: (ctx) => imageMapColumn(newUuid(), pickFirstAny(ctx), "", []),
-		applicableForProperty: applicableForAny,
+		applicableForProperty: applicableFor("image-map"),
 		applicabilityRequirement: null,
 	},
 	interval: {
@@ -283,7 +261,7 @@ export const columnCardSchemas: {
 				"always",
 				"",
 			),
-		applicableForProperty: applicableForDate,
+		applicableForProperty: applicableFor("interval"),
 		applicabilityRequirement: "a date-typed property",
 	},
 	calculated: {
@@ -293,7 +271,7 @@ export const columnCardSchemas: {
 		description: "Compute what's shown with a formula.",
 		component: CalculatedColumnCard,
 		defaultValue: () => calculatedColumn(newUuid(), "", term(literal(""))),
-		applicableForProperty: applicableForAny,
+		applicableForProperty: applicableFor("calculated"),
 		applicabilityRequirement: null,
 	},
 };

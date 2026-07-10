@@ -52,7 +52,7 @@ import {
 } from "@/components/preview/shared/listFilter";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import { bySortKey } from "@/lib/doc/order/compare";
@@ -92,7 +92,13 @@ interface CaseListScreenProps {
 export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
-	const caseTypes = useCaseTypes();
+	/* The MATERIALIZABLE case-type view — derived property types
+	 * included, implicit standard entries excluded. The same shape the
+	 * authoring preview compiles against and the stored insert schema
+	 * is derived from, so the running-app list sorts/filters with the
+	 * same casts and the sample generator emits keys the row
+	 * validation accepts. */
+	const caseTypes = useMaterializableCaseTypes();
 	const appId = useAppId() ?? "";
 	const { updateModule } = useBlueprintMutations();
 

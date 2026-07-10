@@ -84,7 +84,7 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "nickname", label: "Nickname", data_type: "text" },
 		{ name: "age", label: "Age", data_type: "int" },
 		{ name: "registered_at", label: "When", data_type: "datetime" },
 	],
@@ -177,6 +177,69 @@ describe("compileExpression — round-trip — coercion arms", () => {
 			.selectFrom(sql`(values (1))`.as("v"))
 			.select(
 				sql<boolean>`${expr} = timestamptz '2026-01-01 12:00:00+00'`.as(
+					"matches",
+				),
+			)
+			.execute();
+		expect(rows).toEqual([{ matches: true }]);
+	});
+
+	test("date-coerce over a date-shaped operand is identity", async ({ db }) => {
+		// The redundant-but-sound shape derived property typing keeps
+		// legal: an explicit coerce around a value that's already a
+		// date. `date::date` is identity in Postgres, matching the
+		// on-device evaluator (JavaRosa `date()` of a date is itself).
+		const expr = compileExpression(
+			dateCoerce(dateCoerce(term(literal("2026-01-01")))),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(sql<boolean>`${expr} = date '2026-01-01'`.as("matches"))
+			.execute();
+		expect(rows).toEqual([{ matches: true }]);
+	});
+
+	test("datetime-coerce over a datetime-shaped operand is identity", async ({
+		db,
+	}) => {
+		const expr = compileExpression(
+			datetimeCoerce(datetimeCoerce(term(literal("2026-01-01T12:00:00Z")))),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(
+				sql<boolean>`${expr} = timestamptz '2026-01-01 12:00:00+00'`.as(
+					"matches",
+				),
+			)
+			.execute();
+		expect(rows).toEqual([{ matches: true }]);
+	});
+
+	test("date-coerce over a datetime-shaped operand truncates to the date", async ({
+		db,
+	}) => {
+		// `timestamptz::date` truncates time-of-day. The on-device arm
+		// agrees observationally: JavaRosa comparisons coerce every
+		// date to whole days (`XPathCmpExpr` → `FunctionUtils::
+		// toNumeric` → `DateUtils::daysSinceEpoch`), so a device
+		// filter comparing this coercion sees the same day-granular
+		// value Postgres computes here. The expected side re-runs the
+		// same cast in the same session (a `timestamptz → date`
+		// truncation is session-time-zone-relative, so a calendar-day
+		// literal would flip on far-east-of-UTC servers); the
+		// assertion still proves the compiled expression parses,
+		// yields a DATE, and equals the truncation.
+		const expr = compileExpression(
+			dateCoerce(datetimeCoerce(term(literal("2026-01-01T12:00:00Z")))),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(
+				sql<boolean>`${expr} = (timestamptz '2026-01-01 12:00:00+00')::date`.as(
 					"matches",
 				),
 			)
@@ -279,7 +342,7 @@ describe("compileExpression — round-trip — concat arm", () => {
 		db,
 	}) => {
 		// Insert a row with `name` ABSENT from the JSONB document.
-		// `properties->>'name'` returns SQL `NULL`; Postgres's
+		// `properties->>'nickname'` returns SQL `NULL`; Postgres's
 		// `concat(...)` coerces that to empty string. A regression to
 		// `||` (NULL-propagating string concatenation) would return
 		// `NULL` and the assertion below would fail.
@@ -299,7 +362,7 @@ describe("compileExpression — round-trip — concat arm", () => {
 		const expr = compileExpression(
 			concat(
 				term({ kind: "literal", value: "[", data_type: "text" }),
-				term(prop("patient", "name")),
+				term(prop("patient", "nickname")),
 				term({ kind: "literal", value: "]", data_type: "text" }),
 			),
 			makeCtx(db),
@@ -335,7 +398,7 @@ describe("compileExpression — round-trip — coalesce arm", () => {
 			.execute();
 
 		const expr = compileExpression(
-			coalesce(term(prop("patient", "name")), term(literal("default"))),
+			coalesce(term(prop("patient", "nickname")), term(literal("default"))),
 			makeCtx(db),
 		);
 		const rows = await db
@@ -357,13 +420,13 @@ describe("compileExpression — round-trip — coalesce arm", () => {
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: OWNER_ID,
-					properties: JSON.stringify({ name: "Alice" }),
+					properties: JSON.stringify({ nickname: "Alice" }),
 				}),
 			)
 			.execute();
 
 		const expr = compileExpression(
-			coalesce(term(prop("patient", "name")), term(literal("default"))),
+			coalesce(term(prop("patient", "nickname")), term(literal("default"))),
 			makeCtx(db),
 		);
 		const rows = await db

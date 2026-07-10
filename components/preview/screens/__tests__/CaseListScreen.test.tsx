@@ -154,6 +154,7 @@ function makeRow(
 		opened_on: null,
 		modified_on: null,
 		closed_on: null,
+		external_id: null,
 		parent_case_id: null,
 		properties: properties as never,
 		calculated: calculated as never,

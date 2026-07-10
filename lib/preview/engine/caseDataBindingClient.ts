@@ -106,7 +106,7 @@ export function pickBlueprintDoc<T extends BlueprintDoc>(
  * `Map<string, string>` shape `useFormEngine` consumes as preload.
  * `case_name` folds into the map under its own key so the form
  * engine sees one source — mirrors the runtime path where the
- * term compiler reads it via `RESERVED_SCALAR_COLUMNS`.
+ * term compiler reads it via `RESERVED_SCALAR_COLUMN_BY_PROPERTY`.
  *
  * `null` values become `""` — the form engine treats missing
  * case-data the same as empty, and JSONB `null` is the same
@@ -142,20 +142,53 @@ function jsonValueToString(value: JsonValue): string {
 }
 
 /**
- * Read a column's display value off a `CaseRow`. Resolves
- * reserved scalar columns first, falls through to `row.properties`,
- * `""` for absent. Lives here so every render surface uses the
- * same coercion.
+ * Timestamp scalar → display string. `Date` renders as its ISO
+ * form (same coercion the calculated-cell arm uses); a driver
+ * that returns the raw string passes through; `null` is an empty
+ * cell.
+ */
+function timestampDisplayValue(value: Date | string | null): string {
+	if (value === null) return "";
+	if (value instanceof Date) return value.toISOString();
+	return value;
+}
+
+/**
+ * Read a column's display value off a `CaseRow`. Resolves the
+ * standard case-metadata names onto their scalar columns first —
+ * the SAME name→column map the SQL term compiler reads
+ * (`RESERVED_SCALAR_COLUMN_BY_PROPERTY`), so a column the filter
+ * can query always displays the value it queried — then falls
+ * through to `row.properties`, `""` for absent. Lives here so
+ * every render surface uses the same coercion.
  */
 export function caseRowDisplayValue(row: CaseRow, field: string): string {
-	if (field === "case_name") return row.case_name;
-	if (field === "case_id") return row.case_id;
-	if (field === "case_type") return row.case_type;
-	if (field === "owner_id") return row.owner_id ?? "";
-	if (field === "status") return row.status ?? "";
-	const value = row.properties[field];
-	if (value === undefined) return "";
-	return jsonValueToString(value);
+	switch (field) {
+		case "case_name":
+		case "name":
+			return row.case_name;
+		case "case_id":
+			return row.case_id;
+		case "case_type":
+			return row.case_type;
+		case "owner_id":
+			return row.owner_id ?? "";
+		case "status":
+			return row.status ?? "";
+		case "external_id":
+		case "external-id":
+			return row.external_id ?? "";
+		case "date_opened":
+		case "date-opened":
+			return timestampDisplayValue(row.opened_on);
+		case "last_modified":
+			return timestampDisplayValue(row.modified_on);
+		default: {
+			const value = row.properties[field];
+			if (value === undefined) return "";
+			return jsonValueToString(value);
+		}
+	}
 }
 
 /**

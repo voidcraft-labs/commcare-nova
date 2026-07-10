@@ -11,7 +11,7 @@ import { FormSettingsButton } from "@/components/builder/detail/formSettings/For
 import { EditableTitle } from "@/components/builder/EditableTitle";
 import { FieldInspectorSurface } from "@/components/builder/editor/FieldInspectorSurface";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import {
 	useForm as useFormEntity,
 	useModule as useModuleEntity,
@@ -129,7 +129,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * disable their controls rather than let a viewer hit a server error.
 	 * (Distinct from the `canEdit` below, which is preview-vs-edit MODE.) */
 	const mayWriteCaseData = useCanEdit();
-	const caseTypes = useCaseTypes();
+	/* The MATERIALIZABLE view — the exact shape `case_type_schemas`
+	 * validates against. Submission coercion and sample-data
+	 * generation both feed real row writes, so both must agree with
+	 * the insert schema's writer-DERIVED property types; the raw
+	 * catalog would coerce a derived-int value as text and fail AJV
+	 * at the write. */
+	const caseTypes = useMaterializableCaseTypes();
 
 	const formUuid = loc.kind === "form" ? loc.formUuid : undefined;
 	const moduleUuid = loc.kind === "form" ? loc.moduleUuid : undefined;

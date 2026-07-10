@@ -7,10 +7,13 @@
 // store with the authored filter / sort / calculated projections
 // applied.
 //
-// Authoring contract: the load is suppressed while the caller's
-// `configValid` is `false`. Sending an invalid expression AST to
+// Authoring contract: the load is suppressed while the caller
+// reports a `previewObstacle` — a filter / calculated-column AST the
+// type check rejects. Sending an invalid expression AST to
 // `compileExpression` would throw at the SQL layer; the validity gate
-// is the structural defense rather than a hint.
+// is the structural defense rather than a hint. Nothing else pauses
+// the preview: kind-applicability mismatches and search-input
+// problems mark their entities and leave the live rows running.
 
 "use client";
 
@@ -24,14 +27,18 @@ import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource
 export type CaseListPreviewState =
 	| { kind: "idle" }
 	| { kind: "loading" }
-	| { kind: "paused" }
+	| { kind: "paused"; message: string }
 	| LoadCaseListPreviewResult;
 
 export function useCaseListPreview(args: {
 	appId: string;
 	caseListConfig: CaseListConfig;
 	currentCaseType: string;
-	configValid: boolean;
+	/** Why the preview can't run (`configValidity.ts::
+	 *  caseListConfigVerdicts`), or `null` when it can. Scoped to the
+	 *  SQL-reaching ASTs — an applicability mismatch or search-input
+	 *  problem never pauses the live rows. */
+	previewObstacle: string | null;
 }): {
 	state: CaseListPreviewState;
 	fetching: boolean;
@@ -40,7 +47,7 @@ export function useCaseListPreview(args: {
 	 *  the fresh rows are on screen rather than the write merely returning. */
 	reload: () => Promise<void>;
 } {
-	const { appId, caseListConfig, currentCaseType, configValid } = args;
+	const { appId, caseListConfig, currentCaseType, previewObstacle } = args;
 	const docApi = useBlueprintDocApi();
 
 	/* `docApi.getState` is a stable bound method on the doc-store singleton,
@@ -49,10 +56,10 @@ export function useCaseListPreview(args: {
 	 * materializes calculated columns against the current doc. */
 	return useReloadableResource<CaseListPreviewState>({
 		prepare: () =>
-			!configValid
+			previewObstacle !== null
 				? /* An invalid expression AST would throw at the SQL layer — the
 					 * validity gate is the structural defense, not a hint. */
-					{ notReady: { kind: "paused" } }
+					{ notReady: { kind: "paused", message: previewObstacle } }
 				: {
 						fetch: () =>
 							loadCaseListPreviewAction({
@@ -72,7 +79,7 @@ export function useCaseListPreview(args: {
 			appId,
 			caseListConfig,
 			currentCaseType,
-			configValid,
+			previewObstacle,
 			docApi.getState,
 		],
 	});

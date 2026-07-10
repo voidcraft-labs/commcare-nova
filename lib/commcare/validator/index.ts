@@ -232,57 +232,6 @@ function collectValidPaths(
 }
 
 /**
- * Collect case-property names saved to a given case type across the whole
- * app. Walks modules with the target case type AND any parent module whose
- * case type is the parent of the target (child-case creation lives on the
- * parent module's fields via a non-matching `case_property_on`).
- *
- * The per-field filter (`field.case_property_on === caseType`) ensures only
- * properties targeting the requested type are collected, even when walking
- * a parent module whose own fields save to its primary type.
- */
-export function collectCaseProperties(
-	doc: BlueprintDoc,
-	moduleCaseType: string | undefined,
-): Set<string> | undefined {
-	if (!moduleCaseType) return undefined;
-	const props = new Set<string>();
-
-	// Which module caseTypes to walk: the target + its parent (if any).
-	const moduleTypes = new Set([moduleCaseType]);
-	const ct = doc.caseTypes?.find((c) => c.name === moduleCaseType);
-	if (ct?.parent_type) moduleTypes.add(ct.parent_type);
-
-	for (const moduleUuid of doc.moduleOrder) {
-		const mod = doc.modules[moduleUuid];
-		if (!mod.caseType || !moduleTypes.has(mod.caseType)) continue;
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			collectFromTree(doc, formUuid, moduleCaseType, props);
-		}
-	}
-	return props.size > 0 ? props : undefined;
-}
-
-function collectFromTree(
-	doc: BlueprintDoc,
-	parentUuid: Uuid,
-	moduleCaseType: string,
-	props: Set<string>,
-): void {
-	const order = doc.fieldOrder[parentUuid] ?? [];
-	for (const uuid of order) {
-		const field = doc.fields[uuid];
-		if (!field) continue;
-		const casePropertyOf = (field as { case_property_on?: string })
-			.case_property_on;
-		if (casePropertyOf === moduleCaseType) props.add(field.id);
-		if (doc.fieldOrder[uuid] !== undefined) {
-			collectFromTree(doc, uuid, moduleCaseType, props);
-		}
-	}
-}
-
-/**
  * Deep validation: walks every form, builds the valid path set + per-case-type
  * accept map per form, validates every XPath expression, and runs cycle
  * detection via `TriggerDag`. Returns a flat array of TYPED

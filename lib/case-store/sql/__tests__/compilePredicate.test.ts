@@ -115,7 +115,7 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "nickname", label: "Nickname", data_type: "text" },
 		{ name: "age", label: "Age", data_type: "int" },
 		{ name: "bmi", label: "BMI", data_type: "decimal" },
 		{ name: "dob", label: "DOB", data_type: "date" },
@@ -192,7 +192,7 @@ describe("compilePredicate — sentinels", () => {
 describe("compilePredicate — logical operators", () => {
 	it("composes an `and` of two clauses with paren-wrapping", () => {
 		const pred = and(
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "nickname"), literal("Alice")),
 			eq(prop("patient", "age"), literal(30)),
 		);
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
@@ -204,8 +204,8 @@ describe("compilePredicate — logical operators", () => {
 
 	it("composes an `or` of two clauses", () => {
 		const pred = or(
-			eq(prop("patient", "name"), literal("Alice")),
-			eq(prop("patient", "name"), literal("Bob")),
+			eq(prop("patient", "nickname"), literal("Alice")),
+			eq(prop("patient", "nickname"), literal("Bob")),
 		);
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		expect(compiled.sql.toLowerCase()).toContain(" or ");
@@ -214,7 +214,7 @@ describe("compilePredicate — logical operators", () => {
 	});
 
 	it("composes a `not` wrapping an inner clause", () => {
-		const pred = not(eq(prop("patient", "name"), literal("Alice")));
+		const pred = not(eq(prop("patient", "nickname"), literal("Alice")));
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		// Kysely's typed `eb.not(...)` emits the SQL `NOT <expr>`
 		// keyword. Postgres operator precedence ranks `NOT` below
@@ -235,8 +235,8 @@ describe("compilePredicate — logical operators", () => {
 		// `A or (B and C)`.
 		const pred = and(
 			or(
-				eq(prop("patient", "name"), literal("Alice")),
-				eq(prop("patient", "name"), literal("Bob")),
+				eq(prop("patient", "nickname"), literal("Alice")),
+				eq(prop("patient", "nickname"), literal("Bob")),
 			),
 			gt(prop("patient", "age"), literal(18)),
 		);
@@ -281,7 +281,7 @@ describe("compilePredicate — comparison operators", () => {
 
 describe("compilePredicate — in", () => {
 	it("emits IN with one literal value", () => {
-		const pred = isIn(prop("patient", "name"), literal("Alice"));
+		const pred = isIn(prop("patient", "nickname"), literal("Alice"));
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		expect(compiled.sql.toLowerCase()).toContain(" in (");
 		expect(compiled.parameters).toContain("Alice");
@@ -289,7 +289,7 @@ describe("compilePredicate — in", () => {
 
 	it("emits IN with multiple literal values", () => {
 		const pred = isIn(
-			prop("patient", "name"),
+			prop("patient", "nickname"),
 			literal("Alice"),
 			literal("Bob"),
 			literal("Carol"),
@@ -302,7 +302,11 @@ describe("compilePredicate — in", () => {
 	});
 
 	it("emits SQL null keyword for null literal in IN values", () => {
-		const pred = isIn(prop("patient", "name"), literal("Alice"), literal(null));
+		const pred = isIn(
+			prop("patient", "nickname"),
+			literal("Alice"),
+			literal(null),
+		);
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		expect(compiled.sql.toLowerCase()).toContain("null");
 		// Null is not bound as a parameter — it emits as the SQL
@@ -446,7 +450,7 @@ describe("compilePredicate — multi-select-contains", () => {
 
 describe("compilePredicate — match", () => {
 	it("emits starts_with for starts-with mode", () => {
-		const pred = match(prop("patient", "name"), "Ali", "starts-with");
+		const pred = match(prop("patient", "nickname"), "Ali", "starts-with");
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		// Postgres `starts_with(text, prefix)` — typed boolean prefix
 		// match without LIKE meta-character escaping concerns. Works
@@ -462,13 +466,13 @@ describe("compilePredicate — match", () => {
 		// the compiler layer. Pin the absence of escape transforms so
 		// a future regression that reintroduces LIKE-meta escaping
 		// surfaces here.
-		const pred = match(prop("patient", "name"), "100% pure", "starts-with");
+		const pred = match(prop("patient", "nickname"), "100% pure", "starts-with");
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		expect(compiled.parameters).toContain("100% pure");
 	});
 
 	it("emits the term-level fuzzy + exact-token-overlap shape for fuzzy mode", () => {
-		const pred = match(prop("patient", "name"), "Alise", "fuzzy");
+		const pred = match(prop("patient", "nickname"), "Alise", "fuzzy");
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		const sql = compiled.sql.toLowerCase();
 		// Clause (a): a correlated `EXISTS (... unnest(...) ...)` over
@@ -488,7 +492,7 @@ describe("compilePredicate — match", () => {
 	});
 
 	it("emits per-token soundex equality for phonetic mode", () => {
-		const pred = match(prop("patient", "name"), "Alice", "phonetic");
+		const pred = match(prop("patient", "nickname"), "Alice", "phonetic");
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		const sql = compiled.sql.toLowerCase();
 		// fuzzystrmatch's `soundex` (HQ's phonetic encoder), compared
@@ -614,7 +618,7 @@ describe("compilePredicate — exists / missing", () => {
 	it("collapses exists(self, where) to compiled where", () => {
 		const pred = exists(
 			selfPath(),
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		// The collapse means no EXISTS keyword in the SQL — it's
@@ -633,7 +637,7 @@ describe("compilePredicate — exists / missing", () => {
 	it("collapses missing(self, where) to NOT (where)", () => {
 		const pred = missing(
 			selfPath(),
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		// The collapse rewrites to `NOT (where)`; no EXISTS, but
@@ -667,7 +671,7 @@ describe("compilePredicate — when-input-present", () => {
 	it("compiles the inner clause when the input is bound", () => {
 		const pred = whenInput(
 			input("region_filter"),
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const compiled = compileWith(
 			compilePredicate(
@@ -685,7 +689,7 @@ describe("compilePredicate — when-input-present", () => {
 	it("collapses to true when the input is unbound", () => {
 		const pred = whenInput(
 			input("region_filter"),
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		// Unbound input — short-circuit to "match every row".
@@ -703,14 +707,14 @@ describe("compilePredicate — Postgres-strict null semantics", () => {
 	// is-null: strict-absent. JSONB `?` (key-exists) negation for
 	// property refs.
 	it("emits NOT (... ? key) for is-null on a JSONB-document property", () => {
-		const pred = isNull(prop("patient", "name"));
+		const pred = isNull(prop("patient", "nickname"));
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		// The `?` is the JSONB key-exists operator; the negation
 		// wraps the test.
 		expect(compiled.sql).toContain("?");
 		expect(compiled.sql.toLowerCase()).toContain("not");
 		// The key is parameter-bound, not inlined.
-		expect(compiled.parameters).toContain("name");
+		expect(compiled.parameters).toContain("nickname");
 	});
 
 	it("emits IS NULL for is-null on a reserved scalar column", () => {
@@ -745,7 +749,7 @@ describe("compilePredicate — Postgres-strict null semantics", () => {
 	// is-blank: absent-or-empty. Adds the empty-string disjunction
 	// to the is-null shape.
 	it("emits OR =-empty disjunction for is-blank on a JSONB-document property", () => {
-		const pred = isBlank(prop("patient", "name"));
+		const pred = isBlank(prop("patient", "nickname"));
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		// Both branches present: the JSONB key-existence check
 		// (`... ? key`) negation plus the `->> key = ''` empty-
@@ -771,12 +775,33 @@ describe("compilePredicate — Postgres-strict null semantics", () => {
 		expect(compiled.parameters).toContain("");
 	});
 
+	it("maps a standard name to its scalar column for is-null (date_opened → opened_on)", () => {
+		const pred = isNull(prop("patient", "date_opened"));
+		const compiled = compileWith(compilePredicate(pred, makeCtx()));
+		expect(compiled.sql).toContain('"c"."opened_on"');
+		expect(compiled.sql.toLowerCase()).toContain("is null");
+		expect(compiled.sql).not.toContain('"properties" ?');
+	});
+
+	it("collapses is-blank to plain IS NULL on a timestamp scalar (last_modified)", () => {
+		// `''` is not a value a timestamptz column can hold, and
+		// comparing one to `''` is a Postgres type ERROR — the
+		// non-blankable entries in `RESERVED_SCALAR_COLUMN_BY_PROPERTY`
+		// drop the empty-string disjunction entirely.
+		const pred = isBlank(prop("patient", "last_modified"));
+		const compiled = compileWith(compilePredicate(pred, makeCtx()));
+		expect(compiled.sql).toContain('"c"."modified_on"');
+		expect(compiled.sql.toLowerCase()).toContain("is null");
+		expect(compiled.sql.toLowerCase()).not.toContain(" or ");
+		expect(compiled.parameters).not.toContain("");
+	});
+
 	// compare(prop, "") — strict empty-string match. Distinct from
 	// is-blank because the JSONB read evaluates to empty string
 	// only if the key is present and the stored value is the
 	// empty string.
 	it('emits standard equality for compare(prop, literal(""))', () => {
-		const pred = eq(prop("patient", "name"), literal(""));
+		const pred = eq(prop("patient", "nickname"), literal(""));
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		// JSONB read on the left, empty-string parameter on the
 		// right. NOT routed through the absence-check shape.
@@ -788,7 +813,7 @@ describe("compilePredicate — Postgres-strict null semantics", () => {
 	});
 
 	it("emits standard equality for compare(prop, literal(null))", () => {
-		const pred = eq(prop("patient", "name"), literal(null));
+		const pred = eq(prop("patient", "nickname"), literal(null));
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		// JSONB read on the left, SQL `null` keyword on the right.
 		expect(compiled.sql).toContain("->>");
@@ -807,7 +832,7 @@ describe("compilePredicate — Postgres-strict null semantics", () => {
 
 describe("compilePredicate — tenant scope contract", () => {
 	it("does not emit appId or ownerId parameters", () => {
-		const pred = eq(prop("patient", "name"), literal("Alice"));
+		const pred = eq(prop("patient", "nickname"), literal("Alice"));
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		// The tenant scope is on the context surface but the
 		// predicate compiler doesn't read it for self-via reads.

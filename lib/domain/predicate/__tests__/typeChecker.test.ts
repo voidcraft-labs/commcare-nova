@@ -1853,9 +1853,19 @@ describe("checkExpression — date / coercion arms", () => {
 		const v = dateCoerce(term(prop("patient", "age")));
 		const { type, errors } = resolve(v);
 		expect(type).toBe("date");
-		expect(errors.some((e) => /text-shaped operand/.test(e.message))).toBe(
-			true,
-		);
+		expect(
+			errors.some((e) => /text-shaped or date-shaped operand/.test(e.message)),
+		).toBe(true);
+	});
+
+	it("date-coerce accepts a date operand — identity coercion is legal", () => {
+		// An expression authored while a property read as text may wrap
+		// it in an explicit coerce; the property RESOLVING to date under
+		// derived typing must not turn that sound shape into a finding.
+		const v = dateCoerce(term(prop("patient", "dob")));
+		const { type, errors } = resolve(v);
+		expect(type).toBe("date");
+		expect(errors).toEqual([]);
 	});
 
 	it("datetime-coerce returns datetime", () => {

@@ -25,11 +25,12 @@
 // blueprint shape.
 
 import type { Insertable, Selectable } from "kysely";
-import type {
-	CasePropertyDataType,
-	CaseType,
-	Column,
-	PersistableDoc,
+import {
+	type CasePropertyDataType,
+	type CaseType,
+	type Column,
+	materializableCaseTypes,
+	type PersistableDoc,
 } from "@/lib/domain";
 import type {
 	Predicate,
@@ -129,7 +130,7 @@ export interface SortKey {
  * map to pick the column cast. Optional when the query is
  * predicate-free, sort-free, and calc-free, OR when every operand
  * touches only the reserved scalar columns at
- * `lib/case-store/sql/dataTypeTokens.ts`'s `RESERVED_SCALAR_COLUMNS`.
+ * `lib/case-store/sql/dataTypeTokens.ts`'s `RESERVED_SCALAR_COLUMN_BY_PROPERTY`.
  *
  * `calculated` projections evaluate inline at the SQL layer keyed
  * by the column's `uuid`. The Postgres compiler is the single
@@ -564,10 +565,30 @@ export interface CaseStore extends SchemaCaseStore {
  * the case-store interface stays decoupled from the full blueprint
  * shape. A `null` `caseTypes` yields an empty map.
  *
- * Reads `caseTypes` only — never the in-memory `fieldParent` index —
- * so the parameter is the persisted shape (`PersistableDoc`). A caller
- * holding the fuller in-memory `BlueprintDoc` passes it as-is (it's a
- * subtype); a caller holding only the persisted shape needs no cast.
+ * The entries are the MATERIALIZABLE case types
+ * (`lib/domain/effectiveCaseTypes.ts::materializableCaseTypes`) —
+ * declared annotations with writer-derived `data_type`s filled, plus
+ * writer-derived entries, WITHOUT the implicit standard entries. Both
+ * halves are load-bearing:
+ *
+ *   - Derived types keep the compiler in lockstep with the type
+ *     checker: a comparison the checker admits as date-typed compiles
+ *     with a date cast, and a writer-derived property resolves in
+ *     `compileTerm.lookupDataType` rather than throwing.
+ *   - Standard entries stay OUT because their values are not stored
+ *     in the JSONB `properties` document (`date_opened` lives in the
+ *     `opened_on` column): a map entry would make a reference compile
+ *     to a silently-NULL JSONB read, and on the schema-write side
+ *     would put `format` constraints + expression indexes on keys
+ *     inserts never carry. A standard-name reference instead fails
+ *     loudly in `lookupDataType` — mapping those names onto their
+ *     scalar columns is the (pre-existing) gap's real fix.
+ *
+ * Reads `caseTypes` + `fields` only — never the in-memory
+ * `fieldParent` index — so the parameter is the persisted shape
+ * (`PersistableDoc`). A caller holding the fuller in-memory
+ * `BlueprintDoc` passes it as-is (it's a subtype); a caller holding
+ * only the persisted shape needs no cast.
  */
 export function buildCaseTypeMap(
 	blueprint: PersistableDoc | undefined,
@@ -576,7 +597,7 @@ export function buildCaseTypeMap(
 		return new Map();
 	}
 	const map = new Map<string, CaseType>();
-	for (const caseType of blueprint.caseTypes ?? []) {
+	for (const caseType of materializableCaseTypes(blueprint)) {
 		map.set(caseType.name, caseType);
 	}
 	return map;

@@ -317,6 +317,7 @@ function buildSyntheticRow(properties: JsonObject): CaseRow {
 		modified_on: null,
 		closed_on: null,
 		case_name: "Synthetic Case",
+		external_id: null,
 		parent_case_id: null,
 		properties,
 	};
@@ -1114,7 +1115,10 @@ describe("caseRowDisplayValue", () => {
 		expect(row).toBeDefined();
 		if (!row) return;
 
-		expect(caseRowDisplayValue(row, "name")).toBe("Alice");
+		// `name` is a CCHQ field ALIAS for the case name (HQ's own
+		// detail-screen generator maps it — see the alias test below),
+		// so it resolves to `case_name`, shadowing the JSONB property.
+		expect(caseRowDisplayValue(row, "name")).toBe("test-case");
 		expect(caseRowDisplayValue(row, "age")).toBe("30");
 		// Absent property falls back to the empty string — covers the
 		// case-list-table empty-cell render path.
@@ -1166,10 +1170,47 @@ describe("caseRowDisplayValue", () => {
 			modified_on: null,
 			closed_on: null,
 			case_name: field === "case_name" ? columnValue : "Synthetic Case",
+			external_id: null,
 			parent_case_id: null,
 			properties: { [field]: shadowValue },
 		};
 		expect(caseRowDisplayValue(row, field)).toBe(columnValue);
+	});
+
+	it("resolves the CCHQ field aliases onto their columns (name / external-id / date-opened / last_modified)", () => {
+		// HQ's own detail-screen generator aliases these field names
+		// onto case metadata (the module-level alias map in
+		// `commcare-hq/corehq/apps/app_manager/detail_screen.py` —
+		// `name` → `case_name`, `external-id` → `external_id`,
+		// `date-opened` → `date_opened`), so the preview's display
+		// seam mirrors it: a JSONB property named `name` is shadowed
+		// exactly as the device shadows it, and both spellings of the
+		// hyphen/underscore pairs land on the same column. Timestamps
+		// render as their ISO form (the calculated-cell coercion).
+		const opened = new Date("2026-01-02T03:04:05.000Z");
+		const modified = new Date("2026-02-03T04:05:06.000Z");
+		const row: CaseRow = {
+			case_id: "test-id",
+			app_id: APP_ID,
+			case_type: "patient",
+			owner_id: OWNER_A,
+			status: "open",
+			opened_on: opened,
+			modified_on: modified,
+			closed_on: null,
+			case_name: "Real Name",
+			external_id: "EXT-1",
+			parent_case_id: null,
+			properties: { name: "Shadow", external_id: "shadow-ext" },
+		};
+		expect(caseRowDisplayValue(row, "name")).toBe("Real Name");
+		expect(caseRowDisplayValue(row, "external_id")).toBe("EXT-1");
+		expect(caseRowDisplayValue(row, "external-id")).toBe("EXT-1");
+		expect(caseRowDisplayValue(row, "date_opened")).toBe(opened.toISOString());
+		expect(caseRowDisplayValue(row, "date-opened")).toBe(opened.toISOString());
+		expect(caseRowDisplayValue(row, "last_modified")).toBe(
+			modified.toISOString(),
+		);
 	});
 
 	it.each([
@@ -1191,6 +1232,7 @@ describe("caseRowDisplayValue", () => {
 			modified_on: null,
 			closed_on: null,
 			case_name: "Synthetic Case",
+			external_id: null,
 			parent_case_id: null,
 			properties: {},
 		};

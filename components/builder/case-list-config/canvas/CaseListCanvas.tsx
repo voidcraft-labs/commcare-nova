@@ -54,6 +54,10 @@ const ADD_CELL_WIDTH = 48;
 
 export interface CaseListCanvasProps {
 	readonly config: CaseListConfig;
+	/** Columns with a configuration error (`configValidity.ts::
+	 *  caseListConfigVerdicts`) — the header cell carries a rose dot +
+	 *  explanation so the tab strip's dot points at something findable. */
+	readonly brokenColumns: ReadonlySet<string>;
 	/** The case list's title — the module IS the case-list title (no
 	 *  separate title slot). */
 	readonly moduleName: string;
@@ -74,6 +78,7 @@ export interface CaseListCanvasProps {
 
 export function CaseListCanvas({
 	config,
+	brokenColumns,
 	moduleName,
 	preview,
 	selection,
@@ -211,6 +216,7 @@ export function CaseListCanvas({
 											)}
 											<HeaderCell
 												column={col}
+												broken={brokenColumns.has(col.uuid)}
 												selected={selectedColumnUuid === col.uuid}
 												isFirst={i === 0}
 												sortPosition={sortPositions.get(col.uuid)}
@@ -341,6 +347,8 @@ export function CaseListCanvas({
 
 interface HeaderCellProps {
 	readonly column: Column;
+	/** This column carries a configuration error — render the mark. */
+	readonly broken: boolean;
 	readonly selected: boolean;
 	/** Whether this header occupies the table's top-left corner — the
 	 *  one spot where the cell's shape includes the container's curve. */
@@ -352,6 +360,7 @@ interface HeaderCellProps {
 
 function HeaderCell({
 	column,
+	broken,
 	selected,
 	isFirst,
 	sortPosition,
@@ -365,7 +374,13 @@ function HeaderCell({
 			: column.header || column.field || "untitled";
 	const direction = column.sort?.direction;
 	return (
-		<SimpleTooltip content="Click to set up · drag to reorder">
+		<SimpleTooltip
+			content={
+				broken
+					? "This column has an error — click to fix it"
+					: "Click to set up · drag to reorder"
+			}
+		>
 			<button
 				type="button"
 				ref={setHandleEl}
@@ -409,6 +424,13 @@ function HeaderCell({
 						{direction === "asc" ? "↑" : "↓"}
 						{sortPosition}
 					</span>
+				)}
+				{broken && (
+					<span
+						role="img"
+						aria-label="This column has a configuration error"
+						className="ml-auto inline-flex shrink-0 size-1.5 rounded-full bg-nova-rose"
+					/>
 				)}
 			</button>
 		</SimpleTooltip>

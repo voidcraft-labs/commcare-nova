@@ -55,10 +55,10 @@ export function previewNotice(
 		case "loading":
 			return { tone: "muted", text: "Loading cases…" };
 		case "paused":
-			return {
-				tone: "warning",
-				text: "Preview paused — fix the errors marked on the tabs to see live rows.",
-			};
+			// The message names the offending thing (filter / calculated
+			// column) — composed by `configValidity.ts::
+			// caseListConfigVerdicts`, the same walk that marks it.
+			return { tone: "warning", text: preview.message };
 		case "empty":
 			return {
 				tone: "muted",

@@ -29,6 +29,8 @@ import {
 	anyRelationPath,
 	arith,
 	between,
+	dateCoerce,
+	datetimeCoerce,
 	eq,
 	exists,
 	gt,
@@ -914,6 +916,25 @@ describe("emitCaseListFilter — non-term ValueExpression operands delegate to e
 		const p = within(prop("clinic", "location"), now(), 50, "miles");
 		expect(emitCaseListFilter(p)).toBe(
 			`within-distance(location, now(), 50, 'miles')`,
+		);
+	});
+
+	it("emits BOTH coercions as date(...) — the filter slot's evaluator has no datetime()", () => {
+		// The case-list filter is evaluated by the on-device XPath
+		// engine (`commcare-core` — the web-apps evaluator), whose
+		// function grammar dispatches `date` but not `datetime`
+		// (`org.javarosa.xpath.parser.ast.ASTNodeFunctionCall`). A
+		// `datetime(...)` call in this slot fails the whole case list
+		// as an unknown function, so the datetime coercion lowers to
+		// `date(...)` — whose String arm preserves time-of-day, and
+		// comparisons coerce dates to whole days either way
+		// (`XPathCmpExpr` → `FunctionUtils::toNumeric`).
+		const p = and(
+			gt(dateCoerce(term(prop("patient", "order_date"))), today()),
+			lt(datetimeCoerce(term(prop("patient", "last_visit"))), now()),
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"date(order_date) > today() and date(last_visit) < now()",
 		);
 	});
 });

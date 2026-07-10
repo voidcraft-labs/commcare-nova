@@ -27,11 +27,21 @@
 "use client";
 import { SegmentedRow } from "@/components/builder/inspector/inspectorChrome";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
-import type { Column, IntervalDisplay, TimeSinceUnit } from "@/lib/domain";
-import { intervalColumn, isDateTyped } from "@/lib/domain";
+import type {
+	CaseProperty,
+	Column,
+	IntervalDisplay,
+	TimeSinceUnit,
+} from "@/lib/domain";
+import { columnKindAcceptsPropertyType, intervalColumn } from "@/lib/domain";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 import { ColumnFieldRow } from "./ColumnFieldRow";
 import { IntervalThresholdRow } from "./IntervalThresholdRow";
+
+/** The gate's own accept-set — unknown-typed properties are
+ *  admissible, so the dropdown offers them (see `DateColumnCard`). */
+const acceptsIntervalColumn = (p: CaseProperty) =>
+	columnKindAcceptsPropertyType("interval", p.data_type);
 
 interface IntervalCardProps {
 	readonly value: Extract<Column, { kind: "interval" }>;
@@ -156,7 +166,7 @@ export function IntervalCard({ value, onChange, errors }: IntervalCardProps) {
 				onFieldChange={setField}
 				header={value.header}
 				onHeaderChange={setHeader}
-				propertyFilter={isDateTyped}
+				propertyFilter={acceptsIntervalColumn}
 				errors={errors}
 			/>
 			<IntervalThresholdRow
