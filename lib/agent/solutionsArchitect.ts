@@ -18,13 +18,13 @@
  * no finishing tool: the chat route finalizes a build at drain end
  * (status flip + case-store materialize + the `data-done` signal).
  */
-import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
+import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
 import { loadApp } from "@/lib/db/apps";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
-import { SA_MODEL, SA_REASONING } from "@/lib/models";
+import { SA_BUILD_MODEL, SA_EDIT_MODEL, SA_REASONING } from "@/lib/models";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import type { ToolExecutionContext } from "./toolExecutionContext";
@@ -391,7 +391,9 @@ export function createSolutionsArchitect(
 	const tools = editing ? sharedTools : { ...sharedTools, ...generationTools };
 
 	const agent = new ToolLoopAgent({
-		model: ctx.model(SA_MODEL),
+		// Build and edit run different tiers: a ground-up build gets the
+		// flagship model, an edit of an existing app the mid-tier one.
+		model: ctx.model(editing ? SA_EDIT_MODEL : SA_BUILD_MODEL),
 		// The prompt summary is rendered from the current normalized doc
 		// when the app already exists. `buildSolutionsArchitectPrompt`
 		// walks the normalized doc directly and produces a domain-vocab
@@ -399,19 +401,19 @@ export function createSolutionsArchitect(
 		instructions: buildSolutionsArchitectPrompt(editing ? doc : undefined),
 		stopWhen: stepCountIs(80),
 		prepareStep: () => {
-			// Adaptive thinking with `display: 'summarized'` is required on Opus 4.7
-			// and later for human-readable thinking summaries to stream back. `effort` is a
-			// top-level provider option (sibling of `thinking`), not nested inside
-			// it — Zod silently strips nested unknown fields. `satisfies` (not an
-			// annotation) so the literal's JSONObject-assignable type flows into
-			// providerOptions while misplaced keys are still rejected.
+			// `reasoningSummary: 'auto'` is required for human-readable
+			// reasoning summaries to stream back. No cache option: OpenAI
+			// prompt caching is implicit (managed breakpoints, 30-min TTL).
+			// `satisfies` (not an annotation) so the literal's
+			// JSONObject-assignable type flows into providerOptions while
+			// misplaced keys are still rejected — the SDK's Zod schema
+			// silently strips unknown fields.
 			return {
 				providerOptions: {
-					anthropic: {
-						cacheControl: { type: "ephemeral" },
-						thinking: { type: "adaptive", display: "summarized" },
-						effort: SA_REASONING.effort,
-					} satisfies AnthropicProviderOptions,
+					openai: {
+						reasoningEffort: SA_REASONING.effort,
+						reasoningSummary: "auto",
+					} satisfies OpenAIResponsesProviderOptions,
 				},
 			};
 		},

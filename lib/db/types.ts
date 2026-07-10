@@ -111,7 +111,7 @@ export const runSummaryDocSchema = z.object({
 	moduleCount: z.number().int().nonnegative(),
 	/** Number of agent LLM steps in the run. */
 	stepCount: z.number().int().nonnegative(),
-	/** SA model id (e.g. "anthropic/claude-opus-4.8"). */
+	/** SA model id (e.g. "openai/gpt-5.6-sol"). */
 	model: z.string(),
 	/**
 	 * Total input tokens for the run, INCLUDING cache_read_tokens and

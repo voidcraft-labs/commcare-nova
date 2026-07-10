@@ -64,7 +64,7 @@ vi.mock("@/lib/storage/media", () => ({
 // model call. The store reads these constants and calls `extractDocument`.
 vi.mock("@/lib/agent/documentExtraction", () => ({
 	extractDocument: extractDocumentMock,
-	CONDENSER_MODEL: "google/gemini-3.5-flash",
+	CONDENSER_MODEL: "openai/gpt-5.6-luna",
 	EXTRACT_MAX_BYTES: 4 * 1024 * 1024,
 }));
 
@@ -103,7 +103,7 @@ function extractRecord(
 	return {
 		status,
 		version,
-		model: "google/gemini-3.5-flash",
+		model: "openai/gpt-5.6-luna",
 		truncated: false,
 		charCount: 0,
 		extractedAt: Date.now() - ageMs,

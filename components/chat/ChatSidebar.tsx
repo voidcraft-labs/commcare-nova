@@ -294,7 +294,7 @@ export function ChatSidebar({
 		// LLM's wrap-up text keeps the stream open). Without this, the grid
 		// shows "Thinking" for 5–15s after generation is already complete.
 		if (phase === BuilderPhase.Completed) return "done";
-		// Reading document attachments — a pre-Opus step. `attachmentPrep` is the
+		// Reading document attachments — a pre-SA step. `attachmentPrep` is the
 		// SEND-time resolve (server waits on the extract); `composerReading` is the
 		// PRE-send eager extraction of a staged doc. Both reuse the reasoning
 		// animation (label set below) and sit after error/generation/completed so a

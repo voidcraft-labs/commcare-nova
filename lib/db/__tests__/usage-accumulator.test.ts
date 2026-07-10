@@ -67,7 +67,7 @@ describe("UsageAccumulator", () => {
 			appId: "app-1",
 			userId: "user-1",
 			runId: "run-1",
-			model: "anthropic/claude-opus-4.8",
+			model: "openai/gpt-5.6-sol",
 			promptMode: "build",
 			freshEdit: false,
 			appReady: false,
@@ -92,15 +92,15 @@ describe("UsageAccumulator", () => {
 		expect(snap.outputTokens).toBe(150);
 		expect(snap.cacheReadTokens).toBe(60);
 		expect(snap.cacheWriteTokens).toBe(10);
-		// Pin the exact cost against Opus 4.8 pricing from @/lib/models
-		// (input 5, output 25, cacheRead 0.5, cacheWrite 6.25 per 1M tokens).
+		// Pin the exact cost against GPT-5.6 Sol pricing from @/lib/models
+		// (input 5, output 30, cacheRead 0.5, cacheWrite 6.25 per 1M tokens).
 		//   uncachedInput = 300 - 60 - 10 = 230
-		//   cost = (230*5 + 60*0.5 + 10*6.25 + 150*25) / 1_000_000
-		//        = (1150 + 30 + 62.5 + 3750) / 1_000_000
-		//        = 4992.5 / 1_000_000 = 0.0049925
+		//   cost = (230*5 + 60*0.5 + 10*6.25 + 150*30) / 1_000_000
+		//        = (1150 + 30 + 62.5 + 4500) / 1_000_000
+		//        = 5742.5 / 1_000_000 = 0.0057425
 		// toBeGreaterThan(0) would silently accept a regression that zeroed
 		// any of the four rate terms; exact pinning catches formula drift.
-		expect(snap.costEstimate).toBeCloseTo(0.0049925, 10);
+		expect(snap.costEstimate).toBeCloseTo(0.0057425, 10);
 	});
 
 	it("stepCount increments on track(...,{step:true}) calls only", () => {
@@ -108,7 +108,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "anthropic/claude-opus-4.8",
+			model: "openai/gpt-5.6-sol",
 			promptMode: "build",
 			freshEdit: false,
 			appReady: false,
@@ -128,7 +128,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "anthropic/claude-opus-4.8",
+			model: "openai/gpt-5.6-sol",
 			promptMode: "build",
 			freshEdit: false,
 			appReady: false,
@@ -151,7 +151,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "anthropic/claude-opus-4.8",
+			model: "openai/gpt-5.6-sol",
 			promptMode: "edit",
 			freshEdit: true,
 			appReady: true,
@@ -172,7 +172,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "run-getter-test",
-			model: "anthropic/claude-opus-4.8",
+			model: "openai/gpt-5.6-sol",
 			promptMode: "build",
 			freshEdit: false,
 			appReady: false,
@@ -196,7 +196,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "anthropic/claude-opus-4.8",
+			model: "openai/gpt-5.6-sol",
 			promptMode: "build" as const,
 			freshEdit: false,
 			appReady: false,
@@ -346,7 +346,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "anthropic/claude-opus-4.8",
+			model: "openai/gpt-5.6-sol",
 			promptMode: "build" as const,
 			freshEdit: false,
 			appReady: false,

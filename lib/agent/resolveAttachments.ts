@@ -14,7 +14,7 @@
 //   - image → the bytes as a data-URL file part for the model's vision pass.
 //
 // Walking all messages is what fixes the multi-turn crash: history carries refs
-// + resolved text, never raw `text/markdown` file parts Anthropic rejects.
+// + resolved text, never raw `text/markdown` file parts the provider rejects.
 //
 // Two invariants:
 //   - Never mutate the input array; return fresh messages.
@@ -30,7 +30,7 @@
 // When the store runs the extraction here (no eager job to reuse), it does so
 // through the chat run's own `GenerationContext` (an `AttachmentCondenser`), so
 // that inline run is usage-tracked like any other sub-generation; the eager
-// route passes the standalone Gemini condenser instead. Reusing an in-flight
+// route passes the standalone extraction condenser instead. Reusing an in-flight
 // job's result meters nothing — only an actual inline run does.
 
 import {
@@ -64,7 +64,7 @@ function refsOf(message: NovaUIMessage): AttachmentRef[] {
  * Count the document attachments on the LAST user message that still NEED reading
  * — a document whose extract wasn't ready when it was attached (`documentNeedsRead`).
  * The chat route uses this to bracket the resolve step with the "Reading your
- * documents" status ONLY when a document will actually block the first Opus token
+ * documents" status ONLY when a document will actually block the SA's first token
  * on extraction. A document Nova already read resolves from its stored extract
  * instantly, so it doesn't count — which is what stops every doc-bearing turn from
  * flashing the status over already-read files. Images resolve instantly too and

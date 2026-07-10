@@ -164,7 +164,7 @@ export function newUuid(): Uuid {
 // `Uuid` via `.transform(...)`. That transform makes the schema
 // unrepresentable in JSON Schema — `z.toJSONSchema(uuidSchema)` throws,
 // which means the SA tool surface (which lowers every input schema to
-// JSON Schema for the Anthropic compiler) can't accept `uuidSchema`
+// JSON Schema for the provider tool-input compiler) can't accept `uuidSchema`
 // directly as a top-level field.
 //
 // `uuidInputSchema` is the wire-shape version: a plain

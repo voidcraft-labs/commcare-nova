@@ -192,10 +192,10 @@ export function classifyError(error: unknown): ClassifiedError {
 			raw,
 		};
 	}
-	// Anthropic 5xx server errors surface here — not in the `APICallError`
+	// Provider 5xx server errors surface here — not in the `APICallError`
 	// block above — when they arrive *mid-stream*. Once the response has begun
 	// streaming, the SDK can no longer attach a `statusCode`, so the failure
-	// reaches us as a plain `Error` whose message is Anthropic's JSON error
+	// reaches us as a plain `Error` whose message is the provider's JSON error
 	// body, e.g. `{"type":"api_error","message":"Internal server error"}`. We
 	// match the `api_error` type token (with the bare phrase as a fallback) and
 	// bucket it as `api_server`: a transient upstream failure the user can

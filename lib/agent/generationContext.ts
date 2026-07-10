@@ -38,7 +38,7 @@
  * in one SSE burst share `ts`).
  */
 
-import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
+import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import type {
 	CallWarning,
 	LanguageModelUsage,
@@ -103,24 +103,23 @@ export function logWarnings(
 }
 
 /**
- * Anthropic provider options for adaptive extended thinking on Opus 4.7+.
+ * OpenAI provider options for reasoning on the GPT-5.6 family.
  *
- * `effort` is a top-level provider option (NOT nested inside `thinking` — Zod
- * `$strip` silently drops it there). `display: 'summarized'` is required for
- * human-readable summaries to stream back; without it, thinking blocks come
- * through as encrypted/redacted on Opus 4.7.
+ * `reasoningSummary: 'auto'` is required for human-readable reasoning
+ * summaries to stream back as `reasoning-delta` parts; without it the
+ * reasoning phase is silent and nothing feeds the live-progress surfaces.
  */
-export function thinkingProviderOptions(effort: ReasoningEffort) {
-	// `satisfies` (not an annotation) so the literal's own type flows out:
-	// the declared AnthropicProviderOptions type is not JSONObject-assignable
-	// (its `fallbacks` entries carry Record<string, unknown> slots), which
-	// providerOptions requires — while `satisfies` still rejects a misplaced
-	// or misspelled key.
+export function reasoningProviderOptions(effort: ReasoningEffort) {
+	// `satisfies` (not an annotation) so the literal's own type flows into
+	// providerOptions' JSONObject requirement, while a misplaced or
+	// misspelled key is still rejected — the AI SDK's Zod schema silently
+	// strips unknown fields, so an unchecked typo would appear to work and
+	// never reach the wire.
 	return {
-		anthropic: {
-			thinking: { type: "adaptive", display: "summarized" },
-			effort,
-		} satisfies AnthropicProviderOptions,
+		openai: {
+			reasoningEffort: effort,
+			reasoningSummary: "auto",
+		} satisfies OpenAIResponsesProviderOptions,
 	};
 }
 
@@ -199,9 +198,9 @@ export interface AgentStep {
 
 export class GenerationContext implements ToolExecutionContext {
 	/** The AI Gateway provider — the ONE model resolver for every LLM call this
-	 *  context issues (the SA on Anthropic Opus, the Gemini document summarizer,
-	 *  structured sub-gens). Model ids are gateway-format (`creator/model-name`),
-	 *  so switching providers is a model-id change, not a wiring change. */
+	 *  context issues (the SA, the document summarizer, structured sub-gens).
+	 *  Model ids are gateway-format (`creator/model-name`), so switching
+	 *  providers is a model-id change, not a wiring change. */
 	private gateway: ReturnType<typeof createGateway>;
 	readonly writer: UIMessageStreamWriter;
 	readonly logWriter: LogWriter;
@@ -269,7 +268,7 @@ export class GenerationContext implements ToolExecutionContext {
 
 	/** Resolve a gateway model id (`creator/model-name`) to a `LanguageModel`.
 	 *  The gateway serves every provider through one credential, so the SA
-	 *  (Anthropic Opus) and the document summarizer (Gemini) resolve identically. */
+	 *  and the document summarizer resolve identically. */
 	model(id: string) {
 		return this.gateway(id);
 	}
@@ -833,7 +832,7 @@ export class GenerationContext implements ToolExecutionContext {
 	/**
 	 * The ONE document-extraction call: fills `{ extract, title, summary }` from a
 	 * document (decoded text as `prompt`, or a native `file` block for a PDF) in a
-	 * single structured generation. Runs on the document summarizer (Gemini via the
+	 * single structured generation. Runs on the document summarizer (via the
 	 * gateway), streamed through `streamObjectWith` so `onProgress` can pulse the
 	 * grid — NOT the `Output.object` path `generate` uses. Usage tracks through the same accumulator as every other sub-generation,
 	 * so an extraction shows up on the per-run cost summary alongside the agent loop.
@@ -904,7 +903,7 @@ export class GenerationContext implements ToolExecutionContext {
 				prompt: opts.prompt,
 				maxOutputTokens: opts.maxOutputTokens,
 				...(opts.reasoning && {
-					providerOptions: thinkingProviderOptions(opts.reasoning.effort),
+					providerOptions: reasoningProviderOptions(opts.reasoning.effort),
 				}),
 			});
 			logWarnings(`generate:${opts.label}`, result.warnings);
@@ -937,7 +936,7 @@ export class GenerationContext implements ToolExecutionContext {
 			prompt: opts.prompt,
 			maxOutputTokens: opts.maxOutputTokens,
 			...(opts.reasoning && {
-				providerOptions: thinkingProviderOptions(opts.reasoning.effort),
+				providerOptions: reasoningProviderOptions(opts.reasoning.effort),
 			}),
 			onError: ({ error }) => {
 				this.emitError(classifyError(error), `streamGenerate:${opts.label}`);

@@ -1,10 +1,11 @@
 /**
  * Schema-compilation contract for the case-list-config SA tools.
  *
- * The Anthropic structured-output compiler imposes a hard ceiling of 8
- * `.optional()` fields per per-arm shape — verified hard limit on
- * opus-4-7. Each tool's `inputSchema` carries a typed AST shape lifted
- * from `lib/domain/predicate` + `lib/domain/modules`; this test ensures
+ * Nova caps tool schemas at 8 optional fields per arm — a hard ceiling
+ * inherited from the strictest provider structured-output compiler,
+ * kept as a portability bound. Each tool's `inputSchema` carries a
+ * typed AST shape lifted from `lib/domain/predicate` +
+ * `lib/domain/modules`; this test ensures
  * the compilation survives the Zod 4 → JSON Schema bridge AND stays
  * inside the per-arm ceiling on the column / search-input discriminated
  * unions.
@@ -17,14 +18,14 @@
  *   2. The discriminated-union slot's per-arm shape carries ≤8 optional
  *      fields. Recursive AST cycles expand under nested keys via
  *      `$defs` references in JSON Schema output; we count optionals at
- *      each arm's *immediate* level (the surface the Anthropic compiler
+ *      each arm's *immediate* level (the surface a provider compiler
  *      sees) per `lib/agent/__tests__/toolSchemaGenerator.test.ts`'s
  *      "8-optional ceiling" precedent.
  *   3. A representative payload `safeParse`s — round-trip smoke test
  *      that the schema is structurally usable from the SA's call site.
  *
  * The `scripts/test-schema.ts` harness covers the live-API
- * verification (it drives `generateText` against Anthropic and waits
+ * verification (it drives `generateText` against the live API and waits
  * for the response). This vitest file is the structural defense — it
  * runs in every CI pipeline without burning API credits.
  */
@@ -166,7 +167,7 @@ const FLAT_TOOLS = [
 	{ name: "setCaseListFilter", tool: setCaseListFilterTool },
 ] as const;
 
-describe("case-list-config tool schemas — Anthropic compiler contract", () => {
+describe("case-list-config tool schemas — 8-optional ceiling contract", () => {
 	for (const { name, tool } of [...UNION_TOOLS, ...FLAT_TOOLS]) {
 		it(`${name}: \`z.toJSONSchema\` succeeds`, () => {
 			const json = z.toJSONSchema(tool.inputSchema) as ObjectJsonSchema;
@@ -176,7 +177,7 @@ describe("case-list-config tool schemas — Anthropic compiler contract", () => 
 	}
 
 	for (const { name, tool, unionKey, arrayItems } of UNION_TOOLS) {
-		it(`${name}: per-arm optional count ≤8 (Anthropic compiler ceiling)`, () => {
+		it(`${name}: per-arm optional count ≤8 (8-optional ceiling)`, () => {
 			const json = z.toJSONSchema(tool.inputSchema) as ObjectJsonSchema;
 			const slot = json.properties?.[unionKey];
 			if (!slot) {

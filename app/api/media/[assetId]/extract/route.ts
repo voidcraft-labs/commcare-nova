@@ -23,8 +23,8 @@
  *     `extracting`/`failed` status off the asset itself).
  *
  * Project-gated on every path (a non-member reads as 404, never enumerable).
- * Not on a chat run, so it passes the standalone Gemini condenser rather than a
- * `GenerationContext` — the Flash call's cost isn't folded into a run's usage
+ * Not on a chat run, so it passes the standalone extraction condenser rather than
+ * a `GenerationContext` — the summarizer call's cost isn't folded into a run's usage
  * accumulator. It IS gated by the same monthly actual-cost backstop as the chat
  * route, though: a `POST` from a user already over budget 429s before any model
  * work, so eager extraction can't keep billing past the backstop.
@@ -32,7 +32,7 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import {
-	createGeminiCondenser,
+	createExtractionCondenser,
 	EXTRACT_MAX_BYTES,
 } from "@/lib/agent/documentExtraction";
 import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
@@ -52,7 +52,7 @@ import {
 import { log } from "@/lib/logger";
 import { readTextObject } from "@/lib/storage/media";
 
-/** Gemini high-reasoning over a large PDF runs for tens of seconds; give the
+/** High-effort reasoning over a large PDF runs for tens of seconds; give the
  *  extraction the same ceiling the chat run gets rather than the route default.
  *  This also bounds how long a `POST` can run as the claiming caller (the store
  *  treats an `extracting` record older than this as a dead job). */
@@ -163,7 +163,7 @@ export async function POST(
 					const result = await ensureStoredExtract({
 						asset,
 						documentKind,
-						condenser: createGeminiCondenser(),
+						condenser: createExtractionCondenser(),
 						// Eager fan-out surface: report an in-flight job rather than
 						// waiting, so a concurrent caller gets a fast `done`/extracting and
 						// polls instead of holding open behind the running job.

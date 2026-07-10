@@ -61,7 +61,7 @@ import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
-import { SA_MODEL } from "@/lib/models";
+import { SA_BUILD_MODEL, SA_EDIT_MODEL } from "@/lib/models";
 import { creditGateDecision } from "./creditGate";
 import { CACHE_TTL_MS, chatRequestSchema } from "./schema";
 import { isFatalStreamErrorChunk } from "./streamFailure";
@@ -512,7 +512,9 @@ export async function POST(req: Request) {
 		appId,
 		userId,
 		runId: effectiveRunId,
-		model: SA_MODEL,
+		// Must match the model `createSolutionsArchitect` picks off the same
+		// signal — build and edit run different tiers.
+		model: appReady ? SA_EDIT_MODEL : SA_BUILD_MODEL,
 		promptMode: appReady ? "edit" : "build",
 		freshEdit: !!appReady && seedCacheExpired,
 		appReady: !!appReady,
@@ -1045,7 +1047,7 @@ export async function POST(req: Request) {
 				 *    after askQuestions rounds.
 				 *
 				 * 2. **Message strategy** — determined by cache expiry. When the
-				 *    Anthropic prompt cache has expired (>5 min since last response),
+				 *    provider prompt cache has expired (>30 min since last response),
 				 *    only the last user message is sent (one-shot). Within the cache
 				 *    window, full conversation history is sent so the SA can iterate
 				 *    with context from prior turns (e.g. askQuestions answers).

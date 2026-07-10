@@ -1,16 +1,16 @@
 /**
  * Provider-agnostic structured sub-generation.
  *
- * `GenerationContext` and the standalone Gemini condenser both extract a document
- * into a structured `{ extract, title, summary }` object via a SINGLE
+ * `GenerationContext` and the standalone extraction condenser both extract a
+ * document into a structured `{ extract, title, summary }` object via a SINGLE
  * `generateObject` call. The only provider-bound part is resolving the model id
  * to a `LanguageModel`; hoisting the call here, parameterized by the resolved
  * model, lets the same path run against ANY provider:
  *
- *   - production hands it the Gemini summarizer (via `GenerationContext`);
- *   - `scripts/preview-attachment-condense.ts` hands it Gemini or Anthropic, to
+ *   - production hands it the summarizer (GPT-5.6 Luna, via `GenerationContext`);
+ *   - `scripts/preview-attachment-condense.ts` hands it Luna or Gemini, to
  *     compare condenser quality + cost on a real document WITHOUT paying for the
- *     Solutions Architect's Opus tool loop.
+ *     Solutions Architect's tool loop.
  *
  * A document reaches the model one of two provider-agnostic ways: decoded text as
  * a `prompt` (text/docx/xlsx), or a native `{ type: "file" }` block the provider
@@ -31,9 +31,9 @@ import {
 import type { ZodType } from "zod";
 
 /** The provider-options shape `generateObject` accepts (e.g. a provider's
- *  reasoning/thinking depth). `ai` declares this internally but doesn't export the
+ *  reasoning depth). `ai` declares this internally but doesn't export the
  *  name, so we derive it from the call signature — one source of truth the preview
- *  script reuses to type its Gemini thinking options. */
+ *  script reuses to type its per-model reasoning options. */
 export type SubGenerationProviderOptions = NonNullable<
 	Parameters<typeof generateObject>[0]["providerOptions"]
 >;
@@ -142,11 +142,11 @@ export async function generateObjectWith<T>(opts: {
  * `onProgress` fires per streamed chunk with its character count.
  *
  * Built on `streamText` + `Output.object`, NOT `streamObject`, on purpose: the
- * summarizer runs at high thinking, where MOST of the wall-clock is silent
+ * summarizer runs at high reasoning effort, where MOST of the wall-clock is silent
  * reasoning before any output token — `streamObject` exposes only the output text,
  * so progress wouldn't start until the very end. `streamText`'s `stream`
- * carries `reasoning-delta` parts too (with Gemini `includeThoughts`), so progress
- * tracks the thinking phase as well — which is where the time actually goes.
+ * carries `reasoning-delta` parts too (with OpenAI `reasoningSummary`), so progress
+ * tracks the reasoning phase as well — which is where the time actually goes.
  *
  * Correctness is identical to the blocking path: only the FINAL validated `object`
  * (`result.output`) is returned — the partial stream drives progress + generation,

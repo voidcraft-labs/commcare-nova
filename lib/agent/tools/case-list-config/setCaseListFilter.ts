@@ -15,7 +15,7 @@
  * convention reads as "an absence value rather than absence-via-
  * omission" — it forces the SA to spell out "remove the filter" as a
  * payload rather than relying on a missing key, which the AI SDK /
- * Anthropic schema wouldn't honor consistently across edits.
+ * provider schema wouldn't honor consistently across edits.
  *
  * Filter is the one wholesale-shape slot on `caseListConfig` (one
  * Predicate, no array of entries to address by uuid) — column and

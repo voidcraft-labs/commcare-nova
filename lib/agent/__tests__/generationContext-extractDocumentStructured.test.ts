@@ -90,7 +90,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 			prompt: "the document body",
 			schema,
 			label: "attachment-txt",
-			model: "anthropic/claude-haiku-4.5",
+			model: "openai/gpt-5.6-luna",
 			maxOutputTokens: 4096,
 		});
 

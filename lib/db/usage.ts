@@ -114,7 +114,7 @@ export async function incrementUsage(
  * Convention: `inputTokens` is the TOTAL input count for the call, INCLUDING
  * any cache-read and cache-write tokens. The uncached portion is derived
  * by subtracting both cache buckets, so callers must not pre-subtract.
- * Unknown model IDs fall back to `DEFAULT_PRICING` (Sonnet rates) — pricing
+ * Unknown model IDs fall back to `DEFAULT_PRICING` (Terra rates) — pricing
  * gaps should still produce a believable number rather than zero.
  *
  * `uncachedInput` is floored at zero: if a caller mis-reports cache tokens

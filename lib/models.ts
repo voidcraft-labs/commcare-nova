@@ -2,58 +2,73 @@
  * Central model configuration.
  *
  * Every LLM call routes through the Vercel AI Gateway, so model ids use the
- * gateway's `creator/model-name` format (e.g. "anthropic/claude-opus-4.8",
- * "google/gemini-3.5-flash"). Swapping a constant here switches the model on
- * every surface that uses it — no provider wiring changes needed. List the
- * available ids: `curl -s https://ai-gateway.vercel.sh/v1/models`.
+ * gateway's `creator/model-name` format (e.g. "openai/gpt-5.6-sol"). Swapping
+ * a constant here switches the model on every surface that uses it — no
+ * provider wiring changes needed. List the available ids:
+ * `curl -s https://ai-gateway.vercel.sh/v1/models`.
  */
 
 /**
- * Reasoning effort levels for Anthropic adaptive thinking.
- *
- * `xhigh` sits between `high` and `max` — introduced with Opus 4.7. In practice
- * it delivers better quality than 4.6's `max` at a lower token budget, because
- * 4.7 `max` can emit ~1.4× the thinking tokens of prior models.
+ * Reasoning effort levels for OpenAI reasoning models (GPT-5.6 family) —
+ * exactly the values the API accepts for these models (verified against the
+ * wire's own error enumeration; there is no `max` tier here). `xhigh` is the
+ * quality-first ceiling. Reasoning tokens bill as output tokens.
  */
-export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
+export type ReasoningEffort =
+	| "none"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh";
 
 /** Fallback model for GenerationContext methods when no model is specified. */
-export const MODEL_DEFAULT = "anthropic/claude-sonnet-4.6";
+export const MODEL_DEFAULT = "openai/gpt-5.6-terra";
 
-/** Model ID for the Solutions Architect agent. */
-export const SA_MODEL = "anthropic/claude-opus-4.8";
+/** Model ID for the Solutions Architect agent building a NEW app. */
+export const SA_BUILD_MODEL = "openai/gpt-5.6-sol";
 
-/** Reasoning configuration for the Solutions Architect agent. `high` is the recommended default for Opus 4.8. */
-export const SA_REASONING: { effort: ReasoningEffort } = { effort: "high" };
+/** Model ID for the Solutions Architect agent editing an EXISTING app —
+ * edits are narrower than a ground-up build, so they run the mid-tier model. */
+export const SA_EDIT_MODEL = "openai/gpt-5.6-terra";
 
-/** Pricing per million tokens, keyed by gateway model ID. */
+/** Reasoning configuration for the Solutions Architect agent (both modes). */
+export const SA_REASONING: { effort: ReasoningEffort } = { effort: "xhigh" };
+
+/**
+ * Pricing per million tokens, keyed by gateway model ID.
+ *
+ * Base-tier rates: OpenAI bills input past 272k tokens per request at 2×
+ * these, which Nova's prompts stay under. Cache writes bill at 1.25× input;
+ * cache reads at 0.1× input.
+ */
 export const MODEL_PRICING: Record<
 	string,
 	{ input: number; output: number; cacheWrite: number; cacheRead: number }
 > = {
-	"anthropic/claude-sonnet-4.6": {
-		input: 3,
-		output: 15,
-		cacheWrite: 3.75,
-		cacheRead: 0.3,
-	},
-	"anthropic/claude-opus-4.8": {
+	"openai/gpt-5.6-sol": {
 		input: 5,
-		output: 25,
+		output: 30,
 		cacheWrite: 6.25,
 		cacheRead: 0.5,
 	},
-	"anthropic/claude-haiku-4.5": {
+	"openai/gpt-5.6-terra": {
+		input: 2.5,
+		output: 15,
+		cacheWrite: 3.125,
+		cacheRead: 0.25,
+	},
+	"openai/gpt-5.6-luna": {
 		input: 1,
-		output: 5,
+		output: 6,
 		cacheWrite: 1.25,
 		cacheRead: 0.1,
 	},
 };
 
 export const DEFAULT_PRICING = {
-	input: 3,
+	input: 2.5,
 	output: 15,
-	cacheWrite: 3.75,
-	cacheRead: 0.3,
+	cacheWrite: 3.125,
+	cacheRead: 0.25,
 };

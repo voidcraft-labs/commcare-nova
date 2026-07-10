@@ -11,7 +11,7 @@
  *
  * ## Strategy
  *
- * Rather than stand up a real Anthropic client, we build the SA with a
+ * Rather than stand up a real model client, we build the SA with a
  * mocked `GenerationContext` (stubbed `UIMessageStreamWriter` + stubbed
  * `EventLogger`) and invoke each tool's `execute` callback directly. The
  * writer's `.write` call log is the test's primary assertion surface:

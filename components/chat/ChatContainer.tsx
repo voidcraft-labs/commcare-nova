@@ -231,7 +231,7 @@ export function ChatContainer({
 	 *  "ready"` so the very first render is a no-op. */
 	const prevStreamOpenRef = useRef(false);
 	/** ISO timestamp of the SA's last response — used to determine if the
-	 *  Anthropic prompt cache is still warm on subsequent requests. */
+	 *  provider prompt cache is still warm on subsequent requests. */
 	const lastResponseAtRef = useRef<string | undefined>(undefined);
 
 	// ── Blank-app escape hatch (new builds only) ─────────────────────────
@@ -325,7 +325,7 @@ export function ChatContainer({
 	 * `data-done` handler via `markRunCompleted()`. So askQuestions
 	 * runs, clarifying text, and edit-tool responses close silently
 	 * without any animation. Stamps `lastResponseAtRef` on the ready
-	 * transition for the next request's Anthropic-cache warmth check. */
+	 * transition for the next request's prompt-cache warmth check. */
 	useEffect(() => {
 		if (!sessionApi) return;
 		const streamOpen = status === "submitted" || status === "streaming";

@@ -6,8 +6,8 @@
 // `extractDocument` entry point. Two callers drive it:
 //
 //   - the upload-time extract route (`/api/media/[assetId]/extract`), via the
-//     standalone `createGeminiCondenser()` — a separate request, off the chat
-//     run, so it builds its own provider-bound condenser;
+//     standalone `createExtractionCondenser()` — a separate request, off the
+//     chat run, so it builds its own provider-bound condenser;
 //   - the chat resolve step's lazy backstop, via the live `GenerationContext`
 //     (which satisfies `AttachmentCondenser` and tracks the call's usage).
 //
@@ -15,10 +15,10 @@
 // (`documentExtractionStore`) owns loading the bytes and persisting the result.
 // Storing the extract once (keyed by content hash +
 // `EXTRACTOR_VERSION`) and reusing it every turn is what keeps a multi-page spec
-// from being re-condensed — or re-billed at the Opus input rate across dozens of
+// from being re-condensed — or re-billed at the SA's input rate across dozens of
 // tool-loop steps — on every send.
 
-import type { GoogleLanguageModelOptions } from "@ai-sdk/google";
+import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import AdmZip from "adm-zip";
 import { createGateway } from "ai";
 import mammoth from "mammoth";
@@ -93,10 +93,10 @@ export interface StructuredExtractResult<T> {
 /**
  * The slice of generation capability extraction needs. Narrowing to this
  * interface (rather than the full `GenerationContext`) is what lets BOTH the
- * standalone Gemini condenser (the upload route) and the live `GenerationContext`
- * (the chat lazy backstop) drive the exact same orchestration. `GenerationContext`
- * satisfies this structurally; `createGeminiCondenser` builds a tiny backend over
- * `subGeneration.ts`.
+ * standalone extraction condenser (the upload route) and the live
+ * `GenerationContext` (the chat lazy backstop) drive the exact same
+ * orchestration. `GenerationContext` satisfies this structurally;
+ * `createExtractionCondenser` builds a tiny backend over `subGeneration.ts`.
  *
  * ONE method, ONE model call: it fills `{ title, summary, extract }` from the
  * document in a single structured generation — title + summary first, then the
@@ -116,16 +116,16 @@ export interface AttachmentCondenser {
 
 /**
  * Output ceiling for the condense call, set to the summarizer's MAX output
- * (Gemini 3.5 Flash caps at 64k tokens). This is NOT a cost or effort dial —
+ * (GPT-5.6 Luna caps at 128k tokens). This is NOT a cost or effort dial —
  * `maxOutputTokens` is a hard guillotine that chops the response mid-stream when
  * hit; a faithful extract's length tracks the document's actual content, so the
  * only correct value is the model's real ceiling. Lower values would silently
  * truncate legitimate extracts. Truncation at THIS value is the extreme edge
- * handled with a note. Note Gemini bills thinking tokens as output, so
+ * handled with a note. Note OpenAI bills reasoning tokens as output, so
  * high-reasoning extraction shares this budget with the visible text — another
  * reason to keep the cap at the true maximum.
  */
-export const EXTRACT_MAX_OUTPUT_TOKENS = 64_000;
+export const EXTRACT_MAX_OUTPUT_TOKENS = 128_000;
 
 /**
  * Safety bound for reading a stored extract back out of GCS. An extract is
@@ -138,34 +138,30 @@ export const EXTRACT_MAX_BYTES = 4 * 1024 * 1024;
 // ── Summarizer model + provider options ──────────────────────────────────
 
 /**
- * The official document summarizer: Google Gemini 3.5 Flash, reached through
- * the AI Gateway like every other model (`AI_GATEWAY_API_KEY` — one credential
- * covers Anthropic and Google alike). Extraction is a platform feature, so a
- * missing key fails loud rather than silently degrading. The preview script
- * reuses the same id + options so what it tests matches production.
+ * The official document summarizer: OpenAI GPT-5.6 Luna, reached through the
+ * AI Gateway like every other model (`AI_GATEWAY_API_KEY` — one credential
+ * covers every provider). Extraction is a platform feature, so a missing key
+ * fails loud rather than silently degrading. The preview script reuses the
+ * same id + options so what it tests matches production.
  */
-export const CONDENSER_MODEL = "google/gemini-3.5-flash";
+export const CONDENSER_MODEL = "openai/gpt-5.6-luna";
 
 /**
- * Gemini provider options for the summarizer:
- *   - `thinkingLevel: "medium"` — reasoning depth for the extraction.
- *   - `includeThoughts: true` — stream the model's thought summaries as
- *     `reasoning-delta` parts. Extraction is mostly silent thinking before any
+ * OpenAI provider options for the summarizer:
+ *   - `reasoningEffort: "xhigh"` — reasoning depth for the extraction.
+ *   - `reasoningSummary: "auto"` — stream the model's reasoning summaries as
+ *     `reasoning-delta` parts. Extraction is mostly silent reasoning before any
  *     output token, so without this the live-progress feed (`streamObjectWith`)
- *     stays dark for the whole think phase; the thoughts are the progress. No
- *     extra cost — thinking tokens bill the same whether or not summaries surface.
- *   - `mediaResolution: "MEDIA_RESOLUTION_HIGH"` — governs how a PDF is
- *     rasterized to image tiles before the model reads it; HIGH preserves small
- *     print, dense tables, and checkbox glyphs in scanned/typeset forms (no
- *     effect on text/office docs, which reach the model as text).
- * Output billing on Gemini includes thinking tokens, so the reasoning level is
- * the cost lever here — see `EXTRACT_MAX_OUTPUT_TOKENS`.
+ *     stays dark for the whole reasoning phase; the summaries are the progress.
+ * A PDF rides as a native file block the model reads directly — there is no
+ * rasterization dial to set. Output billing includes reasoning tokens, so the
+ * effort level is the cost lever here — see `EXTRACT_MAX_OUTPUT_TOKENS`.
  */
 export const CONDENSER_PROVIDER_OPTIONS: SubGenerationProviderOptions = {
-	google: {
-		thinkingConfig: { thinkingLevel: "medium", includeThoughts: true },
-		mediaResolution: "MEDIA_RESOLUTION_HIGH",
-	} satisfies GoogleLanguageModelOptions,
+	openai: {
+		reasoningEffort: "xhigh",
+		reasoningSummary: "auto",
+	} satisfies OpenAIResponsesProviderOptions,
 };
 
 /**
@@ -737,11 +733,11 @@ export async function extractDocument(opts: {
  * propagates to the route's catch. `truncated` is derived from the structured
  * call's `finishReason`.
  */
-export function createGeminiCondenser(): AttachmentCondenser {
+export function createExtractionCondenser(): AttachmentCondenser {
 	const apiKey = process.env.AI_GATEWAY_API_KEY;
 	if (!apiKey) {
 		throw new Error(
-			"AI_GATEWAY_API_KEY is unset — document feature extraction needs the AI Gateway key to reach the Gemini summarizer. Set it in the environment so uploaded documents can be condensed into the requirements extract Nova reads.",
+			"AI_GATEWAY_API_KEY is unset — document feature extraction needs the AI Gateway key to reach the summarizer model. Set it in the environment so uploaded documents can be condensed into the requirements extract Nova reads.",
 		);
 	}
 	const model = createGateway({ apiKey })(CONDENSER_MODEL);

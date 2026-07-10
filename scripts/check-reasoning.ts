@@ -1,6 +1,7 @@
+import "dotenv/config";
 import { createGateway, Output, streamText } from "ai";
 import { z } from "zod";
-import { SA_MODEL } from "../lib/models";
+import { SA_BUILD_MODEL, SA_REASONING } from "../lib/models";
 
 const apiKey = process.env.AI_GATEWAY_API_KEY;
 if (!apiKey) throw new Error("AI_GATEWAY_API_KEY is required");
@@ -9,14 +10,14 @@ const gateway = createGateway({ apiKey });
 
 async function main() {
 	const result = streamText({
-		model: gateway(SA_MODEL),
+		model: gateway(SA_BUILD_MODEL),
 		output: Output.object({ schema: z.object({ answer: z.string() }) }),
 		prompt: "What is 15 * 37? Show your work.",
 		maxOutputTokens: 256,
 		providerOptions: {
-			anthropic: {
-				thinking: { type: "adaptive", display: "summarized" },
-				effort: "xhigh",
+			openai: {
+				reasoningEffort: SA_REASONING.effort,
+				reasoningSummary: "auto",
 			},
 		},
 	});

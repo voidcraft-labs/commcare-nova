@@ -1,20 +1,19 @@
 /**
- * Verifies that the SA's tool input schemas are accepted by the Anthropic
+ * Verifies that the SA's tool input schemas are accepted by the OpenAI
  * API — i.e. the model makes a tool call against each schema without the
  * request erroring.
  *
  * All SA tools run in **tool-input** mode (`tools[name].inputSchema`).
- * Tool use is NOT grammar-constrained, so there is no schema-grammar
+ * Tool use is NOT constrained-decoded, so there is no schema-grammar
  * compilation step and no per-array-item optional-field ceiling — the
- * `addFields` batch item carries ten optionals and compiles fine on every
- * model. (The "Grammar compilation timed out" ceiling is specific to
- * GRAMMAR-CONSTRAINED decoding — the `Output.object` / structured-output
- * path — which these tools do not use, so it isn't exercised here.)
+ * `addFields` batch item carries ten optionals and is accepted on every
+ * model. (Structured-output constraints apply to the `Output.object` path,
+ * which these tools do not use, so they aren't exercised here.)
  *
- * Usage: `npx tsx scripts/test-schema.ts [opus] [schema-name]`
- *   - Pass `opus` to test against the production SA model (`SA_MODEL`);
- *     default is Haiku 4.5 (cheap + fast — tool-input acceptance is the
- *     same across models).
+ * Usage: `npx tsx scripts/test-schema.ts [sol] [schema-name]`
+ *   - Pass `sol` to test against the production SA build model
+ *     (`SA_BUILD_MODEL`); default is GPT-5.6 Luna (cheap + fast —
+ *     tool-input acceptance is the same across models).
  *   - Pass a schema name to test only that schema; omit to test every
  *     registered schema. Known names: `addFields`,
  *     `addCaseListColumns`, `updateCaseListColumn`,
@@ -59,7 +58,7 @@ import {
 	updateModuleTool,
 } from "../lib/agent/tools/updateModule";
 import { uploadMediaAssetInputSchema } from "../lib/mcp/tools/uploadMediaAsset";
-import { SA_MODEL } from "../lib/models";
+import { SA_BUILD_MODEL } from "../lib/models";
 
 /**
  * One tool-input schema test: register the tool with a no-op `execute`,
@@ -275,9 +274,9 @@ if (!apiKey) {
 
 const gateway = createGateway({ apiKey });
 const args = process.argv.slice(2);
-const useOpus = args.includes("opus");
-const explicitName = args.find((a) => a !== "opus");
-const model = useOpus ? SA_MODEL : "anthropic/claude-haiku-4.5";
+const useSol = args.includes("sol");
+const explicitName = args.find((a) => a !== "sol");
+const model = useSol ? SA_BUILD_MODEL : "openai/gpt-5.6-luna";
 
 const tests = explicitName
 	? SCHEMA_TESTS.filter((t) => t.name === explicitName)

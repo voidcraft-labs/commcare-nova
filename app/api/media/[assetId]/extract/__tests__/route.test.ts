@@ -59,7 +59,7 @@ vi.mock("@/lib/db/usage", () => ({
 // Keep the constants the route reads + a no-op condenser factory; the real
 // module (mammoth + the Google provider) never loads.
 vi.mock("@/lib/agent/documentExtraction", () => ({
-	createGeminiCondenser: vi.fn(() => ({})),
+	createExtractionCondenser: vi.fn(() => ({})),
 	EXTRACT_MAX_BYTES: 4 * 1024 * 1024,
 }));
 vi.mock("@/lib/storage/media", () => ({ readTextObject: readTextObjectMock }));
@@ -187,7 +187,7 @@ describe("POST extract (streamed result)", () => {
 				extract: {
 					status: "ready",
 					version: EXTRACTOR_VERSION,
-					model: "google/gemini-3.5-flash",
+					model: "openai/gpt-5.6-luna",
 					truncated: false,
 					charCount: 12,
 					title: "ANC Program Requirements",
@@ -304,7 +304,7 @@ describe("GET extract", () => {
 				extract: {
 					status: "ready",
 					version: EXTRACTOR_VERSION,
-					model: "google/gemini-3.5-flash",
+					model: "openai/gpt-5.6-luna",
 					truncated: false,
 					charCount: 5,
 					// biome-ignore lint/suspicious/noExplicitAny: Timestamp irrelevant here
@@ -344,7 +344,7 @@ describe("GET extract", () => {
 				extract: {
 					status: "ready",
 					version: EXTRACTOR_VERSION,
-					model: "google/gemini-3.5-flash",
+					model: "openai/gpt-5.6-luna",
 					truncated: false,
 					charCount: 5,
 					title: "ANC Program Requirements",

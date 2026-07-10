@@ -49,8 +49,10 @@ export type RunSummaryWriteAction =
  * - `prompt_mode` — a thread that starts as "build" stays a build thread
  *   in the summary, even after the follow-up edits switch prompts.
  * - `app_ready` — same logic: was the app ready when the thread opened?
- * - `model` — would require a different field if we ever mix SA models
- *   inside a single thread, but `SA_MODEL` is a code constant today.
+ * - `model` — pinned at the thread's first turn, so a build thread keeps
+ *   `SA_BUILD_MODEL` even after follow-up edits switch to `SA_EDIT_MODEL`.
+ *   Cost is unaffected: each turn's accumulator prices its own tokens at
+ *   that turn's model.
  *
  * **Scalar overwrite (latest turn wins):**
  * - `finished_at` — last turn's finalize time. Note this means

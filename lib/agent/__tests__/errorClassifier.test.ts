@@ -9,7 +9,7 @@ import { classifyError } from "../errorClassifier";
 
 // `classifyError` maps raw thrown values to a stable, user-safe bucket. The
 // cases that matter most are the ones the type alone can't tell apart: an
-// Anthropic 5xx that arrives *mid-stream* is a plain `Error` carrying the
+// provider 5xx that arrives *mid-stream* is a plain `Error` carrying the
 // provider's JSON error body, not an `APICallError` with a `statusCode`, so it
 // must be recognized by message shape. These tests pin that recognition so a
 // future branch reorder can't silently drop a transient upstream failure back

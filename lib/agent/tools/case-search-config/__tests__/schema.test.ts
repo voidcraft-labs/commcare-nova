@@ -11,14 +11,14 @@
  *      cluster slot is `*.nullable()` rather than `.optional()`),
  *      so the optional count is structurally zero — the test pins
  *      that invariant against an accidental `.optional()` flip
- *      that would push the schema past the Anthropic compiler's
+ *      that would push the schema past the
  *      8-optional ceiling.
  *
  * Plus representative-payload smoke parses for each tool's happy and
  * cleared-everything paths.
  *
  * The `scripts/test-schema.ts` harness covers the live-API
- * verification (it drives `generateText` against Anthropic and waits
+ * verification (it drives `generateText` against the live API and waits
  * for the response). This vitest file is the structural defense — it
  * runs in every CI pipeline without burning API credits.
  */
@@ -59,7 +59,7 @@ const TOOLS = [
 	{ name: "setCaseSearchDisplay", tool: setCaseSearchDisplayTool },
 ] as const;
 
-describe("case-search-config tool schemas — Anthropic compiler contract", () => {
+describe("case-search-config tool schemas — 8-optional ceiling contract", () => {
 	for (const { name, tool } of TOOLS) {
 		it(`${name}: \`z.toJSONSchema\` succeeds`, () => {
 			const json = z.toJSONSchema(tool.inputSchema) as ObjectJsonSchema;
@@ -67,7 +67,7 @@ describe("case-search-config tool schemas — Anthropic compiler contract", () =
 			expect(json.properties).toBeDefined();
 		});
 
-		it(`${name}: top-level optional count ≤8 (Anthropic compiler ceiling)`, () => {
+		it(`${name}: top-level optional count ≤8 (8-optional ceiling)`, () => {
 			const json = z.toJSONSchema(tool.inputSchema) as ObjectJsonSchema;
 			const optionalCount = countTopLevelOptionals(json);
 			expect(

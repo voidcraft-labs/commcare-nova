@@ -58,7 +58,7 @@ import { type GuardedMutateOutcome, guardedMutate } from "../common";
  * boundary and the stored shape can't drift — `mediaSchema` is
  * `.strict()` with three optional `assetIdSchema` slots, none of which
  * carries a `.transform()`, so it lowers cleanly to JSON Schema for the
- * Anthropic compiler.
+ * provider tool-input compiler.
  *
  * Clearing a slot is "omit it from the bundle" — an absent key resolves
  * to `undefined` and the carrier drops the reference. Passing an empty
