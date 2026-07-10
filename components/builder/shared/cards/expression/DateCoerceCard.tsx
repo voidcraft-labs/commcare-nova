@@ -2,10 +2,12 @@
 //
 // Renders the two single-slot date / datetime coercion expressions:
 //
-//   - `date-coerce` — text → typed date via CommCare's wire
-//     `date(...)` value function.
-//   - `datetime-coerce` — text → typed datetime via CommCare's wire
-//     `datetime(...)` value function.
+//   - `date-coerce` — text → typed date (Postgres `::date`, CSQL
+//     `date(...)`, on-device `date(...)`).
+//   - `datetime-coerce` — text → typed datetime (Postgres
+//     `::timestamptz`, CSQL `datetime(...)`; on-device this ALSO
+//     emits `date(...)` — the one parse-coercion that evaluator has,
+//     whose String arm preserves time-of-day).
 //
 // Both share an identical `{ value: ValueExpression }` operand shape;
 // the `ExpressionPicker` shell's kind-replace menu treats them as a

@@ -79,10 +79,29 @@ describe("emitOnDeviceExpression — coercion functions", () => {
 		);
 	});
 
-	it("emits datetime(<value>) for datetime-coerce", () => {
+	it("emits date(<value>) for date-coerce over a date-shaped operand (identity on this evaluator)", () => {
+		// The redundant-but-sound shape derived property typing keeps
+		// legal: an explicit coerce wrapped around a property that now
+		// RESOLVES to date. JavaRosa's `date()` of a date value is
+		// identity (`FunctionUtils::toDate` — the String arm parses via
+		// `DateUtils::parseDateTime`; the Date arm rounds, identity for
+		// a midnight date), so the wire stays the plain wrapped read.
+		const expr = dateCoerce(term(prop("patient", "order_date")));
+		expect(emitOnDeviceExpression(expr)).toBe("date(order_date)");
+	});
+
+	it("emits date(<value>) for datetime-coerce — this dialect has no datetime()", () => {
+		// The on-device grammar (`commcare-core`'s XPath, the web-apps
+		// evaluator) dispatches exactly one parse-coercion function:
+		// `date` (`org.javarosa.xpath.parser.ast.ASTNodeFunctionCall`
+		// carries no `datetime` case and no runtime handler registers
+		// one) — a `datetime(...)` call fails the case list / search
+		// session as an unknown function. `date()`'s String arm
+		// (`FunctionUtils::toDate` → `DateUtils::parseDateTime`)
+		// preserves time-of-day, so it IS the datetime coercion here.
 		const expr = datetimeCoerce(term(input("dt_text")));
 		expect(emitOnDeviceExpression(expr)).toBe(
-			`datetime(instance('search-input:results')/input/field[@name='dt_text'])`,
+			`date(instance('search-input:results')/input/field[@name='dt_text'])`,
 		);
 	});
 

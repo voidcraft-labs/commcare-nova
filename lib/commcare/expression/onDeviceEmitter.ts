@@ -30,10 +30,14 @@
 //     (zero-arg value functions registered on
 //     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`;
 //     also XPath 1.0 standard functions).
-//   - `date-coerce(value)` → `date(<value>)`; `datetime-coerce(value)`
-//     → `datetime(<value>)`. The AST kind name diverges from the wire
-//     function name intentionally — authors see semantic naming
-//     (`dateCoerce(...)`) while the wire layer uses CCHQ's vocabulary.
+//   - `date-coerce(value)` AND `datetime-coerce(value)` → `date(<value>)`.
+//     This dialect's grammar has exactly one parse-coercion function
+//     (`date`, per the arm comment below); its String arm preserves
+//     time-of-day, so it IS the datetime coercion here. The AST keeps
+//     two kinds because the distinction is real on the evaluators
+//     that carry two types — the Postgres arms (`::date` /
+//     `::timestamptz`) and server-side CSQL (`date()` / `datetime()`
+//     on `XPATH_VALUE_FUNCTIONS`).
 //   - `double(value)` → `double(<value>)`. CCHQ's forced numeric
 //     coercion value function on
 //     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
@@ -153,15 +157,23 @@ export function emitOnDeviceExpression(
 			// (the `now` entry); also a JavaRosa zero-arg dispatch.
 			return "now()";
 		case "date-coerce":
-			// AST `date-coerce(value)` → wire `date(<value>)`. CCHQ
-			// registration at the `date` entry on
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
-			return `date(${emitOnDeviceExpression(expr.value, root)})`;
 		case "datetime-coerce":
-			// AST `datetime-coerce(value)` → wire `datetime(<value>)`.
-			// CCHQ registration at the `datetime` entry on
-			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
-			return `datetime(${emitOnDeviceExpression(expr.value, root)})`;
+			// Both coercions → wire `date(<value>)`. This dialect's
+			// grammar (the web-apps evaluator, `commcare-core`'s XPath —
+			// `org.javarosa.xpath.parser.ast.ASTNodeFunctionCall`) has
+			// one parse-coercion function, `date`
+			// (`XPathDateFunc` → `FunctionUtils::toDate`), and no
+			// `datetime`; a `datetime(...)` call fails the case list /
+			// search session as an unknown function. `date()` is the
+			// faithful datetime coercion on this evaluator: its String
+			// arm (`DateUtils::parseDateTime`) preserves time-of-day,
+			// and the residual date-vs-datetime distinction is
+			// unobservable here anyway — comparisons coerce dates to
+			// whole days (`XPathCmpExpr` → `FunctionUtils::toNumeric` →
+			// `DateUtils::daysSinceEpoch`) and stringification formats
+			// date-only (`FunctionUtils::toString` →
+			// `DateUtils::formatDate(FORMAT_ISO8601)`).
+			return `date(${emitOnDeviceExpression(expr.value, root)})`;
 		case "double":
 			// CCHQ value function at the `double` entry on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.

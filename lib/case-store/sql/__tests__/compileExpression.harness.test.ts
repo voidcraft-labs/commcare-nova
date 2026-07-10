@@ -184,6 +184,69 @@ describe("compileExpression — round-trip — coercion arms", () => {
 		expect(rows).toEqual([{ matches: true }]);
 	});
 
+	test("date-coerce over a date-shaped operand is identity", async ({ db }) => {
+		// The redundant-but-sound shape derived property typing keeps
+		// legal: an explicit coerce around a value that's already a
+		// date. `date::date` is identity in Postgres, matching the
+		// on-device evaluator (JavaRosa `date()` of a date is itself).
+		const expr = compileExpression(
+			dateCoerce(dateCoerce(term(literal("2026-01-01")))),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(sql<boolean>`${expr} = date '2026-01-01'`.as("matches"))
+			.execute();
+		expect(rows).toEqual([{ matches: true }]);
+	});
+
+	test("datetime-coerce over a datetime-shaped operand is identity", async ({
+		db,
+	}) => {
+		const expr = compileExpression(
+			datetimeCoerce(datetimeCoerce(term(literal("2026-01-01T12:00:00Z")))),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(
+				sql<boolean>`${expr} = timestamptz '2026-01-01 12:00:00+00'`.as(
+					"matches",
+				),
+			)
+			.execute();
+		expect(rows).toEqual([{ matches: true }]);
+	});
+
+	test("date-coerce over a datetime-shaped operand truncates to the date", async ({
+		db,
+	}) => {
+		// `timestamptz::date` truncates time-of-day. The on-device arm
+		// agrees observationally: JavaRosa comparisons coerce every
+		// date to whole days (`XPathCmpExpr` → `FunctionUtils::
+		// toNumeric` → `DateUtils::daysSinceEpoch`), so a device
+		// filter comparing this coercion sees the same day-granular
+		// value Postgres computes here. The expected side re-runs the
+		// same cast in the same session (a `timestamptz → date`
+		// truncation is session-time-zone-relative, so a calendar-day
+		// literal would flip on far-east-of-UTC servers); the
+		// assertion still proves the compiled expression parses,
+		// yields a DATE, and equals the truncation.
+		const expr = compileExpression(
+			dateCoerce(datetimeCoerce(term(literal("2026-01-01T12:00:00Z")))),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(
+				sql<boolean>`${expr} = (timestamptz '2026-01-01 12:00:00+00')::date`.as(
+					"matches",
+				),
+			)
+			.execute();
+		expect(rows).toEqual([{ matches: true }]);
+	});
+
 	test("double casts a numeric string to numeric", async ({ db }) => {
 		// `42.5::numeric > 42` rules out a regression that emitted
 		// `::int` (which would truncate) or `::text` (which would
