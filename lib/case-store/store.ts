@@ -580,9 +580,10 @@ export interface CaseStore extends SchemaCaseStore {
  *     `opened_on` column): a map entry would make a reference compile
  *     to a silently-NULL JSONB read, and on the schema-write side
  *     would put `format` constraints + expression indexes on keys
- *     inserts never carry. A standard-name reference instead fails
- *     loudly in `lookupDataType` — mapping those names onto their
- *     scalar columns is the (pre-existing) gap's real fix.
+ *     inserts never carry. Standard-name references resolve through
+ *     `sql/dataTypeTokens.ts::RESERVED_SCALAR_COLUMN_BY_PROPERTY`
+ *     onto their scalar columns BEFORE the map is consulted, so
+ *     `lookupDataType` never sees them.
  *
  * Reads `caseTypes` + `fields` only — never the in-memory
  * `fieldParent` index — so the parameter is the persisted shape

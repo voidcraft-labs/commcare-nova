@@ -104,6 +104,27 @@ export function dataTypeFromSpec(
 }
 
 /**
+ * Canonical (sorted-key) JSON for spec comparison. Postgres JSONB
+ * does not preserve object key order — a spec written as
+ * `{"type":"string","enum":[...]}` reads back `{"enum":[...],
+ * "type":"string"}` — so a plain `JSON.stringify` equality flags
+ * every multi-key spec as drifted forever. Array order (an enum's
+ * option sequence) IS meaningful and stays as-is.
+ */
+function canonicalJson(value: unknown): string {
+	if (Array.isArray(value)) {
+		return `[${value.map(canonicalJson).join(",")}]`;
+	}
+	if (value !== null && typeof value === "object") {
+		const entries = Object.entries(value as Record<string, unknown>)
+			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+			.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`);
+		return `{${entries.join(",")}}`;
+	}
+	return JSON.stringify(value);
+}
+
+/**
  * Compare an app's stored `case_type_schemas` rows against the
  * schemas its blueprint derives today. Read-only. Returns one entry
  * per case type that drifts; an in-sync app returns `[]`.
@@ -152,8 +173,8 @@ export async function computeSchemaDrift(
 				added.push(name);
 				continue;
 			}
-			const fromSpec = JSON.stringify(storedSpec);
-			const toSpec = JSON.stringify(desiredSpec);
+			const fromSpec = canonicalJson(storedSpec);
+			const toSpec = canonicalJson(desiredSpec);
 			if (fromSpec === toSpec) continue;
 			const fromType = dataTypeFromSpec(
 				storedSpec as CaseTypePropertyJsonSchema,
