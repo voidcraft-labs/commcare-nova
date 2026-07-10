@@ -9,7 +9,7 @@ Fetches CommCare documentation from Confluence, triages it for relevance, distil
   - `CONFLUENCE_BASE_URL` — Atlassian cloud gateway URL (e.g. `https://api.atlassian.com/ex/confluence/{cloudId}/wiki`)
   - `CONFLUENCE_EMAIL` — Atlassian account email (optional for public spaces)
   - `CONFLUENCE_API_TOKEN` — Atlassian API token (optional for public spaces)
-  - `ANTHROPIC_API_KEY` — required for triage, distill, and reorganize
+  - `AI_GATEWAY_API_KEY` — required for triage, distill, and reorganize (all LLM calls route through the Vercel AI Gateway)
 
 ### Confluence auth
 

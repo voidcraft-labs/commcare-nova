@@ -2,6 +2,7 @@
  * Error classifier — inspects errors from the AI SDK / API calls and returns
  * a structured classification with a human-readable message safe for display.
  */
+import { GatewayError } from "@ai-sdk/gateway";
 import { APICallError } from "ai";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -48,29 +49,66 @@ export const MESSAGES: Record<ErrorType, string> = {
 
 // ── Classifier ─────────────────────────────────────────────────────────
 
-export function classifyError(error: unknown): ClassifiedError {
-	const raw = error instanceof Error ? error.message : String(error);
-
-	// AI SDK APICallError — has statusCode and responseBody
-	if (APICallError.isInstance(error)) {
-		const status = error.statusCode;
-		if (status === 401 || status === 403) {
-			return {
-				type: "api_auth",
-				message: MESSAGES.api_auth,
-				recoverable: false,
-				raw,
-			};
-		}
-		if (status === 429) {
-			return {
-				type: "api_rate_limit",
-				message: MESSAGES.api_rate_limit,
-				recoverable: false,
-				raw,
-			};
-		}
-		if (status === 529) {
+/**
+ * Map an HTTP status from a failed model call to its user-facing bucket.
+ * Shared by the `APICallError` branch (direct provider HTTP errors) and the
+ * `GatewayError` branch (the AI Gateway wraps upstream provider failures in
+ * its own `Error` subclasses that carry `statusCode` but are NOT
+ * `APICallError`s — without this branch a gateway rate limit or auth failure
+ * would fall through to the generic `internal` bucket).
+ *
+ * `body` is whatever error text is available for the "overloaded" sniff — the
+ * response body on `APICallError`, the message on `GatewayError`.
+ */
+function classifyByStatus(
+	status: number | undefined,
+	raw: string,
+	body: string | undefined,
+): ClassifiedError {
+	if (status === 401 || status === 403) {
+		return {
+			type: "api_auth",
+			message: MESSAGES.api_auth,
+			recoverable: false,
+			raw,
+		};
+	}
+	if (status === 429) {
+		return {
+			type: "api_rate_limit",
+			message: MESSAGES.api_rate_limit,
+			recoverable: false,
+			raw,
+		};
+	}
+	if (status === 529) {
+		return {
+			type: "api_overloaded",
+			message: MESSAGES.api_overloaded,
+			recoverable: false,
+			raw,
+		};
+	}
+	if (status === 408) {
+		return {
+			type: "api_timeout",
+			message: MESSAGES.api_timeout,
+			recoverable: false,
+			raw,
+		};
+	}
+	// 400-level errors with "input" in message are usually malformed requests (model_error)
+	if (status === 400) {
+		return {
+			type: "model_error",
+			message: MESSAGES.model_error,
+			recoverable: false,
+			raw,
+		};
+	}
+	// 5xx server errors
+	if (status && status >= 500) {
+		if (body?.toLowerCase().includes("overloaded")) {
 			return {
 				type: "api_overloaded",
 				message: MESSAGES.api_overloaded,
@@ -78,47 +116,34 @@ export function classifyError(error: unknown): ClassifiedError {
 				raw,
 			};
 		}
-		if (status === 408) {
-			return {
-				type: "api_timeout",
-				message: MESSAGES.api_timeout,
-				recoverable: false,
-				raw,
-			};
-		}
-		// 400-level errors with "input" in message are usually malformed requests (model_error)
-		if (status === 400) {
-			return {
-				type: "model_error",
-				message: MESSAGES.model_error,
-				recoverable: false,
-				raw,
-			};
-		}
-		// 5xx server errors
-		if (status && status >= 500) {
-			if (status === 529 || error.responseBody?.includes("overloaded")) {
-				return {
-					type: "api_overloaded",
-					message: MESSAGES.api_overloaded,
-					recoverable: false,
-					raw,
-				};
-			}
-			return {
-				type: "api_server",
-				message: MESSAGES.api_server,
-				recoverable: false,
-				raw,
-			};
-		}
-		// Fallback for other API errors
 		return {
 			type: "api_server",
 			message: MESSAGES.api_server,
 			recoverable: false,
 			raw,
 		};
+	}
+	// Fallback for other API errors
+	return {
+		type: "api_server",
+		message: MESSAGES.api_server,
+		recoverable: false,
+		raw,
+	};
+}
+
+export function classifyError(error: unknown): ClassifiedError {
+	const raw = error instanceof Error ? error.message : String(error);
+
+	// AI SDK APICallError — has statusCode and responseBody
+	if (APICallError.isInstance(error)) {
+		return classifyByStatus(error.statusCode, raw, error.responseBody);
+	}
+
+	// AI Gateway errors — plain `Error` subclasses carrying `statusCode`
+	// (429 rate limit, 401 auth, 5xx upstream provider failures, …).
+	if (GatewayError.isInstance(error)) {
+		return classifyByStatus(error.statusCode, raw, raw);
 	}
 
 	// Network / fetch errors

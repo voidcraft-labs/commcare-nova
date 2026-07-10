@@ -39,7 +39,7 @@ The two centers of gravity are the **domain vocabulary** and the **doc that inst
 
 ## Stack & commands
 
-Next.js 16 (App Router, Turbopack) · TypeScript strict · Tailwind v4. Vercel AI SDK v7 + Anthropic Claude. Better Auth. ONE Cloud SQL Postgres via Kysely (app state + case data + auth; Kysely's `Migrator` owns migrations; realtime fan-out via LISTEN/NOTIFY) · Cloud KMS · GCS (media). Zustand (+ zundo) for builder state. Biome + Lefthook · Vitest.
+Next.js 16 (App Router, Turbopack) · TypeScript strict · Tailwind v4. Vercel AI SDK v7 through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`; Anthropic Claude for the SA, Gemini for the document summarizer — model ids in `lib/models.ts`). Better Auth. ONE Cloud SQL Postgres via Kysely (app state + case data + auth; Kysely's `Migrator` owns migrations; realtime fan-out via LISTEN/NOTIFY) · Cloud KMS · GCS (media). Zustand (+ zundo) for builder state. Biome + Lefthook · Vitest.
 
 ```bash
 npm run dev          # boots local case-store Postgres (compose.yaml) + migrations, then Turbopack

@@ -1,15 +1,15 @@
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { Output, streamText } from "ai";
+import { createGateway, Output, streamText } from "ai";
 import { z } from "zod";
+import { SA_MODEL } from "../lib/models";
 
-const apiKey = process.env.ANTHROPIC_API_KEY;
-if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required");
+const apiKey = process.env.AI_GATEWAY_API_KEY;
+if (!apiKey) throw new Error("AI_GATEWAY_API_KEY is required");
 
-const anthropic = createAnthropic({ apiKey });
+const gateway = createGateway({ apiKey });
 
 async function main() {
 	const result = streamText({
-		model: anthropic("claude-opus-4-7"),
+		model: gateway(SA_MODEL),
 		output: Output.object({ schema: z.object({ answer: z.string() }) }),
 		prompt: "What is 15 * 37? Show your work.",
 		maxOutputTokens: 256,

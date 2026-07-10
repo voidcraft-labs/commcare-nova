@@ -7,9 +7,9 @@
  * docx/xlsx/PDF routing the upload route uses) against local files, with a
  * SWAPPABLE condenser model:
  *
- *   - `gemini` — Google gemini-3.5-flash, the official production summarizer
+ *   - `gemini` — Google Gemini 3.5 Flash, the official production summarizer
  *     (reuses production's exact thinking + media-resolution options).
- *   - `haiku`  — Anthropic claude-haiku-4-5, the prior summarizer, kept as a
+ *   - `haiku`  — Anthropic Claude Haiku 4.5, the prior summarizer, kept as a
  *     comparison baseline.
  *
  * Only the model backend differs. That works because `extractDocument` depends
@@ -23,8 +23,9 @@
  * Usage:
  *   npx tsx scripts/preview-attachment-condense.ts <file...> [--model haiku|gemini|both]
  *
- * Defaults to `both`. Reads ANTHROPIC_API_KEY and GOOGLE_GENERATIVE_AI_API_KEY
- * from .env (a model with no key is cleanly skipped, not a crash).
+ * Defaults to `both`. Both models route through the AI Gateway, so the one
+ * AI_GATEWAY_API_KEY from .env covers them (no key = cleanly skipped, not a
+ * crash).
  *
  * Cost: one Haiku and/or one Gemini call per file (cents) — never the SA.
  */
@@ -32,9 +33,7 @@
 import "dotenv/config";
 import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import type { LanguageModel } from "ai";
+import { createGateway, type LanguageModel } from "ai";
 import {
 	type AttachmentCondenser,
 	CONDENSER_MODEL,
@@ -53,7 +52,7 @@ import { MODEL_PRICING } from "../lib/models";
 
 // ── Model + pricing config ──────────────────────────────────────────────────
 
-const HAIKU_ID = "claude-haiku-4-5-20251001";
+const HAIKU_ID = "anthropic/claude-haiku-4.5";
 /** Single-sourced from the production extractor so the preview can't drift from
  *  the model the route actually calls. */
 const GEMINI_ID = CONDENSER_MODEL;
@@ -116,19 +115,15 @@ const MODEL_SPECS: Record<ModelKey, ModelSpec> = {
 	},
 };
 
-/** Resolve a model to a `LanguageModel`, or a skip reason when its key is unset
- *  (so `--model both` with only one key configured runs what it can). */
+/** Resolve a model to a `LanguageModel`, or a skip reason when the gateway key
+ *  is unset (both models ride the same credential). */
 function resolveModel(
 	key: ModelKey,
 ): { model: LanguageModel } | { skip: string } {
-	if (key === "haiku") {
-		const apiKey = process.env.ANTHROPIC_API_KEY;
-		if (!apiKey) return { skip: "ANTHROPIC_API_KEY not set" };
-		return { model: createAnthropic({ apiKey })(HAIKU_ID) };
-	}
-	const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-	if (!apiKey) return { skip: "GOOGLE_GENERATIVE_AI_API_KEY not set" };
-	return { model: createGoogleGenerativeAI({ apiKey })(GEMINI_ID) };
+	const apiKey = process.env.AI_GATEWAY_API_KEY;
+	if (!apiKey) return { skip: "AI_GATEWAY_API_KEY not set" };
+	const gateway = createGateway({ apiKey });
+	return { model: gateway(key === "haiku" ? HAIKU_ID : GEMINI_ID) };
 }
 
 // ── Condenser backend (the swap point) ──────────────────────────────────────

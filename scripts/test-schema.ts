@@ -28,8 +28,7 @@
  *     `removeMediaAsset`, `uploadMediaAsset`.
  */
 import "dotenv/config";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { generateText, stepCountIs, tool } from "ai";
+import { createGateway, generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
 import { addFieldsTool } from "../lib/agent/tools/addFields";
 import { addCaseListColumnsTool } from "../lib/agent/tools/case-list-config/addCaseListColumns";
@@ -268,17 +267,17 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 	},
 ];
 
-const apiKey = process.env.ANTHROPIC_API_KEY;
+const apiKey = process.env.AI_GATEWAY_API_KEY;
 if (!apiKey) {
-	console.error("Set ANTHROPIC_API_KEY");
+	console.error("Set AI_GATEWAY_API_KEY");
 	process.exit(1);
 }
 
-const anthropic = createAnthropic({ apiKey });
+const gateway = createGateway({ apiKey });
 const args = process.argv.slice(2);
 const useOpus = args.includes("opus");
 const explicitName = args.find((a) => a !== "opus");
-const model = useOpus ? SA_MODEL : "claude-haiku-4-5-20251001";
+const model = useOpus ? SA_MODEL : "anthropic/claude-haiku-4.5";
 
 const tests = explicitName
 	? SCHEMA_TESTS.filter((t) => t.name === explicitName)
@@ -309,7 +308,7 @@ console.log(`Testing with ${model}...`);
 
 		try {
 			const r = await generateText({
-				model: anthropic(model),
+				model: gateway(model),
 				tools: {
 					[test.name]: tool({
 						description: test.description,

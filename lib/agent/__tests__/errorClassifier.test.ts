@@ -1,3 +1,8 @@
+import {
+	GatewayAuthenticationError,
+	GatewayInternalServerError,
+	GatewayRateLimitError,
+} from "@ai-sdk/gateway";
 import { APICallError } from "ai";
 import { describe, expect, it } from "vitest";
 import { classifyError } from "../errorClassifier";
@@ -57,5 +62,37 @@ describe("classifyError", () => {
 		expect(
 			classifyError(new Error("kaboom: undefined is not a function")).type,
 		).toBe("internal");
+	});
+
+	// AI Gateway errors are plain `Error` subclasses (NOT `APICallError`s)
+	// carrying a `statusCode` — every provider failure now arrives wrapped in
+	// one, so these pin that the status-code mapping applies to them too.
+	// Without the `GatewayError.isInstance` branch, a gateway rate limit whose
+	// message lacks the "rate limit" phrase would land in `internal`.
+	it("buckets GatewayError subclasses by statusCode", () => {
+		expect(
+			classifyError(new GatewayRateLimitError({ message: "too many requests" }))
+				.type,
+		).toBe("api_rate_limit");
+		expect(
+			classifyError(
+				new GatewayAuthenticationError({ message: "bad credentials" }),
+			).type,
+		).toBe("api_auth");
+		expect(
+			classifyError(
+				new GatewayInternalServerError({ message: "upstream exploded" }),
+			).type,
+		).toBe("api_server");
+	});
+
+	it("sniffs an overloaded upstream out of a 5xx GatewayError message", () => {
+		expect(
+			classifyError(
+				new GatewayInternalServerError({
+					message: "Anthropic is overloaded right now",
+				}),
+			).type,
+		).toBe("api_overloaded");
 	});
 });

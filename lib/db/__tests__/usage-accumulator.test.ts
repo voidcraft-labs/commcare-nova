@@ -67,7 +67,7 @@ describe("UsageAccumulator", () => {
 			appId: "app-1",
 			userId: "user-1",
 			runId: "run-1",
-			model: "claude-opus-4-7",
+			model: "anthropic/claude-opus-4.8",
 			promptMode: "build",
 			freshEdit: false,
 			appReady: false,
@@ -92,7 +92,7 @@ describe("UsageAccumulator", () => {
 		expect(snap.outputTokens).toBe(150);
 		expect(snap.cacheReadTokens).toBe(60);
 		expect(snap.cacheWriteTokens).toBe(10);
-		// Pin the exact cost against Opus 4.7 pricing from @/lib/models
+		// Pin the exact cost against Opus 4.8 pricing from @/lib/models
 		// (input 5, output 25, cacheRead 0.5, cacheWrite 6.25 per 1M tokens).
 		//   uncachedInput = 300 - 60 - 10 = 230
 		//   cost = (230*5 + 60*0.5 + 10*6.25 + 150*25) / 1_000_000
@@ -108,7 +108,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "claude-opus-4-7",
+			model: "anthropic/claude-opus-4.8",
 			promptMode: "build",
 			freshEdit: false,
 			appReady: false,
@@ -128,7 +128,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "claude-opus-4-7",
+			model: "anthropic/claude-opus-4.8",
 			promptMode: "build",
 			freshEdit: false,
 			appReady: false,
@@ -151,7 +151,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "claude-opus-4-7",
+			model: "anthropic/claude-opus-4.8",
 			promptMode: "edit",
 			freshEdit: true,
 			appReady: true,
@@ -172,7 +172,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "run-getter-test",
-			model: "claude-opus-4-7",
+			model: "anthropic/claude-opus-4.8",
 			promptMode: "build",
 			freshEdit: false,
 			appReady: false,
@@ -196,7 +196,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "claude-opus-4-7",
+			model: "anthropic/claude-opus-4.8",
 			promptMode: "build" as const,
 			freshEdit: false,
 			appReady: false,
@@ -346,7 +346,7 @@ describe("UsageAccumulator", () => {
 			appId: "a",
 			userId: "u",
 			runId: "r",
-			model: "claude-opus-4-7",
+			model: "anthropic/claude-opus-4.8",
 			promptMode: "build" as const,
 			freshEdit: false,
 			appReady: false,

@@ -38,17 +38,13 @@
  * in one SSE burst share `ts`).
  */
 
-import {
-	type AnthropicProviderOptions,
-	createAnthropic,
-} from "@ai-sdk/anthropic";
-import { createGoogle } from "@ai-sdk/google";
+import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import type {
 	CallWarning,
 	LanguageModelUsage,
 	UIMessageStreamWriter,
 } from "ai";
-import { generateText, Output, streamText } from "ai";
+import { createGateway, generateText, Output, streamText } from "ai";
 import type { z } from "zod";
 import type { Session } from "@/lib/auth";
 import { classifyError as classifyValidityError } from "@/lib/commcare/validator/gate";
@@ -140,6 +136,8 @@ export function thinkingProviderOptions(effort: ReasoningEffort) {
  * `McpContext`.
  */
 interface GenerationContextOptions {
+	/** Server-shared Vercel AI Gateway key (resolved by `resolveGatewayKey`) —
+	 * the one credential behind every model this context resolves. */
 	apiKey: string;
 	/** SSE writer for the live builder. Unchanged wire format. */
 	writer: UIMessageStreamWriter;
@@ -200,11 +198,11 @@ export interface AgentStep {
 }
 
 export class GenerationContext implements ToolExecutionContext {
-	private anthropic: ReturnType<typeof createAnthropic>;
-	/** Google provider for the document summarizer (Gemini). `null` when
-	 *  `GOOGLE_GENERATIVE_AI_API_KEY` is unset — `resolveModel` then fails loud
-	 *  on a Gemini call and the condenser falls back to raw inlining. */
-	private google: ReturnType<typeof createGoogle> | null;
+	/** The AI Gateway provider — the ONE model resolver for every LLM call this
+	 *  context issues (the SA on Anthropic Opus, the Gemini document summarizer,
+	 *  structured sub-gens). Model ids are gateway-format (`creator/model-name`),
+	 *  so switching providers is a model-id change, not a wiring change. */
+	private gateway: ReturnType<typeof createGateway>;
 	readonly writer: UIMessageStreamWriter;
 	readonly logWriter: LogWriter;
 	readonly usage: UsageAccumulator;
@@ -260,13 +258,7 @@ export class GenerationContext implements ToolExecutionContext {
 	private leaseHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
 	constructor(opts: GenerationContextOptions) {
-		this.anthropic = createAnthropic({ apiKey: opts.apiKey });
-		/* The Google key is a platform env var (the document summarizer is a
-		 * platform feature, not BYOK) — distinct from the shared Anthropic key
-		 * threaded in via `opts.apiKey`. Built once per request; null-when-unset
-		 * so `resolveModel` can fail loud rather than construct a broken client. */
-		const googleKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-		this.google = googleKey ? createGoogle({ apiKey: googleKey }) : null;
+		this.gateway = createGateway({ apiKey: opts.apiKey });
 		this.writer = opts.writer;
 		this.logWriter = opts.logWriter;
 		this.usage = opts.usage;
@@ -275,32 +267,11 @@ export class GenerationContext implements ToolExecutionContext {
 		this.editLease = opts.editLease;
 	}
 
-	/** Get the Anthropic model provider for a given model ID. The SA always
-	 *  runs on Anthropic (Opus), so its factory uses this directly. */
+	/** Resolve a gateway model id (`creator/model-name`) to a `LanguageModel`.
+	 *  The gateway serves every provider through one credential, so the SA
+	 *  (Anthropic Opus) and the document summarizer (Gemini) resolve identically. */
 	model(id: string) {
-		return this.anthropic(id);
-	}
-
-	/**
-	 * Resolve a model id to a provider-bound `LanguageModel`. Gemini ids route to
-	 * the Google provider (the document summarizer); every other id to Anthropic
-	 * (the SA and its structured sub-gens). The Google provider is built from
-	 * `GOOGLE_GENERATIVE_AI_API_KEY`; when that's unset a Gemini call fails loud
-	 * at ERROR level — so a missing key surfaces in Error Reporting instead of
-	 * silently degrading — and the condenser's own catch inlines the raw document
-	 * (still never-drop, but slower and far more expensive at the Opus rate).
-	 */
-	private resolveModel(id: string) {
-		if (id.startsWith("gemini")) {
-			if (!this.google) {
-				log.error(
-					"[generation] GOOGLE_GENERATIVE_AI_API_KEY is not set — the Gemini document summarizer cannot run; attachments fall back to raw inlining (slower + far more expensive). Set the key in the environment to restore condensing.",
-				);
-				throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is not set");
-			}
-			return this.google(id);
-		}
-		return this.anthropic(id);
+		return this.gateway(id);
 	}
 
 	/**
@@ -862,11 +833,9 @@ export class GenerationContext implements ToolExecutionContext {
 	/**
 	 * The ONE document-extraction call: fills `{ extract, title, summary }` from a
 	 * document (decoded text as `prompt`, or a native `file` block for a PDF) in a
-	 * single structured generation. Routes via `resolveModel` (Gemini → Google for
-	 * the summarizer) and the provider's controlled generation (`streamObjectWith`,
-	 * streamed so `onProgress` can pulse the grid), NOT the Anthropic `Output.object`
-	 * path `generate` uses — extraction runs on the document summarizer, not the SA's
-	 * model. Usage tracks through the same accumulator as every other sub-generation,
+	 * single structured generation. Runs on the document summarizer (Gemini via the
+	 * gateway), streamed through `streamObjectWith` so `onProgress` can pulse the
+	 * grid — NOT the `Output.object` path `generate` uses. Usage tracks through the same accumulator as every other sub-generation,
 	 * so an extraction shows up on the per-run cost summary alongside the agent loop.
 	 *
 	 * Returns `{ object, truncated }`. `object` is `null` when the model couldn't
@@ -881,13 +850,12 @@ export class GenerationContext implements ToolExecutionContext {
 		opts: ExtractDocumentStructuredOpts<T>,
 	): Promise<StructuredExtractResult<T>> {
 		try {
-			// `resolveModel` routes the id to its provider (Gemini → Google for the
-			// summarizer). `streamObjectWith` is the shared structured-generation core;
-			// a PDF rides as a native `file` block, text/docx/xlsx as a decoded
-			// `prompt`. Streaming lets `onProgress` pulse the signal grid with real read
+			// `streamObjectWith` is the shared structured-generation core; a PDF
+			// rides as a native `file` block, text/docx/xlsx as a decoded `prompt`.
+			// Streaming lets `onProgress` pulse the signal grid with real read
 			// progress during the send-time backstop; only the final object is used.
 			const result = await streamObjectWith<T>({
-				model: this.resolveModel(opts.model ?? MODEL_DEFAULT),
+				model: this.model(opts.model ?? MODEL_DEFAULT),
 				system: opts.system,
 				schema: opts.schema,
 				prompt: opts.prompt,
@@ -930,7 +898,7 @@ export class GenerationContext implements ToolExecutionContext {
 		try {
 			const model = opts.model ?? MODEL_DEFAULT;
 			const result = await generateText({
-				model: this.anthropic(model),
+				model: this.model(model),
 				output: Output.object({ schema }),
 				instructions: opts.system,
 				prompt: opts.prompt,
@@ -963,7 +931,7 @@ export class GenerationContext implements ToolExecutionContext {
 	): Promise<T | null> {
 		const model = opts.model ?? MODEL_DEFAULT;
 		const result = streamText({
-			model: this.anthropic(model),
+			model: this.model(model),
 			output: Output.object({ schema }),
 			instructions: opts.system,
 			prompt: opts.prompt,

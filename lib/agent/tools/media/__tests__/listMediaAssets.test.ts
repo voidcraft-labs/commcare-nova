@@ -90,7 +90,7 @@ describe("listMediaAssets", () => {
 			extract: {
 				status: "ready",
 				version: 3,
-				model: "gemini-3.5-flash",
+				model: "google/gemini-3.5-flash",
 				truncated: false,
 				charCount: 1234,
 				// `extractedAt` is epoch ms (jsonb carries no Date).

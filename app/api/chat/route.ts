@@ -16,7 +16,7 @@ import {
 	resolveAttachments,
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
-import { resolveActiveProjectId, resolveAnthropicKey } from "@/lib/auth-utils";
+import { resolveActiveProjectId, resolveGatewayKey } from "@/lib/auth-utils";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
@@ -83,7 +83,7 @@ const CLAIM_WAIT_MAX_MS = 120_000;
 // ── Route Handler ──────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-	// Bound the UNauthenticated parse ahead of `resolveAnthropicKey` below. The
+	// Bound the UNauthenticated parse ahead of `resolveGatewayKey` below. The
 	// cap is generous enough for the largest real request (blueprint + bounded
 	// message history); the message/attachment/text limits stay as the secondary,
 	// post-parse controls. Enforced on BOTH the declared size (cheap, pre-buffer)
@@ -158,7 +158,7 @@ export async function POST(req: Request) {
 	}
 
 	// Require authenticated session + server API key
-	const keyResult = await resolveAnthropicKey(req);
+	const keyResult = await resolveGatewayKey(req);
 	if (!keyResult.ok) {
 		return new Response(JSON.stringify({ error: keyResult.error }), {
 			status: keyResult.status,
