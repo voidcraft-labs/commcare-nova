@@ -8,7 +8,7 @@ The builder's state is split across three stores, each with a distinct lifecycle
 - **The doc store** (`lib/doc`) owns the blueprint and undo/redo. Every UI edit dispatches through `useBlueprintMutations`, which runs the commit gate — a rejected edit never reaches the store and its findings surface inline or via a toast.
 - **The session store** (`lib/session`) owns ephemeral run/UI lifecycle (preview mode, sidebars, the active run's event buffer, staged uploads). None of it is undoable or persisted, and every lifecycle signal is *derived* from a few base fields — never add a shadow flag.
 
-Under multiplayer, a fourth, non-store owner mediates persistence: the **reconciler** (`lib/collab`, mounted by `ReconcilerProvider` inside this stack for non-replay sessions). The doc store is still the display + undo source of truth, but `useAutoSave` no longer PUTs directly — it dispatches the human delta to the reconciler, which owns the diff base (`confirmedDoc ⊕ sentPending`), the durable stream, and 409/reload recovery. A remote peer's edit arrives as an inbound frame the reconciler folds into the store via a `beginRemoteApply` bracket; `useAutoSave`'s first gate is `remoteFrameApplyInProgress` so a server-applied change never bounces back out as a PUT. See `lib/collab/CLAUDE.md`.
+Under multiplayer, a fourth, non-store owner mediates persistence: the **reconciler** (`lib/collab`, mounted by `ReconcilerProvider` inside this stack for non-replay sessions). The doc store is still the display + undo source of truth, but `useAutoSave` never PUTs directly — it dispatches the human delta to the reconciler, which owns the diff base (`confirmedDoc ⊕ sentPending`), the durable stream, and 409/reload recovery. A remote peer's edit arrives as an inbound frame the reconciler folds into the store via a `beginRemoteApply` bracket; `useAutoSave`'s first gate is `remoteFrameApplyInProgress` so a server-applied change never bounces back out as a PUT. See `lib/collab/CLAUDE.md`.
 
 ## View-only members (read-only builder)
 
@@ -46,7 +46,7 @@ prosemirror-view hardcodes a `<br class="ProseMirror-trailingBreak">` per block.
 
 ## Drag-and-drop
 
-`pragmatic-drag-and-drop` + TanStack Virtual. `@dnd-kit/react` was removed because its sorting plugin physically moves DOM nodes during drag, which fights the virtualizer's absolute layout; its `position: fixed` overlay also broke under `contain: strict`, which pragmatic DnD's browser-managed preview is immune to.
+`pragmatic-drag-and-drop` + TanStack Virtual. Not `@dnd-kit/react`: its sorting plugin physically moves DOM nodes during drag, fighting the virtualizer's absolute layout, and its `position: fixed` overlay breaks under `contain: strict` — pragmatic DnD's browser-managed preview is immune to both.
 
 - During drag, the hovered insertion row is REPLACED by a taller placeholder row (row count stays constant; one slot remeasures). When the cursor is over dead space, the last valid position is preserved — clearing it collapses the gap and flickers.
 - At drop time the cursor is over the placeholder, so drop targets carry no useful data: the monitor stashes the resolved position from `onDrag` in a ref that `onDrop` reads. The placeholder registers as a drop target so the native drop is accepted (no snap-back).

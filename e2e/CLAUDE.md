@@ -44,7 +44,7 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   contention convergence, crowd undo isolation, offline catch-up on a
   three-writer burst). `multiplayer.spec.ts` opens members of one shared
   Project (Ada `owner`; Grace, Katherine, Alan `editor` — seeded by
-  `lib/multiplayerSeed.ts` into a two-module, four-field app; user ids are
+  `e2e/lib/multiplayerSeed.ts` into a two-module, four-field app; user ids are
   chosen so all four hash to DISTINCT palette hues, and two carry avatar
   photos), each in its OWN `browser.newContext({ storageState })`. The
   two-user block drives eight scenarios over the real SSE stream + guarded
@@ -60,11 +60,11 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   Non-obvious rules:
   - The project has NO project-level `storageState` (the spec opens its own two
     contexts) and applies the strict error guard per-page via `attachErrorGuard`
-    (`lib/errorGuard.ts`) — the single-`page` fixture can't cover two users. The
+    (`e2e/lib/errorGuard.ts`) — the single-`page` fixture can't cover two users. The
     revocation test does NOT guard Grace's page (a revoked stream + 404 presence
     POSTs are the expected consequence of losing access).
   - **Human-viewable modes** ride the same stack + seed: `npm run mp:watch` runs
-    this suite headed with windows CDP-tiled (`MP_TILE=1` → `lib/windowTiling.ts`,
+    this suite headed with windows CDP-tiled (`MP_TILE=1` → `e2e/lib/windowTiling.ts`,
     best-effort so it can't fail a run) — halves for the two-user block, screen
     QUADRANTS for the four-user block — with `MP_SLOWMO` (default 3000 ms)
     between actions and a CSS page zoom fitting each tile; `npm run mp:manual`

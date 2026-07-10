@@ -13,12 +13,9 @@ External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / 
 
 ## No preview mode — the running-app view shares the editor's rows
 
-The flipbook UI's running-app view operates on the SAME `cases`
-rows the editor inspects. There is no preview / production
-duplication, no `InMemoryCaseStore`, no per-session lifecycle.
-"Generate sample data" / "Reset sample data" are user actions
-that write or replace real rows; the user toggles between
-authoring and running modes against one shared row set.
+The running-app view reads the SAME `cases` rows the editor
+inspects — no `InMemoryCaseStore`, no per-session lifecycle;
+"Generate / Reset sample data" writes or replaces real rows.
 
 ## Tenant scoping is structural — `(app_id, project_id)`; `owner_id` is a second axis
 
@@ -225,13 +222,13 @@ expression preserves the hyphen verbatim via `sql.lit`.
 
 ### Expression indexes are app-scoped
 
-`case_type_schemas` is keyed `(app_id, case_type)`, so a case type's *desired* index set is per-app — but a case-type NAME (`patient`, `person`) is not globally unique. Every per-property expression index is therefore scoped on BOTH halves: the name carries a leading `indexScopeTag(appId, caseType)` segment (`cases_<scopeTag>_<propertyTag>_<mode>` — both the `(app, case_type)` scope and the property fold into fixed-width SHA-256 tags, so the name is ≤ 40 bytes and can't overflow Postgres' 63-byte identifier cap regardless of how long the names are; only `<mode>` stays readable) and the partial predicate is `WHERE app_id = '<app>' AND case_type = '<type>'`. Without that, one global index spans every app's rows of a shared case-type name, and two apps that declare the same case-type + property with different `data_type`s collide on a single index whose cast rejects the other app's values at INSERT (the `::integer`-vs-`"17.01"` failure, cross-app variant). The `scopeTag` is a fixed-WIDTH (12-hex SHA-256) hash of the `(appId, caseType)` pair, which is what makes the catalog diff's name prefix (`cases_<scopeTag>_%`, in `readLiveIndexSet`) an EXACT scope match — distinct scopes hash to distinct tags, so the diff never bleeds across apps NOR across case types whose names are prefixes of each other (`patient` vs `patient_visit`) without ever parsing the partial predicate. It is deterministic, so the runtime composes the same name for a given scope on every write.
+`case_type_schemas` is keyed `(app_id, case_type)`, so a case type's *desired* index set is per-app — but a case-type NAME (`patient`, `person`) is not globally unique. Every per-property expression index is therefore scoped on BOTH halves: the name carries a leading `indexScopeTag(appId, caseType)` segment (`cases_<scopeTag>_<propertyTag>_<mode>` — the fixed-width tags above; only `<mode>` stays readable) and the partial predicate is `WHERE app_id = '<app>' AND case_type = '<type>'`. Without that, one global index spans every app's rows of a shared case-type name, and two apps that declare the same case-type + property with different `data_type`s collide on a single index whose cast rejects the other app's values at INSERT (the `::integer`-vs-`"17.01"` failure, cross-app variant). The fixed-width tag is also what makes the catalog diff's name prefix (`cases_<scopeTag>_%`, in `readLiveIndexSet`) an EXACT scope match — distinct scopes hash to distinct tags, so the diff never bleeds across apps NOR across case types whose names are prefixes of each other (`patient` vs `patient_visit`) without ever parsing the partial predicate. The tag is deterministic, so the runtime composes the same name for a given scope on every write.
 
 ### Per-data-type index coverage
 
 | Property `data_type` | Postgres index | Reasoning |
 |---|---|---|
-| `text` | `GIN ((properties->>'<key>')) gin_trgm_ops` partial on `(app_id, case_type)` | The text-property index slot. The `match` modes no longer route through it — `fuzzy` / `phonetic` evaluate token-wise (`levenshtein` / `soundex` over `unnest`ed tokens) and `starts-with` uses `starts_with(...)`, all of which scan sequentially at preview scale. Retained as the established text slot; dropping it is a separate schema decision |
+| `text` | `GIN ((properties->>'<key>')) gin_trgm_ops` partial on `(app_id, case_type)` | The text-property index slot. No `match` mode routes through it — `fuzzy` / `phonetic` evaluate token-wise (`levenshtein` / `soundex` over `unnest`ed tokens) and `starts-with` uses `starts_with(...)`, all sequential scans at preview scale. Retained as the established text slot; dropping it is a separate schema decision |
 | `int` / `decimal` | `BTREE (((properties->>'<key>')::<cast>))` partial on `(app_id, case_type)` | Covers `compare` / `between` against typed numerics. The two share the btree access method but compile to different casts (`::integer` vs `::numeric`), so their index NAMES split by cast (suffix `int` / `num`, not a shared `btree`) — the name-keyed catalog diff would otherwise treat an `int↔decimal` retype as a no-op and leave the stale-cast index in place, failing the next fractional insert at write time |
 | `multi_select` | `GIN ((properties->'<key>')) jsonb_ops` partial on `(app_id, case_type)` | Covers `multi-select-contains` (`?` / `?\|` / `?&` / `@>`); `jsonb_path_ops` only covers `@>` and would force a sequential scan for `?` / `?\|` / `?&` |
 | `single_select` | None | Equality on a small option set is fast without an expression index |
@@ -261,18 +258,15 @@ rule enforces the boundary.
 
 ## Local development
 
-`npm run dev` boots a local Postgres via `compose.yaml` (the same
-pinned postgis image the test harness and Cloud SQL use), applies the
-migrations with `npm run db:migrate` (Kysely's `Migrator` via
-`scripts/migrate.ts`), then starts Next.js — see the
-`db:dev` script. The app connects to it through `NOVA_DB_LOCAL_URL`
-(set in `.env`); when that var is present, `postgres/connection.ts`
-uses a plain `pg.Pool` against it instead of the Cloud SQL connector.
-It is an EXPLICIT opt-in, not a `NODE_ENV` fallback — production never
-sets the var, so it still goes through the connector and its loud
-`NOVA_DB_*` validation (the production-misconfig-masking that an
-unconditional localhost fallback would cause is what the connection
-layer guards against; an opt-in URL doesn't).
+`npm run db:dev` boots the local Postgres (`compose.yaml`, the same
+pinned postgis image the test harness uses) and applies the migrations
+(`npm run db:migrate`, Kysely's `Migrator` via `scripts/migrate.ts`);
+`npm run dev` runs it, then starts Next.js. When `NOVA_DB_LOCAL_URL`
+(set in `.env`) is present, `postgres/connection.ts` uses a plain
+`pg.Pool` against it instead of the Cloud SQL connector — an EXPLICIT
+opt-in, not a `NODE_ENV` fallback, so a production misconfig still
+hits the connector's loud `NOVA_DB_*` validation instead of silently
+falling back to localhost.
 
 The read-only inspect scripts (`scripts/inspect-*.ts`) take `--prod`,
 which points this same connection layer at the production instance
@@ -282,9 +276,9 @@ gcloud identity via IAM — per-developer prerequisites in
 the connector's IAM-authenticated path is the only way in; Cloud Run
 keeps riding the private IP (it never sets `NOVA_DB_IP_TYPE`).
 
-Data lives in the persistent `nova-cases-data` Docker volume, so
-sample / case rows survive restarts. `npm run db:dev:down` stops the
-container (volume persists); `docker compose down -v` wipes it. The
+Data lives in the persistent `nova-cases-data` Docker volume
+(`npm run db:dev:down` stops the container; `docker compose down -v`
+wipes it). The
 three required extensions (`pg_trgm` / `fuzzystrmatch` / `postgis`)
 install once on first boot via `dev/init-extensions.sql`, mirroring
 the prod / harness superuser split (the migrate runner connects as a
@@ -315,14 +309,13 @@ advisory lock.
    the same commit. The compile-only `sql/__tests__/database.test.ts`
    and the harness smoke tests catch drift between the two.
 
-There is no declarative `schema.sql` and no autogenerated diff anymore
-(that was Atlas) — the migration modules ARE the source of truth.
+There is no declarative `schema.sql` and no autogenerated diff — the
+migration modules ARE the source of truth.
 
 ### Destructive changes — expand-contract
 
-There is no automated destructive-change lint anymore (Atlas's
-`diff { skip }` + `lint { destructive }` are gone). A schema change that
-removes a column / table must still go through expand-contract across
+There is no automated destructive-change lint. A schema change that
+removes a column / table must go through expand-contract across
 deploys — **enforce it by review**, not a tool:
 
 1. **Expand:** add the new column / table in a migration; deploy.
@@ -334,8 +327,8 @@ deploys — **enforce it by review**, not a tool:
 The testcontainers harness replays every migration against a real
 Postgres on each run, so an authoring-time SQL error fails CI loudly.
 
-Two safety nets Atlas's lint provided are gone too, and review must cover
-them: (1) a `DROP TABLE`/`DROP COLUMN` in a migration runs against live
+Review must also cover two hazards no tool gates:
+(1) a `DROP TABLE`/`DROP COLUMN` in a migration runs against live
 Cloud SQL on the next deploy with no automated gate — so destructive DDL
 needs deliberate review; and (2) Kysely wraps the whole migration batch in
 ONE transaction (Postgres `supportsTransactionalDdl`), which means a
@@ -348,30 +341,14 @@ transaction), NOT a migration. Migrations are for the fixed base schema.
 
 ### Migration modules are immutable once applied
 
-Kysely's ledger records migration NAMES, not content hashes (the
-`atlas.sum` content checksum is gone with Atlas). So **never edit the body
-of a migration that has shipped** — every database that already ran it
-carries its name in `kysely_migration` and silently skips the edit, so the
-change lands on fresh databases (CI) but not on production. Fix forward: add
-a new migration. (The two adoption baselines below are the one exception,
-edited only because they had not yet shipped as Kysely migrations.)
-
-### Adoption baselines are idempotent (the former Atlas schema)
-
-The case store was previously migrated by Atlas, whose revision ledger
-Kysely doesn't read — so production and existing local `nova-cases-data`
-volumes carry the schema but no `kysely_migration` ledger. Rather than a
-detection shim that seeds the ledger (which raced the migrator's advisory
-lock and had to guess which baselines had landed), the two baseline
-migration modules are **idempotent** (`CREATE TABLE IF NOT EXISTS`, a
-`pg_constraint`-guarded CHECK): replaying them against the pre-existing Atlas
-schema is a clean no-op, so the first `migrateToLatest` just records them as
-applied. Fresh databases get the tables created; production at cutover and
-every dev volume converge with no shim and no race. This covers even a
-volume created in the brief window when only the first baseline had run (the
-idempotent second baseline still adds `case_name`). Migrations added after
-these two are normal forward-only migrations — only the adoption baselines
-are idempotent.
+Kysely's ledger records migration NAMES, not content hashes. So **never
+edit the body of a migration that has shipped** — every database that
+already ran it carries its name in `kysely_migration` and silently skips
+the edit, so the change lands on fresh databases (CI) but not on
+production. Fix forward: add a new migration. (The two baseline
+migrations are written idempotently — `CREATE TABLE IF NOT EXISTS`, a
+`pg_constraint`-guarded CHECK — so they no-op cleanly against a database
+that already carries the schema; they are just as immutable as the rest.)
 
 ### Production: the migrate Cloud Run Job
 
@@ -390,8 +367,7 @@ override and mirrors the service's identity + network. It calls
 `getCaseStoreDatabase()`, so it connects through the SAME
 `@google-cloud/cloud-sql-connector` + IAM path the runtime uses — its
 env therefore wires `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME`
-/ `NOVA_DB_NAME` (the connector's inputs), not Atlas's raw
-`NOVA_DB_HOST` URL.
+/ `NOVA_DB_NAME` (the connector's inputs).
 
 The same entrypoint also owns the **auth** schema: after the case-store
 migrations it runs Better Auth's own migrator (`getMigrations(...)
@@ -425,8 +401,8 @@ SELECT name, timestamp FROM kysely_migration ORDER BY name;
 The case-store's compiler stack depends on three extensions:
 
 - `pg_trgm` — required by the `text` GIN index's `gin_trgm_ops`
-  opclass. (The `match` modes no longer emit Postgres `%`
-  similarity; the index is retained as the text-property slot.)
+  opclass (no `match` mode emits Postgres `%` similarity; the
+  index is the established text-property slot).
 - `fuzzystrmatch` — `match(mode: fuzzy)` (`levenshtein` for the
   term-level AUTO-fuzziness clause) and `match(mode: phonetic)`
   (`soundex`, the encoder CommCare HQ's phonetic analyzer uses).
@@ -494,16 +470,11 @@ surfaces as a failing sibling test, not a silent leak.
 ### Image and extensions
 
 `imresamu/postgis:18-3.6.1-alpine3.23` is the harness's pinned
-image (referenced by SHA-256 digest, not by floating tag).
-Postgres 18 matches Cloud SQL's default major (since 2025-09-25);
-PostGIS 3.6.1 matches Cloud SQL's bundled PostGIS 3.6.0 within
-one patch. The image is built FROM the official
-`postgres:18-alpine3.23` and layers PostGIS on top, so the
-Postgres binary set is upstream-official; only the PostGIS layer
-is the maintainer's contribution. The full rationale (multi-arch
-parity, why-not the official `postgis/postgis` amd64-only image,
-why-not bare `postgres:18-alpine3.23` + apk install) lives in
-`globalSetup.ts`'s `## Image choice` block.
+image (referenced by SHA-256 digest, not by floating tag),
+matching Cloud SQL's Postgres 18 major and its PostGIS 3.6 within
+one patch. The full rationale (multi-arch parity, why-not the
+official `postgis/postgis` image) lives in `globalSetup.ts`'s
+`## Image choice` block.
 
 ### `case_type_schemas` seeding lives at the per-test layer
 
@@ -518,24 +489,3 @@ it; tests that do care construct exactly the schema they need.
 ### Fixtures
 
 The `db` fixture is the transactional Kysely handle; `pgClient` is the escape hatch for queries Kysely can't compile (`EXPLAIN ANALYZE`, extension probes, `SET`). Both share one connection, so they see each other's writes within the test transaction.
-
-### Hot-loop expectation
-
-Steady-state watch-loop iteration on a single test file should
-re-run in well under one second after the container is up. The
-container itself takes 5-15 s to boot on a cold start. If you
-ever observe per-file boots in `docker ps`, that's a regression
-— file a fix against `globalSetup.ts`'s container-singleton
-contract.
-
-## DDL is dual-sourced — migrations + database.ts
-
-Two surfaces describe the same DDL and must stay in lockstep:
-
-1. `lib/case-store/migrations/*.ts` (the forward-only DDL Kysely's
-   `Migrator` applies — the source of truth).
-2. `sql/database.ts` (the Kysely type contract).
-
-Any change to one requires updating the other in the same change.
-The compile-only test in `sql/__tests__/database.test.ts` catches
-type-level drift; the harness smoke tests catch DDL-level drift.
