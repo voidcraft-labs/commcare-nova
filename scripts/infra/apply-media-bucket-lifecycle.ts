@@ -1,7 +1,7 @@
 /**
  * Apply the media bucket's pending-object lifecycle rule.
  *
- * Browser uploads PUT to `pending/<owner>/...` via a V4 signed URL. That URL
+ * Browser uploads PUT to `pending/<project>/...` via a V4 signed URL. That URL
  * now binds a maximum body length (the `x-goog-content-length-range` header —
  * see `createSignedUploadUrl`), so GCS rejects an OVERSIZED write at the
  * boundary; what still accumulates is a WITHIN-cap object whose client never

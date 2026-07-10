@@ -70,7 +70,7 @@ const PENDING_OBJECT_TTL_DAYS = 1;
  * Apply the bucket lifecycle rule that auto-deletes abandoned upload
  * objects under the `pending/` prefix.
  *
- * Browser uploads PUT to a per-attempt `pending/<owner>/...` key via a V4
+ * Browser uploads PUT to a per-attempt `pending/<project>/...` key via a V4
  * signed URL. The signed URL now binds a MAXIMUM body length (the
  * `x-goog-content-length-range` extension header — see
  * `createSignedUploadUrl`), so GCS rejects an oversized write at the storage
@@ -106,8 +106,8 @@ export async function applyPendingObjectLifecycle(): Promise<void> {
  * directly to GCS. The URL is bound to:
  *
  *  - the destination object key (path the bytes land at — browser
- *    uploads use `pending/<owner>/<assetId>.<ext>`; the owner segment
- *    keeps a different owner's namespace structurally unreachable),
+ *    uploads use `pending/<projectId>/<assetId>.<ext>`; the Project segment
+ *    keeps a different tenant's namespace structurally unreachable),
  *  - the request `Content-Type` header (the upload must declare
  *    the same MIME the route's pre-screen accepted),
  *  - a MAXIMUM body length, via the signed `x-goog-content-length-range`
