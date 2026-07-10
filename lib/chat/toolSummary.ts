@@ -155,9 +155,9 @@ export const isEditToolPart = (part: { type: string }): boolean =>
 	part.type.startsWith("tool-") &&
 	part.type !== "tool-askQuestions" &&
 	part.type !== "tool-generateSchema" &&
-	part.type !== "tool-planAppDesign" &&
-	// Historical threads only — the retired scaffold generator.
-	part.type !== "tool-generateScaffold";
+	// Historical threads only — retired build-mode tools.
+	part.type !== "tool-generateScaffold" &&
+	part.type !== "tool-planAppDesign";
 
 /** The mutating-tool success shape we read for presentation. All fields are
  *  optional here because we narrow defensively off the part's `unknown`

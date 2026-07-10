@@ -396,7 +396,7 @@ async function main() {
 				`  Thread ${t.run_id.slice(0, 8)}… (${t.thread_type}) — ${msgCount} messages`,
 			);
 			console.log(`    Created:  ${t.created_at}`);
-			console.log(`    Summary:  ${truncate(t.summary ?? "", 100)}`);
+			console.log(`    Summary:  ${t.summary ?? ""}`);
 			console.log(`    Run ID:   ${t.run_id}`);
 
 			const summary = summaryByRun.get(t.run_id);
@@ -422,8 +422,8 @@ async function main() {
 						} else if (part.type === "askQuestions") {
 							console.log(`      askQuestions: "${part.header}"`);
 							for (const qa of part.questions ?? []) {
-								console.log(`        Q: ${truncate(qa.question, 120)}`);
-								console.log(`        A: ${truncate(qa.answer, 120)}`);
+								console.log(`        Q: ${qa.question}`);
+								console.log(`        A: ${qa.answer}`);
 							}
 						}
 					}

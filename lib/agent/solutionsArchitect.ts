@@ -1,12 +1,12 @@
 /**
  * Solutions Architect — single ToolLoopAgent for conversation, generation, and editing.
  *
- * Tools are split into two groups: **planning** (data model, app design —
- * pure conversation artifacts, no doc writes) and **shared**
- * (conversation, read, mutation, case-list-config). In edit mode
- * (existing app), planning tools are excluded — the SA only gets shared
- * tools and an editing prompt with a blueprint summary. In build mode
- * (new app), all tools are available.
+ * Tools are split into two groups: **planning** (the data model — a pure
+ * conversation artifact, no doc writes; the app's design itself lives in
+ * the SA's chat text) and **shared** (conversation, read, mutation,
+ * case-list-config). In edit mode (existing app), the planning tool is
+ * excluded — the SA only gets shared tools and an editing prompt with a
+ * blueprint summary. In build mode (new app), all tools are available.
  *
  * Vocabulary is domain-native: tool arguments, return shapes, and the
  * system prompt all use `field` / `kind` / `validate` / `validate_msg` /
@@ -24,7 +24,12 @@ import { loadApp } from "@/lib/db/apps";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
-import { SA_BUILD_MODEL, SA_EDIT_MODEL, SA_REASONING } from "@/lib/models";
+import {
+	GATEWAY_PROVIDER_OPTIONS,
+	SA_BUILD_MODEL,
+	SA_EDIT_MODEL,
+	SA_REASONING,
+} from "@/lib/models";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import type { ToolExecutionContext } from "./toolExecutionContext";
@@ -55,7 +60,6 @@ import { listMediaAssetsTool } from "./tools/media/listMediaAssets";
 import { removeMediaAssetTool } from "./tools/media/removeMediaAsset";
 import { setAppLogoTool } from "./tools/media/setAppLogo";
 import { setMenuMediaTool } from "./tools/media/setMenuMedia";
-import { planAppDesignTool } from "./tools/planAppDesign";
 import { removeFieldTool } from "./tools/removeField";
 import { removeFormTool } from "./tools/removeForm";
 import { removeModuleTool } from "./tools/removeModule";
@@ -76,7 +80,7 @@ import { updateModuleTool } from "./tools/updateModule";
  * covers build-only AND removed/renamed tools without a hand-kept list. So
  * this const is purely the compile-time tie for the build/edit tool split.
  */
-const BUILD_ONLY_TOOL_NAMES = ["generateSchema", "planAppDesign"] as const;
+const BUILD_ONLY_TOOL_NAMES = ["generateSchema"] as const;
 
 type BuildOnlyToolName = (typeof BUILD_ONLY_TOOL_NAMES)[number];
 
@@ -272,12 +276,12 @@ export function createSolutionsArchitect(
 		};
 	}
 
-	// ── Planning tools (build mode only) ──────────────────────────────
-	// The two pure planning steps of a new build: the data model, then
-	// the app design. Each records its plan in the conversation (the
-	// tool input IS the plan) and writes nothing — execution happens
-	// through the shared creation tools, one `createModule` per planned
-	// module. Excluded in edit mode: an existing app's structure is the
+	// ── Planning tool (build mode only) ───────────────────────────────
+	// The one pure planning step of a new build: the data model. It
+	// records its plan in the conversation (the tool input IS the plan)
+	// and writes nothing — execution happens through the shared creation
+	// tools, one `createModule` per module of the design the SA reasoned
+	// through. Excluded in edit mode: an existing app's structure is the
 	// plan.
 	//
 	// `satisfies Record<BuildOnlyToolName, unknown>` ties the record's keys
@@ -288,7 +292,6 @@ export function createSolutionsArchitect(
 
 	const generationTools = {
 		generateSchema: wrapRead(generateSchemaTool),
-		planAppDesign: wrapRead(planAppDesignTool),
 	} satisfies Record<BuildOnlyToolName, unknown>;
 
 	// ── Shared tools (all modes) ─────────────────────────────────────
@@ -414,6 +417,7 @@ export function createSolutionsArchitect(
 						reasoningEffort: SA_REASONING.effort,
 						reasoningSummary: "auto",
 					} satisfies OpenAIResponsesProviderOptions,
+					gateway: GATEWAY_PROVIDER_OPTIONS,
 				},
 			};
 		},
@@ -444,6 +448,7 @@ export function createSolutionsArchitect(
 							: [],
 					),
 					warnings: step.warnings,
+					providerMetadata: step.providerMetadata,
 				},
 				"Solutions Architect",
 			);

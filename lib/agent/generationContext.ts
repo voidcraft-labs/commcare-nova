@@ -68,7 +68,12 @@ import type {
 import type { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
-import { MODEL_DEFAULT, type ReasoningEffort } from "@/lib/models";
+import {
+	GATEWAY_PROVIDER_OPTIONS,
+	gatewayActualCost,
+	MODEL_DEFAULT,
+	type ReasoningEffort,
+} from "@/lib/models";
 import type {
 	ExtractDocumentStructuredOpts,
 	StructuredExtractResult,
@@ -120,6 +125,7 @@ export function reasoningProviderOptions(effort: ReasoningEffort) {
 			reasoningEffort: effort,
 			reasoningSummary: "auto",
 		} satisfies OpenAIResponsesProviderOptions,
+		gateway: GATEWAY_PROVIDER_OPTIONS,
 	};
 }
 
@@ -194,6 +200,9 @@ export interface AgentStep {
 		error: unknown;
 	}>;
 	warnings?: CallWarning[];
+	/** The step's provider metadata — carries the gateway's metered actual
+	 *  cost (`gateway.cost`), decoded by `gatewayActualCost`. */
+	providerMetadata?: unknown;
 }
 
 export class GenerationContext implements ToolExecutionContext {
@@ -727,6 +736,7 @@ export class GenerationContext implements ToolExecutionContext {
 				outputTokens: usage.outputTokens ?? 0,
 				cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
 				cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+				actualCostUsd: gatewayActualCost(step.providerMetadata),
 			},
 			{ step: true },
 		);
@@ -813,19 +823,23 @@ export class GenerationContext implements ToolExecutionContext {
 	 * prompt/output observability becomes a product requirement, it will
 	 * live on a separate admin-only collection, not here.
 	 */
-	private trackSubGeneration(usage: {
-		inputTokens?: number;
-		outputTokens?: number;
-		inputTokenDetails?: {
-			cacheReadTokens?: number;
-			cacheWriteTokens?: number;
-		};
-	}): void {
+	private trackSubGeneration(
+		usage: {
+			inputTokens?: number;
+			outputTokens?: number;
+			inputTokenDetails?: {
+				cacheReadTokens?: number;
+				cacheWriteTokens?: number;
+			};
+		},
+		providerMetadata?: unknown,
+	): void {
 		this.usage.track({
 			inputTokens: usage.inputTokens ?? 0,
 			outputTokens: usage.outputTokens ?? 0,
 			cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
 			cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+			actualCostUsd: gatewayActualCost(providerMetadata),
 		});
 	}
 
@@ -865,7 +879,8 @@ export class GenerationContext implements ToolExecutionContext {
 				onProgress: opts.onProgress,
 			});
 			logWarnings(`extractDocument:${opts.label}`, result.warnings);
-			if (result.usage) this.trackSubGeneration(result.usage);
+			if (result.usage)
+				this.trackSubGeneration(result.usage, result.providerMetadata);
 			return {
 				object: result.object,
 				truncated: result.finishReason === "length",
@@ -902,12 +917,13 @@ export class GenerationContext implements ToolExecutionContext {
 				instructions: opts.system,
 				prompt: opts.prompt,
 				maxOutputTokens: opts.maxOutputTokens,
-				...(opts.reasoning && {
-					providerOptions: reasoningProviderOptions(opts.reasoning.effort),
-				}),
+				providerOptions: opts.reasoning
+					? reasoningProviderOptions(opts.reasoning.effort)
+					: { gateway: GATEWAY_PROVIDER_OPTIONS },
 			});
 			logWarnings(`generate:${opts.label}`, result.warnings);
-			if (result.usage) this.trackSubGeneration(result.usage);
+			if (result.usage)
+				this.trackSubGeneration(result.usage, result.providerMetadata);
 			return result.output ?? null;
 		} catch (error) {
 			this.emitError(classifyError(error), `generate:${opts.label}`);
@@ -935,9 +951,9 @@ export class GenerationContext implements ToolExecutionContext {
 			instructions: opts.system,
 			prompt: opts.prompt,
 			maxOutputTokens: opts.maxOutputTokens,
-			...(opts.reasoning && {
-				providerOptions: reasoningProviderOptions(opts.reasoning.effort),
-			}),
+			providerOptions: opts.reasoning
+				? reasoningProviderOptions(opts.reasoning.effort)
+				: { gateway: GATEWAY_PROVIDER_OPTIONS },
 			onError: ({ error }) => {
 				this.emitError(classifyError(error), `streamGenerate:${opts.label}`);
 			},
@@ -951,7 +967,7 @@ export class GenerationContext implements ToolExecutionContext {
 
 		logWarnings(`streamGenerate:${opts.label}`, await result.warnings);
 		const usage = await result.usage;
-		if (usage) this.trackSubGeneration(usage);
+		if (usage) this.trackSubGeneration(usage, await result.providerMetadata);
 		return last;
 	}
 }

@@ -43,10 +43,13 @@ export const CREDITS_PER_EDIT = 5;
 export const MONTHLY_CREDIT_ALLOWANCE = 2000;
 
 /**
- * Invisible per-user monthly actual-dollar runaway guard. Flat-credit pricing
- * cannot meter real cost on the shared Anthropic key, so this caps a worst-case
- * runaway (and refund-farming, since a failed run still accrues cost). Never
- * trips in normal use; the dollar figure is never surfaced to the user.
+ * Invisible per-user monthly dollar runaway guard. Flat-credit pricing doesn't
+ * track dollars, so this caps a worst-case runaway (and refund-farming, since
+ * a failed run still accrues cost). The gate trips on the LARGER of the two
+ * accumulated `usage_months` counters — the token-math `cost_estimate` and
+ * the gateway-metered `actual_cost` — so a divergence in either direction
+ * still stops a runaway. Never trips in normal use; the dollar figure is
+ * never surfaced to the user.
  */
 export const ACTUAL_COST_BACKSTOP_USD = 300;
 

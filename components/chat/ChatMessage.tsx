@@ -186,7 +186,7 @@ export function ChatMessage({
 			);
 		}
 
-		/* The planning tools (tool-generateSchema / tool-planAppDesign — and
+		/* The planning tool (tool-generateSchema — plus tool-planAppDesign /
 		 * tool-generateScaffold on historical threads), data-* events,
 		 * step-start, etc. render nothing here. */
 	}

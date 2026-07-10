@@ -25,11 +25,11 @@
  * any of them — catching the regression where a subagent misses a
  * migration spot.
  *
- * ## Planning tools
+ * ## Planning tool
  *
- * `generateSchema` and `planAppDesign` are pure planning steps — the
- * tests pin that neither writes a mutation event (their plans live in
- * the conversation, not on the doc).
+ * `generateSchema` is a pure planning step — a test pins that it never
+ * writes a mutation event (its plan lives in the conversation, not on
+ * the doc).
  */
 
 import { produce } from "immer";
@@ -283,57 +283,6 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expectNoLegacyEvents(writer);
 	});
 
-	it("planAppDesign is a pure plan — a structured index, zero mutations on the wire", async () => {
-		const sa = makeSa(ctx, makeEmptyDoc(), false);
-
-		const result = await runTool(sa, "planAppDesign", {
-			app_name: "Vendor Visits",
-			description: "Connect deliver app",
-			connect_type: "deliver",
-			modules: [
-				{
-					name: "Visits",
-					case_type: null,
-					case_list_only: false,
-					purpose: "Capture vendor visits for payment",
-					forms: [
-						{
-							name: "Vendor visit",
-							type: "survey",
-							purpose: "Visit form",
-							formDesign: "Vendor + photo",
-							connect: {
-								deliver_unit: { name: "Vendor visit" },
-							},
-						},
-					],
-				},
-			],
-		});
-
-		expect(result).toMatchObject({
-			planned: true,
-			appName: "Vendor Visits",
-			connectType: "deliver",
-			modules: [
-				{
-					index: 0,
-					name: "Visits",
-					forms: [
-						{
-							index: 0,
-							name: "Vendor visit",
-							type: "survey",
-							connectKinds: ["deliver_unit"],
-						},
-					],
-				},
-			],
-		});
-		expect(mutationEvents(writer)).toHaveLength(0);
-		expectNoLegacyEvents(writer);
-	});
-
 	it("updateApp emits one data-mutations batch carrying setAppName + setConnectType", async () => {
 		const sa = makeSa(ctx, makeEmptyDoc(), false);
 
@@ -498,19 +447,13 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// sneaked into.
 		const sa = makeSa(ctx, makeFixtureDoc(), false);
 
-		// Planning tools (build mode only) — pure, but walked so a future
-		// regression that makes them emit shows up here.
+		// The planning tool (build mode only) — pure, but walked so a
+		// future regression that makes it emit shows up here.
 		await runTool(sa, "generateSchema", {
 			appName: "App",
 			caseTypes: [
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
-		});
-		await runTool(sa, "planAppDesign", {
-			app_name: "App",
-			description: "Safety-net walk",
-			connect_type: "",
-			modules: [],
 		});
 		await runTool(sa, "updateApp", { name: "App" });
 
@@ -605,13 +548,13 @@ describe("solutionsArchitect — no finishing tool", () => {
 		expect("completeBuild" in editSa.tools).toBe(false);
 	});
 
-	it("planning tools are build-only; updateApp is shared", () => {
+	it("the planning tool is build-only; the retired plan tool is gone; updateApp is shared", () => {
 		const { ctx } = buildCtx();
 		const buildSa = makeSa(ctx, makeEmptyDoc(), false);
 		const editSa = makeSa(ctx, makeFixtureDoc(), true);
 		expect("generateSchema" in buildSa.tools).toBe(true);
-		expect("planAppDesign" in buildSa.tools).toBe(true);
 		expect("generateSchema" in editSa.tools).toBe(false);
+		expect("planAppDesign" in buildSa.tools).toBe(false);
 		expect("planAppDesign" in editSa.tools).toBe(false);
 		expect("updateApp" in buildSa.tools).toBe(true);
 		expect("updateApp" in editSa.tools).toBe(true);

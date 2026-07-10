@@ -102,15 +102,16 @@ const FIELD_DOCS = {
 		"Human-friendly label shown to the end user. Supports hashtag " +
 		"references (`#<case_type>/prop`, `#form/path`, `#user/prop`) and " +
 		"markdown. Do NOT use {curly_brace} template syntax — unsupported. " +
-		'Pass "" (empty string) for `hidden` fields (which never render). ' +
-		'Pass "" for `group` to make the group transparent at runtime ' +
-		"(no chrome, children render at the parent's depth) — a residual " +
-		"home for stray hidden fields that don't fit a logical group, not " +
-		'a primary disambiguation tool. Pass "" for `repeat` to drop the title text but ' +
-		"keep the chrome and iteration controls (the user still needs them " +
-		"to add/remove instances). For every other kind (`text`, `int`, " +
-		"`single_select`, etc.), the label is required and must be a " +
-		"non-empty human-readable string.",
+		"On every visible kind (`text`, `int`, `single_select`, etc.) the " +
+		"label is required and must be a non-empty human-readable string; " +
+		"`hidden` fields carry no label slot at all. The containers treat " +
+		'an EXPLICIT "" as a real value, not filler: "" on a `group` makes ' +
+		"it transparent at runtime (no chrome, children render at the " +
+		"parent's depth) — a residual home for stray hidden fields that " +
+		"don't fit a logical group, not a primary disambiguation tool — " +
+		'and "" on a `repeat` drops the title text but keeps the chrome ' +
+		"and iteration controls (the user still needs them to add/remove " +
+		"instances).",
 	hint: "Help text rendered below the input.",
 	help:
 		"Longer-form help text the user taps to expand — for guidance too " +
@@ -125,8 +126,9 @@ const FIELD_DOCS = {
 		"checked when the user leaves the field (`.` is the entered value); " +
 		"pairs with `validate_msg`, shown when it fails. Write the rule that " +
 		"captures the field's actual valid values, using the full XPath " +
-		"language to whatever precision the field's meaning calls for. Pass " +
-		'"" when any value is acceptable. Supports hashtag references.',
+		"language to whatever precision the field's meaning calls for. Omit " +
+		"the `validate` object entirely when any value is acceptable. " +
+		"Supports hashtag references.",
 	validate_msg:
 		"Error message displayed when `validate` evaluates to false. Only " +
 		"meaningful when `validate` is set.",

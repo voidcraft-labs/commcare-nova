@@ -49,6 +49,9 @@ export interface UsageDoc {
 	input_tokens: number;
 	output_tokens: number;
 	cost_estimate: number;
+	/** Gateway-metered actual USD, accumulated per request. 0 for months
+	 *  recorded before actuals existed. */
+	actual_cost: number;
 	request_count: number;
 	updated_at: Date;
 }
@@ -123,6 +126,13 @@ export const runSummaryDocSchema = z.object({
 	cacheReadTokens: z.number().int().nonnegative(),
 	cacheWriteTokens: z.number().int().nonnegative(),
 	costEstimate: z.number().nonnegative(),
+	/**
+	 * The gateway-metered actual USD charge for the run, summed from each
+	 * call's `providerMetadata.gateway.cost` — the settled truth, next to the
+	 * token-math `costEstimate` (which remains the pre-flight forecast).
+	 * 0 on runs finalized before actuals were recorded.
+	 */
+	actualCost: z.number().nonnegative(),
 	toolCallCount: z.number().int().nonnegative(),
 });
 export type RunSummaryDoc = z.infer<typeof runSummaryDocSchema>;

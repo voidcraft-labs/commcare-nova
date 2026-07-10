@@ -40,7 +40,6 @@ import {
 	printSection,
 	printTable,
 	tok,
-	truncate,
 	usd,
 } from "./lib/format";
 import {
@@ -246,17 +245,17 @@ function formatTime(ts: number): string {
 function summarizeConversation(payload: ConversationPayload): string {
 	switch (payload.type) {
 		case "user-message":
-			return `user: ${truncate(payload.text, 80)}`;
+			return `user: ${payload.text}`;
 		case "assistant-text":
-			return `assistant: ${truncate(payload.text, 80)}`;
+			return `assistant: ${payload.text}`;
 		case "assistant-reasoning":
-			return `reasoning: ${truncate(payload.text, 80)}`;
+			return `reasoning: ${payload.text}`;
 		case "tool-call":
 			return `tool-call ${payload.toolName} (${payload.toolCallId.slice(0, 8)})`;
 		case "tool-result":
 			return `tool-result ${payload.toolName} (${payload.toolCallId.slice(0, 8)})`;
 		case "error":
-			return `error [${payload.error.type}]${payload.error.fatal ? " FATAL" : ""}: ${truncate(payload.error.message, 80)}`;
+			return `error [${payload.error.type}]${payload.error.fatal ? " FATAL" : ""}: ${payload.error.message}`;
 		case "validation-attempt":
 			return `validation-attempt #${payload.attempt}: ${payload.errors.length} error${payload.errors.length === 1 ? "" : "s"}`;
 		case "attachment-prep":
@@ -289,9 +288,7 @@ function printEventVerbose(event: Event): void {
 		console.log(`  │ actor:    ${event.actor}`);
 		if (event.stage) console.log(`  │ stage:    ${event.stage}`);
 		console.log(`  │ mutation: ${event.mutation.kind}`);
-		console.log(
-			`  │ payload:  ${truncate(JSON.stringify(event.mutation), 300)}`,
-		);
+		console.log(`  │ payload:  ${JSON.stringify(event.mutation)}`);
 		console.log("  └─");
 		return;
 	}
@@ -302,22 +299,22 @@ function printEventVerbose(event: Event): void {
 		case "user-message":
 		case "assistant-text":
 		case "assistant-reasoning":
-			console.log(`  │ text: ${truncate(p.text, 400)}`);
+			console.log(`  │ text: ${p.text}`);
 			break;
 		case "tool-call":
 			console.log(`  │ toolCallId: ${p.toolCallId}`);
 			console.log(`  │ toolName:   ${p.toolName}`);
-			console.log(`  │ input:      ${truncate(JSON.stringify(p.input), 400)}`);
+			console.log(`  │ input:      ${JSON.stringify(p.input)}`);
 			break;
 		case "tool-result":
 			console.log(`  │ toolCallId: ${p.toolCallId}`);
 			console.log(`  │ toolName:   ${p.toolName}`);
-			console.log(`  │ output:     ${truncate(JSON.stringify(p.output), 400)}`);
+			console.log(`  │ output:     ${JSON.stringify(p.output)}`);
 			break;
 		case "error":
 			console.log(`  │ error.type:    ${p.error.type}`);
 			console.log(`  │ error.fatal:   ${p.error.fatal}`);
-			console.log(`  │ error.message: ${truncate(p.error.message, 400)}`);
+			console.log(`  │ error.message: ${p.error.message}`);
 			break;
 	}
 	console.log("  └─");
@@ -356,7 +353,8 @@ function printRunSummary(summary: RunSummaryDoc): void {
 		["Cache read", tok(summary.cacheReadTokens)],
 		["Cache write", tok(summary.cacheWriteTokens)],
 		["Cache hit rate", cacheHitRate],
-		["Total cost", usd(summary.costEstimate)],
+		["Est. cost", usd(summary.costEstimate)],
+		["Actual cost", usd(summary.actualCost)],
 	]);
 }
 
@@ -400,12 +398,14 @@ function printRunsTableView(
 			{ header: "Input", align: "right" },
 			{ header: "Output", align: "right" },
 			{ header: "Cache%", align: "right" },
-			{ header: "Cost", align: "right" },
+			{ header: "Est", align: "right" },
+			{ header: "Actual", align: "right" },
 		],
 		rows.map(({ runId, summary }) => {
 			if (!summary) {
 				return [
 					`${runId.slice(0, 8)}…`,
+					"—",
 					"—",
 					"—",
 					"—",
@@ -426,6 +426,7 @@ function printRunsTableView(
 				tok(summary.outputTokens),
 				pct(summary.cacheReadTokens, summary.inputTokens),
 				usd(summary.costEstimate),
+				usd(summary.actualCost),
 			];
 		}),
 	);

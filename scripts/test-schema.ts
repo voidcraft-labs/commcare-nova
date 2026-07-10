@@ -51,14 +51,13 @@ import { listMediaAssetsTool } from "../lib/agent/tools/media/listMediaAssets";
 import { removeMediaAssetTool } from "../lib/agent/tools/media/removeMediaAsset";
 import { setAppLogoTool } from "../lib/agent/tools/media/setAppLogo";
 import { setMenuMediaTool } from "../lib/agent/tools/media/setMenuMedia";
-import { planAppDesignTool } from "../lib/agent/tools/planAppDesign";
 import { updateAppTool } from "../lib/agent/tools/updateApp";
 import {
 	updateModuleInputSchema,
 	updateModuleTool,
 } from "../lib/agent/tools/updateModule";
 import { uploadMediaAssetInputSchema } from "../lib/mcp/tools/uploadMediaAsset";
-import { SA_BUILD_MODEL } from "../lib/models";
+import { GATEWAY_PROVIDER_OPTIONS, SA_BUILD_MODEL } from "../lib/models";
 
 /**
  * One tool-input schema test: register the tool with a no-op `execute`,
@@ -199,13 +198,6 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 			"Use generateSchema to plan an app named 'Village Health' with one case type patient carrying properties case_name (labeled 'Full name') and village (labeled 'Village').",
 	},
 	{
-		name: "planAppDesign",
-		description: planAppDesignTool.description,
-		schema: planAppDesignTool.inputSchema,
-		prompt:
-			"Use planAppDesign to plan an app named 'Village Health' (description: track patient visits, standard app so connect_type is the empty string) with one module 'Patients' (case_type patient, not case-list-only, purpose 'Patient tracking') holding one registration form 'Register patient' whose purpose is enrollment and whose formDesign describes capturing name and village.",
-	},
-	{
 		name: "updateApp",
 		description: updateAppTool.description,
 		schema: updateAppTool.inputSchema,
@@ -325,6 +317,7 @@ console.log(`Testing with ${model}...`);
 				prompt: test.prompt,
 				maxOutputTokens: 1024,
 				abortSignal: controller.signal,
+				providerOptions: { gateway: GATEWAY_PROVIDER_OPTIONS },
 			});
 			clearTimeout(timer);
 			console.log(

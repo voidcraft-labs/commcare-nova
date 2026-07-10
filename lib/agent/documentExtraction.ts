@@ -25,6 +25,7 @@ import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import { z } from "zod";
 import type { DocumentKind } from "@/lib/domain/multimedia";
+import { GATEWAY_PROVIDER_OPTIONS } from "@/lib/models";
 import { normalizeExtractText } from "./extractNormalization";
 import {
 	type SubGenerationProviderOptions,
@@ -121,9 +122,8 @@ export interface AttachmentCondenser {
  * hit; a faithful extract's length tracks the document's actual content, so the
  * only correct value is the model's real ceiling. Lower values would silently
  * truncate legitimate extracts. Truncation at THIS value is the extreme edge
- * handled with a note. Note OpenAI bills reasoning tokens as output, so
- * high-reasoning extraction shares this budget with the visible text — another
- * reason to keep the cap at the true maximum.
+ * handled with a note. Reasoning shares this budget with the visible text —
+ * another reason to keep the cap at the true maximum.
  */
 export const EXTRACT_MAX_OUTPUT_TOKENS = 128_000;
 
@@ -154,14 +154,15 @@ export const CONDENSER_MODEL = "openai/gpt-5.6-luna";
  *     output token, so without this the live-progress feed (`streamObjectWith`)
  *     stays dark for the whole reasoning phase; the summaries are the progress.
  * A PDF rides as a native file block the model reads directly — there is no
- * rasterization dial to set. Output billing includes reasoning tokens, so the
- * effort level is the cost lever here — see `EXTRACT_MAX_OUTPUT_TOKENS`.
+ * rasterization dial to set. Reasoning depth is the cost lever here — see
+ * `EXTRACT_MAX_OUTPUT_TOKENS`.
  */
 export const CONDENSER_PROVIDER_OPTIONS: SubGenerationProviderOptions = {
 	openai: {
 		reasoningEffort: "xhigh",
 		reasoningSummary: "auto",
 	} satisfies OpenAIResponsesProviderOptions,
+	gateway: GATEWAY_PROVIDER_OPTIONS,
 };
 
 /**

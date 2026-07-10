@@ -49,7 +49,7 @@ import {
 	assetKindForExtension,
 	isDocumentKind,
 } from "../lib/domain/multimedia";
-import { MODEL_PRICING } from "../lib/models";
+import { GATEWAY_PROVIDER_OPTIONS, MODEL_PRICING } from "../lib/models";
 
 // ── Model + pricing config ──────────────────────────────────────────────────
 
@@ -59,16 +59,14 @@ const LUNA_ID = CONDENSER_MODEL;
 const GEMINI_ID = "google/gemini-3.5-flash";
 
 /**
- * Gemini 3.5 Flash pricing, $/1M tokens (paid tier). Output is billed inclusive
- * of thinking tokens, so the printed output count IS the billed count. Luna's
- * rates come from the app's own `MODEL_PRICING` (single source of truth). Verify
- * against https://ai.google.dev/gemini-api/docs/pricing if Google revises.
+ * Gemini 3.5 Flash pricing, $/1M tokens (paid tier). Luna's rates come from
+ * the app's own `MODEL_PRICING` (single source of truth). Verify against
+ * https://ai.google.dev/gemini-api/docs/pricing if Google revises.
  *
  * NOTE: the estimate prices all input at the base uncached rate. Extraction is
- * a single one-shot call per document, so no cached prefix is reused; OpenAI's
- * implicit caching can still bill part of the prompt as a cache write (1.25×
- * input), which this estimate ignores — close enough for a quality/price
- * comparison. OpenAI, like Gemini, bills reasoning tokens as output.
+ * a single one-shot call per document, so no cached prefix is reused — and the
+ * gateway bills our calls no cache-write surcharge (fresh input at exactly the
+ * plain rate, per its own metering), so the uncached rate matches the charge.
  */
 const GEMINI_PRICING = { input: 1.5, output: 9 } as const;
 const LUNA_PRICING = MODEL_PRICING[LUNA_ID];
@@ -83,6 +81,7 @@ const GEMINI_PROVIDER_OPTIONS: SubGenerationProviderOptions = {
 		thinkingConfig: { thinkingLevel: "medium", includeThoughts: true },
 		mediaResolution: "MEDIA_RESOLUTION_HIGH",
 	} satisfies GoogleLanguageModelOptions,
+	gateway: GATEWAY_PROVIDER_OPTIONS,
 };
 
 /** MIME type by file extension — mirrors the client's accept set. Drives the

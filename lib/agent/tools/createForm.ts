@@ -74,7 +74,7 @@ import type {
 export const createFormInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
-		name: z.string().describe("Form display name"),
+		name: z.string().min(1).describe("Form display name"),
 		type: z
 			.enum(FORM_TYPES)
 			.describe(
@@ -88,6 +88,7 @@ export const createFormInputSchema = z
 			),
 		purpose: z
 			.string()
+			.min(1)
 			.optional()
 			.describe("Brief description of what this form collects and why."),
 		post_submit: z

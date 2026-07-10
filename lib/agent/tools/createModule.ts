@@ -87,7 +87,7 @@ import type {
 
 const createModuleFormSchema = z
 	.object({
-		name: z.string().describe("Form display name"),
+		name: z.string().min(1).describe("Form display name"),
 		type: z
 			.enum(FORM_TYPES)
 			.describe(
@@ -101,6 +101,7 @@ const createModuleFormSchema = z
 			),
 		purpose: z
 			.string()
+			.min(1)
 			.optional()
 			.describe("Brief description of what this form collects and why."),
 		post_submit: z
@@ -119,9 +120,10 @@ const createModuleFormSchema = z
 
 export const createModuleInputSchema = z
 	.object({
-		name: z.string().describe("Module display name"),
+		name: z.string().min(1).describe("Module display name"),
 		case_type: z
 			.string()
+			.min(1)
 			.optional()
 			.describe(
 				"Case type (required if the module has registration/followup/close forms)",
@@ -133,6 +135,7 @@ export const createModuleInputSchema = z
 			),
 		purpose: z
 			.string()
+			.min(1)
 			.optional()
 			.describe("Brief description of this module's role in the app."),
 		forms: z

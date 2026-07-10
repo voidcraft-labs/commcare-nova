@@ -196,7 +196,11 @@ export async function POST(req: Request) {
 	 *       create an orphan app in the common out-of-credits case. */
 	try {
 		const usage = await getMonthlyUsage(userId);
-		if ((usage?.cost_estimate ?? 0) >= ACTUAL_COST_BACKSTOP_USD) {
+		const monthlySpend = Math.max(
+			usage?.cost_estimate ?? 0,
+			usage?.actual_cost ?? 0,
+		);
+		if (monthlySpend >= ACTUAL_COST_BACKSTOP_USD) {
 			return Response.json(
 				{
 					error:
@@ -1146,14 +1150,14 @@ export async function POST(req: Request) {
 				}
 
 				/* Strip historical tool parts that name a tool absent from THIS
-				 * request's tool set — any such part would make Anthropic reject the
-				 * request ("tool not found in tools array"). Two ways history carries
-				 * an absent tool: a build-only planning tool (`generateSchema` /
-				 * `planAppDesign`) carried into an edit turn, or a tool that has since
-				 * been removed or renamed (a thread predating a deploy that changed
-				 * the tool surface — e.g. the old singular `addCaseListColumn` /
-				 * `addSearchInput` / `addField`, or the retired `generateScaffold` /
-				 * `completeBuild`). The strip runs on EVERY continuation: build
+				 * request's tool set — any such part would make the provider reject
+				 * the request ("tool not found in tools array"). Two ways history
+				 * carries an absent tool: the build-only planning tool
+				 * (`generateSchema`) carried into an edit turn, or a tool that has
+				 * since been removed or renamed (a thread predating a deploy that
+				 * changed the tool surface — e.g. the old singular
+				 * `addCaseListColumn` / `addSearchInput` / `addField`, or the
+				 * retired `generateScaffold` / `completeBuild` / `planAppDesign`). The strip runs on EVERY continuation: build
 				 * continuations always send full history, and a build paused on
 				 * `awaiting_input` is exactly the shape designed to SURVIVE a deploy —
 				 * gating the strip to edits would brick its resume on

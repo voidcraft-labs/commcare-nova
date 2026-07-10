@@ -69,7 +69,6 @@ import { listMediaAssetsTool } from "@/lib/agent/tools/media/listMediaAssets";
 import { removeMediaAssetTool } from "@/lib/agent/tools/media/removeMediaAsset";
 import { setAppLogoTool } from "@/lib/agent/tools/media/setAppLogo";
 import { setMenuMediaTool } from "@/lib/agent/tools/media/setMenuMedia";
-import { planAppDesignTool } from "@/lib/agent/tools/planAppDesign";
 import { removeFieldTool } from "@/lib/agent/tools/removeField";
 import { removeFormTool } from "@/lib/agent/tools/removeForm";
 import { removeModuleTool } from "@/lib/agent/tools/removeModule";
@@ -125,11 +124,11 @@ const SHARED_TOOLS: ReadonlyArray<{
 	{ name: "create_form", tool: createFormTool, requires: "edit" },
 	{ name: "create_module", tool: createModuleTool, requires: "edit" },
 	{ name: "edit_field", tool: editFieldTool, requires: "edit" },
-	/* The two pure planning tools — each records its plan in the
+	/* The one pure planning tool — it records the data model in the
 	 * conversation (the tool input is the plan) and writes nothing.
-	 * Execution runs through create_module per planned module. */
+	 * Execution runs through create_module per module of the client's
+	 * design. */
 	{ name: "generate_schema", tool: generateSchemaTool, requires: "edit" },
-	{ name: "plan_app_design", tool: planAppDesignTool, requires: "edit" },
 	{ name: "get_field", tool: getFieldTool, requires: "view" },
 	{ name: "get_form", tool: getFormTool, requires: "view" },
 	{ name: "get_module", tool: getModuleTool, requires: "view" },

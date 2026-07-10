@@ -10,7 +10,8 @@
  * that owns the type (`case_type_record`), so a record never exists
  * ahead of the module that satisfies its validator obligations.
  *
- * First step of a new build, before `planAppDesign`. Both the SA chat
+ * The first tool call of a new build, after the SA has reasoned the
+ * whole design through and written it to the user. Both the SA chat
  * factory and the MCP adapter call this through the shared
  * `ToolExecutionContext` interface.
  */
@@ -33,9 +34,9 @@ export type GenerateSchemaInput = z.infer<typeof generateSchemaInputSchema>;
 /**
  * Structured index of the planned data model — one entry per case type,
  * carrying the property names plus the parent link, so the follow-up
- * `planAppDesign` + `createModule` calls can reference the plan without
- * re-reading anything. The full property detail lives in this call's
- * own input, which stays in the conversation verbatim.
+ * `createModule` calls can reference the plan without re-reading
+ * anything. The full property detail lives in this call's own input,
+ * which stays in the conversation verbatim.
  */
 export interface GenerateSchemaResult {
 	planned: true;
@@ -50,7 +51,7 @@ export interface GenerateSchemaResult {
 
 export const generateSchemaTool = {
 	description:
-		"Plan the data model (case types and properties) for the app. Call this first, before planAppDesign. This records the plan in the conversation — it does not change the app. Each case type's record lands on the app later, with the createModule call that owns it (pass it as case_type_record).",
+		"Record the app's data model (case types and properties) — the first tool call of a build, after you've reasoned the design through. This records the plan in the conversation — it does not change the app. Each case type's record lands on the app later, with the createModule call that owns it (pass it as case_type_record).",
 	inputSchema: generateSchemaInputSchema,
 	async execute(
 		input: GenerateSchemaInput,
