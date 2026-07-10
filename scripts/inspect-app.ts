@@ -16,6 +16,7 @@ import "dotenv/config";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { loadApp } from "@/lib/db/apps";
+import { getAppDb } from "@/lib/db/pg";
 import { loadThreads } from "@/lib/db/threads";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
@@ -45,6 +46,7 @@ interface InspectAppOptions {
 	stats?: boolean;
 	caseLists?: boolean;
 	logic?: boolean;
+	row?: boolean;
 	prod?: boolean;
 }
 
@@ -71,6 +73,10 @@ program
 	)
 	.option("--threads", "include full message content of every chat thread")
 	.option(
+		"--row",
+		"include the raw apps table row — every column, including the run-lease + reservation state the header omits",
+	)
+	.option(
 		"--prod",
 		"inspect the production Cloud SQL instance (public IP + your gcloud IAM identity)",
 	)
@@ -81,6 +87,7 @@ program
 			"  $ npx tsx scripts/inspect-app.ts <appId> --stats\n" +
 			"  $ npx tsx scripts/inspect-app.ts <appId> --stats --case-lists\n" +
 			"  $ npx tsx scripts/inspect-app.ts <appId> --blueprint    # raw JSON\n" +
+			"  $ npx tsx scripts/inspect-app.ts <appId> --row          # whole apps row\n" +
 			"  $ npx tsx scripts/inspect-app.ts <appId> --prod         # against prod\n",
 	);
 
@@ -97,6 +104,7 @@ const showBlueprint = opts.blueprint === true;
 const showStats = opts.stats === true;
 const showCaseLists = opts.caseLists === true;
 const showLogic = opts.logic === true;
+const showRow = opts.row === true;
 
 // ── Field tree printing ─────────────────────────────────────────────
 
@@ -171,6 +179,22 @@ async function main() {
 		["Forms", String(totalForms)],
 		["Fields", String(totalFields)],
 	]);
+
+	/* ── Raw row view (--row) ─────────────────────────────────────── */
+	if (showRow) {
+		/* The header above is the curated view; this is the whole `apps`
+		 * row — run-lease + reservation columns and anything added since,
+		 * with no column list to fall out of date. Dates serialize as ISO
+		 * through JSON.stringify. */
+		const db = await getAppDb();
+		const row = await db
+			.selectFrom("apps")
+			.selectAll()
+			.where("id", "=", appId)
+			.executeTakeFirst();
+		printSection("Raw App Row (apps table)");
+		console.log(JSON.stringify(row, null, 2));
+	}
 
 	/* ── Blueprint JSON dump (standalone mode) ───────────────────── */
 	if (showBlueprint) {

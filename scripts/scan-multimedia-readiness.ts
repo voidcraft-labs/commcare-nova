@@ -43,9 +43,11 @@
  * never `createPendingAsset`, `confirmAssetReady`, `deleteAsset`, or
  * any blueprint/app write. It mutates nothing and deletes nothing in GCS.
  * Reads the app-state database the env provides (`NOVA_DB_LOCAL_URL`
- * locally, the Cloud SQL connector in the migrate-job image). Run with
- * `--help` for the flag reference.
+ * locally, the Cloud SQL connector in the migrate-job image); `--prod`
+ * targets the production instance over its public IP (see
+ * `./lib/prodDb.ts`). Run with `--help` for the flag reference.
  */
+import "dotenv/config";
 import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { describeLocation } from "@/lib/commcare/validator/rules/media/shared";
@@ -61,6 +63,7 @@ import type { AssetRef, MediaSlotKind } from "@/lib/domain/mediaRefs";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
 import { printHeader, printKV, printSection } from "./lib/format";
 import { runMain } from "./lib/main";
+import { targetProdDb } from "./lib/prodDb";
 import type { BlueprintDoc } from "./lib/types";
 
 // ── CLI argument parsing ────────────────────────────────────────────
@@ -77,6 +80,7 @@ import type { BlueprintDoc } from "./lib/types";
 interface ScanOptions {
 	project?: string;
 	app?: string;
+	prod?: boolean;
 }
 
 const program = new Command();
@@ -93,6 +97,10 @@ program
 		"--app <appId>",
 		"scan a single app by id (Project derived from the app doc); orphan analysis is Project-scoped and skipped in this mode",
 	)
+	.option(
+		"--prod",
+		"scan the production Cloud SQL instance (public IP + your gcloud IAM identity)",
+	)
 	.addHelpText(
 		"after",
 		"\nScoping:\n" +
@@ -102,12 +110,15 @@ program
 			"  required rather than iterating the whole apps collection blindly.\n" +
 			"\nExamples:\n" +
 			"  $ npx tsx scripts/scan-multimedia-readiness.ts --project <projectId>\n" +
-			"  $ npx tsx scripts/scan-multimedia-readiness.ts --app <appId>\n",
+			"  $ npx tsx scripts/scan-multimedia-readiness.ts --app <appId> --prod\n",
 	);
 
 program.parse();
 
 const opts = program.opts<ScanOptions>();
+if (opts.prod === true) {
+	targetProdDb();
+}
 
 // ── Reference classification ────────────────────────────────────────
 
