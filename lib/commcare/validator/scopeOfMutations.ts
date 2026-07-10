@@ -363,7 +363,8 @@ export function scopeOfMutations(
 				// the reducer ignores it for replay-equivalence; `convertField`
 				// is the single kind-change path and maps to full above. So
 				// patches that leave the pair alone (labels, expressions,
-				// options) can only flip form-local findings.
+				// options) can only flip form-local findings — with ONE
+				// exception below.
 				const field = resolveField(prevDoc, acc, mut.uuid);
 				const prevType = field ? casePropertyOn(field) : undefined;
 				const rawNext = patch.case_property_on;
@@ -376,6 +377,24 @@ export function scopeOfMutations(
 					nextType !== prevType ||
 					(field !== undefined && patchTouches(patch, "id", field.id));
 				if ((prevType !== undefined || nextType !== undefined) && pairChanges) {
+					acc.full = true;
+				}
+				// The exception: a case-bound HIDDEN writer's expression IS
+				// its property's derived data type (the effective view's
+				// structural inference over `calculate` / `default_value` —
+				// `lib/domain/effectiveCaseTypes.ts`), so patching either
+				// slot changes catalog state that readers app-wide consume,
+				// exactly like a catalog write. (The inference deliberately
+				// resolves only case-refs and whole-expression literals —
+				// never form-field refs — precisely so the derived state is
+				// a function of catalog + bound-writer state, which this
+				// scoping already treats as full-run territory.)
+				if (
+					field?.kind === "hidden" &&
+					prevType !== undefined &&
+					(Object.hasOwn(patch, "calculate") ||
+						Object.hasOwn(patch, "default_value"))
+				) {
 					acc.full = true;
 				}
 				break;

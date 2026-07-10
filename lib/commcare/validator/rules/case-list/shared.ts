@@ -21,31 +21,22 @@
  *
  * ## Property resolution model (rule-set-wide contract)
  *
- * A property is considered to "exist" on a case type if any of the
- * following holds, in this priority order:
+ * The admission set IS the domain's effective case-type view —
+ * `lib/domain/effectiveCaseTypes.ts::effectiveCaseTypes(doc)`: declared
+ * properties (with writer-derived `data_type` filled where the
+ * declaration is silent), the CommCare standard set, and writer-derived
+ * entries, in that priority order. The builder workspace consumes the
+ * SAME function for its verdicts and pickers, which is what keeps the
+ * gate and the UI structurally unable to disagree about what a
+ * property is.
  *
- *   1. Declared on `ct.properties[]` — the canonical schema. Data
- *      type comes from the property's `data_type` (with the
- *      `?? "text"` fallback via `effectiveDataType`).
- *
- *   2. CommCare standard property (member of
- *      `STANDARD_CASE_LIST_PROPERTIES`) — implicit-typed via
- *      `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`. CommCare provides
- *      these at the wire layer; the blueprint never lists them.
- *
- *   3. Writer-derived — some form field saves to the property via
- *      `case_property_on === ct.name`. Walked by
- *      `collectCaseProperties(doc, caseType)`. Data type defaults to
- *      `text` because the case type's schema declares none for this
- *      property; the wire layer accepts any string-coerceable value.
- *
- * **Priority order lives in exactly one place** —
- * `augmentCaseType(...)` below builds the augmented `properties[]`
- * by appending in priority order: declared-first, then standard
- * (skipped on conflict), then writer-derived (skipped on conflict).
- * Both `resolvePropertyDataType` and `propertyExists` look up
- * against the augmented list, so the priority order can never
- * diverge between the two helpers.
+ * A property whose type nothing resolves carries `data_type: undefined`
+ * in the view (honest unknown). The `resolvePropertyDataType` helper
+ * below still collapses that to `"text"` via `effectiveDataType` —
+ * the value-semantics convention the type checker, search-input
+ * rules, and sort derivation share. Rules that must distinguish
+ * unknown from text (`columnKindPropertyType`) read the entry's raw
+ * `data_type` off the view instead.
  *
  * Every case-list-config rule consults this same admission set:
  *
@@ -77,34 +68,24 @@
  * rather than `3N × C` walks.
  */
 
-import {
-	STANDARD_CASE_LIST_PROPERTIES,
-	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
-} from "@/lib/commcare";
-import type {
-	BlueprintDoc,
-	CaseProperty,
-	CaseType,
-	Module,
-} from "@/lib/domain";
+import type { BlueprintDoc, CaseType, Module } from "@/lib/domain";
 import {
 	type CasePropertyDataType,
 	effectiveDataType,
 } from "@/lib/domain/casePropertyTypes";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type {
 	CheckPath,
 	SearchInputDecl,
 	TypeContext,
 } from "@/lib/domain/predicate";
-import { collectCaseProperties } from "../../index";
 
 /**
- * Per-doc validation context. Carries the augmented case-type list
- * — the rule-set-wide property admission set, with each case type's
- * `properties[]` extended to include CommCare standard properties
- * (typed via `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`) and writer-
- * derived properties (typed `text`). Declared properties win on
- * conflict.
+ * Per-doc validation context. Carries the augmented case-type list —
+ * the rule-set-wide property admission set, which IS the domain's
+ * effective case-type view (declared + standard + writer-derived,
+ * with writer-derived `data_type`s resolved and honest-unknown kept
+ * absent — see `lib/domain/effectiveCaseTypes.ts`).
  *
  * Computed once per `BlueprintDoc` reference; subsequent reads hit
  * the WeakMap cache. Consumers route every property lookup through
@@ -292,50 +273,12 @@ function lookupInAugmented(
 }
 
 /**
- * Project the doc's `caseTypes` list with each case type's
- * `properties[]` extended to include the rule-set-wide admission
- * set: writer-derived (typed `text`) + CommCare standard (typed via
- * `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`). Declared properties
- * win on conflict (kept first in the array; subsequent arms skip
- * names already present). This is the canonical site for the
- * priority order — the resolvers above all read against the
- * resulting list.
+ * The rule-set-wide admission set — the domain's effective case-type
+ * view. Kept as a named seam (rather than call sites reaching for
+ * `effectiveCaseTypes` directly) so the file header's contract has
+ * one anchor; the domain function owns the priority order and its
+ * own per-doc memo.
  */
-function buildAugmentedCaseTypes(doc: BlueprintDoc): CaseType[] {
-	const caseTypes = doc.caseTypes ?? [];
-	return caseTypes.map((ct) => augmentCaseType(ct, doc));
-}
-
-function augmentCaseType(ct: CaseType, doc: BlueprintDoc): CaseType {
-	const declaredNames = new Set(ct.properties.map((p) => p.name));
-	const extra: CaseProperty[] = [];
-
-	// Priority 2: standard properties — only inject when not declared.
-	// `STANDARD_CASE_LIST_PROPERTIES` is typed `ReadonlySet<StandardCaseListProperty>`,
-	// so iteration narrows `name` to a key of
-	// `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES` directly — the table
-	// lookup is total without a defensive default.
-	for (const name of STANDARD_CASE_LIST_PROPERTIES) {
-		if (declaredNames.has(name)) continue;
-		extra.push({
-			name,
-			label: name,
-			data_type: STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[name],
-		});
-	}
-
-	// Priority 3: writer-derived properties — fields saving to this
-	// case type via `case_property_on`. Default to text per the
-	// model's undeclared-fallback convention. Skip names already
-	// declared OR already injected as standard above.
-	const writerProps = collectCaseProperties(doc, ct.name) ?? new Set<string>();
-	const injected = new Set(extra.map((p) => p.name));
-	for (const name of writerProps) {
-		if (declaredNames.has(name)) continue;
-		if (injected.has(name)) continue;
-		extra.push({ name, label: name, data_type: "text" });
-	}
-
-	if (extra.length === 0) return ct;
-	return { ...ct, properties: [...ct.properties, ...extra] };
+function buildAugmentedCaseTypes(doc: BlueprintDoc): readonly CaseType[] {
+	return effectiveCaseTypes(doc);
 }

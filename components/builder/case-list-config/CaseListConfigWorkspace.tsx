@@ -35,7 +35,7 @@ import { InspectorSurface } from "@/components/builder/inspector/InspectorSurfac
 import { RemoveRow } from "@/components/builder/inspector/inspectorChrome";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { appendOrderKey, sequenceOrderKeys } from "@/lib/doc/order/append";
 import { bySortKey } from "@/lib/doc/order/compare";
@@ -54,8 +54,10 @@ import { CaseListCanvas } from "./canvas/CaseListCanvas";
 import { DetailCanvas } from "./canvas/DetailCanvas";
 import { SearchCanvas } from "./canvas/SearchCanvas";
 import {
+	brokenColumnUuids,
 	type CaseListConfigErrorAreas,
 	caseListConfigErrorAreas,
+	caseListPreviewObstacle,
 } from "./configValidity";
 import { FilterInspectorBody } from "./inspector/FilterInspectorBody";
 import { ListPanelInspectorBody } from "./inspector/ListPanelInspectorBody";
@@ -89,6 +91,10 @@ const PROPERTYLESS_HINT = "Define case-type properties first.";
  *  still absent — first edit persists the seeded shape. */
 const EMPTY_CONFIG: CaseListConfig = { columns: [], searchInputs: [] };
 
+/** Stable empty set for the no-case-type guard arm — a fresh `Set`
+ *  per render would defeat the canvases' memoization. */
+const EMPTY_BROKEN_COLUMNS: ReadonlySet<string> = new Set();
+
 /** Re-key a reordered sequence so each item's `order` reflects the new order —
  *  the auto-save diff reads the order key, not array position. */
 function resequence<T extends { order?: string }>(items: readonly T[]): T[] {
@@ -110,7 +116,9 @@ export function CaseListConfigWorkspace({
 
 function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 	const mod = useModule(moduleUuid);
-	const caseTypes = useCaseTypes();
+	/* The EFFECTIVE view — the same property admission set + types the
+	 * commit gate validates against (see the hook doc). */
+	const caseTypes = useEffectiveCaseTypes();
 	const appId = useAppId() ?? "";
 	const navigate = useNavigate();
 	const { updateModule, inline } = useBlueprintMutations();
@@ -154,8 +162,25 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 				: { search: false, list: false, detail: false },
 		[config, caseTypes, caseType],
 	);
-	const configValid =
-		!errorAreas.search && !errorAreas.list && !errorAreas.detail;
+	/* The columns the canvases mark broken — same walk as the tab dots,
+	 * keyed by uuid so the mark lands on the offending column itself. */
+	const brokenColumns = useMemo(
+		() =>
+			caseType !== undefined
+				? brokenColumnUuids(config, caseTypes, caseType)
+				: EMPTY_BROKEN_COLUMNS,
+		[config, caseTypes, caseType],
+	);
+	/* The preview pauses ONLY for ASTs the SQL compiler consumes (filter /
+	 * calculated columns) — an applicability mismatch or search-input
+	 * problem marks its entity and leaves the live rows running. */
+	const previewObstacle = useMemo(
+		() =>
+			caseType !== undefined
+				? caseListPreviewObstacle(config, caseTypes, caseType)
+				: null,
+		[config, caseTypes, caseType],
+	);
 	const {
 		state: preview,
 		fetching: previewFetching,
@@ -164,7 +189,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		appId,
 		caseListConfig: config,
 		currentCaseType: caseType ?? "",
-		configValid,
+		previewObstacle,
 	});
 
 	/* Generate / Reset sample data — surfaced from the list canvas's
@@ -348,6 +373,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 			{tab === "list" && (
 				<CaseListCanvas
 					config={config}
+					brokenColumns={brokenColumns}
 					moduleName={mod.name}
 					preview={preview}
 					refreshing={previewFetching}
@@ -362,6 +388,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 			{tab === "detail" && (
 				<DetailCanvas
 					config={config}
+					brokenColumns={brokenColumns}
 					preview={preview}
 					selection={sel}
 					onSelect={setSel}
@@ -393,7 +420,7 @@ interface ResolveInspectorArgs {
 	readonly moduleUuid: Uuid;
 	readonly config: CaseListConfig;
 	readonly searchConfig: CaseSearchConfig | undefined;
-	readonly caseTypes: ReturnType<typeof useCaseTypes>;
+	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
 	readonly caseType: string;
 	readonly appId: string;
 	readonly moduleName: string;

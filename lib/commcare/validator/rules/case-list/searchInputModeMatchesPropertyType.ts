@@ -30,13 +30,13 @@
  * mode on a text property would be undefined behavior at the
  * Postgres runtime.
  *
- * **Property resolution follows the rule set's shared 3-arm model.**
- * Routes through `resolvePropertyDataType` in `./shared.ts` —
- * declared schema → CommCare standard (typed via
- * `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`) → writer-derived (text
- * default). `range` against a text-shaped standard property like
- * `case_name` is structurally rejected; `range` against
- * `date_opened` (datetime) passes.
+ * **Property resolution follows the rule set's shared admission set**
+ * — the domain's effective case-type view, via
+ * `resolvePropertyDataType` in `./shared.ts`: declared annotation →
+ * writer-derived type → CommCare standard → text for the unresolved.
+ * `range` against a text-shaped standard property like `case_name`
+ * is structurally rejected; `range` against `date_opened` (datetime)
+ * or a property whose writers pin a numeric/temporal kind passes.
  *
  * Cross-walk inputs (`via` carrying an `ancestor` / `subcase` /
  * `any-relation` step) resolve the destination case type via

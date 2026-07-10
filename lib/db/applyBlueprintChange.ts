@@ -86,7 +86,10 @@
 
 import { produce } from "immer";
 import type { SchemaCaseStore } from "@/lib/case-store";
-import { buildCaseTypeMap, withSchemaContext } from "@/lib/case-store";
+import {
+	buildMaterializableCaseTypeMap,
+	withSchemaContext,
+} from "@/lib/case-store";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -262,7 +265,8 @@ export async function applyBlueprintChange(
 	// hint) is dropped — running it would throw `CaseTypeNotInBlueprintError`
 	// and abort an otherwise-valid write; the sweep (or the next save) still
 	// covers whatever the committed doc holds.
-	const prospectiveSchemas = buildCaseTypeMap(prospectiveBlueprint);
+	const prospectiveSchemas =
+		buildMaterializableCaseTypeMap(prospectiveBlueprint);
 	const migrationEntries = entries.filter((entry) => {
 		if (entry.change === undefined) return false;
 		if (!prospectiveSchemas.has(entry.caseType)) {
@@ -459,7 +463,7 @@ async function sweepCommittedSchemas(
 	entries: readonly CaseTypeChangeEntry[],
 ): Promise<void> {
 	if (result.committedDoc === undefined) return;
-	const committedSchemas = buildCaseTypeMap(result.committedDoc);
+	const committedSchemas = buildMaterializableCaseTypeMap(result.committedDoc);
 	// One sync per DISTINCT touched case type — the classifier can emit several
 	// entries for one type (one property added and one retyped), but the sweep
 	// re-derives that type's whole schema once regardless.
@@ -545,7 +549,7 @@ async function compensate(
 		);
 		return;
 	}
-	const currentSchemas = buildCaseTypeMap(current.blueprint);
+	const currentSchemas = buildMaterializableCaseTypeMap(current.blueprint);
 	const currentSeq = current.mutation_seq;
 	// Distinct types only — the classifier can emit several entries per type.
 	const touched = new Set(entries.map((entry) => entry.caseType));

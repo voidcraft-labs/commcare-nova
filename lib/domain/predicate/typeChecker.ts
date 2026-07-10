@@ -1724,9 +1724,17 @@ export function checkExpression(
 			// allow-list mirrors `MATCH_PROPERTY_TYPES_TEXT_SHAPED` —
 			// `text` / `single_select` / `multi_select` all wire-store
 			// as text, so each is admissible source for the coercion.
-			// `_any` (the null sentinel) bypasses the check —
-			// `date-coerce(literal(null))` is well-typed at the AST and
-			// degenerates at runtime.
+			// A `date` / `datetime` operand is ALSO admissible — the
+			// coercion is then identity / widening / truncation, legal
+			// on every evaluator (XPath `date()` of a date is itself;
+			// the SQL arm is a plain CAST, and date ↔ timestamptz casts
+			// are valid Postgres). This matters under derived property
+			// typing: an expression authored while a property read as
+			// text may wrap it in an explicit coerce, and the property
+			// later RESOLVING to date must not turn that redundant-but-
+			// sound shape into a finding. `_any` (the null sentinel)
+			// bypasses the check — `date-coerce(literal(null))` is
+			// well-typed at the AST and degenerates at runtime.
 			const inner = checkExpression(expr.value, ctx, errors, [
 				...path,
 				"value",
@@ -1734,11 +1742,12 @@ export function checkExpression(
 			if (
 				inner !== undefined &&
 				inner !== ANY_TYPE &&
-				!TEXT_SHAPED_TYPES.has(inner)
+				!TEXT_SHAPED_TYPES.has(inner) &&
+				!isDateOrDatetime(inner)
 			) {
 				errors.push({
 					path: [...path, "value"],
-					message: `${expr.kind} requires a text-shaped operand (text / single_select / multi_select); got '${describe(inner)}'.`,
+					message: `${expr.kind} requires a text-shaped or date-shaped operand (text / single_select / multi_select / date / datetime); got '${describe(inner)}'.`,
 				});
 			}
 			return expr.kind === "date-coerce" ? "date" : "datetime";

@@ -1,7 +1,5 @@
 /** CommCare platform constants — single source of truth. */
 
-import type { CasePropertyDataType } from "@/lib/domain";
-
 /**
  * Case property names that HQ rejects in update_case / case_preload blocks.
  * Matches commcare-hq/corehq/apps/app_manager/static/app_manager/json/case-reserved-words.json
@@ -139,83 +137,14 @@ export const MAX_CASE_TYPE_LENGTH = 255;
 /** Maximum length for case property names (CommCare Core CaseXmlParser constraint). */
 export const MAX_CASE_PROPERTY_LENGTH = 255;
 
-/**
- * Implicit `data_type` for each standard case-list property — every
- * member of `STANDARD_CASE_LIST_PROPERTIES` carries a known wire-form
- * type that CommCare's runtime comparator and search-input emitter
- * read against. The blueprint's declared `caseTypes[].properties[]`
- * never lists these — CommCare provides them implicitly — so any
- * type-driven validator rule (sort compatibility, search-input
- * mode-vs-type) needs this table to enforce the same per-type
- * structural constraints that custom properties get from
- * `effectiveDataType(...)`.
- *
- * Type assignments follow the wire-form contracts in CommCare HQ's
- * detail screen + case search layers:
- *
- *   - `date_opened` / `date-opened` / `last_modified` — datetime
- *     timestamps; emitted into `<sort type="...">` blocks as date-
- *     comparator targets.
- *   - `case_name` / `name` / `owner_id` / `external_id` /
- *     `external-id` / `status` — plain text identifiers / status
- *     enums; the runtime comparator handles them lexicographically.
- *
- * Authored as the structural source of truth: the `as const` tuple
- * declared first, the data-type record keyed on the tuple's union
- * second, and the runtime `Set` derived from the tuple last. The
- * `Record<keyof typeof ..., CasePropertyDataType>` shape forces the
- * compiler to reject the source if any member of the tuple lacks an
- * entry in the data-type table — silent fall-through is structurally
- * impossible, no `?? "text"` defensive default needed at consumers.
- */
-export const STANDARD_CASE_LIST_PROPERTY_DATA_TYPES = {
-	case_name: "text",
-	name: "text",
-	date_opened: "datetime",
-	"date-opened": "datetime",
-	last_modified: "datetime",
-	owner_id: "text",
-	external_id: "text",
-	"external-id": "text",
-	status: "text",
-} as const satisfies Record<string, CasePropertyDataType>;
-
-/** Closed key set of `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES` —
- *  the canonical type a property name passes through after a
- *  `STANDARD_CASE_LIST_PROPERTIES.has(name)` narrowing. Consumers
- *  who want to walk the table use this union to type the lookup. */
-export type StandardCaseListProperty =
-	keyof typeof STANDARD_CASE_LIST_PROPERTY_DATA_TYPES;
-
-/** Type-narrowing predicate against `STANDARD_CASE_LIST_PROPERTIES`.
- *  Returns `true` when `name` is one of the standard set, narrowing
- *  to `StandardCaseListProperty` so callers can index
- *  `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[name]` without the `??`
- *  defensive default.
- */
-export function isStandardCaseListProperty(
-	name: string,
-): name is StandardCaseListProperty {
-	return name in STANDARD_CASE_LIST_PROPERTY_DATA_TYPES;
-}
-
-/**
- * Case properties that are always available in case list columns
- * without needing to be explicitly created by forms.
- * Source: commcare-hq/corehq/apps/app_manager/detail_screen.py CASE_PROPERTY_MAP
- * + modules.py default properties.
- *
- * Derived from the keys of `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`
- * — single source of truth for the standard set; adding an entry to
- * the data-type table cascades to this set automatically. Element
- * type is `StandardCaseListProperty` (the closed key union of the
- * data-type table) so iterators land on a key the type system
- * recognizes — no defensive narrowing needed at consumer sites that
- * walk the set and index back into the table.
- */
-export const STANDARD_CASE_LIST_PROPERTIES: ReadonlySet<StandardCaseListProperty> =
-	new Set(
-		Object.keys(
-			STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
-		) as StandardCaseListProperty[],
-	);
+// The standard case-property table lives in the domain
+// (`lib/domain/standardCaseProperties.ts`) so the effective case-type
+// view can fold the standard set into the one property admission set
+// every surface reads; re-exported here so wire-side consumers keep
+// their import path.
+export {
+	isStandardCaseListProperty,
+	STANDARD_CASE_LIST_PROPERTIES,
+	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
+	type StandardCaseListProperty,
+} from "@/lib/domain/standardCaseProperties";

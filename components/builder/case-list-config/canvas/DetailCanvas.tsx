@@ -30,6 +30,10 @@ import { AddGhostButton, CanvasNotice, previewNotice } from "./canvasChrome";
 
 export interface DetailCanvasProps {
 	readonly config: CaseListConfig;
+	/** Columns with a configuration error (`configValidity.ts::
+	 *  brokenColumnUuids`) — the row carries a rose dot + explanation
+	 *  so the tab strip's dot points at something findable. */
+	readonly brokenColumns: ReadonlySet<string>;
 	readonly preview: CaseListPreviewState;
 	readonly selection: WorkspaceSelection | null;
 	readonly onSelect: (next: WorkspaceSelection) => void;
@@ -44,6 +48,7 @@ export interface DetailCanvasProps {
 
 export function DetailCanvas({
 	config,
+	brokenColumns,
 	preview,
 	selection,
 	onSelect,
@@ -115,6 +120,7 @@ export function DetailCanvas({
 				) : (
 					columns.map((col, i) => {
 						const hidden = col.visibleInDetail === false;
+						const broken = brokenColumns.has(col.uuid);
 						const isSel = selectedColumnUuid === col.uuid;
 						const label =
 							col.kind === "calculated"
@@ -157,6 +163,13 @@ export function DetailCanvas({
 										? renderColumnCell(col, sampleRow)
 										: "—"}
 								</span>
+								{broken && (
+									<span
+										role="img"
+										aria-label="This field has a configuration error — click to fix it"
+										className="ml-auto inline-flex shrink-0 size-1.5 rounded-full bg-nova-rose"
+									/>
+								)}
 							</button>
 						);
 					})

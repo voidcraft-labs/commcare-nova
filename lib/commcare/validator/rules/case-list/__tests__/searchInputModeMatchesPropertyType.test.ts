@@ -759,9 +759,10 @@ describe("searchInputModeMatchesPropertyType", () => {
 		).toBe(false);
 	});
 
-	it("rejects `range` against a writer-derived property (text default)", () => {
-		// Writer-derived `weight` is text by default; `range` is rejected.
-		// Pins the load-bearing case the JSDoc calls out.
+	it("accepts `range` against a writer-derived property whose writer is numeric", () => {
+		// Writer-derived `weight` RESOLVES to int under the effective view
+		// (its writer is an int field), and `range` admits numerics — the
+		// old text-stamp convention rejected this legitimate shape.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -814,7 +815,7 @@ describe("searchInputModeMatchesPropertyType", () => {
 			runValidation(doc).some(
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 			),
-		).toBe(true);
+		).toBe(false);
 	});
 
 	it("rejects `range` against text-typed standard property `case_name`", () => {

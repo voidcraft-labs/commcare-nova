@@ -25,11 +25,13 @@
 // blueprint shape.
 
 import type { Insertable, Selectable } from "kysely";
-import type {
-	CasePropertyDataType,
-	CaseType,
-	Column,
-	PersistableDoc,
+import {
+	type CasePropertyDataType,
+	type CaseType,
+	type Column,
+	effectiveCaseTypes,
+	materializableCaseTypes,
+	type PersistableDoc,
 } from "@/lib/domain";
 import type {
 	Predicate,
@@ -564,10 +566,24 @@ export interface CaseStore extends SchemaCaseStore {
  * the case-store interface stays decoupled from the full blueprint
  * shape. A `null` `caseTypes` yields an empty map.
  *
- * Reads `caseTypes` only — never the in-memory `fieldParent` index —
- * so the parameter is the persisted shape (`PersistableDoc`). A caller
- * holding the fuller in-memory `BlueprintDoc` passes it as-is (it's a
- * subtype); a caller holding only the persisted shape needs no cast.
+ * The entries are the EFFECTIVE case types
+ * (`lib/domain/effectiveCaseTypes.ts`) — declared annotations with
+ * writer-derived `data_type`s filled, plus the standard + writer-
+ * derived properties — the SAME view the validator's type checker
+ * approves expressions against. The lockstep is load-bearing: a
+ * comparison the checker admits as date-typed must compile with a
+ * date cast, or the emitted SQL mis-compares; and a property the
+ * checker resolves (a standard one like `date_opened`, or a writer-
+ * derived one) must resolve in `compileTerm.lookupDataType` rather
+ * than throw its type-checker-bypass error. Properties the view
+ * leaves untyped (honest unknown) read as text via the
+ * `data_type ?? "text"` convention — the checker's fallback exactly.
+ *
+ * Reads `caseTypes` + `fields` only — never the in-memory
+ * `fieldParent` index — so the parameter is the persisted shape
+ * (`PersistableDoc`). A caller holding the fuller in-memory
+ * `BlueprintDoc` passes it as-is (it's a subtype); a caller holding
+ * only the persisted shape needs no cast.
  */
 export function buildCaseTypeMap(
 	blueprint: PersistableDoc | undefined,
@@ -576,7 +592,29 @@ export function buildCaseTypeMap(
 		return new Map();
 	}
 	const map = new Map<string, CaseType>();
-	for (const caseType of blueprint.caseTypes ?? []) {
+	for (const caseType of effectiveCaseTypes(blueprint)) {
+		map.set(caseType.name, caseType);
+	}
+	return map;
+}
+
+/**
+ * The map the SCHEMA MATERIALIZATION consumers (`applySchemaChange`
+ * feeders — `materializeCaseStoreSchemas`, the blueprint-change
+ * saga) build from: the effective view minus the implicit standard
+ * entries (`lib/domain/effectiveCaseTypes.ts::materializableCaseTypes`
+ * — see its doc for why standard names must not reach the JSON
+ * schema or the index DDL). Query/validation call sites stay on
+ * `buildCaseTypeMap`.
+ */
+export function buildMaterializableCaseTypeMap(
+	blueprint: PersistableDoc | undefined,
+): ReadonlyMap<string, CaseType> {
+	if (blueprint === undefined) {
+		return new Map();
+	}
+	const map = new Map<string, CaseType>();
+	for (const caseType of materializableCaseTypes(blueprint)) {
 		map.set(caseType.name, caseType);
 	}
 	return map;

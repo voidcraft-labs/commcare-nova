@@ -32,6 +32,7 @@ import {
 	type Column,
 	type ColumnKind,
 	calculatedColumn,
+	columnKindAcceptsPropertyType,
 	dateColumn,
 	effectiveDataType,
 	idMappingColumn,
@@ -126,25 +127,17 @@ export interface ColumnCardSchema<K extends ColumnKind> {
 
 // ── Property applicability ────────────────────────────────────────
 //
-// Per-kind property compatibility. The case-list column kinds fall
-// into three families:
-//
-//   - **Date-typed** — Date, Interval. Their wire emitters compute
-//     calendar arithmetic against the property's value; a non-date
-//     property would silently misformat / produce nonsense thresholds.
-//   - **Text-shaped** — Phone. The wire emitter renders the value as
-//     a tappable telephone link; numeric-typed phone numbers are
-//     valid CCHQ practice but the runtime tap binding expects a
-//     string. Un-annotated properties fall back to `text` per the
-//     type checker's `data_type ?? "text"` convention.
-//   - **Universal** — Plain, ID-Mapping, Calculated. Plain renders
-//     the raw value; ID-Mapping looks up via a value→label table;
-//     Calculated has no field at all (the expression is the source).
-//
-// `undefined` from the caller (no property selected yet, or the
-// field references a property the case type doesn't declare)
-// short-circuits to `true` so the kind picker stays open while the
-// user is choosing.
+// Per-kind property compatibility — thin arrows over the DOMAIN
+// predicate (`lib/domain/columnApplicability.ts`), the same one the
+// commit gate's `CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH` rule
+// runs, so the menu's offered-set can't drift from the gate's
+// accept-set. The verdict is honest-unknown-permissive: a property
+// whose `data_type` the effective view leaves absent (neither a
+// declaration nor the writing fields pin one) accepts every kind —
+// missing metadata never manufactures an error. Same for `undefined`
+// from the caller (no property selected yet, or a name the admission
+// set doesn't resolve): the kind picker stays open while the user is
+// choosing.
 
 /** Plain / ID-Mapping / Calculated — accept every property
  *  (Calculated has no field but the predicate is still consulted
@@ -153,20 +146,16 @@ function applicableForAny(_: CaseProperty | undefined): boolean {
 	return true;
 }
 
-/** Date / Interval — require a date-typed property. Permissive when
- *  the field slot is unset so the kind picker stays available; the
- *  inline-validity surface catches the mismatch once a field is
- *  chosen. */
+/** Date / Interval — reject only a property whose RESOLVED type is
+ *  positively non-date. */
 function applicableForDate(property: CaseProperty | undefined): boolean {
-	if (property === undefined) return true;
-	return isDateTyped(property);
+	return columnKindAcceptsPropertyType("date", property?.data_type);
 }
 
-/** Phone — require a text-shaped property. Same unset-permissive
- *  contract as `applicableForDate`. */
+/** Phone — reject only a property whose RESOLVED type is positively
+ *  non-text-shaped. */
 function applicableForText(property: CaseProperty | undefined): boolean {
-	if (property === undefined) return true;
-	return isTextShaped(property);
+	return columnKindAcceptsPropertyType("phone", property?.data_type);
 }
 
 // ── Default-value seeds ───────────────────────────────────────────

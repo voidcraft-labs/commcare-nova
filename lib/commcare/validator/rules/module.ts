@@ -11,6 +11,7 @@ import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
 import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
+import { columnKindPropertyType } from "./case-list/columnKindPropertyType";
 import { columnReferences } from "./case-list/columnReferences";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
 import { idMappingValueRequired } from "./case-list/idMappingValueRequired";
@@ -195,6 +196,7 @@ export const MODULE_RULES = [
 	// Case-list-config rules (sit at module scope; the cross-form
 	// kind-vs-property-type rule lives at app scope in `app.ts`).
 	columnReferences,
+	columnKindPropertyType,
 	filterTypeCheck,
 	calculatedColumnTypeCheck,
 	idMappingValueRequired,
