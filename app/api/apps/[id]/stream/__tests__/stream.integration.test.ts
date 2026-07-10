@@ -42,11 +42,14 @@
  * `__setListenerConfigForTests`.
  */
 
-import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
-import { Pool } from "pg";
+import type { Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
+import {
+	createPerTestAppDb,
+	type PerTestAppDb,
+} from "@/lib/db/__tests__/perTestAppDb";
 import { RETENTION_COUNT } from "@/lib/db/constants";
 import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 
@@ -106,7 +109,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "stream_relay_" });
 
 let appDb: Kysely<AppDatabase>;
-let appPool: Pool;
+let harness: PerTestAppDb;
 
 /** A minimal session shape the route reads (`session.user.id`). */
 function sessionFor(userId: string) {
@@ -272,26 +275,8 @@ async function collectUntil(
 
 beforeEach(async () => {
 	await runCaseStoreMigrations(dbHandle.db);
-	/* Both waits bounded because the route's pump/roster reads are
-	 * fire-and-forget (`void pump()`): a SELECT — or the fresh physical
-	 * connection the pool spawns for it — can straggle past the stream teardown
-	 * by design, and `Pool.end()` (via `appDb.destroy()` below) waits with no
-	 * deadline of its own for a mid-connect client to settle and a checked-out
-	 * one to release. Unbounded, a straggler on a starved engine holds the
-	 * `afterEach` past the 30 s hook timeout. */
-	appPool = new Pool({
-		connectionString: dbHandle.uri,
-		max: 4,
-		connectionTimeoutMillis: 10_000,
-		query_timeout: 10_000,
-	});
-	// Swallow the connection-termination error the per-test DROP DATABASE (FORCE)
-	// provokes on teardown — the same expected-teardown-noise the harness's own
-	// pools swallow (see `perTestDatabase.ts`).
-	appPool.on("error", () => {});
-	appDb = new Kysely<AppDatabase>({
-		dialect: new PostgresDialect({ pool: appPool as unknown as PostgresPool }),
-	});
+	harness = createPerTestAppDb(dbHandle.uri);
+	appDb = harness.appDb;
 	__setAppDbForTests(appDb);
 	__setListenerConfigForTests(dbHandle.uri);
 
@@ -312,22 +297,15 @@ beforeEach(async () => {
 afterEach(async () => {
 	// Close the dedicated LISTEN client BEFORE the per-test DROP DATABASE — a
 	// leaked LISTEN connection would be force-terminated by the drop and its
-	// reconnect timer would spin against a vanished database.
+	// reconnect timer would spin against a vanished database. `harness.destroy()`
+	// quiesces the pool before ending it: the ordinary straggling pump/roster
+	// read would otherwise race `Pool.end()` and orphan a mid-connect client,
+	// which `end()` then waits on forever — see `perTestAppDb.ts`.
 	await closeStreamListener();
 	__setListenerConfigForTests(null);
 	__setAppDbForTests(null);
-	await appDb.destroy().catch(() => {});
-}, 60_000);
-/* ^ This hook's budget must exceed the SUM of the bounded waits it stacks,
- * which the global 30s `hookTimeout` does not. Every wait inside is
- * individually bounded — `closeStreamListener` awaits an in-flight establish
- * (`CONNECT_TIMEOUT_MS` + two `QUERY_TIMEOUT_MS` LISTENs) plus its
- * `END_TIMEOUT_MS` end (≤22s), and `appDb.destroy()`'s `Pool.end()` waits on
- * a mid-connect or checked-out straggler bounded by the pool's
- * `connectionTimeoutMillis` + `query_timeout` (≤20s) — but a starved CI
- * runner can walk several bounds at once (~42s worst case), and a budget
- * below the sum turns that into a nondeterministic hook timeout. On healthy
- * hardware each wait is milliseconds. */
+	await harness.destroy();
+});
 
 describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 	it("replays committed entries past the cursor as mutation frames with id:<seq>", async () => {
