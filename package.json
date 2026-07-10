@@ -8,7 +8,7 @@
 		"db:dev": "docker compose up -d --wait && NOVA_DB_LOCAL_URL=postgres://nova:nova@localhost:5432/nova_cases?sslmode=disable npm run db:migrate",
 		"db:migrate": "tsx scripts/migrate.ts",
 		"db:dev:down": "docker compose down",
-		"build": "NEXT_TELEMETRY_DISABLED=1 next build",
+		"build": "NEXT_TELEMETRY_DISABLED=1 next build && tsc --noEmit",
 		"start": "next start",
 		"lint": "biome check --error-on-warnings",
 		"format": "biome check --write",
@@ -123,6 +123,7 @@
 		"@types/pg": "^8.20.0",
 		"@types/react": "19.2.17",
 		"@types/react-dom": "19.2.3",
+		"@typescript/native-preview": "^7.0.0-dev.20260707.2",
 		"class-variance-authority": "^0.7.1",
 		"dotenv": "^17.3.1",
 		"esbuild": "^0.28.1",
@@ -134,7 +135,7 @@
 		"react-scan": "^0.5.3",
 		"tailwindcss": "^4",
 		"tsx": "^4.23.0",
-		"typescript": "^5",
+		"typescript": "7.0.2",
 		"vitest": "^4.1.8"
 	},
 	"overrides": {
