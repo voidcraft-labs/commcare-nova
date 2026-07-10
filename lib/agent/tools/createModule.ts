@@ -60,6 +60,7 @@ import { addFormMutations, addModuleMutations } from "../blueprintHelpers";
 import type { FlatField } from "../contentProcessing";
 import {
 	caseTypeRecordSchema,
+	cleanCaseTypeRecord,
 	connectFormConfigSchema,
 } from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
@@ -102,18 +103,23 @@ const createModuleFormSchema = z
 		purpose: z
 			.string()
 			.min(1)
+			.nullable()
 			.optional()
-			.describe("Brief description of what this form collects and why."),
+			.describe(
+				"Brief description of what this form collects and why. null when there's nothing to add.",
+			),
 		post_submit: z
 			.enum(USER_FACING_DESTINATIONS)
+			.nullable()
 			.optional()
 			.describe(
-				'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Only set to override.',
+				'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Pass null to use the default; set a value only to override.',
 			),
 		connect: connectFormConfigSchema
+			.nullable()
 			.optional()
 			.describe(
-				"Per-form Connect config — a block opts the form INTO Connect, and a participating form lands with its block in this call. Omit it on a form that shouldn't participate (a Connect app just needs at least one participating form), and always on standard apps.",
+				"Per-form Connect config — a block opts the form INTO Connect, and a participating form lands with its block in this call. Pass null on a form that shouldn't participate (a Connect app just needs at least one participating form), and always on standard apps.",
 			),
 	})
 	.strict();
@@ -124,37 +130,45 @@ export const createModuleInputSchema = z
 		case_type: z
 			.string()
 			.min(1)
+			.nullable()
 			.optional()
 			.describe(
-				"Case type (required if the module has registration/followup/close forms)",
+				"Case type (required if the module has registration/followup/close forms). null for a survey-only module.",
 			),
 		case_type_record: caseTypeRecordSchema
+			.nullable()
 			.optional()
 			.describe(
-				"The case type's record (properties, parent link) from the data-model plan — provide it when this call's case_type is NEW to the app (its name must equal case_type). A child case type's record lands with ITS module, never earlier. Omit when the case type already has a record.",
+				"The case type's record (properties, parent link) from the data-model plan — provide it when this call's case_type is NEW to the app (its name must equal case_type). A child case type's record lands with ITS module, never earlier. null when the case type already has a record (or the module has none).",
 			),
 		purpose: z
 			.string()
 			.min(1)
-			.optional()
-			.describe("Brief description of this module's role in the app."),
-		forms: z
-			.array(createModuleFormSchema)
+			.nullable()
 			.optional()
 			.describe(
-				"The module's forms, each with its fields — EVERY module must land WITH at least one form in this call (a formless module is rejected: CommCare needs a form or a case list to show). Omit only for a case_list_only viewer module.",
+				"Brief description of this module's role in the app. null when there's nothing to add.",
+			),
+		forms: z
+			.array(createModuleFormSchema)
+			.nullable()
+			.optional()
+			.describe(
+				"The module's forms, each with its fields — EVERY module must land WITH at least one form in this call (a formless module is rejected: CommCare needs a form or a case list to show). null only for a case_list_only viewer module.",
 			),
 		case_list_columns: z
 			.array(columnInputSchema)
+			.nullable()
 			.optional()
 			.describe(
-				"Case-list columns for a case-managing module, in display order — required alongside `case_type` so the case list can render rows (usually start with the name property). Refine later (sort, filter, search inputs) via the case-list-config tools.",
+				"Case-list columns for a case-managing module, in display order — required alongside `case_type` so the case list can render rows (usually start with the name property). Refine later (sort, filter, search inputs) via the case-list-config tools. null only on a survey-only module.",
 			),
 		case_list_only: z
 			.boolean()
+			.nullable()
 			.optional()
 			.describe(
-				"True for case-list-only modules with no forms. Use for child case types that need to be viewable but have no follow-up workflow.",
+				"True for case-list-only modules with no forms. Use for child case types that need to be viewable but have no follow-up workflow. null otherwise.",
 			),
 	})
 	.strict();
@@ -211,7 +225,10 @@ export const createModuleTool = {
 						},
 					};
 				}
-				const record = case_type_record as CaseType;
+				// Collapse the record's forced-key nulls to absence BEFORE it
+				// touches the catalog — a null hint/parent_type on a stored
+				// CaseProperty fails the next load's Zod gate.
+				const record = cleanCaseTypeRecord(case_type_record) as CaseType;
 				const mergedCaseTypes = [...(doc.caseTypes ?? []), record];
 				/* Granular catalog emission keyed by `(type, property)` name — a
 				 * `declareCaseType` for the new type, `setCaseTypeMeta` for its
@@ -222,10 +239,7 @@ export const createModuleTool = {
 					kind: "declareCaseType",
 					caseType: record.name,
 				});
-				if (
-					record.parent_type !== undefined ||
-					record.relationship !== undefined
-				) {
+				if (record.parent_type != null || record.relationship != null) {
 					recordMutations.push({
 						kind: "setCaseTypeMeta",
 						caseType: record.name,
@@ -266,7 +280,7 @@ export const createModuleTool = {
 					name,
 					...(case_type && { caseType: case_type }),
 					...(case_list_only && { caseListOnly: case_list_only }),
-					...(purpose !== undefined && { purpose }),
+					...(purpose != null && { purpose }),
 					...(columns.length > 0 && {
 						caseListConfig: { columns, searchInputs: [] },
 					}),
@@ -365,7 +379,7 @@ export const createModuleTool = {
 							name: formInput.name,
 							type: formInput.type,
 							order: formKeys[formIdx],
-							...(formInput.purpose !== undefined && {
+							...(formInput.purpose != null && {
 								purpose: formInput.purpose,
 							}),
 							...(formInput.post_submit && {

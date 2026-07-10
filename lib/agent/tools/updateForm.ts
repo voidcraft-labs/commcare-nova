@@ -10,12 +10,15 @@ import {
  * post-submit navigation. Both the SA chat factory and the MCP adapter
  * call this through the shared `ToolExecutionContext` interface.
  *
- * Every nullable key follows the convention the store's
- * `updateFormMutations` helper establishes: omitted → leave alone,
- * `null` → clear, a value → set. Connect-config patches go through
- * `buildConnectConfig`, a structural partial-update merge: each
- * sub-config the SA explicitly supplied is merged with the matching
- * existing sub-config; the others pass through unchanged.
+ * Every key is nullable, and `null` means "leave unchanged" — the wire
+ * forces every key present on a tool call, so null is the model's only
+ * way to not touch a slot; treating it as a clear would strip the close
+ * condition, the post-submit override, and the Connect block off every
+ * unrelated rename. Clears are EXPLICIT via the `clear` list. Connect-
+ * config patches go through `buildConnectConfig`, a structural
+ * partial-update merge: each sub-config the SA supplied (non-null) is
+ * merged with the matching existing sub-config; the others pass through
+ * unchanged.
  *
  * The merged connect config then runs through `enforceConnectIds` (the
  * agent-path source guard): an omitted connect id is autofilled with a
@@ -62,23 +65,29 @@ export const updateFormInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
-		name: z.string().optional().describe("New form name"),
+		name: z
+			.string()
+			.min(1)
+			.nullable()
+			.optional()
+			.describe("New form name. null keeps the current name."),
 		close_condition: z
 			.object({
 				field: z.string().describe("Field id to check"),
 				answer: z.string().describe("Value that triggers closure"),
 				operator: z
 					.enum(["=", "selected"])
+					.nullable()
 					.optional()
 					.describe(
-						'"=" for exact match (default). "selected" for multi-select fields.',
+						'"=" for exact match (default — null uses it). "selected" for multi-select fields.',
 					),
 			})
 			.strict()
 			.nullable()
 			.optional()
 			.describe(
-				'Close forms only. Set conditional close. Use operator "selected" for multi-select fields. null to make unconditional (default). Omit to leave unchanged.',
+				'Close forms only. Set conditional close; use operator "selected" for multi-select fields. null leaves the current condition unchanged — to make the close unconditional again, list "close_condition" in `clear`.',
 			),
 		post_submit: z
 			.enum(USER_FACING_DESTINATIONS)
@@ -90,15 +99,20 @@ export const updateFormInputSchema = z
 					'"module" = this module\'s form list. ' +
 					'"previous" = back to where the user was (e.g. case list). ' +
 					'Defaults to "previous" for followup, "app_home" for registration/survey. ' +
-					"null to reset to default. Omit to leave unchanged.",
+					'null leaves the current setting unchanged — to reset to the default, list "post_submit" in `clear`.',
 			),
 		connect: z
 			.object({
 				learn_module: z
 					.object({
-						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
-						name: z.string(),
-						description: z.string(),
+						id: z
+							.string()
+							.min(1)
+							.nullable()
+							.optional()
+							.describe(CONNECT_ID_FIELD_DESCRIPTION),
+						name: z.string().min(1),
+						description: z.string().min(1),
 						// Match the domain's `connectLearnModuleSchema`:
 						// positive integer minutes. The reducer doesn't
 						// re-parse patches via Zod, so the SA-facing schema
@@ -111,26 +125,40 @@ export const updateFormInputSchema = z
 							),
 					})
 					.strict()
+					.nullable()
 					.optional()
 					.describe(
-						"Set for forms with educational/training content. Omit for quiz-only forms.",
+						"Set for forms with educational/training content. null on quiz-only forms.",
 					),
 				assessment: z
 					.object({
-						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
-						user_score: z.string(),
+						id: z
+							.string()
+							.min(1)
+							.nullable()
+							.optional()
+							.describe(CONNECT_ID_FIELD_DESCRIPTION),
+						user_score: z.string().min(1),
 					})
 					.strict()
+					.nullable()
 					.optional()
 					.describe(
-						"Set for forms with a quiz/test. Omit for content-only forms.",
+						"Set for forms with a quiz/test. null on content-only forms.",
 					),
 				deliver_unit: z
 					.object({
-						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
-						name: z.string(),
+						id: z
+							.string()
+							.min(1)
+							.nullable()
+							.optional()
+							.describe(CONNECT_ID_FIELD_DESCRIPTION),
+						name: z.string().min(1),
 						entity_id: z
 							.string()
+							.min(1)
+							.nullable()
 							.optional()
 							.describe(
 								"XPath that resolves to the dedup key Connect uses to group form submissions into one logical delivery (one CompletedWork). Connect deduplicates per `(FLW, entity_id, payment_unit)`: two visits with the same entity_id from the same FLW in the same payment unit collapse into one CompletedWork; a different entity_id (or a different payment unit) produces a separate one. " +
@@ -139,6 +167,8 @@ export const updateFormInputSchema = z
 							),
 						entity_name: z
 							.string()
+							.min(1)
+							.nullable()
 							.optional()
 							.describe(
 								"XPath that resolves to a human-readable label Connect shows in dashboards for this delivery. Display-only; doesn't affect dedup or payment. " +
@@ -147,24 +177,38 @@ export const updateFormInputSchema = z
 							),
 					})
 					.strict()
+					.nullable()
 					.optional()
 					.describe(
 						"Set on a deliver-app form that counts as a payable delivery. `name` is what shows up in the deliver-unit picker on Connect. `entity_id` and `entity_name` are wire-format defaults that work for daily-aggregate workflows; override only when the workflow demands a different dedup key or a more useful display label.",
 					),
 				task: z
 					.object({
-						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
-						name: z.string(),
-						description: z.string(),
+						id: z
+							.string()
+							.min(1)
+							.nullable()
+							.optional()
+							.describe(CONNECT_ID_FIELD_DESCRIPTION),
+						name: z.string().min(1),
+						description: z.string().min(1),
 					})
 					.strict()
+					.nullable()
 					.optional(),
 			})
 			.strict()
 			.nullable()
 			.optional()
 			.describe(
-				"Set Connect config on this form — a block opts the form into Connect. null removes it (the form stops participating; rejected only when it is the app's last participating form). Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.",
+				'Set Connect config on this form — a block opts the form into Connect. null leaves the current config unchanged; to remove the block (the form stops participating; rejected only when it is the app\'s last participating form), list "connect" in `clear`. Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.',
+			),
+		clear: z
+			.array(z.enum(["close_condition", "post_submit", "connect"]))
+			.nullable()
+			.optional()
+			.describe(
+				'Form settings to REMOVE: drop the close condition (unconditional close), reset post_submit to its form-type default, or remove the Connect block. This is the only way to clear — null in the slots above means "leave unchanged". Pass null when nothing is being removed.',
 			),
 	})
 	.strict();
@@ -190,7 +234,9 @@ export const updateFormTool = {
 			close_condition,
 			post_submit,
 			connect,
+			clear,
 		} = input;
+		const clearRequested = new Set(clear ?? []);
 		try {
 			const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
 			if (!formUuid) {
@@ -213,66 +259,85 @@ export const updateFormTool = {
 
 			// Build the helper's patch shape. The SA's tool arg uses
 			// `field` directly — no translation needed since the SA speaks
-			// domain vocabulary. `null` clears.
+			// domain vocabulary. `null` = leave unchanged; clears come from
+			// the explicit `clear` list (a slot both set and cleared is a
+			// contradiction, rejected before anything stages).
+			const setAndCleared = [
+				close_condition != null && clearRequested.has("close_condition")
+					? "close_condition"
+					: null,
+				post_submit != null && clearRequested.has("post_submit")
+					? "post_submit"
+					: null,
+				connect != null && clearRequested.has("connect") ? "connect" : null,
+			].filter((c): c is string => c !== null);
+			if (setAndCleared.length > 0) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `${setAndCleared.map((c) => `"${c}"`).join(", ")} ${setAndCleared.length === 1 ? "is" : "are"} both set and listed in \`clear\` — pick one: a new value, or the clear.`,
+					},
+				};
+			}
 			const patch: Parameters<typeof updateFormMutations>[2] = {};
-			if (name !== undefined) patch.name = name;
-			if (close_condition !== undefined) {
+			if (name != null) patch.name = name;
+			if (clearRequested.has("close_condition")) patch.closeCondition = null;
+			if (close_condition != null) {
 				// The SA names the checked field by id; the stored form is the
 				// field's stable uuid. An id nothing answers to stays verbatim
 				// — the gate rejects the introduction with the validator's
 				// close-condition finding.
-				patch.closeCondition =
-					close_condition === null
-						? null
-						: {
-								field: asUuid(
-									resolveCloseFieldRef(doc, formUuid, close_condition.field),
-								),
-								answer: close_condition.answer,
-								...(close_condition.operator && {
-									operator: close_condition.operator,
-								}),
-							};
+				patch.closeCondition = {
+					field: asUuid(
+						resolveCloseFieldRef(doc, formUuid, close_condition.field),
+					),
+					answer: close_condition.answer,
+					...(close_condition.operator && {
+						operator: close_condition.operator,
+					}),
+				};
 			}
-			if (post_submit !== undefined) {
-				patch.postSubmit = post_submit as PostSubmitDestination | null;
+			if (clearRequested.has("post_submit")) patch.postSubmit = null;
+			if (post_submit != null) {
+				patch.postSubmit = post_submit as PostSubmitDestination;
 			}
-			if (connect !== undefined) {
-				if (connect === null) {
-					patch.connect = null;
-				} else {
-					// Structural partial-update merge + the text → AST parse
-					// boundary for the connect XPath slots, resolved against
-					// the owning form (`shared/connectInput.ts`).
-					const merged = buildConnectConfig(
-						connect,
-						existing.connect ?? undefined,
-						(text) => parseXPathForForm(doc, formUuid, text),
-					);
-					// Force connect ids correct at the source: autofill omitted
-					// ids, reject explicit-invalid ids (fail the call, write
-					// nothing). `existingIds` excludes this form's own ids so a
-					// re-patch of an unchanged id doesn't read as a self-conflict.
-					const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-					const moduleName = moduleUuid
-						? (doc.modules[moduleUuid]?.name ?? "module")
-						: "module";
-					const enforced = enforceConnectIds(
-						merged,
-						moduleName,
-						existing.name,
-						collectConnectIds(doc, formUuid),
-					);
-					if (!enforced.ok) {
-						return {
-							kind: "mutate" as const,
-							mutations: [],
-							newDoc: doc,
-							result: { error: enforced.error },
-						};
-					}
-					patch.connect = enforced.config;
+			if (clearRequested.has("connect")) patch.connect = null;
+			if (connect != null) {
+				// Structural partial-update merge + the text → AST parse
+				// boundary for the connect XPath slots, resolved against
+				// the owning form (`shared/connectInput.ts`). Null
+				// sub-configs / inner slots mean "not supplied" — the
+				// merge itself drops them.
+				const merged = buildConnectConfig(
+					connect,
+					existing.connect ?? undefined,
+					(text) => parseXPathForForm(doc, formUuid, text),
+				);
+				// Force connect ids correct at the source: autofill omitted
+				// ids, reject explicit-invalid ids (fail the call, write
+				// nothing). `existingIds` excludes this form's own ids so a
+				// re-patch of an unchanged id doesn't read as a self-conflict.
+				const moduleUuid = resolveModuleUuid(doc, moduleIndex);
+				const moduleName = moduleUuid
+					? (doc.modules[moduleUuid]?.name ?? "module")
+					: "module";
+				const enforced = enforceConnectIds(
+					merged,
+					moduleName,
+					existing.name,
+					collectConnectIds(doc, formUuid),
+				);
+				if (!enforced.ok) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: { error: enforced.error },
+					};
 				}
+				patch.connect = enforced.config;
 			}
 
 			// Compute the mutations, apply via Immer, and persist through
@@ -307,21 +372,16 @@ export const updateFormTool = {
 				};
 			}
 			const formChanges: string[] = [];
-			if (name !== undefined) formChanges.push(`name → "${formAfter.name}"`);
-			if (close_condition !== undefined)
-				formChanges.push(
-					close_condition === null
-						? "close_condition removed (unconditional close)"
-						: "close_condition updated",
-				);
-			if (post_submit !== undefined)
+			if (name != null) formChanges.push(`name → "${formAfter.name}"`);
+			if (clearRequested.has("close_condition"))
+				formChanges.push("close_condition removed (unconditional close)");
+			if (close_condition != null) formChanges.push("close_condition updated");
+			if (clearRequested.has("post_submit") || post_submit != null)
 				formChanges.push(
 					`post_submit → "${formAfter.postSubmit ?? "form-type default"}"`,
 				);
-			if (connect !== undefined)
-				formChanges.push(
-					connect === null ? "connect removed" : "connect updated",
-				);
+			if (clearRequested.has("connect")) formChanges.push("connect removed");
+			if (connect != null) formChanges.push("connect updated");
 			return {
 				kind: "mutate" as const,
 				mutations,

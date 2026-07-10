@@ -10,12 +10,17 @@
  * stay description-free so the domain module graph stays free of
  * prompt-engineering concerns.
  *
- * Every shape here is built so a wrong input can't parse: optional means
- * genuinely optional (omit it — there are no `""`/`[]` sentinels on this
- * surface), every string that is present must be non-empty (`min(1)`),
- * and cross-field contradictions (a `relationship` with no parent, a
+ * Every shape here is built so a wrong input can't parse — under the
+ * wire's one hard constraint: constrained tool decoding forces EVERY key
+ * present on a call, so `null` is the model's only way to say "nothing
+ * here" (verified live; prompted to omit, it invents filler instead).
+ * Every optional slot is therefore `.nullable()` with null meaning
+ * absent, every non-null string must be non-empty (`min(1)`), and
+ * cross-field contradictions (a `relationship` with no parent, a
  * connect block with nothing in it) are rejected with a message that
- * says what to do instead.
+ * says what to pass instead. `cleanCaseTypeRecord` collapses the nulls
+ * before a record leaves the boundary, so no null ever lands on the
+ * catalog.
  *
  * The shapes are structurally compatible with the corresponding domain
  * Zod schemas (e.g. `casePropertySchema` in `lib/domain/blueprint.ts`)
@@ -82,44 +87,50 @@ const casePropertyDescribed = z
 			),
 		data_type: z
 			.enum(CASE_PROPERTY_DATA_TYPES)
+			.nullable()
 			.optional()
 			.describe(
-				'Data type. Determines the default field kind. Omit for "text".',
+				'Data type. Determines the default field kind. null for "text".',
 			),
 		hint: z
 			.string()
 			.min(1)
+			.nullable()
 			.optional()
 			.describe(
-				"Hint text shown below fields collecting this property. Omit when there is none.",
+				"Hint text shown below fields collecting this property. null when there is none.",
 			),
 		required: z
 			.string()
 			.min(1)
+			.nullable()
 			.optional()
 			.describe(
-				"\"true()\" if always required. Omit if optional. String values must be quoted: `'text'`, not `text`.",
+				"\"true()\" if always required. null if optional. String values must be quoted: `'text'`, not `text`.",
 			),
 		validation: z
 			.string()
 			.min(1)
+			.nullable()
 			.optional()
 			.describe(
-				"XPath validation expression, e.g. \". > 0 and . < 150\". Omit when any value is acceptable. String values must be quoted: `'text'`, not `text`.",
+				"XPath validation expression, e.g. \". > 0 and . < 150\". null when any value is acceptable. String values must be quoted: `'text'`, not `text`.",
 			),
 		validation_msg: z
 			.string()
 			.min(1)
+			.nullable()
 			.optional()
 			.describe(
-				"Error message when validation fails. Only alongside `validation`.",
+				"Error message when validation fails. Only alongside `validation`; null otherwise.",
 			),
 		options: z
 			.array(selectOptionDescribed)
 			.min(1)
+			.nullable()
 			.optional()
 			.describe(
-				"Options for single_select/multi_select properties. Omit for every other data_type.",
+				"Options for single_select/multi_select properties. null for every other data_type.",
 			),
 	})
 	.strict()
@@ -128,7 +139,7 @@ const casePropertyDescribed = z
 			ctx.addIssue({
 				code: "custom",
 				path: ["validation_msg"],
-				message: `Property "${prop.name}" has a validation_msg but no validation expression for it to accompany. Set \`validation\` to the rule the message explains, or drop the message.`,
+				message: `Property "${prop.name}" has a validation_msg but no validation expression for it to accompany. Set \`validation\` to the rule the message explains, or pass null for the message.`,
 			});
 		}
 		const isSelect = prop.data_type && SELECT_DATA_TYPES.has(prop.data_type);
@@ -136,7 +147,7 @@ const casePropertyDescribed = z
 			ctx.addIssue({
 				code: "custom",
 				path: ["options"],
-				message: `Property "${prop.name}" carries options but its data_type is ${prop.data_type ?? '"text" (the default)'} — options only apply to single_select/multi_select. Drop the options, or change the data_type.`,
+				message: `Property "${prop.name}" carries options but its data_type is ${prop.data_type ?? '"text" (the default)'} — options only apply to single_select/multi_select. Pass null for options, or change the data_type.`,
 			});
 		}
 	});
@@ -161,15 +172,17 @@ export const caseTypeRecordSchema = z
 		parent_type: z
 			.string()
 			.min(1)
+			.nullable()
 			.optional()
 			.describe(
-				'Parent case type name. Set only on a child case type (e.g., a "pregnancy" case type with parent_type "mother") — a standalone case type omits it.',
+				'Parent case type name. Set only on a child case type (e.g., a "pregnancy" case type with parent_type "mother") — a standalone case type passes null.',
 			),
 		relationship: z
 			.enum(["child", "extension"])
+			.nullable()
 			.optional()
 			.describe(
-				'"child" (default) or "extension". Only meaningful alongside parent_type. Use "extension" when the child should prevent the parent from being closed.',
+				'"child" (default) or "extension". Only meaningful alongside parent_type; null on a standalone case type. Use "extension" when the child should prevent the parent from being closed.',
 			),
 	})
 	.strict()
@@ -178,10 +191,36 @@ export const caseTypeRecordSchema = z
 			ctx.addIssue({
 				code: "custom",
 				path: ["relationship"],
-				message: `Case type "${record.name}" has a relationship but no parent_type — relationship describes how a child links to its parent. Set parent_type to the owning case type, or drop relationship (a standalone case type carries neither).`,
+				message: `Case type "${record.name}" has a relationship but no parent_type — relationship describes how a child links to its parent. Set parent_type to the owning case type, or pass null for relationship (a standalone case type has null for both).`,
 			});
 		}
 	});
+
+// ── Boundary normalization ──────────────────────────────────────────
+
+/**
+ * Collapse a validated record's `null` slots (the wire's forced-key "nothing
+ * here") to real absence so nothing downstream — the catalog mutations, the
+ * field-defaults seeding, the stored doc — ever carries a null the domain
+ * schemas reject. Pure; returns a new record.
+ */
+export function cleanCaseTypeRecord(
+	record: z.infer<typeof caseTypeRecordSchema>,
+): {
+	name: string;
+	properties: Array<Record<string, unknown>>;
+	parent_type?: string;
+	relationship?: "child" | "extension";
+} {
+	const nonNull = <T extends Record<string, unknown>>(obj: T) =>
+		Object.fromEntries(Object.entries(obj).filter(([, v]) => v != null));
+	return {
+		name: record.name,
+		properties: record.properties.map((p) => nonNull(p)),
+		...(record.parent_type != null && { parent_type: record.parent_type }),
+		...(record.relationship != null && { relationship: record.relationship }),
+	};
+}
 
 // ── generateSchema input ────────────────────────────────────────────
 
@@ -215,7 +254,12 @@ export const connectFormConfigSchema = z
 	.object({
 		learn_module: z
 			.object({
-				id: z.string().min(1).optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+				id: z
+					.string()
+					.min(1)
+					.nullable()
+					.optional()
+					.describe(CONNECT_ID_FIELD_DESCRIPTION),
 				name: z.string().min(1),
 				description: z.string().min(1),
 				// Match the domain's `connectLearnModuleSchema`: time estimate is
@@ -230,37 +274,56 @@ export const connectFormConfigSchema = z
 					.describe("Estimated minutes to complete the module's content."),
 			})
 			.strict()
+			.nullable()
 			.optional()
 			.describe(
-				"Set on forms with educational/training content. Omit on quiz-only forms.",
+				"Set on forms with educational/training content. null on quiz-only forms.",
 			),
 		assessment: z
 			.object({
-				id: z.string().min(1).optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+				id: z
+					.string()
+					.min(1)
+					.nullable()
+					.optional()
+					.describe(CONNECT_ID_FIELD_DESCRIPTION),
 				user_score: z.string().min(1),
 			})
 			.strict()
+			.nullable()
 			.optional()
 			.describe(
 				"Set on forms with a quiz/test. `user_score` is an XPath resolving to the user's score, typically `#form/<hidden_score_field>`.",
 			),
 		deliver_unit: z
 			.object({
-				id: z.string().min(1).optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+				id: z
+					.string()
+					.min(1)
+					.nullable()
+					.optional()
+					.describe(CONNECT_ID_FIELD_DESCRIPTION),
 				name: z.string().min(1),
 			})
 			.strict()
+			.nullable()
 			.optional()
 			.describe(
 				"Set on a deliver-app form that counts as a payable delivery. Connect's deliver-unit picker reads these from the released CCZ.",
 			),
 		task: z
 			.object({
-				id: z.string().min(1).optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
+				id: z
+					.string()
+					.min(1)
+					.nullable()
+					.optional()
+					.describe(CONNECT_ID_FIELD_DESCRIPTION),
 				name: z.string().min(1),
 				description: z.string().min(1),
 			})
 			.strict()
+			.nullable()
 			.optional()
 			.describe(
 				"Optional task description rendered in the Connect mobile UI. Independent of `deliver_unit`.",
@@ -277,7 +340,7 @@ export const connectFormConfigSchema = z
 			ctx.addIssue({
 				code: "custom",
 				message:
-					"An empty connect block doesn't opt the form into anything. Give it the sub-config that matches the form's content — learn_module/assessment on a learn app, deliver_unit/task on a deliver app — or omit `connect` entirely on a form that doesn't participate.",
+					"An empty connect block doesn't opt the form into anything. Give it the sub-config that matches the form's content — learn_module/assessment on a learn app, deliver_unit/task on a deliver app — or pass null for the whole `connect` slot on a form that doesn't participate.",
 			});
 		}
 	});

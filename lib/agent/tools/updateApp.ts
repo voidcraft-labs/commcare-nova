@@ -7,8 +7,10 @@
  *   - `name` — the display title. On a fresh build this is the first
  *     mutation of the run (an empty app's nameless state is a
  *     pre-existing finding that this call resolves).
- *   - `connect_type` — `"learn"` / `"deliver"` enables Connect, `null`
- *     disables it. The gate adjudicates the flip like any other commit:
+ *   - `connect_type` — `"learn"` / `"deliver"` enables Connect, `"off"`
+ *     disables it, `null` leaves it unchanged (the wire forces every key
+ *     present, so null is how a name-only call avoids touching Connect).
+ *     The gate adjudicates the flip like any other commit:
  *     enabling Connect on an app with forms but ZERO connect blocks
  *     would introduce CONNECT_NO_PARTICIPATING_FORMS and is rejected —
  *     give at least one form its block first (creation tools'
@@ -40,14 +42,17 @@ export const updateAppInputSchema = z
 		name: z
 			.string()
 			.min(1)
-			.optional()
-			.describe("App display name (the title users see on devices)."),
-		connect_type: z
-			.enum(["learn", "deliver"])
 			.nullable()
 			.optional()
 			.describe(
-				'CommCare Connect type: "learn" for training/certification, "deliver" for paid service delivery, null to make this a standard app. Set it before creating a Connect app\'s modules — each participating form then lands with its connect block, and at least one form must participate.',
+				"App display name (the title users see on devices). null keeps the current name.",
+			),
+		connect_type: z
+			.enum(["learn", "deliver", "off"])
+			.nullable()
+			.optional()
+			.describe(
+				'CommCare Connect type: "learn" for training/certification, "deliver" for paid service delivery, "off" to make a Connect app standard again. null leaves the current setting unchanged — on a standard app, a name-only call passes null here. Set the type before creating a Connect app\'s modules — each participating form then lands with its connect block, and at least one form must participate.',
 			),
 	})
 	.strict();
@@ -59,7 +64,8 @@ export type UpdateAppResult = MutationSuccess | { error: string };
 
 export const updateAppTool = {
 	description:
-		"Set the app's name and/or its CommCare Connect type (learn / deliver / null for standard). Enabling Connect on an app with forms requires at least one of them to already carry its connect block (a Connect app needs one participating form; the rest may stay out) — on a new build, set the type before creating modules.",
+		'Set the app\'s name and/or its CommCare Connect type ("learn" / "deliver" / "off" for standard; null leaves it unchanged). Enabling Connect on an app with forms requires at least one of them to already carry its connect block (a Connect app needs one participating form; the rest may stay out) — on a new build, set the type before creating modules.',
+
 	inputSchema: updateAppInputSchema,
 	async execute(
 		input: UpdateAppInput,
@@ -68,13 +74,16 @@ export const updateAppTool = {
 	): Promise<MutatingToolResult<UpdateAppResult>> {
 		try {
 			const mutations: Mutation[] = [];
-			if (input.name !== undefined) {
+			if (input.name != null) {
 				mutations.push({ kind: "setAppName", name: input.name });
 			}
-			if (input.connect_type !== undefined) {
+			// null = leave unchanged (the wire forces the key present, so null
+			// is how a name-only call says "don't touch Connect"); "off" is the
+			// explicit disable, stored as the domain's null connectType.
+			if (input.connect_type != null) {
 				mutations.push({
 					kind: "setConnectType",
-					connectType: input.connect_type,
+					connectType: input.connect_type === "off" ? null : input.connect_type,
 				});
 			}
 			if (mutations.length === 0) {
@@ -83,7 +92,8 @@ export const updateAppTool = {
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: "Nothing to change — pass a name, a connect_type, or both.",
+						error:
+							"Nothing to change — every slot was null. Pass a name, a connect_type, or both.",
 					},
 				};
 			}
@@ -99,10 +109,10 @@ export const updateAppTool = {
 			}
 
 			const changes: string[] = [];
-			if (input.name !== undefined) changes.push(`name to "${input.name}"`);
-			if (input.connect_type !== undefined) {
+			if (input.name != null) changes.push(`name to "${input.name}"`);
+			if (input.connect_type != null) {
 				changes.push(
-					input.connect_type === null
+					input.connect_type === "off"
 						? "Connect off (standard app)"
 						: `Connect type to ${input.connect_type}`,
 				);
@@ -113,12 +123,12 @@ export const updateAppTool = {
 			// named-vs-renamed split needs the pre-commit doc, which only this
 			// execution sees (`doc.appName` is "" until the birth finding resolves).
 			const summary: ToolCallSummary = {};
-			if (input.name !== undefined) {
+			if (input.name != null) {
 				summary.subject = input.name;
 				summary.nameChange = doc.appName ? "renamed" : "named";
 			}
-			if (input.connect_type !== undefined) {
-				summary.connect = input.connect_type ?? "off";
+			if (input.connect_type != null) {
+				summary.connect = input.connect_type;
 			}
 			return {
 				kind: "mutate" as const,

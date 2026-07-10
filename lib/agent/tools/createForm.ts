@@ -89,18 +89,23 @@ export const createFormInputSchema = z
 		purpose: z
 			.string()
 			.min(1)
+			.nullable()
 			.optional()
-			.describe("Brief description of what this form collects and why."),
+			.describe(
+				"Brief description of what this form collects and why. null when there's nothing to add.",
+			),
 		post_submit: z
 			.enum(USER_FACING_DESTINATIONS)
+			.nullable()
 			.optional()
 			.describe(
 				'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Only set to override.',
 			),
 		connect: connectFormConfigSchema
+			.nullable()
 			.optional()
 			.describe(
-				"Per-form Connect config — a block opts the form INTO Connect, and a participating form lands with its block in this call. Omit it on a form that shouldn't participate (a Connect app just needs at least one participating form), and always on standard apps.",
+				"Per-form Connect config — a block opts the form INTO Connect, and a participating form lands with its block in this call. Pass null on a form that shouldn't participate (a Connect app just needs at least one participating form), and always on standard apps.",
 			),
 	})
 	.strict();
@@ -212,7 +217,7 @@ export const createFormTool = {
 				uuid: formUuid,
 				name,
 				type: type as FormType,
-				...(purpose !== undefined && { purpose }),
+				...(purpose != null && { purpose }),
 				...(post_submit && {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),

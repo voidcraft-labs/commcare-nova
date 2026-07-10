@@ -28,37 +28,40 @@ import type { ConnectConfig, XPathExpression } from "@/lib/domain";
  */
 export interface ConnectConfigInput {
 	learn_module?: {
-		id?: string;
+		id?: string | null;
 		name: string;
 		description: string;
 		time_estimate: number;
-	};
+	} | null;
 	assessment?: {
-		id?: string;
+		id?: string | null;
 		user_score: string;
-	};
+	} | null;
 	deliver_unit?: {
-		id?: string;
+		id?: string | null;
 		name: string;
-		entity_id?: string;
-		entity_name?: string;
-	};
+		entity_id?: string | null;
+		entity_name?: string | null;
+	} | null;
 	task?: {
-		id?: string;
+		id?: string | null;
 		name: string;
 		description: string;
-	};
+	} | null;
 }
 
 /**
  * Merge a connect-config input into a full `ConnectConfig`, parsing
  * each XPath-valued slot to its stored expression AST via `parseExpr`.
  *
- * Pure structural merge: keys absent from `input` are copied verbatim
- * from `existing`; keys present on `input` overlay the matching
- * existing sub-config (`existing.learn_module` ← `input.learn_module`,
- * etc.). The creation tools pass `existing: undefined` — there the
- * input IS the whole config, and only the parse boundary does work.
+ * Pure structural merge: keys absent from `input` — and `null` keys,
+ * the wire's forced-key way of saying "not supplied" — are copied
+ * verbatim from `existing`; non-null keys overlay the matching existing
+ * sub-config (`existing.learn_module` ← `input.learn_module`, etc.),
+ * with null INNER slots (a null id, a null entity_id) likewise dropped
+ * before the spread so a null never lands on the stored config. The
+ * creation tools pass `existing: undefined` — there the input IS the
+ * whole config, and only the parse boundary does work.
  *
  * No defaults are invented here. `deliver_unit` may land without
  * `entity_id` / `entity_name` — that's a normal state of the domain
@@ -70,31 +73,41 @@ export function buildConnectConfig(
 	existing: ConnectConfig | undefined,
 	parseExpr: (text: string) => XPathExpression,
 ): ConnectConfig {
+	// Null leaf slots (a null id, a null entity_id) are dropped per key so a
+	// forced-key null never spreads onto the stored config — the domain
+	// schemas don't accept null.
 	const out: ConnectConfig = { ...existing };
-	if (input.learn_module !== undefined) {
-		out.learn_module = { ...existing?.learn_module, ...input.learn_module };
+	if (input.learn_module != null) {
+		const { id, ...learnRest } = input.learn_module;
+		out.learn_module = {
+			...existing?.learn_module,
+			...learnRest,
+			...(id != null && { id }),
+		};
 	}
-	if (input.assessment !== undefined) {
-		const { user_score, ...assessmentRest } = input.assessment;
+	if (input.assessment != null) {
+		const { id, user_score } = input.assessment;
 		out.assessment = {
 			...existing?.assessment,
-			...assessmentRest,
+			...(id != null && { id }),
 			user_score: parseExpr(user_score),
 		};
 	}
-	if (input.deliver_unit !== undefined) {
-		const { entity_id, entity_name, ...deliverRest } = input.deliver_unit;
+	if (input.deliver_unit != null) {
+		const { id, entity_id, entity_name, name } = input.deliver_unit;
 		out.deliver_unit = {
 			...existing?.deliver_unit,
-			...deliverRest,
-			...(entity_id !== undefined && { entity_id: parseExpr(entity_id) }),
-			...(entity_name !== undefined && {
+			name,
+			...(id != null && { id }),
+			...(entity_id != null && { entity_id: parseExpr(entity_id) }),
+			...(entity_name != null && {
 				entity_name: parseExpr(entity_name),
 			}),
 		};
 	}
-	if (input.task !== undefined) {
-		out.task = { ...existing?.task, ...input.task };
+	if (input.task != null) {
+		const { id, ...taskRest } = input.task;
+		out.task = { ...existing?.task, ...taskRest, ...(id != null && { id }) };
 	}
 	return out;
 }

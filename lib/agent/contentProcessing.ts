@@ -52,12 +52,15 @@ function isFieldKind(kind: unknown): kind is FieldKind {
 	);
 }
 
-/** A catalog default should fill a slot the SA left unset — treating an empty
- *  string or empty array as "unset" too, so an explicit `""` (which the batch
- *  path's `stripEmpty` already collapses) is seeded the same on both add paths. */
+/** A catalog default should fill a slot the SA left unset — treating `null`,
+ *  an empty string, or an empty array as "unset" too (the wire forces every
+ *  key present, so `null`/`""` are how the model says "nothing here"; the
+ *  batch path's `stripEmpty` already collapses them), so both add paths seed
+ *  identically. */
 function isUnset(value: unknown): boolean {
 	return (
 		value === undefined ||
+		value === null ||
 		value === "" ||
 		(Array.isArray(value) && value.length === 0)
 	);
@@ -121,14 +124,11 @@ export type FlatField = z.infer<typeof wideFlatItemSchema>;
 
 /**
  * Collapse empty values to absence:
- *   - empty string → drop the key entirely
+ *   - `null`       → drop the key entirely (the wire forces every key
+ *                    present, so null is the model's ONLY way to leave an
+ *                    optional slot empty — this is the load-bearing branch)
+ *   - empty string → drop
  *   - empty array  → drop
- *
- * The per-kind tool arms can't even surface a label sentinel (a visible
- * kind requires a non-empty label, `hidden` has no label slot), so this
- * is purely defensive: it drops any stray empty string / empty array the
- * SA sends for an optional slot rather than letting it through as a
- * meaningless "" value.
  *
  * `parentId` is special-cased: missing or empty becomes `null` (rather
  * than just being dropped) so the downstream "no parent = form level"
@@ -148,6 +148,7 @@ export function stripEmpty(q: FlatField): Partial<FlatField> & {
 } {
 	const result: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(q)) {
+		if (v === null) continue;
 		if (v === "") continue;
 		if (Array.isArray(v) && v.length === 0) continue;
 		result[k] = v;

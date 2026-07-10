@@ -12,18 +12,24 @@
 // dropped or assembled into a broken field. This is the structural reason the
 // "wrong property for this kind" error class can't be expressed.
 //
-// Tool use is NOT grammar-constrained (that's `Output.object` only), so there
-// is no per-array-item optional-field compile ceiling here — the arms carry
-// as many optionals as the kind declares.
+// ## The wire forces every key — null is the only absence
+//
+// The provider's constrained tool decoding lists EVERY property as required
+// on the wire, so the model cannot omit a key it has no value for (verified
+// live: prompted to omit, it fills keys with invented filler; a nullable
+// slot gets a clean `null` instead). Every optional slot on every arm is
+// therefore `.nullable()`: `null` is the SA's way to say "nothing here",
+// and the pipeline collapses it to absence (`stripEmpty` on the add path;
+// the edit path treats it as "leave unchanged"). Never design a slot whose
+// meaning depends on omitted-vs-null — the model can't express omission.
 //
 // ## Per-kind label policy
 //
 // On the ADD arms `label` is per kind: omitted on `hidden` (no label slot),
-// optional on the containers (`group` / `repeat` — empty = transparent /
+// nullable on the containers (`group` / `repeat` — null/empty = transparent /
 // titleless), and required + non-empty (`min(1)`) on every visible kind. The
 // per-kind arm is what lets us require a real label without the old `""`
-// sentinel. (`required` and `parentId`, where declared, stay plain optionals
-// the SA omits when unset.)
+// sentinel.
 //
 // The WIDE processing-type sources below — `wideFlatItemSchema` /
 // `wideEditUpdatesSchema`, used only to infer `FlatField` / the edit-patch
@@ -119,15 +125,15 @@ const FIELD_DOCS = {
 		"Supports hashtag references.",
 	required:
 		'XPath expression — "true()" for always-required, or a conditional ' +
-		'like "#form/age > 0". Omit for not required. Supports hashtag ' +
+		'like "#form/age > 0". Pass null for not required. Supports hashtag ' +
 		"references.",
 	validate:
 		"XPath boolean that must hold for the field's value to be accepted, " +
 		"checked when the user leaves the field (`.` is the entered value); " +
 		"pairs with `validate_msg`, shown when it fails. Write the rule that " +
 		"captures the field's actual valid values, using the full XPath " +
-		"language to whatever precision the field's meaning calls for. Omit " +
-		"the `validate` object entirely when any value is acceptable. " +
+		"language to whatever precision the field's meaning calls for. Pass " +
+		"null for the whole `validate` object when any value is acceptable. " +
 		"Supports hashtag references.",
 	validate_msg:
 		"Error message displayed when `validate` evaluates to false. Only " +
@@ -152,7 +158,7 @@ const FIELD_DOCS = {
 		"other fields change. Supports hashtag references.",
 	options:
 		"Choice list for single_select / multi_select — minimum 2 options. " +
-		"Omit entirely for other kinds.",
+		"Other kinds carry no options slot.",
 	case_property_on:
 		"Case type name this field saves to. When it matches the module's " +
 		"case type, the field becomes a normal case property. When " +
@@ -194,17 +200,17 @@ const FIELD_DOCS = {
 
 const idField = () => z.string().describe(FIELD_DOCS.id);
 
-// `parentId` is optional — omit it to insert at the form's top level
-// (the handler defaults a missing parent to form-level). Pass a
-// group/repeat id (including one added earlier in the same batch) to
-// nest under it.
+// `parentId` is optional — null (or omission) inserts at the form's top
+// level. Pass a group/repeat id (including one added earlier in the same
+// batch) to nest under it.
 const parentIdField = () =>
 	z
 		.string()
+		.nullable()
 		.optional()
 		.describe(
-			"Parent group/repeat id (semantic id, not uuid). Omit to insert " +
-				"at the form's top level.",
+			"Parent group/repeat id (semantic id, not uuid). Pass null to " +
+				"insert at the form's top level.",
 		);
 
 // `label` is required-with-sentinel ("" = no label). Required, not
@@ -214,16 +220,23 @@ const parentIdField = () =>
 // `stripEmpty` collapses the "" to absent before assembly.
 const labelSentinel = () => z.string().describe(FIELD_DOCS.label);
 
-// Optional shape primitives. `validate` and `repeat` are nested objects
+// Optional shape primitives — all NULLABLE: the wire forces every key
+// present on a tool call (constrained decoding lists every property as
+// required), so `null` is the model's ONLY way to say "nothing here".
+// Every optional slot accepts it and the pipeline collapses it to
+// absence (`stripEmpty`). `validate` and `repeat` are nested objects
 // that group related config (expr+msg, mode+count/ids_query) into one
 // field each, keeping the item shape flat and easy for the SA to fill.
-const requiredField = () => z.string().optional().describe(FIELD_DOCS.required);
-const hintField = () => z.string().optional().describe(FIELD_DOCS.hint);
-const relevantField = () => z.string().optional().describe(FIELD_DOCS.relevant);
+const requiredField = () =>
+	z.string().nullable().optional().describe(FIELD_DOCS.required);
+const hintField = () =>
+	z.string().nullable().optional().describe(FIELD_DOCS.hint);
+const relevantField = () =>
+	z.string().nullable().optional().describe(FIELD_DOCS.relevant);
 const calculateField = () =>
-	z.string().optional().describe(FIELD_DOCS.calculate);
+	z.string().nullable().optional().describe(FIELD_DOCS.calculate);
 const defaultValueField = () =>
-	z.string().optional().describe(FIELD_DOCS.default_value);
+	z.string().nullable().optional().describe(FIELD_DOCS.default_value);
 // The SA's option shape omits `media`, `uuid`, and `order`.
 // `selectOptionSchema` carries an optional per-option `media` reference, but
 // the field-mutation tools expose neither the asset library nor an upload
@@ -240,7 +253,7 @@ const saOptionSchema = selectOptionSchema.omit({
 });
 
 const optionsField = () =>
-	z.array(saOptionSchema).optional().describe(FIELD_DOCS.options);
+	z.array(saOptionSchema).nullable().optional().describe(FIELD_DOCS.options);
 
 // Nested-object factories — return the bare object so callers wrap it
 // with `.optional()` (add tools) or `.nullable().optional()` (edit
@@ -274,15 +287,14 @@ const repeatConfigField = () =>
 				"(`count` for count_bound, `ids_query` for query_bound).",
 		);
 const casePropertyOnField = () =>
-	z.string().optional().describe(FIELD_DOCS.case_property_on);
+	z.string().nullable().optional().describe(FIELD_DOCS.case_property_on);
 
-// Nullable variants for the edit patch. `null` means "clear this
-// property" (distinct from "leave unchanged", which is the key absent).
-// The `null` is preserved end-to-end — `editField` carries it into the
-// `updateField` patch and the reducer deletes the key on a `null` (or
-// `undefined`) value, clearing the property without a separate "remove"
-// mutation. `null` (unlike `undefined`) survives Firestore, so the clear
-// round-trips through the event log.
+// Nullable variants for the edit patch. `null` means "leave this
+// property unchanged" — the wire forces every key present on a tool
+// call, so null is the model's only way to NOT touch a slot; treating it
+// as a clear would wipe every property an edit didn't mention. Clearing
+// is EXPLICIT: the `editField` input's `clear` array names the
+// properties to unset.
 const nullableString = (doc: string) =>
 	z.string().nullable().optional().describe(doc);
 const nullableOptions = () =>
@@ -301,17 +313,17 @@ function buildWideFlatItemSchema(kinds: readonly FieldKind[]) {
 	return z.object({
 		id: idField(),
 		kind: makeKindEnum(kinds),
-		label: labelSentinel(),
+		label: labelSentinel().nullable(),
 		parentId: parentIdField(),
 		required: requiredField(),
 		hint: hintField(),
-		validate: validateConfigField().optional(),
+		validate: validateConfigField().nullable().optional(),
 		relevant: relevantField(),
 		calculate: calculateField(),
 		default_value: defaultValueField(),
 		options: optionsField(),
 		case_property_on: casePropertyOnField(),
-		repeat: repeatConfigField().optional(),
+		repeat: repeatConfigField().nullable().optional(),
 	});
 }
 
@@ -362,7 +374,7 @@ function repeatConfigDiscriminated() {
  */
 function addLabelField(kind: FieldKind) {
 	return fieldRegistry[kind].isContainer
-		? z.string().optional().describe(FIELD_DOCS.label)
+		? z.string().nullable().optional().describe(FIELD_DOCS.label)
 		: z.string().min(1).describe(FIELD_DOCS.label);
 }
 
@@ -383,7 +395,7 @@ function buildAddArm(kind: FieldKind) {
 			...(has("required") ? { required: requiredField() } : {}),
 			...(has("relevant") ? { relevant: relevantField() } : {}),
 			...(has("validate")
-				? { validate: validateConfigField().optional() }
+				? { validate: validateConfigField().nullable().optional() }
 				: {}),
 			...(has("calculate") ? { calculate: calculateField() } : {}),
 			...(has("default_value") ? { default_value: defaultValueField() } : {}),
@@ -446,10 +458,10 @@ function buildWideEditUpdatesSchema(kinds: readonly FieldKind[]) {
 
 /**
  * One kind's arm for the `editField` tool. Like the add arms it exposes
- * only the kind's declared keys — but every clearable key is
- * `.nullable().optional()` (omit = leave as-is, `null` = clear, value =
- * set), and `help` (longer-form text the add tools omit) appears for kinds
- * that declare it.
+ * only the kind's declared keys — but every key is `.nullable().optional()`
+ * (`null` or omitted = leave as-is, value = set; clears go through the
+ * input's explicit `clear` list), and `help` (longer-form text the add
+ * tools omit) appears for kinds that declare it.
  *
  * `kind` is REQUIRED here because it's the union discriminator: the SA
  * states the field's CURRENT kind to edit in place, or a different
@@ -457,9 +469,10 @@ function buildWideEditUpdatesSchema(kinds: readonly FieldKind[]) {
  * against the right kind's property set — so the SA can't, say, set
  * `calculate` on a `single_select` (the slot isn't on that arm).
  *
- * `repeat` is optional-not-nullable: a repeat always has a mode, so
- * "clear the repeat config" is meaningless — switch modes by passing a new
- * `repeat` object (the reducer drops the prior mode's mode-specific field).
+ * `repeat` is nullable like the rest (null = keep the current config):
+ * a repeat always has a mode, so "clear the repeat config" is meaningless —
+ * switch modes by passing a new `repeat` object (the reducer drops the
+ * prior mode's mode-specific field).
  */
 function buildEditArm(kind: FieldKind) {
 	const has = (key: string): boolean => fieldKindDeclaresKey(kind, key);
@@ -473,8 +486,9 @@ function buildEditArm(kind: FieldKind) {
 						"is validated against this kind's properties.",
 				),
 			id: idField()
+				.nullable()
 				.optional()
-				.describe("New id to rename to; omit to keep it."),
+				.describe("New id to rename to; null keeps the current id."),
 			...(has("label") ? { label: nullableString(FIELD_DOCS.label) } : {}),
 			...(has("hint") ? { hint: nullableString(FIELD_DOCS.hint) } : {}),
 			...(has("help") ? { help: nullableString(FIELD_DOCS.help) } : {}),
@@ -498,7 +512,7 @@ function buildEditArm(kind: FieldKind) {
 				? { case_property_on: nullableString(FIELD_DOCS.case_property_on) }
 				: {}),
 			...(kind === "repeat"
-				? { repeat: repeatConfigDiscriminated().optional() }
+				? { repeat: repeatConfigDiscriminated().nullable().optional() }
 				: {}),
 			// `.strict()` — same boundary rejection as the add arms: a property
 			// this kind doesn't declare is an error, not a silent strip.

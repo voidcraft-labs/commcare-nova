@@ -65,7 +65,7 @@ export const generateSchemaTool = {
 				appName: input.appName,
 				caseTypes: input.caseTypes.map((ct) => ({
 					name: ct.name,
-					...(ct.parent_type && { parent_type: ct.parent_type }),
+					...(ct.parent_type != null && { parent_type: ct.parent_type }),
 					propertyCount: ct.properties.length,
 					properties: ct.properties.map((p) => p.name),
 				})),

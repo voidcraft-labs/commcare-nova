@@ -434,11 +434,12 @@ describe("atomic creation on a complete Connect app", () => {
 
 	it("removing the LAST participating form's block bounces with the app-level participation finding", async () => {
 		/* The fixture's only form carries the only learn block. Clearing it
-		 * leaves a Connect app with zero participation — the one state the
-		 * relaxation still forbids. */
+		 * (via the explicit clear list — a null connect means "leave
+		 * unchanged" under forced wire keys) leaves a Connect app with zero
+		 * participation — the one state the relaxation still forbids. */
 		const { ctx, recordMutations } = makeCtx();
 		const out = await updateFormTool.execute(
-			{ moduleIndex: 0, formIndex: 0, connect: null },
+			{ moduleIndex: 0, formIndex: 0, connect: null, clear: ["connect"] },
 			ctx,
 			completeConnectDoc(),
 		);

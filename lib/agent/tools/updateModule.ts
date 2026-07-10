@@ -63,16 +63,21 @@ export const updateModuleInputSchema = z
 		moduleIndex: z.number().describe("0-based module index"),
 		name: z
 			.string()
+			.min(1)
+			.nullable()
 			.optional()
-			.describe("New module display name. Omit to leave unchanged."),
+			.describe("New module display name. null leaves it unchanged."),
 		case_type: z
 			.string()
+			.min(1)
+			.nullable()
 			.optional()
 			.describe(
-				'The case type this module manages (e.g. "patient"). A module needs one before it can hold registration/followup/close forms. Omit to leave unchanged.',
+				'The case type this module manages (e.g. "patient"). A module needs one before it can hold registration/followup/close forms. null leaves it unchanged.',
 			),
 		case_list_columns: z
 			.array(columnInputSchema)
+			.nullable()
 			.optional()
 			.describe(
 				"Case-list columns, in display order — required alongside case_type when the module has forms but no columns yet (a case-managing module's list must render rows). Ignored when the module already has columns; refine those via the case-list-config tools.",
@@ -96,14 +101,14 @@ export const updateModuleTool = {
 	): Promise<MutatingToolResult<UpdateModuleResult>> {
 		const { moduleIndex, name, case_type, case_list_columns } = input;
 		try {
-			if (name === undefined && case_type === undefined) {
+			if (name == null && case_type == null) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: {
 						error:
-							"Nothing to update — pass `name` and/or `case_type` (`case_list_columns` only seeds columns alongside `case_type`, it never updates on its own).",
+							"Nothing to update — every slot was null. Pass `name` and/or `case_type` (`case_list_columns` only seeds columns alongside `case_type`, it never updates on its own).",
 					},
 				};
 			}
@@ -139,7 +144,7 @@ export const updateModuleTool = {
 			 * explicit mutations at this batch-building layer, never a reducer
 			 * side effect (historical event-log replay stays byte-stable). */
 			const retirement =
-				case_type !== undefined
+				case_type != null
 					? planCaseTypeRetirementOnRetype(doc, moduleUuid, case_type)
 					: { kind: "none" as const };
 			if (retirement.kind === "blocked") {
@@ -162,7 +167,7 @@ export const updateModuleTool = {
 				(case_list_columns ?? []).length,
 			);
 			const seedColumns =
-				case_list_columns !== undefined &&
+				case_list_columns != null &&
 				(mod.caseListConfig?.columns ?? []).length === 0
 					? case_list_columns.map((c, i) => ({
 							...stampColumnUuid(c, newUuid()),
@@ -177,10 +182,10 @@ export const updateModuleTool = {
 			 * → `caseTypeCatalogMutations`) and `createModule`'s `case_type_record`.
 			 * Catalog writes lead so the type is present when the column resolves. */
 			const mutations = [
-				...caseTypeCatalogMutations(doc, retirement, case_type),
+				...caseTypeCatalogMutations(doc, retirement, case_type ?? undefined),
 				...updateModuleMutations(mod, {
-					...(name !== undefined && { name }),
-					...(case_type !== undefined && { caseType: case_type }),
+					...(name != null && { name }),
+					...(case_type != null && { caseType: case_type }),
 					...(seedColumns && {
 						caseListConfig: {
 							...(mod.caseListConfig ?? { searchInputs: [] }),
@@ -223,7 +228,7 @@ export const updateModuleTool = {
 				newDoc,
 				result: {
 					message: `Successfully updated module "${newMod.name}" (index ${moduleIndex})${
-						case_type !== undefined ? ` — case type: ${newMod.caseType}` : ""
+						case_type != null ? ` — case type: ${newMod.caseType}` : ""
 					}.`,
 					summary: { subject: newMod.name } satisfies ToolCallSummary,
 				},

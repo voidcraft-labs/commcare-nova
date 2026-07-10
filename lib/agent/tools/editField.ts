@@ -50,7 +50,7 @@ import type {
 	Uuid,
 	XPathExpression,
 } from "@/lib/domain";
-import { getConvertibleTypes } from "@/lib/domain";
+import { fieldKindDeclaresKey, getConvertibleTypes } from "@/lib/domain";
 import {
 	renameFieldMutations,
 	resolveFieldByIndex,
@@ -74,12 +74,41 @@ import type {
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
+/**
+ * The properties `clear` may name. Identity (`id`, `kind`) and `repeat`
+ * (a repeat always has a mode) are not clearable; whether a listed slot
+ * exists on the FIELD'S kind is checked in the body against
+ * `fieldKindDeclaresKey`, with `validate` clearing `validate_msg` too.
+ */
+const CLEARABLE_SLOTS = [
+	"label",
+	"hint",
+	"help",
+	"required",
+	"relevant",
+	"calculate",
+	"default_value",
+	"validate",
+	"options",
+	"case_property_on",
+] as const;
+
 export const editFieldInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
 		fieldId: z.string().describe("Field id to update"),
 		updates: editFieldUpdatesSchema,
+		clear: z
+			.array(z.enum(CLEARABLE_SLOTS))
+			.nullable()
+			.optional()
+			.describe(
+				"Properties to REMOVE from the field (e.g. drop its hint, unset its " +
+					"validation). This is the only way to clear — a null in `updates` " +
+					'means "leave unchanged", never "clear". Pass null when ' +
+					"nothing is being removed.",
+			),
 	})
 	.strict();
 
@@ -95,17 +124,19 @@ export type EditFieldResult = MutationSuccess | { error: string };
  * dedicated mutations (`renameField`, `convertField`) earlier in the
  * tool body, so neither appears on this shape.
  *
- * Every clearable key in the edit schema is `.nullable().optional()`:
- *   - absent   → leave current value alone (key omitted from output)
- *   - `null`   → clear the property — emitted as `null`, NOT `undefined`.
- *                The `updateField` reducer deletes the key on a `null`
- *                value, and `null` (unlike `undefined`) survives Firestore,
- *                so the clear round-trips through the event log.
- *   - a value  → set the property (key present with the value)
+ * Every key in the edit schema is `.nullable().optional()`:
+ *   - absent OR `null` → leave the current value alone (key omitted from
+ *     the output patch). The wire forces every key present on a tool
+ *     call, so `null` is the model's only way to NOT touch a slot —
+ *     treating it as a clear would wipe every property an edit didn't
+ *     mention (observed live: "change only the label" arrived with null
+ *     on every other slot).
+ *   - a value → set the property (key present with the value).
  *
- * Unlike the add-path where empty string is a required-sentinel meaning
- * absent, the edit path reserves `null` for "clear" so the SA has an
- * unambiguous way to remove a property a user explicitly unset.
+ * CLEARS are explicit: the input's `clear` array names the properties to
+ * unset; `buildClearPatch` maps them to the `null`-valued patch entries
+ * the `updateField` reducer deletes keys on (`null`, unlike `undefined`,
+ * survives serialization, so the clear round-trips through the event log).
  */
 /**
  * The WIDE edit-patch shape minus identity/discriminant. The per-kind edit
@@ -123,10 +154,9 @@ function editPatchToFieldPatch(
 	existingOptions: readonly SelectOption[] | undefined,
 ): FieldPatchFor<FieldKind> {
 	const patch: Record<string, unknown> = {};
-	// Plain scalars: SA passes a new value, `null` to clear, or omits to
-	// leave unchanged. A `null` is preserved as `null` (the reducer deletes
-	// the key on it). The XPath-valued scalars get HTML-entity unescape on
-	// the way through — same treatment `applyDefaults` applies on the add
+	// Plain scalars: SA passes a new value; `null` and absent both leave
+	// the slot unchanged. The XPath-valued scalars get HTML-entity unescape
+	// on the way through — same treatment `applyDefaults` applies on the add
 	// path, so the same SA payload produces the same stored entity through
 	// both tools — and the AST-stored slots (`relevant`, `calculate`,
 	// `default_value`) additionally parse to their stored expression form.
@@ -153,43 +183,31 @@ function editPatchToFieldPatch(
 	] as const;
 	for (const key of scalarKeys) {
 		const value = updates[key];
-		if (value === undefined) continue;
+		if (value === undefined || value === null) continue;
 		if (typeof value === "string" && astScalarKeys.has(key)) {
 			patch[key] = parseExpr(unescapeXPath(value));
 		} else {
-			// A string sets the property; `null` clears it (preserved as
-			// `null` so the clear survives serialization).
 			patch[key] = value;
 		}
 	}
-	if (updates.options !== undefined) {
+	if (updates.options !== undefined && updates.options !== null) {
 		// The SA's wholesale replacement is uuid/order-less (identity is off its
 		// wire — `saOptionSchema` omits both). Reconcile against the field's
 		// CURRENT options so surviving values keep their uuid and every option
 		// lands keyed: a uuid-less option committed mid-session is INVISIBLE to
 		// the per-uuid option diff (and `options` sits in the generic-patch
 		// skip-set), so a collaborator's next edit to it would silently never
-		// persist until a reload's backfill. A `null` passes through verbatim
-		// (a clear — the commit gate then rejects the sub-2 candidate).
-		patch.options =
-			updates.options === null
-				? null
-				: reconciledOptions(updates.options, existingOptions);
+		// persist until a reload's backfill.
+		patch.options = reconciledOptions(updates.options, existingOptions);
 	}
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
 	//     `validate_msg` keys (msg unset → `null`, which clears it).
 	//     `expr` is XPath, so unescape on the way through.
-	//   - null → clear both keys (emitted as `null`).
-	//   - undefined (omitted) → leave unchanged.
-	if (updates.validate !== undefined) {
-		if (updates.validate === null) {
-			patch.validate = null;
-			patch.validate_msg = null;
-		} else {
-			patch.validate = parseExpr(unescapeXPath(updates.validate.expr));
-			patch.validate_msg = updates.validate.msg ?? null;
-		}
+	//   - null / omitted → leave unchanged (clears ride the `clear` list).
+	if (updates.validate !== undefined && updates.validate !== null) {
+		patch.validate = parseExpr(unescapeXPath(updates.validate.expr));
+		patch.validate_msg = updates.validate.msg ?? null;
 	}
 	// Nested `repeat: { mode, count?, ids_query? }` config. The patch
 	// always overwrites all three flat repeat keys when `repeat` is
@@ -199,7 +217,7 @@ function editPatchToFieldPatch(
 	// to write. `count` and `ids_query` are XPath expressions —
 	// empty-string is treated as "not set" (matching the add path's
 	// truthy-check) and unescaped when present.
-	if (updates.repeat !== undefined) {
+	if (updates.repeat !== undefined && updates.repeat !== null) {
 		patch.repeat_mode = updates.repeat.mode;
 		patch.repeat_count =
 			updates.repeat.count && updates.repeat.count.length > 0
@@ -215,14 +233,14 @@ function editPatchToFieldPatch(
 
 export const editFieldTool = {
 	description:
-		"Update properties on an existing field. Pass the field's current kind to edit it in place — that selects the set of properties this kind actually has; passing a different kind requests a conversion to that kind. Only include properties you want to change. Use null to clear a property. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
+		"Update properties on an existing field. Pass the field's current kind to edit it in place — that selects the set of properties this kind actually has; passing a different kind requests a conversion to that kind. Give a property a value to change it; null (or leaving it out) keeps its current value. To REMOVE a property (drop a hint, unset validation), name it in `clear` — that is the only way to clear. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
 	inputSchema: editFieldInputSchema,
 	async execute(
 		input: EditFieldInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<EditFieldResult>> {
-		const { moduleIndex, formIndex, fieldId, updates } = input;
+		const { moduleIndex, formIndex, fieldId, updates, clear } = input;
 		try {
 			const resolved = resolveFieldByIndex(
 				doc,
@@ -381,7 +399,8 @@ export const editFieldTool = {
 			// still gates against shape violations via `fieldSchema.safeParse`,
 			// so anything slipping through here that doesn't fit the
 			// (possibly just-converted) kind is logged and no-ops safely.
-			if (Object.keys(fieldUpdates).length > 0) {
+			const clearRequested = [...new Set(clear ?? [])];
+			if (Object.keys(fieldUpdates).length > 0 || clearRequested.length > 0) {
 				// `fieldUpdates` is one validated per-kind union arm's rest; TS
 				// infers its conditionally-present keys as `unknown`, so bridge
 				// to the wide patch shape (sound — the arm is a structural
@@ -395,6 +414,46 @@ export const editFieldTool = {
 						parseXPathForField(workingDoc, afterRename.field.uuid, text),
 					(afterRename.field as { options?: SelectOption[] }).options,
 				);
+				// Fold the explicit clears in as `null` patch entries (the
+				// reducer deletes a key on `null`). A slot the field's
+				// (post-convert) kind doesn't declare, or one this same call
+				// also SETS, is a contradiction — reject before staging.
+				const postKind = afterRename.field.kind;
+				const undeclared = clearRequested.filter(
+					(slot) => !fieldKindDeclaresKey(postKind, slot),
+				);
+				if (undeclared.length > 0) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error: `Cannot clear ${undeclared.map((c) => `"${c}"`).join(", ")} on "${finalId}" — a "${postKind}" field doesn't carry ${undeclared.length === 1 ? "that property" : "those properties"}.`,
+						},
+					};
+				}
+				const setAndCleared = clearRequested.filter(
+					(slot) => patch[slot as keyof typeof patch] != null,
+				);
+				if (setAndCleared.length > 0) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error: `${setAndCleared.map((c) => `"${c}"`).join(", ")} on "${finalId}" ${setAndCleared.length === 1 ? "is" : "are"} both set in \`updates\` and listed in \`clear\` — pick one: a new value, or the clear.`,
+						},
+					};
+				}
+				const patchRecord = patch as Record<string, unknown>;
+				for (const slot of clearRequested) {
+					if (slot === "validate") {
+						patchRecord.validate = null;
+						patchRecord.validate_msg = null;
+					} else {
+						patchRecord[slot] = null;
+					}
+				}
 				if (Object.keys(patch).length > 0) {
 					// Declaration chokepoint: a patch RE-TARGETING `case_property_on`
 					// to a type absent from the catalog declares it FIRST (a stage of
@@ -450,10 +509,20 @@ export const editFieldTool = {
 
 			const postField = workingDoc.fields[afterRename.field.uuid];
 			// `kind` is always present (it's the edit union's discriminator), so
-			// only list it as a change when it was an actual conversion.
-			const changedKeys = Object.keys(updates).filter(
-				(k) => k !== "kind" || newKind !== resolved.field.kind,
-			);
+			// only list it as a change when it was an actual conversion — and a
+			// `null` update is a keep, never a change. Explicit clears are
+			// reported as such.
+			const changedKeys = [
+				...Object.entries(updates)
+					.filter(
+						([k, v]) =>
+							v !== null &&
+							v !== undefined &&
+							(k !== "kind" || newKind !== resolved.field.kind),
+					)
+					.map(([k]) => k),
+				...clearRequested.map((slot) => `${slot} (cleared)`),
+			];
 			const renameNote =
 				newId && newId !== fieldId ? ` (renamed from "${fieldId}")` : "";
 			// `afterRename` already carries the form's uuid — read the display

@@ -1,16 +1,20 @@
 /**
- * The planning-schema surface is built so a wrong input can't parse:
- * optional means omit (no ""/[] sentinels), present strings are
- * non-empty, and cross-field contradictions are rejected with a message
- * that says what to do instead. These tests pin the rejection shapes a
- * blank-filling model actually produced on a live build (empty-string
- * parent links, relationship without a parent, padded connect blocks)
- * alongside the valid shapes that must keep parsing.
+ * The planning-schema surface is built so a wrong input can't parse, under
+ * the wire's one hard constraint: constrained tool decoding forces EVERY
+ * key present on a call, so `null` is the model's only way to say "nothing
+ * here" (verified live — prompted to omit, the model invents filler
+ * instead; a nullable slot gets a clean null). These tests pin that
+ * contract from both sides: null is accepted as absence on every optional
+ * slot, while blanks and cross-field contradictions (the filler shapes a
+ * live build actually produced) still reject with messages that teach
+ * passing null. `cleanCaseTypeRecord` then collapses the nulls before a
+ * record leaves the boundary.
  */
 
 import { describe, expect, it } from "vitest";
 import {
 	caseTypeRecordSchema,
+	cleanCaseTypeRecord,
 	connectFormConfigSchema,
 } from "../planningSchemas";
 
@@ -32,7 +36,28 @@ describe("caseTypeRecordSchema", () => {
 		).toBe(true);
 	});
 
-	it('rejects parent_type: "" — absence is omission, not a blank', () => {
+	it("accepts null as absence on every optional slot — the forced-key escape hatch", () => {
+		const result = caseTypeRecordSchema.safeParse({
+			name: "client",
+			parent_type: null,
+			relationship: null,
+			properties: [
+				{
+					name: "case_name",
+					label: "Client name",
+					data_type: null,
+					hint: null,
+					required: null,
+					validation: null,
+					validation_msg: null,
+					options: null,
+				},
+			],
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it('rejects parent_type: "" — absence is null, not a blank', () => {
 		const result = caseTypeRecordSchema.safeParse({
 			...validRecord,
 			parent_type: "",
@@ -40,13 +65,14 @@ describe("caseTypeRecordSchema", () => {
 		expect(result.success).toBe(false);
 	});
 
-	it("rejects relationship without parent_type, naming the fix", () => {
+	it("rejects relationship without parent_type, teaching null", () => {
 		const result = caseTypeRecordSchema.safeParse({
 			...validRecord,
+			parent_type: null,
 			relationship: "child",
 		});
 		expect(result.success).toBe(false);
-		expect(result.error?.issues[0]?.message).toContain("parent_type");
+		expect(result.error?.issues[0]?.message).toContain("null");
 	});
 
 	it("rejects an empty properties array", () => {
@@ -81,7 +107,7 @@ describe("caseTypeRecordSchema", () => {
 		expect(result.error?.issues[0]?.message).toContain("validation");
 	});
 
-	it("rejects options on a non-select property", () => {
+	it("rejects options on a non-select property — the live build's filler shape", () => {
 		const result = caseTypeRecordSchema.safeParse({
 			...validRecord,
 			properties: [
@@ -89,12 +115,12 @@ describe("caseTypeRecordSchema", () => {
 					name: "age",
 					label: "Age",
 					data_type: "int",
-					options: [{ value: "1", label: "One" }],
+					options: [{ value: "unused", label: "unused" }],
 				},
 			],
 		});
 		expect(result.success).toBe(false);
-		expect(result.error?.issues[0]?.message).toContain("single_select");
+		expect(result.error?.issues[0]?.message).toContain("null");
 	});
 
 	it("accepts options on a select property", () => {
@@ -116,6 +142,37 @@ describe("caseTypeRecordSchema", () => {
 	});
 });
 
+describe("cleanCaseTypeRecord", () => {
+	it("collapses null slots to real absence so no null reaches the catalog", () => {
+		const parsed = caseTypeRecordSchema.parse({
+			name: "client",
+			parent_type: null,
+			relationship: null,
+			properties: [
+				{
+					name: "age",
+					label: "Age",
+					data_type: "int",
+					hint: null,
+					required: "true()",
+					validation: null,
+					validation_msg: null,
+					options: null,
+				},
+			],
+		});
+		const clean = cleanCaseTypeRecord(parsed);
+		expect(clean).toEqual({
+			name: "client",
+			properties: [
+				{ name: "age", label: "Age", data_type: "int", required: "true()" },
+			],
+		});
+		expect("parent_type" in clean).toBe(false);
+		expect("hint" in clean.properties[0]).toBe(false);
+	});
+});
+
 describe("connectFormConfigSchema", () => {
 	it("accepts a real learn block and a real deliver block", () => {
 		expect(
@@ -134,10 +191,26 @@ describe("connectFormConfigSchema", () => {
 		).toBe(true);
 	});
 
-	it("rejects an empty block — participation with nothing in it", () => {
-		const result = connectFormConfigSchema.safeParse({});
+	it("accepts null sub-configs beside a real one", () => {
+		expect(
+			connectFormConfigSchema.safeParse({
+				learn_module: null,
+				assessment: null,
+				deliver_unit: { name: "Home visit", id: null },
+				task: null,
+			}).success,
+		).toBe(true);
+	});
+
+	it("rejects an all-null block — participation with nothing in it", () => {
+		const result = connectFormConfigSchema.safeParse({
+			learn_module: null,
+			assessment: null,
+			deliver_unit: null,
+			task: null,
+		});
 		expect(result.success).toBe(false);
-		expect(result.error?.issues[0]?.message).toContain("omit");
+		expect(result.error?.issues[0]?.message).toContain("null");
 	});
 
 	it("rejects blank strings inside sub-configs", () => {
