@@ -3,8 +3,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { Output, streamText } from "ai";
+import { createGateway, Output, streamText } from "ai";
 import { z } from "zod";
 import { log, logCost, logSummary } from "./log.js";
 import type { PipelineConfig } from "./types.js";
@@ -13,7 +12,7 @@ const DISTILL_DIR = ".data/confluence-cache/distilled";
 const KNOWLEDGE_DIR = "scripts/knowledge/output";
 const CACHE_DIR = ".data/confluence-cache";
 const PLAN_PATH = path.join(CACHE_DIR, "reorg-plan.json");
-const OPUS_MODEL = "claude-opus-4-7";
+const OPUS_MODEL = "anthropic/claude-opus-4.7";
 const OPUS_INPUT_COST = 5; // $/M tokens
 const OPUS_OUTPUT_COST = 25; // $/M tokens
 
@@ -100,7 +99,7 @@ function loadDistilledFiles(): Map<string, string> {
 }
 
 export async function reorgPlan(config: PipelineConfig): Promise<ReorgPlan> {
-	const anthropic = createAnthropic({ apiKey: config.anthropicApiKey });
+	const gateway = createGateway({ apiKey: config.gatewayApiKey });
 	const files = loadDistilledFiles();
 
 	log("Reorganize", `Loaded ${files.size} knowledge files`);
@@ -193,7 +192,7 @@ KEEP — Blueprint-level design guidance:
 	log("Reorganize", `  Sending to Opus...`);
 
 	const stream = streamText({
-		model: anthropic(OPUS_MODEL),
+		model: gateway(OPUS_MODEL),
 		output: Output.object({ schema: reorgPlanSchema }),
 		system,
 		prompt: allContent,
@@ -293,7 +292,7 @@ function printPlan(plan: ReorgPlan): void {
 // --- Pass 2: Execute ---
 
 export async function reorgExecute(config: PipelineConfig): Promise<void> {
-	const anthropic = createAnthropic({ apiKey: config.anthropicApiKey });
+	const gateway = createGateway({ apiKey: config.gatewayApiKey });
 
 	// Load the plan
 	if (!fs.existsSync(PLAN_PATH)) {
@@ -457,7 +456,7 @@ ${sourceContent}`;
 
 		try {
 			const result = streamText({
-				model: anthropic(OPUS_MODEL),
+				model: gateway(OPUS_MODEL),
 				system,
 				prompt,
 			});

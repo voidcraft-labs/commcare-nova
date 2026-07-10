@@ -1,8 +1,11 @@
 /**
  * Central model configuration.
  *
- * Anthropic SDK calls use full model IDs (e.g. "claude-sonnet-4-6-20250514").
- * Vercel AI SDK calls use short aliases (e.g. "claude-sonnet-4-6") resolved by the provider.
+ * Every LLM call routes through the Vercel AI Gateway, so model ids use the
+ * gateway's `creator/model-name` format (e.g. "anthropic/claude-opus-4.8",
+ * "google/gemini-3.5-flash"). Swapping a constant here switches the model on
+ * every surface that uses it — no provider wiring changes needed. List the
+ * available ids: `curl -s https://ai-gateway.vercel.sh/v1/models`.
  */
 
 /**
@@ -15,29 +18,32 @@
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 /** Fallback model for GenerationContext methods when no model is specified. */
-export const MODEL_DEFAULT = "claude-sonnet-4-6";
+export const MODEL_DEFAULT = "anthropic/claude-sonnet-4.6";
 
 /** Model ID for the Solutions Architect agent. */
-export const SA_MODEL = "claude-opus-4-8";
+export const SA_MODEL = "anthropic/claude-opus-4.8";
 
 /** Reasoning configuration for the Solutions Architect agent. `high` is the recommended default for Opus 4.8. */
 export const SA_REASONING: { effort: ReasoningEffort } = { effort: "high" };
 
-/** Pricing per million tokens, keyed by model ID (either full or alias). */
+/** Pricing per million tokens, keyed by gateway model ID. */
 export const MODEL_PRICING: Record<
 	string,
 	{ input: number; output: number; cacheWrite: number; cacheRead: number }
 > = {
-	"claude-sonnet-4-6": {
+	"anthropic/claude-sonnet-4.6": {
 		input: 3,
 		output: 15,
 		cacheWrite: 3.75,
 		cacheRead: 0.3,
 	},
-	"claude-opus-4-8": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
-	"claude-opus-4-7": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
-	"claude-opus-4-6": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
-	"claude-haiku-4-5-20251001": {
+	"anthropic/claude-opus-4.8": {
+		input: 5,
+		output: 25,
+		cacheWrite: 6.25,
+		cacheRead: 0.5,
+	},
+	"anthropic/claude-haiku-4.5": {
 		input: 1,
 		output: 5,
 		cacheWrite: 1.25,

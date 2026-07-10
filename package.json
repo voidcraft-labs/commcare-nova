@@ -24,6 +24,7 @@
 	},
 	"dependencies": {
 		"@ai-sdk/anthropic": "^4.0.8",
+		"@ai-sdk/gateway": "4.0.12",
 		"@ai-sdk/google": "^4.0.8",
 		"@ai-sdk/react": "^4.0.17",
 		"@atlaskit/pragmatic-drag-and-drop": "^2.0.1",

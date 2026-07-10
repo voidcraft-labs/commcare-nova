@@ -3,8 +3,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { generateObject } from "ai";
+import { createGateway, generateObject } from "ai";
 import { z } from "zod";
 import { log, logCost, logSummary } from "./log.js";
 import { loadCrawledPages } from "./phase-crawl.js";
@@ -17,7 +16,7 @@ import type {
 
 const CACHE_DIR = ".data/confluence-cache";
 const TRIAGE_PATH = path.join(CACHE_DIR, "triage.json");
-const HAIKU_MODEL = "claude-haiku-4-5-20251001";
+const HAIKU_MODEL = "anthropic/claude-haiku-4.5";
 const HAIKU_INPUT_COST = 1; // $/M tokens
 const HAIKU_OUTPUT_COST = 5; // $/M tokens
 const MAX_CONTENT_CHARS = 6000; // ~1500 tokens per page for triage
@@ -140,7 +139,7 @@ export async function triage(
 		}
 	}
 
-	const anthropic = createAnthropic({ apiKey: config.anthropicApiKey });
+	const gateway = createGateway({ apiKey: config.gatewayApiKey });
 	const entries: TriageEntry[] = [...existingEntries];
 	let totalInputTokens = 0;
 	let totalOutputTokens = 0;
@@ -155,7 +154,7 @@ export async function triage(
 
 		try {
 			const result = await generateObject({
-				model: anthropic(HAIKU_MODEL),
+				model: gateway(HAIKU_MODEL),
 				schema: triageBatchSchema,
 				system: `You are classifying Confluence pages for relevance to an AI agent that builds CommCare apps. The agent generates app structures (modules, forms, fields, case configuration, form logic) from natural language.
 

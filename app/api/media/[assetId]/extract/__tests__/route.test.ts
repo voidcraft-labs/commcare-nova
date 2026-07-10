@@ -187,7 +187,7 @@ describe("POST extract (streamed result)", () => {
 				extract: {
 					status: "ready",
 					version: EXTRACTOR_VERSION,
-					model: "gemini-3.5-flash",
+					model: "google/gemini-3.5-flash",
 					truncated: false,
 					charCount: 12,
 					title: "ANC Program Requirements",
@@ -304,7 +304,7 @@ describe("GET extract", () => {
 				extract: {
 					status: "ready",
 					version: EXTRACTOR_VERSION,
-					model: "gemini-3.5-flash",
+					model: "google/gemini-3.5-flash",
 					truncated: false,
 					charCount: 5,
 					// biome-ignore lint/suspicious/noExplicitAny: Timestamp irrelevant here
@@ -344,7 +344,7 @@ describe("GET extract", () => {
 				extract: {
 					status: "ready",
 					version: EXTRACTOR_VERSION,
-					model: "gemini-3.5-flash",
+					model: "google/gemini-3.5-flash",
 					truncated: false,
 					charCount: 5,
 					title: "ANC Program Requirements",

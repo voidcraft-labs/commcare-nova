@@ -18,8 +18,9 @@
 // from being re-condensed — or re-billed at the Opus input rate across dozens of
 // tool-loop steps — on every send.
 
-import { createGoogle, type GoogleLanguageModelOptions } from "@ai-sdk/google";
+import type { GoogleLanguageModelOptions } from "@ai-sdk/google";
 import AdmZip from "adm-zip";
+import { createGateway } from "ai";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import { z } from "zod";
@@ -137,13 +138,13 @@ export const EXTRACT_MAX_BYTES = 4 * 1024 * 1024;
 // ── Summarizer model + provider options ──────────────────────────────────
 
 /**
- * The official document summarizer: Google Gemini 3.5 Flash. The standalone
- * condenser builds it from `GOOGLE_GENERATIVE_AI_API_KEY` — a PLATFORM env var,
- * not the shared Anthropic key; extraction is a platform feature, so a missing
- * key fails loud rather than silently degrading. The preview script reuses the
- * same id + options so what it tests matches production.
+ * The official document summarizer: Google Gemini 3.5 Flash, reached through
+ * the AI Gateway like every other model (`AI_GATEWAY_API_KEY` — one credential
+ * covers Anthropic and Google alike). Extraction is a platform feature, so a
+ * missing key fails loud rather than silently degrading. The preview script
+ * reuses the same id + options so what it tests matches production.
  */
-export const CONDENSER_MODEL = "gemini-3.5-flash";
+export const CONDENSER_MODEL = "google/gemini-3.5-flash";
 
 /**
  * Gemini provider options for the summarizer:
@@ -724,26 +725,26 @@ export async function extractDocument(opts: {
 }
 
 /**
- * The production document condenser: a `gemini-3.5-flash`-bound
+ * The production document condenser: a `CONDENSER_MODEL`-bound
  * `AttachmentCondenser` over the provider-agnostic `subGeneration` helpers.
  * Built per call (cheap) by the upload-time extract route, which runs OUTSIDE a
- * chat `GenerationContext` and so needs its own provider-bound backend.
+ * chat `GenerationContext` and so needs its own gateway-bound backend.
  *
- * Fails loud if `GOOGLE_GENERATIVE_AI_API_KEY` is unset — extraction is a
- * platform feature, not something to silently skip. It ignores the `model` /
- * `label` / `emitErrors` opts (those are `GenerationContext`-isms): the model is
+ * Fails loud if `AI_GATEWAY_API_KEY` is unset — extraction is a platform
+ * feature, not something to silently skip. It ignores the `model` / `label` /
+ * `emitErrors` opts (those are `GenerationContext`-isms): the model is
  * pre-bound here and there's no SSE to emit to, so a transport error simply
  * propagates to the route's catch. `truncated` is derived from the structured
  * call's `finishReason`.
  */
 export function createGeminiCondenser(): AttachmentCondenser {
-	const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+	const apiKey = process.env.AI_GATEWAY_API_KEY;
 	if (!apiKey) {
 		throw new Error(
-			"GOOGLE_GENERATIVE_AI_API_KEY is unset — document feature extraction needs the Gemini summarizer key. Set it in the environment so uploaded documents can be condensed into the requirements extract Nova reads.",
+			"AI_GATEWAY_API_KEY is unset — document feature extraction needs the AI Gateway key to reach the Gemini summarizer. Set it in the environment so uploaded documents can be condensed into the requirements extract Nova reads.",
 		);
 	}
-	const model = createGoogle({ apiKey })(CONDENSER_MODEL);
+	const model = createGateway({ apiKey })(CONDENSER_MODEL);
 	return {
 		async extractDocumentStructured(args) {
 			const r = await streamObjectWith({

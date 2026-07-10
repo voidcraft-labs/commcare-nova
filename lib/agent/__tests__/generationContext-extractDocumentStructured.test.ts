@@ -90,7 +90,7 @@ describe("GenerationContext.extractDocumentStructured", () => {
 			prompt: "the document body",
 			schema,
 			label: "attachment-txt",
-			model: "claude-haiku-4-5-20251001",
+			model: "anthropic/claude-haiku-4.5",
 			maxOutputTokens: 4096,
 		});
 
