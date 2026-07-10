@@ -28,7 +28,7 @@ Run-boundary actions are orthogonal and atomic:
 - `markRunCompleted()` — stamp runCompletedAt. Does NOT touch events or doc undo.
 - `acknowledgeCompletion()` — clear runCompletedAt.
 
-**Every other lifecycle signal is derived from these fields** via pure functions in `lifecycle.ts`: phase, stage, classified error, validation attempt, status message, postBuildEdit. No `agentActive` / `agentStage` / `agentError` / `statusMessage` / `postBuildEdit` / `justCompleted` flags exist — those were shadow state populated only by the live SSE path; deriving from the buffer instead keeps the layout a pure function of the events.
+**Every other lifecycle signal is derived from these fields** via pure functions (`lifecycle.ts`, plus `derivePhase` in `hooks.tsx`): phase, stage, classified error, validation attempt, status message, postBuildEdit. No `agentActive` / `agentStage` / `agentError` / `statusMessage` / `postBuildEdit` / `justCompleted` flags exist — those were shadow state populated only by the live SSE path; deriving from the buffer instead keeps the layout a pure function of the events.
 
 **Disambiguation: initial build vs post-build edit.** Both emit the same stage tags (`module:create` during construction, `form:M-F` for field work). `derivePhase` and `derivePostBuildEdit` key on `runStartedWithData` — a run that opened on an empty doc is an initial build (Generating layout); one that opened on a populated doc is an edit (the builder stays Ready/interactive while the agent works).
 

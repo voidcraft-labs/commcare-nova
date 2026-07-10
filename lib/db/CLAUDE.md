@@ -12,8 +12,8 @@ LISTEN/NOTIFY poke helpers. `types.ts` owns the assembled record shapes.
 **Lock ordering is the concurrency discipline.** Every transaction that
 decides anything about a run locks the APP ROW first (`SELECT … FOR UPDATE`
 via `lockAppRow`), then touches other rows (credit months, entities, the
-stream). Per-app contention resolves as row-lock waits; the in-transaction
-re-reads the old two-phase code needed are simply how the code reads.
+stream). Per-app contention resolves as row-lock waits, and every decision
+reads row state inside the locking transaction.
 
 **There is no blueprint blob.** An app is its `apps` row (scalars +
 denormalized list fields + the run lease and credit marker as nullable column
@@ -29,8 +29,8 @@ empty) name; list projections apply the `UNTITLED_APP_NAME` display fallback.
 **`accepted_mutations` is permanent history.** Every committed batch appends
 one row — no TTL, no prune. It is the realtime catch-up stream AND the app's
 durable edit history: folding every batch from an app's first seq reproduces
-its entity rows (apps migrated from Firestore start at their cutover
-snapshot). `UNIQUE (app_id, batch_id)` is the idempotency latch (the guarded
+its entity rows (an app whose history was seeded from a snapshot starts at
+that snapshot's seq, not seq 1). `UNIQUE (app_id, batch_id)` is the idempotency latch (the guarded
 commit reads it under the app row lock; a concurrent same-batch retry that
 races past the read is caught by the constraint and converges on the deduped
 result). Future blueprint-shape migrations must migrate the STORED MUTATIONS
@@ -163,7 +163,7 @@ clawed back. Both key on the LAPSED LEASE, not `awaiting_input`, so they free
 hard-killed AND abandoned-paused runs; both CLEAR the reaped marker's `runId`
 (the reaper's signature the self-heal + non-lenient `mine` read). Refunds
 always target the marker's charged actor (`res_user_id`, falling back to
-`owner` for migrated legacy markers).
+`owner` for markers that lack it).
 
 **Resume re-acquires — renew, don't get reaped.** A free-continuation resume
 calls `reacquireLease`: one transaction asserting `ownedByResume` (keyed on

@@ -4,7 +4,7 @@ The trust layer between a user-uploaded asset and the wire. This package owns fo
 
 ## Boundary
 
-`manifest.ts` and `boundaryValidation.ts` are two of the only consumers of the `@/lib/commcare` emission boundary outside the emitter itself (allowlisted in `biome.json`): they resolve assets to wire paths and run the export-boundary validation. Everything else here is boundary-free.
+`manifest.ts`, `boundaryValidation.ts`, and `builtinIconAssets.ts` are three of the only consumers of the `@/lib/commcare` emission boundary outside the emitter itself (allowlisted in `biome.json`): they resolve assets to wire paths and run the export-boundary validation. Everything else here is boundary-free.
 
 ## The asset is the timeline; the attach is the last commit that can see it
 
@@ -44,9 +44,9 @@ A module/form menu tile can carry a curated **built-in icon** instead of an uplo
 
 Built-in awareness is **quarantined to `lib/media/builtinIconAssets.ts`** (the partition + synthesis) plus three other seams; the validator, the wire emitters, and the export budget stay built-in-agnostic and consume synthesized rows:
 
-- **Manifest** (`manifest.ts`) — `partitionAssetRefs` splits collected refs into real ids (the asset-row load runs on those only) and built-in slugs; `resolveBuiltinManifestEntries` synthesizes a `ResolvedMediaAsset` per slug, with a **content-hash** wire path (from the catalog hash, so HQ bulk-upload path-matching + cross-app dedup work identically to an upload) and bytes read from `public/nova-icons/` only when `withBytes`.
+- **Manifest** (`manifest.ts`) — `partitionAssetRefs` splits collected refs into real ids (the asset-row load runs on those only) and built-in slugs (a slug absent from the catalog is dropped — fail closed); `resolveBuiltinManifestEntries` synthesizes a `ResolvedMediaAsset` per slug, with a **content-hash** wire path (from the catalog hash, so HQ bulk-upload path-matching + cross-app dedup work identically to an upload) and bytes read from `public/nova-icons/` only when `withBytes`.
 - **Boundary** (`boundaryValidation.ts`) — same partition; `builtinAssetRows` synthesizes `ready`/`image` rows into the map so the validator's media group passes and the budget counts them (distinct slugs, deduped). The reference-count cap is `realIds + distinct builtin slugs`.
-- **Reverse index** (`lib/db/apps.ts::syncMediaReferences`) — built-in refs are filtered out before `addReferencingApp`: they have no asset doc, so an `arrayUnion` would `NOT_FOUND` (and built-ins are shared + undeletable, so they need no deletion-guard index).
+- **Reverse index** (`lib/db/apps.ts::syncMediaReferences`) — built-in refs are filtered out before `addReferencingApp`: they have no `media_assets` row, so the FK insert would log a missing-row warning on nearly every save (and built-ins are shared + undeletable, so they need no deletion-guard index).
 - **Client** (`components/builder/media/mediaClient.ts::mediaSrc`) routes a built-in id to its static `/nova-icons/<slug>.png` (not `/api/media`), and `useAttachBudget.ts` short-circuits a built-in candidate + drops built-in refs from its gap-fetch.
 
 The commit gate needs no awareness — it runs without a manifest and skips the media rules (`gate.ts::evaluateCommit`), so setting a built-in icon is never rejected there. The runtime `fs` read of `public/` is invisible to the standalone tracer, so `next.config.ts`'s `outputFileTracingIncludes` ships `public/nova-icons/**` with the emit routes (the browser's static handler needs nothing). The SA sets a built-in via a `set_menu_media` item's `icon` slug (`lib/agent/tools/media/shared.ts::resolveIconInput` — a slug → the reserved ref with NO attach expectation, so the asset-row verdict is skipped; any other string → an uploaded id with the normal verdict).
@@ -60,16 +60,6 @@ The manifest threads through the emitter as `opts.assets`; the wire media artifa
 - **JSON export** (`/api/compile/json`, MCP `compile_app` json) — a media-ON bundle (app JSON + the same bulk zip) when the app has media; the plain media-OFF JSON otherwise.
 
 itext `<value form="image|audio|video">` (image→audio→video order, after the text + markdown values), `multimedia_map`, and the logo profile property emit the same way. **An app with NO media emits output byte-identical to the pre-media output** — empty manifest means the media-on code paths never run, `multimedia_map: {}`, no `media_suite.xml`, no media itext values. The validator returns zero findings for a media-free doc, so this is structural, not a special case.
-
-## Built-in icons — a shared, row-less media ref
-
-A module/form icon slot may hold a built-in icon ref (`nova-icon:<slug>`, see `lib/domain/builtinIcons.ts`) instead of an uploaded asset id. These have NO database row and NO GCS object — the bytes ship once at `public/nova-icons/<slug>.png`, shared by every app. `builtinIconAssets.ts` is the server-side bridge (allowlisted for the `@/lib/commcare` boundary alongside `manifest.ts`): `partitionAssetRefs` splits a doc's refs into real ids vs built-in slugs (deduped, stale slugs dropped → fail closed), then `resolveBuiltinManifestEntries` synthesizes a `ResolvedMediaAsset` (content-hash wire path from the catalog, bytes read from `public/` only when `withBytes`) and `builtinAssetRows` synthesizes ready/image rows for the boundary's media rules + budget. So the seam is three places, all in `lib/media` + two siblings — the validator, wire emitters, and budget stay built-in-agnostic and consume the synthesized entries:
-
-- **`manifest.ts`** routes built-ins past `loadAssetsByIds` and merges their entries (deduped by slug → one wire entry per icon).
-- **`boundaryValidation.ts`** excludes them from the asset-row load and counts distinct slugs toward `MAX_MEDIA_EXPORT_ASSETS`.
-- **`lib/db/apps.ts::syncMediaReferences`** filters them before `addReferencingApp` (no row to index — an unfiltered built-in would log a missing-row warning on nearly every save).
-
-The SA sets one via a `set_menu_media` item's `icon` slot (one batch call covers module and form tiles alike), which accepts a built-in slug OR an uploaded asset id (`tools/media/shared.ts::resolveIconInput` disambiguates by catalog membership); a built-in imposes NO attach expectation, so `attachGuardedMutate` skips the verdict's asset-row read for it. The browser routes a built-in chip's bytes via `mediaClient.ts::mediaSrc` → the static `/nova-icons/<slug>.png`, and `useAttachBudget` short-circuits a built-in pick. The runtime `fs` read needs `outputFileTracingIncludes` in `next.config.ts` (the standalone tracer doesn't see it).
 
 ## Clearing a media slot uses a dedicated mutation kind
 
