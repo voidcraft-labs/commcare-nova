@@ -13,12 +13,14 @@
  *
  * Hard-gated on `NODE_ENV`: the route 404s outside development, so this
  * surface cannot exist in production. It is still session-gated and
- * scoped to the caller's own pending namespace as defense-in-depth.
+ * scoped to Projects the caller can edit as defense-in-depth.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
+import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
+import { PENDING_OBJECT_PREFIX } from "@/lib/domain/multimedia";
 import { uploadAssetBytes } from "@/lib/storage/media";
 
 export async function PUT(req: NextRequest) {
@@ -37,15 +39,36 @@ export async function PUT(req: NextRequest) {
 			);
 		}
 
-		// Owner guard: the browser only ever PUTs to its own per-attempt
-		// pending key (`pending/<owner>/<assetId>.<ext>`). Reject anything
-		// else so this dev route can't be coaxed into writing outside the
-		// caller's namespace.
-		if (!key.startsWith(`pending/${session.user.id}/`)) {
+		// Tenant guard: the initiate step mints keys shaped
+		// `pending/<projectId>/<assetId>.<ext>` (`pendingGcsObjectKeyFor`), and
+		// the Project segment is the tenant the bytes land in. Re-gate `edit`
+		// membership on that Project — the same check initiate ran before
+		// handing out this URL — so the dev route can't be coaxed into writing
+		// into a Project the caller can't edit. (Prod needs no equivalent: a V4
+		// signature only exists for keys the server itself minted.)
+		const segments = key.split("/");
+		const [prefix, projectId, objectName] = segments;
+		if (
+			segments.length !== 3 ||
+			`${prefix}/` !== PENDING_OBJECT_PREFIX ||
+			!projectId ||
+			!objectName
+		) {
 			throw new ApiError(
-				"You can only upload to your own pending namespace.",
-				403,
+				`The object key \`${key}\` doesn't look like a pending upload key — the initiate step mints \`${PENDING_OBJECT_PREFIX}<projectId>/<assetId>.<ext>\`. Don't call this route directly.`,
+				400,
 			);
+		}
+		try {
+			await resolveProjectAccess(session.user.id, projectId, "edit");
+		} catch (err) {
+			if (err instanceof AppAccessError) {
+				throw new ApiError(
+					"This upload targets a Project you can't edit — the pending key's Project segment must name a Project you hold edit access in.",
+					403,
+				);
+			}
+			throw err;
 		}
 
 		const contentType =
