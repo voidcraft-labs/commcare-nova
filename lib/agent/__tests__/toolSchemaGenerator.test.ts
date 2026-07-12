@@ -1,13 +1,13 @@
 // Behavioral tests for the SA tool schema generator.
 //
 // The generator is the single source of truth for the `addFields` and
-// `editField` tool inputs. Each is a per-kind
-// `discriminatedUnion("kind", …)`: an arm exposes ONLY the properties its
-// kind's domain schema declares, so a "wrong property for this kind" input
-// (e.g. `calculate` on a `single_select`) is rejected at the tool boundary
-// rather than dropped downstream. These tests pin that contract
-// behaviorally (via `safeParse`) rather than introspecting the emitted JSON
-// schema shape, which keeps them robust to Zod's serialization choices.
+// `editField` tool inputs. Each is ONE flat kind-gated object: every slot
+// stated once, with the kind policy (`superRefine` over
+// `fieldKindDeclaresKey`) rejecting a "wrong property for this kind" input
+// (e.g. `calculate` on a `single_select`) at the tool boundary rather than
+// dropping it downstream. These tests pin that contract behaviorally (via
+// `safeParse`) rather than introspecting the emitted JSON schema shape,
+// which keeps them robust to Zod's serialization choices.
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -48,14 +48,12 @@ function validAddPayload(kind: string): Record<string, unknown> {
 }
 
 describe("toolSchemaGenerator", () => {
-	it("exposes the two tool inputs plus the two wide processing-type sources", () => {
+	it("exposes the two tool inputs", () => {
 		expect(generated.addFieldsItemSchema).toBeDefined();
 		expect(generated.editFieldUpdatesSchema).toBeDefined();
-		expect(generated.wideFlatItemSchema).toBeDefined();
-		expect(generated.wideEditUpdatesSchema).toBeDefined();
 	});
 
-	it("has an arm for every registry kind on the add tool", () => {
+	it("accepts a valid payload for every registry kind on the add tool", () => {
 		for (const kind of fieldKinds) {
 			const payload = validAddPayload(kind);
 			expect(

@@ -57,7 +57,6 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CaseType, ConnectConfig } from "@/lib/domain";
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { addFormMutations, addModuleMutations } from "../blueprintHelpers";
-import type { FlatField } from "../contentProcessing";
 import {
 	caseTypeRecordSchema,
 	cleanCaseTypeRecord,
@@ -307,10 +306,7 @@ export const createModuleTool = {
 				const assembly = assembleFieldMutations({
 					doc: assemblyDoc,
 					formUuid,
-					// Per-kind union arms are validated structural subsets of the
-					// wide `FlatField` the pipeline operates on — same bridge cast
-					// as `addFields`.
-					items: formInput.fields as FlatField[],
+					items: formInput.fields,
 				});
 				if (!assembly.ok) {
 					return {

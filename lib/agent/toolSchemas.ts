@@ -14,21 +14,13 @@ import { generateToolSchemas } from "./toolSchemaGenerator";
 
 const generated = generateToolSchemas();
 
-/** Per-item shape inside `z.array(...)` for the `addFields` tool — a
- *  per-kind discriminated union (each arm carries only its kind's props).
+/** Per-item shape inside `z.array(...)` for the `addFields` tool — one
+ *  flat object whose kind policy gates which slots each kind may carry.
  *  `addFields` is the sole field-add tool (one field = a length-1 array),
- *  so this item shape is the whole add surface. */
+ *  so this item shape is the whole add surface; its inferred type is the
+ *  `FlatField` processing shape (`contentProcessing.ts`). */
 export const addFieldsItemSchema = generated.addFieldsItemSchema;
 
-/** Patch shape for the `editField` tool (per-kind union; `kind` required as
- *  the discriminator). */
+/** Patch shape for the `editField` tool (same flat kind-gated form;
+ *  `kind` required — the patch validates against that kind's slots). */
 export const editFieldUpdatesSchema = generated.editFieldUpdatesSchema;
-
-/**
- * Wide processing-type sources — NOT tool inputs. The per-kind union arms
- * above are structural subsets of these, so the add-path pipeline
- * (`FlatField`) and the edit patch mapper type against one wide shape
- * instead of a 19-way union.
- */
-export const wideFlatItemSchema = generated.wideFlatItemSchema;
-export const wideEditUpdatesSchema = generated.wideEditUpdatesSchema;

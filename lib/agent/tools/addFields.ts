@@ -38,7 +38,6 @@ import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { resolveFormContext } from "../blueprintHelpers";
-import type { FlatField } from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import {
@@ -137,16 +136,12 @@ export const addFieldsTool = {
 			// The shared assembly pipeline: sentinel strip → defaults → uuid
 			// mint → domain Field → identifier verdict, with in-batch
 			// container parents and the optional insertion anchor resolved
-			// against this form. `raw` items are per-kind union arms (the
-			// tool input is a `discriminatedUnion("kind", …)`); TS infers an
-			// arm's conditionally-present keys as `unknown`, so it isn't
-			// directly assignable to the wide `FlatField` the pipeline
-			// operates on — but each arm IS a validated structural subset of
-			// `FlatField`, so the bridge cast is sound.
+			// against this form. The tool item's inferred type IS `FlatField`
+			// (one flat kind-gated shape), so items flow in with no bridge.
 			const assembly = assembleFieldMutations({
 				doc,
 				formUuid,
-				items: fields as FlatField[],
+				items: fields,
 				...(batchParentId !== undefined && { batchParentId }),
 				anchor: {
 					...(beforeFieldId !== undefined && { beforeFieldId }),

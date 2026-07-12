@@ -381,7 +381,9 @@ function resolveBatchExpressions(
 				resolve,
 			);
 		}
-		const repeatCount = processed.repeat?.count;
+		const repeatConfig = processed.repeat;
+		const repeatCount =
+			repeatConfig?.mode === "count_bound" ? repeatConfig.count : undefined;
 		if (
 			typeof repeatCount === "string" &&
 			repeatCount.length > 0 &&
@@ -392,7 +394,8 @@ function resolveBatchExpressions(
 				resolve,
 			);
 		}
-		const idsQuery = processed.repeat?.ids_query;
+		const idsQuery =
+			repeatConfig?.mode === "query_bound" ? repeatConfig.ids_query : undefined;
 		const dataSource = carrier.data_source as
 			| { ids_query?: unknown }
 			| undefined;

@@ -51,7 +51,6 @@ import type {
 } from "@/lib/domain";
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { addFormMutations, resolveModuleUuid } from "../blueprintHelpers";
-import type { FlatField } from "../contentProcessing";
 import { connectFormConfigSchema } from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
@@ -143,14 +142,12 @@ export const createFormTool = {
 			// entry as "no existing siblings".
 			const formUuid = asUuid(crypto.randomUUID());
 
-			// Per-kind union arms are validated structural subsets of the wide
-			// `FlatField` the pipeline operates on — same bridge cast as
-			// `addFields`. Assembled BEFORE the connect block so the block's
-			// XPath slots can parse against the batch-aware resolver below.
+			// Assembled BEFORE the connect block so the block's XPath slots
+			// can parse against the batch-aware resolver below.
 			const assembly = assembleFieldMutations({
 				doc,
 				formUuid,
-				items: fields as FlatField[],
+				items: fields,
 			});
 			if (!assembly.ok) {
 				return {
