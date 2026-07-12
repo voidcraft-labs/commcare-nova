@@ -53,10 +53,9 @@ function isFieldKind(kind: unknown): kind is FieldKind {
 }
 
 /** A catalog default should fill a slot the SA left unset — treating `null`,
- *  an empty string, or an empty array as "unset" too (the wire forces every
- *  key present, so `null`/`""` are how the model says "nothing here"; the
- *  batch path's `stripEmpty` already collapses them), so both add paths seed
- *  identically. */
+ *  an empty string, or an empty array as "unset" too (on the add path they
+ *  all mean "nothing here"; the batch path's `stripEmpty` already collapses
+ *  them), so both add paths seed identically. */
 function isUnset(value: unknown): boolean {
 	return (
 		value === undefined ||
@@ -123,9 +122,8 @@ export type FlatField = z.infer<typeof addFieldsItemSchema>;
 
 /**
  * Collapse empty values to absence:
- *   - `null`       → drop the key entirely (the wire forces every key
- *                    present, so null is the model's ONLY way to leave an
- *                    optional slot empty — this is the load-bearing branch)
+ *   - `null`       → drop the key entirely (on the add path null means
+ *                    "nothing here", same as omission)
  *   - empty string → drop
  *   - empty array  → drop
  *

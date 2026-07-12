@@ -199,7 +199,7 @@ export const caseTypeRecordSchema = z
 // ── Boundary normalization ──────────────────────────────────────────
 
 /**
- * Collapse a validated record's `null` slots (the wire's forced-key "nothing
+ * Collapse a validated record's `null` slots (the add path's "nothing
  * here") to real absence so nothing downstream — the catalog mutations, the
  * field-defaults seeding, the stored doc — ever carries a null the domain
  * schemas reject. Pure; returns a new record.

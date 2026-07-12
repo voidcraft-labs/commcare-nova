@@ -16,16 +16,17 @@
 // identical rejection behavior. The refinement carries the law; the docs
 // appear once.
 //
-// ## The wire forces every key — null is the only absence
+// ## Omission keeps, null clears
 //
-// The provider's constrained tool decoding lists EVERY property as required
-// on the wire, so the model cannot omit a key it has no value for (verified
-// live: prompted to omit, it fills keys with invented filler; a nullable
-// slot gets a clean `null` instead). Every optional slot on every arm is
-// therefore `.nullable()`: `null` is the SA's way to say "nothing here",
-// and the pipeline collapses it to absence (`stripEmpty` on the add path;
-// the edit path treats it as "leave unchanged"). Never design a slot whose
-// meaning depends on omitted-vs-null — the model can't express omission.
+// Tool calls run non-strict (`strict: false` in the SA wrappers), so the
+// model omits any slot it isn't touching. On the ADD item, `null` is the
+// same as omission — "nothing here" — collapsed to absence by the
+// pipeline (`stripEmpty`). On the EDIT patch the two differ: an omitted
+// slot keeps its current value; an explicit `null` CLEARS it (the
+// reducer deletes the key). Slots that cannot be cleared (`id`, `kind`,
+// `repeat` — a repeat always has a mode) are not nullable on the edit
+// patch, so a stray null there is a parse rejection, never a wipe. The
+// prompt and every slot description teach the same contract.
 //
 // ## Label policy
 //
@@ -220,11 +221,10 @@ const parentIdField = () =>
 const labelField = () =>
 	z.string().nullable().optional().describe(FIELD_DOCS.label);
 
-// Optional shape primitives — all NULLABLE: the wire forces every key
-// present on a tool call (constrained decoding lists every property as
-// required), so `null` is the model's ONLY way to say "nothing here".
-// Every optional slot accepts it and the pipeline collapses it to
-// absence (`stripEmpty`). `validate` and `repeat` are nested objects
+// Optional shape primitives — all NULLABLE, and on the add path `null`
+// reads exactly like omission ("nothing here"; the pipeline collapses it
+// to absence via `stripEmpty`), so arbitrary MCP callers and stray nulls
+// are harmless. `validate` and `repeat` are nested objects
 // that group related config (expr+msg, mode+count/ids_query) into one
 // field each, keeping the item shape flat and easy for the SA to fill.
 const requiredField = () =>
@@ -275,12 +275,9 @@ const validateConfigField = () =>
 const casePropertyOnField = () =>
 	z.string().nullable().optional().describe(FIELD_DOCS.case_property_on);
 
-// Nullable variants for the edit patch. `null` means "leave this
-// property unchanged" — the wire forces every key present on a tool
-// call, so null is the model's only way to NOT touch a slot; treating it
-// as a clear would wipe every property an edit didn't mention. Clearing
-// is EXPLICIT: the `editField` input's `clear` array names the
-// properties to unset.
+// Nullable variants for the edit patch: a value sets the property,
+// `null` CLEARS it (the reducer deletes the key), omission keeps the
+// current value.
 const nullableString = (doc: string) =>
 	z.string().nullable().optional().describe(doc);
 const nullableOptions = () =>
@@ -355,7 +352,7 @@ function undeclaredSlotIssue(
 	ctx.addIssue({
 		code: "custom",
 		path: [key],
-		message: `kind "${kind}" carries no \`${key}\` slot — leave ${key} out (or pass null).`,
+		message: `kind "${kind}" carries no \`${key}\` slot — leave ${key} out.`,
 	});
 }
 
@@ -369,7 +366,7 @@ function gateRepeatSlot(
 		ctx.addIssue({
 			code: "custom",
 			path: ["repeat"],
-			message: `only kind "repeat" carries a \`repeat\` config — leave it out (or pass null).`,
+			message: `only kind "repeat" carries a \`repeat\` config — leave it out.`,
 		});
 	}
 }
@@ -444,10 +441,10 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 }
 
 /**
- * The `editField` patch shape. Every key is `.nullable().optional()`
- * (`null` or omitted = leave as-is, value = set; clears go through the
- * input's explicit `clear` list), and `help` (longer-form text the add
- * tool omits) is a slot for kinds that declare it.
+ * The `editField` patch shape. Every clearable key is
+ * `.nullable().optional()` — omitted = keep the current value, a value =
+ * set, `null` = CLEAR the property — and `help` (longer-form text the
+ * add tool omits) is a slot for kinds that declare it.
  *
  * `kind` is REQUIRED: the SA states the field's CURRENT kind to edit in
  * place, or a different convertible kind to convert it. That's what the
@@ -455,10 +452,10 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
  * `calculate` on a `single_select`. The per-kind guide lives on the
  * `addFields` items' `kind`; this one carries the edit framing alone.
  *
- * `repeat` is nullable like the rest (null = keep the current config):
- * a repeat always has a mode, so "clear the repeat config" is meaningless —
- * switch modes by passing a new `repeat` object (the reducer drops the
- * prior mode's mode-specific field).
+ * `id` and `repeat` are NOT nullable: an id can't be cleared (leave it
+ * out to keep it), and a repeat always has a mode — "clear the repeat
+ * config" is meaningless; switch modes by passing a new `repeat` object
+ * (the reducer drops the prior mode's mode-specific field).
  */
 function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 	return z
@@ -472,9 +469,8 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 						"the `addFields` items' `kind`.",
 				),
 			id: idField()
-				.nullable()
 				.optional()
-				.describe("New id to rename to; null keeps the current id."),
+				.describe("New id to rename to; leave it out to keep the current id."),
 			label: nullableString(FIELD_DOCS.label),
 			hint: nullableString(FIELD_DOCS.hint),
 			help: nullableString(FIELD_DOCS.help),
@@ -485,14 +481,20 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			default_value: nullableString(FIELD_DOCS.default_value),
 			options: nullableOptions(),
 			case_property_on: nullableString(FIELD_DOCS.case_property_on),
-			repeat: repeatConfigDiscriminated().nullable().optional(),
+			repeat: repeatConfigDiscriminated().optional(),
 			// `.strict()` — same boundary rejection as the add item: a key
 			// outside the shape is an error, not a silent strip.
 		})
 		.strict()
 		.superRefine((patch, ctx) => {
 			for (const key of EDIT_GATED_KEYS) {
-				if (patch[key] != null && !fieldKindDeclaresKey(patch.kind, key)) {
+				// Any PRESENT value — null included — on a slot the kind
+				// doesn't declare rejects: there's nothing there to set OR
+				// clear, and a stray null must never read as intent.
+				if (
+					patch[key] !== undefined &&
+					!fieldKindDeclaresKey(patch.kind, key)
+				) {
 					undeclaredSlotIssue(ctx, patch.kind, key);
 				}
 			}

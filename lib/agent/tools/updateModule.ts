@@ -64,20 +64,17 @@ export const updateModuleInputSchema = z
 		name: z
 			.string()
 			.min(1)
-			.nullable()
 			.optional()
-			.describe("New module display name. null leaves it unchanged."),
+			.describe("New module display name. Leave it out to keep it."),
 		case_type: z
 			.string()
 			.min(1)
-			.nullable()
 			.optional()
 			.describe(
-				'The case type this module manages (e.g. "patient"). A module needs one before it can hold registration/followup/close forms. null leaves it unchanged.',
+				'The case type this module manages (e.g. "patient"). A module needs one before it can hold registration/followup/close forms. Leave it out to keep it.',
 			),
 		case_list_columns: z
 			.array(columnInputSchema)
-			.nullable()
 			.optional()
 			.describe(
 				"Case-list columns, in display order — required alongside case_type when the module has forms but no columns yet (a case-managing module's list must render rows). Ignored when the module already has columns; refine those via the case-list-config tools.",
@@ -108,7 +105,7 @@ export const updateModuleTool = {
 					newDoc: doc,
 					result: {
 						error:
-							"Nothing to update — every slot was null. Pass `name` and/or `case_type` (`case_list_columns` only seeds columns alongside `case_type`, it never updates on its own).",
+							"Nothing to update — no slot was given. Pass `name` and/or `case_type` (`case_list_columns` only seeds columns alongside `case_type`, it never updates on its own).",
 					},
 				};
 			}

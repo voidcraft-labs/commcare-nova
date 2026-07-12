@@ -97,7 +97,7 @@ describe("editField — help text", () => {
 		expect(helpOf(result.newDoc)).toBe("Enter the patient's full legal name.");
 	});
 
-	it("KEEPS help text when handed null — the wire forces every key, so null must read as untouched", async () => {
+	it("KEEPS help text when the slot is left out of the patch", async () => {
 		const { doc, ctx } = {
 			doc: makeDoc("Existing help"),
 			...makeStubToolContext(),
@@ -107,7 +107,7 @@ describe("editField — help text", () => {
 				moduleIndex: 0,
 				formIndex: 0,
 				fieldId: "patient_name",
-				updates: { kind: "text", label: "Patient name", help: null },
+				updates: { kind: "text", label: "Patient name" },
 			},
 			ctx,
 			doc,
@@ -116,7 +116,7 @@ describe("editField — help text", () => {
 		expect(helpOf(result.newDoc)).toBe("Existing help");
 	});
 
-	it('clears help text via clear: ["help"] — the explicit removal path', async () => {
+	it("CLEARS help text when handed null — null removes, omission keeps", async () => {
 		const { doc, ctx } = {
 			doc: makeDoc("Existing help"),
 			...makeStubToolContext(),
@@ -126,37 +126,13 @@ describe("editField — help text", () => {
 				moduleIndex: 0,
 				formIndex: 0,
 				fieldId: "patient_name",
-				updates: { kind: "text" },
-				clear: ["help"],
+				updates: { kind: "text", help: null },
 			},
 			ctx,
 			doc,
 		);
 
 		expect(helpOf(result.newDoc)).toBeUndefined();
-	});
-
-	it("rejects a slot both set and cleared in one call", async () => {
-		const { doc, ctx } = {
-			doc: makeDoc("Existing help"),
-			...makeStubToolContext(),
-		};
-		const result = await editFieldTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
-				updates: { kind: "text", help: "New help" },
-				clear: ["help"],
-			},
-			ctx,
-			doc,
-		);
-
-		expect(result.result).toMatchObject({
-			error: expect.stringContaining("both set"),
-		});
-		expect(helpOf(result.newDoc)).toBe("Existing help");
 	});
 });
 

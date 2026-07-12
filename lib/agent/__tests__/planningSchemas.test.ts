@@ -36,7 +36,7 @@ describe("caseTypeRecordSchema", () => {
 		).toBe(true);
 	});
 
-	it("accepts null as absence on every optional slot — the forced-key escape hatch", () => {
+	it("accepts null as absence on every optional slot", () => {
 		const result = caseTypeRecordSchema.safeParse({
 			name: "client",
 			parent_type: null,

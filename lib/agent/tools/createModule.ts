@@ -224,7 +224,7 @@ export const createModuleTool = {
 						},
 					};
 				}
-				// Collapse the record's forced-key nulls to absence BEFORE it
+				// Collapse the record's null slots to absence BEFORE it
 				// touches the catalog — a null hint/parent_type on a stored
 				// CaseProperty fails the next load's Zod gate.
 				const record = cleanCaseTypeRecord(case_type_record) as CaseType;

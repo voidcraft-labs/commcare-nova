@@ -10,15 +10,13 @@ import {
  * post-submit navigation. Both the SA chat factory and the MCP adapter
  * call this through the shared `ToolExecutionContext` interface.
  *
- * Every key is nullable, and `null` means "leave unchanged" — the wire
- * forces every key present on a tool call, so null is the model's only
- * way to not touch a slot; treating it as a clear would strip the close
- * condition, the post-submit override, and the Connect block off every
- * unrelated rename. Clears are EXPLICIT via the `clear` list. Connect-
- * config patches go through `buildConnectConfig`, a structural
- * partial-update merge: each sub-config the SA supplied (non-null) is
- * merged with the matching existing sub-config; the others pass through
- * unchanged.
+ * Omission keeps, null clears: a slot left out keeps its current value;
+ * an explicit `null` clears it (unconditional close again, post-submit
+ * back to the form-type default, Connect block removed). `name` is not
+ * nullable — a form always has a name. Connect-config patches go through
+ * `buildConnectConfig`, a structural partial-update merge: each
+ * sub-config the SA supplied (non-null) is merged with the matching
+ * existing sub-config; the others pass through unchanged.
  *
  * The merged connect config then runs through `enforceConnectIds` (the
  * agent-path source guard): an omitted connect id is autofilled with a
@@ -68,9 +66,8 @@ export const updateFormInputSchema = z
 		name: z
 			.string()
 			.min(1)
-			.nullable()
 			.optional()
-			.describe("New form name. null keeps the current name."),
+			.describe("New form name. Leave it out to keep the current name."),
 		close_condition: z
 			.object({
 				field: z.string().describe("Field id to check"),
@@ -87,7 +84,7 @@ export const updateFormInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				'Close forms only. Set conditional close; use operator "selected" for multi-select fields. null leaves the current condition unchanged — to make the close unconditional again, list "close_condition" in `clear`.',
+				'Close forms only. Set conditional close; use operator "selected" for multi-select fields. Pass null to make the close unconditional again; leave it out to keep the current condition.',
 			),
 		post_submit: z
 			.enum(USER_FACING_DESTINATIONS)
@@ -99,7 +96,7 @@ export const updateFormInputSchema = z
 					'"module" = this module\'s form list. ' +
 					'"previous" = back to where the user was (e.g. case list). ' +
 					'Defaults to "previous" for followup, "app_home" for registration/survey. ' +
-					'null leaves the current setting unchanged — to reset to the default, list "post_submit" in `clear`.',
+					"Pass null to reset to the form-type default; leave it out to keep the current setting.",
 			),
 		connect: z
 			.object({
@@ -201,14 +198,7 @@ export const updateFormInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				'Set Connect config on this form — a block opts the form into Connect. null leaves the current config unchanged; to remove the block (the form stops participating; rejected only when it is the app\'s last participating form), list "connect" in `clear`. Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.',
-			),
-		clear: z
-			.array(z.enum(["close_condition", "post_submit", "connect"]))
-			.nullable()
-			.optional()
-			.describe(
-				'Form settings to REMOVE: drop the close condition (unconditional close), reset post_submit to its form-type default, or remove the Connect block. This is the only way to clear — null in the slots above means "leave unchanged". Pass null when nothing is being removed.',
+				"Set Connect config on this form — a block opts the form into Connect. Pass null to remove the block (the form stops participating; rejected only when it is the app's last participating form); leave it out to keep the current config. Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.",
 			),
 	})
 	.strict();
@@ -234,9 +224,7 @@ export const updateFormTool = {
 			close_condition,
 			post_submit,
 			connect,
-			clear,
 		} = input;
-		const clearRequested = new Set(clear ?? []);
 		try {
 			const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
 			if (!formUuid) {
@@ -259,31 +247,11 @@ export const updateFormTool = {
 
 			// Build the helper's patch shape. The SA's tool arg uses
 			// `field` directly — no translation needed since the SA speaks
-			// domain vocabulary. `null` = leave unchanged; clears come from
-			// the explicit `clear` list (a slot both set and cleared is a
-			// contradiction, rejected before anything stages).
-			const setAndCleared = [
-				close_condition != null && clearRequested.has("close_condition")
-					? "close_condition"
-					: null,
-				post_submit != null && clearRequested.has("post_submit")
-					? "post_submit"
-					: null,
-				connect != null && clearRequested.has("connect") ? "connect" : null,
-			].filter((c): c is string => c !== null);
-			if (setAndCleared.length > 0) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: {
-						error: `${setAndCleared.map((c) => `"${c}"`).join(", ")} ${setAndCleared.length === 1 ? "is" : "are"} both set and listed in \`clear\` — pick one: a new value, or the clear.`,
-					},
-				};
-			}
+			// domain vocabulary. Omitted = leave unchanged; `null` = clear
+			// (a `null` patch entry — the reducer deletes the key).
 			const patch: Parameters<typeof updateFormMutations>[2] = {};
-			if (name != null) patch.name = name;
-			if (clearRequested.has("close_condition")) patch.closeCondition = null;
+			if (name !== undefined) patch.name = name;
+			if (close_condition === null) patch.closeCondition = null;
 			if (close_condition != null) {
 				// The SA names the checked field by id; the stored form is the
 				// field's stable uuid. An id nothing answers to stays verbatim
@@ -299,11 +267,11 @@ export const updateFormTool = {
 					}),
 				};
 			}
-			if (clearRequested.has("post_submit")) patch.postSubmit = null;
+			if (post_submit === null) patch.postSubmit = null;
 			if (post_submit != null) {
 				patch.postSubmit = post_submit as PostSubmitDestination;
 			}
-			if (clearRequested.has("connect")) patch.connect = null;
+			if (connect === null) patch.connect = null;
 			if (connect != null) {
 				// Structural partial-update merge + the text → AST parse
 				// boundary for the connect XPath slots, resolved against
@@ -372,15 +340,15 @@ export const updateFormTool = {
 				};
 			}
 			const formChanges: string[] = [];
-			if (name != null) formChanges.push(`name → "${formAfter.name}"`);
-			if (clearRequested.has("close_condition"))
+			if (name !== undefined) formChanges.push(`name → "${formAfter.name}"`);
+			if (close_condition === null)
 				formChanges.push("close_condition removed (unconditional close)");
 			if (close_condition != null) formChanges.push("close_condition updated");
-			if (clearRequested.has("post_submit") || post_submit != null)
+			if (post_submit !== undefined)
 				formChanges.push(
 					`post_submit → "${formAfter.postSubmit ?? "form-type default"}"`,
 				);
-			if (clearRequested.has("connect")) formChanges.push("connect removed");
+			if (connect === null) formChanges.push("connect removed");
 			if (connect != null) formChanges.push("connect updated");
 			return {
 				kind: "mutate" as const,

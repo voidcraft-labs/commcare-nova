@@ -55,7 +55,7 @@ export interface ConnectConfigInput {
  * each XPath-valued slot to its stored expression AST via `parseExpr`.
  *
  * Pure structural merge: keys absent from `input` — and `null` keys,
- * the wire's forced-key way of saying "not supplied" — are copied
+ * the add path's way of saying "not supplied" — are copied
  * verbatim from `existing`; non-null keys overlay the matching existing
  * sub-config (`existing.learn_module` ← `input.learn_module`, etc.),
  * with null INNER slots (a null id, a null entity_id) likewise dropped
@@ -74,7 +74,7 @@ export function buildConnectConfig(
 	parseExpr: (text: string) => XPathExpression,
 ): ConnectConfig {
 	// Null leaf slots (a null id, a null entity_id) are dropped per key so a
-	// forced-key null never spreads onto the stored config — the domain
+	// stray null never spreads onto the stored config — the domain
 	// schemas don't accept null.
 	const out: ConnectConfig = { ...existing };
 	if (input.learn_module != null) {
