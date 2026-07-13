@@ -923,7 +923,7 @@ describe("after load()", () => {
 			],
 		});
 
-		// Simulate a Firestore-persisted doc: strip fieldParent before loading.
+		// Simulate a persisted doc: strip fieldParent before loading.
 		// The `load()` action must rebuild it from fieldOrder.
 		const { fieldParent: _stripped, ...persistable } = doc;
 		const store = createBlueprintDocStore();

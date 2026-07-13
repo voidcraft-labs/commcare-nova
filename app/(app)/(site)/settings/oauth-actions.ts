@@ -22,7 +22,7 @@ export type RevokeResult =
 
 /**
  * Revoke a connected application's authorization. Ownership is
- * enforced inside `revokeAuthorizedClient`'s Firestore transaction —
+ * enforced inside `revokeAuthorizedClient`'s Postgres transaction —
  * a session check here alone would have a TOCTOU window. The optimistic
  * UI drives the user-visible refresh; `revalidatePath` is a correctness
  * backstop for a hard navigation.

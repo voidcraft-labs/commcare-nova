@@ -7,7 +7,7 @@
  *   1. loads the `pending` row (rejects if the caller isn't a Project member, or it's missing)
  *   2. downloads the bytes from the pending GCS object once
  *   3. runs the validation pipeline against the stored bytes
- *   4. on failure: deletes the pending GCS object AND the Firestore row,
+ *   4. on failure: deletes the pending GCS object AND the Postgres row,
  *      returns 400 with the rejection message
  *   5. on success: promotes the bytes to the content-hash final key,
  *      writes validated metadata, flips status to `ready`
@@ -208,7 +208,7 @@ export async function POST(
  *
  * New browser uploads use per-attempt pending keys, but legacy rows and
  * simultaneous duplicate-ready races can share an object. If another row
- * points at the same key, remove only this Firestore row and leave bytes
+ * points at the same key, remove only this Postgres row and leave bytes
  * intact for the sibling.
  */
 async function deleteRejectedUpload(asset: MediaAssetRecord): Promise<void> {

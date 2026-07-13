@@ -2,7 +2,7 @@
 //
 // Unit tests for the chat attachment resolver: refs (in message metadata) →
 // model-ready parts. Driven against mocked storage/db + a stub condenser so no
-// GCS, Firestore, or model call happens. Covers the contracts the chat route
+// GCS, Postgres, or model call happens. Covers the contracts the chat route
 // and the multi-turn fix depend on: ready-extract reuse, the lazy backstop,
 // image → data-URL file part, never-drop placeholders, cross-turn dedup, and —
 // the multi-turn crash fix — that NO raw file part with a document media type
@@ -268,10 +268,10 @@ describe("resolveAttachments", () => {
 	});
 
 	it("degrades to placeholders (never throws) when the batch asset load fails", async () => {
-		// A Firestore outage in loadAssetsByIds must not fail the whole turn from
+		// A Postgres outage in loadAssetsByIds must not fail the whole turn from
 		// outside the route's try/finally — it degrades to placeholders, upholding
 		// the never-drop invariant.
-		loadAssetsByIdsMock.mockRejectedValue(new Error("firestore down"));
+		loadAssetsByIdsMock.mockRejectedValue(new Error("postgres down"));
 		const resolved = await resolveAttachments(
 			[userMsg("u1", { assetId: "doc-1", kind: "text", filename: "spec.md" })],
 			"user-1",

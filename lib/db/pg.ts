@@ -287,8 +287,8 @@ const TX_RETRY_DELAYS_MS = [50, 150, 400];
 
 /**
  * Run `body` in a transaction with a bounded deadlock/serialization retry.
- * The body re-runs from scratch on a retry (same contract Firestore's
- * transaction runner imposed), so it must stay pure of external side effects.
+ * The body re-runs from scratch on a retry, so it must stay pure of external
+ * side effects.
  * Domain rejections (`OutOfCreditsError`, commit-gate errors) are not
  * retryable SQLSTATEs, so they propagate on the first attempt.
  */

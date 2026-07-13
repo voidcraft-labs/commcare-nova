@@ -118,9 +118,8 @@ vi.mock("@/lib/auth-utils", async () => {
 vi.mock("@/lib/db/api-keys", async () => {
 	/* `toISOString` / `toISOStringOrNull` are pure helpers — re-export
 	 * the real implementations rather than mocking, so the date
-	 * conversion is exercised end-to-end (and Timestamp / Date
-	 * compatibility is preserved for any future test fixture using
-	 * Firestore Timestamps). */
+	 * conversion is exercised end-to-end against the `Date` values
+	 * Postgres returns. */
 	const actual =
 		await vi.importActual<typeof import("@/lib/db/api-keys")>(
 			"@/lib/db/api-keys",
@@ -218,7 +217,7 @@ describe("mintApiKey", () => {
 		 * user during the cache window. The action's secondary
 		 * `isUserActive` check is the live-revocation lock that closes
 		 * that gap — same pattern as `requireAdminAccess`'s direct
-		 * Firestore read. Mirrors the MCP route's `isUserActive`
+		 * Postgres read. Mirrors the MCP route's `isUserActive`
 		 * lookup so the two surfaces agree on "user can act." */
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
 		mocks.isUserActive.mockResolvedValue(false);
@@ -320,7 +319,7 @@ describe("mintApiKey", () => {
 			createdAt: new Date("2026-04-22T12:00:00.500Z"),
 			expiresAt: new Date("2027-04-22T12:00:00.000Z"),
 		});
-		/* Snapshot the user's apikey rows in the order Firestore
+		/* Snapshot the user's apikey rows in the order Postgres
 		 * would surface them. Newer rows have later `createdAt`;
 		 * the just-minted (`KEY_ID_MINE`) is the LATER of the two
 		 * race winners, putting it at position 10 — the loser slot. */

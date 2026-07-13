@@ -52,7 +52,7 @@ export interface ToolExecutionContext {
 	readonly runId: string;
 
 	/**
-	 * Persist a mutation batch to the durable event log and to Firestore.
+	 * Persist a mutation batch to the durable event log and to Postgres.
 	 * Returns the built envelopes so callers can correlate with tool-
 	 * response metadata without rebuilding them.
 	 *

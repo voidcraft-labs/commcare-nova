@@ -11,11 +11,9 @@
  *    consumed clamp, settle idempotency, lifetime sum) is exercised over a real
  *    `SELECT … FOR UPDATE` round-trip rather than a scripted stand-in.
  *
- * The former `creditMonthDocSchema` / `creditGrantDocSchema` Zod-parse tests are
- * gone: those schemas were the Firestore converter's field guards, and on
- * Postgres the same invariants are column types + CHECK constraints (`integer`,
+ * The credit-ledger invariants are column types + CHECK constraints (`integer`,
  * `>= 0`, the `type IN ('reset','grant')` enum) enforced by the database, not a
- * Zod parse in application code — there is nothing left to `.parse`.
+ * Zod parse in application code.
  */
 
 import type { UIMessage } from "ai";

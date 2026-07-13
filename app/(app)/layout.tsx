@@ -4,9 +4,9 @@
  * This layer is what used to live in the root layout. It was split out
  * so that public-but-served-from-the-same-app surfaces — currently the
  * docs site under `(docs)/` — don't have to pay for `getSession()`
- * (and the Firestore round-trip it triggers) on every request. With
+ * (and the Postgres round-trip it triggers) on every request. With
  * this split, docs requests never run the auth lookup, and the docs
- * subdomain stays available even if Firestore is briefly unreachable.
+ * subdomain stays available even if Postgres is briefly unreachable.
  *
  * Chrome lives one level down: `(site)/layout.tsx` renders the global
  * AppHeader for the app list / admin / settings surfaces, while

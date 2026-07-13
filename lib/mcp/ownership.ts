@@ -85,11 +85,11 @@ export function rethrowAsMcpAccess(err: unknown): never {
 }
 
 /**
- * Firestore's `in` disjunction caps at 30 values, so a cross-Project
- * enumeration scan spans at most this many Projects. A single user belonging to
- * more than 30 Projects is far outside Nova's small-team shape; the bound never
- * bites in practice and keeps `list_apps` / `search_apps` to one Firestore query
- * with the full cursor contract intact.
+ * Upper bound on how many Projects a single headless MCP caller enumerates
+ * across, so the cross-Project scan stays one bounded `project_id IN (…)` query
+ * (`queryAppsByScope`). A single user belonging to more than 30 Projects is far
+ * outside Nova's small-team shape; the bound never bites in practice and keeps
+ * `list_apps` / `search_apps` to one query with the full cursor contract intact.
  */
 const MAX_ENUMERATED_PROJECTS = 30;
 

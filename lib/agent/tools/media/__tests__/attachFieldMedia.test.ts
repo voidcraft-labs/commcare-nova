@@ -39,7 +39,7 @@ vi.mock("@/lib/db/apps", () => ({
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
 	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
 }));
-// Firestore-constructing module stubbed at the import boundary; the
+// The db-constructing module stubbed at the import boundary; the
 // attach verdict's asset reads resolve against the fixtures' in-memory
 // table instead.
 vi.mock("@/lib/db/mediaAssets", async () => ({

@@ -270,7 +270,7 @@ function buildAdvancedArmClause(
 // `Term`. The rewriter rebuilds every operator envelope fresh and
 // shares only literal-only / discriminator-only / non-substituting
 // Term slots by reference. It never mutates a shared reference, so
-// the input AST stays observable to its other consumers (Firestore
+// the input AST stays observable to its other consumers (Postgres
 // persistence, zundo history) unchanged.
 
 function substituteInputInPredicate(

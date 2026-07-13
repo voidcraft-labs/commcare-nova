@@ -36,7 +36,7 @@ import {
 // The attach tools verify the asset row before committing
 // (`attachGuardedMutate` → `mediaAttachVerdict` → `loadAssetsByIds`),
 // so the test files mock `@/lib/db/mediaAssets` at the import boundary
-// (Firestore never constructs) and point `loadAssetsByIds` at this
+// (the db layer never constructs) and point `loadAssetsByIds` at this
 // table. `resetTestAssets()` (call it in `beforeEach`) restores the
 // canonical READY rows the happy-path tests attach; a test exercising a
 // rejection seeds its own row via `seedTestAsset` or simply names an id

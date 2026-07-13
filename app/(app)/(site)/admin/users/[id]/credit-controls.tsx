@@ -2,7 +2,7 @@
  * Credit controls — the admin reset/grant surface for a single user.
  *
  * This is the highest-stakes control in the admin app: confirming either
- * dialog fires a real, credit-mutating Firestore write (and an append-only
+ * dialog fires a real, credit-mutating Postgres write (and an append-only
  * audit row) via `POST /api/admin/users/{id}/credits`. Two principles govern
  * the interaction model here, both load-bearing:
  *
@@ -13,7 +13,7 @@
  *      never-resolving promise, and why every dismiss path is gated on it.
  *
  * After a successful write we `navigate.refresh()` to re-stream the parent
- * server section, which re-reads Firestore — so the balance summary and the
+ * server section, which re-reads Postgres — so the balance summary and the
  * audit list below update from source rather than from optimistic local
  * state we'd otherwise have to keep in sync.
  */
@@ -114,7 +114,7 @@ export function CreditControls({
 	 *     the form) ONLY after a 2xx; on any failure it stays open so the admin
 	 *     can read the toast and retry without re-opening.
 	 *   - On success, `navigate.refresh()` re-streams the parent server section,
-	 *     which re-reads Firestore — fresh balance + the new audit row, no
+	 *     which re-reads Postgres — fresh balance + the new audit row, no
 	 *     optimistic local mutation to keep consistent.
 	 */
 	const runCreditAction = async (
@@ -142,7 +142,7 @@ export function CreditControls({
 				closeDialog();
 				resetForm();
 				// Re-read the server section so the balance + audit list reflect
-				// the write we just made, sourced from Firestore rather than guessed.
+				// the write we just made, sourced from Postgres rather than guessed.
 				navigate.refresh();
 				return;
 			}

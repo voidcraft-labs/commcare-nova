@@ -14,7 +14,7 @@
  * `documentExtractionStore.test.ts`.
  *
  * The store, storage, db, and auth are mocked at the import boundary so no
- * Gemini call, GCS, or Firestore is touched.
+ * Gemini call, GCS, or Postgres is touched.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -288,7 +288,7 @@ describe("POST extract (streamed result)", () => {
 		// over cap, so the gate rejects rather than risk uncapped spend. No
 		// extraction is attempted.
 		loadAssetByIdMock.mockResolvedValue(docAsset());
-		getMonthlyUsageMock.mockRejectedValue(new Error("firestore down"));
+		getMonthlyUsageMock.mockRejectedValue(new Error("usage read failed"));
 
 		const res = await POST(req(), ctx());
 		expect(res.status).toBe(503);

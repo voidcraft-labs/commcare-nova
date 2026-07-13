@@ -66,7 +66,7 @@ describe("built-in icon ref helpers", () => {
 
 	it("treats a stale built-in ref (slug gone from the catalog) as unresolvable", () => {
 		const stale = `${NOVA_ICON_REF_PREFIX}does_not_exist`;
-		// It still LOOKS built-in (prefix) so it's routed away from Firestore...
+		// It still LOOKS built-in (prefix) so it's routed away from Postgres...
 		expect(isBuiltinIconRef(stale)).toBe(true);
 		// ...but parse returns null, so it fails closed downstream like a deleted upload.
 		expect(parseBuiltinIconSlug(stale)).toBeNull();

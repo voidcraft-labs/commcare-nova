@@ -21,7 +21,7 @@ import { UserUsageSection } from "./user-usage";
  * in the page content — not the header.
  *
  * The URL param is the user's UUID (`/admin/users/{userId}`). The profile
- * section resolves the email and name from Firestore for display.
+ * section resolves the email and name from Postgres for display.
  */
 export default async function AdminUserDetailPage({
 	params,

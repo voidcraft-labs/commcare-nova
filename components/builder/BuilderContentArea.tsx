@@ -73,7 +73,7 @@ interface BuilderContentAreaProps {
 	/** Whether the layout is in centered mode (Idle phase). When centered,
 	 *  the preview area hides and chat takes full width. */
 	isCentered: boolean;
-	/** Whether the app was loaded from Firestore (not a new build). */
+	/** Whether the app was loaded from Postgres (not a new build). */
 	isExistingApp: boolean;
 	/** Server-rendered thread history for ChatContainer. */
 	children?: ReactNode;

@@ -1,6 +1,6 @@
 /**
  * The guarded commit path of `applyBlueprintChange` — the cross-store saga's
- * wiring around the ONE Firestore chokepoint, `commitGuardedBatch` (in
+ * wiring around the ONE blueprint-commit chokepoint, `commitGuardedBatch` (in
  * `apps.ts`). This file mocks `commitGuardedBatch` + `loadApp` and pins the
  * saga's composition:
  *

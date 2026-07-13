@@ -11,7 +11,7 @@
 //   - the chat resolve step's lazy backstop, via the live `GenerationContext`
 //     (which satisfies `AttachmentCondenser` and tracks the call's usage).
 //
-// It is deliberately pure of HTTP + Firestore: the extract store
+// It is deliberately pure of HTTP + storage: the extract store
 // (`documentExtractionStore`) owns loading the bytes and persisting the result.
 // Storing the extract once (keyed by content hash +
 // `EXTRACTOR_VERSION`) and reusing it every turn is what keeps a multi-page spec

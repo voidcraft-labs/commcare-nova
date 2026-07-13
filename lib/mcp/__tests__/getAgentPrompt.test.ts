@@ -4,7 +4,7 @@
  * Verifies the load-bearing behaviors of the self-fetch bootstrap tool:
  *
  *   - Build mode: rendering happens with no `app_id` round trip; a
- *     spurious `app_id` is ignored (no Firestore call). Two combos
+ *     spurious `app_id` is ignored (no app load). Two combos
  *     cover interactive vs autonomous wiring — the wiring difference
  *     shows up as a different Interaction Mode section appended to
  *     the returned text.
@@ -27,8 +27,8 @@
  * The MCP SDK is mocked at the boundary through the shared
  * `makeFakeServer` helper that captures the handler callback. The
  * prompts renderer is wrapped with a spy so handler→renderer arg
- * threading is verifiable, and Firestore is mocked at the data layer
- * (`@/lib/db/apps`) and at the loader layer (`../loadApp`) following
+ * threading is verifiable, and the data layer (`@/lib/db/apps`) and the
+ * loader layer (`../loadApp`) are mocked, following
  * the same pattern `compileApp.test.ts` uses.
  */
 
@@ -170,7 +170,7 @@ beforeEach(() => {
 /* --- Tests ----------------------------------------------------------- */
 
 describe("registerGetAgentPrompt — build modes", () => {
-	/* Build modes cover the trivial path: no `app_id`, no Firestore,
+	/* Build modes cover the trivial path: no `app_id`, no app load,
 	 * the renderer is called with no doc. Two combos pin interactive vs
 	 * autonomous wiring — verified via the distinct Interaction Mode
 	 * wording each emits. The interactive axis rides on `mode`
@@ -217,7 +217,7 @@ describe("registerGetAgentPrompt — build modes", () => {
 		});
 	}
 
-	it("ignores a spurious app_id quietly (no Firestore call)", async () => {
+	it("ignores a spurious app_id quietly (no app load)", async () => {
 		/* Sharp-edge contract: `mode` is the authoritative discriminator,
 		 * so a build-mode call carrying an `app_id` must NOT trigger an
 		 * ownership round trip. The skill is trusted to pass `mode`
@@ -269,7 +269,7 @@ describe("registerGetAgentPrompt — edit mode happy path", () => {
 });
 
 describe("registerGetAgentPrompt — edit mode missing app_id", () => {
-	it("collapses to error_type = 'invalid_input' without touching Firestore", async () => {
+	it("collapses to error_type = 'invalid_input' without loading the app", async () => {
 		/* The whole point of edit mode is to inline the blueprint
 		 * summary — without `app_id` the handler can't ownership-gate
 		 * or load, so it refuses with a deterministic
@@ -294,7 +294,7 @@ describe("registerGetAgentPrompt — edit mode missing app_id", () => {
 		 * classifier's generic "internal" message would have lost that. */
 		expect(payload.message).toContain("edit mode requires app_id");
 		/* Hard short-circuit: argument validation runs before any
-		 * Firestore call. */
+		 * app load. */
 		expect(loadAppBlueprint).not.toHaveBeenCalled();
 	});
 });

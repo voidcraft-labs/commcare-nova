@@ -1,6 +1,6 @@
 /**
  * Shared MCP helper — ownership-gate and load one app's blueprint in a
- * single Firestore read.
+ * single read.
  *
  * Combines the membership check + the blueprint load that every MCP
  * tool surface needs. Folding both into one read avoids a redundant
@@ -8,9 +8,9 @@
  * same row). The cost matters because every shared-tool dispatch + every
  * blueprint-touching MCP tool runs through this path.
  *
- * Firestore persists the `PersistableDoc` shape (see `toPersistableDoc`)
+ * The persisted blueprint is the `PersistableDoc` shape (see `toPersistableDoc`)
  * without `fieldParent` — the index is derived from `fieldOrder` at
- * every load so the disk doc has one canonical source of truth for
+ * every load so the stored doc has one canonical source of truth for
  * parent-child relationships. Every MCP surface that reads a blueprint
  * needs the fully-hydrated `BlueprintDoc`, so the rebuild lives here
  * rather than inlined at each call site.
@@ -18,7 +18,7 @@
  * Returning `{ doc, app }` (rather than just the blueprint) lets
  * callers that also need denormalized `AppDoc` columns — e.g.
  * `compile_app` consumes `app.app_name` for the ccz profile manifest —
- * share a single Firestore read. Callers that only need the blueprint
+ * share a single read. Callers that only need the blueprint
  * destructure `.doc` and ignore the rest.
  *
  * `LoadedApp.app` is narrowed to `Omit<AppDoc, "blueprint">` so a

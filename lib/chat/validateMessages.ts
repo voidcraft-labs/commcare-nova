@@ -3,7 +3,7 @@
 // Server-side validation for the chat route's `messages` array. The AI SDK's
 // `useChat` POSTs the full message history, and the route reads attachment refs
 // off each message's `metadata` and re-resolves them every turn (each ref drives
-// a Firestore load + a GCS/extract read, and the new turn's refs are persisted
+// a Postgres load + a GCS/extract read, and the new turn's refs are persisted
 // into the event log). That metadata is UNTRUSTED — `chatRequestSchema` validates
 // the route's own fields but deliberately does NOT re-parse the SDK-owned message
 // `parts`, so without this the attachment metadata reaches resolution unbounded.

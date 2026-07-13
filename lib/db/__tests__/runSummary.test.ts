@@ -9,12 +9,9 @@
  *      booleans, and leaves the pinned fields (started_at / prompt_mode /
  *      app_ready / model) as the first write's — all read back via `loadRunSummary`.
  *
- * The former Firestore-transaction arms (FieldValue.increment payload shapes,
- * the `merge:true` option, the empty-`data()` and schema-parse-failure overwrite
- * paths, and the "closure re-runs across a retry" driver) are gone: on typed
- * Postgres columns there is no converter to fail parsing (the `"overwritten"`
- * action is unreachable), and the deadlock/serialization retry is `withAppTx`'s,
- * covered by its own unit test.
+ * On typed Postgres columns there is no converter to fail parsing, so the
+ * `"overwritten"` action is unreachable; the deadlock/serialization retry lives
+ * in `withAppTx`, covered by its own unit test.
  */
 
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";

@@ -83,7 +83,7 @@ function assertCapability(
 /**
  * Resolve + authorize access to `appId` at the `required` capability. Pass a
  * pre-loaded `opts.app` to reuse a doc the caller already fetched (avoids a
- * second Firestore read). Throws {@link AppAccessError} on any denial.
+ * second app-row read). Throws {@link AppAccessError} on any denial.
  */
 export async function resolveAppAccess(
 	appId: string,

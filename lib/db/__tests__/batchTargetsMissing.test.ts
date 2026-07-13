@@ -4,7 +4,7 @@
  * mutation whose target a peer deleted silently no-ops and the verdict passes —
  * invisible data loss. This function turns that into a surfaced conflict.
  *
- * These are PURE unit tests (no Firestore): the function is a pure
+ * These are PURE unit tests (no database): the function is a pure
  * `(doc, mutations) => boolean`. Coverage is per-KIND at the granularity P2
  * introduced — entity (module/form/field), catalog (`(caseType, property)`
  * name), and collection item (column / search-input / option uuid). The

@@ -7,11 +7,8 @@
  * deleted-heavy scope still fills a full page of live rows and the "maybe more"
  * cursor stays accurate. A stale `generating` build projects to `status: "error"`
  * (and fires its reaper); a stale `complete` app is left untouched. The cursor's
- * sort discriminant must match the call's sort. (The former Firestore
- * query-shape assertions — `where('deleted_at','==',null)` was invoked, the
- * `.select()` projection excluded `deleted_at` — are Firestore-builder
- * internals with no Postgres analogue; the same contracts are pinned here on the
- * RESULT instead.)
+ * sort discriminant must match the call's sort. These contracts are pinned on
+ * the RESULT (the returned rows + cursor), not on query-builder internals.
  */
 
 import { describe, expect, it, vi } from "vitest";

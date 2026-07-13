@@ -7,7 +7,7 @@
 //     tested as in/out, no I/O, no timers.
 //   - `ensureStoredExtract` is the orchestration: GCS-first fast path, then the
 //     status-driven branch (reuse / report-in-flight / claim+extract). Driven
-//     against mocked storage/db + a mocked extraction core so no GCS, Firestore,
+//     against mocked storage/db + a mocked extraction core so no GCS, Postgres,
 //     or model call happens. This is where the single-flight LIFECYCLE coverage
 //     lives (it used to sit on the route, before the two paths were unified).
 //

@@ -30,7 +30,7 @@
  *
  *   1. `scope_missing`          — the access token lacks `nova.hq.write`.
  *                                 Pre-gate 0; cuts off ownership probing
- *                                 before any Firestore read.
+ *                                 before any app-state read.
  *   2. `hq_not_configured`      — the user has not stored CommCare HQ
  *                                 credentials in Settings.
  *   3. `domain_not_authorized`  — `domain` was supplied but the key can't
@@ -168,7 +168,7 @@ export function registerUploadAppToHq(
 				app_id: z
 					.string()
 					.describe(
-						"Firestore app id to upload. Must be an app the authenticated user owns.",
+						"App id to upload. Must be an app the authenticated user owns.",
 					),
 				app_name: z
 					.string()
@@ -197,7 +197,7 @@ export function registerUploadAppToHq(
 				 * the surrounding catch stamps `app_id` from `ctx`. */
 				assertScope(ctx, SCOPES.hqWrite, "upload_app_to_hq");
 
-				/* Pre-gate 1: ownership + blueprint load in one Firestore
+				/* Pre-gate 1: ownership + blueprint load in one
 				 * read. `loadAppBlueprint` throws `McpAccessError` on
 				 * cross-tenant probe or vanished row — both collapse to
 				 * `not_found` on the wire so a probing client cannot
@@ -423,7 +423,7 @@ export function registerUploadAppToHq(
 				} finally {
 					/* Drain the event-log buffer before returning OR
 					 * throwing. `LogWriter.flush` never throws; it resolves
-					 * once every inflight Firestore batch has acknowledged.
+					 * once every inflight log batch has acknowledged.
 					 * A missed flush silently drops any events that hadn't
 					 * triggered the batch-size flush threshold yet. */
 					await logWriter.flush();

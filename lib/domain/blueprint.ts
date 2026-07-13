@@ -1,10 +1,11 @@
 // lib/domain/blueprint.ts
 //
 // The normalized blueprint document — single source of truth for the
-// builder's domain state. Firestore stores this shape directly (no
-// nested-tree conversion). In-memory representation matches on-disk,
-// minus the `fieldParent` reverse index which is rebuilt from
-// `fieldOrder` on load.
+// builder's domain state. This is the persisted shape (decomposed into
+// per-entity rows and recomposed on load — no nested-tree conversion).
+// In-memory representation matches the persisted one, minus the
+// `fieldParent` reverse index which is rebuilt from `fieldOrder` on
+// load.
 
 import { z } from "zod";
 import {
@@ -111,14 +112,14 @@ export const blueprintDocSchema = z
 	.strict();
 
 /**
- * The on-disk (Firestore-persisted) shape of the blueprint doc.
+ * The persisted shape of the blueprint doc.
  *
  * This is the direct Zod-inferred type from `blueprintDocSchema`. It does NOT
  * include `fieldParent` — that field is derived from `fieldOrder` on load and
  * is never stored.
  *
  * Use `BlueprintDoc` for in-memory / store state (includes `fieldParent`);
- * use `PersistableDoc` at Firestore read/write boundaries.
+ * use `PersistableDoc` at persistence read/write boundaries.
  */
 export type PersistableDoc = z.infer<typeof blueprintDocSchema>;
 
@@ -129,7 +130,7 @@ export type PersistableDoc = z.infer<typeof blueprintDocSchema>;
  * `BlueprintDoc` is structurally assignable to `PersistableDoc` (extra
  * properties don't break TS assignability), so a writer parameter typed
  * `PersistableDoc` would happily accept an unstripped in-memory doc and
- * serialize `fieldParent` + the reference index into Firestore. The
+ * serialize `fieldParent` + the reference index into the stored rows. The
  * `never`-typed slots are the compile-time wall: a value whose TYPE
  * declares either property is rejected at the call site, while the
  * output of `toPersistableDoc` (and any Zod-parsed wire payload)

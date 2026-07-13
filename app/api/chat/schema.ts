@@ -18,7 +18,7 @@ export const CACHE_TTL_MS = 30 * 60 * 1000;
  */
 export const chatRequestSchema = z.object({
 	runId: z.string().optional(),
-	/** Firestore app ID — present after first save so subsequent saves update the same doc. */
+	/** App ID — present after first save so subsequent saves update the same doc. */
 	appId: z.string().optional(),
 	/** ISO timestamp of the last SA response in this session. Used with CACHE_TTL_MS
 	 *  to determine whether the conversation is within the prompt cache window. */

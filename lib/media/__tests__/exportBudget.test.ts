@@ -14,7 +14,7 @@
  *      an in-budget attach returns null, an over-budget one returns
  *      the shared prose.
  *
- * Pure module — no Firestore, no React; nothing to stub.
+ * Pure module — no database, no React; nothing to stub.
  */
 
 import { describe, expect, it } from "vitest";

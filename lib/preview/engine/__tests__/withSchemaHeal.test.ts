@@ -6,7 +6,7 @@
  *   - a heal triggers on a MISSING row (`SchemaNotSyncedError`) AND on a
  *     STALE row (`CasePropertiesValidationError` — a write carrying a
  *     property the row's older catalog lacks); every other throw passes
- *     through untouched (no Firestore read);
+ *     through untouched (no Postgres read);
  *   - a heal re-materializes from the app's PERSISTED blueprint (not a
  *     caller-supplied copy) and passes its `mutation_seq` off the SAME
  *     snapshot as `syncedSeq` (so the monotone gate never pairs a later seq
@@ -184,7 +184,7 @@ describe("withSchemaHeal — stale schema row (CasePropertiesValidationError)", 
 		expect(run).toHaveBeenCalledTimes(2);
 	});
 
-	it("does NOT heal a non-drift validation failure (type/format) — surfaces immediately, no Firestore read", async () => {
+	it("does NOT heal a non-drift validation failure (type/format) — surfaces immediately, no Postgres read", async () => {
 		// A genuine invalid-data failure carries no `additionalProperty`, so
 		// it is not drift: the heal must not fire. The error surfaces on the
 		// first attempt with NO loadApp + re-materialize round-trip, and the
@@ -200,7 +200,7 @@ describe("withSchemaHeal — stale schema row (CasePropertiesValidationError)", 
 
 	it("does NOT mask drift the re-materialize can't resolve (persisted blueprint also stale): the second error surfaces", async () => {
 		// Drift the heal fires on, but the persisted blueprint is ALSO stale
-		// (same failure left both Firestore and the row behind), so the
+		// (same failure left both the persisted blueprint and the row behind), so the
 		// re-materialize regenerates the same schema and the retry fails
 		// again. That second error propagates — one extra materialize +
 		// retry, never a swallowed failure.

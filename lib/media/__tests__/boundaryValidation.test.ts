@@ -2,7 +2,7 @@
  * Tests for `collectBoundaryViolations` — the zero-tolerance boundary
  * gate the four export entry points delegate to.
  *
- * Only `loadAssetsByIds` is mocked (it reads Firestore); the REAL
+ * Only `loadAssetsByIds` is mocked (it reads Postgres); the REAL
  * validator runs so these tests prove the actual rule wiring, not a
  * restatement of the helper's own assumptions. The media cases cover the
  * stale-reference shapes that would otherwise make media-ON `expandDoc`
@@ -29,7 +29,7 @@ import { collectBoundaryViolations } from "../boundaryValidation";
 
 const PROJECT = "project-1";
 
-/* Only the Firestore read is mocked — the validator runs for real. */
+/* Only the Postgres read is mocked — the validator runs for real. */
 vi.mock("@/lib/db/mediaAssets", () => ({
 	loadAssetsByIds: vi.fn(),
 }));
@@ -214,7 +214,7 @@ describe("collectBoundaryViolations", () => {
 		expect(errors[0].scope).toBe("app");
 	});
 
-	it("returns no errors and skips the Firestore read for a valid media-free doc", async () => {
+	it("returns no errors and skips the asset-row read for a valid media-free doc", async () => {
 		const errors = await collectBoundaryViolations(validDoc(), PROJECT);
 		expect(errors).toHaveLength(0);
 		// No media refs → no asset load (the early-skip in the helper).
@@ -227,7 +227,7 @@ describe("collectBoundaryViolations", () => {
 		expect(loadAssetsByIds).toHaveBeenCalledWith(["some-asset"], PROJECT);
 	});
 
-	it("resolves a built-in icon ref clean, with no Firestore read", async () => {
+	it("resolves a built-in icon ref clean, with no asset-row read", async () => {
 		// A built-in icon (`nova-icon:<slug>`) in an image slot has no library
 		// row — the boundary synthesizes a ready/image row from the catalog, so
 		// the media rules pass and `loadAssetsByIds` is never called (no real ids).
@@ -289,7 +289,7 @@ describe("collectBoundaryViolations", () => {
 
 		const errors = await collectBoundaryViolations(doc, PROJECT);
 		expect(errors).toHaveLength(0);
-		// Only the uploaded asset hit Firestore; the built-in resolved from the
+		// Only the uploaded asset hit Postgres; the built-in resolved from the
 		// catalog without a read.
 		expect(loadAssetsByIds).toHaveBeenCalledWith(["real-asset"], PROJECT);
 	});

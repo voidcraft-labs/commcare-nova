@@ -77,7 +77,7 @@ import { wireToolSchema } from "./wireSchemas";
  *
  * @param initialDoc - The SA's starting `BlueprintDoc`. On initial builds
  *   this is the empty doc created by `createApp`; during edits it's the
- *   app's current state loaded from Firestore. The SA owns this doc for
+ *   app's current state loaded from Postgres. The SA owns this doc for
  *   the lifetime of the agent — every tool call mutates it in place.
  * @param editing - True when the app already exists (appReady). The SA gets
  *   the editing preamble + blueprint summary in its prompt and only has access
@@ -91,7 +91,7 @@ export function createSolutionsArchitect(
 ) {
 	/* Internal working doc — read + reassigned on every tool call.
 	 *
-	 * Mutation persistence (SSE + event log + Firestore) happens inside
+	 * Mutation persistence (SSE + event log + Postgres) happens inside
 	 * each extracted tool module via `ctx.recordMutations`. The wrappers
 	 * below only reassign `doc` when the extracted tool's `mutations`
 	 * array is non-empty, so the next tool call in the same request sees

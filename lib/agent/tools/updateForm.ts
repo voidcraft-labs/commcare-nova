@@ -200,7 +200,7 @@ export const updateFormTool = {
 
 			// Compute the mutations, apply via Immer, and persist through
 			// the shared context so both surfaces write the same stream +
-			// log + Firestore trio.
+			// log + Postgres trio.
 			const mutations = updateFormMutations(doc, formUuid, patch);
 			const commit = await guardedMutate(
 				ctx,

@@ -10,7 +10,7 @@
  *    go through `commitBatch`, which commits the batch through the unified
  *    guarded writer and only THEN owns the SSE payload + matching event-log
  *    writes.
- *  - **Event log (`LogWriter`)** — Firestore-backed append-only event stream.
+ *  - **Event log (`LogWriter`)** — Postgres-backed append-only event stream.
  *    `commitBatch` writes one `MutationEvent` per mutation; `emitConversation`
  *    writes one `ConversationEvent` per assistant/tool/user artifact. The log
  *    powers admin inspection and future replay. It is strictly supplemental —
@@ -135,7 +135,7 @@ export function reasoningProviderOptions(effort: ReasoningEffort) {
  * cost aggregation and exposes the `runId` used on every event envelope.
  *
  * `appId` is required — the chat route creates the app doc via `createApp`
- * before constructing the context (Firestore-down = 503, not an orphaned
+ * before constructing the context (Postgres-down = 503, not an orphaned
  * build). Every `GenerationContext` has a target app because each tool batch
  * commits inline through `commitGuardedBatch(appId, …)` — the same shape as
  * `McpContext`.
@@ -146,13 +146,13 @@ interface GenerationContextOptions {
 	apiKey: string;
 	/** SSE writer for the live builder. Unchanged wire format. */
 	writer: UIMessageStreamWriter;
-	/** Event log sink — batched Firestore writer, one doc per event. */
+	/** Event log sink — batched Postgres writer, one row per event. */
 	logWriter: LogWriter;
 	/** Cost + step/tool-call counter for per-run summary + monthly cap. */
 	usage: UsageAccumulator;
 	/** Authenticated user session — always present (all users are authenticated). */
 	session: Session;
-	/** Firestore app id. The chat route creates the app doc before this
+	/** App id. The chat route creates the app doc before this
 	 * constructor runs so every context has a valid target app. */
 	appId: string;
 	/**
@@ -216,12 +216,12 @@ export class GenerationContext implements ToolExecutionContext {
 	readonly usage: UsageAccumulator;
 	/** Authenticated user session. */
 	readonly session: Session;
-	/** Firestore app id — required. Created before construction by the
+	/** App id — required. Created before construction by the
 	 * chat route so every context has a valid persistence target. */
 	readonly appId: string;
 	/**
 	 * Per-request tiebreaker for same-millisecond SSE bursts. Resets to 0
-	 * each request; doc IDs are Firestore-minted, so no cross-request
+	 * each request; event row ids are Postgres-assigned, so no cross-request
 	 * uniqueness is needed.
 	 */
 	private seq = 0;
@@ -324,7 +324,7 @@ export class GenerationContext implements ToolExecutionContext {
 			seq: this.seq++,
 			/* `source: "chat"` is stamped inline so the in-memory event we
 			 * hold is schema-valid and self-documenting. The writer re-stamps
-			 * it authoritatively on its way to Firestore (see LogWriter), so
+			 * it authoritatively on its way to Postgres (see LogWriter), so
 			 * this is defense-in-depth, not the canonical value. */
 			source: "chat",
 			payload,
@@ -439,7 +439,7 @@ export class GenerationContext implements ToolExecutionContext {
 			seq: this.seq++,
 			actor: "agent",
 			/* Inline `source: "chat"` so the SSE envelope is schema-valid;
-			 * `LogWriter` re-stamps it authoritatively on the way to Firestore. */
+			 * `LogWriter` re-stamps it authoritatively on the way to Postgres. */
 			source: "chat",
 			/* Include `stage` whenever the caller explicitly passed a value —
 			 * empty-string is a valid stage. */
@@ -567,7 +567,7 @@ export class GenerationContext implements ToolExecutionContext {
 
 	/**
 	 * ToolExecutionContext implementation. Pure delegator to
-	 * `emitConversation`; synchronous by construction (no Firestore
+	 * `emitConversation`; synchronous by construction (no Postgres
 	 * latency to block on for conversation events — the durable persistence
 	 * is owned by the batched `LogWriter.flush`).
 	 */
@@ -769,7 +769,7 @@ export class GenerationContext implements ToolExecutionContext {
 				te.error instanceof Error ? te.error.message : String(te.error);
 			resultByCallId.set(te.toolCallId, { error: message });
 			// Surface it in Cloud Logging too — the fold above only records it in
-			// the per-run event log (Firestore). A tool call reaching the SDK's
+			// the per-run event log (Postgres). A tool call reaching the SDK's
 			// error path (invalid input, or an execution throw) is abnormal: tool
 			// bodies normally catch and return a friendly `{ error }`, so an
 			// `output-error` means something escaped and is worth a greppable line.

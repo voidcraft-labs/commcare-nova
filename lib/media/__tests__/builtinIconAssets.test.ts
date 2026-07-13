@@ -1,6 +1,6 @@
 /**
  * Tests for the server-side built-in icon bridge — how a `nova-icon:<slug>` ref
- * flows through the export pipeline without a Firestore row or GCS object.
+ * flows through the export pipeline without a `media_assets` row or GCS object.
  *
  * `partitionAssetRefs` / `builtinAssetRows` are pure; `resolveBuiltinManifestEntries`
  * reads the REAL shipped PNGs from `public/nova-icons/` (committed by the build

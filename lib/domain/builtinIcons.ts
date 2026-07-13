@@ -17,7 +17,7 @@
 // `scripts/build-builtin-icons.ts`. This module is the hand-written wrapper:
 // types + the ref/path helpers every surface shares. It is a `lib/domain` leaf —
 // imported by both the client (`useAttachBudget`) and the server (`lib/media`),
-// so it pulls in no `lib/commcare`, Firestore, or `server-only`.
+// so it pulls in no `lib/commcare`, `lib/db`, or `server-only`.
 
 import {
 	ALL_ICON_SLUGS,
@@ -61,7 +61,7 @@ export function builtinIconRef(slug: IconSlug): AssetId {
 }
 
 /** Whether an asset id refers to a built-in icon (a cheap prefix check — routes
- *  the ref AWAY from Firestore/GCS before any lookup; stale slugs included, they
+ *  the ref AWAY from Postgres/GCS before any lookup; stale slugs included, they
  *  fail closed downstream). */
 export function isBuiltinIconRef(id: string): boolean {
 	return id.startsWith(NOVA_ICON_REF_PREFIX);

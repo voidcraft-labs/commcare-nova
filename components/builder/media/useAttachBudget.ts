@@ -58,7 +58,7 @@ export function useAttachBudgetGuard(): (
 	return useCallback(
 		async (candidate: MediaAssetView) => {
 			// Built-in icons (`nova-icon:<slug>`) are shared, tiny, and have no
-			// Firestore row — they can't meaningfully move the export budget and a
+			// `media_assets` row — they can't meaningfully move the export budget and a
 			// gap-fetch for one would 404. Picking one always passes.
 			if (isBuiltinIconRef(candidate.id)) return { ok: true };
 
@@ -66,7 +66,7 @@ export function useAttachBudgetGuard(): (
 			// a later check (or a re-attach) needs no fetch for it.
 			session.getState().recordAssetMeta([candidate]);
 
-			// Drop built-in refs already in the doc: they're not Firestore assets,
+			// Drop built-in refs already in the doc: they're not stored assets,
 			// so the gap-fetch below would 404 on them, and they don't count toward
 			// this courtesy check (the export boundary still tallies them).
 			const referencedIds = [...collectAssetRefs(docApi.getState())].filter(

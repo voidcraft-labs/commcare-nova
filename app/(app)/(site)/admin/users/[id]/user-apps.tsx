@@ -1,7 +1,7 @@
 /**
  * Async server component — user app list.
  *
- * Fetches apps from Firestore and renders the AppCardList.
+ * Fetches apps from Postgres and renders the AppCardList.
  * Wrapped in a Suspense boundary by the parent page so it streams in
  * independently of the profile card and usage table.
  */

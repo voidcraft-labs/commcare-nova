@@ -121,7 +121,7 @@ interface ChatSidebarProps {
 	/** When `readOnly`, an optional note shown where the composer would be —
 	 *  explains why the user can't send (view-only Project access). */
 	readOnlyNotice?: ReactNode;
-	/** Whether the app was loaded from Firestore (not a new build).
+	/** Whether the app was loaded from Postgres (not a new build).
 	 *  Drives the empty-state prompt text. */
 	isExistingApp?: boolean;
 	/** Server-rendered thread history — pre-rendered by the RSC page

@@ -202,7 +202,7 @@ export function slotExpectation(
  *   - a value matching a built-in icon slug → the reserved `nova-icon:<slug>`
  *     ref and NO expectation. Built-ins have no library row — they're always a
  *     ready image, resolved from the shipped set at emit — so the at-source
- *     verdict (which reads Firestore) must not run for them. An empty
+ *     verdict (which reads the asset row) must not run for them. An empty
  *     expectation list is exactly what skips it.
  *   - a STORED built-in ref (`nova-icon:<slug>`, a valid catalog slug) → the
  *     ref unchanged, NO expectation. This is the echo-back path: the SA

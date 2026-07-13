@@ -34,7 +34,7 @@ vi.mock("../runSummary", () => ({
 // `refundReservation` lives in `../credits` — a SEPARATE module from
 // `UsageAccumulator` — so a module-level mock DOES intercept the import that
 // `usage.ts` resolves at flush time (unlike `incrementUsage`, which is
-// intra-module and can only be observed at the Firestore boundary below). We
+// intra-module and can only be observed at the database boundary below). We
 // assert on the mock's invocations to prove the refund branch's guard logic.
 vi.mock("../credits", () => ({
 	refundReservation: refundReservationMock,
@@ -423,9 +423,7 @@ describe("UsageAccumulator", () => {
 			// transaction threw. The log reports the OUTCOME, not the intent: a refund
 			// that did not commit logs refunded:false + refundFailed:true, so the cost
 			// investigation is never told credits were handed back when they weren't.
-			refundReservationMock.mockRejectedValue(
-				new Error("firestore contention"),
-			);
+			refundReservationMock.mockRejectedValue(new Error("database contention"));
 			const acc = new UsageAccumulator(reservedSeed);
 			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
 			acc.markRunFailed();

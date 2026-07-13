@@ -9,7 +9,7 @@
  *   - checks for a (project, hash) match in the asset library — on
  *     hit, returns the existing assetId and tells the browser to
  *     skip the bytes-PUT entirely (dedup-skip-the-upload)
- *   - on miss, creates a `pending` Firestore row and a signed PUT
+ *   - on miss, creates a `pending` Postgres row and a signed PUT
  *     URL the browser uses to push bytes directly to GCS
  *
  * Step 2 lives at `[assetId]/confirm/route.ts` — the browser calls

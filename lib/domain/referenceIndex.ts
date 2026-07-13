@@ -79,7 +79,7 @@ export interface ReferenceCarrierEntry {
 /**
  * The reference + declarations index. Derived state: deterministic
  * function of the doc, identical on every apply surface, rebuildable
- * from the doc alone, and never serialized (Firestore, the event log,
+ * from the doc alone, and never serialized (persistence, the event log,
  * and every wire format see `PersistableDoc`, which omits it).
  */
 export interface ReferenceIndex {

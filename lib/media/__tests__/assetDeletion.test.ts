@@ -10,7 +10,7 @@
 //   - `purgeAssetStorage` — drop the row always, delete bytes + sibling keys
 //     only when the bytes are unshared, fail closed on a probe error.
 //
-// Driven against mocked db/storage + a mocked `walkAssetRefs`, so no Firestore,
+// Driven against mocked db/storage + a mocked `walkAssetRefs`, so no Postgres,
 // GCS, or real blueprint walk runs. `walkAssetRefs` is mocked to return chosen
 // references — its own traversal is covered in the domain layer.
 
@@ -168,7 +168,7 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 		).toEqual([]);
 	});
 
-	it("returns empty for an empty candidate set without touching Firestore", async () => {
+	it("returns empty for an empty candidate set without touching Postgres", async () => {
 		expect(await findAppReferencesToAsset(PROJECT, "asset-1", [])).toEqual([]);
 		expect(loadApp).not.toHaveBeenCalled();
 		expect(listApps).not.toHaveBeenCalled();

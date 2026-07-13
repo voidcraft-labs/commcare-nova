@@ -7,13 +7,11 @@
  * whatever the row currently carries and can never reuse a value cached OUTSIDE
  * the closure — a regression that cached it would leave a GAP or DUPLICATE.
  *
- * The Firestore-era unit suite drove a fake `runTransaction` twice to SIMULATE an
- * abort-retry, because the emulator livelocked on real 2-way contention. On
- * Postgres the app-row `FOR UPDATE` lock makes the contention deterministic, so
- * this drives it FOR REAL: two concurrent commits over separate connections
- * serialize behind the row lock, and the second re-reads the advanced seq — a
- * strictly stronger proof than the fake. (`withAppTx`'s deadlock/serialization
- * retry loop is unit-tested in `withAppTx.test.ts`; the serial gap-free run is in
+ * The app-row `FOR UPDATE` lock makes the contention deterministic, so this
+ * drives it FOR REAL: two concurrent commits over separate connections
+ * serialize behind the row lock, and the second re-reads the advanced seq.
+ * (`withAppTx`'s deadlock/serialization retry loop is unit-tested in
+ * `withAppTx.test.ts`; the serial gap-free run is in
  * `commitGuardedBatch.integration.test.ts`.)
  */
 

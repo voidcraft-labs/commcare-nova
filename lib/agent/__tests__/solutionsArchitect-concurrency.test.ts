@@ -35,7 +35,7 @@ import { makeTestContext } from "./fixtures";
 /* The SA commits every batch through `commitGuardedBatch` (kind:'chat'). Mock
  * it to re-apply the batch onto a TRACKED server doc and return the hydrated
  * result — mirroring the real writer, so the SA's working doc advances across
- * serialized tool calls exactly as it would against Firestore. `__seedServerDoc`
+ * serialized tool calls exactly as it would against Postgres. `__seedServerDoc`
  * seeds the tracked doc to the SA's initial doc per test. */
 const { commitGuardedBatchMock, seedServerDoc } = vi.hoisted(() => {
 	let serverDoc: unknown = null;

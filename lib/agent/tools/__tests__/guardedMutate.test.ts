@@ -70,7 +70,7 @@ function minDoc(): BlueprintDoc {
 
 /** Bare `ToolExecutionContext` stub — `recordMutations` (single-batch
  *  tools) and `recordMutationStages` (multi-stage tools) are the
- *  assertion surfaces; nothing here touches Firestore. Both return the
+ *  assertion surfaces; nothing here touches Postgres. Both return the
  *  `{ events, committedDoc }` shape the guarded writer surfaces, echoing
  *  the passed post-mutation doc as the committed doc (the real writer's
  *  hydrated `nextDoc` — here with no concurrent peer edit to merge). */

@@ -166,9 +166,8 @@ function latestFlushSpy(): ReturnType<typeof vi.fn> {
  * test vary one field (e.g. a distinct `app_name`) without restating the
  * whole shape.
  *
- * `AppDoc` carries Firestore `Timestamp` fields that tests don't care
- * about — cast through `unknown` to keep the shape narrow without pulling
- * in the Firestore Admin SDK just to fabricate a Timestamp.
+ * `AppDoc` carries timestamp fields that tests don't care about — any
+ * plain `Date` works as a placeholder.
  */
 function buildLoadedApp(overrides: Partial<AppDoc> = {}): AppDoc {
 	return {
@@ -188,8 +187,8 @@ function buildLoadedApp(overrides: Partial<AppDoc> = {}): AppDoc {
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
-		created_at: new Date() as unknown as AppDoc["created_at"],
-		updated_at: new Date() as unknown as AppDoc["updated_at"],
+		created_at: new Date(),
+		updated_at: new Date(),
 		...overrides,
 	};
 }
@@ -435,7 +434,7 @@ describe("registerSharedTool — real read tool integration (searchBlueprint)", 
 		 * no mutations, no persistence. A good integration smoke test
 		 * because it exercises the whole adapter path (ownership +
 		 * load + execute + project + envelope) against a real module
-		 * without any Firestore writes. */
+		 * without any DB writes. */
 		const { searchBlueprintTool } = await import(
 			"@/lib/agent/tools/searchBlueprint"
 		);

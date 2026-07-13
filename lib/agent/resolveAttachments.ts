@@ -209,7 +209,7 @@ export async function resolveAttachments(
 	if (ids.size === 0) return messages;
 
 	// One Project-gated batch load; an out-of-Project/missing id is simply absent
-	// from the map (→ placeholder), never leaked. A TOTAL load failure (a Firestore
+	// from the map (→ placeholder), never leaked. A TOTAL load failure (a Postgres
 	// outage) must not throw out of here — that would fail the whole turn from a
 	// spot outside the route's try/finally, losing the usage + log flush and
 	// breaking the never-drop invariant. Degrade to an empty map so every ref

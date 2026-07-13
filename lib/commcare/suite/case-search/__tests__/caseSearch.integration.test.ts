@@ -244,7 +244,7 @@ function compileSuiteXml(doc: BlueprintDoc): string {
 	return entry.getData().toString("utf-8");
 }
 
-// SA-tool tests need the Firestore writes mocked. The mock is at
+// SA-tool tests need the app-state writes mocked. The mock is at
 // module scope per the project's standing pattern (see
 // `setCaseSearchAdvanced.test.ts`).
 vi.mock("@/lib/db/apps", () => ({
