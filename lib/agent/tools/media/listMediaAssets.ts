@@ -66,7 +66,7 @@ export interface ListMediaAssetsResult {
 
 export const listMediaAssetsTool = {
 	description:
-		"List the uploaded media assets in the app's library (ready ones, newest first). This is how you discover the asset ids the attach/set media tools need. Each asset carries its id, kind, filename, MIME type, and size. Optionally filter by kind; paginate with the returned cursor.",
+		"List the ready assets in the library (newest first) — the source of the asset ids every attach tool needs.",
 	inputSchema: listMediaAssetsInputSchema,
 	async execute(
 		input: ListMediaAssetsInput,

@@ -206,7 +206,7 @@ function editPatchToFieldPatch(
 
 export const editFieldTool = {
 	description:
-		"Update properties on an existing field. Pass the field's current kind to edit it in place — that selects the set of properties this kind actually has; passing a different kind requests a conversion to that kind. Give a property a value to change it, or null to REMOVE it (drop a hint, unset validation); leave out every property you aren't touching. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
+		"Update a field. Pass its current kind to edit in place, or a different kind to convert it. A value sets a property, null REMOVES it, leaving it out keeps it. An id rename propagates every reference automatically.",
 	inputSchema: editFieldInputSchema,
 	async execute(
 		input: EditFieldInput,

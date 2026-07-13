@@ -75,9 +75,8 @@ export const CONNECT_SLUG_MAX_LENGTH = 50;
  * files so the agent-facing contract can't drift between them.
  */
 export const CONNECT_ID_FIELD_DESCRIPTION =
-	"Optional — leave this unset and Nova fills in a valid, unique id derived from the name (the normal case). " +
-	"Set it only to pin a specific id; it must be a legal XML element name (letters, numbers, and underscores, " +
-	`starting with a letter or underscore), ${CONNECT_SLUG_MAX_LENGTH} characters or fewer, and unique across the app, or the call fails.`;
+	"Leave unset — Nova derives a valid unique id from the name. Set only " +
+	`to pin one (XML-name legal, ≤${CONNECT_SLUG_MAX_LENGTH} chars, app-unique).`;
 
 /**
  * The single definition of what makes a connect id valid.

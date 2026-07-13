@@ -70,7 +70,7 @@ export type SetCaseSearchAdvancedResult =
 
 export const setCaseSearchAdvancedTool = {
 	description:
-		"Set the advanced cluster of a module's case-search config: niche search-side filters most authors never reach for. The cluster carries a `excludedOwnerIds` expression — pass `null` to clear that slot. The display cluster (search-screen labels) is not touched — use setCaseSearchDisplay for that.",
+		"Set a module's advanced case-search cluster (niche search-side filters — excludedOwnerIds). null clears a slot. Display text lives on setCaseSearchDisplay.",
 	inputSchema: setCaseSearchAdvancedInputSchema,
 	async execute(
 		input: SetCaseSearchAdvancedInput,

@@ -14,7 +14,9 @@
  */
 
 import type { BlueprintDoc } from "@/lib/domain";
+import { buildExpressionReference } from "./expressionReference";
 import { summarizeBlueprint } from "./summarizeBlueprint";
+import { fieldKindGuide } from "./toolSchemaGenerator";
 
 // ── Core prompt (shared across build and edit modes) ──────────────────
 
@@ -216,6 +218,24 @@ A slot you have no real value for is left out of the call entirely — that's th
 null is an ACTION, not filler: on an editing tool it REMOVES the slot's current value (drop a hint, unset validation, make a close unconditional, remove a Connect block, turn Connect off). Pass null only when the user asked for a removal. On creation tools null just means "none", same as leaving the slot out.
 
 Never invent a value to get past validation. When a call is rejected, the findings name what is actually wrong — fix that, which usually means dropping a slot that doesn't apply, not inventing a value that satisfies the shape. A made-up input is wrong by construction, and it lands in the user's app.
+
+---
+
+## Field kinds
+
+Every field's \`kind\` picks the CommCare control and data type — use the most specific kind for the data (\`int\` for a count, not \`text\`):
+
+${fieldKindGuide()}
+
+---
+
+## Filters & expressions
+
+Case-list filters, column \`filter\`/\`calc\` slots, search-input predicates and defaults, and \`excludedOwnerIds\` take a structured AST — a tool slot described as a "Predicate" or "ValueExpression" takes exactly these shapes:
+
+\`\`\`typescript
+${buildExpressionReference()}
+\`\`\`
 
 ---
 

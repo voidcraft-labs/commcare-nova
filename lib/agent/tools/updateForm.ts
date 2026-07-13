@@ -91,12 +91,7 @@ export const updateFormInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"Where the user goes after submitting this form. " +
-					'"app_home" = main menu. ' +
-					'"module" = this module\'s form list. ' +
-					'"previous" = back to where the user was (e.g. case list). ' +
-					'Defaults to "previous" for followup, "app_home" for registration/survey. ' +
-					"Pass null to reset to the form-type default; leave it out to keep the current setting.",
+				'Post-submit destination: "app_home", "module" (its form list), or "previous". null resets to the form-type default.',
 			),
 		connect: z
 			.object({
@@ -158,9 +153,7 @@ export const updateFormInputSchema = z
 							.nullable()
 							.optional()
 							.describe(
-								"XPath that resolves to the dedup key Connect uses to group form submissions into one logical delivery (one CompletedWork). Connect deduplicates per `(FLW, entity_id, payment_unit)`: two visits with the same entity_id from the same FLW in the same payment unit collapse into one CompletedWork; a different entity_id (or a different payment unit) produces a separate one. " +
-									"Omit to fall back to `concat(#user/username, '-', today())` — one CompletedWork per FLW per day, the right default when the unit of payment is the FLW's daily aggregate. " +
-									"Override when one paid delivery corresponds to a specific beneficiary, case, or site rather than a daily aggregate. The expression must produce the same value across all forms in the same payment unit for the same delivery target — that's how Connect links a multi-form payment unit (e.g. registration + followup + close) into one CompletedWork. Examples: `#<case_type>/case_id` for case-tracking deliveries, `#form/beneficiary_id` for forms that capture the beneficiary identifier directly, `concat(#<case_type>/household_id, '-', #form/visit_date)` when one paid delivery is one household visit on one date.",
+								"XPath dedup key grouping submissions into one paid delivery (CompletedWork). Omit for the daily-aggregate default; override per the Connect guidance in your instructions.",
 							),
 						entity_name: z
 							.string()
@@ -168,16 +161,14 @@ export const updateFormInputSchema = z
 							.nullable()
 							.optional()
 							.describe(
-								"XPath that resolves to a human-readable label Connect shows in dashboards for this delivery. Display-only; doesn't affect dedup or payment. " +
-									"Omit to fall back to `#user/username` — the FLW's username, fine when no more meaningful identifier is available. " +
-									"Override to surface a more useful label: a beneficiary name (`#<case_type>/case_name`), a location label, or any human-readable identifier captured in the form.",
+								"XPath for the human-readable delivery label in Connect dashboards. Display-only; omit for the username default.",
 							),
 					})
 					.strict()
 					.nullable()
 					.optional()
 					.describe(
-						"Set on a deliver-app form that counts as a payable delivery. `name` is what shows up in the deliver-unit picker on Connect. `entity_id` and `entity_name` are wire-format defaults that work for daily-aggregate workflows; override only when the workflow demands a different dedup key or a more useful display label.",
+						"Set on a deliver-app form that counts as a payable delivery. `name` shows in Connect's deliver-unit picker.",
 					),
 				task: z
 					.object({
@@ -198,7 +189,7 @@ export const updateFormInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"Set Connect config on this form — a block opts the form into Connect. Pass null to remove the block (the form stops participating; rejected only when it is the app's last participating form); leave it out to keep the current config. Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.",
+				"Connect participation for this form: a block opts in (learn apps: learn_module/assessment; deliver apps: deliver_unit/task — set independently); null removes the block (rejected only on the app's last participating form).",
 			),
 	})
 	.strict();

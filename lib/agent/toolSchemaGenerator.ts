@@ -64,26 +64,24 @@ import {
 } from "@/lib/domain";
 
 /**
- * The `kind` field's description: a compact per-kind guide the SA reads
- * when choosing which kind to emit. Each entry is one sentence pulled
- * from `fieldRegistry[kind].saDocs`, prefixed with the kind name so the
- * SA sees the discriminant value alongside its meaning.
+ * The per-kind guide — one line per kind from `fieldRegistry[kind].saDocs`
+ * — stated ONCE in the system prompt ("Field kinds"); the tool schemas'
+ * `kind` enums carry a pointer, not the guide. Adding a new kind to
+ * `fieldKinds` propagates automatically.
  */
-function buildKindDescription(kinds: readonly FieldKind[]): string {
-	const lines = kinds.map((k) => `  - "${k}": ${fieldRegistry[k].saDocs}`);
-	return [
-		"Field kind — the discriminant that picks which CommCare control and " +
-			"data type to emit. Pick the most specific kind for the data being " +
-			"captured (e.g. `int` for a count, not `text`).",
-		"",
-		...lines,
-	].join("\n");
+export function fieldKindGuide(): string {
+	return fieldKinds
+		.map((k) => `- \`${k}\`: ${fieldRegistry[k].saDocs}`)
+		.join("\n");
 }
 
 function makeKindEnum(kinds: readonly FieldKind[]) {
 	return z
 		.enum(kinds as readonly [FieldKind, ...FieldKind[]])
-		.describe(buildKindDescription(kinds));
+		.describe(
+			"Field kind — pick the most specific for the data (the guide: " +
+				'"Field kinds" in your instructions).',
+		);
 }
 
 // ── Per-property descriptions (SA-facing docstrings) ─────────────────
@@ -101,94 +99,38 @@ function makeKindEnum(kinds: readonly FieldKind[]) {
 
 const FIELD_DOCS = {
 	id:
-		"Unique identifier per parent level. Use alphanumeric snake_case " +
-		"(must start with a letter). Becomes the XForm node name and the " +
-		"CommCare case-property key when `case_property_on` is set.",
+		"snake_case identifier, letter first. Becomes the XForm node name " +
+		"and (with case_property_on) the case-property key.",
 	label:
-		"Human-friendly label shown to the end user. Supports hashtag " +
-		"references (`#<case_type>/prop`, `#form/path`, `#user/prop`) and " +
-		"markdown. Do NOT use {curly_brace} template syntax — unsupported. " +
-		"On every visible kind (`text`, `int`, `single_select`, etc.) the " +
-		"label is required and must be a non-empty human-readable string; " +
-		"`hidden` fields carry no label slot at all. The containers treat " +
-		'an EXPLICIT "" as a real value, not filler: "" on a `group` makes ' +
-		"it transparent at runtime (no chrome, children render at the " +
-		"parent's depth) — a residual home for stray hidden fields that " +
-		"don't fit a logical group, not a primary disambiguation tool — " +
-		'and "" on a `repeat` drops the title text but keeps the chrome ' +
-		"and iteration controls (the user still needs them to add/remove " +
-		"instances).",
-	hint: "Help text rendered below the input.",
-	help:
-		"Longer-form help text the user taps to expand — for guidance too " +
-		"long to sit inline as a hint. Plain text (not an XPath expression). " +
-		"Supports hashtag references.",
-	required:
-		'XPath expression — "true()" for always-required, or a conditional ' +
-		'like "#form/age > 0". Pass null for not required. Supports hashtag ' +
-		"references.",
+		"User-facing label — markdown and hashtag references OK, never " +
+		'{curly} templates. An explicit "" makes a group transparent and a ' +
+		"repeat titleless.",
+	hint: "Short helper text under the input.",
+	help: "Longer tap-to-expand guidance. Plain text.",
+	required: 'XPath condition making an answer mandatory — "true()" for always.',
 	validate:
-		"XPath boolean that must hold for the field's value to be accepted, " +
-		"checked when the user leaves the field (`.` is the entered value); " +
-		"pairs with `validate_msg`, shown when it fails. Write the rule that " +
-		"captures the field's actual valid values, using the full XPath " +
-		"language to whatever precision the field's meaning calls for. Pass " +
-		"null for the whole `validate` object when any value is acceptable. " +
-		"Supports hashtag references.",
-	validate_msg:
-		"Error message displayed when `validate` evaluates to false. Only " +
-		"meaningful when `validate` is set.",
-	relevant:
-		"XPath expression that conditionally shows/hides this field. " +
-		'Example: "#form/age >= 18". Supports hashtag references.',
+		"XPath rule the answer must satisfy (`.` is the answer), checked " +
+		"when the user leaves the field. Write the real rule for the " +
+		"field's meaning.",
+	validate_msg: "Error shown when `validate` fails.",
+	relevant: "XPath condition that shows/hides the field.",
 	calculate:
-		"XPath that recomputes a HIDDEN field's value whenever a field it " +
-		"references changes — it lives in the form's recalculation graph. Use it " +
-		"ONLY when the value must track other fields that can change during fill; " +
-		"for a value fixed at load (a constant, or a stamp like today()), use " +
-		"`default_value` instead so it isn't needlessly recomputed. Only `hidden` " +
-		"fields carry a calculate; a computed value on a visible control would " +
-		"render read-only, so show one with a `label` field that outputs it " +
-		"instead. Supports hashtag references.",
+		"XPath recomputed whenever a referenced field changes. hidden " +
+		"fields only — for a value fixed at load, use default_value.",
 	default_value:
-		"XPath evaluated ONCE when the form loads, seeding a value that never " +
-		"recomputes (not in the recalculation graph). Prefer this for any value " +
-		"fixed for the form's life — a literal constant, or a load-time stamp " +
-		"like today(). Use `calculate` instead only when the value must update as " +
-		"other fields change. Supports hashtag references.",
-	options:
-		"Choice list for single_select / multi_select — minimum 2 options. " +
-		"Other kinds carry no options slot.",
+		"XPath evaluated ONCE at form load, never recomputed. For values " +
+		"that must track other fields, use calculate.",
+	options: "The choice list — at least 2 options.",
 	case_property_on:
-		"Case type name this field saves to. When it matches the module's " +
-		"case type, the field becomes a normal case property. When " +
-		"different, the field implicitly creates a child case of that " +
-		'type. The case-name field must always have id "case_name". Must ' +
-		"NOT be set on media fields (image, audio, video, signature).",
-	// Repeat-specific. These keys live INSIDE the optional nested
-	// `repeat: { mode, count?, ids_query? }` object on the SA tools —
-	// non-repeat fields simply omit `repeat`. The descriptions describe
-	// the inner-key contract; the wrapping `repeat` object's own
-	// description handles the "set when kind === repeat" framing.
+		"Case type this field saves to. The module's own type = a normal " +
+		"case property; a different type creates a child case (its " +
+		'case-name writer must have id "case_name"). Never on media kinds.',
 	repeat_mode:
-		'Iteration mode. "user_controlled" — user adds/removes instances ' +
-		'at form fill (e.g. household members list). "count_bound" — count ' +
-		"comes from another XPath (set `count`); JavaRosa freezes the " +
-		'cardinality once at form load and does not recalculate. "query_bound" ' +
-		"— iterate over case-database query results (set `ids_query`); same " +
-		"one-time evaluation as count_bound.",
-	repeat_count:
-		"XPath expression that resolves to the desired iteration count, " +
-		'e.g. `#form/desired_count`. Set this when `mode === "count_bound"`; ' +
-		"omit otherwise. Evaluated once at form load — changes to the " +
-		"underlying value do not resize the repeat (JavaRosa spec). " +
-		"Supports hashtag references.",
-	ids_query:
-		"XPath expression that resolves to a list of case ids to iterate " +
-		"over, e.g. `instance('casedb')/casedb/case[@case_type='service'][@status='open']/@case_id`. " +
-		'Set this when `mode === "query_bound"`; omit otherwise. The runtime ' +
-		"materializes one instance per id; each iteration's `@id` resolves " +
-		"to the id at the matching position. Supports hashtag references.",
+		'"user_controlled" — user adds/removes rows at fill. "count_bound" ' +
+		'— row count from `count`. "query_bound" — one row per case id ' +
+		"from `ids_query`. Counts and queries freeze at form load.",
+	repeat_count: "XPath giving the row count (count_bound only).",
+	ids_query: "XPath resolving to the case ids to iterate (query_bound only).",
 } as const satisfies Record<string, string>;
 
 // ── Reusable Zod field primitives ───────────────────────────────────

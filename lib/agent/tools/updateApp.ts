@@ -50,7 +50,7 @@ export const updateAppInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				'CommCare Connect type: "learn" for training/certification, "deliver" for paid service delivery, null to make a Connect app standard again. Leave it out to keep the current setting — on a standard app, a name-only call just passes the name. Set the type before creating a Connect app\'s modules — each participating form then lands with its connect block, and at least one form must participate.',
+				'"learn" (training/certification) or "deliver" (paid service delivery); null returns the app to standard. Set before creating a Connect app\'s modules.',
 			),
 	})
 	.strict();
@@ -62,7 +62,7 @@ export type UpdateAppResult = MutationSuccess | { error: string };
 
 export const updateAppTool = {
 	description:
-		'Set the app\'s name and/or its CommCare Connect type ("learn" / "deliver"; null makes a Connect app standard again; leave it out to keep it). Enabling Connect on an app with forms requires at least one of them to already carry its connect block (a Connect app needs one participating form; the rest may stay out) — on a new build, set the type before creating modules.',
+		"Set the app's name and/or its Connect type. On a new Connect build, set the type before creating modules (enabling it later requires a form that already carries a connect block).",
 
 	inputSchema: updateAppInputSchema,
 	async execute(

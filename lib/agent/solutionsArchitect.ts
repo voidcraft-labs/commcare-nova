@@ -20,6 +20,7 @@
  */
 import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
+import type { ZodType } from "zod";
 import { loadApp } from "@/lib/db/apps";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -67,6 +68,7 @@ import { searchBlueprintTool } from "./tools/searchBlueprint";
 import { updateAppTool } from "./tools/updateApp";
 import { updateFormTool } from "./tools/updateForm";
 import { updateModuleTool } from "./tools/updateModule";
+import { wireToolSchema } from "./wireSchemas";
 
 /**
  * Names of SA tools exposed only in build mode. Declared as module-scope
@@ -189,6 +191,13 @@ export function createSolutionsArchitect(
 	 * `tools` record, at which point structural inference on the
 	 * `ToolSet` accepts the object without further annotation.
 	 */
+	/** Chat-surface wire projection — AST stubs on the wire, full Zod
+	 *  validation intact (`wireSchemas.ts`). Every SA tool is Zod-schema'd,
+	 *  so the cast holds. */
+	function wire<I>(schema: FlexibleSchema<I>): FlexibleSchema<I> {
+		return wireToolSchema(schema as ZodType<I>);
+	}
+
 	function wrapMutating<I, R>(t: {
 		description: string;
 		inputSchema: FlexibleSchema<I>;
@@ -200,7 +209,7 @@ export function createSolutionsArchitect(
 	}) {
 		return {
 			description: t.description,
-			inputSchema: t.inputSchema,
+			inputSchema: wire(t.inputSchema),
 			// Opt out of the Responses API's default strict-mode schema
 			// normalization, which forces EVERY property present on every
 			// call (optionals become required; the model pads unused slots
@@ -272,7 +281,7 @@ export function createSolutionsArchitect(
 	}) {
 		return {
 			description: t.description,
-			inputSchema: t.inputSchema,
+			inputSchema: wire(t.inputSchema),
 			// Same strict-mode opt-out as `wrapMutating` — see the note there.
 			strict: false,
 			execute: (input: I) =>
@@ -314,7 +323,7 @@ export function createSolutionsArchitect(
 		// still register the schema without wiring a server handler.
 		askQuestions: {
 			description: askQuestionsTool.description,
-			inputSchema: askQuestionsTool.inputSchema,
+			inputSchema: wire(askQuestionsTool.inputSchema),
 			strict: false,
 		},
 

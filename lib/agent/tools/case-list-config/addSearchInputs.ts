@@ -68,7 +68,7 @@ export type AddSearchInputsResult = AddSearchInputsSuccess | { error: string };
 
 export const addSearchInputsTool = {
 	description:
-		"Add one or more search inputs to a module's case list in a single call. The tool mints a fresh uuid for each and returns them (aligned with the input order); use those uuids on subsequent updateSearchInput / removeSearchInput / reorderSearchInputs calls. Simple inputs target a property + mode; advanced inputs carry a free-form predicate.",
+		"Add search inputs to a module's case list. Returns the minted uuids (input order) for later update/remove/reorder calls.",
 	inputSchema: addSearchInputsInputSchema,
 	async execute(
 		input: AddSearchInputsInput,

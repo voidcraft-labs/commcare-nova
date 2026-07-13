@@ -51,7 +51,7 @@ export interface GenerateSchemaResult {
 
 export const generateSchemaTool = {
 	description:
-		"Record the app's data model (case types and properties) — the first tool call of a build, after you've reasoned the design through. This records the plan in the conversation — it does not change the app. Each case type's record lands on the app later, with the createModule call that owns it (pass it as case_type_record).",
+		"Record the app's data model — the first tool call of a build, after the design is reasoned through. Pure plan, changes nothing; each case type's record lands later via its own createModule call's case_type_record.",
 	inputSchema: generateSchemaInputSchema,
 	async execute(
 		input: GenerateSchemaInput,

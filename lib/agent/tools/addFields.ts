@@ -100,7 +100,7 @@ export type AddFieldsResult = MutationSuccess | { error: string };
 
 export const addFieldsTool = {
 	description:
-		"Add one or more fields to an existing form in a single call (one field is just a length-1 `fields` array). Appends to existing fields by default (does not replace); pass beforeFieldId/afterFieldId to insert the batch's top-level fields at a specific position instead. Pass a top-level parentId to nest the whole batch under a group/repeat, or set parentId on individual fields to place them precisely (a field's own parentId wins). Groups added in one batch can be referenced as parentId in later batches.",
+		"Add fields to an existing form (a single field is a length-1 array). Appends by default; beforeFieldId/afterFieldId position the batch. parentId (top-level or per field) nests under a group/repeat — including one added earlier in the same batch.",
 	inputSchema: addFieldsInputSchema,
 	async execute(
 		input: AddFieldsInput,

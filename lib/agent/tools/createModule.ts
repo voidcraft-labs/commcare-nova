@@ -138,7 +138,7 @@ export const createModuleInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"The case type's record (properties, parent link) from the data-model plan — provide it when this call's case_type is NEW to the app (its name must equal case_type). A child case type's record lands with ITS module, never earlier. null when the case type already has a record (or the module has none).",
+				"The case type's record from the data-model plan — required when case_type is NEW to the app (names must match). A child type's record lands with ITS module. null when the type already has a record.",
 			),
 		purpose: z
 			.string()
@@ -160,7 +160,7 @@ export const createModuleInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"Case-list columns for a case-managing module, in display order — required alongside `case_type` so the case list can render rows (usually start with the name property). Refine later (sort, filter, search inputs) via the case-list-config tools. null only on a survey-only module.",
+				"Case-list columns, display order — required alongside case_type (start with the name property). Refine later via the case-list-config tools. null only on a survey-only module.",
 			),
 		case_list_only: z
 			.boolean()

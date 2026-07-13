@@ -10,9 +10,9 @@
 // which keeps them robust to Zod's serialization choices.
 
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { fieldKinds, fieldRegistry } from "@/lib/domain";
-import { generateToolSchemas } from "../toolSchemaGenerator";
+import { buildSolutionsArchitectPrompt } from "../prompts";
+import { fieldKindGuide, generateToolSchemas } from "../toolSchemaGenerator";
 
 const generated = generateToolSchemas();
 
@@ -63,30 +63,19 @@ describe("toolSchemaGenerator", () => {
 		}
 	});
 
-	it("surfaces each kind's saDocs in the schema the model sees", () => {
-		// Per-kind guidance now rides each arm's `kind` literal description
-		// (rather than one umbrella enum). Collect every `description` in the
-		// emitted JSON schema (deep-walking the OBJECT, not the stringified
-		// form — saDocs contain quotes that JSON-escaping would mangle) and
-		// assert each kind's saDocs is one of them.
-		const descriptions: string[] = [];
-		const walk = (node: unknown): void => {
-			if (!node || typeof node !== "object") return;
-			for (const [key, value] of Object.entries(node)) {
-				if (key === "description" && typeof value === "string") {
-					descriptions.push(value);
-				} else {
-					walk(value);
-				}
-			}
-		};
-		walk(z.toJSONSchema(generated.addFieldsItemSchema));
+	it("surfaces each kind's saDocs through the prompt's Field kinds guide", () => {
+		// The per-kind guide is stated ONCE — in the system prompt via
+		// `fieldKindGuide()` — rather than repeated on each schema's kind
+		// enum. Assert every kind's saDocs appears in the guide, and that
+		// the built prompt carries the guide.
+		const guide = fieldKindGuide();
 		for (const kind of fieldKinds) {
 			expect(
-				descriptions.some((d) => d.includes(fieldRegistry[kind].saDocs)),
+				guide.includes(fieldRegistry[kind].saDocs),
 				`saDocs for ${kind}`,
 			).toBe(true);
 		}
+		expect(buildSolutionsArchitectPrompt()).toContain(guide);
 	});
 
 	// ── The structural win: per-kind property scoping ───────────────────

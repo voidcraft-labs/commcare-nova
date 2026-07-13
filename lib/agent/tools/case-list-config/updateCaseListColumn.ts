@@ -53,7 +53,7 @@ export const updateCaseListColumnInputSchema = z
 			"Uuid of the existing column to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
 		),
 		column: columnInputSchema.describe(
-			"Replacement column body — pick a kind (`plain` / `date` / `phone` / `id-mapping` / `image-map` / `interval` / `calculated`) and supply the kind's required fields plus any optional `sort`, `visibleInList`, `visibleInDetail` slots. The column's uuid carries through from the existing entry; do not supply one. An `image-map` column carries a `mapping: { value, assetId }[]` — each row maps a stored case-property value to an image asset id (use list_media_assets to find ids).",
+			"Replacement column body (full shape, any kind). The uuid carries over from the existing entry — never supply one.",
 		),
 	})
 	.strict();
