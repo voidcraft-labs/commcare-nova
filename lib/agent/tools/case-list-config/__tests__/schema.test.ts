@@ -33,6 +33,7 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { SEARCH_INPUT_TYPES } from "@/lib/domain";
 import { addCaseListColumnsTool } from "../addCaseListColumns";
 import { addSearchInputsTool } from "../addSearchInputs";
 import { removeCaseListColumnTool } from "../removeCaseListColumn";
@@ -40,6 +41,7 @@ import { removeSearchInputTool } from "../removeSearchInput";
 import { reorderCaseListColumnsTool } from "../reorderCaseListColumns";
 import { reorderSearchInputsTool } from "../reorderSearchInputs";
 import { setCaseListFilterTool } from "../setCaseListFilter";
+import { SA_SEARCH_INPUT_TYPES } from "../shared";
 import { updateCaseListColumnTool } from "../updateCaseListColumn";
 import { updateSearchInputTool } from "../updateSearchInput";
 
@@ -315,12 +317,57 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 					kind: "advanced",
 					name: "active_only",
 					label: "Active only",
-					type: "select",
+					type: "text",
 					predicate: { kind: "match-all" },
 				},
 			],
 		});
 		expect(result.success).toBe(true);
+	});
+
+	it("rejects the `select` widget type on both arms at parse time", () => {
+		// Nova's wire prompt carries no itemset slot, so a `select` prompt
+		// renders as plain text at runtime — the simple arm is
+		// gate-rejected (`searchInputSelectWidgetNotSupported`) and the
+		// advanced arm silently degrades. The SA boundary narrows the enum
+		// so neither state is expressible (this run's trap: a build
+		// authored status-queue filters as `select` and burned a
+		// rejection + retry step per module).
+		const simple = addSearchInputsTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "referral_status",
+					label: "Status",
+					type: "select",
+					property: "referral_status",
+				},
+			],
+		});
+		expect(simple.success).toBe(false);
+		const advanced = updateSearchInputTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			searchInputUuid: "11111111-1111-1111-1111-111111111111",
+			searchInput: {
+				kind: "advanced",
+				name: "active_only",
+				label: "Active only",
+				type: "select",
+				predicate: { kind: "match-all" },
+			},
+		});
+		expect(advanced.success).toBe(false);
+	});
+
+	it("SA widget enum tracks the domain enum minus `select`", () => {
+		// Tripwire: adding a member to `SEARCH_INPUT_TYPES` must be a
+		// deliberate decision at the SA boundary too — this fails until
+		// `SA_SEARCH_INPUT_TYPES` names the new member (or documents its
+		// exclusion beside `select`'s).
+		expect([...SA_SEARCH_INPUT_TYPES]).toEqual(
+			SEARCH_INPUT_TYPES.filter((t) => t !== "select"),
+		);
 	});
 
 	it("updateSearchInput: parses with full simple-arm optional coverage", () => {
@@ -331,7 +378,7 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 				kind: "simple",
 				name: "household_region",
 				label: "Region",
-				type: "select",
+				type: "text",
 				property: "region",
 				via: {
 					kind: "ancestor",

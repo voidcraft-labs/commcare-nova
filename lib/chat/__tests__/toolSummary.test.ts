@@ -123,12 +123,15 @@ describe("updateApp transcript row", () => {
 });
 
 describe("generateSchema transcript row", () => {
-	it("folds the case-type count into the headline with the type names on the → line", () => {
+	it("keeps the static headline with the type names on the → line", () => {
+		// Not countable: the → line lists the recorded type names, so a
+		// count in the headline would restate them — and the longer phrase
+		// truncates in the chip.
 		const part = donePart("generateSchema", {
 			subject: "patient, visit, referral",
 			count: 3,
 		});
-		expect(toolAction(part)).toBe("Recorded 3 case types on the data model");
+		expect(toolAction(part)).toBe("Recorded the data model");
 		expect(toolLocation(part)).toBe("patient, visit, referral");
 		expect(toolDetail(part)).toBeNull();
 	});

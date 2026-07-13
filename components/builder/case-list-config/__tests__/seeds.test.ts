@@ -82,10 +82,11 @@ describe("widgetTypeForProperty", () => {
 		expect(widgetTypeForProperty(prop("case_name"))).toBe("text");
 		expect(widgetTypeForProperty(prop("dob", "date"))).toBe("date");
 		expect(widgetTypeForProperty(prop("ts", "datetime"))).toBe("date");
-		expect(widgetTypeForProperty(prop("status", "single_select"))).toBe(
-			"select",
-		);
-		expect(widgetTypeForProperty(prop("tags", "multi_select"))).toBe("select");
+		// Select-typed properties get `text`, not `select` — the wire
+		// prompt carries no itemset slot, so `select` is gate-rejected
+		// and can never be the widget an authoring path lands on.
+		expect(widgetTypeForProperty(prop("status", "single_select"))).toBe("text");
+		expect(widgetTypeForProperty(prop("tags", "multi_select"))).toBe("text");
 		expect(widgetTypeForProperty(prop("age", "int"))).toBe("text");
 	});
 });
@@ -120,6 +121,22 @@ describe("seedSearchInput", () => {
 		const seed = seedSearchInput(config(), dateOnly);
 		expect(seed?.type).toBe("date");
 		expect(seed && "mode" in seed ? seed.mode : undefined).toBeUndefined();
+	});
+
+	it("seeds a text widget over select-typed properties — never `select`", () => {
+		// The wire prompt carries no itemset slot, so a `select` search
+		// input is gate-rejected outright — a seed that picked it would
+		// turn the add affordance into a rejection toast.
+		const selectOnly = caseType("referral", [
+			prop("referral_status", "single_select"),
+		]);
+		const seed = seedSearchInput(config(), selectOnly);
+		expect(seed?.type).toBe("text");
+		// Fuzzy admits select-typed properties, so the forgiving default
+		// still rides along.
+		expect(seed && "mode" in seed ? seed.mode : undefined).toEqual({
+			kind: "fuzzy",
+		});
 	});
 
 	it("withholds fuzzy from text widgets over non-text properties", () => {

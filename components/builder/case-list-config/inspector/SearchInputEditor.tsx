@@ -888,16 +888,23 @@ function TypePicker({
 					<Menu.Popup className={`${MENU_POPUP_CLS} min-w-[13rem]`}>
 						{SEARCH_INPUT_TYPES.map((t, i) => {
 							const isActive = t === value;
+							// Wire-level gate — the wire prompt carries no itemset
+							// slot, so a `select` input renders as plain text at
+							// runtime and the commit gate rejects it
+							// (`searchInputSelectWidgetNotSupported`). Disabled
+							// with the reason, never selectable into a rejection.
+							const wireSupported = t !== "select";
 							// Property-level gate — a field the bound property's
 							// data type can't run (a calendar over a text
 							// property, say) is disabled with the reason rather
 							// than selectable into a validation error.
 							const admitted =
-								propertyDataType === undefined ||
-								(SEARCH_INPUT_TYPE_PROPERTY_TYPES[t]?.includes(
-									propertyDataType,
-								) ??
-									true);
+								wireSupported &&
+								(propertyDataType === undefined ||
+									(SEARCH_INPUT_TYPE_PROPERTY_TYPES[t]?.includes(
+										propertyDataType,
+									) ??
+										true));
 							const last = SEARCH_INPUT_TYPES.length - 1;
 							const corners =
 								i === 0 && i === last
@@ -937,7 +944,9 @@ function TypePicker({
 										>
 											{admitted
 												? SEARCH_INPUT_TYPE_DESCRIPTIONS[t]
-												: `Not available for ${propertyDataType} properties.`}
+												: wireSupported
+													? `Not available for ${propertyDataType} properties.`
+													: "Not supported by the app runtime yet — a text field filters these values."}
 										</div>
 									</span>
 									{isActive && (

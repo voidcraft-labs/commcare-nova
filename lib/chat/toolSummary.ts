@@ -145,9 +145,19 @@ const COUNTABLE_ACTIONS: Record<string, (n: number) => string> = {
 	attachOptionMedia: (n) =>
 		`Set media on ${n} ${n === 1 ? "option" : "options"}`,
 	setMenuMedia: (n) => `Set media on ${n} menu ${n === 1 ? "tile" : "tiles"}`,
-	generateSchema: (n) =>
-		`Recorded ${n} case ${n === 1 ? "type" : "types"} on the data model`,
+	/* `generateSchema` is deliberately NOT countable: its "→" line already
+	 * lists the recorded case-type names (see `toolLocation`), so a count in
+	 * the headline restates what the names show — and the longer phrase
+	 * truncates in the chip. The static "Recorded the data model" carries
+	 * the act; the names carry the detail. */
 };
+
+/** App-level tools with no container breadcrumb — their subject (the app's
+ *  new name; the recorded case-type names) renders on the "→" line instead
+ *  of inline, where a long value would truncate the headline. Shared by
+ *  `toolAction` (skips the inline subject) and `toolLocation` (renders it
+ *  as the breadcrumb) so the subject shows exactly once. */
+const SUBJECT_ON_LOCATION_LINE = new Set(["updateApp", "generateSchema"]);
 
 export type ToolStatus = "pending" | "done" | "failed";
 
@@ -262,7 +272,9 @@ export const toolAction = (part: ToolUIPart): string => {
 		return countable(summary.count);
 	}
 	const action = TOOL_ACTIONS[name]?.[tense] ?? name;
-	return summary?.subject ? `${action} "${summary.subject}"` : action;
+	return summary?.subject && !SUBJECT_ON_LOCATION_LINE.has(name)
+		? `${action} "${summary.subject}"`
+		: action;
 };
 
 /** The secondary "→" line beneath the action: the container breadcrumb
@@ -273,11 +285,7 @@ export const toolAction = (part: ToolUIPart): string => {
 export const toolLocation = (part: ToolUIPart): string | null => {
 	const summary = outputOf(part)?.summary;
 	if (!summary) return null;
-	// The app-level tools have no container — their subject (the app's new
-	// name; the recorded case-type names) shows on the "→" line, where a
-	// long value gets its own row instead of truncating the headline.
-	const name = toolName(part);
-	if (name === "updateApp" || name === "generateSchema") {
+	if (SUBJECT_ON_LOCATION_LINE.has(toolName(part))) {
 		return summary.subject ?? null;
 	}
 	return summary.location ?? null;
