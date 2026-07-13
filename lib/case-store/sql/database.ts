@@ -70,7 +70,7 @@ export interface CasesTable {
 	 */
 	case_id: ColumnType<string, string | undefined, string>;
 
-	/** First half of `(app_id, project_id)`. TEXT (not UUID) — apps are root-level Firestore docs. */
+	/** First half of `(app_id, project_id)`. TEXT (not UUID) — an `apps.id` is text (a UUID for new apps; a compact id for pre-cutover apps). */
 	app_id: string;
 
 	/** Matches the blueprint's `CaseType.id`. */

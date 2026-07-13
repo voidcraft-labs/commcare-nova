@@ -1,13 +1,13 @@
 /**
  * Admin dashboard types — shared between API routes and client components.
- * All dates are ISO 8601 strings — consistent from Firestore through JSON to client.
+ * All dates are ISO 8601 strings — consistent from Postgres through JSON to client.
  */
 import type { AppSummary } from "@/lib/db/apps";
 import type { CreditSummary } from "@/lib/db/credits";
 
 /** A single row in the admin user table. */
 export interface AdminUserRow {
-	/** User UUID — used for navigation and Firestore lookups. */
+	/** User UUID — used for navigation and Postgres lookups. */
 	id: string;
 	/** Email address — for display only. */
 	email: string;

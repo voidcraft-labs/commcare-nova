@@ -48,7 +48,7 @@ import type { ToolContext } from "../types";
 /**
  * Register the `compile_app` tool on an `McpServer`.
  *
- * One Firestore read suffices: `loadAppBlueprint` returns `{ doc, app }`
+ * One read suffices: `loadAppBlueprint` returns `{ doc, app }`
  * so both the hydrated blueprint (for `expandDoc`) and the denormalized
  * `app_name` (the ccz profile manifest + the json media bundle's filename)
  * come from the same load. `app.app_name` is non-empty by invariant —
@@ -66,7 +66,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				app_id: z
 					.string()
 					.describe(
-						"Firestore app id to compile. Must be an app the authenticated user owns.",
+						"App id to compile. Must be an app the authenticated user owns.",
 					),
 				format: z
 					.enum(["json", "ccz"])
@@ -80,7 +80,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 			try {
 				/* Single load covers ownership gate, the compile input
 				 * (blueprint with rebuilt `fieldParent`), and the
-				 * denormalized app name in one Firestore read. Throws
+				 * denormalized app name in one read. Throws
 				 * `McpAccessError` on cross-tenant probe or vanished row;
 				 * the wire collapses both to `not_found`. */
 				const { doc, app } = await loadAppBlueprint(appId, ctx.userId);

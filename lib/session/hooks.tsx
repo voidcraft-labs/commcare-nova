@@ -319,8 +319,8 @@ export function usePostBuildEdit(): boolean {
 	);
 }
 
-/** Firestore app document ID for the current builder session.
- *  `undefined` for new builds before the app document is created. */
+/** App id for the current builder session.
+ *  `undefined` for new builds before the app row is created. */
 export function useAppId(): string | undefined {
 	return useBuilderSession((s) => s.appId);
 }

@@ -67,6 +67,7 @@ import { updateSearchInputTool } from "../case-list-config/updateSearchInput";
 import { createFormTool } from "../createForm";
 import { createModuleTool } from "../createModule";
 import { editFieldTool } from "../editField";
+import { generateSchemaTool } from "../generateSchema";
 import { removeFieldTool } from "../removeField";
 import { removeFormTool } from "../removeForm";
 import { removeModuleTool } from "../removeModule";
@@ -644,10 +645,12 @@ async function applyOp(
 			 * module declares a (clean) case type and carries forms, the
 			 * first form is a registration unit opening with the case_name
 			 * + village writers — the rest of the generated fields (garbage
-			 * included) ride along, and a NEW case type carries its record
-			 * in the same call (the only way a record reaches the doc). The
-			 * gate still adjudicates everything; this steering only keeps
-			 * the generator from producing exclusively incoherent births. */
+			 * included) ride along, and a NEW case type's record lands
+			 * FIRST via generateSchema (the data-model tool — the only way
+			 * a record reaches the doc), exactly the SA's real sequence.
+			 * The gate still adjudicates everything; this steering only
+			 * keeps the generator from producing exclusively incoherent
+			 * births. */
 			const coherentType =
 				op.caseType && /^[a-z][a-z0-9_-]*$/.test(op.caseType)
 					? op.caseType
@@ -664,20 +667,29 @@ async function applyOp(
 			const needsRecord =
 				coherentType !== undefined &&
 				!doc.caseTypes?.some((ct) => ct.name === coherentType);
+			if (needsRecord) {
+				doc = await runParsed(
+					generateSchemaTool,
+					{
+						caseTypes: [
+							{
+								name: coherentType,
+								properties: [
+									{ name: "case_name", label: "Name" },
+									{ name: "village", label: "Village" },
+								],
+							},
+						],
+					},
+					ctx,
+					doc,
+				);
+			}
 			return runParsed(
 				createModuleTool,
 				{
 					name: op.name,
 					...(op.caseType && { case_type: op.caseType }),
-					...(needsRecord && {
-						case_type_record: {
-							name: coherentType,
-							properties: [
-								{ name: "case_name", label: "Name" },
-								{ name: "village", label: "Village" },
-							],
-						},
-					}),
 					...(op.withForms && {
 						forms: [
 							{
@@ -1126,19 +1138,31 @@ async function growStandardPrelude(
 	ctx: ToolExecutionContext,
 ): Promise<BlueprintDoc> {
 	let doc = birthDoc();
+	/* The SA's real opening sequence: updateApp names the app, the
+	 * data-model tool writes the case-type record, then the module
+	 * references the type by name. */
 	doc = await runParsed(updateAppTool, { name: "Fuzz Clinic" }, ctx, doc);
+	doc = await runParsed(
+		generateSchemaTool,
+		{
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "village", label: "Village" },
+					],
+				},
+			],
+		},
+		ctx,
+		doc,
+	);
 	doc = await runParsed(
 		createModuleTool,
 		{
 			name: "Patients",
 			case_type: "patient",
-			case_type_record: {
-				name: "patient",
-				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
-				],
-			},
 			case_list_columns: [
 				{ kind: "plain", field: "case_name", header: "Name" },
 			],
@@ -1231,13 +1255,31 @@ async function growConnectPrelude(
 	ctx: ToolExecutionContext,
 ): Promise<BlueprintDoc> {
 	let doc = birthDoc();
-	/* Connect-typed from the first mutation — on an empty app the flip
-	 * introduces nothing. Later creations choose per form whether to carry
-	 * a connect block (participate in Connect) or not (stay auxiliary);
-	 * the gate only insists the app keeps ≥1 participating form. */
+	/* updateApp names the app and flips Connect in ONE call, BEFORE any
+	 * module exists — on an empty app the flip introduces nothing. The
+	 * data-model tool then writes the record. Later creations choose per
+	 * form whether to carry a connect block (participate in Connect) or
+	 * not (stay auxiliary); the gate only insists the app keeps ≥1
+	 * participating form. */
 	doc = await runParsed(
 		updateAppTool,
 		{ name: "Fuzz Training", connect_type: "learn" },
+		ctx,
+		doc,
+	);
+	doc = await runParsed(
+		generateSchemaTool,
+		{
+			caseTypes: [
+				{
+					name: "trainee",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "village", label: "Village" },
+					],
+				},
+			],
+		},
 		ctx,
 		doc,
 	);
@@ -1246,13 +1288,6 @@ async function growConnectPrelude(
 		{
 			name: "Lessons",
 			case_type: "trainee",
-			case_type_record: {
-				name: "trainee",
-				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
-				],
-			},
 			case_list_columns: [
 				{ kind: "plain", field: "case_name", header: "Name" },
 			],

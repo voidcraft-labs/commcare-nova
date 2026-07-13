@@ -1,14 +1,14 @@
 /**
  * Google Cloud Storage client for media assets.
  *
- * Lazily-initialized singleton matching the Firestore singleton
- * pattern in `lib/case-store/postgres/connection.ts`. Credentials are Application
+ * Lazily-initialized singleton matching the Postgres connection
+ * singleton pattern in `lib/case-store/postgres/connection.ts`. Credentials are Application
  * Default Credentials everywhere: the attached service account on
  * Cloud Run, the developer's `gcloud auth application-default`
  * identity locally. Local dev points at the dev project's real
  * bucket (`GOOGLE_CLOUD_PROJECT` + `NOVA_MEDIA_BUCKET` in `.env`) so
  * dev exercises the same client against the same wire behavior as
- * prod — Firestore rows and stored bytes live in the same project
+ * prod — Postgres rows and stored bytes live in the same project
  * and can never disagree about what exists.
  *
  * The bucket name comes from `NOVA_MEDIA_BUCKET` at first call.

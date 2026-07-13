@@ -115,7 +115,7 @@ describe("GET /api/media/library kind filter", () => {
 
 	it("passes an empty set (every kind) when no kind param is present", async () => {
 		// No `?kind=` → `getAll` returns `[]` → must reach the DB as "no filter",
-		// never as `in []` (which Firestore rejects).
+		// never as `in []` (which Postgres rejects).
 		const res = await GET(reqWith(""));
 		expect(res.status).toBe(200);
 		expect(listReadyAssetsForProject).toHaveBeenCalledWith("project-1", {

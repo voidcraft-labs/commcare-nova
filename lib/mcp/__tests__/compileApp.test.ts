@@ -49,7 +49,7 @@ import { makeFakeServer } from "./fakeServer";
 
 /* Hoisted mocks — every dependency the tool touches has a vi.fn()
  * stand-in so each test pins exact return values without going through
- * Firestore, the real expander, or the real compiler. */
+ * the database, the real expander, or the real compiler. */
 vi.mock("../loadApp", () => ({
 	loadAppBlueprint: vi.fn(),
 }));
@@ -59,13 +59,13 @@ vi.mock("@/lib/commcare/expander", () => ({
 vi.mock("@/lib/commcare/compiler", () => ({
 	compileCcz: vi.fn(),
 }));
-/* The media-validation gate reads Firestore; mock it so the unit suite
+/* The media-validation gate reads the DB; mock it so the unit suite
  * stays hermetic. Default `[]` = no media issues = proceed; the
  * media-rejection test overrides per-call. */
 vi.mock("@/lib/media/boundaryValidation", () => ({
 	collectBoundaryViolations: vi.fn(),
 }));
-/* The manifest resolver reads Firestore + GCS; mock it so tests pin the
+/* The manifest resolver reads the DB + GCS; mock it so tests pin the
  * media set. Default empty `Map` = media-free; the media-bearing json test
  * overrides with a byte-carrying asset. */
 vi.mock("@/lib/media/manifest", () => ({
@@ -97,8 +97,7 @@ function fixtureBlueprint(): BlueprintDoc {
 
 /**
  * A minimal `AppDoc` whose only consumed field in this tool is
- * `app_name`. Casting timestamps through `unknown` avoids pulling in
- * the Firestore Admin SDK just to fabricate `Timestamp` instances.
+ * `app_name`. The timestamps are unread placeholders — any `Date` works.
  */
 function fixtureAppDoc(overrides?: Partial<AppDoc>): AppDoc {
 	return {
@@ -115,8 +114,8 @@ function fixtureAppDoc(overrides?: Partial<AppDoc>): AppDoc {
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
-		created_at: new Date() as unknown as AppDoc["created_at"],
-		updated_at: new Date() as unknown as AppDoc["updated_at"],
+		created_at: new Date(),
+		updated_at: new Date(),
 		...overrides,
 	};
 }
@@ -180,7 +179,7 @@ describe("registerCompileApp — happy path, json format", () => {
 		expect(parsed).toEqual(FAKE_HQ_JSON);
 		/* Hard invariant: the JSON path never triggers the ccz packer. */
 		expect(compileCcz).not.toHaveBeenCalled();
-		/* Hard invariant: the single-read refactor keeps Firestore reads
+		/* Hard invariant: the single-read refactor keeps reads
 		 * to one per call — `loadAppBlueprint` runs once and no follow-up
 		 * `loadApp` is issued. */
 		expect(loadAppBlueprint).toHaveBeenCalledTimes(1);

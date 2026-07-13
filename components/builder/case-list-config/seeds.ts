@@ -91,15 +91,16 @@ export function pickSeedProperty(
 	);
 }
 
-/** The widget a property's data type naturally renders as. */
+/** The widget a property's data type naturally renders as. Select-typed
+ *  properties render as `text`, NOT `select`: the wire prompt carries no
+ *  itemset slot, so a `select` search input is rejected by the commit
+ *  gate outright (`searchInputSelectWidgetNotSupported`) — and a seed /
+ *  reseed must land working. */
 export function widgetTypeForProperty(property: CaseProperty): SearchInputType {
 	switch (effectiveDataType(property)) {
 		case "date":
 		case "datetime":
 			return "date";
-		case "single_select":
-		case "multi_select":
-			return "select";
 		default:
 			return "text";
 	}

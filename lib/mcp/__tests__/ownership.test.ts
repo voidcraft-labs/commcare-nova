@@ -9,7 +9,7 @@
  *   - resolver resolves → `requireOwnedApp` resolves cleanly.
  *
  * `resolveAppScope` is mocked (the real `AppAccessError` is kept so the
- * instanceof mapping holds) so no Firestore/Postgres client ever spins up.
+ * instanceof mapping holds) so no Postgres client ever spins up.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";

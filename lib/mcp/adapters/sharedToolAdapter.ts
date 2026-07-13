@@ -13,7 +13,7 @@
  * What this adapter adds around each tool call:
  *
  *   1. **Ownership** — `loadAppBlueprint(appId, userId)` ownership-gates
- *      and loads the doc in one Firestore read, so a cross-tenant probe
+ *      and loads the doc in one read, so a cross-tenant probe
  *      throws before the tool body runs.
  *   2. **Per-call `McpContext`** — satisfies `ToolExecutionContext` for
  *      the shared tool and owns event-log writer + progress emitter +
@@ -27,7 +27,7 @@
  *      fine-grained stage notifications; the emitter no-ops when the
  *      client didn't opt in.
  *   5. **Log-writer flush** — `finally`-block drain so conversation
- *      events + mutation envelopes always reach Firestore even on
+ *      events + mutation envelopes always reach the event log even on
  *      throw. `LogWriter.logEvent` is fire-and-forget and a missed
  *      flush silently drops everything that hadn't hit the batch-size
  *      trigger yet.
@@ -39,7 +39,7 @@
  * Every shared mutating tool already calls
  * `ctx.recordMutations(mutations, newDoc, stage)` inside its own body
  * before returning its `MutatingToolResult`. Doing it again here would
- * double-write the blueprint to Firestore AND emit two copies of every
+ * double-write the blueprint AND emit two copies of every
  * mutation event into the log stream. The adapter's job is to delegate
  * + envelope, never to re-apply.
  *
@@ -142,9 +142,7 @@ export function registerSharedTool(
 		...tool.inputSchema.shape,
 		app_id: z
 			.string()
-			.describe(
-				"Firestore app id to target. Must be an app the caller can access.",
-			),
+			.describe("App id to target. Must be an app the caller can access."),
 	};
 
 	/* Both return branches (success / error envelope) structurally
@@ -170,7 +168,7 @@ export function registerSharedTool(
 
 			try {
 				/* `loadAppBlueprint` ownership-gates and loads in one
-				 * Firestore read; throws `McpAccessError` on cross-tenant
+				 * read; throws `McpAccessError` on cross-tenant
 				 * probe or vanished row, both of which the wire collapses
 				 * to `not_found`. The full `AppDoc` is returned alongside
 				 * `.doc` for tools that want denormalized columns. */
@@ -219,7 +217,7 @@ export function registerSharedTool(
 				} finally {
 					/* Drain the event-log buffer before returning OR
 					 * throwing. `LogWriter.flush` never throws; it resolves
-					 * once every inflight Firestore batch has acknowledged.
+					 * once every inflight log batch has acknowledged.
 					 * A missed flush silently drops any events that hadn't
 					 * triggered the batch-size flush threshold yet. */
 					await logWriter.flush();

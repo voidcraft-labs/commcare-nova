@@ -33,7 +33,7 @@ export const BlueprintEditableContext = createContext<boolean>(true);
 
 export interface BlueprintDocProviderProps {
 	/**
-	 * The on-disk doc to load on mount. Accepts the Firestore-persisted
+	 * The on-disk doc to load on mount. Accepts the persisted
 	 * `PersistableDoc` shape (no `fieldParent` — that field is computed and
 	 * never stored). If `undefined`, the provider creates an empty doc for
 	 * the `Idle` phase before the SA has produced a scaffold.
@@ -43,7 +43,7 @@ export interface BlueprintDocProviderProps {
 	 */
 	initialDoc?: PersistableDoc;
 	/**
-	 * The app's Firestore document ID. `undefined` for brand-new apps
+	 * The app's document ID. `undefined` for brand-new apps
 	 * before generation produces an ID; the doc's `appId` starts as ""
 	 * and is populated when the app is persisted.
 	 */
@@ -85,7 +85,7 @@ export function BlueprintDocProvider({
 		const store = createBlueprintDocStore();
 		if (initialDoc) {
 			// `load()` rebuilds the fieldParent index from fieldOrder so it is
-			// always correct even if the Firestore document omitted it.
+			// always correct even if the persisted document omitted it.
 			store.getState().load(initialDoc);
 		} else {
 			// Empty-doc branch still needs to know its app identity so consumers

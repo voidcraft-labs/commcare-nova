@@ -37,7 +37,7 @@ export const MAX_CHAT_MESSAGES = 400;
 /**
  * Max attachment refs across the WHOLE request — the meaningful DoS bound.
  * `resolveAttachments` walks every message and batch-loads each unique asset, so
- * the request total (not any single message) is what hits Firestore + GCS. A
+ * the request total (not any single message) is what hits Postgres + GCS. A
  * request over this is rejected before resolution runs.
  */
 export const MAX_CHAT_ATTACHMENTS = 100;

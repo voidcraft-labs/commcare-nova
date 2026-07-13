@@ -86,7 +86,7 @@ export type GetModuleResult =
 
 export const getModuleTool = {
 	description:
-		"Get a module by index. Returns module metadata, the module tile's stored menu media (icon + audio_label — pass these back to setMenuMedia to preserve a slot), the structured case list config (columns + filter + searchInputs — every column and search input carries its uuid for atomic edits), the case search config (display cluster + advanced cluster — wholesale-shaped, no uuids), and a summary of its forms including each form tile's menu media.",
+		"Get a module by index: metadata, menu media, the case-list config (columns + filter + search inputs, each with its uuid for edits), the case-search config, and a form summary.",
 	inputSchema: getModuleInputSchema,
 	async execute(
 		input: GetModuleInput,

@@ -136,16 +136,99 @@ describe("app rules", () => {
 		expect(runValidation(doc)).toEqual([]);
 	});
 
-	it("catches child case type missing module", () => {
-		const doc = update(minDoc(), (d) => {
+	it("a case type created by forms with no module fires; a planned record alone stays clean", () => {
+		// A record alone (no form writes the type) is a PLAN — generateSchema
+		// commits records ahead of their modules, so this state must be legal.
+		const planned = update(minDoc(), (d) => {
 			d.caseTypes = [
-				{ name: "patient", properties: [] },
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 				{ name: "visit", parent_type: "patient", properties: [] },
 			];
 		});
 		expect(
-			runValidation(doc).some((e) => e.code === "MISSING_CHILD_CASE_MODULE"),
+			runValidation(planned).some(
+				(e) => e.code === "MISSING_CHILD_CASE_MODULE",
+			),
+		).toBe(false);
+
+		// A form field WRITING the type (a child-case bucket) with no module
+		// owning it creates cases nobody can open — that's the finding.
+		const written = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Form",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									kind: "text",
+									id: "visit_note",
+									label: "Visit note",
+									case_property_on: "visit",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{ name: "visit", parent_type: "patient", properties: [] },
+			],
+		});
+		expect(
+			runValidation(written).some(
+				(e) => e.code === "MISSING_CHILD_CASE_MODULE",
+			),
 		).toBe(true);
+	});
+
+	it("a survey form's case annotations don't demand a module — they are wire-inert", () => {
+		// deriveCaseConfig derives an empty case config for a survey form, so a
+		// case_property_on there never creates a case. The written-type rule
+		// must not count it — otherwise flipping a form to survey (making its
+		// writes inert) would still demand a module for cases that never exist.
+		const surveyAnnotated = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					forms: [
+						{
+							name: "Form",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "visit_note",
+									label: "Visit note",
+									case_property_on: "visit",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [{ name: "visit", properties: [] }],
+		});
+		expect(
+			runValidation(surveyAnnotated).some(
+				(e) => e.code === "MISSING_CHILD_CASE_MODULE",
+			),
+		).toBe(false);
 	});
 });
 

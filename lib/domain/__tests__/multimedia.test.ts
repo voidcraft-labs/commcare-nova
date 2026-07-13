@@ -1,7 +1,7 @@
 /**
  * Schema-level coverage for the multimedia domain primitives.
  *
- * These tests don't touch GCS or Firestore — they assert the Zod
+ * These tests don't touch GCS or Postgres — they assert the Zod
  * shapes round-trip cleanly and the helper functions behave per
  * contract. The integration-level coverage (HTTP routes + bytes
  * validation against actual fixtures) lives at

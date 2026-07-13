@@ -41,7 +41,7 @@ import {
 	pickFieldKeysForKind,
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
-import type { wideFlatItemSchema } from "./toolSchemas";
+import type { addFieldsItemSchema } from "./toolSchemas";
 
 /** Narrow a possibly-unknown kind string to a `FieldKind` before asking the
  *  per-kind key sets about it — an SA-supplied bad kind would otherwise blow
@@ -52,12 +52,14 @@ function isFieldKind(kind: unknown): kind is FieldKind {
 	);
 }
 
-/** A catalog default should fill a slot the SA left unset — treating an empty
- *  string or empty array as "unset" too, so an explicit `""` (which the batch
- *  path's `stripEmpty` already collapses) is seeded the same on both add paths. */
+/** A catalog default should fill a slot the SA left unset — treating `null`,
+ *  an empty string, or an empty array as "unset" too (on the add path they
+ *  all mean "nothing here"; the batch path's `stripEmpty` already collapses
+ *  them), so both add paths seed identically. */
 function isUnset(value: unknown): boolean {
 	return (
 		value === undefined ||
+		value === null ||
 		value === "" ||
 		(Array.isArray(value) && value.length === 0)
 	);
@@ -105,30 +107,25 @@ export function unescapeXPath(s: string): string {
 // ── Flat input shape ─────────────────────────────────────────────────
 
 /**
- * The WIDE flat field shape this pipeline operates on — every key any kind
- * might carry, all optional but `id`/`kind`. Derived from `wideFlatItemSchema`
- * (the generator's wide processing-type source), NOT from the per-kind
- * discriminated-union tool inputs: a validated tool item (one union arm) is
- * a structural subset of this shape, so it flows through `stripEmpty` /
- * `applyDefaults` / `flatFieldToField` without per-kind narrowing. `parentId`
- * is an optional semantic field id (omitted = "insert at the form's top
- * level"); the handler resolves a present value to a UUID when building the
- * `addField` mutation.
+ * The flat field shape this pipeline operates on — every key any kind
+ * might carry, all optional but `id`/`kind`. It IS the inferred type of
+ * the `addFields` tool item (`addFieldsItemSchema`): the tool input and
+ * the processing shape are one, so a validated item flows through
+ * `stripEmpty` / `applyDefaults` / `flatFieldToField` with no bridge.
+ * `parentId` is an optional semantic field id (omitted = "insert at the
+ * form's top level"); the handler resolves a present value to a UUID when
+ * building the `addField` mutation.
  */
-export type FlatField = z.infer<typeof wideFlatItemSchema>;
+export type FlatField = z.infer<typeof addFieldsItemSchema>;
 
 // ── Sentinel collapse ────────────────────────────────────────────────
 
 /**
  * Collapse empty values to absence:
- *   - empty string → drop the key entirely
+ *   - `null`       → drop the key entirely (on the add path null means
+ *                    "nothing here", same as omission)
+ *   - empty string → drop
  *   - empty array  → drop
- *
- * The per-kind tool arms can't even surface a label sentinel (a visible
- * kind requires a non-empty label, `hidden` has no label slot), so this
- * is purely defensive: it drops any stray empty string / empty array the
- * SA sends for an optional slot rather than letting it through as a
- * meaningless "" value.
  *
  * `parentId` is special-cased: missing or empty becomes `null` (rather
  * than just being dropped) so the downstream "no parent = form level"
@@ -148,6 +145,7 @@ export function stripEmpty(q: FlatField): Partial<FlatField> & {
 } {
 	const result: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(q)) {
+		if (v === null) continue;
 		if (v === "") continue;
 		if (Array.isArray(v) && v.length === 0) continue;
 		result[k] = v;
@@ -375,24 +373,24 @@ export function flatFieldToField(
 			q.case_property_on.length > 0 && {
 				case_property_on: q.case_property_on,
 			}),
-		// Nested repeat config: SA passes `repeat: { mode, count?,
-		// ids_query? }`; the domain schema is a discriminated union over
-		// `repeat_mode` with `repeat_count` (count_bound) or
-		// `data_source: { ids_query }` (query_bound). Reshape here,
-		// unescaping XPath HTML entities on the inner expressions.
-		// Mode is required inside the nested object so there's no
-		// silent default — if the SA emits `kind: "repeat"` without a
-		// `repeat` object, the candidate has no `repeat_mode` and the
-		// discriminated union rejects, surfacing the omission as a
-		// parse error rather than a silent fallback.
+		// Nested repeat config: the SA's `repeat` is discriminated on `mode`
+		// (`count` exists only on count_bound, `ids_query` only on
+		// query_bound); the domain schema discriminates over `repeat_mode`
+		// with `repeat_count` (count_bound) or `data_source: { ids_query }`
+		// (query_bound). Reshape here, unescaping XPath HTML entities on the
+		// inner expressions. Mode is required inside the nested object so
+		// there's no silent default — if the SA emits `kind: "repeat"`
+		// without a `repeat` object, the candidate has no `repeat_mode` and
+		// the domain parse rejects, surfacing the omission as a parse error
+		// rather than a silent fallback.
 		...(q.kind === "repeat" &&
 			q.repeat && {
 				repeat_mode: q.repeat.mode,
-				...(typeof q.repeat.count === "string" &&
+				...(q.repeat.mode === "count_bound" &&
 					q.repeat.count.length > 0 && {
 						repeat_count: parseExpr(unescapeXPath(q.repeat.count)),
 					}),
-				...(typeof q.repeat.ids_query === "string" &&
+				...(q.repeat.mode === "query_bound" &&
 					q.repeat.ids_query.length > 0 && {
 						data_source: {
 							ids_query: parseExpr(unescapeXPath(q.repeat.ids_query)),

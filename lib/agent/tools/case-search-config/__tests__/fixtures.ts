@@ -79,7 +79,7 @@ export function makeCaseSearchDoc(): BlueprintDoc {
 
 /** Bundle of doc + a lightweight chat-surface `ToolExecutionContext` stub for
  *  the per-tool tests (its `recordMutations` echoes the passed post-mutation
- *  doc as the committed doc; no Firestore, no guarded writer). */
+ *  doc as the committed doc; no Postgres, no guarded writer). */
 export interface CaseSearchFixture extends StubToolContextHandles {
 	doc: BlueprintDoc;
 }

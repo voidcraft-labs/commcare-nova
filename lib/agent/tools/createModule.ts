@@ -8,17 +8,17 @@
  * case-managing one additionally WITH its case-list columns
  * (MISSING_CASE_LIST_COLUMNS — completeness, gated like everything
  * else). So the tool accepts `forms` (each with its `fields`) and
- * `case_list_columns`, and emits one batch: the case-type record +
- * addModule + addForm × N + addField × M + the case-list config — the
- * gate evaluates the whole thing as one candidate, and a rejection's
- * findings are all satisfiable by adjusting THIS call.
+ * `case_list_columns`, and emits one batch: addModule + addForm × N +
+ * addField × M + the case-list config — the gate evaluates the whole
+ * thing as one candidate, and a rejection's findings are all
+ * satisfiable by adjusting THIS call.
  *
- * The CASE-TYPE RECORD rides the same batch (`case_type_record`): a
- * record declared ahead of its module would introduce
- * MISSING_CHILD_CASE_MODULE for a child type, so the record lands
- * exactly with the module that satisfies its obligations — and the
- * field assembly sees it in the same call, so catalog defaults (label,
- * options, validation) seed this module's own fields.
+ * The module's CASE TYPE references the app's case-type catalog by
+ * NAME — the record itself lands earlier, via `generateSchema` (the
+ * data-model tool), so the model is stated once and the field
+ * assembly's catalog defaulting (`applyDefaults`) seeds this module's
+ * own fields from it. An unrecorded `case_type` is rejected with the
+ * generateSchema pointer.
  *
  * Follow-up case-list refinement (sort, filter, search inputs) still
  * goes through the case-list-config tools once the module exists; this
@@ -37,8 +37,8 @@
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Exit branches:
  *
- *   1. A `case_type_record` that mismatches `case_type` or re-declares
- *      an existing record → `{ error }`, no mutations.
+ *   1. A `case_type` with no record in the app's catalog → `{ error }`
+ *      pointing at generateSchema, no mutations.
  *   2. Identifier guard rejection in any form's fields → `{ error }`
  *      naming every failing item, nothing persisted.
  *   3. An explicit connect id is invalid/duplicate → `{ error }`, no
@@ -53,13 +53,11 @@
 import { z } from "zod";
 import { orderedModuleUuids } from "@/lib/doc/fieldWalk";
 import { sequenceOrderKeys } from "@/lib/doc/order/append";
-import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, CaseType, ConnectConfig } from "@/lib/domain";
+import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { addFormMutations, addModuleMutations } from "../blueprintHelpers";
-import type { FlatField } from "../contentProcessing";
 import {
-	caseTypeRecordSchema,
+	closeConditionInputSchema,
 	connectFormConfigSchema,
 } from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
@@ -79,6 +77,7 @@ import { buildConnectConfig } from "./shared/connectInput";
 import {
 	assembleFieldMutations,
 	describeRejectedFieldIds,
+	resolveCloseCondition,
 } from "./shared/fieldAssembly";
 import type {
 	MutationSuccess,
@@ -87,7 +86,7 @@ import type {
 
 const createModuleFormSchema = z
 	.object({
-		name: z.string().describe("Form display name"),
+		name: z.string().min(1).describe("Form display name"),
 		type: z
 			.enum(FORM_TYPES)
 			.describe(
@@ -101,57 +100,73 @@ const createModuleFormSchema = z
 			),
 		purpose: z
 			.string()
+			.min(1)
+			.nullable()
 			.optional()
-			.describe("Brief description of what this form collects and why."),
+			.describe(
+				"Brief description of what this form collects and why. null when there's nothing to add.",
+			),
 		post_submit: z
 			.enum(USER_FACING_DESTINATIONS)
+			.nullable()
 			.optional()
 			.describe(
-				'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Only set to override.',
+				'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Pass null to use the default; set a value only to override.',
+			),
+		close_condition: closeConditionInputSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Close forms only — close the case only when the named field matches (the field may be one landing in this same call). null for an unconditional close.",
 			),
 		connect: connectFormConfigSchema
+			.nullable()
 			.optional()
 			.describe(
-				"Per-form Connect config — a block opts the form INTO Connect, and a participating form lands with its block in this call. Omit it on a form that shouldn't participate (a Connect app just needs at least one participating form), and always on standard apps.",
+				"Per-form Connect config — a block opts the form INTO Connect, and a participating form lands with its block in this call. Pass null on a form that shouldn't participate (a Connect app just needs at least one participating form), and always on standard apps.",
 			),
 	})
 	.strict();
 
 export const createModuleInputSchema = z
 	.object({
-		name: z.string().describe("Module display name"),
+		name: z.string().min(1).describe("Module display name"),
 		case_type: z
 			.string()
+			.min(1)
+			.nullable()
 			.optional()
 			.describe(
-				"Case type (required if the module has registration/followup/close forms)",
-			),
-		case_type_record: caseTypeRecordSchema
-			.optional()
-			.describe(
-				"The case type's record (properties, parent link) from the data-model plan — provide it when this call's case_type is NEW to the app (its name must equal case_type). A child case type's record lands with ITS module, never earlier. Omit when the case type already has a record.",
+				"Case type (required if the module has registration/followup/close forms) — must already be recorded on the app (generateSchema). null for a survey-only module.",
 			),
 		purpose: z
 			.string()
-			.optional()
-			.describe("Brief description of this module's role in the app."),
-		forms: z
-			.array(createModuleFormSchema)
+			.min(1)
+			.nullable()
 			.optional()
 			.describe(
-				"The module's forms, each with its fields — EVERY module must land WITH at least one form in this call (a formless module is rejected: CommCare needs a form or a case list to show). Omit only for a case_list_only viewer module.",
+				"Brief description of this module's role in the app. null when there's nothing to add.",
+			),
+		forms: z
+			.array(createModuleFormSchema)
+			.nullable()
+			.optional()
+			.describe(
+				"The module's forms, each with its fields — EVERY module must land WITH at least one form in this call (a formless module is rejected: CommCare needs a form or a case list to show). null only for a case_list_only viewer module.",
 			),
 		case_list_columns: z
 			.array(columnInputSchema)
+			.nullable()
 			.optional()
 			.describe(
-				"Case-list columns for a case-managing module, in display order — required alongside `case_type` so the case list can render rows (usually start with the name property). Refine later (sort, filter, search inputs) via the case-list-config tools.",
+				"Case-list columns, display order — required alongside case_type (start with the name property). Refine later via the case-list-config tools. null only on a survey-only module.",
 			),
 		case_list_only: z
 			.boolean()
+			.nullable()
 			.optional()
 			.describe(
-				"True for case-list-only modules with no forms. Use for child case types that need to be viewable but have no follow-up workflow.",
+				"True for case-list-only modules with no forms. Use for child case types that need to be viewable but have no follow-up workflow. null otherwise.",
 			),
 	})
 	.strict();
@@ -173,74 +188,26 @@ export const createModuleTool = {
 		const {
 			name,
 			case_type,
-			case_type_record,
 			purpose,
 			forms,
 			case_list_columns,
 			case_list_only,
 		} = input;
 		try {
-			/* The case-type record rides this batch. Reject the shapes that
-			 * can't mean what the caller intended: a record naming a type
-			 * other than the module's own, and a record for a type the app
-			 * already carries (re-declaring would silently replace the
-			 * existing catalog entry other forms' defaults were seeded from). */
-			let assemblyDoc = doc;
-			const recordMutations: Mutation[] = [];
-			if (case_type_record) {
-				if (!case_type || case_type_record.name !== case_type) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						newDoc: doc,
-						result: {
-							error: `Module "${name}" wasn't created — its case_type_record is named "${case_type_record.name}" but the module's case_type is ${case_type ? `"${case_type}"` : "unset"}. The record describes the module's own case type, so the two names must match.`,
-						},
-					};
-				}
-				if (doc.caseTypes?.some((ct) => ct.name === case_type_record.name)) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						newDoc: doc,
-						result: {
-							error: `Module "${name}" wasn't created — the app already has a case-type record for "${case_type_record.name}". Omit case_type_record (the existing record stays as is), or edit the existing record instead of re-declaring it.`,
-						},
-					};
-				}
-				const record = case_type_record as CaseType;
-				const mergedCaseTypes = [...(doc.caseTypes ?? []), record];
-				/* Granular catalog emission keyed by `(type, property)` name — a
-				 * `declareCaseType` for the new type, `setCaseTypeMeta` for its
-				 * ancestry, then one `addCaseProperty` per declared property — so a
-				 * co-member's concurrent catalog add to a DIFFERENT type merges
-				 * (a wholesale `setCaseTypes` would clobber it). */
-				recordMutations.push({
-					kind: "declareCaseType",
-					caseType: record.name,
-				});
-				if (
-					record.parent_type !== undefined ||
-					record.relationship !== undefined
-				) {
-					recordMutations.push({
-						kind: "setCaseTypeMeta",
-						caseType: record.name,
-						parent_type: record.parent_type ?? null,
-						relationship: record.relationship ?? null,
-					});
-				}
-				for (const property of record.properties) {
-					recordMutations.push({
-						kind: "addCaseProperty",
-						caseType: record.name,
-						property,
-					});
-				}
-				/* The field assembly's catalog defaulting reads
-				 * `doc.caseTypes`; thread the merged catalog through so this
-				 * call's own fields seed from the record landing with it. */
-				assemblyDoc = { ...doc, caseTypes: mergedCaseTypes };
+			/* The module's case type references the catalog by name — the
+			 * record itself landed earlier via generateSchema (or the field
+			 * assembly's declaration chokepoint, for a bare writer-declared
+			 * type). A name nothing answers to is a plan gap, not a doc state
+			 * to guess through. */
+			if (case_type && !doc.caseTypes?.some((ct) => ct.name === case_type)) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `Module "${name}" wasn't created — the app has no data-model record for case type "${case_type}". Record it first with generateSchema (its properties, labels, and any parent link), then re-issue this call.`,
+					},
+				};
 			}
 
 			// Stage tag `module:create` — a positional index isn't available
@@ -257,13 +224,12 @@ export const createModuleTool = {
 				order: columnKeys[i],
 			}));
 			const mutations = [
-				...recordMutations,
 				...addModuleMutations(doc, {
 					uuid: moduleUuid,
 					name,
 					...(case_type && { caseType: case_type }),
 					...(case_list_only && { caseListOnly: case_list_only }),
-					...(purpose !== undefined && { purpose }),
+					...(purpose != null && { purpose }),
 					...(columns.length > 0 && {
 						caseListConfig: { columns, searchInputs: [] },
 					}),
@@ -287,13 +253,12 @@ export const createModuleTool = {
 				const formUuid = asUuid(crypto.randomUUID());
 				// Assembled BEFORE the connect block so the block's XPath
 				// slots can parse against this form's batch-aware resolver.
+				// Catalog defaulting reads `doc.caseTypes` — the records
+				// generateSchema committed ahead of this call.
 				const assembly = assembleFieldMutations({
-					doc: assemblyDoc,
+					doc,
 					formUuid,
-					// Per-kind union arms are validated structural subsets of the
-					// wide `FlatField` the pipeline operates on — same bridge cast
-					// as `addFields`.
-					items: formInput.fields as FlatField[],
+					items: formInput.fields,
 				});
 				if (!assembly.ok) {
 					return {
@@ -353,6 +318,12 @@ export const createModuleTool = {
 					}
 					enforcedConnect = enforced.config;
 				}
+				// Resolved against this form's batch overlay — the condition
+				// names a field landing in the same call.
+				const closeCondition = resolveCloseCondition(
+					assembly.resolveFieldRef,
+					formInput.close_condition,
+				);
 				mutations.push(
 					...addFormMutations(
 						doc,
@@ -362,12 +333,13 @@ export const createModuleTool = {
 							name: formInput.name,
 							type: formInput.type,
 							order: formKeys[formIdx],
-							...(formInput.purpose !== undefined && {
+							...(formInput.purpose != null && {
 								purpose: formInput.purpose,
 							}),
 							...(formInput.post_submit && {
 								postSubmit: formInput.post_submit,
 							}),
+							...(closeCondition && { closeCondition }),
 							...(enforcedConnect && { connect: enforcedConnect }),
 						},
 						// The module is created by THIS batch — skip the
@@ -376,7 +348,12 @@ export const createModuleTool = {
 					),
 				);
 				mutations.push(...assembly.mutations);
-				fieldCount += assembly.mutations.length;
+				// Count the fields, not the batch: the assembly prepends the
+				// declaration chokepoint's catalog mutations for undeclared
+				// types.
+				fieldCount += assembly.mutations.filter(
+					(m) => m.kind === "addField",
+				).length;
 				skipped.push(...assembly.skipped);
 				formIdx += 1;
 			}

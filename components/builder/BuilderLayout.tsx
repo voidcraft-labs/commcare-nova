@@ -63,7 +63,7 @@ interface BuilderLayoutProps {
 	/** Server-rendered thread history — passed through to ChatContainer.
 	 *  Rendered inside a Suspense boundary by the RSC page. */
 	children?: React.ReactNode;
-	/** True when the app was loaded from Firestore (not a new build).
+	/** True when the app was loaded from Postgres (not a new build).
 	 *  Drives thread type classification (build vs edit). */
 	isExistingApp?: boolean;
 	/** CommCare HQ settings read by the RSC page — drives the export

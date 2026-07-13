@@ -9,7 +9,7 @@
  *     `"not_found"` (IDOR hardening). `softDeleteApp` must not run.
  *   - App not found: the app load returns null — a probe for an
  *     arbitrary id must not leave soft-delete state behind.
- *   - `softDeleteApp` throws: the Firestore write rejection surfaces
+ *   - `softDeleteApp` throws: the DB write rejection surfaces
  *     as an `isError: true` MCP envelope classified through the shared
  *     taxonomy (not the `McpAccessError` fast path).
  *
@@ -170,14 +170,14 @@ describe("registerDeleteApp — wire parity (IDOR regression lock)", () => {
 });
 
 describe("registerDeleteApp — softDeleteApp throws", () => {
-	it("surfaces firestore write rejection through the shared taxonomy", async () => {
+	it("surfaces the db write rejection through the shared taxonomy", async () => {
 		vi.mocked(resolveAppScope).mockResolvedValueOnce({
 			projectId: "p1",
 			role: "owner",
 			actorUserId: "u1",
 		});
 		vi.mocked(softDeleteApp).mockRejectedValueOnce(
-			new Error("firestore write failed"),
+			new Error("db write failed"),
 		);
 
 		const { server, capture } = makeFakeServer();

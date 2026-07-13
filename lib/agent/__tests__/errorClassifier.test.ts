@@ -9,7 +9,7 @@ import { classifyError } from "../errorClassifier";
 
 // `classifyError` maps raw thrown values to a stable, user-safe bucket. The
 // cases that matter most are the ones the type alone can't tell apart: an
-// Anthropic 5xx that arrives *mid-stream* is a plain `Error` carrying the
+// provider 5xx that arrives *mid-stream* is a plain `Error` carrying the
 // provider's JSON error body, not an `APICallError` with a `statusCode`, so it
 // must be recognized by message shape. These tests pin that recognition so a
 // future branch reorder can't silently drop a transient upstream failure back
@@ -35,6 +35,25 @@ describe("classifyError", () => {
 		expect(classifyError(new Error("Internal server error")).type).toBe(
 			"api_server",
 		);
+	});
+
+	it("buckets a mid-stream OpenAI server_error (plain Error, no statusCode) as api_server", () => {
+		// OpenAI's 5xx taxonomy — the shape the gateway relays for the
+		// GPT-5.6 family. Neither of the Anthropic tokens appears in it, so
+		// this pins the OpenAI arm of the recognition.
+		const err = new Error(
+			'{"type":"server_error","message":"The server had an error while processing your request. Sorry about that!"}',
+		);
+		const result = classifyError(err);
+		expect(result.type).toBe("api_server");
+		expect(result.raw).toContain("server_error");
+	});
+
+	it("recognizes the bare OpenAI 5xx phrase as api_server", () => {
+		expect(
+			classifyError(new Error("The server had an error processing this call"))
+				.type,
+		).toBe("api_server");
 	});
 
 	it("still classifies an APICallError 500 as api_server", () => {

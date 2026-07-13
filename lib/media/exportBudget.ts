@@ -25,7 +25,7 @@
 // complete, because refusing a legitimate attach over a transient fetch
 // is worse than letting the boundary do its job.
 //
-// Client-safe by construction: imports only `lib/domain` (no Firestore,
+// Client-safe by construction: imports only `lib/domain` (no `lib/db`,
 // no server-only), so the browser hook and the server modules consume
 // the identical function.
 
@@ -38,7 +38,7 @@ import {
 
 /**
  * The row fields the budget reads — structurally satisfied by the
- * Firestore `MediaAssetRecord` (server) and the wire `WireMediaAsset`
+ * Postgres `MediaAssetRecord` (server) and the wire `WireMediaAsset`
  * (browser), so every consumer passes its native shape.
  *
  * `status` is widened to `string`: the server record types it as the

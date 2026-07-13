@@ -170,9 +170,7 @@ void typeCheckCreateAppOptions;
 
 describe("registerCreateApp — createApp throws", () => {
 	it("surfaces as an MCP error envelope with populated error_type", async () => {
-		vi.mocked(createApp).mockRejectedValueOnce(
-			new Error("firestore write failed"),
-		);
+		vi.mocked(createApp).mockRejectedValueOnce(new Error("db write failed"));
 
 		const { server, capture } = makeFakeServer();
 		registerCreateApp(server, toolCtx);

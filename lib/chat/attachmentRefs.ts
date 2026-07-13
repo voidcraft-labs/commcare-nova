@@ -12,7 +12,7 @@
 // stored requirements EXTRACT (documents) or the image bytes (vision). This
 // kills the old base64-in-the-request path (and the blob/CSP corruption it
 // caused) and fixes the multi-turn crash — history carries refs + resolved
-// text, never the raw `text/markdown` file parts Anthropic rejects.
+// text, never the raw `text/markdown` file parts the provider rejects.
 
 import type { UIMessage } from "ai";
 import { z } from "zod";

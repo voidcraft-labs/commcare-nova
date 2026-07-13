@@ -442,10 +442,11 @@ export function reconcileFieldForKind(
  *   - absent → leave the property unchanged
  *   - `null` → CLEAR the property (the `updateField` reducer deletes the
  *     key). `null` is the on-the-wire representation of a blank: a patch
- *     value of `undefined` cannot survive Firestore's
- *     `ignoreUndefinedProperties` (it gets stripped, and a patch that
- *     reduces to empty is omitted entirely), so a clear-only edit must
- *     carry an explicit `null` to round-trip through the event log.
+ *     value of `undefined` cannot survive JSON serialization
+ *     (`JSON.stringify` drops `undefined`-valued keys on both the SSE
+ *     wire and the persisted jsonb, and a patch that reduces to empty
+ *     is omitted entirely), so a clear-only edit must carry an explicit
+ *     `null` to round-trip through the event log.
  *   - a value → set the property
  *
  * The generic carries the source schema's full shape so each call site

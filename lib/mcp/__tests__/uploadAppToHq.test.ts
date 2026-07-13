@@ -78,7 +78,7 @@ vi.mock("@/lib/media/manifest", () => ({
 		return out;
 	},
 }));
-/* The media-validation gate reads Firestore; mock it so the unit suite
+/* The media-validation gate reads the DB; mock it so the unit suite
  * stays hermetic. Default `[]` = no media issues = proceed past the gate;
  * the media-rejection test overrides per-call. */
 vi.mock("@/lib/media/boundaryValidation", () => ({
@@ -436,7 +436,7 @@ describe("registerUploadAppToHq — pre-gate 0: missing nova.hq.write", () => {
 		const { server, capture } = makeFakeServer();
 		/* Token has the route-layer floor but lacks the orthogonal HQ
 		 * write scope. The per-tool guard must short-circuit before any
-		 * Firestore read or HQ network call. */
+		 * DB read or HQ network call. */
 		registerUploadAppToHq(server, {
 			userId: "u1",
 			scopes: [SCOPES.read, SCOPES.write],

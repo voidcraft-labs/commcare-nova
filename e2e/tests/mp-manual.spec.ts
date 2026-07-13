@@ -7,7 +7,7 @@ import { applyPageZoom, type TileSlot, tileWindow } from "../lib/windowTiling";
  * Manual four-user session — NOT a test, a harness entry point.
  *
  * `npm run mp:manual` boots the same hermetic stack the smoke suite uses
- * (Firestore emulator + local Postgres + the production server), seeds the
+ * (local Postgres + the production server), seeds the
  * shared four-member fixture, then this "spec" opens all four Project
  * members — Ada (owner), Grace, Katherine, and Alan (editors) — one screen
  * QUADRANT each on the SAME shared app, and simply waits: you drive a whole

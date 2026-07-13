@@ -1,35 +1,45 @@
 // Generates the SA's field-mutation tool inputs directly from the domain's
 // `fieldRegistry` + per-kind Zod schemas.
 //
-// ## Per-kind discriminated unions
+// ## One flat shape per tool, kind-gated by refinement
 //
-// Both field-mutation tools (addFields, editField patch) take a
-// `discriminatedUnion("kind", …)`: an arm exposes ONLY the properties that
-// kind's domain schema declares (gated by `fieldKindDeclaresKey`) and is
-// `.strict()`. So a property the kind doesn't have — `calculate` on a
-// `single_select`, `options` on a `hidden` — isn't a slot on the arm, and an
-// explicit attempt is rejected at the tool boundary rather than silently
-// dropped or assembled into a broken field. This is the structural reason the
-// "wrong property for this kind" error class can't be expressed.
+// Both field-mutation tools (the addFields item, the editField patch) take
+// ONE flat object: every slot is stated once, and `kind` is a described
+// enum. Which slots a kind may carry is enforced by a `superRefine` over
+// `fieldKindDeclaresKey` — `calculate` on a `single_select`, `options` on a
+// `hidden`, are rejected at the tool boundary with a message naming a fix
+// the model can express (leave the slot out / pass null), never silently
+// dropped or assembled into a broken field. A per-kind
+// `discriminatedUnion` would encode the same law structurally, but it
+// restates every shared slot's documentation on each of the 19 arms — tens
+// of thousands of schema tokens per request, on every request, for
+// identical rejection behavior. The refinement carries the law; the docs
+// appear once.
 //
-// Tool use is NOT grammar-constrained (that's `Output.object` only), so there
-// is no per-array-item optional-field compile ceiling here — the arms carry
-// as many optionals as the kind declares.
+// ## Omission keeps, null clears
 //
-// ## Per-kind label policy
+// Tool calls run non-strict (`strict: false` in the SA wrappers), so the
+// model omits any slot it isn't touching. On the ADD item, `null` is the
+// same as omission — "nothing here" — collapsed to absence by the
+// pipeline (`stripEmpty`). On the EDIT patch the two differ: an omitted
+// slot keeps its current value; an explicit `null` CLEARS it (the
+// reducer deletes the key). Slots that cannot be cleared (`id`, `kind`,
+// `repeat` — a repeat always has a mode) are not nullable on the edit
+// patch, so a stray null there is a parse rejection, never a wipe. The
+// prompt and every slot description teach the same contract.
 //
-// On the ADD arms `label` is per kind: omitted on `hidden` (no label slot),
-// optional on the containers (`group` / `repeat` — empty = transparent /
-// titleless), and required + non-empty (`min(1)`) on every visible kind. The
-// per-kind arm is what lets us require a real label without the old `""`
-// sentinel. (`required` and `parentId`, where declared, stay plain optionals
-// the SA omits when unset.)
+// ## Label policy
 //
-// The WIDE processing-type sources below — `wideFlatItemSchema` /
-// `wideEditUpdatesSchema`, used only to infer `FlatField` / the edit-patch
-// type, never as a tool input — DO keep a required-with-sentinel `label`
-// (`labelSentinel()`); `contentProcessing.stripEmpty()` collapses that `""`
-// to absent. That sentinel lives on the wide type alone, not on any arm.
+// `label` is one nullable slot; the kind policy makes it behave per kind:
+// required + non-empty on every visible kind, anything on the containers
+// (`group` / `repeat` — null/""/absent = transparent / titleless, and
+// `contentProcessing.stripEmpty()` collapses the `""` to absence), and
+// rejected on `hidden` (which declares no label). No `""` sentinel exists
+// on the tool surface. Case-bound fields (`case_property_on` set) are the
+// one exemption from the label/options floors: those slots inherit from
+// the field's catalog record (`applyDefaults` seeds them after parse), so
+// omitting them is the normal, instructed shape — stated values are
+// overrides.
 //
 // ## Vocabulary
 //
@@ -42,9 +52,9 @@
 //
 // ## Per-kind docs
 //
-// Each arm's `kind` literal carries that kind's `saDocs` (from
-// `fieldRegistry[kind].saDocs`) as its description, so the SA reads a concise
-// per-kind summary on the discriminant it's choosing. Adding a new kind to
+// The `kind` enum's description aggregates every kind's `saDocs` (from
+// `fieldRegistry[kind].saDocs`), one line per kind, so the SA reads the
+// per-kind guide exactly where it chooses the value. Adding a new kind to
 // `fieldKinds` therefore propagates through the generator automatically — no
 // generator edits, no re-hand-rolling of documentation strings.
 
@@ -58,26 +68,25 @@ import {
 } from "@/lib/domain";
 
 /**
- * The `kind` field's description: a compact per-kind guide the SA reads
- * when choosing which kind to emit. Each entry is one sentence pulled
- * from `fieldRegistry[kind].saDocs`, prefixed with the kind name so the
- * SA sees the discriminant value alongside its meaning.
+ * The per-kind guide — one line per kind from `fieldRegistry[kind].saDocs`
+ * — stated ONCE in the system prompt ("Field kinds"); the tool schemas'
+ * `kind` enums carry a pointer, not the guide. Adding a new kind to
+ * `fieldKinds` propagates automatically.
  */
-function buildKindDescription(kinds: readonly FieldKind[]): string {
-	const lines = kinds.map((k) => `  - "${k}": ${fieldRegistry[k].saDocs}`);
-	return [
-		"Field kind — the discriminant that picks which CommCare control and " +
-			"data type to emit. Pick the most specific kind for the data being " +
-			"captured (e.g. `int` for a count, not `text`).",
-		"",
-		...lines,
-	].join("\n");
+export function fieldKindGuide(): string {
+	return fieldKinds
+		.map((k) => `- \`${k}\`: ${fieldRegistry[k].saDocs}`)
+		.join("\n");
 }
 
 function makeKindEnum(kinds: readonly FieldKind[]) {
 	return z
 		.enum(kinds as readonly [FieldKind, ...FieldKind[]])
-		.describe(buildKindDescription(kinds));
+		.describe(
+			"Field kind — pick the most specific for the data. The per-kind " +
+				'guide is the "Field kinds" section of the agent instructions: ' +
+				"the system prompt in chat, the get_agent_prompt tool on MCP.",
+		);
 }
 
 // ── Per-property descriptions (SA-facing docstrings) ─────────────────
@@ -95,92 +104,38 @@ function makeKindEnum(kinds: readonly FieldKind[]) {
 
 const FIELD_DOCS = {
 	id:
-		"Unique identifier per parent level. Use alphanumeric snake_case " +
-		"(must start with a letter). Becomes the XForm node name and the " +
-		"CommCare case-property key when `case_property_on` is set.",
+		"snake_case identifier, letter first. Becomes the XForm node name " +
+		"and (with case_property_on) the case-property key.",
 	label:
-		"Human-friendly label shown to the end user. Supports hashtag " +
-		"references (`#<case_type>/prop`, `#form/path`, `#user/prop`) and " +
-		"markdown. Do NOT use {curly_brace} template syntax — unsupported. " +
-		'Pass "" (empty string) for `hidden` fields (which never render). ' +
-		'Pass "" for `group` to make the group transparent at runtime ' +
-		"(no chrome, children render at the parent's depth) — a residual " +
-		"home for stray hidden fields that don't fit a logical group, not " +
-		'a primary disambiguation tool. Pass "" for `repeat` to drop the title text but ' +
-		"keep the chrome and iteration controls (the user still needs them " +
-		"to add/remove instances). For every other kind (`text`, `int`, " +
-		"`single_select`, etc.), the label is required and must be a " +
-		"non-empty human-readable string.",
-	hint: "Help text rendered below the input.",
-	help:
-		"Longer-form help text the user taps to expand — for guidance too " +
-		"long to sit inline as a hint. Plain text (not an XPath expression). " +
-		"Supports hashtag references.",
-	required:
-		'XPath expression — "true()" for always-required, or a conditional ' +
-		'like "#form/age > 0". Omit for not required. Supports hashtag ' +
-		"references.",
+		"User-facing label — markdown and hashtag references OK, never " +
+		'{curly} templates. An explicit "" makes a group transparent and a ' +
+		"repeat titleless.",
+	hint: "Short helper text under the input.",
+	help: "Longer tap-to-expand guidance. Plain text.",
+	required: 'XPath condition making an answer mandatory — "true()" for always.',
 	validate:
-		"XPath boolean that must hold for the field's value to be accepted, " +
-		"checked when the user leaves the field (`.` is the entered value); " +
-		"pairs with `validate_msg`, shown when it fails. Write the rule that " +
-		"captures the field's actual valid values, using the full XPath " +
-		"language to whatever precision the field's meaning calls for. Pass " +
-		'"" when any value is acceptable. Supports hashtag references.',
-	validate_msg:
-		"Error message displayed when `validate` evaluates to false. Only " +
-		"meaningful when `validate` is set.",
-	relevant:
-		"XPath expression that conditionally shows/hides this field. " +
-		'Example: "#form/age >= 18". Supports hashtag references.',
+		"XPath rule the answer must satisfy (`.` is the answer), checked " +
+		"when the user leaves the field. Write the real rule for the " +
+		"field's meaning.",
+	validate_msg: "Error shown when `validate` fails.",
+	relevant: "XPath condition that shows/hides the field.",
 	calculate:
-		"XPath that recomputes a HIDDEN field's value whenever a field it " +
-		"references changes — it lives in the form's recalculation graph. Use it " +
-		"ONLY when the value must track other fields that can change during fill; " +
-		"for a value fixed at load (a constant, or a stamp like today()), use " +
-		"`default_value` instead so it isn't needlessly recomputed. Only `hidden` " +
-		"fields carry a calculate; a computed value on a visible control would " +
-		"render read-only, so show one with a `label` field that outputs it " +
-		"instead. Supports hashtag references.",
+		"XPath recomputed whenever a referenced field changes. hidden " +
+		"fields only — for a value fixed at load, use default_value.",
 	default_value:
-		"XPath evaluated ONCE when the form loads, seeding a value that never " +
-		"recomputes (not in the recalculation graph). Prefer this for any value " +
-		"fixed for the form's life — a literal constant, or a load-time stamp " +
-		"like today(). Use `calculate` instead only when the value must update as " +
-		"other fields change. Supports hashtag references.",
-	options:
-		"Choice list for single_select / multi_select — minimum 2 options. " +
-		"Omit entirely for other kinds.",
+		"XPath evaluated ONCE at form load, never recomputed. For values " +
+		"that must track other fields, use calculate.",
+	options: "The choice list — at least 2 options.",
 	case_property_on:
-		"Case type name this field saves to. When it matches the module's " +
-		"case type, the field becomes a normal case property. When " +
-		"different, the field implicitly creates a child case of that " +
-		'type. The case-name field must always have id "case_name". Must ' +
-		"NOT be set on media fields (image, audio, video, signature).",
-	// Repeat-specific. These keys live INSIDE the optional nested
-	// `repeat: { mode, count?, ids_query? }` object on the SA tools —
-	// non-repeat fields simply omit `repeat`. The descriptions describe
-	// the inner-key contract; the wrapping `repeat` object's own
-	// description handles the "set when kind === repeat" framing.
+		"Case type this field saves to. The module's own type = a normal " +
+		"case property; a different type creates a child case (its " +
+		'case-name writer must have id "case_name"). Never on media kinds.',
 	repeat_mode:
-		'Iteration mode. "user_controlled" — user adds/removes instances ' +
-		'at form fill (e.g. household members list). "count_bound" — count ' +
-		"comes from another XPath (set `count`); JavaRosa freezes the " +
-		'cardinality once at form load and does not recalculate. "query_bound" ' +
-		"— iterate over case-database query results (set `ids_query`); same " +
-		"one-time evaluation as count_bound.",
-	repeat_count:
-		"XPath expression that resolves to the desired iteration count, " +
-		'e.g. `#form/desired_count`. Set this when `mode === "count_bound"`; ' +
-		"omit otherwise. Evaluated once at form load — changes to the " +
-		"underlying value do not resize the repeat (JavaRosa spec). " +
-		"Supports hashtag references.",
-	ids_query:
-		"XPath expression that resolves to a list of case ids to iterate " +
-		"over, e.g. `instance('casedb')/casedb/case[@case_type='service'][@status='open']/@case_id`. " +
-		'Set this when `mode === "query_bound"`; omit otherwise. The runtime ' +
-		"materializes one instance per id; each iteration's `@id` resolves " +
-		"to the id at the matching position. Supports hashtag references.",
+		'"user_controlled" — user adds/removes rows at fill. "count_bound" ' +
+		'— row count from `count`. "query_bound" — one row per case id ' +
+		"from `ids_query`. Counts and queries freeze at form load.",
+	repeat_count: "XPath giving the row count (count_bound only).",
+	ids_query: "XPath resolving to the case ids to iterate (query_bound only).",
 } as const satisfies Record<string, string>;
 
 // ── Reusable Zod field primitives ───────────────────────────────────
@@ -192,36 +147,49 @@ const FIELD_DOCS = {
 
 const idField = () => z.string().describe(FIELD_DOCS.id);
 
-// `parentId` is optional — omit it to insert at the form's top level
-// (the handler defaults a missing parent to form-level). Pass a
-// group/repeat id (including one added earlier in the same batch) to
-// nest under it.
+// `parentId` is optional — null (or omission) inserts at the form's top
+// level. Pass a group/repeat id (including one added earlier in the same
+// batch) to nest under it.
 const parentIdField = () =>
 	z
 		.string()
+		.nullable()
 		.optional()
 		.describe(
-			"Parent group/repeat id (semantic id, not uuid). Omit to insert " +
-				"at the form's top level.",
+			"Parent group/repeat id (semantic id, not uuid). Pass null to " +
+				"insert at the form's top level.",
 		);
 
-// `label` is required-with-sentinel ("" = no label). Required, not
-// optional, as a conscious-choice guard: visible kinds need a real label,
-// the empty-label kinds (hidden / transparent group / titleless repeat)
-// opt in with "". Not a compiler-budget device — see the header comment.
-// `stripEmpty` collapses the "" to absent before assembly.
-const labelSentinel = () => z.string().describe(FIELD_DOCS.label);
+// `label` is nullable on the shape; the kind policy (see the builders
+// below) requires a real, non-empty label on every visible kind and
+// rejects one on `hidden`. The containers (`group` / `repeat`) accept
+// null/""/absent — `stripEmpty` collapses the "" to absent before
+// assembly.
+const labelField = () =>
+	z.string().nullable().optional().describe(FIELD_DOCS.label);
 
-// Optional shape primitives. `validate` and `repeat` are nested objects
-// that group related config (expr+msg, mode+count/ids_query) into one
-// field each, keeping the item shape flat and easy for the SA to fill.
-const requiredField = () => z.string().optional().describe(FIELD_DOCS.required);
-const hintField = () => z.string().optional().describe(FIELD_DOCS.hint);
-const relevantField = () => z.string().optional().describe(FIELD_DOCS.relevant);
+// Optional shape primitives — all NULLABLE, shared by BOTH tool surfaces
+// (the shapes are identical; only the null semantics differ, and those
+// live in the pipeline/reducer, not the shape): on the add path `null`
+// reads exactly like omission ("nothing here"; the pipeline collapses it
+// to absence via `stripEmpty`), so arbitrary MCP callers and stray nulls
+// are harmless; on the edit patch `null` CLEARS the slot (the reducer
+// deletes the key) and omission keeps the current value. `validate` and
+// `repeat` are nested objects that group related config (expr+msg,
+// mode+count/ids_query) into one field each, keeping the item shape flat
+// and easy for the SA to fill.
+const requiredField = () =>
+	z.string().nullable().optional().describe(FIELD_DOCS.required);
+const hintField = () =>
+	z.string().nullable().optional().describe(FIELD_DOCS.hint);
+const helpField = () =>
+	z.string().nullable().optional().describe(FIELD_DOCS.help);
+const relevantField = () =>
+	z.string().nullable().optional().describe(FIELD_DOCS.relevant);
 const calculateField = () =>
-	z.string().optional().describe(FIELD_DOCS.calculate);
+	z.string().nullable().optional().describe(FIELD_DOCS.calculate);
 const defaultValueField = () =>
-	z.string().optional().describe(FIELD_DOCS.default_value);
+	z.string().nullable().optional().describe(FIELD_DOCS.default_value);
 // The SA's option shape omits `media`, `uuid`, and `order`.
 // `selectOptionSchema` carries an optional per-option `media` reference, but
 // the field-mutation tools expose neither the asset library nor an upload
@@ -238,7 +206,7 @@ const saOptionSchema = selectOptionSchema.omit({
 });
 
 const optionsField = () =>
-	z.array(saOptionSchema).optional().describe(FIELD_DOCS.options);
+	z.array(saOptionSchema).nullable().optional().describe(FIELD_DOCS.options);
 
 // Nested-object factories — return the bare object so callers wrap it
 // with `.optional()` (add tools) or `.nullable().optional()` (edit
@@ -257,72 +225,21 @@ const validateConfigField = () =>
 				"object entirely to skip validation.",
 		);
 
-const repeatConfigField = () =>
-	z
-		.object({
-			mode: z
-				.enum(["user_controlled", "count_bound", "query_bound"])
-				.describe(FIELD_DOCS.repeat_mode),
-			count: z.string().optional().describe(FIELD_DOCS.repeat_count),
-			ids_query: z.string().optional().describe(FIELD_DOCS.ids_query),
-		})
-		.describe(
-			'Repeat-mode config — set only when `kind === "repeat"`. ' +
-				"Pick a `mode` and provide the matching mode-specific field " +
-				"(`count` for count_bound, `ids_query` for query_bound).",
-		);
 const casePropertyOnField = () =>
-	z.string().optional().describe(FIELD_DOCS.case_property_on);
+	z.string().nullable().optional().describe(FIELD_DOCS.case_property_on);
 
-// Nullable variants for the edit patch. `null` means "clear this
-// property" (distinct from "leave unchanged", which is the key absent).
-// The `null` is preserved end-to-end — `editField` carries it into the
-// `updateField` patch and the reducer deletes the key on a `null` (or
-// `undefined`) value, clearing the property without a separate "remove"
-// mutation. `null` (unlike `undefined`) survives Firestore, so the clear
-// round-trips through the event log.
-const nullableString = (doc: string) =>
-	z.string().nullable().optional().describe(doc);
-const nullableOptions = () =>
-	z.array(saOptionSchema).nullable().optional().describe(FIELD_DOCS.options);
-
-/**
- * The WIDE flat item shape — the source of the `FlatField` processing type
- * (`contentProcessing.ts`). It carries every key any kind might use (all
- * optional but `id`/`kind`). The actual tool inputs below are per-kind
- * discriminated unions whose every arm is a structural SUBSET of this shape,
- * so a validated tool item flows through `stripEmpty` / `applyDefaults` /
- * `flatFieldToField` unchanged — those helpers stay typed against this one
- * wide shape rather than a 19-way union.
- */
-function buildWideFlatItemSchema(kinds: readonly FieldKind[]) {
-	return z.object({
-		id: idField(),
-		kind: makeKindEnum(kinds),
-		label: labelSentinel(),
-		parentId: parentIdField(),
-		required: requiredField(),
-		hint: hintField(),
-		validate: validateConfigField().optional(),
-		relevant: relevantField(),
-		calculate: calculateField(),
-		default_value: defaultValueField(),
-		options: optionsField(),
-		case_property_on: casePropertyOnField(),
-		repeat: repeatConfigField().optional(),
-	});
-}
-
-// ── Per-kind discriminated-union tool inputs ─────────────────────────
+// ── Flat tool inputs, kind-gated by refinement ───────────────────────
 //
-// Each field-mutation tool's input is a `discriminatedUnion("kind", …)`:
-// an arm exposes ONLY the properties that kind's domain schema declares
-// (gated by `fieldKindDeclaresKey`), so the SA cannot even express an
-// invalid combination — `calculate` simply isn't a slot on a
-// `single_select` arm, `options` isn't on `hidden`, `hint` isn't on
-// `repeat`. The whole class of "wrong property for this kind" errors
-// becomes unrepresentable at the tool-call boundary instead of caught
-// after assembly. Per-property guidance still comes from `FIELD_DOCS`.
+// Each field-mutation tool's input is ONE `.strict()` object whose slots
+// appear once, `superRefine`d against `fieldKindDeclaresKey`: a property
+// the kind doesn't declare — `calculate` on a `single_select`, `options`
+// on `hidden`, `hint` on `repeat` — rejects at the tool-call boundary
+// with a message naming the expressible fix (leave it out / pass null),
+// exactly the "wrong property for this kind" gate a per-kind union would
+// impose structurally, at a fraction of the schema size. The inferred
+// type of the add item IS the `FlatField` processing shape the pipeline
+// (`stripEmpty` / `applyDefaults` / `flatFieldToField`) types against —
+// tool input and processing shape are one.
 
 /**
  * Repeat config for the `repeat` arm — discriminated on `mode` so a
@@ -352,163 +269,198 @@ function repeatConfigDiscriminated() {
 }
 
 /**
- * The add-tool `label` slot for a kind: omitted for kinds that declare no
- * label (`hidden`), optional for containers (`group` / `repeat` — empty =
- * a transparent/titleless container), required & non-empty (`min(1)`) for
- * every visible kind. Per-kind typing lets us require a real label without
- * the old `""`-sentinel hack.
+ * Slots whose presence is gated per kind through `fieldKindDeclaresKey`.
+ * `id` / `kind` / `parentId` are tool-level (every kind carries them), and
+ * `repeat` is gated on `kind === "repeat"` directly — the domain flattens
+ * its config into `repeat_mode`/`repeat_count`/`data_source`, so there is
+ * no single declared key to ask the registry about.
  */
-function addLabelField(kind: FieldKind) {
-	return fieldRegistry[kind].isContainer
-		? z.string().optional().describe(FIELD_DOCS.label)
-		: z.string().min(1).describe(FIELD_DOCS.label);
-}
+const ADD_GATED_KEYS = [
+	"label",
+	"hint",
+	"required",
+	"relevant",
+	"validate",
+	"calculate",
+	"default_value",
+	"options",
+	"case_property_on",
+] as const;
 
-/**
- * One kind's arm for the `addFields` tool. Each arm carries the per-field
- * `parentId` so a batch can place each field precisely (and reference a
- * group added earlier in the same batch).
- */
-function buildAddArm(kind: FieldKind) {
-	const has = (key: string): boolean => fieldKindDeclaresKey(kind, key);
-	return z
-		.object({
-			kind: z.literal(kind).describe(fieldRegistry[kind].saDocs),
-			id: idField(),
-			parentId: parentIdField(),
-			...(has("label") ? { label: addLabelField(kind) } : {}),
-			...(has("hint") ? { hint: hintField() } : {}),
-			...(has("required") ? { required: requiredField() } : {}),
-			...(has("relevant") ? { relevant: relevantField() } : {}),
-			...(has("validate")
-				? { validate: validateConfigField().optional() }
-				: {}),
-			...(has("calculate") ? { calculate: calculateField() } : {}),
-			...(has("default_value") ? { default_value: defaultValueField() } : {}),
-			...(has("options")
-				? {
-						options: z
-							.array(saOptionSchema)
-							.min(2)
-							.describe(FIELD_DOCS.options),
-					}
-				: {}),
-			...(has("case_property_on")
-				? { case_property_on: casePropertyOnField() }
-				: {}),
-			...(kind === "repeat" ? { repeat: repeatConfigDiscriminated() } : {}),
-			// `.strict()` so a property the kind doesn't declare (e.g. `calculate`
-			// on a `single_select`) is REJECTED at the boundary — the SA is told
-			// and retries, rather than the stray key being silently stripped.
-		})
-		.strict();
-}
+const EDIT_GATED_KEYS = [...ADD_GATED_KEYS, "help"] as const;
 
-/**
- * `z.discriminatedUnion` wants a non-empty tuple of members; the runtime
- * arm list is built from `fieldKinds`. Every member carries a distinct
- * `kind` literal so the discriminator is well-formed — the cast just
- * satisfies the tuple-arity signature.
- */
-type AddArm = ReturnType<typeof buildAddArm>;
-
-function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
-	const arms = kinds.map((k) => buildAddArm(k)) as [AddArm, ...AddArm[]];
-	return z.discriminatedUnion("kind", arms);
-}
-
-/**
- * The WIDE edit-patch shape — the source of the type `editPatchToFieldPatch`
- * (`tools/editField.ts`) consumes. Carries every clearable key
- * (`.nullable().optional()`). The per-kind edit union below is the actual
- * tool input; its arms are structural subsets of this shape, so the patch
- * mapper stays typed against one wide shape rather than a 19-way union.
- */
-function buildWideEditUpdatesSchema(kinds: readonly FieldKind[]) {
-	return z.object({
-		id: idField().optional(),
-		kind: makeKindEnum(kinds).optional(),
-		label: nullableString(FIELD_DOCS.label),
-		hint: nullableString(FIELD_DOCS.hint),
-		help: nullableString(FIELD_DOCS.help),
-		required: nullableString(FIELD_DOCS.required),
-		validate: validateConfigField().nullable().optional(),
-		relevant: nullableString(FIELD_DOCS.relevant),
-		calculate: nullableString(FIELD_DOCS.calculate),
-		default_value: nullableString(FIELD_DOCS.default_value),
-		options: nullableOptions(),
-		case_property_on: nullableString(FIELD_DOCS.case_property_on),
-		repeat: repeatConfigField().optional(),
+function undeclaredSlotIssue(
+	ctx: z.RefinementCtx,
+	kind: FieldKind,
+	key: string,
+): void {
+	ctx.addIssue({
+		code: "custom",
+		path: [key],
+		message: `kind "${kind}" carries no \`${key}\` slot — leave ${key} out.`,
 	});
 }
 
+/** Reject a `repeat` config on any non-repeat kind. */
+function gateRepeatSlot(
+	ctx: z.RefinementCtx,
+	kind: FieldKind,
+	repeat: unknown,
+): void {
+	if (kind !== "repeat" && repeat != null) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["repeat"],
+			message: `only kind "repeat" carries a \`repeat\` config — leave it out.`,
+		});
+	}
+}
+
 /**
- * One kind's arm for the `editField` tool. Like the add arms it exposes
- * only the kind's declared keys — but every clearable key is
- * `.nullable().optional()` (omit = leave as-is, `null` = clear, value =
- * set), and `help` (longer-form text the add tools omit) appears for kinds
- * that declare it.
- *
- * `kind` is REQUIRED here because it's the union discriminator: the SA
- * states the field's CURRENT kind to edit in place, or a different
- * convertible kind to convert it. That's what lets the patch be validated
- * against the right kind's property set — so the SA can't, say, set
- * `calculate` on a `single_select` (the slot isn't on that arm).
- *
- * `repeat` is optional-not-nullable: a repeat always has a mode, so
- * "clear the repeat config" is meaningless — switch modes by passing a new
- * `repeat` object (the reducer drops the prior mode's mode-specific field).
+ * The `addFields` item shape (also embedded by `createForm` / `createModule`
+ * for their `fields` arrays). Each item carries a per-field `parentId` so a
+ * batch can place each field precisely (and reference a group added earlier
+ * in the same batch). The kind policy enforces per-kind requiredness the
+ * flat shape can't state: a non-empty `label` on every visible kind, ≥2
+ * `options` on the selects (case-bound fields exempt from both floors —
+ * their catalog record seeds those slots), a `repeat` config on `repeat` —
+ * and rejects any slot the kind doesn't declare.
  */
-function buildEditArm(kind: FieldKind) {
-	const has = (key: string): boolean => fieldKindDeclaresKey(kind, key);
+function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
+	return z
+		.object({
+			kind: makeKindEnum(kinds),
+			id: idField(),
+			parentId: parentIdField(),
+			label: labelField(),
+			hint: hintField(),
+			required: requiredField(),
+			relevant: relevantField(),
+			validate: validateConfigField().nullable().optional(),
+			calculate: calculateField(),
+			default_value: defaultValueField(),
+			options: optionsField(),
+			case_property_on: casePropertyOnField(),
+			repeat: repeatConfigDiscriminated().nullable().optional(),
+			// `.strict()` so a key outside the shape is REJECTED at the boundary —
+			// the SA is told and retries, rather than the stray key being
+			// silently stripped.
+		})
+		.strict()
+		.superRefine((item, ctx) => {
+			for (const key of ADD_GATED_KEYS) {
+				if (item[key] != null && !fieldKindDeclaresKey(item.kind, key)) {
+					undeclaredSlotIssue(ctx, item.kind, key);
+				}
+			}
+			// A case-bound field (`case_property_on` set) INHERITS label /
+			// options / validation / required from its catalog record —
+			// `applyDefaults` seeds them after this parse, and the prompt
+			// teaches stating those slots only to override. Absence is
+			// therefore legal exactly when the field is case-bound; a record
+			// gap (a select bound to a property recorded without options)
+			// still fails the per-kind assembly parse downstream, naming the
+			// offending field.
+			const caseBound =
+				typeof item.case_property_on === "string" &&
+				item.case_property_on.length > 0;
+			if (
+				fieldKindDeclaresKey(item.kind, "label") &&
+				!fieldRegistry[item.kind].isContainer &&
+				!item.label &&
+				!caseBound
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["label"],
+					message: `kind "${item.kind}" needs a real \`label\` — the end user reads it. Pass a non-empty string.`,
+				});
+			}
+			// Missing options are fine on a case-bound field (the record's
+			// list seeds them); a STATED list under 2 entries is wrong on
+			// every path — an override must be a real choice list.
+			if (
+				fieldKindDeclaresKey(item.kind, "options") &&
+				(item.options == null ? !caseBound : item.options.length < 2)
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["options"],
+					message: `kind "${item.kind}" needs an \`options\` choice list with at least 2 entries.`,
+				});
+			}
+			if (item.kind === "repeat" && item.repeat == null) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["repeat"],
+					message:
+						'kind "repeat" needs its `repeat` config — pass at least { mode: "user_controlled" }.',
+				});
+			}
+			gateRepeatSlot(ctx, item.kind, item.repeat);
+		});
+}
+
+/**
+ * The `editField` patch shape. Every clearable key is
+ * `.nullable().optional()` — omitted = keep the current value, a value =
+ * set, `null` = CLEAR the property — and `help` (longer-form text the
+ * add tool omits) is a slot for kinds that declare it.
+ *
+ * `kind` is REQUIRED: the SA states the field's CURRENT kind to edit in
+ * place, or a different convertible kind to convert it. That's what the
+ * kind policy validates the patch against — so the SA can't, say, set
+ * `calculate` on a `single_select`. The per-kind guide lives on the
+ * `addFields` items' `kind`; this one carries the edit framing alone.
+ *
+ * `id` and `repeat` are NOT nullable: an id can't be cleared (leave it
+ * out to keep it), and a repeat always has a mode — "clear the repeat
+ * config" is meaningless; switch modes by passing a new `repeat` object
+ * (the reducer drops the prior mode's mode-specific field).
+ */
+function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 	return z
 		.object({
 			kind: z
-				.literal(kind)
+				.enum(kinds as readonly [FieldKind, ...FieldKind[]])
 				.describe(
 					"The field's kind. Pass its CURRENT kind to edit in place, or a " +
-						"different convertible kind to convert it — required so the patch " +
-						"is validated against this kind's properties.",
+						"different convertible kind to convert it — the patch is " +
+						"validated against this kind's slots. Kinds are documented on " +
+						"the `addFields` items' `kind`.",
 				),
 			id: idField()
 				.optional()
-				.describe("New id to rename to; omit to keep it."),
-			...(has("label") ? { label: nullableString(FIELD_DOCS.label) } : {}),
-			...(has("hint") ? { hint: nullableString(FIELD_DOCS.hint) } : {}),
-			...(has("help") ? { help: nullableString(FIELD_DOCS.help) } : {}),
-			...(has("required")
-				? { required: nullableString(FIELD_DOCS.required) }
-				: {}),
-			...(has("relevant")
-				? { relevant: nullableString(FIELD_DOCS.relevant) }
-				: {}),
-			...(has("validate")
-				? { validate: validateConfigField().nullable().optional() }
-				: {}),
-			...(has("calculate")
-				? { calculate: nullableString(FIELD_DOCS.calculate) }
-				: {}),
-			...(has("default_value")
-				? { default_value: nullableString(FIELD_DOCS.default_value) }
-				: {}),
-			...(has("options") ? { options: nullableOptions() } : {}),
-			...(has("case_property_on")
-				? { case_property_on: nullableString(FIELD_DOCS.case_property_on) }
-				: {}),
-			...(kind === "repeat"
-				? { repeat: repeatConfigDiscriminated().optional() }
-				: {}),
-			// `.strict()` — same boundary rejection as the add arms: a property
-			// this kind doesn't declare is an error, not a silent strip.
+				.describe("New id to rename to; leave it out to keep the current id."),
+			label: labelField(),
+			hint: hintField(),
+			help: helpField(),
+			required: requiredField(),
+			relevant: relevantField(),
+			validate: validateConfigField().nullable().optional(),
+			calculate: calculateField(),
+			default_value: defaultValueField(),
+			options: optionsField(),
+			case_property_on: casePropertyOnField(),
+			repeat: repeatConfigDiscriminated().optional(),
+			// `.strict()` — same boundary rejection as the add item: a key
+			// outside the shape is an error, not a silent strip.
 		})
-		.strict();
-}
-
-type EditArm = ReturnType<typeof buildEditArm>;
-
-function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
-	const arms = kinds.map(buildEditArm) as [EditArm, ...EditArm[]];
-	return z.discriminatedUnion("kind", arms);
+		.strict()
+		.superRefine((patch, ctx) => {
+			for (const key of EDIT_GATED_KEYS) {
+				// Any PRESENT value — null included — on a slot the kind
+				// doesn't declare rejects: there's nothing there to set OR
+				// clear, and a stray null must never read as intent.
+				if (
+					patch[key] !== undefined &&
+					!fieldKindDeclaresKey(patch.kind, key)
+				) {
+					undeclaredSlotIssue(ctx, patch.kind, key);
+				}
+			}
+			gateRepeatSlot(ctx, patch.kind, patch.repeat);
+		});
 }
 
 /**
@@ -516,23 +468,19 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
  * per-item shape used inside `z.array(...)` for the batch-add tool —
  * exposed separately so consumers that wrap it in their own input
  * schema (which adds `moduleIndex`/`formIndex`) can reuse the same
- * inferred TS type.
+ * inferred TS type; its inferred type is also the `FlatField` processing
+ * shape the add-path pipeline types against.
  */
 export type GeneratedToolSchemas = {
 	addFieldsItemSchema: ReturnType<typeof buildAddFieldsItemSchema>;
 	editFieldUpdatesSchema: ReturnType<typeof buildEditFieldUpdatesSchema>;
-	/** Wide processing-type sources (NOT tool inputs) — see the builders. */
-	wideFlatItemSchema: ReturnType<typeof buildWideFlatItemSchema>;
-	wideEditUpdatesSchema: ReturnType<typeof buildWideEditUpdatesSchema>;
 };
 
 /**
  * Generate the SA field-mutation tool schemas from the field registry.
  * `kinds` defaults to the authoritative `fieldKinds` tuple; tests may pass
  * a subset to exercise generator behavior without pulling in the full
- * registry. The three `*Schema` outputs are the per-kind discriminated-union
- * TOOL inputs; the two `wide*` outputs are the wide processing-type sources
- * the downstream pipeline types against.
+ * registry.
  */
 export function generateToolSchemas(
 	kinds: readonly FieldKind[] = fieldKinds,
@@ -540,7 +488,5 @@ export function generateToolSchemas(
 	return {
 		addFieldsItemSchema: buildAddFieldsItemSchema(kinds),
 		editFieldUpdatesSchema: buildEditFieldUpdatesSchema(kinds),
-		wideFlatItemSchema: buildWideFlatItemSchema(kinds),
-		wideEditUpdatesSchema: buildWideEditUpdatesSchema(kinds),
 	};
 }

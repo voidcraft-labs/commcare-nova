@@ -141,7 +141,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	 * (no HQ scope or invalid request), `true`/`false` when we did — the
 	 * form distinguishes "didn't ask" from "asked, no key" so a future
 	 * caller forgetting the gating logic can't silently flip a "no HQ
-	 * scope requested" call into "user has no key" UI. On Firestore
+	 * scope requested" call into "user has no key" UI. On a Postgres
 	 * failure we deliberately return `false` rather than `undefined`:
 	 * showing the dormancy hint is the safer of the two failure modes
 	 * (vs. silently implying the integration is wired up). */

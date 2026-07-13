@@ -4,7 +4,7 @@
 // doc-mutation media tool (`attach_field_media`, `attach_option_media`,
 // `set_menu_media`, `set_app_logo`) runs BEFORE its
 // gated commit. An asset's lifecycle lives outside the doc (bytes in GCS,
-// a Firestore status row), so no doc commit fires when it changes — which
+// a Postgres status row), so no doc commit fires when it changes — which
 // makes the attach the LAST commit that can see the asset's state. The
 // verdict holds the line there: a committed media reference always points
 // at an asset that exists, belongs to the app's Project, is `ready`, and
@@ -42,7 +42,7 @@
 // per-asset judgment INSIDE the transactional commit — the expectations
 // ride `guardedMutate` → `recordMutations` → `applyBlueprintChange`'s
 // guard, and `describeMediaExpectationFailures` is re-applied to rows
-// read in the SAME Firestore transaction that re-verdicts the batch.
+// read in the SAME Postgres transaction that re-verdicts the batch.
 // That covers the ordering where the delete COMMITS first: a row gone
 // by the attach's transactional read fails the re-verdict and the
 // attach refuses. The REVERSE interleaving survives on both surfaces —

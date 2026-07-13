@@ -51,8 +51,10 @@ import type {
 } from "@/lib/domain";
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { addFormMutations, resolveModuleUuid } from "../blueprintHelpers";
-import type { FlatField } from "../contentProcessing";
-import { connectFormConfigSchema } from "../planningSchemas";
+import {
+	closeConditionInputSchema,
+	connectFormConfigSchema,
+} from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import {
@@ -65,6 +67,7 @@ import { buildConnectConfig } from "./shared/connectInput";
 import {
 	assembleFieldMutations,
 	describeRejectedFieldIds,
+	resolveCloseCondition,
 } from "./shared/fieldAssembly";
 import type {
 	MutationSuccess,
@@ -74,7 +77,7 @@ import type {
 export const createFormInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
-		name: z.string().describe("Form display name"),
+		name: z.string().min(1).describe("Form display name"),
 		type: z
 			.enum(FORM_TYPES)
 			.describe(
@@ -88,18 +91,30 @@ export const createFormInputSchema = z
 			),
 		purpose: z
 			.string()
+			.min(1)
+			.nullable()
 			.optional()
-			.describe("Brief description of what this form collects and why."),
+			.describe(
+				"Brief description of what this form collects and why. null when there's nothing to add.",
+			),
 		post_submit: z
 			.enum(USER_FACING_DESTINATIONS)
+			.nullable()
 			.optional()
 			.describe(
 				'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Only set to override.',
 			),
-		connect: connectFormConfigSchema
+		close_condition: closeConditionInputSchema
+			.nullable()
 			.optional()
 			.describe(
-				"Per-form Connect config — a block opts the form INTO Connect, and a participating form lands with its block in this call. Omit it on a form that shouldn't participate (a Connect app just needs at least one participating form), and always on standard apps.",
+				"Close forms only — close the case only when the named field matches (the field may be one landing in this same call). null for an unconditional close.",
+			),
+		connect: connectFormConfigSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Per-form Connect config — a block opts the form INTO Connect, and a participating form lands with its block in this call. Pass null on a form that shouldn't participate (a Connect app just needs at least one participating form), and always on standard apps.",
 			),
 	})
 	.strict();
@@ -118,8 +133,16 @@ export const createFormTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<CreateFormResult>> {
-		const { moduleIndex, name, type, fields, purpose, post_submit, connect } =
-			input;
+		const {
+			moduleIndex,
+			name,
+			type,
+			fields,
+			purpose,
+			post_submit,
+			close_condition,
+			connect,
+		} = input;
 		try {
 			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid) {
@@ -137,14 +160,12 @@ export const createFormTool = {
 			// entry as "no existing siblings".
 			const formUuid = asUuid(crypto.randomUUID());
 
-			// Per-kind union arms are validated structural subsets of the wide
-			// `FlatField` the pipeline operates on — same bridge cast as
-			// `addFields`. Assembled BEFORE the connect block so the block's
-			// XPath slots can parse against the batch-aware resolver below.
+			// Assembled BEFORE the connect block so the block's XPath slots
+			// can parse against the batch-aware resolver below.
 			const assembly = assembleFieldMutations({
 				doc,
 				formUuid,
-				items: fields as FlatField[],
+				items: fields,
 			});
 			if (!assembly.ok) {
 				return {
@@ -207,14 +228,21 @@ export const createFormTool = {
 				enforcedConnect = enforced.config;
 			}
 
+			// The condition's field id resolves against the batch overlay, so
+			// it can name a field landing in this same call.
+			const closeCondition = resolveCloseCondition(
+				assembly.resolveFieldRef,
+				close_condition,
+			);
 			const formMutations = addFormMutations(doc, moduleUuid, {
 				uuid: formUuid,
 				name,
 				type: type as FormType,
-				...(purpose !== undefined && { purpose }),
+				...(purpose != null && { purpose }),
 				...(post_submit && {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),
+				...(closeCondition && { closeCondition }),
 				...(enforcedConnect && { connect: enforcedConnect }),
 			});
 
@@ -247,7 +275,11 @@ export const createFormTool = {
 			const newFormIndex = orderedFormUuids(newDoc, moduleUuid).indexOf(
 				formUuid,
 			);
-			const fieldCount = assembly.mutations.length;
+			// Count the fields, not the batch: the assembly prepends the
+			// declaration chokepoint's catalog mutations for undeclared types.
+			const fieldCount = assembly.mutations.filter(
+				(m) => m.kind === "addField",
+			).length;
 			const skippedNote =
 				assembly.skipped.length > 0
 					? ` Skipped ${assembly.skipped.length} field(s): ${assembly.skipped

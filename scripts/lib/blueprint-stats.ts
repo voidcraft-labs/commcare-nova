@@ -1,7 +1,7 @@
 /**
  * Blueprint analysis functions for diagnostic scripts.
  *
- * Operates on the normalized `BlueprintDoc` shape persisted in Firestore.
+ * Operates on the normalized `BlueprintDoc` shape assembled from Postgres.
  * Each form is visited in a single DFS pass — the collected `Field[]` is
  * reused across every per-form metric (kind counts, logic counts, case
  * property count, quality flags) rather than one walk per metric.

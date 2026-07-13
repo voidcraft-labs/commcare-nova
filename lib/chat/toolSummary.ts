@@ -81,6 +81,10 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 	},
 	setMenuMedia: { doing: "Setting menu media", done: "Set menu media" },
 	updateApp: { doing: "Updating app settings", done: "Updated app settings" },
+	generateSchema: {
+		doing: "Recording the data model",
+		done: "Recorded the data model",
+	},
 	// Historical threads only — these tools are retired, but runs
 	// persisted before their retirement still carry these parts.
 	completeBuild: { doing: "Finishing the app", done: "Finished the app" },
@@ -141,23 +145,57 @@ const COUNTABLE_ACTIONS: Record<string, (n: number) => string> = {
 	attachOptionMedia: (n) =>
 		`Set media on ${n} ${n === 1 ? "option" : "options"}`,
 	setMenuMedia: (n) => `Set media on ${n} menu ${n === 1 ? "tile" : "tiles"}`,
+	/* `generateSchema` is deliberately NOT countable: its "→" line already
+	 * lists the recorded case-type names (see `toolLocation`), so a count in
+	 * the headline restates what the names show — and the longer phrase
+	 * truncates in the chip. The static "Recorded the data model" carries
+	 * the act; the names carry the detail. */
 };
+
+/** App-level tools with no container breadcrumb — their subject (the app's
+ *  new name; the recorded case-type names) renders on the "→" line instead
+ *  of inline, where a long value would truncate the headline. Shared by
+ *  `toolAction` (skips the inline subject) and `toolLocation` (renders it
+ *  as the breadcrumb) so the subject shows exactly once. */
+const SUBJECT_ON_LOCATION_LINE = new Set(["updateApp", "generateSchema"]);
 
 export type ToolStatus = "pending" | "done" | "failed";
 
 /** Tool name without the AI SDK `tool-` part-type prefix. */
 const toolName = (part: ToolUIPart): string => part.type.replace(/^tool-/, "");
 
+/** A `generateSchema` part from the era when the tool was a pure planning
+ *  step (output `{ planned: true, … }` — it wrote nothing to the doc). Those
+ *  parts survive on historical threads and must render like the other
+ *  retired planning tools — showing them as a completed doc change would
+ *  assert a mutation that never happened. Today's tool commits the catalog
+ *  and returns the standard `{ message, summary }` / `{ error }` shapes,
+ *  which never carry a `planned` key. */
+const isPlanningEraSchemaPart = (part: {
+	type: string;
+	output?: unknown;
+}): boolean =>
+	part.type === "tool-generateSchema" &&
+	typeof part.output === "object" &&
+	part.output !== null &&
+	"planned" in part.output;
+
 /** Whether a part is an edit-tool call that groups into the change summary.
- *  Excludes the specially-rendered tools: `askQuestions` (its own card) and the
- *  build-mode generators (the signal grid + GenerationProgress own that). */
-export const isEditToolPart = (part: { type: string }): boolean =>
+ *  Excludes the specially-rendered `askQuestions` (its own card) and the
+ *  retired build-mode generators (historical threads only). `generateSchema`
+ *  is a doc-mutating tool like any other — a schema commit (new or enriched
+ *  case types) must show in the transcript, and a failed call must surface
+ *  its error — except its planning-era parts, which mutated nothing. */
+export const isEditToolPart = (part: {
+	type: string;
+	output?: unknown;
+}): boolean =>
 	part.type.startsWith("tool-") &&
 	part.type !== "tool-askQuestions" &&
-	part.type !== "tool-generateSchema" &&
+	// Historical threads only — retired build-mode tools.
+	part.type !== "tool-generateScaffold" &&
 	part.type !== "tool-planAppDesign" &&
-	// Historical threads only — the retired scaffold generator.
-	part.type !== "tool-generateScaffold";
+	!isPlanningEraSchemaPart(part);
 
 /** The mutating-tool success shape we read for presentation. All fields are
  *  optional here because we narrow defensively off the part's `unknown`
@@ -234,7 +272,9 @@ export const toolAction = (part: ToolUIPart): string => {
 		return countable(summary.count);
 	}
 	const action = TOOL_ACTIONS[name]?.[tense] ?? name;
-	return summary?.subject ? `${action} "${summary.subject}"` : action;
+	return summary?.subject && !SUBJECT_ON_LOCATION_LINE.has(name)
+		? `${action} "${summary.subject}"`
+		: action;
 };
 
 /** The secondary "→" line beneath the action: the container breadcrumb
@@ -245,7 +285,9 @@ export const toolAction = (part: ToolUIPart): string => {
 export const toolLocation = (part: ToolUIPart): string | null => {
 	const summary = outputOf(part)?.summary;
 	if (!summary) return null;
-	if (toolName(part) === "updateApp") return summary.subject ?? null;
+	if (SUBJECT_ON_LOCATION_LINE.has(toolName(part))) {
+		return summary.subject ?? null;
+	}
 	return summary.location ?? null;
 };
 

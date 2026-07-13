@@ -1,15 +1,15 @@
 /**
  * Preview the EXACT requirements extract a document condenses to — the text the
  * Solutions Architect reads in place of the raw file ("What Nova reads"),
- * without paying for the SA's Opus tool loop.
+ * without paying for the SA's tool loop.
  *
  * Drives the REAL extraction core (`extractDocument`: same prompt, same
  * docx/xlsx/PDF routing the upload route uses) against local files, with a
  * SWAPPABLE condenser model:
  *
- *   - `gemini` — Google Gemini 3.5 Flash, the official production summarizer
- *     (reuses production's exact thinking + media-resolution options).
- *   - `haiku`  — Anthropic Claude Haiku 4.5, the prior summarizer, kept as a
+ *   - `luna`   — OpenAI GPT-5.6 Luna, the official production summarizer
+ *     (reuses production's exact model id + reasoning options).
+ *   - `gemini` — Google Gemini 3.5 Flash, the prior summarizer, kept as a
  *     comparison baseline.
  *
  * Only the model backend differs. That works because `extractDocument` depends
@@ -21,18 +21,19 @@
  * cost per model, so you can compare extract quality AND price.
  *
  * Usage:
- *   npx tsx scripts/preview-attachment-condense.ts <file...> [--model haiku|gemini|both]
+ *   npx tsx scripts/preview-attachment-condense.ts <file...> [--model luna|gemini|both]
  *
  * Defaults to `both`. Both models route through the AI Gateway, so the one
  * AI_GATEWAY_API_KEY from .env covers them (no key = cleanly skipped, not a
  * crash).
  *
- * Cost: one Haiku and/or one Gemini call per file (cents) — never the SA.
+ * Cost: one Luna and/or one Gemini call per file (cents) — never the SA.
  */
 
 import "dotenv/config";
 import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
+import type { GoogleLanguageModelOptions } from "@ai-sdk/google";
 import { createGateway, type LanguageModel } from "ai";
 import {
 	type AttachmentCondenser,
@@ -48,27 +49,40 @@ import {
 	assetKindForExtension,
 	isDocumentKind,
 } from "../lib/domain/multimedia";
-import { MODEL_PRICING } from "../lib/models";
+import { GATEWAY_PROVIDER_OPTIONS, MODEL_PRICING } from "../lib/models";
 
 // ── Model + pricing config ──────────────────────────────────────────────────
 
-const HAIKU_ID = "anthropic/claude-haiku-4.5";
 /** Single-sourced from the production extractor so the preview can't drift from
  *  the model the route actually calls. */
-const GEMINI_ID = CONDENSER_MODEL;
+const LUNA_ID = CONDENSER_MODEL;
+const GEMINI_ID = "google/gemini-3.5-flash";
 
 /**
- * Gemini 3.5 Flash pricing, $/1M tokens (paid tier). Output is billed inclusive
- * of thinking tokens, so the printed output count IS the billed count. Haiku's
- * rates come from the app's own `MODEL_PRICING` (single source of truth). Verify
- * against https://ai.google.dev/gemini-api/docs/pricing if Google revises.
+ * Gemini 3.5 Flash pricing, $/1M tokens (paid tier). Luna's rates come from
+ * the app's own `MODEL_PRICING` (single source of truth). Verify against
+ * https://ai.google.dev/gemini-api/docs/pricing if Google revises.
  *
- * NOTE: caching does not enter here — extraction is a single one-shot call per
- * document, so neither Anthropic's cache-write/read nor Gemini's cached-token +
- * hourly-storage model applies. Only input + output rates matter.
+ * NOTE: the estimate prices all input at the base uncached rate. Extraction is
+ * a single one-shot call per document, so no cached prefix is reused — and the
+ * gateway bills our calls no cache-write surcharge (fresh input at exactly the
+ * plain rate, per its own metering), so the uncached rate matches the charge.
  */
 const GEMINI_PRICING = { input: 1.5, output: 9 } as const;
-const HAIKU_PRICING = MODEL_PRICING[HAIKU_ID];
+const LUNA_PRICING = MODEL_PRICING[LUNA_ID];
+
+/**
+ * The prior production summarizer's provider options, kept verbatim so the
+ * baseline reproduces the extracts Nova used to store: medium thinking with
+ * streamed thoughts, and high media resolution for PDF rasterization.
+ */
+const GEMINI_PROVIDER_OPTIONS: SubGenerationProviderOptions = {
+	google: {
+		thinkingConfig: { thinkingLevel: "medium", includeThoughts: true },
+		mediaResolution: "MEDIA_RESOLUTION_HIGH",
+	} satisfies GoogleLanguageModelOptions,
+	gateway: GATEWAY_PROVIDER_OPTIONS,
+};
 
 /** MIME type by file extension — mirrors the client's accept set. Drives the
  *  PDF native-block media type; the kind is resolved from the extension. */
@@ -84,46 +98,48 @@ const MIME_BY_EXT: Record<string, string> = {
 
 // ── Model selection ───────────────────────────────────────────────────────
 
-type ModelKey = "haiku" | "gemini";
+type ModelKey = "luna" | "gemini";
 
 interface ModelSpec {
 	key: ModelKey;
 	label: string;
 	id: string;
 	pricing: { input: number; output: number };
-	/** Per-call provider options (e.g. Gemini's thinking level). Unset for Haiku,
-	 *  which uses provider defaults. */
+	/** Per-call provider options (reasoning depth, and for Gemini the PDF media
+	 *  resolution). */
 	providerOptions?: SubGenerationProviderOptions;
 	/** Reasoning depth shown in the result header, when the model exposes one. */
 	reasoning?: string;
 }
 
 const MODEL_SPECS: Record<ModelKey, ModelSpec> = {
-	haiku: {
-		key: "haiku",
-		label: "Haiku 4.5",
-		id: HAIKU_ID,
-		pricing: HAIKU_PRICING,
+	luna: {
+		key: "luna",
+		label: "GPT-5.6 Luna",
+		id: LUNA_ID,
+		pricing: LUNA_PRICING,
+		providerOptions: CONDENSER_PROVIDER_OPTIONS,
+		reasoning: "xhigh",
 	},
 	gemini: {
 		key: "gemini",
 		label: "Gemini 3.5 Flash",
 		id: GEMINI_ID,
 		pricing: GEMINI_PRICING,
-		providerOptions: CONDENSER_PROVIDER_OPTIONS,
-		reasoning: "high",
+		providerOptions: GEMINI_PROVIDER_OPTIONS,
+		reasoning: "medium",
 	},
 };
 
 /** Resolve a model to a `LanguageModel`, or a skip reason when the gateway key
  *  is unset (both models ride the same credential). */
 function resolveModel(
-	key: ModelKey,
+	spec: ModelSpec,
 ): { model: LanguageModel } | { skip: string } {
 	const apiKey = process.env.AI_GATEWAY_API_KEY;
 	if (!apiKey) return { skip: "AI_GATEWAY_API_KEY not set" };
 	const gateway = createGateway({ apiKey });
-	return { model: gateway(key === "haiku" ? HAIKU_ID : GEMINI_ID) };
+	return { model: gateway(spec.id) };
 }
 
 // ── Condenser backend (the swap point) ──────────────────────────────────────
@@ -137,7 +153,7 @@ interface RunStats {
 
 /**
  * An `AttachmentCondenser` backed by a chosen model. It IGNORES the `model` id
- * `extractDocument` passes (production's Gemini) and substitutes ours — that's
+ * `extractDocument` passes (production's Luna) and substitutes ours — that's
  * the whole point of the swap — and records usage for the cost print.
  */
 function makeCondenser(
@@ -147,7 +163,7 @@ function makeCondenser(
 ): AttachmentCondenser {
 	return {
 		// The one structured extraction call. Substitutes THIS run's model for the
-		// id extractDocument passes (production's Gemini) — the whole point of the
+		// id extractDocument passes (production's Luna) — the whole point of the
 		// swap — and records usage for the cost print.
 		async extractDocumentStructured(opts) {
 			const r = await generateObjectWith({
@@ -158,7 +174,7 @@ function makeCondenser(
 				file: opts.file,
 				instruction: opts.instruction,
 				maxOutputTokens: opts.maxOutputTokens,
-				providerOptions: opts.providerOptions ?? providerOptions,
+				providerOptions: providerOptions ?? opts.providerOptions,
 			});
 			stats.calls += 1;
 			stats.inputTokens += r.usage?.inputTokens ?? 0;
@@ -186,7 +202,7 @@ function estimateCost(
 
 /** Run one model against one file and print the extract block. */
 async function runModel(spec: ModelSpec, path: string): Promise<void> {
-	const reasoningNote = spec.reasoning ? `, thinking: ${spec.reasoning}` : "";
+	const reasoningNote = spec.reasoning ? `, reasoning: ${spec.reasoning}` : "";
 	console.log(`\n### ${spec.label} (${spec.id}${reasoningNote})`);
 
 	const ext = extname(path).toLowerCase();
@@ -198,7 +214,7 @@ async function runModel(spec: ModelSpec, path: string): Promise<void> {
 		return;
 	}
 
-	const resolved = resolveModel(spec.key);
+	const resolved = resolveModel(spec);
 	if ("skip" in resolved) {
 		console.log(`  ⏭  skipped — ${resolved.skip}`);
 		return;
@@ -242,12 +258,12 @@ async function runModel(spec: ModelSpec, path: string): Promise<void> {
 async function main(): Promise<void> {
 	const argv = process.argv.slice(2);
 	const files: string[] = [];
-	let selection: "haiku" | "gemini" | "both" = "both";
+	let selection: "luna" | "gemini" | "both" = "both";
 	for (let i = 0; i < argv.length; i += 1) {
 		if (argv[i] === "--model") {
 			const next = argv[i + 1];
-			if (next !== "haiku" && next !== "gemini" && next !== "both") {
-				console.error(`--model must be haiku | gemini | both (got "${next}")`);
+			if (next !== "luna" && next !== "gemini" && next !== "both") {
+				console.error(`--model must be luna | gemini | both (got "${next}")`);
 				process.exit(1);
 			}
 			selection = next;
@@ -259,14 +275,14 @@ async function main(): Promise<void> {
 
 	if (files.length === 0) {
 		console.error(
-			"Usage: npx tsx scripts/preview-attachment-condense.ts <file...> [--model haiku|gemini|both]",
+			"Usage: npx tsx scripts/preview-attachment-condense.ts <file...> [--model luna|gemini|both]",
 		);
 		process.exit(1);
 	}
 
 	const specs: ModelSpec[] =
 		selection === "both"
-			? [MODEL_SPECS.haiku, MODEL_SPECS.gemini]
+			? [MODEL_SPECS.luna, MODEL_SPECS.gemini]
 			: [MODEL_SPECS[selection]];
 
 	for (const path of files) {

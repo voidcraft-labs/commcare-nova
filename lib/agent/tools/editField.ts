@@ -58,10 +58,7 @@ import {
 } from "../blueprintHelpers";
 import { unescapeXPath } from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import {
-	editFieldUpdatesSchema,
-	type wideEditUpdatesSchema,
-} from "../toolSchemas";
+import { editFieldUpdatesSchema } from "../toolSchemas";
 import {
 	applyToDoc,
 	guardedMutateStages,
@@ -96,24 +93,18 @@ export type EditFieldResult = MutationSuccess | { error: string };
  * tool body, so neither appears on this shape.
  *
  * Every clearable key in the edit schema is `.nullable().optional()`:
- *   - absent   → leave current value alone (key omitted from output)
- *   - `null`   → clear the property — emitted as `null`, NOT `undefined`.
- *                The `updateField` reducer deletes the key on a `null`
- *                value, and `null` (unlike `undefined`) survives Firestore,
- *                so the clear round-trips through the event log.
- *   - a value  → set the property (key present with the value)
- *
- * Unlike the add-path where empty string is a required-sentinel meaning
- * absent, the edit path reserves `null` for "clear" so the SA has an
- * unambiguous way to remove a property a user explicitly unset.
+ *   - absent  → leave the current value alone (key omitted from the
+ *     output patch)
+ *   - `null`  → CLEAR the property — emitted as `null`, NOT `undefined`.
+ *     The `updateField` reducer deletes the key on a `null` value, and
+ *     `null` (unlike `undefined`) survives serialization, so the clear
+ *     round-trips through the event log.
+ *   - a value → set the property (key present with the value)
  */
-/**
- * The WIDE edit-patch shape minus identity/discriminant. The per-kind edit
- * union tool input narrows this per arm; the mapper reads against the wide
- * shape so it touches any declared key without narrowing on `kind`.
- */
+/** The edit-patch shape minus identity (`id`/`kind` land via dedicated
+ *  mutations earlier in the tool body, so neither appears here). */
 type EditUpdatesPatch = Omit<
-	z.infer<typeof wideEditUpdatesSchema>,
+	z.infer<typeof editFieldUpdatesSchema>,
 	"id" | "kind"
 >;
 
@@ -125,8 +116,8 @@ function editPatchToFieldPatch(
 	const patch: Record<string, unknown> = {};
 	// Plain scalars: SA passes a new value, `null` to clear, or omits to
 	// leave unchanged. A `null` is preserved as `null` (the reducer deletes
-	// the key on it). The XPath-valued scalars get HTML-entity unescape on
-	// the way through — same treatment `applyDefaults` applies on the add
+	// the key on it). The XPath-valued scalars get HTML-entity unescape
+	// on the way through — same treatment `applyDefaults` applies on the add
 	// path, so the same SA payload produces the same stored entity through
 	// both tools — and the AST-stored slots (`relevant`, `calculate`,
 	// `default_value`) additionally parse to their stored expression form.
@@ -170,7 +161,7 @@ function editPatchToFieldPatch(
 		// the per-uuid option diff (and `options` sits in the generic-patch
 		// skip-set), so a collaborator's next edit to it would silently never
 		// persist until a reload's backfill. A `null` passes through verbatim
-		// (a clear — the commit gate then rejects the sub-2 candidate).
+		// (a clear — on a kind that requires options, the commit gate rejects).
 		patch.options =
 			updates.options === null
 				? null
@@ -191,23 +182,23 @@ function editPatchToFieldPatch(
 			patch.validate_msg = updates.validate.msg ?? null;
 		}
 	}
-	// Nested `repeat: { mode, count?, ids_query? }` config. The patch
-	// always overwrites all three flat repeat keys when `repeat` is
-	// present: the new mode determines which mode-specific field is
-	// valid, and the unused field gets `null` so the reducer clears it.
-	// Mode is required inside the nested object so we always have a value
-	// to write. `count` and `ids_query` are XPath expressions —
-	// empty-string is treated as "not set" (matching the add path's
-	// truthy-check) and unescaped when present.
-	if (updates.repeat !== undefined) {
-		patch.repeat_mode = updates.repeat.mode;
+	// Nested mode-discriminated `repeat` config. The patch always
+	// overwrites all three flat repeat keys when `repeat` is present: the
+	// new mode determines which mode-specific field is valid, and the
+	// unused field gets `null` so the reducer clears it. `count` and
+	// `ids_query` are XPath expressions — empty-string is treated as "not
+	// set" (matching the add path's truthy-check) and unescaped when
+	// present.
+	const repeat = updates.repeat;
+	if (repeat != null) {
+		patch.repeat_mode = repeat.mode;
 		patch.repeat_count =
-			updates.repeat.count && updates.repeat.count.length > 0
-				? parseExpr(unescapeXPath(updates.repeat.count))
+			repeat.mode === "count_bound" && repeat.count.length > 0
+				? parseExpr(unescapeXPath(repeat.count))
 				: null;
 		patch.data_source =
-			updates.repeat.ids_query && updates.repeat.ids_query.length > 0
-				? { ids_query: parseExpr(unescapeXPath(updates.repeat.ids_query)) }
+			repeat.mode === "query_bound" && repeat.ids_query.length > 0
+				? { ids_query: parseExpr(unescapeXPath(repeat.ids_query)) }
 				: null;
 	}
 	return patch as FieldPatchFor<FieldKind>;
@@ -215,7 +206,7 @@ function editPatchToFieldPatch(
 
 export const editFieldTool = {
 	description:
-		"Update properties on an existing field. Pass the field's current kind to edit it in place — that selects the set of properties this kind actually has; passing a different kind requests a conversion to that kind. Only include properties you want to change. Use null to clear a property. Renaming the id automatically propagates XPath and column references — for case properties, propagates across all forms in the module.",
+		"Update a field. Pass its current kind to edit in place, or a different kind to convert it. A value sets a property, null REMOVES it, leaving it out keeps it. An id rename propagates every reference automatically.",
 	inputSchema: editFieldInputSchema,
 	async execute(
 		input: EditFieldInput,
@@ -382,15 +373,11 @@ export const editFieldTool = {
 			// so anything slipping through here that doesn't fit the
 			// (possibly just-converted) kind is logged and no-ops safely.
 			if (Object.keys(fieldUpdates).length > 0) {
-				// `fieldUpdates` is one validated per-kind union arm's rest; TS
-				// infers its conditionally-present keys as `unknown`, so bridge
-				// to the wide patch shape (sound — the arm is a structural
-				// subset).
 				// Expression text resolves against the doc as the patch will
 				// see it (post-convert/rename stages), scoped to the field's
 				// containing form.
 				const patch = editPatchToFieldPatch(
-					fieldUpdates as EditUpdatesPatch,
+					fieldUpdates,
 					(text) =>
 						parseXPathForField(workingDoc, afterRename.field.uuid, text),
 					(afterRename.field as { options?: SelectOption[] }).options,
@@ -449,11 +436,16 @@ export const editFieldTool = {
 			}
 
 			const postField = workingDoc.fields[afterRename.field.uuid];
-			// `kind` is always present (it's the edit union's discriminator), so
-			// only list it as a change when it was an actual conversion.
-			const changedKeys = Object.keys(updates).filter(
-				(k) => k !== "kind" || newKind !== resolved.field.kind,
-			);
+			// `kind` is always required on the patch, so only list it as a
+			// change when it was an actual conversion. A `null` update is a
+			// clear — reported as such.
+			const changedKeys = Object.entries(updates)
+				.filter(
+					([k, v]) =>
+						v !== undefined &&
+						(k !== "kind" || newKind !== resolved.field.kind),
+				)
+				.map(([k, v]) => (v === null ? `${k} (cleared)` : k));
 			const renameNote =
 				newId && newId !== fieldId ? ` (renamed from "${fieldId}")` : "";
 			// `afterRename` already carries the form's uuid — read the display

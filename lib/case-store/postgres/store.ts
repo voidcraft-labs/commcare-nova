@@ -2265,9 +2265,9 @@ const INDEX_SCOPE_TAG_LENGTH = 12;
  * are folded into fixed-width hashes (this tag + `propertyIndexTag`)
  * — so the composed name is BOUNDED and can't overflow the 63-byte
  * identifier cap no matter how long those names are. The space
- * separator can't appear in either fragment (Firestore app ids are
- * alphanumeric; case-type names follow `CASE_PROPERTY_PATTERN`), so
- * `("ab","c")` and `("a","bc")` never collide. SHA-256 is
+ * separator can't appear in either fragment (an app id contains no
+ * space — a UUID or a compact alphanumeric id; case-type names follow
+ * `CASE_PROPERTY_PATTERN`), so `("ab","c")` and `("a","bc")` never collide. SHA-256 is
  * deterministic, so every write composes the same name for a given
  * scope — the catalog diff stays stable across runs.
  */

@@ -8,7 +8,8 @@
  *     mutation of the run (an empty app's nameless state is a
  *     pre-existing finding that this call resolves).
  *   - `connect_type` — `"learn"` / `"deliver"` enables Connect, `null`
- *     disables it. The gate adjudicates the flip like any other commit:
+ *     disables it (back to a standard app), omitted leaves it unchanged.
+ *     The gate adjudicates the flip like any other commit:
  *     enabling Connect on an app with forms but ZERO connect blocks
  *     would introduce CONNECT_NO_PARTICIPATING_FORMS and is rejected —
  *     give at least one form its block first (creation tools'
@@ -41,13 +42,15 @@ export const updateAppInputSchema = z
 			.string()
 			.min(1)
 			.optional()
-			.describe("App display name (the title users see on devices)."),
+			.describe(
+				"App display name (the title users see on devices). Leave it out to keep the current name.",
+			),
 		connect_type: z
 			.enum(["learn", "deliver"])
 			.nullable()
 			.optional()
 			.describe(
-				'CommCare Connect type: "learn" for training/certification, "deliver" for paid service delivery, null to make this a standard app. Set it before creating a Connect app\'s modules — each participating form then lands with its connect block, and at least one form must participate.',
+				'"learn" (training/certification) or "deliver" (paid service delivery); null returns the app to standard. Set before creating a Connect app\'s modules.',
 			),
 	})
 	.strict();
@@ -59,7 +62,8 @@ export type UpdateAppResult = MutationSuccess | { error: string };
 
 export const updateAppTool = {
 	description:
-		"Set the app's name and/or its CommCare Connect type (learn / deliver / null for standard). Enabling Connect on an app with forms requires at least one of them to already carry its connect block (a Connect app needs one participating form; the rest may stay out) — on a new build, set the type before creating modules.",
+		"Set the app's name and/or its Connect type. On a new Connect build, set the type before creating modules (enabling it later requires a form that already carries a connect block).",
+
 	inputSchema: updateAppInputSchema,
 	async execute(
 		input: UpdateAppInput,
@@ -71,6 +75,8 @@ export const updateAppTool = {
 			if (input.name !== undefined) {
 				mutations.push({ kind: "setAppName", name: input.name });
 			}
+			// Omitted = leave unchanged; null = disable (stored as the
+			// domain's null connectType — a standard app).
 			if (input.connect_type !== undefined) {
 				mutations.push({
 					kind: "setConnectType",
@@ -83,7 +89,8 @@ export const updateAppTool = {
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: "Nothing to change — pass a name, a connect_type, or both.",
+						error:
+							"Nothing to change — no slot was given. Pass a name, a connect_type, or both.",
 					},
 				};
 			}
@@ -118,6 +125,8 @@ export const updateAppTool = {
 				summary.nameChange = doc.appName ? "renamed" : "named";
 			}
 			if (input.connect_type !== undefined) {
+				// The summary vocabulary keeps "off" (the transcript renderer
+				// and historical rows key on it); the INPUT speaks null.
 				summary.connect = input.connect_type ?? "off";
 			}
 			return {

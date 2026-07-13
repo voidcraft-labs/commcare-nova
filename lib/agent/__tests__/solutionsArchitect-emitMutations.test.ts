@@ -11,7 +11,7 @@
  *
  * ## Strategy
  *
- * Rather than stand up a real Anthropic client, we build the SA with a
+ * Rather than stand up a real model client, we build the SA with a
  * mocked `GenerationContext` (stubbed `UIMessageStreamWriter` + stubbed
  * `EventLogger`) and invoke each tool's `execute` callback directly. The
  * writer's `.write` call log is the test's primary assertion surface:
@@ -25,11 +25,11 @@
  * any of them — catching the regression where a subagent misses a
  * migration spot.
  *
- * ## Planning tools
+ * ## Data-model tool
  *
- * `generateSchema` and `planAppDesign` are pure planning steps — the
- * tests pin that neither writes a mutation event (their plans live in
- * the conversation, not on the doc).
+ * `generateSchema` commits the design's skeleton — one gated batch
+ * carrying `setAppName` + the case-type catalog — a test pins the batch
+ * shape and its `schema` stage tag.
  */
 
 import { produce } from "immer";
@@ -256,11 +256,10 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		writer = built.writer;
 	});
 
-	it("generateSchema is a pure plan — a structured echo, zero mutations on the wire", async () => {
+	it("generateSchema commits the catalog in ONE gated batch, stage schema — and never touches the name", async () => {
 		const sa = makeSa(ctx, makeEmptyDoc(), false);
 
 		const result = await runTool(sa, "generateSchema", {
-			appName: "Trial Intake",
 			caseTypes: [
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 				{
@@ -272,66 +271,105 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		});
 
 		expect(result).toMatchObject({
-			planned: true,
-			appName: "Trial Intake",
-			caseTypes: [
-				{ name: "patient", properties: ["case_name"] },
-				{ name: "visit", parent_type: "patient", properties: ["case_name"] },
-			],
+			message: expect.stringContaining("patient, visit"),
 		});
-		expect(mutationEvents(writer)).toHaveLength(0);
+		const muts = mutationEvents(writer);
+		expect(muts).toHaveLength(1);
+		expect(muts[0].stage).toBe("schema");
+		// No setAppName arm exists on this tool — naming lives on updateApp
+		// alone, so a schema commit can never rename the app as a side effect.
+		expect(muts[0].mutations.map((m) => m.kind)).toEqual([
+			"declareCaseType",
+			"addCaseProperty",
+			"declareCaseType",
+			"setCaseTypeMeta",
+			"addCaseProperty",
+		]);
 		expectNoLegacyEvents(writer);
 	});
 
-	it("planAppDesign is a pure plan — a structured index, zero mutations on the wire", async () => {
+	it("generateSchema rejects a case type whose record is already authored", async () => {
+		// The fixture's "patient" record carries an authored property (label
+		// "Full name" ≠ its name) — re-declaring would replace definitions
+		// fields were seeded from, so the whole call is rejected.
+		const sa = makeSa(ctx, makeFixtureDoc(), false);
+
+		const result = await runTool(sa, "generateSchema", {
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			],
+		});
+
+		expect(result).toMatchObject({
+			error: expect.stringContaining('"patient"'),
+		});
+		expect(mutationEvents(writer)).toHaveLength(0);
+	});
+
+	it("generateSchema rejects duplicate case-type names within one call", async () => {
+		// Two same-named entries would silently merge into a chimera record
+		// (declare no-ops, properties first-wins, later parent link overwrites)
+		// — reject before any mutation is built.
 		const sa = makeSa(ctx, makeEmptyDoc(), false);
 
-		const result = await runTool(sa, "planAppDesign", {
-			app_name: "Vendor Visits",
-			description: "Connect deliver app",
-			connect_type: "deliver",
-			modules: [
+		const result = await runTool(sa, "generateSchema", {
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 				{
-					name: "Visits",
-					case_type: null,
-					case_list_only: false,
-					purpose: "Capture vendor visits for payment",
-					forms: [
-						{
-							name: "Vendor visit",
-							type: "survey",
-							purpose: "Visit form",
-							formDesign: "Vendor + photo",
-							connect: {
-								deliver_unit: { name: "Vendor visit" },
-							},
-						},
+					name: "patient",
+					parent_type: "household",
+					properties: [{ name: "age", label: "Age" }],
+				},
+			],
+		});
+
+		expect(result).toMatchObject({
+			error: expect.stringContaining("more than once"),
+		});
+		expect(mutationEvents(writer)).toHaveLength(0);
+	});
+
+	it("generateSchema enriches a bare chokepoint-declared record via setCaseProperty", async () => {
+		// A module flip / field write declares a type bare ({name, label: name}
+		// properties only). generateSchema is the only tool that authors
+		// property records, so it must be able to fill that record in —
+		// setCaseProperty replaces the bare auto-registered property and
+		// appends the new one (addCaseProperty would first-wins no-op).
+		const doc = makeFixtureDoc();
+		doc.caseTypes = [
+			{
+				name: "visit",
+				properties: [
+					{ name: "visit_date", label: "visit_date", data_type: "date" },
+				],
+			},
+		];
+		const sa = makeSa(ctx, doc, false);
+
+		const result = await runTool(sa, "generateSchema", {
+			caseTypes: [
+				{
+					name: "visit",
+					parent_type: "patient",
+					properties: [
+						{ name: "visit_date", label: "Visit date", data_type: "date" },
+						{ name: "outcome", label: "Outcome" },
 					],
 				},
 			],
 		});
 
 		expect(result).toMatchObject({
-			planned: true,
-			appName: "Vendor Visits",
-			connectType: "deliver",
-			modules: [
-				{
-					index: 0,
-					name: "Visits",
-					forms: [
-						{
-							index: 0,
-							name: "Vendor visit",
-							type: "survey",
-							connectKinds: ["deliver_unit"],
-						},
-					],
-				},
-			],
+			message: expect.stringContaining("bare declaration"),
 		});
-		expect(mutationEvents(writer)).toHaveLength(0);
-		expectNoLegacyEvents(writer);
+		const muts = mutationEvents(writer);
+		expect(muts).toHaveLength(1);
+		expect(muts[0].mutations.map((m) => m.kind)).toEqual([
+			"declareCaseType",
+			"setCaseTypeMeta",
+			"setCaseProperty",
+			"setCaseProperty",
+		]);
 	});
 
 	it("updateApp emits one data-mutations batch carrying setAppName + setConnectType", async () => {
@@ -498,19 +536,12 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// sneaked into.
 		const sa = makeSa(ctx, makeFixtureDoc(), false);
 
-		// Planning tools (build mode only) — pure, but walked so a future
-		// regression that makes them emit shows up here.
+		// The planning tool (build mode only) — pure, but walked so a
+		// future regression that makes it emit shows up here.
 		await runTool(sa, "generateSchema", {
-			appName: "App",
 			caseTypes: [
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
-		});
-		await runTool(sa, "planAppDesign", {
-			app_name: "App",
-			description: "Safety-net walk",
-			connect_type: "",
-			modules: [],
 		});
 		await runTool(sa, "updateApp", { name: "App" });
 
@@ -589,7 +620,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 // `data-done` (that signal is the route's).
 
 /* Every mutating tool call commits through `commitGuardedBatch`; the hoisted
- * mock re-applies the batch onto a tracked doc so no save reaches Firestore.
+ * mock re-applies the batch onto a tracked doc so no save reaches Postgres.
  * `loadApp` backs `wrapMutating`'s conflict-reload path. */
 vi.mock("@/lib/db/apps", () => ({
 	commitGuardedBatch: commitGuardedBatchMock,
@@ -605,13 +636,15 @@ describe("solutionsArchitect — no finishing tool", () => {
 		expect("completeBuild" in editSa.tools).toBe(false);
 	});
 
-	it("planning tools are build-only; updateApp is shared", () => {
+	it("the data-model tool is shared (both modes); the retired plan tool is gone; updateApp is shared", () => {
 		const { ctx } = buildCtx();
 		const buildSa = makeSa(ctx, makeEmptyDoc(), false);
 		const editSa = makeSa(ctx, makeFixtureDoc(), true);
+		// generateSchema commits catalog records, and a NEW case type enters
+		// an existing app through it — so it's in the edit-mode set too.
 		expect("generateSchema" in buildSa.tools).toBe(true);
-		expect("planAppDesign" in buildSa.tools).toBe(true);
-		expect("generateSchema" in editSa.tools).toBe(false);
+		expect("generateSchema" in editSa.tools).toBe(true);
+		expect("planAppDesign" in buildSa.tools).toBe(false);
 		expect("planAppDesign" in editSa.tools).toBe(false);
 		expect("updateApp" in buildSa.tools).toBe(true);
 		expect("updateApp" in editSa.tools).toBe(true);

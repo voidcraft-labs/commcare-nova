@@ -25,6 +25,10 @@
  */
 
 import { parseXPathExpression } from "@/lib/commcare/xpath";
+import {
+	type FieldRefResolvableDoc,
+	resolveCloseFieldRef,
+} from "@/lib/doc/expressionText";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { fieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import { keyBetween, keysForSlot } from "@/lib/doc/order/keys";
@@ -89,12 +93,48 @@ export type FieldAssemblyResult =
 			 * as it would once the batch has applied.
 			 */
 			parseExpression: (text: string) => XPathExpression;
+			/**
+			 * Resolve a bare field id to the target field's stable uuid over
+			 * the same doc-plus-batch overlay (pre-order first match — the
+			 * `resolveCloseFieldRef` rule). The creation tools resolve a
+			 * form's `close_condition.field` through this, so the condition
+			 * can name a field landing in the same call. An id nothing
+			 * answers to comes back verbatim, and the commit gate rejects
+			 * the introduction with the validator's close-condition finding.
+			 */
+			resolveFieldRef: (ref: string) => Uuid | string;
 	  }
 	| {
 			ok: false;
 			/** Every item the identifier verdict refused, with its reason. */
 			rejected: Array<{ id: string; reason: string }>;
 	  };
+
+/**
+ * Resolve a creation tool's `close_condition` input to the stored
+ * `closeCondition` shape: the authored field id resolves to the target's
+ * uuid through the assembly's `resolveFieldRef` (the same doc-plus-batch
+ * overlay the batch's expressions used, so the condition may name a field
+ * landing in this call; an unresolved id stays verbatim and the gate
+ * rejects it with the validator's close-condition finding). One resolver
+ * for both creation surfaces — `createForm` and `createModule` — so the
+ * two cannot drift. Returns `undefined` for an absent/null input (an
+ * unconditional close).
+ */
+export function resolveCloseCondition(
+	resolveFieldRef: (ref: string) => Uuid | string,
+	input:
+		| { field: string; answer: string; operator?: "=" | "selected" | null }
+		| null
+		| undefined,
+): { field: Uuid; answer: string; operator?: "=" | "selected" } | undefined {
+	if (input == null) return undefined;
+	return {
+		field: asUuid(resolveFieldRef(input.field)),
+		answer: input.answer,
+		...(input.operator && { operator: input.operator }),
+	};
+}
 
 export function assembleFieldMutations(
 	args: FieldAssemblyArgs,
@@ -236,7 +276,8 @@ export function assembleFieldMutations(
 	}
 
 	if (rejected.length > 0) return { ok: false, rejected };
-	const resolve = batchPathResolver(doc, formUuid, mutations);
+	const overlay = buildBatchOverlay(doc, formUuid, mutations);
+	const resolve = fieldPathResolver(overlay, formUuid);
 	resolveBatchExpressions(resolve, landed);
 	// Mint an `order` key for every born field. An ANCHORED batch (a top-level
 	// block placed at `beforeFieldId` / `afterFieldId`) keys its fields BETWEEN
@@ -305,6 +346,7 @@ export function assembleFieldMutations(
 		mutations: [...declarations, ...mutations],
 		skipped,
 		parseExpression: (text) => parseXPathExpression(text, resolve),
+		resolveFieldRef: (ref) => resolveCloseFieldRef(overlay, formUuid, ref),
 	};
 }
 
@@ -314,12 +356,12 @@ export function assembleFieldMutations(
  * expression slots (`resolveBatchExpressions`) and the caller-facing
  * `parseExpression` for form-level XPath inputs riding the same batch.
  */
-function batchPathResolver(
+function buildBatchOverlay(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	mutations: readonly Mutation[],
-): ResolveFieldPath {
-	const fields: Record<string, { id: string } | undefined> = { ...doc.fields };
+): XPathPrintableDoc & FieldRefResolvableDoc {
+	const fields: Record<string, Field | undefined> = { ...doc.fields };
 	const fieldOrder: Record<string, string[] | undefined> = {};
 	for (const [parent, order] of Object.entries(doc.fieldOrder)) {
 		fieldOrder[parent] = [...order];
@@ -343,8 +385,7 @@ function batchPathResolver(
 			fieldOrder[mut.field.uuid] ??= [];
 		}
 	}
-	const overlay: XPathPrintableDoc = { forms, fields, fieldOrder };
-	return fieldPathResolver(overlay, formUuid);
+	return { forms, fields, fieldOrder };
 }
 
 /**
@@ -381,7 +422,9 @@ function resolveBatchExpressions(
 				resolve,
 			);
 		}
-		const repeatCount = processed.repeat?.count;
+		const repeatConfig = processed.repeat;
+		const repeatCount =
+			repeatConfig?.mode === "count_bound" ? repeatConfig.count : undefined;
 		if (
 			typeof repeatCount === "string" &&
 			repeatCount.length > 0 &&
@@ -392,7 +435,8 @@ function resolveBatchExpressions(
 				resolve,
 			);
 		}
-		const idsQuery = processed.repeat?.ids_query;
+		const idsQuery =
+			repeatConfig?.mode === "query_bound" ? repeatConfig.ids_query : undefined;
 		const dataSource = carrier.data_source as
 			| { ids_query?: unknown }
 			| undefined;

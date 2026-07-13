@@ -42,7 +42,7 @@ const DEFAULT_SEED: AccumulatorSeed = {
 	appId: "test-app",
 	userId: "user-1",
 	runId: "run-1",
-	model: "claude-opus-4-7",
+	model: "openai/gpt-5.6-sol",
 	promptMode: "build",
 	freshEdit: false,
 	appReady: false,
@@ -77,8 +77,8 @@ export interface TestContextHandles {
 /**
  * Build a `GenerationContext` wired to vi.fn stubs for both write surfaces
  * and a real `UsageAccumulator` seeded deterministically. Safe to call
- * once per test — nothing in the ctx reaches out to Firestore as long as
- * the test mocks `@/lib/db/apps.updateApp` (or never calls
+ * once per test — nothing in the ctx reaches out to Postgres as long as
+ * the test mocks `@/lib/db/apps` (or never calls
  * `emitMutations`). Tests that exercise `emitMutations` MUST install a
  * `vi.mock("@/lib/db/apps", ...)` at module scope so the fire-and-forget
  * intermediate save has a stub to call.
@@ -160,7 +160,7 @@ export interface MakeMcpTestContextHandles {
 
 /** Options for overriding the default ids on the produced `McpContext`. */
 export interface MakeMcpTestContextOptions {
-	/** Firestore app id. Defaults to `"test-app"`. */
+	/** App id. Defaults to `"test-app"`. */
 	appId?: string;
 	/** Better Auth user id. Defaults to `"user-1"`. */
 	userId?: string;
@@ -171,7 +171,7 @@ export interface MakeMcpTestContextOptions {
 /**
  * Build an `McpContext` wired to vi.fn stubs for its log writer and
  * progress emitter. Safe to call once per test — nothing in the ctx
- * reaches Firestore as long as the test mocks `@/lib/db/apps.updateApp`
+ * reaches Postgres as long as the test mocks `@/lib/db/apps`
  * (or never calls `recordMutations`).
  *
  * Mirrors `makeTestContext` for the chat surface: both helpers return a
@@ -217,7 +217,7 @@ export interface StubToolContextHandles {
 
 /**
  * A lightweight `ToolExecutionContext` stub for shared-tool tests that only
- * exercise a tool body's mutation emission + returned `newDoc` — no Firestore,
+ * exercise a tool body's mutation emission + returned `newDoc` — no Postgres,
  * no guarded writer, no SSE writer.
  *
  * Both `recordMutations` and `recordMutationStages` return the

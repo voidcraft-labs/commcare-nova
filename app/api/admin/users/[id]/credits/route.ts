@@ -13,8 +13,8 @@
  *   2. The body is validated up front; a bad action / amount / shape — or a
  *      body that isn't even JSON — is a 400, never a generic 500.
  *   3. The actual balance change AND its append-only audit row are owned by the
- *      called `lib/db/credits` function, which writes both in ONE Firestore
- *      transaction. This route does not touch Firestore directly — it
+ *      called `lib/db/credits` function, which writes both in ONE Postgres
+ *      transaction. This route does not touch Postgres directly — it
  *      authenticates, validates, builds the `AdminActor`, and dispatches.
  *   4. Every error path funnels through `handleApiError`, so the client always
  *      sees the `{ error, details? }` envelope with the right status.

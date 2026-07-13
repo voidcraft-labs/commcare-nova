@@ -89,7 +89,7 @@ beforeEach(() => {
 describe("registerListApps — happy path", () => {
 	it("projects each AppSummary into the MCP wire shape", async () => {
 		/* Three rows across all three live statuses. The projected entries
-		 * must preserve order (Firestore already orders by `updated_at`)
+		 * must preserve order (the query already orders by `updated_at`)
 		 * and expose only the four wire-shape keys. */
 		const rows: AppSummary[] = [
 			makeSummary({
@@ -223,11 +223,11 @@ describe("registerListApps — empty + pagination", () => {
 
 describe("registerListApps — the scan throws", () => {
 	it("surfaces as an MCP error envelope with a populated error_type", async () => {
-		/* A Firestore outage or a timing anomaly in the query surfaces
+		/* A DB outage or a timing anomaly in the query surfaces
 		 * via the shared error classifier. The envelope must carry
 		 * `isError: true` and a non-empty `error_type`. */
 		vi.mocked(listAppsAcrossProjects).mockRejectedValueOnce(
-			new Error("firestore down"),
+			new Error("db down"),
 		);
 
 		const { server, capture } = makeFakeServer();

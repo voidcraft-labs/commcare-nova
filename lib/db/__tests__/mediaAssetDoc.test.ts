@@ -2,9 +2,7 @@
  * Row → `MediaAssetRecord` mapping coverage, exercised through `loadAssetById`
  * over the real per-test Postgres.
  *
- * On Firestore the media-asset record was validated on every read by a Zod
- * converter (`mediaAssetDocSchema.parse`); those shape-guard arms are gone with
- * the converter. On Postgres the field invariants are column types + the
+ * The field invariants are column types + the
  * write-boundary validation the upload/confirm routes run BEFORE the insert
  * (`createPendingAsset` / `confirmAssetReady`), so a stored row is already
  * well-formed. What remains is `mediaAssets.ts::toRecord` — the read-time mapping

@@ -35,7 +35,7 @@ vi.mock("@/lib/db/settings", () => ({
 vi.mock("@/lib/media/boundaryValidation", () => ({
 	collectBoundaryViolations: vi.fn(),
 }));
-// `resolveMediaManifest` is mocked (it reads Firestore + GCS); `assetWirePaths`
+// `resolveMediaManifest` is mocked (it reads Postgres + GCS); `assetWirePaths`
 // is a pure projection, so give the mock its real behavior — the outcome
 // interpreter joins it against the doc to name the unmatched carrier.
 vi.mock("@/lib/media/manifest", () => ({

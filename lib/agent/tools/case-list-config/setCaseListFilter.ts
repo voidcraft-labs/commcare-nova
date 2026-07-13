@@ -15,7 +15,7 @@
  * convention reads as "an absence value rather than absence-via-
  * omission" — it forces the SA to spell out "remove the filter" as a
  * payload rather than relying on a missing key, which the AI SDK /
- * Anthropic schema wouldn't honor consistently across edits.
+ * provider schema wouldn't honor consistently across edits.
  *
  * Filter is the one wholesale-shape slot on `caseListConfig` (one
  * Predicate, no array of entries to address by uuid) — column and
@@ -55,7 +55,7 @@ export const setCaseListFilterInputSchema = z
 		filter: predicateSchema
 			.nullable()
 			.describe(
-				"Replacement Predicate AST, or `null` to clear the filter. The filter narrows which cases appear on the case list at load time — applied unconditionally before any search-input refinement. Pass `null` to remove an existing filter and show every case of the module's case type.",
+				"Replacement Predicate, or null to clear the filter and show every case of the module's type.",
 			),
 	})
 	.strict();
@@ -92,7 +92,7 @@ export type SetCaseListFilterResult =
 
 export const setCaseListFilterTool = {
 	description:
-		"Set or clear the always-on case list filter on a module. Pass a typed Predicate AST to filter the case list; pass null to remove an existing filter. Filter applies before any search-input refinement. To clear, always pass null — `match-all` is a non-empty filter expressing 'match every case' as a value, not a clear signal.",
+		"Set or clear a module's always-on case-list filter (applied before any search). A Predicate sets it; null clears it — never use match-all as a clear.",
 	inputSchema: setCaseListFilterInputSchema,
 	async execute(
 		input: SetCaseListFilterInput,

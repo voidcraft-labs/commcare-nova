@@ -2,11 +2,11 @@
 //
 // Resolves a blueprint's media references into the `AssetManifest` the
 // wire emitters (`expandDoc` / `compileCcz`) consume. The one bridge
-// from storage (Firestore rows + GCS bytes) to the CommCare wire-path
+// from storage (Postgres rows + GCS bytes) to the CommCare wire-path
 // vocabulary — which is why this file is the single media-side member
 // of the `lib/commcare` import allowlist (see biome.json).
 //
-// Server-only: it reads Firestore + GCS. The compile / upload routes
+// Server-only: it reads Postgres + GCS. The compile / upload routes
 // and the MCP compile tool call it; the validation loop and asset-free
 // previews skip it (passing no manifest = media emission off).
 
@@ -89,9 +89,9 @@ export async function resolveMediaManifest(
 	const ids = [...collectAssetRefs(doc)];
 	if (ids.length === 0) return new Map();
 
-	// Built-in icon refs (`nova-icon:<slug>`) carry no Firestore row — they
+	// Built-in icon refs (`nova-icon:<slug>`) carry no asset row — they
 	// resolve from the shipped catalog + `public/nova-icons/` bytes. Route them
-	// away from the Firestore load and synthesize their manifest entries; only
+	// away from the asset-row load and synthesize their manifest entries; only
 	// the real ids hit `loadAssetsByIds`.
 	const { realIds, builtinSlugs } = partitionAssetRefs(ids);
 

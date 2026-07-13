@@ -163,7 +163,7 @@ function makeRow(
 
 /** Mount the screen against a doc seeded with the fixture
  *  `caseListConfig`. The provider's `initialDoc` shape mirrors the
- *  Firestore `PersistableDoc` — a fresh module carrying our
+ *  stored `PersistableDoc` — a fresh module carrying our
  *  fixture columns + a single first-form whose name differs from
  *  the module's. `searchInputs` defaults to the empty array so the
  *  pre-Task-4 test suite keeps its zero-search-input shape; tests

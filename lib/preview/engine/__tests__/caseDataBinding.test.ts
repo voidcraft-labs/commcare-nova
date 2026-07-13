@@ -11,7 +11,7 @@
 //
 // `caseDataBinding.ts` exports `"use server"` actions that wrap
 // `getSession()` + `withProjectContext`. Driving those through a
-// real session is heavy (Better Auth + Firestore); the
+// real session is heavy (Better Auth + Postgres); the
 // architecture splits the action wrapper from the underlying
 // helpers precisely so tests can bind against a `CaseStore`
 // instance from the contract harness without spinning up a
@@ -112,12 +112,12 @@ vi.mock("@/lib/case-store", async () => {
 		withProjectContext: vi.fn(),
 	};
 });
-// The schema heal's Firestore boundary, stubbed for the SAME reason the
+// The schema heal's Postgres boundary, stubbed for the SAME reason the
 // auth boundary is: the actions wrap their store in
 // `schemaHealingCaseStore`, whose heal loads the persisted blueprint via
-// `loadApp` — the REAL one lazily constructs a Firestore client whose
-// ClientPool holds a never-settling promise, an async-resource leak no
-// unit test may create. The heal-reaching action test scripts these per
+// `loadApp` — the REAL one lazily constructs the shared Cloud SQL
+// `Connector` + `pg.Pool`, whose background keepalive is an async-resource
+// leak no unit test may create. The heal-reaching action test scripts these per
 // call; every other test never enters the heal (only
 // `SchemaNotSyncedError` does), so the stubs stay invisible to them.
 const { loadAppMock, materializeMock, resolveAppScopeMock } = vi.hoisted(
@@ -162,7 +162,7 @@ beforeEach(async () => {
 	// that short-circuits before consuming its queued value would leak it
 	// to the next test and misattribute that test's failure. Reset every
 	// mock's queue so each test is diagnostically independent. (Only the
-	// module mocks — auth, store context, and the heal's Firestore
+	// module mocks — auth, store context, and the heal's Postgres
 	// boundary — are vi.fn()s at this point; in-test spies/stubs are
 	// created inside the bodies that follow.)
 	vi.resetAllMocks();
@@ -2119,7 +2119,7 @@ describe("mapSubmitFormError", () => {
 // The helper-level tests above drive every mutation arm against
 // real Postgres; this block exercises the Server Action's
 // session-resolution + error-catch wrapper without driving Better
-// Auth / Firestore. The `vi.mock` calls at the top of the file
+// Auth / Postgres. The `vi.mock` calls at the top of the file
 // stub `getSession` and `withProjectContext` so the action's body
 // branches are reachable from the test runner.
 
@@ -2312,7 +2312,7 @@ describe("loadCasesAction", () => {
 // `resetSampleData` path. The block pins the action's wrapper
 // responsibilities — session resolution and the catch-and-map
 // delegation through `mapPopulateSampleCasesError` — without driving
-// Better Auth / Firestore. The `CaseType` arrives from the client, so
+// Better Auth / Postgres. The `CaseType` arrives from the client, so
 // there is no server-side lookup to stub. The `vi.mock` calls at the top
 // of the file stub `getSession` and `withProjectContext` so each branch is
 // reachable.

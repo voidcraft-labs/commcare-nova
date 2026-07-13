@@ -192,20 +192,25 @@ export function classifyError(error: unknown): ClassifiedError {
 			raw,
 		};
 	}
-	// Anthropic 5xx server errors surface here — not in the `APICallError`
+	// Provider 5xx server errors surface here — not in the `APICallError`
 	// block above — when they arrive *mid-stream*. Once the response has begun
 	// streaming, the SDK can no longer attach a `statusCode`, so the failure
-	// reaches us as a plain `Error` whose message is Anthropic's JSON error
-	// body, e.g. `{"type":"api_error","message":"Internal server error"}`. We
-	// match the `api_error` type token (with the bare phrase as a fallback) and
-	// bucket it as `api_server`: a transient upstream failure the user can
-	// retry, not a Nova-internal defect. Without this branch the error falls to
-	// the `internal` bucket below, which tells the user "Something went wrong
-	// during generation." — implying our bug when the fault is upstream and
-	// retriable. (This corrects only the message and bucket. The SDK's
-	// `maxRetries` covers request *establishment*, so a mid-stream failure is
-	// still not auto-retried — the user re-runs by hand.)
+	// reaches us as a plain `Error` whose message is the provider's JSON error
+	// body. We match each provider taxonomy's 5xx type token with its bare
+	// message phrase as a fallback — OpenAI emits
+	// `{"type":"server_error","message":"The server had an error …"}`,
+	// Anthropic `{"type":"api_error","message":"Internal server error"}` (the
+	// gateway can route either family) — and bucket it as `api_server`: a
+	// transient upstream failure the user can retry, not a Nova-internal
+	// defect. Without this branch the error falls to the `internal` bucket
+	// below, which tells the user "Something went wrong during generation." —
+	// implying our bug when the fault is upstream and retriable. (This
+	// corrects only the message and bucket. The SDK's `maxRetries` covers
+	// request *establishment*, so a mid-stream failure is still not
+	// auto-retried — the user re-runs by hand.)
 	if (
+		lowerMsg.includes("server_error") ||
+		lowerMsg.includes("the server had an error") ||
 		lowerMsg.includes("api_error") ||
 		lowerMsg.includes("internal server error")
 	) {

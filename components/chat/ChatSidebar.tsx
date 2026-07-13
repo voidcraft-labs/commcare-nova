@@ -121,7 +121,7 @@ interface ChatSidebarProps {
 	/** When `readOnly`, an optional note shown where the composer would be —
 	 *  explains why the user can't send (view-only Project access). */
 	readOnlyNotice?: ReactNode;
-	/** Whether the app was loaded from Firestore (not a new build).
+	/** Whether the app was loaded from Postgres (not a new build).
 	 *  Drives the empty-state prompt text. */
 	isExistingApp?: boolean;
 	/** Server-rendered thread history — pre-rendered by the RSC page
@@ -294,7 +294,7 @@ export function ChatSidebar({
 		// LLM's wrap-up text keeps the stream open). Without this, the grid
 		// shows "Thinking" for 5–15s after generation is already complete.
 		if (phase === BuilderPhase.Completed) return "done";
-		// Reading document attachments — a pre-Opus step. `attachmentPrep` is the
+		// Reading document attachments — a pre-SA step. `attachmentPrep` is the
 		// SEND-time resolve (server waits on the extract); `composerReading` is the
 		// PRE-send eager extraction of a staged doc. Both reuse the reasoning
 		// animation (label set below) and sit after error/generation/completed so a

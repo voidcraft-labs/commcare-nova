@@ -8,7 +8,7 @@
 //
 // `WireMediaAsset` is imported as a type only (erased at compile),
 // so this client module never pulls the server-only `lib/db`
-// runtime (Firestore SDK) into the browser bundle.
+// runtime (Kysely / pg) into the browser bundle.
 
 import type { WireMediaAsset } from "@/lib/db/mediaAssets";
 import {
@@ -72,7 +72,7 @@ export function clearMediaSlot(
  * assignable to it.
  */
 export function mediaSrc(assetId: string): string {
-	// Built-in icon refs (`nova-icon:<slug>`) aren't Firestore assets — their
+	// Built-in icon refs (`nova-icon:<slug>`) aren't stored assets — their
 	// bytes ship statically at `/nova-icons/<slug>.png`. A known slug resolves to
 	// that static URL; an unknown/stale slug falls through to the API route, which
 	// 404s — the same broken-image outcome as a deleted upload, surfaced to fix.

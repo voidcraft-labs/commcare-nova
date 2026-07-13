@@ -1,9 +1,10 @@
 /**
- * Google Cloud KMS encryption for sensitive user credentials stored in Firestore.
+ * Google Cloud KMS encryption for sensitive user credentials stored in Postgres.
  *
  * Delegates all cryptographic operations to Cloud KMS — no encryption keys
  * live in env vars, memory, or code. The Cloud Run service account authenticates
- * via Application Default Credentials (same mechanism as Firestore).
+ * via Application Default Credentials (the same mechanism the other Google Cloud
+ * clients use).
  *
  * ## Key rotation
  *
@@ -25,7 +26,8 @@
  *
  * 3. Grant the Cloud Run service account the `cloudkms.cryptoKeyEncrypterDecrypter` role.
  *
- * Ciphertexts are stored as base64 strings in Firestore.
+ * Ciphertexts are stored as base64 strings in Postgres (the
+ * `user_settings.commcare_api_key` column).
  */
 
 import { KeyManagementServiceClient } from "@google-cloud/kms";
@@ -47,7 +49,8 @@ const KMS_KEY = "commcare-api-keys";
  * Build the KMS key resource name from the GCP project ID.
  *
  * `GOOGLE_CLOUD_PROJECT` must be set in the Cloud Run service config
- * (same var Firestore already depends on). For local dev, set it in `.env`.
+ * (the same var the other Google Cloud clients read). For local dev, set it
+ * in `.env`.
  */
 function getKeyName(): string {
 	const project = process.env.GOOGLE_CLOUD_PROJECT;
@@ -64,7 +67,7 @@ function getKeyName(): string {
  * Encrypt a plaintext string using Cloud KMS.
  *
  * Returns a base64-encoded ciphertext string suitable for storage in
- * Firestore. KMS automatically uses the key's primary version for new
+ * Postgres. KMS automatically uses the key's primary version for new
  * encryptions, so key rotation is transparent.
  */
 export async function encrypt(plaintext: string): Promise<string> {
@@ -78,7 +81,7 @@ export async function encrypt(plaintext: string): Promise<string> {
 		throw new Error("KMS encrypt returned empty ciphertext");
 	}
 
-	/* KMS returns ciphertext as a Uint8Array — encode as base64 for Firestore storage. */
+	/* KMS returns ciphertext as a Uint8Array — encode as base64 for storage. */
 	return Buffer.from(result.ciphertext).toString("base64");
 }
 

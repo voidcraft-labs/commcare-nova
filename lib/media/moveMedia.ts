@@ -34,14 +34,14 @@ import { partitionAssetRefs } from "./builtinIconAssets";
 
 /**
  * Max asset copies in flight at once. Each copy is one dedup query + (on a miss)
- * one server-side GCS copy + one Firestore write; bounding the fan-out keeps a
+ * one server-side GCS copy + one Postgres write; bounding the fan-out keeps a
  * media-heavy app's move off a serial round-trip-per-asset critical path without
  * opening an unbounded number of GCS operations. Mirrors `manifest.ts`.
  */
 const MEDIA_COPY_CONCURRENCY = 6;
 
 /** Per-asset copy retries (with backoff) before the move aborts. Absorbs a
- *  transient GCS/Firestore blip so it never silently breaks the asset's ref. */
+ *  transient GCS/Postgres blip so it never silently breaks the asset's ref. */
 const MAX_COPY_ATTEMPTS = 3;
 const COPY_RETRY_DELAY_MS = 250;
 
@@ -68,7 +68,7 @@ export class MediaCopyFailedError extends Error {
  * each source asset id to its destination id — the input the move's blueprint
  * repoint (`remapAssetRefs`) consumes.
  *
- * Built-in `nova-icon:` refs are dropped up front: they carry no Firestore row
+ * Built-in `nova-icon:` refs are dropped up front: they carry no `media_assets` row
  * and one shared deployment-bundled copy serves every Project, so they're
  * Project-agnostic and never appear in the returned map (the repoint leaves them
  * as-is). A referenced row that isn't a `ready` media asset (a still-uploading

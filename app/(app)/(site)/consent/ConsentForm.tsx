@@ -160,7 +160,7 @@ export function ConsentForm({
 	/* Render the dormancy sub-card only when the page told us we asked AND
 	 * got back a "no key" answer (`hqConfigured === false`) AND the row
 	 * actually surfaces. `undefined` means the page never even ran the
-	 * Firestore read — collapsing it with `false` would silently treat
+	 * Postgres read — collapsing it with `false` would silently treat
 	 * "didn't ask" as "asked and got no key" the moment a future caller
 	 * forgets to gate the prop on scope content. */
 	const showHqPendingGroup =

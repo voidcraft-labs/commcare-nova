@@ -37,7 +37,7 @@ import { useCreditBalance } from "@/lib/credits/useCreditBalance";
 // `chargeAmount` is the single source of truth for what an action costs — the
 // same pure rule the server credit gate charges — so the chip can never display
 // a figure that disagrees with the real debit. Client-safe: every import in
-// `creditPolicy` is type-only, so it pulls no Firestore into the bundle.
+// `creditPolicy` is type-only, so it pulls no server data layer into the bundle.
 import { chargeAmount } from "@/lib/db/creditPolicy";
 import { isDocumentKind } from "@/lib/domain/multimedia";
 import { useAppId, useBuilderIsReady } from "@/lib/session/hooks";

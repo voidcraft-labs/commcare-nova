@@ -143,14 +143,14 @@ const updateFieldArms = fieldKinds.map(
 			uuid: uuidSchema,
 			targetKind: z.literal(targetKind),
 			// `patch` defaults to `{}` when it is absent on read. A field
-			// clear travels as an explicit `null` value (which survives
-			// Firestore), so a normal clear-only edit produces a NON-empty
+			// clear travels as an explicit `null` value (which survives JSON
+			// serialization), so a normal clear-only edit produces a NON-empty
 			// patch and never needs this default. The default exists for a
 			// patch that is genuinely empty on the wire: a degenerate
 			// no-property update, or a legacy event written before clears
 			// carried `null` — back then a clear lowered to an all-`undefined`
-			// patch that `ignoreUndefinedProperties` stripped to an empty map,
-			// which Firestore omits from the document entirely. Defaulting to
+			// patch, and JSON serialization drops `undefined`-valued keys, so
+			// the persisted patch was an empty map. Defaulting to
 			// `{}` lets such an event parse and replay as a no-op (the reducer
 			// applies no keys) instead of the strict arm throwing and taking
 			// down the whole event scan — the log is supplemental, so one

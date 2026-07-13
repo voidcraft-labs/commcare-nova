@@ -6,8 +6,7 @@
  *
  * On Postgres a form is a `blueprint_entities` row whose `data` jsonb is written
  * with `JSON.stringify` — which DROPS `undefined` values — so a cleared slot
- * disappears from the stored row rather than lingering (the entity-row analogue
- * of the Firestore deep-merge survivor the old test guarded). Covers the four
+ * disappears from the stored row rather than lingering. Covers the four
  * form-level nullable fields (`connect`, `closeCondition`, `postSubmit`,
  * `purpose`) driven through `commitGuardedBatch`; `completeAndSettleRun`
  * (status-only, no blueprint payload) is pinned to leave the entity rows untouched.

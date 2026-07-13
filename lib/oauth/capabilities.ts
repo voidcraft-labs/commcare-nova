@@ -49,7 +49,7 @@ interface CapabilityDef extends Capability {
  * row (Nova-internal AND HQ deploy) carries the trust signal for the
  * most consequential grants — keep it on rephrase.
  *
- * The Nova rows (`nova.read` / `nova.write`) cover Firestore-backed app
+ * The Nova rows (`nova.read` / `nova.write`) cover Postgres-backed app
  * blueprints; the HQ rows (`nova.hq.read` / `nova.hq.write`) cover the
  * separate CommCare HQ system the user has authenticated to via a
  * stored API key. Cloud iconography on the HQ rows distinguishes them

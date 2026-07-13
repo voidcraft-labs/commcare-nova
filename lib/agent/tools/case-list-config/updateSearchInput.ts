@@ -49,7 +49,7 @@ export const updateSearchInputInputSchema = z
 			"Uuid of the existing search input to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
 		),
 		searchInput: searchInputDefInputSchema.describe(
-			"Replacement search-input body — pick a kind (`simple` or `advanced`) and supply the kind's required fields plus any optional `default` slot. The input's uuid carries through from the existing entry; do not supply one. Switching kinds across this call (`simple` ↔ `advanced`) is permitted; the new shape replaces the old.",
+			"Replacement search-input body (full shape, `simple` or `advanced`). The uuid carries over — never supply one.",
 		),
 	})
 	.strict();

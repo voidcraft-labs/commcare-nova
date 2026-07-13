@@ -23,7 +23,7 @@
  * resolving — as does the chat `GenerationContext.recordMutations`, since both
  * surfaces now await the inline guarded commit. The MCP-specific twist is that
  * it has no agent loop to retry, so a rejected commit is terminal here: if the
- * Firestore save rejects, `recordMutations` propagates the rejection to its
+ * blueprint save rejects, `recordMutations` propagates the rejection to its
  * caller. This class does not swallow persistence errors — callers are
  * responsible for mapping them to their surface's error shape.
  *
@@ -63,7 +63,7 @@ import type { ToolContext } from "./types";
  * from the constructor signature.
  */
 export interface McpContextOptions {
-	/** Firestore app id the tool call is targeting. Already ownership-checked. */
+	/** App id the tool call is targeting. Already ownership-checked. */
 	appId: string;
 	/** Better Auth user id from the verified JWT's `sub` claim. */
 	userId: string;
@@ -100,17 +100,17 @@ export class McpContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * Persist a batch of mutations to the event log + Firestore blueprint.
+	 * Persist a batch of mutations to the event log + the blueprint.
 	 *
 	 * 1. Builds one `MutationEvent` envelope per mutation, inline-stamping
 	 *    `source: "mcp"` so the in-memory return value is schema-valid
 	 *    (the `LogWriter` re-stamps it authoritatively on its way to
-	 *    Firestore — this inline value is defense-in-depth).
+	 *    the sink — this inline value is defense-in-depth).
 	 * 2. Emits each envelope to the log writer (fire-and-forget batched
-	 *    Firestore write — see `LogWriter.flush` for drain semantics).
+	 *    write to the event log — see `LogWriter.flush` for drain semantics).
 	 * 3. Awaits the blueprint save so the tool cannot return success before
-	 *    Firestore acknowledges the write (fail-closed persistence
-	 *    guarantee). If the Firestore save rejects, `recordMutations`
+	 *    the write is durably committed (fail-closed persistence
+	 *    guarantee). If the blueprint save rejects, `recordMutations`
 	 *    propagates the rejection to its caller. This class does not
 	 *    swallow persistence errors — callers are responsible for mapping
 	 *    them to their surface's error shape.
@@ -147,7 +147,7 @@ export class McpContext implements ToolExecutionContext {
 	 *
 	 * The whole point of this method on the MCP surface: the guarded
 	 * commit re-applies the batch to the FRESH stored blueprint and
-	 * re-runs the validity verdict inside the Firestore transaction, and
+	 * re-runs the validity verdict inside the commit transaction, and
 	 * that re-verdict must see the SAME candidate the optimistic gate
 	 * approved — the concatenated sequence, once. Saving stage-by-stage
 	 * would instead run an independent transaction per stage, so a
@@ -209,7 +209,7 @@ export class McpContext implements ToolExecutionContext {
 	/**
 	 * Write a single conversation event to the log.
 	 *
-	 * Synchronous: unlike `recordMutations`, this does not touch Firestore
+	 * Synchronous: unlike `recordMutations`, this does not touch the blueprint store
 	 * directly — the log writer's own batched flush handles persistence,
 	 * and conversation events don't carry blueprint state, so there's no
 	 * intermediate save to block on.
@@ -236,13 +236,13 @@ export class McpContext implements ToolExecutionContext {
 	}
 
 	/**
-	 * Persist the blueprint snapshot to Firestore along with the current
+	 * Persist the blueprint snapshot along with the current
 	 * run id. `toPersistableDoc` strips the derived `fieldParent` index;
 	 * see the class-level fail-closed contract for why this is awaited.
 	 *
 	 * Routes through the cross-store saga so a property-surface
 	 * mutation in this MCP tool call (rename / retype / option add)
-	 * syncs the Postgres `case_type_schemas` row before Firestore
+	 * syncs the Postgres `case_type_schemas` row before the blueprint
 	 * commits. Pure non-case-type edits fast-path through the saga
 	 * without touching the case store. See
 	 * `lib/db/applyBlueprintChange.ts` for the compensation contract.
@@ -266,7 +266,7 @@ export class McpContext implements ToolExecutionContext {
 			runId: this.runId,
 			batchId: crypto.randomUUID(),
 			kind: "mcp",
-			/* Guarded commit: the saga's Firestore write re-reads the stored
+			/* Guarded commit: the saga's guarded commit re-reads the stored
 			 * blueprint, re-applies this batch, and re-runs the validity
 			 * verdict inside a transaction — two concurrent gate-approved
 			 * batches serialize instead of last-writer-wins, and a batch the

@@ -109,10 +109,9 @@ function mockBlueprint(
 }
 
 /**
- * Build a mocked `AppDoc` shell around a blueprint. Firestore
- * `Timestamp` values never get inspected by the tool or the renderer,
- * so we cast a plain `Date` through `unknown` to avoid pulling in the
- * Firestore Admin SDK solely to fabricate stamps.
+ * Build a mocked `AppDoc` shell around a blueprint. The timestamp
+ * fields are never inspected by the tool or the renderer, so any
+ * plain `Date` works as a placeholder.
  */
 function mockAppDoc(
 	blueprint: Omit<BlueprintDoc, "fieldParent">,
@@ -138,11 +137,9 @@ function mockAppDoc(
 		deleted_at: null,
 		recoverable_until: null,
 		run_id: null,
-		// Tool doesn't read timestamps — any placeholder works; casting through
-		// `unknown` avoids pulling in the Firestore Admin SDK just to fabricate
-		// real `Timestamp` instances in a unit test.
-		created_at: new Date() as unknown as AppDoc["created_at"],
-		updated_at: new Date() as unknown as AppDoc["updated_at"],
+		// Tool doesn't read timestamps — any `Date` works as a placeholder.
+		created_at: new Date(),
+		updated_at: new Date(),
 		...overrides,
 	};
 }

@@ -7,7 +7,7 @@
 //     tested as in/out, no I/O, no timers.
 //   - `ensureStoredExtract` is the orchestration: GCS-first fast path, then the
 //     status-driven branch (reuse / report-in-flight / claim+extract). Driven
-//     against mocked storage/db + a mocked extraction core so no GCS, Firestore,
+//     against mocked storage/db + a mocked extraction core so no GCS, Postgres,
 //     or model call happens. This is where the single-flight LIFECYCLE coverage
 //     lives (it used to sit on the route, before the two paths were unified).
 //
@@ -64,7 +64,7 @@ vi.mock("@/lib/storage/media", () => ({
 // model call. The store reads these constants and calls `extractDocument`.
 vi.mock("@/lib/agent/documentExtraction", () => ({
 	extractDocument: extractDocumentMock,
-	CONDENSER_MODEL: "google/gemini-3.5-flash",
+	CONDENSER_MODEL: "openai/gpt-5.6-luna",
 	EXTRACT_MAX_BYTES: 4 * 1024 * 1024,
 }));
 
@@ -103,7 +103,7 @@ function extractRecord(
 	return {
 		status,
 		version,
-		model: "google/gemini-3.5-flash",
+		model: "openai/gpt-5.6-luna",
 		truncated: false,
 		charCount: 0,
 		extractedAt: Date.now() - ageMs,

@@ -1,6 +1,6 @@
 /**
  * Tests for the event log type + schema. Covers Zod round-trip for every
- * event variant and payload shape — the Firestore read converter relies on
+ * event variant and payload shape — the event log read path relies on
  * `eventSchema.parse()` to validate persisted data.
  */
 import { describe, expect, it } from "vitest";

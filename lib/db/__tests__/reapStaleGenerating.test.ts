@@ -16,14 +16,11 @@
  * staleness window), while setting it must NOT bump the clock (the flag, not a
  * fresh timestamp, is what spared the paused row).
  *
- * The former `claimRun (build mode)` unit block is gone: it drove the OLD
- * `claimRun` (which returned a `.prior` snapshot for a bail-out `restoreRunState`)
- * against hand-mocked Firestore transaction spies. Claim + reserve are now one
- * atomic `claimAndReserveRun` with no prior-state snapshot (every rejection is a
- * rollback), so those five scenarios — a failed/complete build's window claim, the
- * "never touches the marker" liveness-only write, the paused-blocks and
- * live-blocks conflicts — are unrepresentable as written and are covered against a
- * real database in `claimRun.integration.test.ts`.
+ * Claim + reserve are one atomic `claimAndReserveRun` with no prior-state
+ * snapshot (every rejection is a rollback), so the build-claim scenarios — a
+ * failed/complete build's window claim, the "never touches the marker"
+ * liveness-only write, and the paused-blocks and live-blocks conflicts — are
+ * covered against a real database in `claimRun.integration.test.ts`.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";

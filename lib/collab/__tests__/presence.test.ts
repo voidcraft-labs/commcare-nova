@@ -144,8 +144,8 @@ describe("visiblePeers — ordering", () => {
 });
 
 describe("visiblePeers — the real /stream wire shape (updatedAt is epoch millis)", () => {
-	// The /stream route PROJECTS a `PresenceDoc` to `PresenceEntry`, converting
-	// `updatedAt` from a Firestore `Timestamp` to epoch millis (`.toMillis()`).
+	// The /stream route PROJECTS a `presence` row to `PresenceEntry`, converting
+	// `updatedAt` from the row's `Date` to epoch millis (`.getTime()`).
 	// `visiblePeers` does numeric arithmetic on it (`now − updatedAt` for
 	// stale-hide, `>` for newest-wins) — so the wire value MUST be a number, or
 	// both computations silently break. This mirrors what the projected frame
@@ -192,14 +192,14 @@ describe("visiblePeers — the real /stream wire shape (updatedAt is epoch milli
 		expect(out[0].sessionId).toBe("new-tab");
 	});
 
-	it("a RAW Firestore-Timestamp-shaped updatedAt (the bug) defeats BOTH — the regression this guards", () => {
-		// The pre-fix route shipped `d.data()` raw, so `updatedAt` reached the
-		// client as a serialized Timestamp object. `now − object` is NaN, so
-		// `NaN > PRESENCE_STALE_MS` is false → a crashed peer is NEVER hidden, and
-		// `object > object` is false → newest-wins picks whichever came first, not
+	it("a RAW non-numeric updatedAt (the bug) defeats BOTH — the regression this guards", () => {
+		// A projection bug that shipped the row's raw `updated_at` instead of
+		// epoch millis would put a non-numeric value on the wire. `now − object`
+		// is NaN, so `NaN > PRESENCE_STALE_MS` is false → a crashed peer is NEVER
+		// hidden, and `object > object` is false → newest-wins picks whichever came first, not
 		// the freshest. Pin that this shape is broken so the projection can't
 		// silently regress.
-		const rawTs = { _seconds: 1, _nanoseconds: 0 } as unknown as number;
+		const rawTs = { raw: "not-millis" } as unknown as number;
 		const crashed: PresenceEntry = {
 			userId: "crashed",
 			sessionId: "crashed-tab",

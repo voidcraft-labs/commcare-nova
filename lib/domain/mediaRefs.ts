@@ -508,10 +508,10 @@ export function collectMovableAssetRefs(doc: BlueprintDoc): Set<string> {
 
 /**
  * The doc's PRESENT asset ids MINUS the built-in `nova-icon:` slugs — i.e. the
- * ids that resolve to a real Firestore/GCS asset. The single home for the "real
+ * ids that resolve to a real Postgres/GCS asset. The single home for the "real
  * (non-built-in) refs" idiom shared by the reverse-index sync and the
  * cross-Project move (which copy + re-tenant only real assets; built-ins are
- * shared and Firestore-less, so they must never reach an `arrayUnion`/copy).
+ * shared and row-less, so they must never reach the reverse index or a copy).
  * Built on {@link collectMovableAssetRefs} so a dead-but-present ref is still
  * indexed (deletion guard) and carried by a move.
  */

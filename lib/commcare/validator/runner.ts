@@ -6,7 +6,7 @@
  * validation. Returns structured `ValidationError[]` keyed by uuid.
  *
  * Asset-context media rules (existence / ready / kind-match) need data
- * the doc alone can't carry: the resolved Firestore rows for the assets
+ * the doc alone can't carry: the resolved media-asset rows for the assets
  * the doc references. Callers that have those (the SA validation loop)
  * pass a manifest through `RunValidationOptions`; callers that don't
  * (the bulk of tests, the test oracles, the fuzz harness) omit the
@@ -40,7 +40,7 @@ export interface RunValidationOptions {
 	/**
 	 * Resolved media-asset manifest — every `AssetId` the doc
 	 * references that the loader was willing to return, mapped to its
-	 * loaded Firestore row. Built by the caller from
+	 * loaded media-asset row. Built by the caller from
 	 * `collectAssetRefs(doc)` + `loadAssetsByIds(owner, ...)`. When
 	 * supplied, the asset-context media rules run; when omitted, the
 	 * rules are skipped silently. The manifest is the single slot the

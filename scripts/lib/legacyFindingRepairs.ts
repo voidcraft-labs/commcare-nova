@@ -145,7 +145,7 @@ export const REPAIR_JUDGMENTS: Readonly<
 		"the at-rest birth state of an empty app — by design it can't export; excluded from the tally",
 	),
 	MISSING_CHILD_CASE_MODULE: owner(
-		"the fix is a new module managing the child case type — content",
+		"the fix is a new module managing the written case type (child or standalone) — content",
 	),
 	RESERVED_CASE_TYPE_NAME: owner(
 		"renaming a case type re-keys the case database and every cross-reference; no single mutation owns that cascade",

@@ -163,8 +163,8 @@ export function visiblePeers(
 
 /**
  * Estimate the client↔server clock offset from the caller's OWN presence
- * entries in a frame: `updatedAt` is SERVER-stamped (Firestore
- * `serverTimestamp`) while the stale-hide compares against the client's local
+ * entries in a frame: `updatedAt` is SERVER-stamped (the presence route sets
+ * it, not the client) while the stale-hide compares against the client's local
  * clock — raw `Date.now()` skewed past `PRESENCE_STALE_MS` (30 s, an entirely
  * ordinary desktop-clock error) hides every live peer (clock fast) or never
  * hides a dead one (clock slow). Self is the anchor because its beat cadence

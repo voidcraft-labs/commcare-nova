@@ -97,7 +97,26 @@ describe("editField — help text", () => {
 		expect(helpOf(result.newDoc)).toBe("Enter the patient's full legal name.");
 	});
 
-	it("clears help text when handed null", async () => {
+	it("KEEPS help text when the slot is left out of the patch", async () => {
+		const { doc, ctx } = {
+			doc: makeDoc("Existing help"),
+			...makeStubToolContext(),
+		};
+		const result = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "patient_name",
+				updates: { kind: "text", label: "Patient name" },
+			},
+			ctx,
+			doc,
+		);
+
+		expect(helpOf(result.newDoc)).toBe("Existing help");
+	});
+
+	it("CLEARS help text when handed null — null removes, omission keeps", async () => {
 		const { doc, ctx } = {
 			doc: makeDoc("Existing help"),
 			...makeStubToolContext(),

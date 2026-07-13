@@ -28,7 +28,7 @@
 // the referenced-asset count and byte total are bounded HERE, before a
 // single byte leaves GCS.
 //
-// Server-only: it reads Firestore (the project's asset rows). It is the
+// Server-only: it reads the project's asset rows from Postgres. It is the
 // only media-side consumer of `lib/commcare/validator`; the manifest
 // builder (`lib/media/manifest.ts`) crosses the same one-way
 // `@/lib/commcare` boundary too, but via `multimedia/assetWirePath`, not
@@ -63,7 +63,7 @@ import { exportBudgetExcess } from "./exportBudget";
  * validator so `mediaAssetReady` can fire its "still uploading" message
  * rather than the manifest's `ready`-only view collapsing it into a
  * "not found" miss. Two loads with different filters, one extra
- * Firestore read per upload/compile.
+ * asset-row read per upload/compile.
  *
  * Scope is the doc's referenced ids filtered to `projectId`: a
  * foreign-PROJECT reference loads no row, so it surfaces as
@@ -71,7 +71,7 @@ import { exportBudgetExcess } from "./exportBudget";
  * shared at the Project boundary.
  *
  * Returns an empty array for a fully valid doc — the validator still
- * runs (cheap), and a media-free doc skips the Firestore read.
+ * runs (cheap), and a media-free doc skips the asset-row read.
  */
 export async function collectBoundaryViolations(
 	doc: BlueprintDoc,
@@ -79,20 +79,20 @@ export async function collectBoundaryViolations(
 ): Promise<ValidationError[]> {
 	const ids = [...collectAssetRefs(doc)];
 
-	// Built-in icon refs (`nova-icon:<slug>`) carry no Firestore row — they
+	// Built-in icon refs (`nova-icon:<slug>`) carry no asset row — they
 	// resolve from the shipped catalog + `public/nova-icons/` bytes. Partition
-	// them off the Firestore load and synthesize ready/image rows so the media
+	// them off the asset-row load and synthesize ready/image rows so the media
 	// rules + budget see them.
 	const { realIds, builtinSlugs } = partitionAssetRefs(ids);
 
-	// Cap the reference COUNT before loading any rows. `loadAssetsByIds` issues
-	// one Firestore batch read per 30 ids, so an unbounded reference set fans
-	// out into many sequential round-trips before `exportBudgetError` (which
-	// runs on the LOADED rows) can reject it — and this load runs twice per
-	// request (here + `resolveMediaManifest`). The doc schema puts no ceiling
-	// on field/option count, so a valid-parsing doc can carry an arbitrary
-	// number of distinct refs; short-circuit here so the read fan-out is bounded
-	// by the same export-asset limit the byte budget enforces downstream. Built-ins
+	// Cap the reference COUNT before loading any rows. `loadAssetsByIds` pulls
+	// every referenced row into memory in one query, so an unbounded reference
+	// set loads an unbounded row set before `exportBudgetError` (which runs on
+	// the LOADED rows) can reject it — and this load runs twice per request
+	// (here + `resolveMediaManifest`). The doc schema puts no ceiling on
+	// field/option count, so a valid-parsing doc can carry an arbitrary number
+	// of distinct refs; short-circuit here so the loaded row set is bounded by
+	// the same export-asset limit the byte budget enforces downstream. Built-ins
 	// dedup to one wire entry per slug, so they count once each (not per ref).
 	const exportableRefCount = realIds.length + builtinSlugs.length;
 	if (exportableRefCount > MAX_MEDIA_EXPORT_ASSETS) {

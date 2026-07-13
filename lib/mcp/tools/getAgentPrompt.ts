@@ -22,7 +22,7 @@
  *
  * Build modes (`build` and `autonomous_build`) ignore `app_id` even
  * when present. Skill simplicity wins here: `mode` is the authoritative
- * flag, and a spurious id shouldn't cause a Firestore round-trip.
+ * flag, and a spurious id shouldn't cause a blueprint load.
  *
  * **Single string discriminator, no boolean.** Earlier revisions used
  * `mode: enum + interactive: boolean` as two parallel inputs. The model
@@ -110,7 +110,7 @@ export function registerGetAgentPrompt(
 					.string()
 					.optional()
 					.describe(
-						"Required when `mode === 'edit'` — the Firestore app id whose blueprint summary should be inlined into the returned text. The user must own this app. Ignored for `build` and `autonomous_build` (no app to read from).",
+						"Required when `mode === 'edit'` — the app id whose blueprint summary should be inlined into the returned text. The user must own this app. Ignored for `build` and `autonomous_build` (no app to read from).",
 					),
 			},
 		},
@@ -142,7 +142,7 @@ export function registerGetAgentPrompt(
 						throw new McpInvalidInputError("edit mode requires app_id");
 					}
 					/* `loadAppBlueprint` ownership-gates and loads in one
-					 * Firestore read; throws `McpAccessError` on cross-tenant
+					 * read; throws `McpAccessError` on cross-tenant
 					 * probe or vanished row. The renderer itself decides the
 					 * build/edit framing off the doc: an app with modules gets
 					 * the edit preamble + inlined blueprint summary, an empty

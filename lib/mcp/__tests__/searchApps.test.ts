@@ -192,7 +192,7 @@ describe("registerSearchApps — empty + pagination", () => {
 describe("registerSearchApps — the scan throws", () => {
 	it("surfaces as an MCP error envelope with a populated error_type", async () => {
 		vi.mocked(searchAppsAcrossProjects).mockRejectedValueOnce(
-			new Error("firestore down"),
+			new Error("db down"),
 		);
 
 		const { server, capture } = makeFakeServer();

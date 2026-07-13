@@ -14,7 +14,7 @@
  *     rejection.
  *
  * The DB boundary (`@/lib/db/settings::getCommCareSettings`) is mocked
- * directly — the tool should never reach Firestore in unit tests.
+ * directly — the tool should never reach the DB in unit tests.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -139,7 +139,7 @@ describe("registerGetHqConnection — missing nova.hq.read", () => {
 		const { server, capture } = makeFakeServer();
 		/* Caller's token has the route-layer floor scopes but not the
 		 * orthogonal HQ-read scope — the per-tool guard must reject
-		 * before any Firestore read fires. */
+		 * before any DB read fires. */
 		registerGetHqConnection(server, {
 			userId: "u1",
 			scopes: [SCOPES.read, SCOPES.write],
@@ -164,9 +164,7 @@ describe("registerGetHqConnection — missing nova.hq.read", () => {
 
 describe("registerGetHqConnection — getCommCareSettings throws", () => {
 	it("surfaces as an MCP error envelope with a populated error_type", async () => {
-		vi.mocked(getCommCareSettings).mockRejectedValueOnce(
-			new Error("firestore down"),
-		);
+		vi.mocked(getCommCareSettings).mockRejectedValueOnce(new Error("db down"));
 
 		const { server, capture } = makeFakeServer();
 		registerGetHqConnection(server, toolCtx);

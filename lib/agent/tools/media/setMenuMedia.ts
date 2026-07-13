@@ -107,11 +107,7 @@ export const setMenuMediaInputSchema = z
 			)
 			.min(1)
 			.describe(
-				"The menu tiles to set, each a module tile (`target: module`) or a " +
-					"form tile (`target: form`). Set every tile you're styling in ONE " +
-					"call — the whole app's menu icons fit in a single batch. Both " +
-					"slots are stated per tile: an icon slug / asset id sets, null " +
-					"clears. The batch commits as a whole.",
+				"The tiles to set — module tiles (target: module) and form tiles (target: form), mixed freely.",
 			),
 	})
 	.strict();
@@ -122,7 +118,7 @@ export type SetMenuMediaResult = MutationSuccess | { error: string };
 
 export const setMenuMediaTool = {
 	description:
-		"Set or clear menu media on one or more menu tiles in a single call — module home-screen tiles and form menu tiles, mixed freely (set the whole app's menu in one batch). Each item sets both slots of one tile: the icon (a built-in icon slug like household or register, or an uploaded image's asset id from list_media_assets) and the audio label (an audio asset id); null clears either. To preserve a tile's current slot, pass back the stored value from getModule / getForm. Menu tiles carry image + audio only, no video.",
+		"Set or clear icons and audio labels on module and form menu tiles. Each item sets BOTH slots of one tile (null clears; to keep a slot, pass back its stored value). Style the whole menu in one call so the icons read coherently together.",
 	inputSchema: setMenuMediaInputSchema,
 	async execute(
 		input: SetMenuMediaInput,

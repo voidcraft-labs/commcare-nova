@@ -103,7 +103,7 @@ export type AttachFieldMediaResult = MutationSuccess | { error: string };
 
 export const attachFieldMediaTool = {
 	description:
-		"Set or clear the image/audio/video on one or more field message slots (label, hint, help, or validation message) in a single call — the fields can span different forms. Supply asset ids from list_media_assets; pass an empty media object to clear a slot. Each slot must exist on its field's kind (e.g. only input fields have hint/help; only validation-capable kinds have validate_msg).",
+		"Set or clear image/audio/video on field message slots (label, hint, help, validation message) — fields may span forms. Asset ids come from list_media_assets; an empty media object clears. The slot must exist on the field's kind.",
 	inputSchema: attachFieldMediaInputSchema,
 	async execute(
 		input: AttachFieldMediaInput,

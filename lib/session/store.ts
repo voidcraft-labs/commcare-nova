@@ -160,9 +160,9 @@ export interface BuilderSessionState {
 
 	// ── App identity ─────────────────────────────────────────────────────
 
-	/** Firestore app document ID for the current builder session. Set
+	/** App id for the current builder session. Set
 	 *  once when the builder mounts; undefined for new builds before
-	 *  the app document is created. */
+	 *  the app row is created. */
 	appId: string | undefined;
 
 	/** Whether this session's user holds the `edit` capability on the app's

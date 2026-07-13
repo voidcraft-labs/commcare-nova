@@ -28,7 +28,7 @@ interface HomePageProps {
  * 2. Authenticated, no apps → Get-started prompt (rendered immediately,
  *    no Suspense skeleton) linking to `/build/new`.
  * 3. Authenticated, has apps → App list skeleton streams via Suspense
- *    while the active + recently-deleted lists load from Firestore.
+ *    while the active + recently-deleted lists load from Postgres.
  *    The active/deleted toggle lives in the client island below the
  *    fetch — it's a UI filter, not a routable state, so it stays out
  *    of the URL.

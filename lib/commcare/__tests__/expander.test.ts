@@ -2626,7 +2626,11 @@ describe("unquoted string literal detection", () => {
 // ── Child Case Type Module Requirement ─────────────────────────────────
 
 describe("child case type module requirement", () => {
-	it("errors when child case type has no module", () => {
+	it("errors when forms create cases of a type that has no module", () => {
+		// The finding keys on WRITERS: the parent form registers `service`
+		// child cases (a `case_property_on: service` bucket), but no module
+		// owns `service` — the created cases would be invisible. A record
+		// alone (no writers) is a legal plan and stays clean.
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -2646,6 +2650,12 @@ describe("child case type module requirement", () => {
 									id: "case_name",
 									label: "Plan Name",
 									case_property_on: "plan",
+								}),
+								f({
+									kind: "text",
+									id: "service_note",
+									label: "Service note",
+									case_property_on: "service",
 								}),
 							],
 						},

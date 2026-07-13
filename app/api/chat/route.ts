@@ -17,9 +17,9 @@ import {
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveActiveProjectId, resolveGatewayKey } from "@/lib/auth-utils";
-import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
+import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
 	AppAccessError,
@@ -61,7 +61,7 @@ import { ensureReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
-import { SA_MODEL } from "@/lib/models";
+import { SA_BUILD_MODEL, SA_EDIT_MODEL } from "@/lib/models";
 import { creditGateDecision } from "./creditGate";
 import { CACHE_TTL_MS, chatRequestSchema } from "./schema";
 import { isFatalStreamErrorChunk } from "./streamFailure";
@@ -196,7 +196,11 @@ export async function POST(req: Request) {
 	 *       create an orphan app in the common out-of-credits case. */
 	try {
 		const usage = await getMonthlyUsage(userId);
-		if ((usage?.cost_estimate ?? 0) >= ACTUAL_COST_BACKSTOP_USD) {
+		const monthlySpend = Math.max(
+			usage?.cost_estimate ?? 0,
+			usage?.actual_cost ?? 0,
+		);
+		if (monthlySpend >= ACTUAL_COST_BACKSTOP_USD) {
 			return Response.json(
 				{
 					error:
@@ -512,7 +516,9 @@ export async function POST(req: Request) {
 		appId,
 		userId,
 		runId: effectiveRunId,
-		model: SA_MODEL,
+		// Must match the model `createSolutionsArchitect` picks off the same
+		// signal — build and edit run different tiers.
+		model: appReady ? SA_EDIT_MODEL : SA_BUILD_MODEL,
 		promptMode: appReady ? "edit" : "build",
 		freshEdit: !!appReady && seedCacheExpired,
 		appReady: !!appReady,
@@ -1023,16 +1029,62 @@ export async function POST(req: Request) {
 					log.error("[chat] user-message conversation event failed", err);
 				}
 			} else if (lastMessage) {
-				/* Defensive — the useChat flow always ends with a user message, but
-				 * if a caller bypassed the client and sent a malformed history we
-				 * would silently drop the user-message event. Warn so the skip is
-				 * visible in logs; the request still proceeds without the event. */
-				log.warn(
-					"[chat] last message not user-role; skipping user-message event",
-					{
-						role: lastMessage.role,
-					},
+				/* The answered-askQuestions auto-resend: the last message is the
+				 * ASSISTANT message whose askQuestions tool part now carries the
+				 * user's answers as its output. The SA's own step handler only logs
+				 * results produced by live steps, and askQuestions has no execute —
+				 * its result exists only in this incoming history — so this is the
+				 * one place the answers can be logged. Paired to the original
+				 * tool-call event by toolCallId.
+				 *
+				 * Only the FINAL step's parts are new this turn: consecutive
+				 * question rounds append to the same trailing assistant message
+				 * (`toUIMessageStream({ originalMessages })` continues it), so an
+				 * earlier round's answered part is still `output-available` here —
+				 * but it was harvested on the POST that answered IT. askQuestions
+				 * stalls its run, so an answered round always sits after the
+				 * message's last `step-start`; scoping to that suffix logs each
+				 * round exactly once. Guarded like the user-message write above:
+				 * a failed log is non-fatal. */
+				const lastStepStart = lastMessage.parts.reduce(
+					(idx, part, i) => (part.type === "step-start" ? i : idx),
+					-1,
 				);
+				let answeredQuestions = 0;
+				for (const part of lastMessage.parts.slice(lastStepStart + 1)) {
+					if (
+						part.type === "tool-askQuestions" &&
+						"state" in part &&
+						part.state === "output-available"
+					) {
+						answeredQuestions++;
+						try {
+							ctx.emitConversation({
+								type: "tool-result",
+								toolCallId: part.toolCallId,
+								toolName: "askQuestions",
+								output: part.output ?? null,
+							});
+						} catch (err) {
+							log.error(
+								"[chat] askQuestions answer conversation event failed",
+								err,
+							);
+						}
+					}
+				}
+				if (answeredQuestions === 0) {
+					/* Defensive — a trailing assistant message should be an answered
+					 * question round; a caller bypassing the client could send a
+					 * malformed history that would silently drop its event. Warn so
+					 * the skip is visible; the request still proceeds. */
+					log.warn(
+						"[chat] trailing assistant message carries no answered askQuestions round; no conversation event",
+						{
+							role: lastMessage.role,
+						},
+					);
+				}
 			}
 
 			try {
@@ -1045,7 +1097,7 @@ export async function POST(req: Request) {
 				 *    after askQuestions rounds.
 				 *
 				 * 2. **Message strategy** — determined by cache expiry. When the
-				 *    Anthropic prompt cache has expired (>5 min since last response),
+				 *    provider prompt cache has expired (>30 min since last response),
 				 *    only the last user message is sent (one-shot). Within the cache
 				 *    window, full conversation history is sent so the SA can iterate
 				 *    with context from prior turns (e.g. askQuestions answers).
@@ -1143,49 +1195,25 @@ export async function POST(req: Request) {
 					ctx.emitConversation({ type: "attachment-prep", phase: "done" });
 				}
 
-				/* Strip historical tool parts that name a tool absent from THIS
-				 * request's tool set — any such part would make Anthropic reject the
-				 * request ("tool not found in tools array"). Two ways history carries
-				 * an absent tool: a build-only planning tool (`generateSchema` /
-				 * `planAppDesign`) carried into an edit turn, or a tool that has since
-				 * been removed or renamed (a thread predating a deploy that changed
-				 * the tool surface — e.g. the old singular `addCaseListColumn` /
-				 * `addSearchInput` / `addField`, or the retired `generateScaffold` /
-				 * `completeBuild`). The strip runs on EVERY continuation: build
-				 * continuations always send full history, and a build paused on
-				 * `awaiting_input` is exactly the shape designed to SURVIVE a deploy —
-				 * gating the strip to edits would brick its resume on
-				 * `validateUIMessages`, fail+refund the run, and re-poison every
-				 * retry with the same history. (An expired-cache edit was already
-				 * trimmed to the last user message above, so it strips nothing.)
-				 * Keyed on `sa.tools` so the filter never drifts from the active set
-				 * (more robust than a hardcoded legacy-name list). Stripping by part
-				 * type removes both the call and its output in one step — the AI SDK
-				 * keeps both sides of a tool invocation on the same part — so the
-				 * converted Anthropic messages keep matched `tool_use` /
-				 * `tool_result` pairs for the tools that remain. Assistant turns that
-				 * collapse to zero parts are dropped so the wire carries no empty
-				 * turns. Deterministic in its inputs, so successive requests produce
-				 * identical cacheable prefixes. */
-				const activeToolPartTypes = new Set<string>(
-					Object.keys(sa.tools).map((name) => `tool-${name}`),
+				/* Repair deploy-crossing histories BEFORE validation: drop tool
+				 * parts naming a tool absent from THIS request's tool set (the
+				 * provider would reject the whole request — "tool not found in
+				 * tools array") AND parts whose recorded input the current
+				 * schema no longer parses (a deploy that narrowed a `.strict()`
+				 * tool input — `validateUIMessages` below would throw,
+				 * fail+refund the run, and re-poison every retry with the same
+				 * history). The full contract, the drop semantics, and the
+				 * validation mirror live on `sanitizeHistoricalToolParts`. The
+				 * repair runs on EVERY continuation: build continuations always
+				 * send full history, and a build paused on `awaiting_input` is
+				 * exactly the shape designed to SURVIVE a deploy. (An
+				 * expired-cache edit was already trimmed to the last user
+				 * message above, so it strips nothing.) Keyed on `sa.tools` so
+				 * the filter never drifts from the active set. */
+				const effectiveMessages = await sanitizeHistoricalToolParts(
+					preparedMessages,
+					sa.tools,
 				);
-				const stripUnknownToolParts = (
-					m: NovaUIMessage,
-				): NovaUIMessage | undefined => {
-					if (m.role !== "assistant") return m;
-					const nextParts = m.parts.filter(
-						(p) =>
-							!(p.type.startsWith("tool-") && !activeToolPartTypes.has(p.type)),
-					);
-					if (nextParts.length === 0) return undefined;
-					return nextParts.length === m.parts.length
-						? m
-						: { ...m, parts: nextParts };
-				};
-				const effectiveMessages = preparedMessages
-					.map(stripUnknownToolParts)
-					.filter((m): m is NovaUIMessage => m !== undefined);
 
 				/* Record the input-context composition for the per-run finalize
 				 * log: how many messages were actually sent (after the cache-expiry
@@ -1297,8 +1325,8 @@ export async function POST(req: Request) {
 					 * completeness finding is unreachable except through a bug — the
 					 * warn is how one would surface in production. */
 					ctx.warnIfEditRunIncomplete();
-					/* An edit run can land case-type records (`createModule` with
-					 * `case_type_record`), and the chat surface's inline guarded
+					/* An edit run can land case-type records (`generateSchema`
+					 * declaring a new type), and the chat surface's inline guarded
 					 * commits never touch Postgres — so sync the case-store schemas
 					 * here, the same "any case-store action after a commit sees a
 					 * synced schema" contract the build arm holds. Idempotent upsert;

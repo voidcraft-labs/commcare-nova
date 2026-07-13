@@ -1,12 +1,12 @@
 /**
  * Solutions Architect — single ToolLoopAgent for conversation, generation, and editing.
  *
- * Tools are split into two groups: **planning** (data model, app design —
- * pure conversation artifacts, no doc writes) and **shared**
- * (conversation, read, mutation, case-list-config). In edit mode
- * (existing app), planning tools are excluded — the SA only gets shared
- * tools and an editing prompt with a blueprint summary. In build mode
- * (new app), all tools are available.
+ * ONE shared tool set serves both modes: conversation, the data-model
+ * tool (`generateSchema` — a build's first commit, and how a new case
+ * type enters an existing app), reads, mutations, case-list /
+ * case-search config, media. Build vs edit picks the prompt (an edit
+ * prompt carries the blueprint summary) and the model — never the tool
+ * set.
  *
  * Vocabulary is domain-native: tool arguments, return shapes, and the
  * system prompt all use `field` / `kind` / `validate` / `validate_msg` /
@@ -18,13 +18,18 @@
  * no finishing tool: the chat route finalizes a build at drain end
  * (status flip + case-store materialize + the `data-done` signal).
  */
-import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
+import type { ZodType } from "zod";
 import { loadApp } from "@/lib/db/apps";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
-import { SA_MODEL, SA_REASONING } from "@/lib/models";
+import {
+	reasoningProviderOptions,
+	SA_BUILD_MODEL,
+	SA_EDIT_MODEL,
+	SA_REASONING,
+} from "@/lib/models";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import type { ToolExecutionContext } from "./toolExecutionContext";
@@ -55,7 +60,6 @@ import { listMediaAssetsTool } from "./tools/media/listMediaAssets";
 import { removeMediaAssetTool } from "./tools/media/removeMediaAsset";
 import { setAppLogoTool } from "./tools/media/setAppLogo";
 import { setMenuMediaTool } from "./tools/media/setMenuMedia";
-import { planAppDesignTool } from "./tools/planAppDesign";
 import { removeFieldTool } from "./tools/removeField";
 import { removeFormTool } from "./tools/removeForm";
 import { removeModuleTool } from "./tools/removeModule";
@@ -63,22 +67,7 @@ import { searchBlueprintTool } from "./tools/searchBlueprint";
 import { updateAppTool } from "./tools/updateApp";
 import { updateFormTool } from "./tools/updateForm";
 import { updateModuleTool } from "./tools/updateModule";
-
-/**
- * Names of SA tools exposed only in build mode. Declared as module-scope
- * string literals so `BuildOnlyToolName` can pin them: the factory applies a
- * matching `satisfies Record<BuildOnlyToolName, …>` to its planning-tool
- * record, so adding/removing/renaming a planning tool without updating this
- * list breaks compilation.
- *
- * NOT used to strip message history — the chat route drops any tool-use part
- * whose name isn't in the live tool set (`Object.keys(sa.tools)`), which
- * covers build-only AND removed/renamed tools without a hand-kept list. So
- * this const is purely the compile-time tie for the build/edit tool split.
- */
-const BUILD_ONLY_TOOL_NAMES = ["generateSchema", "planAppDesign"] as const;
-
-type BuildOnlyToolName = (typeof BUILD_ONLY_TOOL_NAMES)[number];
+import { wireToolSchema } from "./wireSchemas";
 
 // ── Solutions Architect Agent ────────────────────────────────────────
 
@@ -87,7 +76,7 @@ type BuildOnlyToolName = (typeof BUILD_ONLY_TOOL_NAMES)[number];
  *
  * @param initialDoc - The SA's starting `BlueprintDoc`. On initial builds
  *   this is the empty doc created by `createApp`; during edits it's the
- *   app's current state loaded from Firestore. The SA owns this doc for
+ *   app's current state loaded from Postgres. The SA owns this doc for
  *   the lifetime of the agent — every tool call mutates it in place.
  * @param editing - True when the app already exists (appReady). The SA gets
  *   the editing preamble + blueprint summary in its prompt and only has access
@@ -101,7 +90,7 @@ export function createSolutionsArchitect(
 ) {
 	/* Internal working doc — read + reassigned on every tool call.
 	 *
-	 * Mutation persistence (SSE + event log + Firestore) happens inside
+	 * Mutation persistence (SSE + event log + Postgres) happens inside
 	 * each extracted tool module via `ctx.recordMutations`. The wrappers
 	 * below only reassign `doc` when the extracted tool's `mutations`
 	 * array is non-empty, so the next tool call in the same request sees
@@ -185,6 +174,13 @@ export function createSolutionsArchitect(
 	 * `tools` record, at which point structural inference on the
 	 * `ToolSet` accepts the object without further annotation.
 	 */
+	/** Chat-surface wire projection — AST stubs on the wire, full Zod
+	 *  validation intact (`wireSchemas.ts`). Every SA tool is Zod-schema'd,
+	 *  so the cast holds. */
+	function wire<I>(schema: FlexibleSchema<I>): FlexibleSchema<I> {
+		return wireToolSchema(schema as ZodType<I>);
+	}
+
 	function wrapMutating<I, R>(t: {
 		description: string;
 		inputSchema: FlexibleSchema<I>;
@@ -196,7 +192,15 @@ export function createSolutionsArchitect(
 	}) {
 		return {
 			description: t.description,
-			inputSchema: t.inputSchema,
+			inputSchema: wire(t.inputSchema),
+			// Opt out of the Responses API's default strict-mode schema
+			// normalization, which forces EVERY property present on every
+			// call (optionals become required; the model pads unused slots
+			// with null — or invents filler where null isn't in the type).
+			// Non-strict lets the model omit what doesn't apply — fewer
+			// output tokens per call, less context echo on every later step
+			// — and our own Zod validation remains the real gate either way.
+			strict: false,
 			execute: (input: I) =>
 				serial(async () => {
 					try {
@@ -260,7 +264,9 @@ export function createSolutionsArchitect(
 	}) {
 		return {
 			description: t.description,
-			inputSchema: t.inputSchema,
+			inputSchema: wire(t.inputSchema),
+			// Same strict-mode opt-out as `wrapMutating` — see the note there.
+			strict: false,
 			execute: (input: I) =>
 				serial(async () => {
 					/* `kind: "read"` discriminator is internal to the shared
@@ -272,25 +278,6 @@ export function createSolutionsArchitect(
 		};
 	}
 
-	// ── Planning tools (build mode only) ──────────────────────────────
-	// The two pure planning steps of a new build: the data model, then
-	// the app design. Each records its plan in the conversation (the
-	// tool input IS the plan) and writes nothing — execution happens
-	// through the shared creation tools, one `createModule` per planned
-	// module. Excluded in edit mode: an existing app's structure is the
-	// plan.
-	//
-	// `satisfies Record<BuildOnlyToolName, unknown>` ties the record's keys
-	// to `BUILD_ONLY_TOOL_NAMES`: adding, removing, or renaming a key
-	// (without updating the module-scope list) is a compile error. That
-	// keeps the chat route's history-strip filter aligned with whatever
-	// the factory actually registers.
-
-	const generationTools = {
-		generateSchema: wrapRead(generateSchemaTool),
-		planAppDesign: wrapRead(planAppDesignTool),
-	} satisfies Record<BuildOnlyToolName, unknown>;
-
 	// ── Shared tools (all modes) ─────────────────────────────────────
 	// Conversation, batch add, read, mutation, and validation tools.
 
@@ -301,10 +288,18 @@ export function createSolutionsArchitect(
 		// still register the schema without wiring a server handler.
 		askQuestions: {
 			description: askQuestionsTool.description,
-			inputSchema: askQuestionsTool.inputSchema,
+			inputSchema: wire(askQuestionsTool.inputSchema),
+			strict: false,
 		},
 
 		addFields: wrapMutating(addFieldsTool),
+
+		// ── Data model ─────────────────────────────────────────────────
+		// Commits the case-type catalog (and the app name) onto the doc —
+		// a build's first call, and how a NEW case type enters an existing
+		// app. `createModule` references the recorded types by name.
+
+		generateSchema: wrapMutating(generateSchemaTool),
 
 		// ── Read ────────────────────────────────────────────────────────
 
@@ -383,15 +378,15 @@ export function createSolutionsArchitect(
 		removeMediaAsset: wrapRead(removeMediaAssetTool),
 	};
 
-	// ── Compose tools and build agent ────────────────────────────────
-	// Edit mode: only shared tools (read + mutation). Build mode: shared
-	// tools + the two planning tools. There is no finishing tool — the
-	// route finalizes a build when the run's drain ends.
-
-	const tools = editing ? sharedTools : { ...sharedTools, ...generationTools };
+	// ── Build agent ──────────────────────────────────────────────────
+	// One tool set for both modes (generateSchema included — it's how a
+	// new case type enters an existing app too). There is no finishing
+	// tool — the route finalizes a build when the run's drain ends.
 
 	const agent = new ToolLoopAgent({
-		model: ctx.model(SA_MODEL),
+		// Build and edit run different tiers: a ground-up build gets the
+		// flagship model, an edit of an existing app the mid-tier one.
+		model: ctx.model(editing ? SA_EDIT_MODEL : SA_BUILD_MODEL),
 		// The prompt summary is rendered from the current normalized doc
 		// when the app already exists. `buildSolutionsArchitectPrompt`
 		// walks the normalized doc directly and produces a domain-vocab
@@ -399,20 +394,13 @@ export function createSolutionsArchitect(
 		instructions: buildSolutionsArchitectPrompt(editing ? doc : undefined),
 		stopWhen: stepCountIs(80),
 		prepareStep: () => {
-			// Adaptive thinking with `display: 'summarized'` is required on Opus 4.7
-			// and later for human-readable thinking summaries to stream back. `effort` is a
-			// top-level provider option (sibling of `thinking`), not nested inside
-			// it — Zod silently strips nested unknown fields. `satisfies` (not an
-			// annotation) so the literal's JSONObject-assignable type flows into
-			// providerOptions while misplaced keys are still rejected.
+			// The canonical reasoning literal
+			// (`lib/models.ts::reasoningProviderOptions`) — effort plus the
+			// streamed reasoning summaries the live-thinking feed needs. No
+			// cache option: OpenAI prompt caching is implicit (managed
+			// breakpoints, 30-min TTL).
 			return {
-				providerOptions: {
-					anthropic: {
-						cacheControl: { type: "ephemeral" },
-						thinking: { type: "adaptive", display: "summarized" },
-						effort: SA_REASONING.effort,
-					} satisfies AnthropicProviderOptions,
-				},
+				providerOptions: reasoningProviderOptions(SA_REASONING.effort),
 			};
 		},
 		onStepEnd: (step) => {
@@ -442,11 +430,12 @@ export function createSolutionsArchitect(
 							: [],
 					),
 					warnings: step.warnings,
+					providerMetadata: step.providerMetadata,
 				},
 				"Solutions Architect",
 			);
 		},
-		tools,
+		tools: sharedTools,
 	});
 
 	return agent;

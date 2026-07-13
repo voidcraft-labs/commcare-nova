@@ -46,11 +46,10 @@ export class ApiError extends Error {
  * outer backstop.
  *
  * - `BLUEPRINT_REQUEST_MAX_BYTES` — routes that carry one `BlueprintDoc`
- *   (compile/export, CommCare HQ upload, app autosave). A blueprint is
- *   persisted as ONE Firestore document field, so it can never legitimately
- *   exceed Firestore's ~1 MiB document limit; 2 MB leaves ample room for the
- *   JSON envelope and a basis token while still bounding parse cost 16× below
- *   the platform ceiling.
+ *   (compile/export, CommCare HQ upload, app autosave). A real serialized
+ *   blueprint is far smaller than a megabyte, so 2 MB is a generous sanity
+ *   bound on the request body — ample room for the JSON envelope and a basis
+ *   token while still bounding parse cost 16× below the platform ceiling.
  * - `CHAT_REQUEST_MAX_BYTES` — `/api/chat` also ships the blueprint PLUS the
  *   bounded message history (`MAX_CHAT_MESSAGES` turns, each typed message
  *   `MAX_CHAT_MESSAGE_CHARS`), so it gets a larger budget than the pure
@@ -142,7 +141,7 @@ export async function readJsonBody(
  * to Sentry (`lib/logger.ts`) and would flood the issue stream on every routine
  * close. The server never intentionally aborts its own request in a way that
  * should log, so an abort-shaped error is always a client disconnect. A GENUINE
- * mid-request server error (an auth-store fault, a Firestore blip, a bug) matches
+ * mid-request server error (an auth-store fault, a database blip, a bug) matches
  * NONE of these and still logs + 500s.
  */
 export function isClientAbort(err: unknown): boolean {

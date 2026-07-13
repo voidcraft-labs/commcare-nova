@@ -1,6 +1,6 @@
 /**
  * Thread extraction utilities — converts live UIMessage arrays into the
- * compact StoredThreadMessage format for Firestore persistence.
+ * compact StoredThreadMessage format for Postgres persistence.
  *
  * Only display-relevant parts are preserved: user text and completed
  * askQuestions tool calls. Everything else (tool-generateApp, data-*,
@@ -88,8 +88,8 @@ function extractMessage(message: NovaUIMessage): StoredThreadMessage | null {
  * Extract a complete ThreadDoc from the current useChat messages array.
  *
  * Called on each status=ready transition to persist the thread incrementally.
- * Each call produces a full snapshot — Firestore `set()` overwrites the
- * previous version, so partial failures are harmless.
+ * Each call produces a full snapshot — the thread save is an idempotent
+ * upsert that overwrites the previous row, so partial failures are harmless.
  *
  * @param messages  - Live UIMessage array from useChat
  * @param runId     - Generation session UUID (becomes the threadId)

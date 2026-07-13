@@ -97,6 +97,16 @@ function completeDoc(): BlueprintDoc {
 					{ name: "village", label: "Village" },
 				],
 			},
+			/* Recorded ahead of its module — the generateSchema-first flow:
+			 * createModule references a case type by name and rejects one the
+			 * catalog doesn't carry. */
+			{
+				name: "household",
+				properties: [
+					{ name: "case_name", label: "Household name" },
+					{ name: "head_of_household", label: "Head of household" },
+				],
+			},
 		],
 	});
 }
@@ -362,6 +372,15 @@ function completeConnectDoc(): BlueprintDoc {
 					{ name: "village", label: "Village" },
 				],
 			},
+			/* Pre-recorded types for the creations below — the
+			 * generateSchema-first flow: createModule references a case type
+			 * by name and rejects one the catalog doesn't carry. */
+			...["quiz_case", "assessment_case", "refresher", "seller"].map(
+				(name) => ({
+					name,
+					properties: [{ name: "case_name", label: "Name" }],
+				}),
+			),
 		],
 	});
 }
@@ -434,8 +453,8 @@ describe("atomic creation on a complete Connect app", () => {
 
 	it("removing the LAST participating form's block bounces with the app-level participation finding", async () => {
 		/* The fixture's only form carries the only learn block. Clearing it
-		 * leaves a Connect app with zero participation — the one state the
-		 * relaxation still forbids. */
+		 * (connect: null — null removes) leaves a Connect app with zero
+		 * participation — the one state the relaxation still forbids. */
 		const { ctx, recordMutations } = makeCtx();
 		const out = await updateFormTool.execute(
 			{ moduleIndex: 0, formIndex: 0, connect: null },

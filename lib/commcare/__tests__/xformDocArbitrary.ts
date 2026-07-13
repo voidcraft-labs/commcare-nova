@@ -1174,6 +1174,30 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		});
 	});
 
+	// Every case type forms WRITE needs a module of its own
+	// (MISSING_CHILD_CASE_MODULE keys on writers) — the injected subcase
+	// repeats write their child types, so give each uncovered child type a
+	// case-list-only viewer module, exactly the shape the SA lands for a
+	// child type with no follow-up workflow. Keeps the generated doc
+	// validator-clean without changing what the emitters are exercised on.
+	for (const childType of injectedChildCaseTypes) {
+		if (caseTypeNames.has(childType)) continue;
+		const viewerUuid = minter.uuid("mod");
+		moduleOrder.push(viewerUuid);
+		formOrder[viewerUuid] = [];
+		modules[viewerUuid] = {
+			uuid: viewerUuid,
+			id: `m_view_${childType}`,
+			name: `View ${childType}`,
+			caseType: childType,
+			caseListOnly: true,
+			caseListConfig: {
+				columns: [plainColumn(minter.uuid("col"), "case_name", "Name")],
+				searchInputs: [],
+			},
+		};
+	}
+
 	const allCaseTypeNames = new Set([
 		...caseTypeNames,
 		...injectedChildCaseTypes,

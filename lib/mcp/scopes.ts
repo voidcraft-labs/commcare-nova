@@ -47,7 +47,7 @@ import type { AuthKind } from "./types";
  * both reference this, so a typo in a required-scope list becomes a
  * compile error rather than a silent grant.
  *
- * `read` / `write` cover Nova-internal operations (Firestore-backed app
+ * `read` / `write` cover Nova-internal operations (Postgres-backed app
  * blueprints). `hqRead` / `hqWrite` cover delegated access to CommCare
  * HQ via the user's stored API key — a distinct authorization grant
  * because HQ is a separate platform the user authenticated to outside

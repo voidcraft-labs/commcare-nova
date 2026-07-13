@@ -17,12 +17,11 @@
  *   I5 resumed-keeps-charge — an edit resumed after its lease lapsed keeps its
  *                             charge (renew-not-reap).
  *
- * Claim and reserve are now ONE transaction (`claimAndReserveRun`), so the
- * `[claim, reserveCredits)` window the Firestore-era matrix probed is
- * unrepresentable; each such cell is covered by its atomic equivalent. The
- * terminal writers' transient-fault retry moved from `withFirestoreRetry` (gRPC
- * UNAVAILABLE) to `withAppTx`'s deadlock/serialization retry, unit-tested in
- * `withAppTx.test.ts` — the two "retries a Firestore fault" cells are retired here.
+ * Claim and reserve are ONE transaction (`claimAndReserveRun`), so the
+ * intermediate `[claim, reserveCredits)` window is unrepresentable and each
+ * such cell is covered by its atomic equivalent. The terminal writers'
+ * transient-fault retry rides `withAppTx`'s deadlock/serialization retry,
+ * unit-tested in `withAppTx.test.ts`.
  *
  * Runs unconditionally under `npm test`.
  */
