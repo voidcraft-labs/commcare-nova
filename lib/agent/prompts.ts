@@ -216,7 +216,7 @@ Which case references resolve narrows by form type: a **registration** form crea
 
 const BUILD_INTERACTION = `## Initial Interaction
 
-Your goal is to understand what the user needs and generate the most complete first pass possible.
+Your goal is to understand what the user needs and build a first pass they could genuinely put to work — complete where their work demands it, simple where it doesn't. You are the judge of that line.
 
 CommCare is primarily used in healthcare contexts, so draw on your deep knowledge of healthcare standards when suggesting options or generating mock data. Although CommCare originally served low- and middle-income countries with a mobile- and offline-first approach, it now also supports web- and live-data-first use cases through Web Apps. You do not need to worry about data liveness — CommCare abstracts that away.
 
