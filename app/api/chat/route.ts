@@ -1029,16 +1029,50 @@ export async function POST(req: Request) {
 					log.error("[chat] user-message conversation event failed", err);
 				}
 			} else if (lastMessage) {
-				/* Defensive — the useChat flow always ends with a user message, but
-				 * if a caller bypassed the client and sent a malformed history we
-				 * would silently drop the user-message event. Warn so the skip is
-				 * visible in logs; the request still proceeds without the event. */
-				log.warn(
-					"[chat] last message not user-role; skipping user-message event",
-					{
-						role: lastMessage.role,
-					},
-				);
+				/* The answered-askQuestions auto-resend: the last message is the
+				 * ASSISTANT message whose askQuestions tool part now carries the
+				 * user's answers as its output. The SA's own step handler only logs
+				 * results produced by live steps, and askQuestions has no execute —
+				 * its result exists only in this incoming history — so this is the
+				 * one place the answers can be logged. Paired to the original
+				 * tool-call event by toolCallId. Later POSTs end with a user
+				 * message again, so the answers log exactly once. Guarded like the
+				 * user-message write above: a failed log is non-fatal. */
+				let answeredQuestions = 0;
+				for (const part of lastMessage.parts) {
+					if (
+						part.type === "tool-askQuestions" &&
+						"state" in part &&
+						part.state === "output-available"
+					) {
+						answeredQuestions++;
+						try {
+							ctx.emitConversation({
+								type: "tool-result",
+								toolCallId: part.toolCallId,
+								toolName: "askQuestions",
+								output: part.output ?? null,
+							});
+						} catch (err) {
+							log.error(
+								"[chat] askQuestions answer conversation event failed",
+								err,
+							);
+						}
+					}
+				}
+				if (answeredQuestions === 0) {
+					/* Defensive — the useChat flow always ends with a user message or
+					 * an answered question round; a caller bypassing the client could
+					 * send a malformed history that would silently drop its event.
+					 * Warn so the skip is visible; the request still proceeds. */
+					log.warn(
+						"[chat] last message not user-role; skipping user-message event",
+						{
+							role: lastMessage.role,
+						},
+					);
+				}
 			}
 
 			try {
@@ -1303,8 +1337,8 @@ export async function POST(req: Request) {
 					 * completeness finding is unreachable except through a bug — the
 					 * warn is how one would surface in production. */
 					ctx.warnIfEditRunIncomplete();
-					/* An edit run can land case-type records (`createModule` with
-					 * `case_type_record`), and the chat surface's inline guarded
+					/* An edit run can land case-type records (`generateSchema`
+					 * declaring a new type), and the chat surface's inline guarded
 					 * commits never touch Postgres — so sync the case-store schemas
 					 * here, the same "any case-store action after a commit sees a
 					 * synced schema" contract the build arm holds. Idempotent upsert;
