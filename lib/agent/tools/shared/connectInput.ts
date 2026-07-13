@@ -21,10 +21,10 @@ import type { ConnectConfig, XPathExpression } from "@/lib/domain";
 
 /**
  * The connect-block shape as the SA authors it — XPath slots as text.
- * A structural superset of both authoring schemas
- * (`planningSchemas.ts::connectFormConfigSchema` on the creation
- * tools, the inline connect patch on `updateForm`), so each tool's
- * Zod-inferred input assigns into it without a cast.
+ * A structural superset of both authoring schemas (one shared shape,
+ * two refinements: `planningSchemas.ts::connectFormConfigSchema` on the
+ * creation tools, `connectFormPatchSchema` on `updateForm`), so each
+ * tool's Zod-inferred input assigns into it without a cast.
  */
 export interface ConnectConfigInput {
 	learn_module?: {
@@ -54,29 +54,36 @@ export interface ConnectConfigInput {
  * Merge a connect-config input into a full `ConnectConfig`, parsing
  * each XPath-valued slot to its stored expression AST via `parseExpr`.
  *
- * Pure structural merge: keys absent from `input` — and `null` keys,
- * the add path's way of saying "not supplied" — are copied
- * verbatim from `existing`; non-null keys overlay the matching existing
- * sub-config (`existing.learn_module` ← `input.learn_module`, etc.),
- * with null INNER slots (a null id, a null entity_id) likewise dropped
- * before the spread so a null never lands on the stored config. The
- * creation tools pass `existing: undefined` — there the input IS the
- * whole config, and only the parse boundary does work.
+ * The merge speaks the shared input contract (lib/agent/CLAUDE.md) at
+ * sub-config scope: an OMITTED sub-config is copied verbatim from
+ * `existing`; an explicit `null` REMOVES it; a non-null sub-config
+ * overlays the matching existing one (`existing.learn_module` ←
+ * `input.learn_module`, etc.). The creation tools pass
+ * `existing: undefined` — there removal has nothing to remove, so null
+ * degrades to "not supplied" and both surfaces share this one code
+ * path. A patch that removes the LAST sub-config yields an empty
+ * config; the caller collapses that to whole-block removal
+ * (`updateForm` maps it to `connect: null`).
  *
- * No defaults are invented here. `deliver_unit` may land without
- * `entity_id` / `entity_name` — that's a normal state of the domain
- * type, and the XForm builder substitutes the canonical XPath defaults
- * when emitting the binds.
+ * Inner slots follow the same law where clearing is meaningful:
+ * `deliver_unit.entity_id` / `entity_name` are optional on the domain
+ * type — the XForm builder substitutes the canonical XPath defaults
+ * when emitting the binds — so `null` clears them back to those
+ * defaults. The one exception is each sub-config's `id`: it is the
+ * sub-config's cross-version IDENTITY (`enforceConnectIds` would
+ * silently re-mint a cleared one — an identity change, not a clear),
+ * so a null id reads as "not supplied" and keeps the existing id on
+ * both surfaces.
+ *
+ * No defaults are invented here.
  */
 export function buildConnectConfig(
 	input: ConnectConfigInput,
 	existing: ConnectConfig | undefined,
 	parseExpr: (text: string) => XPathExpression,
 ): ConnectConfig {
-	// Null leaf slots (a null id, a null entity_id) are dropped per key so a
-	// stray null never spreads onto the stored config — the domain
-	// schemas don't accept null.
 	const out: ConnectConfig = { ...existing };
+	if (input.learn_module === null) delete out.learn_module;
 	if (input.learn_module != null) {
 		const { id, ...learnRest } = input.learn_module;
 		out.learn_module = {
@@ -85,6 +92,7 @@ export function buildConnectConfig(
 			...(id != null && { id }),
 		};
 	}
+	if (input.assessment === null) delete out.assessment;
 	if (input.assessment != null) {
 		const { id, user_score } = input.assessment;
 		out.assessment = {
@@ -93,18 +101,21 @@ export function buildConnectConfig(
 			user_score: parseExpr(user_score),
 		};
 	}
+	if (input.deliver_unit === null) delete out.deliver_unit;
 	if (input.deliver_unit != null) {
 		const { id, entity_id, entity_name, name } = input.deliver_unit;
-		out.deliver_unit = {
+		const merged: NonNullable<ConnectConfig["deliver_unit"]> = {
 			...existing?.deliver_unit,
 			name,
 			...(id != null && { id }),
-			...(entity_id != null && { entity_id: parseExpr(entity_id) }),
-			...(entity_name != null && {
-				entity_name: parseExpr(entity_name),
-			}),
 		};
+		if (entity_id === null) delete merged.entity_id;
+		if (entity_id != null) merged.entity_id = parseExpr(entity_id);
+		if (entity_name === null) delete merged.entity_name;
+		if (entity_name != null) merged.entity_name = parseExpr(entity_name);
+		out.deliver_unit = merged;
 	}
+	if (input.task === null) delete out.task;
 	if (input.task != null) {
 		const { id, ...taskRest } = input.task;
 		out.task = { ...existing?.task, ...taskRest, ...(id != null && { id }) };

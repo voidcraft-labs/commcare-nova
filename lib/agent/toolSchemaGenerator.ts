@@ -35,7 +35,11 @@
 // (`group` / `repeat` — null/""/absent = transparent / titleless, and
 // `contentProcessing.stripEmpty()` collapses the `""` to absence), and
 // rejected on `hidden` (which declares no label). No `""` sentinel exists
-// on the tool surface.
+// on the tool surface. Case-bound fields (`case_property_on` set) are the
+// one exemption from the label/options floors: those slots inherit from
+// the field's catalog record (`applyDefaults` seeds them after parse), so
+// omitting them is the normal, instructed shape — stated values are
+// overrides.
 //
 // ## Vocabulary
 //
@@ -79,8 +83,9 @@ function makeKindEnum(kinds: readonly FieldKind[]) {
 	return z
 		.enum(kinds as readonly [FieldKind, ...FieldKind[]])
 		.describe(
-			"Field kind — pick the most specific for the data (the guide: " +
-				'"Field kinds" in your instructions).',
+			"Field kind — pick the most specific for the data. The per-kind " +
+				'guide is the "Field kinds" section of the agent instructions: ' +
+				"the system prompt in chat, the get_agent_prompt tool on MCP.",
 		);
 }
 
@@ -163,16 +168,22 @@ const parentIdField = () =>
 const labelField = () =>
 	z.string().nullable().optional().describe(FIELD_DOCS.label);
 
-// Optional shape primitives — all NULLABLE, and on the add path `null`
+// Optional shape primitives — all NULLABLE, shared by BOTH tool surfaces
+// (the shapes are identical; only the null semantics differ, and those
+// live in the pipeline/reducer, not the shape): on the add path `null`
 // reads exactly like omission ("nothing here"; the pipeline collapses it
 // to absence via `stripEmpty`), so arbitrary MCP callers and stray nulls
-// are harmless. `validate` and `repeat` are nested objects
-// that group related config (expr+msg, mode+count/ids_query) into one
-// field each, keeping the item shape flat and easy for the SA to fill.
+// are harmless; on the edit patch `null` CLEARS the slot (the reducer
+// deletes the key) and omission keeps the current value. `validate` and
+// `repeat` are nested objects that group related config (expr+msg,
+// mode+count/ids_query) into one field each, keeping the item shape flat
+// and easy for the SA to fill.
 const requiredField = () =>
 	z.string().nullable().optional().describe(FIELD_DOCS.required);
 const hintField = () =>
 	z.string().nullable().optional().describe(FIELD_DOCS.hint);
+const helpField = () =>
+	z.string().nullable().optional().describe(FIELD_DOCS.help);
 const relevantField = () =>
 	z.string().nullable().optional().describe(FIELD_DOCS.relevant);
 const calculateField = () =>
@@ -216,14 +227,6 @@ const validateConfigField = () =>
 
 const casePropertyOnField = () =>
 	z.string().nullable().optional().describe(FIELD_DOCS.case_property_on);
-
-// Nullable variants for the edit patch: a value sets the property,
-// `null` CLEARS it (the reducer deletes the key), omission keeps the
-// current value.
-const nullableString = (doc: string) =>
-	z.string().nullable().optional().describe(doc);
-const nullableOptions = () =>
-	z.array(saOptionSchema).nullable().optional().describe(FIELD_DOCS.options);
 
 // ── Flat tool inputs, kind-gated by refinement ───────────────────────
 //
@@ -319,8 +322,9 @@ function gateRepeatSlot(
  * batch can place each field precisely (and reference a group added earlier
  * in the same batch). The kind policy enforces per-kind requiredness the
  * flat shape can't state: a non-empty `label` on every visible kind, ≥2
- * `options` on the selects, a `repeat` config on `repeat` — and rejects any
- * slot the kind doesn't declare.
+ * `options` on the selects (case-bound fields exempt from both floors —
+ * their catalog record seeds those slots), a `repeat` config on `repeat` —
+ * and rejects any slot the kind doesn't declare.
  */
 function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 	return z
@@ -349,10 +353,22 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 					undeclaredSlotIssue(ctx, item.kind, key);
 				}
 			}
+			// A case-bound field (`case_property_on` set) INHERITS label /
+			// options / validation / required from its catalog record —
+			// `applyDefaults` seeds them after this parse, and the prompt
+			// teaches stating those slots only to override. Absence is
+			// therefore legal exactly when the field is case-bound; a record
+			// gap (a select bound to a property recorded without options)
+			// still fails the per-kind assembly parse downstream, naming the
+			// offending field.
+			const caseBound =
+				typeof item.case_property_on === "string" &&
+				item.case_property_on.length > 0;
 			if (
 				fieldKindDeclaresKey(item.kind, "label") &&
 				!fieldRegistry[item.kind].isContainer &&
-				!item.label
+				!item.label &&
+				!caseBound
 			) {
 				ctx.addIssue({
 					code: "custom",
@@ -360,9 +376,12 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 					message: `kind "${item.kind}" needs a real \`label\` — the end user reads it. Pass a non-empty string.`,
 				});
 			}
+			// Missing options are fine on a case-bound field (the record's
+			// list seeds them); a STATED list under 2 entries is wrong on
+			// every path — an override must be a real choice list.
 			if (
 				fieldKindDeclaresKey(item.kind, "options") &&
-				(item.options == null || item.options.length < 2)
+				(item.options == null ? !caseBound : item.options.length < 2)
 			) {
 				ctx.addIssue({
 					code: "custom",
@@ -413,16 +432,16 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			id: idField()
 				.optional()
 				.describe("New id to rename to; leave it out to keep the current id."),
-			label: nullableString(FIELD_DOCS.label),
-			hint: nullableString(FIELD_DOCS.hint),
-			help: nullableString(FIELD_DOCS.help),
-			required: nullableString(FIELD_DOCS.required),
-			relevant: nullableString(FIELD_DOCS.relevant),
+			label: labelField(),
+			hint: hintField(),
+			help: helpField(),
+			required: requiredField(),
+			relevant: relevantField(),
 			validate: validateConfigField().nullable().optional(),
-			calculate: nullableString(FIELD_DOCS.calculate),
-			default_value: nullableString(FIELD_DOCS.default_value),
-			options: nullableOptions(),
-			case_property_on: nullableString(FIELD_DOCS.case_property_on),
+			calculate: calculateField(),
+			default_value: defaultValueField(),
+			options: optionsField(),
+			case_property_on: casePropertyOnField(),
 			repeat: repeatConfigDiscriminated().optional(),
 			// `.strict()` — same boundary rejection as the add item: a key
 			// outside the shape is an error, not a silent strip.

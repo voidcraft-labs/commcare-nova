@@ -9,7 +9,10 @@
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";
-import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
+import {
+	fieldKindMatchesPropertyType,
+	readCasePropertyOn,
+} from "./fieldKindMatchesPropertyType";
 
 function noModules(doc: BlueprintDoc): ValidationError[] {
 	// CommCare HQ rejects an application with no modules at build time
@@ -122,11 +125,8 @@ function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
 		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
 			const field = doc.fields[fieldUuid];
 			if (!field) continue;
-			const target = (field as unknown as Record<string, unknown>)
-				.case_property_on;
-			if (typeof target === "string" && target.length > 0) {
-				writtenTypes.add(target);
-			}
+			const target = readCasePropertyOn(field);
+			if (target) writtenTypes.add(target);
 			if (doc.fieldOrder[fieldUuid] !== undefined) walk(fieldUuid);
 		}
 	};

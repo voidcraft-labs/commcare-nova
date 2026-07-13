@@ -38,7 +38,6 @@
  * in one SSE burst share `ts`).
  */
 
-import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import type {
 	CallWarning,
 	LanguageModelUsage,
@@ -73,6 +72,7 @@ import {
 	gatewayActualCost,
 	MODEL_DEFAULT,
 	type ReasoningEffort,
+	reasoningProviderOptions,
 } from "@/lib/models";
 import type {
 	ExtractDocumentStructuredOpts,
@@ -105,28 +105,6 @@ export function logWarnings(
 			console.warn(`[${label}] warning:`, w);
 		}
 	}
-}
-
-/**
- * OpenAI provider options for reasoning on the GPT-5.6 family.
- *
- * `reasoningSummary: 'auto'` is required for human-readable reasoning
- * summaries to stream back as `reasoning-delta` parts; without it the
- * reasoning phase is silent and nothing feeds the live-progress surfaces.
- */
-export function reasoningProviderOptions(effort: ReasoningEffort) {
-	// `satisfies` (not an annotation) so the literal's own type flows into
-	// providerOptions' JSONObject requirement, while a misplaced or
-	// misspelled key is still rejected — the AI SDK's Zod schema silently
-	// strips unknown fields, so an unchecked typo would appear to work and
-	// never reach the wire.
-	return {
-		openai: {
-			reasoningEffort: effort,
-			reasoningSummary: "auto",
-		} satisfies OpenAIResponsesProviderOptions,
-		gateway: GATEWAY_PROVIDER_OPTIONS,
-	};
 }
 
 /**

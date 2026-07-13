@@ -19,8 +19,9 @@
  *      fields. Recursive AST cycles expand under nested keys via
  *      `$defs` references in JSON Schema output; we count optionals at
  *      each arm's *immediate* level (the surface a provider compiler
- *      sees) per `lib/agent/__tests__/toolSchemaGenerator.test.ts`'s
- *      "8-optional ceiling" precedent.
+ *      sees) against the standing 8-optional bound every SA tool
+ *      surface holds itself to — a schema-bloat guard; the wire itself
+ *      imposes no hard ceiling (`scripts/test-schema.ts`).
  *   3. A representative payload `safeParse`s — round-trip smoke test
  *      that the schema is structurally usable from the SA's call site.
  *

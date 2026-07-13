@@ -8,11 +8,7 @@ export type { ClassifiedError, ErrorType } from "./errorClassifier";
 export { classifyError, MESSAGES } from "./errorClassifier";
 // generationContext — shared LLM wrapper around the AI Gateway provider, SSE
 // writer, event log, and usage accumulator.
-export {
-	GenerationContext,
-	logWarnings,
-	reasoningProviderOptions,
-} from "./generationContext";
+export { GenerationContext, logWarnings } from "./generationContext";
 // resolveAttachments — server-side resolution of chat attachment refs. The
 // composer sends asset-id refs in message metadata; the chat route calls
 // `resolveAttachments` to append each ref's stored requirements extract

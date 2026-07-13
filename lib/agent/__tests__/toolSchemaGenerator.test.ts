@@ -63,6 +63,44 @@ describe("toolSchemaGenerator", () => {
 		}
 	});
 
+	it("lets a case-bound field omit label and options — the record seeds them", () => {
+		// The prompt teaches stating those slots on a case-bound field only
+		// to OVERRIDE the catalog record, so the parse boundary must accept
+		// the instructed shape — `applyDefaults` seeds label/options/
+		// validation/required right after this parse.
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "blood_type",
+				kind: "single_select",
+				case_property_on: "patient",
+			}).success,
+		).toBe(true);
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "age",
+				kind: "int",
+				case_property_on: "patient",
+			}).success,
+		).toBe(true);
+		// Without the case binding the label/options floors still hold.
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "blood_type",
+				kind: "single_select",
+			}).success,
+		).toBe(false);
+		// A STATED override must still be a real choice list — a 1-entry
+		// list is wrong on every path, case-bound included.
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "blood_type",
+				kind: "single_select",
+				case_property_on: "patient",
+				options: [{ value: "a", label: "A" }],
+			}).success,
+		).toBe(false);
+	});
+
 	it("surfaces each kind's saDocs through the prompt's Field kinds guide", () => {
 		// The per-kind guide is stated ONCE — in the system prompt via
 		// `fieldKindGuide()` — rather than repeated on each schema's kind

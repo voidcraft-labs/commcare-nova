@@ -1,7 +1,12 @@
 import type { ToolUIPart } from "ai";
 import { describe, expect, it } from "vitest";
 import type { ToolCallSummary } from "@/lib/agent/tools/shared/toolCallSummary";
-import { toolAction, toolDetail, toolLocation } from "../toolSummary";
+import {
+	isEditToolPart,
+	toolAction,
+	toolDetail,
+	toolLocation,
+} from "../toolSummary";
 
 /** A completed tool part carrying a mutating-success output. */
 const donePart = (tool: string, summary: ToolCallSummary): ToolUIPart =>
@@ -138,6 +143,27 @@ describe("generateSchema transcript row", () => {
 		} as ToolUIPart;
 		expect(toolAction(refused)).toBe("Recording the data model");
 		expect(toolDetail(refused)).toBe("Nothing was recorded — …");
+	});
+
+	it("keeps planning-era parts out of the change summary — they wrote nothing", () => {
+		// A thread persisted while generateSchema was a pure planning step:
+		// its output is `{ planned: true, … }` and no mutation ever landed,
+		// so rendering it as a completed doc change would assert an edit
+		// history that never happened.
+		const planningEra = {
+			type: "tool-generateSchema",
+			toolCallId: "call_1",
+			state: "output-available",
+			input: { appName: "Clinic", caseTypes: [] },
+			output: { planned: true, appName: "Clinic", caseTypes: [] },
+		} as ToolUIPart;
+		expect(isEditToolPart(planningEra)).toBe(false);
+		// Today's committing tool groups like any other edit tool — both a
+		// completed commit and an in-flight call (no output yet).
+		expect(
+			isEditToolPart(donePart("generateSchema", { subject: "patient" })),
+		).toBe(true);
+		expect(isEditToolPart(pendingPart("generateSchema"))).toBe(true);
 	});
 });
 

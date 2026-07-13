@@ -14,9 +14,11 @@ import {
  * an explicit `null` clears it (unconditional close again, post-submit
  * back to the form-type default, Connect block removed). `name` is not
  * nullable — a form always has a name. Connect-config patches go through
- * `buildConnectConfig`, a structural partial-update merge: each
- * sub-config the SA supplied (non-null) is merged with the matching
- * existing sub-config; the others pass through unchanged.
+ * `buildConnectConfig`, a structural partial-update merge that applies
+ * the same law per sub-config: a supplied sub-config merges with its
+ * existing counterpart, a null one is REMOVED, an omitted one passes
+ * through unchanged — and a patch that removes the last sub-config
+ * collapses to whole-block removal (an empty block means nothing).
  *
  * The merged connect config then runs through `enforceConnectIds` (the
  * agent-path source guard): an omitted connect id is autofilled with a
@@ -39,7 +41,7 @@ import {
 
 import { z } from "zod";
 import type { BlueprintDoc, PostSubmitDestination } from "@/lib/domain";
-import { asUuid, USER_FACING_DESTINATIONS } from "@/lib/domain";
+import { USER_FACING_DESTINATIONS } from "@/lib/domain";
 import {
 	resolveFormUuid,
 	resolveModuleUuid,
@@ -47,7 +49,7 @@ import {
 } from "../blueprintHelpers";
 import {
 	closeConditionInputSchema,
-	connectFormConfigSchema,
+	connectFormPatchSchema,
 } from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
@@ -57,6 +59,7 @@ import {
 } from "./common";
 import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import { buildConnectConfig } from "./shared/connectInput";
+import { resolveCloseCondition } from "./shared/fieldAssembly";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -84,11 +87,11 @@ export const updateFormInputSchema = z
 			.describe(
 				'Post-submit destination: "app_home", "module" (its form list), or "previous". null resets to the form-type default.',
 			),
-		connect: connectFormConfigSchema
+		connect: connectFormPatchSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Connect participation for this form: a block opts in (learn apps: learn_module/assessment; deliver apps: deliver_unit/task — set independently); null removes the block (rejected only on the app's last participating form).",
+				"Connect participation patch: omitted sub-configs keep their current value, null on a sub-config removes just it, a stated one replaces it (learn apps: learn_module/assessment; deliver apps: deliver_unit/task). null for the whole slot removes the block (rejected only on the app's last participating form).",
 			),
 	})
 	.strict();
@@ -142,21 +145,18 @@ export const updateFormTool = {
 			const patch: Parameters<typeof updateFormMutations>[2] = {};
 			if (name !== undefined) patch.name = name;
 			if (close_condition === null) patch.closeCondition = null;
-			if (close_condition != null) {
-				// The SA names the checked field by id; the stored form is the
-				// field's stable uuid. An id nothing answers to stays verbatim
-				// — the gate rejects the introduction with the validator's
-				// close-condition finding.
-				patch.closeCondition = {
-					field: asUuid(
-						resolveCloseFieldRef(doc, formUuid, close_condition.field),
-					),
-					answer: close_condition.answer,
-					...(close_condition.operator && {
-						operator: close_condition.operator,
-					}),
-				};
-			}
+			// The SA names the checked field by id; the stored form is the
+			// field's stable uuid. An id nothing answers to stays verbatim
+			// — the gate rejects the introduction with the validator's
+			// close-condition finding. One resolver shared with the
+			// creation tools (`fieldAssembly.ts::resolveCloseCondition`);
+			// a null/omitted condition resolves to undefined and patches
+			// nothing here (the null-clears arm above already ran).
+			const resolvedClose = resolveCloseCondition(
+				(ref) => resolveCloseFieldRef(doc, formUuid, ref),
+				close_condition,
+			);
+			if (resolvedClose) patch.closeCondition = resolvedClose;
 			if (post_submit === null) patch.postSubmit = null;
 			if (post_submit != null) {
 				patch.postSubmit = post_submit as PostSubmitDestination;
@@ -165,37 +165,50 @@ export const updateFormTool = {
 			if (connect != null) {
 				// Structural partial-update merge + the text → AST parse
 				// boundary for the connect XPath slots, resolved against
-				// the owning form (`shared/connectInput.ts`). Null
-				// sub-configs / inner slots mean "not supplied" — the
-				// merge itself drops them.
+				// the owning form (`shared/connectInput.ts`). Per
+				// sub-config: omitted keeps the existing one, an explicit
+				// null REMOVES it, a stated one replaces it.
 				const merged = buildConnectConfig(
 					connect,
 					existing.connect ?? undefined,
 					(text) => parseXPathForForm(doc, formUuid, text),
 				);
-				// Force connect ids correct at the source: autofill omitted
-				// ids, reject explicit-invalid ids (fail the call, write
-				// nothing). `existingIds` excludes this form's own ids so a
-				// re-patch of an unchanged id doesn't read as a self-conflict.
-				const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-				const moduleName = moduleUuid
-					? (doc.modules[moduleUuid]?.name ?? "module")
-					: "module";
-				const enforced = enforceConnectIds(
-					merged,
-					moduleName,
-					existing.name,
-					collectConnectIds(doc, formUuid),
-				);
-				if (!enforced.ok) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						newDoc: doc,
-						result: { error: enforced.error },
-					};
+				if (
+					!merged.learn_module &&
+					!merged.assessment &&
+					!merged.deliver_unit &&
+					!merged.task
+				) {
+					// The patch removed the last sub-config. An empty block
+					// means nothing on the doc, so the patch collapses to
+					// whole-block removal — the same write as
+					// `connect: null`.
+					patch.connect = null;
+				} else {
+					// Force connect ids correct at the source: autofill omitted
+					// ids, reject explicit-invalid ids (fail the call, write
+					// nothing). `existingIds` excludes this form's own ids so a
+					// re-patch of an unchanged id doesn't read as a self-conflict.
+					const moduleUuid = resolveModuleUuid(doc, moduleIndex);
+					const moduleName = moduleUuid
+						? (doc.modules[moduleUuid]?.name ?? "module")
+						: "module";
+					const enforced = enforceConnectIds(
+						merged,
+						moduleName,
+						existing.name,
+						collectConnectIds(doc, formUuid),
+					);
+					if (!enforced.ok) {
+						return {
+							kind: "mutate" as const,
+							mutations: [],
+							newDoc: doc,
+							result: { error: enforced.error },
+						};
+					}
+					patch.connect = enforced.config;
 				}
-				patch.connect = enforced.config;
 			}
 
 			// Compute the mutations, apply via Immer, and persist through
@@ -238,8 +251,13 @@ export const updateFormTool = {
 				formChanges.push(
 					`post_submit → "${formAfter.postSubmit ?? "form-type default"}"`,
 				);
-			if (connect === null) formChanges.push("connect removed");
-			if (connect != null) formChanges.push("connect updated");
+			// A partial patch can itself collapse to removal (last sub-config
+			// cleared), so the phrase keys off what was WRITTEN, not the
+			// input shape.
+			if (connect !== undefined)
+				formChanges.push(
+					patch.connect === null ? "connect removed" : "connect updated",
+				);
 			return {
 				kind: "mutate" as const,
 				mutations,

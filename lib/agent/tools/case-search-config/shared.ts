@@ -7,9 +7,9 @@
  *
  * Wholesale-with-`null`-clears: every cluster field is required-and-
  * nullable on the SA boundary; `null` clears, non-null sets. Mirrors
- * `setCaseListFilter`. Removes the absent-vs-null ambiguity and keeps
- * the per-tool optional count at zero (well under the tool-schema
- * 8-optional ceiling).
+ * `setCaseListFilter`. Removes the absent-vs-null ambiguity — a
+ * wholesale replace states every slot of its cluster deliberately, so
+ * nothing rides on what the model happened to omit.
  *
  * Cross-cluster preservation runs through `pickAdvancedCluster` /
  * `pickDisplayCluster`: each tool harvests the OTHER cluster's slots
@@ -186,8 +186,8 @@ export const setCaseSearchAdvancedBodySchema = z
 /**
  * SA boundary shape for `setCaseSearchDisplay`. Four fields cover
  * the search-screen labels and the search-button display predicate.
- * Required-and-nullable on every slot means zero optional fields,
- * well under the tool-schema 8-optional ceiling.
+ * Required-and-nullable on every slot: the wholesale replace states
+ * each one deliberately (null = cleared), never by omission.
  */
 export const setCaseSearchDisplayBodySchema = z
 	.object({

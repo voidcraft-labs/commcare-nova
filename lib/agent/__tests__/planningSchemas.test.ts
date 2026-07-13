@@ -1,14 +1,14 @@
 /**
- * The planning-schema surface is built so a wrong input can't parse, under
- * the wire's one hard constraint: constrained tool decoding forces EVERY
- * key present on a call, so `null` is the model's only way to say "nothing
- * here" (verified live — prompted to omit, the model invents filler
- * instead; a nullable slot gets a clean null). These tests pin that
- * contract from both sides: null is accepted as absence on every optional
- * slot, while blanks and cross-field contradictions (the filler shapes a
- * live build actually produced) still reject with messages that teach
- * passing null. `cleanCaseTypeRecord` then collapses the nulls before a
- * record leaves the boundary.
+ * The planning-schema surface is built so a wrong input can't parse,
+ * under the shared input contract: the model omits what doesn't apply
+ * (SA tools run `strict: false`), and every optional slot is ALSO
+ * nullable with null as absence, so arbitrary MCP callers and stray
+ * nulls stay harmless. These tests pin that contract from both sides:
+ * null is accepted as absence on every optional slot, while blanks and
+ * cross-field contradictions (filler shapes a live build actually
+ * produced under strict-normalized decoding) still reject with messages
+ * that teach passing null. `cleanCaseTypeRecord` then collapses the
+ * nulls before a record leaves the boundary.
  */
 
 import { describe, expect, it } from "vitest";
@@ -16,6 +16,7 @@ import {
 	caseTypeRecordSchema,
 	cleanCaseTypeRecord,
 	connectFormConfigSchema,
+	connectFormPatchSchema,
 } from "../planningSchemas";
 
 const validRecord = {
@@ -237,5 +238,42 @@ describe("connectFormConfigSchema", () => {
 			});
 			expect(result.success).toBe(false);
 		}
+	});
+});
+
+describe("connectFormPatchSchema", () => {
+	it("accepts a partial-null patch — remove one sub-config, keep the rest", () => {
+		// The updateForm surface: `{ assessment: null }` means "drop the
+		// quiz, keep everything else as it is" — the shape the creation
+		// refinement rejects (there, null ≡ omitted, so the block would be
+		// empty). This is the drop-the-quiz-keep-the-lesson move.
+		expect(connectFormPatchSchema.safeParse({ assessment: null }).success).toBe(
+			true,
+		);
+	});
+
+	it("accepts an all-null patch — equivalent to whole-block removal", () => {
+		expect(
+			connectFormPatchSchema.safeParse({
+				learn_module: null,
+				assessment: null,
+				deliver_unit: null,
+				task: null,
+			}).success,
+		).toBe(true);
+	});
+
+	it("rejects the says-nothing patch (every sub-config omitted)", () => {
+		const result = connectFormPatchSchema.safeParse({});
+		expect(result.success).toBe(false);
+		expect(result.error?.issues[0]?.message).toContain("changes nothing");
+	});
+
+	it("shares the creation shape — sub-config contents gate identically", () => {
+		expect(
+			connectFormPatchSchema.safeParse({
+				deliver_unit: { name: "" },
+			}).success,
+		).toBe(false);
 	});
 });

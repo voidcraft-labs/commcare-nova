@@ -17,9 +17,9 @@ import {
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveActiveProjectId, resolveGatewayKey } from "@/lib/auth-utils";
-import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
+import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
 	AppAccessError,
@@ -1195,49 +1195,25 @@ export async function POST(req: Request) {
 					ctx.emitConversation({ type: "attachment-prep", phase: "done" });
 				}
 
-				/* Strip historical tool parts that name a tool absent from THIS
-				 * request's tool set — any such part would make the provider reject
-				 * the request ("tool not found in tools array"). Two ways history
-				 * carries an absent tool: the build-only planning tool
-				 * (`generateSchema`) carried into an edit turn, or a tool that has
-				 * since been removed or renamed (a thread predating a deploy that
-				 * changed the tool surface — e.g. the old singular
-				 * `addCaseListColumn` / `addSearchInput` / `addField`, or the
-				 * retired `generateScaffold` / `completeBuild` / `planAppDesign`). The strip runs on EVERY continuation: build
-				 * continuations always send full history, and a build paused on
-				 * `awaiting_input` is exactly the shape designed to SURVIVE a deploy —
-				 * gating the strip to edits would brick its resume on
-				 * `validateUIMessages`, fail+refund the run, and re-poison every
-				 * retry with the same history. (An expired-cache edit was already
-				 * trimmed to the last user message above, so it strips nothing.)
-				 * Keyed on `sa.tools` so the filter never drifts from the active set
-				 * (more robust than a hardcoded legacy-name list). Stripping by part
-				 * type removes both the call and its output in one step — the AI SDK
-				 * keeps both sides of a tool invocation on the same part — so the
-				 * converted Anthropic messages keep matched `tool_use` /
-				 * `tool_result` pairs for the tools that remain. Assistant turns that
-				 * collapse to zero parts are dropped so the wire carries no empty
-				 * turns. Deterministic in its inputs, so successive requests produce
-				 * identical cacheable prefixes. */
-				const activeToolPartTypes = new Set<string>(
-					Object.keys(sa.tools).map((name) => `tool-${name}`),
+				/* Repair deploy-crossing histories BEFORE validation: drop tool
+				 * parts naming a tool absent from THIS request's tool set (the
+				 * provider would reject the whole request — "tool not found in
+				 * tools array") AND parts whose recorded input the current
+				 * schema no longer parses (a deploy that narrowed a `.strict()`
+				 * tool input — `validateUIMessages` below would throw,
+				 * fail+refund the run, and re-poison every retry with the same
+				 * history). The full contract, the drop semantics, and the
+				 * validation mirror live on `sanitizeHistoricalToolParts`. The
+				 * repair runs on EVERY continuation: build continuations always
+				 * send full history, and a build paused on `awaiting_input` is
+				 * exactly the shape designed to SURVIVE a deploy. (An
+				 * expired-cache edit was already trimmed to the last user
+				 * message above, so it strips nothing.) Keyed on `sa.tools` so
+				 * the filter never drifts from the active set. */
+				const effectiveMessages = await sanitizeHistoricalToolParts(
+					preparedMessages,
+					sa.tools,
 				);
-				const stripUnknownToolParts = (
-					m: NovaUIMessage,
-				): NovaUIMessage | undefined => {
-					if (m.role !== "assistant") return m;
-					const nextParts = m.parts.filter(
-						(p) =>
-							!(p.type.startsWith("tool-") && !activeToolPartTypes.has(p.type)),
-					);
-					if (nextParts.length === 0) return undefined;
-					return nextParts.length === m.parts.length
-						? m
-						: { ...m, parts: nextParts };
-				};
-				const effectiveMessages = preparedMessages
-					.map(stripUnknownToolParts)
-					.filter((m): m is NovaUIMessage => m !== undefined);
 
 				/* Record the input-context composition for the per-run finalize
 				 * log: how many messages were actually sent (after the cache-expiry

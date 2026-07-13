@@ -37,6 +37,25 @@ describe("classifyError", () => {
 		);
 	});
 
+	it("buckets a mid-stream OpenAI server_error (plain Error, no statusCode) as api_server", () => {
+		// OpenAI's 5xx taxonomy — the shape the gateway relays for the
+		// GPT-5.6 family. Neither of the Anthropic tokens appears in it, so
+		// this pins the OpenAI arm of the recognition.
+		const err = new Error(
+			'{"type":"server_error","message":"The server had an error while processing your request. Sorry about that!"}',
+		);
+		const result = classifyError(err);
+		expect(result.type).toBe("api_server");
+		expect(result.raw).toContain("server_error");
+	});
+
+	it("recognizes the bare OpenAI 5xx phrase as api_server", () => {
+		expect(
+			classifyError(new Error("The server had an error processing this call"))
+				.type,
+		).toBe("api_server");
+	});
+
 	it("still classifies an APICallError 500 as api_server", () => {
 		const err = new APICallError({
 			message: "boom",

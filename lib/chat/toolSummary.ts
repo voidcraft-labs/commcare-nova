@@ -154,18 +154,38 @@ export type ToolStatus = "pending" | "done" | "failed";
 /** Tool name without the AI SDK `tool-` part-type prefix. */
 const toolName = (part: ToolUIPart): string => part.type.replace(/^tool-/, "");
 
+/** A `generateSchema` part from the era when the tool was a pure planning
+ *  step (output `{ planned: true, … }` — it wrote nothing to the doc). Those
+ *  parts survive on historical threads and must render like the other
+ *  retired planning tools — showing them as a completed doc change would
+ *  assert a mutation that never happened. Today's tool commits the catalog
+ *  and returns the standard `{ message, summary }` / `{ error }` shapes,
+ *  which never carry a `planned` key. */
+const isPlanningEraSchemaPart = (part: {
+	type: string;
+	output?: unknown;
+}): boolean =>
+	part.type === "tool-generateSchema" &&
+	typeof part.output === "object" &&
+	part.output !== null &&
+	"planned" in part.output;
+
 /** Whether a part is an edit-tool call that groups into the change summary.
  *  Excludes the specially-rendered `askQuestions` (its own card) and the
  *  retired build-mode generators (historical threads only). `generateSchema`
- *  is a doc-mutating tool like any other — a schema commit (new case types,
- *  an app naming/rename) must show in the transcript, and a failed call must
- *  surface its error. */
-export const isEditToolPart = (part: { type: string }): boolean =>
+ *  is a doc-mutating tool like any other — a schema commit (new or enriched
+ *  case types) must show in the transcript, and a failed call must surface
+ *  its error — except its planning-era parts, which mutated nothing. */
+export const isEditToolPart = (part: {
+	type: string;
+	output?: unknown;
+}): boolean =>
 	part.type.startsWith("tool-") &&
 	part.type !== "tool-askQuestions" &&
 	// Historical threads only — retired build-mode tools.
 	part.type !== "tool-generateScaffold" &&
-	part.type !== "tool-planAppDesign";
+	part.type !== "tool-planAppDesign" &&
+	!isPlanningEraSchemaPart(part);
 
 /** The mutating-tool success shape we read for presentation. All fields are
  *  optional here because we narrow defensively off the part's `unknown`

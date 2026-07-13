@@ -2,7 +2,7 @@ import "dotenv/config";
 import { createGateway, Output, streamText } from "ai";
 import { z } from "zod";
 import {
-	GATEWAY_PROVIDER_OPTIONS,
+	reasoningProviderOptions,
 	SA_BUILD_MODEL,
 	SA_REASONING,
 } from "../lib/models";
@@ -18,13 +18,7 @@ async function main() {
 		output: Output.object({ schema: z.object({ answer: z.string() }) }),
 		prompt: "What is 15 * 37? Show your work.",
 		maxOutputTokens: 256,
-		providerOptions: {
-			openai: {
-				reasoningEffort: SA_REASONING.effort,
-				reasoningSummary: "auto",
-			},
-			gateway: GATEWAY_PROVIDER_OPTIONS,
-		},
+		providerOptions: reasoningProviderOptions(SA_REASONING.effort),
 	});
 
 	for await (const _p of result.partialOutputStream) {

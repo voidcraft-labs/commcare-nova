@@ -18,14 +18,13 @@
 // from being re-condensed — or re-billed at the SA's input rate across dozens of
 // tool-loop steps — on every send.
 
-import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import AdmZip from "adm-zip";
 import { createGateway } from "ai";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import { z } from "zod";
 import type { DocumentKind } from "@/lib/domain/multimedia";
-import { GATEWAY_PROVIDER_OPTIONS } from "@/lib/models";
+import { reasoningProviderOptions } from "@/lib/models";
 import { normalizeExtractText } from "./extractNormalization";
 import {
 	type SubGenerationProviderOptions,
@@ -147,23 +146,17 @@ export const EXTRACT_MAX_BYTES = 4 * 1024 * 1024;
 export const CONDENSER_MODEL = "openai/gpt-5.6-luna";
 
 /**
- * OpenAI provider options for the summarizer:
- *   - `reasoningEffort: "xhigh"` — reasoning depth for the extraction.
- *   - `reasoningSummary: "auto"` — stream the model's reasoning summaries as
- *     `reasoning-delta` parts. Extraction is mostly silent reasoning before any
- *     output token, so without this the live-progress feed (`streamObjectWith`)
- *     stays dark for the whole reasoning phase; the summaries are the progress.
- * A PDF rides as a native file block the model reads directly — there is no
- * rasterization dial to set. Reasoning depth is the cost lever here — see
- * `EXTRACT_MAX_OUTPUT_TOKENS`.
+ * Provider options for the summarizer — the canonical reasoning literal
+ * (`lib/models.ts::reasoningProviderOptions`) at `xhigh`. Extraction is
+ * mostly silent reasoning before any output token, so the streamed
+ * reasoning summaries the literal enables ARE the live progress —
+ * without them the feed (`streamObjectWith`) stays dark for the whole
+ * reasoning phase. A PDF rides as a native file block the model reads
+ * directly — there is no rasterization dial to set. Reasoning depth is
+ * the cost lever here — see `EXTRACT_MAX_OUTPUT_TOKENS`.
  */
-export const CONDENSER_PROVIDER_OPTIONS: SubGenerationProviderOptions = {
-	openai: {
-		reasoningEffort: "xhigh",
-		reasoningSummary: "auto",
-	} satisfies OpenAIResponsesProviderOptions,
-	gateway: GATEWAY_PROVIDER_OPTIONS,
-};
+export const CONDENSER_PROVIDER_OPTIONS: SubGenerationProviderOptions =
+	reasoningProviderOptions("xhigh");
 
 /**
  * System prompt for the extraction step. The contract is FAITHFUL relay, never

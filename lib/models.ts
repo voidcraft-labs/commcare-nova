@@ -9,6 +9,7 @@
  */
 
 import type { GatewayProviderOptions } from "@ai-sdk/gateway";
+import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 
 /**
  * Reasoning effort levels for OpenAI reasoning models (GPT-5.6 family) —
@@ -39,6 +40,32 @@ export const GATEWAY_PROVIDER_OPTIONS = {
 	disallowPromptTraining: true,
 	caching: "auto",
 } as const satisfies GatewayProviderOptions;
+
+/**
+ * The ONE provider-options literal every reasoning call carries — the
+ * `openai` reasoning options beside `GATEWAY_PROVIDER_OPTIONS`. Call this
+ * instead of restating the shape: a copy that drifts (say, drops
+ * `reasoningSummary`) silently darkens that surface's live-thinking feed
+ * with no error anywhere.
+ *
+ * `reasoningSummary: 'auto'` is required for human-readable reasoning
+ * summaries to stream back as `reasoning-delta` parts; without it the
+ * reasoning phase is silent and nothing feeds the live-progress surfaces.
+ */
+export function reasoningProviderOptions(effort: ReasoningEffort) {
+	// `satisfies` (not an annotation) so the literal's own type flows into
+	// providerOptions' JSONObject requirement, while a misplaced or
+	// misspelled key is still rejected — the AI SDK's Zod schema silently
+	// strips unknown fields, so an unchecked typo would appear to work and
+	// never reach the wire.
+	return {
+		openai: {
+			reasoningEffort: effort,
+			reasoningSummary: "auto",
+		} satisfies OpenAIResponsesProviderOptions,
+		gateway: GATEWAY_PROVIDER_OPTIONS,
+	};
+}
 
 /**
  * The actual USD amount the gateway charged for one call, read from the

@@ -12,16 +12,16 @@
  * prompt-engineering concerns.
  *
  * Every shape here is built so a wrong input can't parse — under the
- * wire's one hard constraint: constrained tool decoding forces EVERY key
- * present on a call, so `null` is the model's only way to say "nothing
- * here" (verified live; prompted to omit, it invents filler instead).
- * Every optional slot is therefore `.nullable()` with null meaning
- * absent, every non-null string must be non-empty (`min(1)`), and
- * cross-field contradictions (a `relationship` with no parent, a
- * connect block with nothing in it) are rejected with a message that
- * says what to pass instead. `cleanCaseTypeRecord` collapses the nulls
- * before a record leaves the boundary, so no null ever lands on the
- * catalog.
+ * shared input contract (lib/agent/CLAUDE.md § strict-mode
+ * normalization): SA tools run `strict: false`, so the model omits what
+ * doesn't apply, and every optional slot is ALSO `.nullable()` with
+ * null meaning absent on the add path — arbitrary MCP callers and
+ * stray nulls stay harmless. Every non-null string must be non-empty
+ * (`min(1)`), and cross-field contradictions (a `relationship` with no
+ * parent, a connect block with nothing in it) are rejected with a
+ * message that says what to pass instead. `cleanCaseTypeRecord`
+ * collapses the nulls before a record leaves the boundary, so no null
+ * ever lands on the catalog.
  *
  * The shapes are structurally compatible with the corresponding domain
  * Zod schemas (e.g. `casePropertySchema` in `lib/domain/blueprint.ts`)
@@ -268,12 +268,17 @@ export const closeConditionInputSchema = z
  * participating form (`CONNECT_NO_PARTICIPATING_FORMS`), so the
  * creation call is where a participating form's block lands.
  *
- * A block must carry at least one sub-config: participation with
- * nothing in it means nothing, and the failure mode it invites — a
- * model padding every form with an empty block "just in case" — is
- * exactly what the refinement rejects.
+ * ONE shape, two refinements — the same object can't be gated the same
+ * way on both surfaces because null means different things there (the
+ * shared input contract): on creation null ≡ omitted, so an all-empty
+ * block opts into nothing and is rejected (`connectFormConfigSchema` —
+ * the failure mode it invites is a model padding every form with an
+ * empty block "just in case"); on `updateForm`'s patch an omitted
+ * sub-config keeps its current value and an explicit null REMOVES it,
+ * so a partial-null patch is meaningful and only the says-nothing
+ * all-omitted patch rejects (`connectFormPatchSchema`).
  */
-export const connectFormConfigSchema = z
+const connectFormConfigShape = z
 	.object({
 		learn_module: z
 			.object({
@@ -368,8 +373,12 @@ export const connectFormConfigSchema = z
 				"Optional task description rendered in the Connect mobile UI. Independent of `deliver_unit`.",
 			),
 	})
-	.strict()
-	.superRefine((connect, ctx) => {
+	.strict();
+
+/** The creation-surface refinement: null ≡ omitted there, so a block
+ *  with no non-null sub-config opts the form into nothing. */
+export const connectFormConfigSchema = connectFormConfigShape.superRefine(
+	(connect, ctx) => {
 		if (
 			!connect.learn_module &&
 			!connect.assessment &&
@@ -382,4 +391,26 @@ export const connectFormConfigSchema = z
 					"An empty connect block doesn't opt the form into anything. Give it the sub-config that matches the form's content — learn_module/assessment on a learn app, deliver_unit/task on a deliver app — or pass null for the whole `connect` slot on a form that doesn't participate.",
 			});
 		}
-	});
+	},
+);
+
+/** The `updateForm` patch refinement: omitted sub-configs keep their
+ *  current value and explicit nulls remove theirs, so partial-null
+ *  patches pass; only a patch naming NO sub-config — which could
+ *  change nothing — rejects. */
+export const connectFormPatchSchema = connectFormConfigShape.superRefine(
+	(connect, ctx) => {
+		if (
+			connect.learn_module === undefined &&
+			connect.assessment === undefined &&
+			connect.deliver_unit === undefined &&
+			connect.task === undefined
+		) {
+			ctx.addIssue({
+				code: "custom",
+				message:
+					"This connect patch names no sub-config, so it changes nothing. State the sub-configs to set (omitted ones keep their current value), pass null on a sub-config to remove just it, or pass null for the whole `connect` slot to drop the form's Connect participation.",
+			});
+		}
+	},
+);

@@ -1,12 +1,12 @@
 /**
  * Solutions Architect — single ToolLoopAgent for conversation, generation, and editing.
  *
- * Tools are split into two groups: **planning** (the data model — a pure
- * conversation artifact, no doc writes; the app's design itself lives in
- * the SA's chat text) and **shared** (conversation, read, mutation,
- * case-list-config). In edit mode (existing app), the planning tool is
- * excluded — the SA only gets shared tools and an editing prompt with a
- * blueprint summary. In build mode (new app), all tools are available.
+ * ONE shared tool set serves both modes: conversation, the data-model
+ * tool (`generateSchema` — a build's first commit, and how a new case
+ * type enters an existing app), reads, mutations, case-list /
+ * case-search config, media. Build vs edit picks the prompt (an edit
+ * prompt carries the blueprint summary) and the model — never the tool
+ * set.
  *
  * Vocabulary is domain-native: tool arguments, return shapes, and the
  * system prompt all use `field` / `kind` / `validate` / `validate_msg` /
@@ -18,7 +18,6 @@
  * no finishing tool: the chat route finalizes a build at drain end
  * (status flip + case-store materialize + the `data-done` signal).
  */
-import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
 import type { ZodType } from "zod";
 import { loadApp } from "@/lib/db/apps";
@@ -26,7 +25,7 @@ import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import {
-	GATEWAY_PROVIDER_OPTIONS,
+	reasoningProviderOptions,
 	SA_BUILD_MODEL,
 	SA_EDIT_MODEL,
 	SA_REASONING,
@@ -379,12 +378,10 @@ export function createSolutionsArchitect(
 		removeMediaAsset: wrapRead(removeMediaAssetTool),
 	};
 
-	// ── Compose tools and build agent ────────────────────────────────
+	// ── Build agent ──────────────────────────────────────────────────
 	// One tool set for both modes (generateSchema included — it's how a
 	// new case type enters an existing app too). There is no finishing
 	// tool — the route finalizes a build when the run's drain ends.
-
-	const tools = sharedTools;
 
 	const agent = new ToolLoopAgent({
 		// Build and edit run different tiers: a ground-up build gets the
@@ -397,21 +394,13 @@ export function createSolutionsArchitect(
 		instructions: buildSolutionsArchitectPrompt(editing ? doc : undefined),
 		stopWhen: stepCountIs(80),
 		prepareStep: () => {
-			// `reasoningSummary: 'auto'` is required for human-readable
-			// reasoning summaries to stream back. No cache option: OpenAI
-			// prompt caching is implicit (managed breakpoints, 30-min TTL).
-			// `satisfies` (not an annotation) so the literal's
-			// JSONObject-assignable type flows into providerOptions while
-			// misplaced keys are still rejected — the SDK's Zod schema
-			// silently strips unknown fields.
+			// The canonical reasoning literal
+			// (`lib/models.ts::reasoningProviderOptions`) — effort plus the
+			// streamed reasoning summaries the live-thinking feed needs. No
+			// cache option: OpenAI prompt caching is implicit (managed
+			// breakpoints, 30-min TTL).
 			return {
-				providerOptions: {
-					openai: {
-						reasoningEffort: SA_REASONING.effort,
-						reasoningSummary: "auto",
-					} satisfies OpenAIResponsesProviderOptions,
-					gateway: GATEWAY_PROVIDER_OPTIONS,
-				},
+				providerOptions: reasoningProviderOptions(SA_REASONING.effort),
 			};
 		},
 		onStepEnd: (step) => {
@@ -446,7 +435,7 @@ export function createSolutionsArchitect(
 				"Solutions Architect",
 			);
 		},
-		tools,
+		tools: sharedTools,
 	});
 
 	return agent;

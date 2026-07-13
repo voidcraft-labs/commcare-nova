@@ -128,7 +128,14 @@ export async function POST(
 		// transient read error pauses extraction rather than waving it through.
 		try {
 			const usage = await getMonthlyUsage(session.user.id);
-			if ((usage?.cost_estimate ?? 0) >= ACTUAL_COST_BACKSTOP_USD) {
+			// The larger of the token-math estimate and the gateway-metered
+			// actual — same trip condition as the chat route, so the two
+			// paid surfaces can't drift apart on when a month is over cap.
+			const monthlySpend = Math.max(
+				usage?.cost_estimate ?? 0,
+				usage?.actual_cost ?? 0,
+			);
+			if (monthlySpend >= ACTUAL_COST_BACKSTOP_USD) {
 				throw new ApiError(
 					"You've reached this month's usage limit, so document extraction is paused until it resets. Your file is still saved.",
 					429,

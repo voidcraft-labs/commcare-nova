@@ -44,12 +44,26 @@ const AST_STUBS = new Map<z.ZodType, Record<string, unknown>>([
 ]);
 
 /**
+ * Projection cache. Tool input schemas are module-level singletons
+ * (`toolSchemas.ts` materializes the generator output once; the tool
+ * modules export theirs at module scope), but the chat factory wraps
+ * every tool on every request — uncached, each POST re-walks ~36 Zod
+ * trees through `z.toJSONSchema` + pruning for identical output. The
+ * projection is a pure function of the (immutable) schema node, so a
+ * hit is byte-identical to a rebuild; a non-singleton schema would
+ * simply miss.
+ */
+const projectedSchemas = new WeakMap<z.ZodType, Schema<unknown>>();
+
+/**
  * Emit a tool's wire schema with the AST family stubbed, validating with
  * the untouched Zod schema. The stub replaces each node's emitted JSON in
  * place (`z.toJSONSchema`'s `override`), so the registered definition
  * carries the one-liner and every use site is a tiny `$ref`.
  */
 export function wireToolSchema<I>(schema: z.ZodType<I>): Schema<I> {
+	const hit = projectedSchemas.get(schema as z.ZodType);
+	if (hit) return hit as Schema<I>;
 	const json = z.toJSONSchema(schema, {
 		target: "draft-7",
 		io: "input",
@@ -64,7 +78,7 @@ export function wireToolSchema<I>(schema: z.ZodType<I>): Schema<I> {
 		},
 	}) as Record<string, unknown>;
 	pruneUnreferencedDefinitions(json);
-	return jsonSchema<I>(json as Parameters<typeof jsonSchema<I>>[0], {
+	const wire = jsonSchema<I>(json as Parameters<typeof jsonSchema<I>>[0], {
 		validate: (value) => {
 			const result = schema.safeParse(value);
 			return result.success
@@ -72,6 +86,8 @@ export function wireToolSchema<I>(schema: z.ZodType<I>): Schema<I> {
 				: { success: false, error: result.error };
 		},
 	});
+	projectedSchemas.set(schema as z.ZodType, wire as Schema<unknown>);
+	return wire;
 }
 
 /**
