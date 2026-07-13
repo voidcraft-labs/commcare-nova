@@ -256,11 +256,10 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		writer = built.writer;
 	});
 
-	it("generateSchema commits the data model — name + catalog in ONE gated batch, stage schema", async () => {
+	it("generateSchema commits the catalog in ONE gated batch, stage schema — and never touches the name", async () => {
 		const sa = makeSa(ctx, makeEmptyDoc(), false);
 
 		const result = await runTool(sa, "generateSchema", {
-			appName: "Trial Intake",
 			caseTypes: [
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 				{
@@ -277,8 +276,9 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBe("schema");
+		// No setAppName arm exists on this tool — naming lives on updateApp
+		// alone, so a schema commit can never rename the app as a side effect.
 		expect(muts[0].mutations.map((m) => m.kind)).toEqual([
-			"setAppName",
 			"declareCaseType",
 			"addCaseProperty",
 			"declareCaseType",
@@ -288,11 +288,13 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expectNoLegacyEvents(writer);
 	});
 
-	it("generateSchema rejects a case type the app already carries (additive only)", async () => {
+	it("generateSchema rejects a case type whose record is already authored", async () => {
+		// The fixture's "patient" record carries an authored property (label
+		// "Full name" ≠ its name) — re-declaring would replace definitions
+		// fields were seeded from, so the whole call is rejected.
 		const sa = makeSa(ctx, makeFixtureDoc(), false);
 
 		const result = await runTool(sa, "generateSchema", {
-			appName: "Trial Intake",
 			caseTypes: [
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
@@ -302,6 +304,72 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			error: expect.stringContaining('"patient"'),
 		});
 		expect(mutationEvents(writer)).toHaveLength(0);
+	});
+
+	it("generateSchema rejects duplicate case-type names within one call", async () => {
+		// Two same-named entries would silently merge into a chimera record
+		// (declare no-ops, properties first-wins, later parent link overwrites)
+		// — reject before any mutation is built.
+		const sa = makeSa(ctx, makeEmptyDoc(), false);
+
+		const result = await runTool(sa, "generateSchema", {
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					parent_type: "household",
+					properties: [{ name: "age", label: "Age" }],
+				},
+			],
+		});
+
+		expect(result).toMatchObject({
+			error: expect.stringContaining("more than once"),
+		});
+		expect(mutationEvents(writer)).toHaveLength(0);
+	});
+
+	it("generateSchema enriches a bare chokepoint-declared record via setCaseProperty", async () => {
+		// A module flip / field write declares a type bare ({name, label: name}
+		// properties only). generateSchema is the only tool that authors
+		// property records, so it must be able to fill that record in —
+		// setCaseProperty replaces the bare auto-registered property and
+		// appends the new one (addCaseProperty would first-wins no-op).
+		const doc = makeFixtureDoc();
+		doc.caseTypes = [
+			{
+				name: "visit",
+				properties: [
+					{ name: "visit_date", label: "visit_date", data_type: "date" },
+				],
+			},
+		];
+		const sa = makeSa(ctx, doc, false);
+
+		const result = await runTool(sa, "generateSchema", {
+			caseTypes: [
+				{
+					name: "visit",
+					parent_type: "patient",
+					properties: [
+						{ name: "visit_date", label: "Visit date", data_type: "date" },
+						{ name: "outcome", label: "Outcome" },
+					],
+				},
+			],
+		});
+
+		expect(result).toMatchObject({
+			message: expect.stringContaining("bare declaration"),
+		});
+		const muts = mutationEvents(writer);
+		expect(muts).toHaveLength(1);
+		expect(muts[0].mutations.map((m) => m.kind)).toEqual([
+			"declareCaseType",
+			"setCaseTypeMeta",
+			"setCaseProperty",
+			"setCaseProperty",
+		]);
 	});
 
 	it("updateApp emits one data-mutations batch carrying setAppName + setConnectType", async () => {
@@ -471,7 +539,6 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// The planning tool (build mode only) — pure, but walked so a
 		// future regression that makes it emit shows up here.
 		await runTool(sa, "generateSchema", {
-			appName: "App",
 			caseTypes: [
 				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
@@ -553,7 +620,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 // `data-done` (that signal is the route's).
 
 /* Every mutating tool call commits through `commitGuardedBatch`; the hoisted
- * mock re-applies the batch onto a tracked doc so no save reaches Firestore.
+ * mock re-applies the batch onto a tracked doc so no save reaches Postgres.
  * `loadApp` backs `wrapMutating`'s conflict-reload path. */
 vi.mock("@/lib/db/apps", () => ({
 	commitGuardedBatch: commitGuardedBatchMock,

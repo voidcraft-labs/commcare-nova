@@ -67,6 +67,7 @@ import { buildConnectConfig } from "./shared/connectInput";
 import {
 	assembleFieldMutations,
 	describeRejectedFieldIds,
+	resolveCloseCondition,
 } from "./shared/fieldAssembly";
 import type {
 	MutationSuccess,
@@ -227,6 +228,12 @@ export const createFormTool = {
 				enforcedConnect = enforced.config;
 			}
 
+			// The condition's field id resolves against the batch overlay, so
+			// it can name a field landing in this same call.
+			const closeCondition = resolveCloseCondition(
+				assembly.resolveFieldRef,
+				close_condition,
+			);
 			const formMutations = addFormMutations(doc, moduleUuid, {
 				uuid: formUuid,
 				name,
@@ -235,19 +242,7 @@ export const createFormTool = {
 				...(post_submit && {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),
-				// The checked field resolves against the batch overlay, so the
-				// condition can name a field landing in this same call. An
-				// unresolved id stays verbatim and the gate rejects it with the
-				// validator's close-condition finding.
-				...(close_condition != null && {
-					closeCondition: {
-						field: asUuid(assembly.resolveFieldRef(close_condition.field)),
-						answer: close_condition.answer,
-						...(close_condition.operator && {
-							operator: close_condition.operator,
-						}),
-					},
-				}),
+				...(closeCondition && { closeCondition }),
 				...(enforcedConnect && { connect: enforcedConnect }),
 			});
 
@@ -280,7 +275,11 @@ export const createFormTool = {
 			const newFormIndex = orderedFormUuids(newDoc, moduleUuid).indexOf(
 				formUuid,
 			);
-			const fieldCount = assembly.mutations.length;
+			// Count the fields, not the batch: the assembly prepends the
+			// declaration chokepoint's catalog mutations for undeclared types.
+			const fieldCount = assembly.mutations.filter(
+				(m) => m.kind === "addField",
+			).length;
 			const skippedNote =
 				assembly.skipped.length > 0
 					? ` Skipped ${assembly.skipped.length} field(s): ${assembly.skipped

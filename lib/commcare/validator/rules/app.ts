@@ -112,7 +112,11 @@ function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
 	);
 
 	// Every case type any form field writes, walking each form's field
-	// tree (groups/repeats nest writers).
+	// tree (groups/repeats nest writers). Survey forms are skipped: their
+	// case annotations are wire-inert (`deriveCaseConfig` derives an empty
+	// case config for a survey form), so nothing they "write" ever creates
+	// a case — counting them would demand a module for cases that never
+	// exist.
 	const writtenTypes = new Set<string>();
 	const walk = (parentUuid: string): void => {
 		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
@@ -128,6 +132,7 @@ function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
 	};
 	for (const moduleUuid of doc.moduleOrder) {
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			if (doc.forms[formUuid]?.type === "survey") continue;
 			walk(formUuid);
 		}
 	}

@@ -1035,11 +1035,23 @@ export async function POST(req: Request) {
 				 * results produced by live steps, and askQuestions has no execute —
 				 * its result exists only in this incoming history — so this is the
 				 * one place the answers can be logged. Paired to the original
-				 * tool-call event by toolCallId. Later POSTs end with a user
-				 * message again, so the answers log exactly once. Guarded like the
-				 * user-message write above: a failed log is non-fatal. */
+				 * tool-call event by toolCallId.
+				 *
+				 * Only the FINAL step's parts are new this turn: consecutive
+				 * question rounds append to the same trailing assistant message
+				 * (`toUIMessageStream({ originalMessages })` continues it), so an
+				 * earlier round's answered part is still `output-available` here —
+				 * but it was harvested on the POST that answered IT. askQuestions
+				 * stalls its run, so an answered round always sits after the
+				 * message's last `step-start`; scoping to that suffix logs each
+				 * round exactly once. Guarded like the user-message write above:
+				 * a failed log is non-fatal. */
+				const lastStepStart = lastMessage.parts.reduce(
+					(idx, part, i) => (part.type === "step-start" ? i : idx),
+					-1,
+				);
 				let answeredQuestions = 0;
-				for (const part of lastMessage.parts) {
+				for (const part of lastMessage.parts.slice(lastStepStart + 1)) {
 					if (
 						part.type === "tool-askQuestions" &&
 						"state" in part &&
@@ -1062,12 +1074,12 @@ export async function POST(req: Request) {
 					}
 				}
 				if (answeredQuestions === 0) {
-					/* Defensive — the useChat flow always ends with a user message or
-					 * an answered question round; a caller bypassing the client could
-					 * send a malformed history that would silently drop its event.
-					 * Warn so the skip is visible; the request still proceeds. */
+					/* Defensive — a trailing assistant message should be an answered
+					 * question round; a caller bypassing the client could send a
+					 * malformed history that would silently drop its event. Warn so
+					 * the skip is visible; the request still proceeds. */
 					log.warn(
-						"[chat] last message not user-role; skipping user-message event",
+						"[chat] trailing assistant message carries no answered askQuestions round; no conversation event",
 						{
 							role: lastMessage.role,
 						},

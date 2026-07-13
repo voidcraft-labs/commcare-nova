@@ -81,6 +81,10 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 	},
 	setMenuMedia: { doing: "Setting menu media", done: "Set menu media" },
 	updateApp: { doing: "Updating app settings", done: "Updated app settings" },
+	generateSchema: {
+		doing: "Recording the data model",
+		done: "Recorded the data model",
+	},
 	// Historical threads only — these tools are retired, but runs
 	// persisted before their retirement still carry these parts.
 	completeBuild: { doing: "Finishing the app", done: "Finished the app" },
@@ -141,6 +145,8 @@ const COUNTABLE_ACTIONS: Record<string, (n: number) => string> = {
 	attachOptionMedia: (n) =>
 		`Set media on ${n} ${n === 1 ? "option" : "options"}`,
 	setMenuMedia: (n) => `Set media on ${n} menu ${n === 1 ? "tile" : "tiles"}`,
+	generateSchema: (n) =>
+		`Recorded ${n} case ${n === 1 ? "type" : "types"} on the data model`,
 };
 
 export type ToolStatus = "pending" | "done" | "failed";
@@ -149,12 +155,14 @@ export type ToolStatus = "pending" | "done" | "failed";
 const toolName = (part: ToolUIPart): string => part.type.replace(/^tool-/, "");
 
 /** Whether a part is an edit-tool call that groups into the change summary.
- *  Excludes the specially-rendered tools: `askQuestions` (its own card) and the
- *  build-mode generators (the signal grid + GenerationProgress own that). */
+ *  Excludes the specially-rendered `askQuestions` (its own card) and the
+ *  retired build-mode generators (historical threads only). `generateSchema`
+ *  is a doc-mutating tool like any other — a schema commit (new case types,
+ *  an app naming/rename) must show in the transcript, and a failed call must
+ *  surface its error. */
 export const isEditToolPart = (part: { type: string }): boolean =>
 	part.type.startsWith("tool-") &&
 	part.type !== "tool-askQuestions" &&
-	part.type !== "tool-generateSchema" &&
 	// Historical threads only — retired build-mode tools.
 	part.type !== "tool-generateScaffold" &&
 	part.type !== "tool-planAppDesign";
@@ -245,7 +253,13 @@ export const toolAction = (part: ToolUIPart): string => {
 export const toolLocation = (part: ToolUIPart): string | null => {
 	const summary = outputOf(part)?.summary;
 	if (!summary) return null;
-	if (toolName(part) === "updateApp") return summary.subject ?? null;
+	// The app-level tools have no container — their subject (the app's new
+	// name; the recorded case-type names) shows on the "→" line, where a
+	// long value gets its own row instead of truncating the headline.
+	const name = toolName(part);
+	if (name === "updateApp" || name === "generateSchema") {
+		return summary.subject ?? null;
+	}
 	return summary.location ?? null;
 };
 

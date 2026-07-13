@@ -195,7 +195,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: generateSchemaTool.description,
 		schema: generateSchemaTool.inputSchema,
 		prompt:
-			"Use generateSchema to record an app named 'Village Health' with one case type patient carrying properties case_name (labeled 'Full name') and village (labeled 'Village').",
+			"Use generateSchema to record one case type patient carrying properties case_name (labeled 'Full name') and village (labeled 'Village').",
 	},
 	{
 		name: "updateApp",

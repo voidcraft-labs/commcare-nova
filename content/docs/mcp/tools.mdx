@@ -26,19 +26,18 @@ These are the tools the Nova MCP server exposes. You don't call them directly �
 
 ## Building a new app from a description
 
-A new app is planned first, then built module by module. The two planning tools record the design in the conversation — they don't change the app; the app grows through `update_app` and `create_module`, each call checked as it lands.
+A new app is designed first, then built module by module: `update_app` names it (and, on a Connect build, sets the Connect type before any module lands), `generate_schema` commits the data model, and each `create_module` call lands one complete module — every call checked as it lands.
 
 | Tool | What it does |
 |---|---|
-| `generate_schema` | Plan the data model: case types and their properties. First step; changes nothing. |
-| `plan_app_design` | Plan the app design: modules, forms, purposes, per-form design notes (and, on Connect apps, Connect settings for each form that takes part — forms can stay out of Connect). Run after `generate_schema`; changes nothing. |
 | `update_app` | Set the app's name and/or its CommCare Connect type. On a Connect build, set the type before creating modules. |
+| `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A real write — `create_module` references the recorded types by name, and a form field that writes a recorded property inherits its label, options, and validation. Also how a new case type enters an existing app. |
 
 ## Working on modules
 
 | Tool | What it does |
 |---|---|
-| `create_module` | Add a new module together with its forms (each with fields), its case-list columns, and — when its case type is new to the app — the case type's record, in one call. A module lands complete or not at all. Refine the case list afterward via the case-list tools below. |
+| `create_module` | Add a new module together with its forms (each with fields) and its case-list columns, in one call. Its case type must already be recorded on the app (`generate_schema`). A module lands complete or not at all. Refine the case list afterward via the case-list tools below. |
 | `update_module` | Rename a module and/or set its case type (with starter case-list columns when the module has none) — set the case type before adding registration, follow-up, or close forms to a module created without one. |
 | `remove_module` | Delete a module. |
 | `get_module` | Show details for one module, including the structured case-list config and each menu tile's current icon and audio label. |
@@ -118,5 +117,5 @@ HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova 
 </Callout>
 
 <Callout type="warn">
-Edits are checked as they happen, and exports are checked again at the door. A tool call that would break the app — a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns) — fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms, case-list columns, and (for a new case type) the case type's record, so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.
+Edits are checked as they happen, and exports are checked again at the door. A tool call that would break the app — a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns) — fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms and case-list columns (with its case type already recorded via `generate_schema`), so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.
 </Callout>

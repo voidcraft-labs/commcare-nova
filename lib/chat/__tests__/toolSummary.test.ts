@@ -117,6 +117,30 @@ describe("updateApp transcript row", () => {
 	});
 });
 
+describe("generateSchema transcript row", () => {
+	it("folds the case-type count into the headline with the type names on the → line", () => {
+		const part = donePart("generateSchema", {
+			subject: "patient, visit, referral",
+			count: 3,
+		});
+		expect(toolAction(part)).toBe("Recorded 3 case types on the data model");
+		expect(toolLocation(part)).toBe("patient, visit, referral");
+		expect(toolDetail(part)).toBeNull();
+	});
+
+	it("surfaces a refused schema commit as its error text", () => {
+		const refused = {
+			type: "tool-generateSchema",
+			toolCallId: "call_1",
+			state: "output-available",
+			input: {},
+			output: { error: "Nothing was recorded — …" },
+		} as ToolUIPart;
+		expect(toolAction(refused)).toBe("Recording the data model");
+		expect(toolDetail(refused)).toBe("Nothing was recorded — …");
+	});
+});
+
 describe("scoped-edit rows are unchanged", () => {
 	it("keeps the subject inline and the container on the → line", () => {
 		const part = donePart("updateForm", {

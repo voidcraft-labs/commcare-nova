@@ -77,6 +77,7 @@ import { buildConnectConfig } from "./shared/connectInput";
 import {
 	assembleFieldMutations,
 	describeRejectedFieldIds,
+	resolveCloseCondition,
 } from "./shared/fieldAssembly";
 import type {
 	MutationSuccess,
@@ -317,6 +318,12 @@ export const createModuleTool = {
 					}
 					enforcedConnect = enforced.config;
 				}
+				// Resolved against this form's batch overlay — the condition
+				// names a field landing in the same call.
+				const closeCondition = resolveCloseCondition(
+					assembly.resolveFieldRef,
+					formInput.close_condition,
+				);
 				mutations.push(
 					...addFormMutations(
 						doc,
@@ -332,19 +339,7 @@ export const createModuleTool = {
 							...(formInput.post_submit && {
 								postSubmit: formInput.post_submit,
 							}),
-							// Resolved against this form's batch overlay — the
-							// condition names a field landing in the same call.
-							...(formInput.close_condition != null && {
-								closeCondition: {
-									field: asUuid(
-										assembly.resolveFieldRef(formInput.close_condition.field),
-									),
-									answer: formInput.close_condition.answer,
-									...(formInput.close_condition.operator && {
-										operator: formInput.close_condition.operator,
-									}),
-								},
-							}),
+							...(closeCondition && { closeCondition }),
 							...(enforcedConnect && { connect: enforcedConnect }),
 						},
 						// The module is created by THIS batch — skip the
@@ -353,7 +348,12 @@ export const createModuleTool = {
 					),
 				);
 				mutations.push(...assembly.mutations);
-				fieldCount += assembly.mutations.length;
+				// Count the fields, not the batch: the assembly prepends the
+				// declaration chokepoint's catalog mutations for undeclared
+				// types.
+				fieldCount += assembly.mutations.filter(
+					(m) => m.kind === "addField",
+				).length;
 				skipped.push(...assembly.skipped);
 				formIdx += 1;
 			}

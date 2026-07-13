@@ -186,9 +186,9 @@ export function ChatMessage({
 			);
 		}
 
-		/* The planning tool (tool-generateSchema — plus tool-planAppDesign /
-		 * tool-generateScaffold on historical threads), data-* events,
-		 * step-start, etc. render nothing here. */
+		/* The retired planning tools (tool-planAppDesign / tool-generateScaffold
+		 * on historical threads), data-* events, step-start, etc. render
+		 * nothing here. */
 	}
 	flushTools();
 	flushReasoning(trailingReasoningIsStreaming);

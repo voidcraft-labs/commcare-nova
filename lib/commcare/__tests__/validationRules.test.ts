@@ -195,6 +195,41 @@ describe("app rules", () => {
 			),
 		).toBe(true);
 	});
+
+	it("a survey form's case annotations don't demand a module — they are wire-inert", () => {
+		// deriveCaseConfig derives an empty case config for a survey form, so a
+		// case_property_on there never creates a case. The written-type rule
+		// must not count it — otherwise flipping a form to survey (making its
+		// writes inert) would still demand a module for cases that never exist.
+		const surveyAnnotated = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					forms: [
+						{
+							name: "Form",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "visit_note",
+									label: "Visit note",
+									case_property_on: "visit",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [{ name: "visit", properties: [] }],
+		});
+		expect(
+			runValidation(surveyAnnotated).some(
+				(e) => e.code === "MISSING_CHILD_CASE_MODULE",
+			),
+		).toBe(false);
+	});
 });
 
 // ── Module-level rules ─────────────────────────────────────────────

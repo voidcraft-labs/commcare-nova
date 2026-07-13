@@ -10,11 +10,19 @@ import type { NovaUIMessage } from "./attachmentRefs";
 /**
  * The messages to resolve + send the SA for this turn.
  *
- * In expired-cache EDIT mode the SA gets one-shot delivery — only the last user
- * message — because its system prompt already carries a compact blueprint
- * summary, so prior turns would just burn tokens against a dead Anthropic prompt
- * cache. In every other mode (a build, or a live-cache edit) it gets the full
- * history so it can iterate with prior-turn context.
+ * In expired-cache EDIT mode the SA gets one-shot delivery — the last user
+ * message onward — because its system prompt already carries a compact
+ * blueprint summary, so earlier turns would just burn tokens against a dead
+ * prompt cache. In every other mode (a build, or a live-cache edit) it gets
+ * the full history so it can iterate with prior-turn context.
+ *
+ * "Onward" matters: when the user answers an askQuestions round after the
+ * cache lapses, the history ends with the ASSISTANT message whose tool part
+ * carries the answers. Trimming to the user message alone would re-run the
+ * original request blind to the question round — the SA would re-ask or act
+ * on unconfirmed assumptions, while the event log (which records the answers
+ * as delivered tool-results) claimed otherwise. Keeping everything from the
+ * last user message forward delivers the round + answers at one-shot cost.
  *
  * Selecting here, BEFORE the attachment resolve, is what makes an expired-cache
  * edit avoid downloading/extracting history attachments it would then discard —
@@ -30,10 +38,13 @@ export function selectMessagesToSend(
 	{ editing, cacheExpired }: { editing: boolean; cacheExpired: boolean },
 ): NovaUIMessage[] {
 	if (editing && cacheExpired) {
-		// The last USER message specifically: even if the very last message is an
-		// assistant turn (a malformed history), we want the latest user request,
-		// never an empty trailing turn.
-		return messages.filter((m) => m.role === "user").slice(-1);
+		// Anchored on the last USER message specifically: a history whose tail
+		// is assistant-only (an answered question round) keeps that tail, and a
+		// malformed history with no user message at all sends nothing rather
+		// than an unanchored trailing turn.
+		const lastUserIdx = messages.findLastIndex((m) => m.role === "user");
+		if (lastUserIdx === -1) return [];
+		return messages.slice(lastUserIdx);
 	}
 	return messages;
 }

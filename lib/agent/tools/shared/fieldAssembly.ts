@@ -110,6 +110,32 @@ export type FieldAssemblyResult =
 			rejected: Array<{ id: string; reason: string }>;
 	  };
 
+/**
+ * Resolve a creation tool's `close_condition` input to the stored
+ * `closeCondition` shape: the authored field id resolves to the target's
+ * uuid through the assembly's `resolveFieldRef` (the same doc-plus-batch
+ * overlay the batch's expressions used, so the condition may name a field
+ * landing in this call; an unresolved id stays verbatim and the gate
+ * rejects it with the validator's close-condition finding). One resolver
+ * for both creation surfaces — `createForm` and `createModule` — so the
+ * two cannot drift. Returns `undefined` for an absent/null input (an
+ * unconditional close).
+ */
+export function resolveCloseCondition(
+	resolveFieldRef: (ref: string) => Uuid | string,
+	input:
+		| { field: string; answer: string; operator?: "=" | "selected" | null }
+		| null
+		| undefined,
+): { field: Uuid; answer: string; operator?: "=" | "selected" } | undefined {
+	if (input == null) return undefined;
+	return {
+		field: asUuid(resolveFieldRef(input.field)),
+		answer: input.answer,
+		...(input.operator && { operator: input.operator }),
+	};
+}
+
 export function assembleFieldMutations(
 	args: FieldAssemblyArgs,
 ): FieldAssemblyResult {

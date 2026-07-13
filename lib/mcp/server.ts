@@ -124,9 +124,10 @@ const SHARED_TOOLS: ReadonlyArray<{
 	{ name: "create_form", tool: createFormTool, requires: "edit" },
 	{ name: "create_module", tool: createModuleTool, requires: "edit" },
 	{ name: "edit_field", tool: editFieldTool, requires: "edit" },
-	/* The data-model tool — commits the app name + case-type catalog
-	 * onto the doc. create_module references the recorded types by
-	 * name; a new case type enters an existing app through this tool. */
+	/* The data-model tool — commits the case-type catalog onto the doc
+	 * (never the app name; that's update_app's slot). create_module
+	 * references the recorded types by name; a new case type enters an
+	 * existing app through this tool. */
 	{ name: "generate_schema", tool: generateSchemaTool, requires: "edit" },
 	{ name: "get_field", tool: getFieldTool, requires: "view" },
 	{ name: "get_form", tool: getFormTool, requires: "view" },

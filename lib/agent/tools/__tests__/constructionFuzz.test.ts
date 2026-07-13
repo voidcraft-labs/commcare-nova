@@ -671,7 +671,6 @@ async function applyOp(
 				doc = await runParsed(
 					generateSchemaTool,
 					{
-						appName: doc.appName || "Fuzz App",
 						caseTypes: [
 							{
 								name: coherentType,
@@ -1139,13 +1138,13 @@ async function growStandardPrelude(
 	ctx: ToolExecutionContext,
 ): Promise<BlueprintDoc> {
 	let doc = birthDoc();
-	/* The SA's real opening sequence: the data-model tool writes the app
-	 * name + the case-type record, then the module references the type by
-	 * name. */
+	/* The SA's real opening sequence: updateApp names the app, the
+	 * data-model tool writes the case-type record, then the module
+	 * references the type by name. */
+	doc = await runParsed(updateAppTool, { name: "Fuzz Clinic" }, ctx, doc);
 	doc = await runParsed(
 		generateSchemaTool,
 		{
-			appName: "Fuzz Clinic",
 			caseTypes: [
 				{
 					name: "patient",
@@ -1256,15 +1255,21 @@ async function growConnectPrelude(
 	ctx: ToolExecutionContext,
 ): Promise<BlueprintDoc> {
 	let doc = birthDoc();
-	/* The data-model tool writes the name + record; the Connect flip rides
-	 * updateApp BEFORE any module exists — on an empty app the flip
-	 * introduces nothing. Later creations choose per form whether to carry
-	 * a connect block (participate in Connect) or not (stay auxiliary);
-	 * the gate only insists the app keeps ≥1 participating form. */
+	/* updateApp names the app and flips Connect in ONE call, BEFORE any
+	 * module exists — on an empty app the flip introduces nothing. The
+	 * data-model tool then writes the record. Later creations choose per
+	 * form whether to carry a connect block (participate in Connect) or
+	 * not (stay auxiliary); the gate only insists the app keeps ≥1
+	 * participating form. */
+	doc = await runParsed(
+		updateAppTool,
+		{ name: "Fuzz Training", connect_type: "learn" },
+		ctx,
+		doc,
+	);
 	doc = await runParsed(
 		generateSchemaTool,
 		{
-			appName: "Fuzz Training",
 			caseTypes: [
 				{
 					name: "trainee",
@@ -1278,7 +1283,6 @@ async function growConnectPrelude(
 		ctx,
 		doc,
 	);
-	doc = await runParsed(updateAppTool, { connect_type: "learn" }, ctx, doc);
 	doc = await runParsed(
 		createModuleTool,
 		{
