@@ -4,7 +4,9 @@
  *
  * Three-column grid: logo (the exit back to the app list) on the left,
  * the Preview toggle dead center, document tools + account on the
- * right. Preview is centered because reach matters more than corner
+ * right. The header is site + document-action chrome only — the app's
+ * own identity and settings live in the structure sidebar's app row.
+ * Preview is centered because reach matters more than corner
  * convention — the canvas is center-aligned, so the toggle sits
  * directly above the user's work, one short travel away. Nothing can
  * collide with it: breadcrumbs live in the canvas column's own strip
@@ -18,7 +20,6 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerArrowForwardUp from "@iconify-icons/tabler/arrow-forward-up";
 import Link from "next/link";
-import { AppSettingsButton } from "@/components/builder/detail/appSettings/AppSettingsButton";
 import { ExportPanel } from "@/components/builder/ExportPanel";
 import { PresenceRoster } from "@/components/builder/PresenceRoster";
 import { PreviewToggle } from "@/components/builder/PreviewToggle";
@@ -97,7 +98,6 @@ export function BuilderHeader({
 						{canEdit ? (
 							<>
 								<SaveIndicator />
-								<AppSettingsButton />
 								<SimpleTooltip content={`Undo (${shortcutLabel("mod", "Z")})`}>
 									<button
 										type="button"

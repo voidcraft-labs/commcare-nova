@@ -91,13 +91,13 @@ describe("useBreadcrumbs", () => {
 		);
 	}
 
-	it("at home, only the app name is shown", () => {
+	it("at home, only the Home crumb is shown", () => {
 		mockSegments.current = [];
 		const { result } = renderHook(() => useBreadcrumbs(), {
 			wrapper: wrapperFn,
 		});
 		expect(result.current).toEqual([
-			{ key: "home", label: "My App", location: { kind: "home" } },
+			{ key: "home", label: "Home", location: { kind: "home" } },
 		]);
 	});
 
@@ -107,7 +107,7 @@ describe("useBreadcrumbs", () => {
 			wrapper: wrapperFn,
 		});
 		expect(result.current).toEqual([
-			{ key: "home", label: "My App", location: { kind: "home" } },
+			{ key: "home", label: "Home", location: { kind: "home" } },
 			{
 				key: `m:${moduleUuid}`,
 				label: "Patients",
@@ -122,7 +122,7 @@ describe("useBreadcrumbs", () => {
 			wrapper: wrapperFn,
 		});
 		expect(result.current).toEqual([
-			{ key: "home", label: "My App", location: { kind: "home" } },
+			{ key: "home", label: "Home", location: { kind: "home" } },
 			{
 				key: `m:${moduleUuid}`,
 				label: "Patients",
@@ -142,7 +142,7 @@ describe("useBreadcrumbs", () => {
 			wrapper: wrapperFn,
 		});
 		expect(result.current).toEqual([
-			{ key: "home", label: "My App", location: { kind: "home" } },
+			{ key: "home", label: "Home", location: { kind: "home" } },
 			{
 				key: `m:${bareCaseListUuid}`,
 				label: "Villages",
@@ -158,7 +158,7 @@ describe("useBreadcrumbs", () => {
 			wrapper: wrapperFn,
 		});
 		expect(result.current).toEqual([
-			{ key: "home", label: "My App", location: { kind: "home" } },
+			{ key: "home", label: "Home", location: { kind: "home" } },
 			{
 				key: `m:${moduleUuid}`,
 				label: "Patients",

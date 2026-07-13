@@ -35,7 +35,7 @@ const forms: PreviewTrailForm[] = [
 
 const home: BreadcrumbItem = {
 	key: "home",
-	label: "My App",
+	label: "Home",
 	location: { kind: "home" },
 };
 const moduleCrumb: BreadcrumbItem = {
@@ -130,7 +130,7 @@ describe("previewBreadcrumbTrail — form screens", () => {
 	it("a register form: home > module > form, no case crumb, not reselectable", () => {
 		const trail = run({ loc: formLoc(registerUuid) });
 		expect(trail.map((t) => t.label)).toEqual([
-			"My App",
+			"Home",
 			"Households",
 			"Register Household",
 		]);
@@ -147,7 +147,7 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			},
 		});
 		expect(trail.map((t) => t.label)).toEqual([
-			"My App",
+			"Home",
 			"Households",
 			"Household Visit",
 			"Yusuf Patel",
@@ -167,7 +167,7 @@ describe("previewBreadcrumbTrail — form screens", () => {
 		});
 		// No 4th "case" crumb — the stale target binds a different form.
 		expect(trail.map((t) => t.label)).toEqual([
-			"My App",
+			"Home",
 			"Households",
 			"Register Household",
 		]);
@@ -184,7 +184,7 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			},
 		});
 		expect(trail.map((t) => t.label)).toEqual([
-			"My App",
+			"Home",
 			"Households",
 			"Close Household",
 		]);
@@ -207,7 +207,7 @@ describe("previewBreadcrumbTrail — case-list screens", () => {
 			previewSelectedCase: { caseId: "c1", caseName: "Yusuf Patel" },
 		});
 		expect(trail.map((t) => t.label)).toEqual([
-			"My App",
+			"Home",
 			"Households",
 			"Household Visit",
 			"Yusuf Patel",
@@ -218,7 +218,7 @@ describe("previewBreadcrumbTrail — case-list screens", () => {
 
 	it("omits the form crumb when several case-loading forms are unchosen", () => {
 		const trail = run({ loc: { kind: "cases", moduleUuid } });
-		expect(trail.map((t) => t.label)).toEqual(["My App", "Households"]);
+		expect(trail.map((t) => t.label)).toEqual(["Home", "Households"]);
 	});
 
 	it("names the sole case-loading form even before one is picked", () => {
@@ -234,7 +234,7 @@ describe("previewBreadcrumbTrail — case-list screens", () => {
 			],
 		});
 		expect(trail.map((t) => t.label)).toEqual([
-			"My App",
+			"Home",
 			"Households",
 			"Household Visit",
 		]);
@@ -246,7 +246,7 @@ describe("previewBreadcrumbTrail — case-list screens", () => {
 			previewCaseTarget: { formUuid: followupUuid },
 		});
 		expect(trail.map((t) => t.label)).toEqual([
-			"My App",
+			"Home",
 			"Households",
 			"Household Visit",
 		]);

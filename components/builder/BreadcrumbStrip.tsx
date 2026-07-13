@@ -23,7 +23,6 @@ import { ContentFrame } from "@/components/builder/ContentFrame";
 import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
 import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
-import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import {
 	useIsBareCaseListModule,
@@ -59,7 +58,6 @@ export function BreadcrumbStrip() {
 
 	/* Breadcrumbs derived from URL + doc entity names. */
 	const breadcrumbs = useBreadcrumbs();
-	const appName = useAppName();
 
 	/* In preview the trail follows the RUNNING APP, not the editor (the
 	 * rewrite lives in the pure, tested `previewBreadcrumbTrail`). Home +
@@ -136,17 +134,16 @@ export function BreadcrumbStrip() {
 
 	/* Assemble breadcrumb parts — memoized so CollapsibleBreadcrumb's memo
 	 * boundary actually works. Without useMemo, every render creates a new
-	 * array reference, defeating the child's memo check. */
+	 * array reference, defeating the child's memo check. Before the doc has
+	 * data there is nothing to navigate, so the strip stays an empty bar. */
 	const breadcrumbParts: BreadcrumbPart[] = useMemo(() => {
-		if (!hasData) {
-			return appName ? [{ key: "home", label: appName, onClick: noop }] : [];
-		}
+		if (!hasData) return [];
 		return effectiveBreadcrumbs.map((item, i) => ({
 			key: item.key,
 			label: item.label,
 			onClick: breadcrumbHandlers[i] ?? noop,
 		}));
-	}, [hasData, appName, effectiveBreadcrumbs, breadcrumbHandlers]);
+	}, [hasData, effectiveBreadcrumbs, breadcrumbHandlers]);
 
 	return (
 		<div className="shrink-0 h-12 border-b border-nova-border bg-pv-bg">
