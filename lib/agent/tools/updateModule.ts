@@ -176,8 +176,9 @@ export const updateModuleTool = {
 			 * the seeded `Name` column can't resolve (`CASE_LIST_COLUMN_UNKNOWN_FIELD`)
 			 * — with `ensureCatalogProperty`'s auto-mint gone, this surface must
 			 * declare it, exactly like the builder twin (`useBlueprintMutations`
-			 * → `caseTypeCatalogMutations`) and `createModule`'s `case_type_record`.
-			 * Catalog writes lead so the type is present when the column resolves. */
+			 * → `caseTypeCatalogMutations`) and the field assembly's declaration
+			 * chokepoint. Catalog writes lead so the type is present when the
+			 * column resolves. */
 			const mutations = [
 				...caseTypeCatalogMutations(doc, retirement, case_type ?? undefined),
 				...updateModuleMutations(mod, {

@@ -188,14 +188,14 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: createModuleTool.description,
 		schema: createModuleTool.inputSchema,
 		prompt:
-			"Use createModule to add a module named 'Households' with case_type household and its case_type_record (properties case_name labeled 'Household name' and head_name labeled 'Head of household'), one registration form named 'Register household' whose fields are case_name (text labeled 'Household name', case_property_on household) and head_name (text labeled 'Head of household', case_property_on household), and one plain case-list column on field case_name with header Name.",
+			"Use createModule to add a module named 'Households' with case_type household, one registration form named 'Register household' whose fields are case_name (text labeled 'Household name', case_property_on household) and head_name (text labeled 'Head of household', case_property_on household), and one plain case-list column on field case_name with header Name.",
 	},
 	{
 		name: "generateSchema",
 		description: generateSchemaTool.description,
 		schema: generateSchemaTool.inputSchema,
 		prompt:
-			"Use generateSchema to plan an app named 'Village Health' with one case type patient carrying properties case_name (labeled 'Full name') and village (labeled 'Village').",
+			"Use generateSchema to record an app named 'Village Health' with one case type patient carrying properties case_name (labeled 'Full name') and village (labeled 'Village').",
 	},
 	{
 		name: "updateApp",

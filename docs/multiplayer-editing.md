@@ -323,7 +323,7 @@ legacy doc → identical keys/uuids twice); legacy-fixture Zod round-trip;
 - **Case-type declaration chokepoint.** A shared helper prepends `declareCaseType` for any
   field whose `case_property_on` names a type absent from `caseTypes`. **Every**
   `case_property_on`-setting surface routes through it: the SA add/edit assembly
-  (`blueprintHelpers.ts`/`tools/shared/fieldAssembly.ts`/`createModule`'s `case_type_record`
+  (`blueprintHelpers.ts`/`tools/shared/fieldAssembly.ts`/`generateSchema`'s catalog commit
   + `updateModule`'s `caseTypeCatalogMutations` + any bulk-generation assembly), the **MCP
   `add_fields`/`edit_field` handlers**, and the builder (`useBlueprintMutations` add/edit,
   `caseListModuleMutations`, `formScaffoldMutations`). A per-surface CI test

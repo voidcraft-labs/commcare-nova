@@ -38,7 +38,6 @@ import {
  */
 
 import { z } from "zod";
-import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
 import type { BlueprintDoc, PostSubmitDestination } from "@/lib/domain";
 import { asUuid, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import {
@@ -46,6 +45,10 @@ import {
 	resolveModuleUuid,
 	updateFormMutations,
 } from "../blueprintHelpers";
+import {
+	closeConditionInputSchema,
+	connectFormConfigSchema,
+} from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	guardedMutate,
@@ -68,19 +71,7 @@ export const updateFormInputSchema = z
 			.min(1)
 			.optional()
 			.describe("New form name. Leave it out to keep the current name."),
-		close_condition: z
-			.object({
-				field: z.string().describe("Field id to check"),
-				answer: z.string().describe("Value that triggers closure"),
-				operator: z
-					.enum(["=", "selected"])
-					.nullable()
-					.optional()
-					.describe(
-						'"=" for exact match (default — null uses it). "selected" for multi-select fields.',
-					),
-			})
-			.strict()
+		close_condition: closeConditionInputSchema
 			.nullable()
 			.optional()
 			.describe(
@@ -93,99 +84,7 @@ export const updateFormInputSchema = z
 			.describe(
 				'Post-submit destination: "app_home", "module" (its form list), or "previous". null resets to the form-type default.',
 			),
-		connect: z
-			.object({
-				learn_module: z
-					.object({
-						id: z
-							.string()
-							.min(1)
-							.nullable()
-							.optional()
-							.describe(CONNECT_ID_FIELD_DESCRIPTION),
-						name: z.string().min(1),
-						description: z.string().min(1),
-						// Match the domain's `connectLearnModuleSchema`:
-						// positive integer minutes. The reducer doesn't
-						// re-parse patches via Zod, so the SA-facing schema
-						// is the only gate against invalid values.
-						time_estimate: z
-							.number()
-							.refine(
-								(n) => Number.isInteger(n) && n >= 1,
-								"time_estimate must be a positive integer (minutes).",
-							),
-					})
-					.strict()
-					.nullable()
-					.optional()
-					.describe(
-						"Set for forms with educational/training content. null on quiz-only forms.",
-					),
-				assessment: z
-					.object({
-						id: z
-							.string()
-							.min(1)
-							.nullable()
-							.optional()
-							.describe(CONNECT_ID_FIELD_DESCRIPTION),
-						user_score: z.string().min(1),
-					})
-					.strict()
-					.nullable()
-					.optional()
-					.describe(
-						"Set for forms with a quiz/test. null on content-only forms.",
-					),
-				deliver_unit: z
-					.object({
-						id: z
-							.string()
-							.min(1)
-							.nullable()
-							.optional()
-							.describe(CONNECT_ID_FIELD_DESCRIPTION),
-						name: z.string().min(1),
-						entity_id: z
-							.string()
-							.min(1)
-							.nullable()
-							.optional()
-							.describe(
-								"XPath dedup key grouping submissions into one paid delivery (CompletedWork). Omit for the daily-aggregate default; override per the Connect guidance in your instructions.",
-							),
-						entity_name: z
-							.string()
-							.min(1)
-							.nullable()
-							.optional()
-							.describe(
-								"XPath for the human-readable delivery label in Connect dashboards. Display-only; omit for the username default.",
-							),
-					})
-					.strict()
-					.nullable()
-					.optional()
-					.describe(
-						"Set on a deliver-app form that counts as a payable delivery. `name` shows in Connect's deliver-unit picker.",
-					),
-				task: z
-					.object({
-						id: z
-							.string()
-							.min(1)
-							.nullable()
-							.optional()
-							.describe(CONNECT_ID_FIELD_DESCRIPTION),
-						name: z.string().min(1),
-						description: z.string().min(1),
-					})
-					.strict()
-					.nullable()
-					.optional(),
-			})
-			.strict()
+		connect: connectFormConfigSchema
 			.nullable()
 			.optional()
 			.describe(

@@ -51,7 +51,10 @@ import type {
 } from "@/lib/domain";
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { addFormMutations, resolveModuleUuid } from "../blueprintHelpers";
-import { connectFormConfigSchema } from "../planningSchemas";
+import {
+	closeConditionInputSchema,
+	connectFormConfigSchema,
+} from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import {
@@ -100,6 +103,12 @@ export const createFormInputSchema = z
 			.describe(
 				'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Only set to override.',
 			),
+		close_condition: closeConditionInputSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Close forms only — close the case only when the named field matches (the field may be one landing in this same call). null for an unconditional close.",
+			),
 		connect: connectFormConfigSchema
 			.nullable()
 			.optional()
@@ -123,8 +132,16 @@ export const createFormTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<CreateFormResult>> {
-		const { moduleIndex, name, type, fields, purpose, post_submit, connect } =
-			input;
+		const {
+			moduleIndex,
+			name,
+			type,
+			fields,
+			purpose,
+			post_submit,
+			close_condition,
+			connect,
+		} = input;
 		try {
 			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
 			if (!moduleUuid) {
@@ -217,6 +234,19 @@ export const createFormTool = {
 				...(purpose != null && { purpose }),
 				...(post_submit && {
 					postSubmit: post_submit as PostSubmitDestination,
+				}),
+				// The checked field resolves against the batch overlay, so the
+				// condition can name a field landing in this same call. An
+				// unresolved id stays verbatim and the gate rejects it with the
+				// validator's close-condition finding.
+				...(close_condition != null && {
+					closeCondition: {
+						field: asUuid(assembly.resolveFieldRef(close_condition.field)),
+						answer: close_condition.answer,
+						...(close_condition.operator && {
+							operator: close_condition.operator,
+						}),
+					},
 				}),
 				...(enforcedConnect && { connect: enforcedConnect }),
 			});

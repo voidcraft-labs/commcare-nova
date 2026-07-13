@@ -25,11 +25,11 @@
  * any of them — catching the regression where a subagent misses a
  * migration spot.
  *
- * ## Planning tool
+ * ## Data-model tool
  *
- * `generateSchema` is a pure planning step — a test pins that it never
- * writes a mutation event (its plan lives in the conversation, not on
- * the doc).
+ * `generateSchema` commits the design's skeleton — one gated batch
+ * carrying `setAppName` + the case-type catalog — a test pins the batch
+ * shape and its `schema` stage tag.
  */
 
 import { produce } from "immer";
@@ -256,7 +256,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		writer = built.writer;
 	});
 
-	it("generateSchema is a pure plan — a structured echo, zero mutations on the wire", async () => {
+	it("generateSchema commits the data model — name + catalog in ONE gated batch, stage schema", async () => {
 		const sa = makeSa(ctx, makeEmptyDoc(), false);
 
 		const result = await runTool(sa, "generateSchema", {
@@ -272,15 +272,36 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		});
 
 		expect(result).toMatchObject({
-			planned: true,
+			message: expect.stringContaining("patient, visit"),
+		});
+		const muts = mutationEvents(writer);
+		expect(muts).toHaveLength(1);
+		expect(muts[0].stage).toBe("schema");
+		expect(muts[0].mutations.map((m) => m.kind)).toEqual([
+			"setAppName",
+			"declareCaseType",
+			"addCaseProperty",
+			"declareCaseType",
+			"setCaseTypeMeta",
+			"addCaseProperty",
+		]);
+		expectNoLegacyEvents(writer);
+	});
+
+	it("generateSchema rejects a case type the app already carries (additive only)", async () => {
+		const sa = makeSa(ctx, makeFixtureDoc(), false);
+
+		const result = await runTool(sa, "generateSchema", {
 			appName: "Trial Intake",
 			caseTypes: [
-				{ name: "patient", properties: ["case_name"] },
-				{ name: "visit", parent_type: "patient", properties: ["case_name"] },
+				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
 			],
 		});
+
+		expect(result).toMatchObject({
+			error: expect.stringContaining('"patient"'),
+		});
 		expect(mutationEvents(writer)).toHaveLength(0);
-		expectNoLegacyEvents(writer);
 	});
 
 	it("updateApp emits one data-mutations batch carrying setAppName + setConnectType", async () => {
@@ -548,12 +569,14 @@ describe("solutionsArchitect — no finishing tool", () => {
 		expect("completeBuild" in editSa.tools).toBe(false);
 	});
 
-	it("the planning tool is build-only; the retired plan tool is gone; updateApp is shared", () => {
+	it("the data-model tool is shared (both modes); the retired plan tool is gone; updateApp is shared", () => {
 		const { ctx } = buildCtx();
 		const buildSa = makeSa(ctx, makeEmptyDoc(), false);
 		const editSa = makeSa(ctx, makeFixtureDoc(), true);
+		// generateSchema commits catalog records, and a NEW case type enters
+		// an existing app through it — so it's in the edit-mode set too.
 		expect("generateSchema" in buildSa.tools).toBe(true);
-		expect("generateSchema" in editSa.tools).toBe(false);
+		expect("generateSchema" in editSa.tools).toBe(true);
 		expect("planAppDesign" in buildSa.tools).toBe(false);
 		expect("planAppDesign" in editSa.tools).toBe(false);
 		expect("updateApp" in buildSa.tools).toBe(true);

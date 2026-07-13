@@ -89,8 +89,21 @@ function reservedCaseTypeName(doc: BlueprintDoc): ValidationError[] {
 	return errors;
 }
 
+/**
+ * Every case type that forms actually WRITE (`case_property_on`) needs a
+ * module of its own — a cross-type writer creates cases, and a created
+ * case with no module has no case list to appear in, so it is invisible
+ * to every user. Keyed on WRITERS, not on the catalog: a planned record
+ * (committed by `generateSchema` ahead of its module) is legal on its
+ * own — the finding fires only once a form would create cases nobody can
+ * open. This is also what sequences a build: a case type's own module
+ * must land before any other module's forms create cases of it. The code
+ * keeps its historical name (finding identity is stable across the gate
+ * and the legacy-repair judgments); child buckets are how cross-type
+ * writers normally arise, but a written standalone type without a module
+ * is the same defect and fires too.
+ */
 function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
-	if (!doc.caseTypes) return [];
 	const errors: ValidationError[] = [];
 	const moduleCaseTypes = new Set(
 		doc.moduleOrder
@@ -98,18 +111,41 @@ function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
 			.filter((v): v is string => Boolean(v)),
 	);
 
-	for (const ct of doc.caseTypes) {
-		if (ct.parent_type && !moduleCaseTypes.has(ct.name)) {
-			errors.push(
-				validationError(
-					"MISSING_CHILD_CASE_MODULE",
-					"app",
-					`The child case type "${ct.name}" (child of "${ct.parent_type}") is created by forms but has no module to display it. CommCare requires every case type to have a module — add one with case_type "${ct.name}" and configure its case list columns so users can see these cases.`,
-					{},
-					{ caseType: ct.name },
-				),
-			);
+	// Every case type any form field writes, walking each form's field
+	// tree (groups/repeats nest writers).
+	const writtenTypes = new Set<string>();
+	const walk = (parentUuid: string): void => {
+		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
+			const field = doc.fields[fieldUuid];
+			if (!field) continue;
+			const target = (field as unknown as Record<string, unknown>)
+				.case_property_on;
+			if (typeof target === "string" && target.length > 0) {
+				writtenTypes.add(target);
+			}
+			if (doc.fieldOrder[fieldUuid] !== undefined) walk(fieldUuid);
 		}
+	};
+	for (const moduleUuid of doc.moduleOrder) {
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			walk(formUuid);
+		}
+	}
+
+	for (const written of writtenTypes) {
+		if (moduleCaseTypes.has(written)) continue;
+		const parent = doc.caseTypes?.find(
+			(ct) => ct.name === written,
+		)?.parent_type;
+		errors.push(
+			validationError(
+				"MISSING_CHILD_CASE_MODULE",
+				"app",
+				`Cases of type "${written}"${parent ? ` (child of "${parent}")` : ""} are created by forms, but there is no module to display them. CommCare requires every case type to have a module — add one with case_type "${written}" (a case-list-only module is enough) and configure its case list columns so users can see these cases.`,
+				{},
+				{ caseType: written },
+			),
+		);
 	}
 	return errors;
 }

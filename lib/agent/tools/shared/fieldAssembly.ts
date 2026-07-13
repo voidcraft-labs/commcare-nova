@@ -25,6 +25,10 @@
  */
 
 import { parseXPathExpression } from "@/lib/commcare/xpath";
+import {
+	type FieldRefResolvableDoc,
+	resolveCloseFieldRef,
+} from "@/lib/doc/expressionText";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { fieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import { keyBetween, keysForSlot } from "@/lib/doc/order/keys";
@@ -89,6 +93,16 @@ export type FieldAssemblyResult =
 			 * as it would once the batch has applied.
 			 */
 			parseExpression: (text: string) => XPathExpression;
+			/**
+			 * Resolve a bare field id to the target field's stable uuid over
+			 * the same doc-plus-batch overlay (pre-order first match — the
+			 * `resolveCloseFieldRef` rule). The creation tools resolve a
+			 * form's `close_condition.field` through this, so the condition
+			 * can name a field landing in the same call. An id nothing
+			 * answers to comes back verbatim, and the commit gate rejects
+			 * the introduction with the validator's close-condition finding.
+			 */
+			resolveFieldRef: (ref: string) => Uuid | string;
 	  }
 	| {
 			ok: false;
@@ -236,7 +250,8 @@ export function assembleFieldMutations(
 	}
 
 	if (rejected.length > 0) return { ok: false, rejected };
-	const resolve = batchPathResolver(doc, formUuid, mutations);
+	const overlay = buildBatchOverlay(doc, formUuid, mutations);
+	const resolve = fieldPathResolver(overlay, formUuid);
 	resolveBatchExpressions(resolve, landed);
 	// Mint an `order` key for every born field. An ANCHORED batch (a top-level
 	// block placed at `beforeFieldId` / `afterFieldId`) keys its fields BETWEEN
@@ -305,6 +320,7 @@ export function assembleFieldMutations(
 		mutations: [...declarations, ...mutations],
 		skipped,
 		parseExpression: (text) => parseXPathExpression(text, resolve),
+		resolveFieldRef: (ref) => resolveCloseFieldRef(overlay, formUuid, ref),
 	};
 }
 
@@ -314,12 +330,12 @@ export function assembleFieldMutations(
  * expression slots (`resolveBatchExpressions`) and the caller-facing
  * `parseExpression` for form-level XPath inputs riding the same batch.
  */
-function batchPathResolver(
+function buildBatchOverlay(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	mutations: readonly Mutation[],
-): ResolveFieldPath {
-	const fields: Record<string, { id: string } | undefined> = { ...doc.fields };
+): XPathPrintableDoc & FieldRefResolvableDoc {
+	const fields: Record<string, Field | undefined> = { ...doc.fields };
 	const fieldOrder: Record<string, string[] | undefined> = {};
 	for (const [parent, order] of Object.entries(doc.fieldOrder)) {
 		fieldOrder[parent] = [...order];
@@ -343,8 +359,7 @@ function batchPathResolver(
 			fieldOrder[mut.field.uuid] ??= [];
 		}
 	}
-	const overlay: XPathPrintableDoc = { forms, fields, fieldOrder };
-	return fieldPathResolver(overlay, formUuid);
+	return { forms, fields, fieldOrder };
 }
 
 /**

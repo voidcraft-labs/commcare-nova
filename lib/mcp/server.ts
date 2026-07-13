@@ -124,10 +124,9 @@ const SHARED_TOOLS: ReadonlyArray<{
 	{ name: "create_form", tool: createFormTool, requires: "edit" },
 	{ name: "create_module", tool: createModuleTool, requires: "edit" },
 	{ name: "edit_field", tool: editFieldTool, requires: "edit" },
-	/* The one pure planning tool — it records the data model in the
-	 * conversation (the tool input is the plan) and writes nothing.
-	 * Execution runs through create_module per module of the client's
-	 * design. */
+	/* The data-model tool — commits the app name + case-type catalog
+	 * onto the doc. create_module references the recorded types by
+	 * name; a new case type enters an existing app through this tool. */
 	{ name: "generate_schema", tool: generateSchemaTool, requires: "edit" },
 	{ name: "get_field", tool: getFieldTool, requires: "view" },
 	{ name: "get_form", tool: getFormTool, requires: "view" },

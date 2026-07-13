@@ -1,6 +1,7 @@
 /**
- * SA-facing input schemas for the data-model planning tool
- * (`generateSchema`) and the per-form Connect block the creation tools
+ * SA-facing input schemas for the data-model tool (`generateSchema` —
+ * it commits the case-type catalog onto the app) and the per-form
+ * close-condition + Connect shapes the creation tools and `updateForm`
  * share.
  *
  * Separate from the field-mutation tool schemas in `toolSchemas.ts`
@@ -24,8 +25,7 @@
  *
  * The shapes are structurally compatible with the corresponding domain
  * Zod schemas (e.g. `casePropertySchema` in `lib/domain/blueprint.ts`)
- * so a plan's case-type entries paste verbatim into `createModule`'s
- * `case_type_record` without reshaping.
+ * so a validated record lands on the catalog without reshaping.
  */
 
 import { z } from "zod";
@@ -153,9 +153,8 @@ const casePropertyDescribed = z
 	});
 
 /**
- * One case-type record — the shape a `generateSchema` plan entry carries
- * AND the shape `createModule`'s `case_type_record` accepts, so a plan
- * section pastes into the creation call verbatim.
+ * One case-type record — the shape each `generateSchema` entry carries;
+ * the tool commits it onto the app's case-type catalog.
  */
 export const caseTypeRecordSchema = z
 	.object({
@@ -232,6 +231,30 @@ export const caseTypesOutputSchema = z.object({
 		.describe("Case types and their properties"),
 });
 
+// ── Per-form close condition ────────────────────────────────────────
+
+/**
+ * A close form's conditional-close input — the ONE SA-facing shape,
+ * shared by the creation tools (`createForm` / `createModule`) and
+ * `updateForm`. `field` names the checked field by its bare id; each
+ * tool resolves it to the stored uuid against its own context (the doc
+ * for an edit, the doc-plus-batch overlay for a creation, so the
+ * condition can name a field landing in the same call).
+ */
+export const closeConditionInputSchema = z
+	.object({
+		field: z.string().describe("Field id to check"),
+		answer: z.string().describe("Value that triggers closure"),
+		operator: z
+			.enum(["=", "selected"])
+			.nullable()
+			.optional()
+			.describe(
+				'"=" for exact match (default — null uses it). "selected" for multi-select fields.',
+			),
+	})
+	.strict();
+
 // ── Per-form Connect block ──────────────────────────────────────────
 
 /**
@@ -293,7 +316,7 @@ export const connectFormConfigSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"Set on forms with a quiz/test. `user_score` is an XPath resolving to the user's score, typically `#form/<hidden_score_field>`.",
+				"Set on forms with a quiz/test; null on content-only forms. `user_score` is an XPath resolving to the user's score, typically `#form/<hidden_score_field>`.",
 			),
 		deliver_unit: z
 			.object({
@@ -304,12 +327,28 @@ export const connectFormConfigSchema = z
 					.optional()
 					.describe(CONNECT_ID_FIELD_DESCRIPTION),
 				name: z.string().min(1),
+				entity_id: z
+					.string()
+					.min(1)
+					.nullable()
+					.optional()
+					.describe(
+						"XPath dedup key grouping submissions into one paid delivery (CompletedWork). Omit for the daily-aggregate default; override per the Connect guidance in your instructions.",
+					),
+				entity_name: z
+					.string()
+					.min(1)
+					.nullable()
+					.optional()
+					.describe(
+						"XPath for the human-readable delivery label in Connect dashboards. Display-only; omit for the username default.",
+					),
 			})
 			.strict()
 			.nullable()
 			.optional()
 			.describe(
-				"Set on a deliver-app form that counts as a payable delivery. Connect's deliver-unit picker reads these from the released CCZ.",
+				"Set on a deliver-app form that counts as a payable delivery; `name` shows in Connect's deliver-unit picker.",
 			),
 		task: z
 			.object({

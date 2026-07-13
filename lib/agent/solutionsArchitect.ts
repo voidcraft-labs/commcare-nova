@@ -70,22 +70,6 @@ import { updateFormTool } from "./tools/updateForm";
 import { updateModuleTool } from "./tools/updateModule";
 import { wireToolSchema } from "./wireSchemas";
 
-/**
- * Names of SA tools exposed only in build mode. Declared as module-scope
- * string literals so `BuildOnlyToolName` can pin them: the factory applies a
- * matching `satisfies Record<BuildOnlyToolName, …>` to its planning-tool
- * record, so adding/removing/renaming a planning tool without updating this
- * list breaks compilation.
- *
- * NOT used to strip message history — the chat route drops any tool-use part
- * whose name isn't in the live tool set (`Object.keys(sa.tools)`), which
- * covers build-only AND removed/renamed tools without a hand-kept list. So
- * this const is purely the compile-time tie for the build/edit tool split.
- */
-const BUILD_ONLY_TOOL_NAMES = ["generateSchema"] as const;
-
-type BuildOnlyToolName = (typeof BUILD_ONLY_TOOL_NAMES)[number];
-
 // ── Solutions Architect Agent ────────────────────────────────────────
 
 /**
@@ -295,24 +279,6 @@ export function createSolutionsArchitect(
 		};
 	}
 
-	// ── Planning tool (build mode only) ───────────────────────────────
-	// The one pure planning step of a new build: the data model. It
-	// records its plan in the conversation (the tool input IS the plan)
-	// and writes nothing — execution happens through the shared creation
-	// tools, one `createModule` per module of the design the SA reasoned
-	// through. Excluded in edit mode: an existing app's structure is the
-	// plan.
-	//
-	// `satisfies Record<BuildOnlyToolName, unknown>` ties the record's keys
-	// to `BUILD_ONLY_TOOL_NAMES`: adding, removing, or renaming a key
-	// (without updating the module-scope list) is a compile error. That
-	// keeps the chat route's history-strip filter aligned with whatever
-	// the factory actually registers.
-
-	const generationTools = {
-		generateSchema: wrapRead(generateSchemaTool),
-	} satisfies Record<BuildOnlyToolName, unknown>;
-
 	// ── Shared tools (all modes) ─────────────────────────────────────
 	// Conversation, batch add, read, mutation, and validation tools.
 
@@ -328,6 +294,13 @@ export function createSolutionsArchitect(
 		},
 
 		addFields: wrapMutating(addFieldsTool),
+
+		// ── Data model ─────────────────────────────────────────────────
+		// Commits the case-type catalog (and the app name) onto the doc —
+		// a build's first call, and how a NEW case type enters an existing
+		// app. `createModule` references the recorded types by name.
+
+		generateSchema: wrapMutating(generateSchemaTool),
 
 		// ── Read ────────────────────────────────────────────────────────
 
@@ -407,11 +380,11 @@ export function createSolutionsArchitect(
 	};
 
 	// ── Compose tools and build agent ────────────────────────────────
-	// Edit mode: only shared tools (read + mutation). Build mode: shared
-	// tools + the two planning tools. There is no finishing tool — the
-	// route finalizes a build when the run's drain ends.
+	// One tool set for both modes (generateSchema included — it's how a
+	// new case type enters an existing app too). There is no finishing
+	// tool — the route finalizes a build when the run's drain ends.
 
-	const tools = editing ? sharedTools : { ...sharedTools, ...generationTools };
+	const tools = sharedTools;
 
 	const agent = new ToolLoopAgent({
 		// Build and edit run different tiers: a ground-up build gets the
