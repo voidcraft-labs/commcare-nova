@@ -46,11 +46,13 @@ import {
 	computeEventKindCounts,
 	computeMutationsByStage,
 	computeTimeline,
+	computeToolErrors,
 	computeToolUsage,
 	groupByRun,
 } from "./lib/log-stats";
 import { requireArg, runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
+import { describeUnknownId } from "./lib/resolveId";
 import type { ConversationPayload, Event } from "./lib/types";
 
 // ── CLI argument parsing ────────────────────────────────────────────
@@ -61,6 +63,7 @@ interface InspectLogsOptions {
 	timeline?: boolean;
 	tools?: boolean;
 	stages?: boolean;
+	errors?: boolean;
 	run?: string;
 	last?: number;
 	prod?: boolean;
@@ -99,6 +102,10 @@ program
 	.option("--timeline", "per-run event-time-gap table")
 	.option("--tools", "per-run tool-call distribution")
 	.option("--stages", "per-run mutations-by-stage counts")
+	.option(
+		"--errors",
+		"per-run errored tool calls + run-level errors, full messages",
+	)
 	.option("--run <runId>", "only show events for this run")
 	.option(
 		"--last <n>",
@@ -115,6 +122,7 @@ program
 			"  $ npx tsx scripts/inspect-logs.ts <appId>\n" +
 			"  $ npx tsx scripts/inspect-logs.ts <appId> --runs\n" +
 			"  $ npx tsx scripts/inspect-logs.ts <appId> --timeline --tools\n" +
+			"  $ npx tsx scripts/inspect-logs.ts <appId> --errors\n" +
 			"  $ npx tsx scripts/inspect-logs.ts <appId> --run=<runId> --verbose\n" +
 			"  $ npx tsx scripts/inspect-logs.ts <appId> --last=50\n",
 	);
@@ -132,6 +140,7 @@ const showRunsTable = opts.runs === true;
 const showTimeline = opts.timeline === true;
 const showTools = opts.tools === true;
 const showStages = opts.stages === true;
+const showErrors = opts.errors === true;
 /* `opts.run` already widens from `InspectLogsOptions`; no annotation needed.
  * `lastN` keeps its explicit `number` annotation because the ?? 0 collapses
  * `number | undefined` to `number`, and the annotation documents the coercion. */
@@ -143,7 +152,7 @@ const lastN: number = opts.last ?? 0;
  * run summary header is always shown regardless.
  */
 const hasAnalyticalView =
-	showRunsTable || showTimeline || showTools || showStages;
+	showRunsTable || showTimeline || showTools || showStages || showErrors;
 
 /**
  * `--runs` is the only view that can render without touching the events
@@ -153,7 +162,12 @@ const hasAnalyticalView =
  * we skip the full-events scan entirely.
  */
 const runsTableOnly =
-	showRunsTable && !showTimeline && !showTools && !showStages && !runFilter;
+	showRunsTable &&
+	!showTimeline &&
+	!showTools &&
+	!showStages &&
+	!showErrors &&
+	!runFilter;
 
 // ── Data loading ────────────────────────────────────────────────────
 
@@ -368,6 +382,23 @@ function formatEventCounts(events: Event[]): string {
 	return parts.join(" | ");
 }
 
+/**
+ * Error one-liner for the run header — ALWAYS printed, so a zero reads as
+ * explicit success rather than "nobody looked". Errored tool calls hide
+ * inside `tool-result` outputs (the kind counts above can't see them),
+ * which is exactly why they get their own line; `--errors` renders the
+ * full messages.
+ */
+function formatErrorCounts(events: Event[]): string {
+	const toolErrors = computeToolErrors(events).length;
+	const runErrors = events.filter(
+		(e) => e.kind === "conversation" && e.payload.type === "error",
+	).length;
+	const note =
+		toolErrors + runErrors > 0 && !showErrors ? " (--errors for detail)" : "";
+	return `Errors: ${toolErrors} tool, ${runErrors} run-level${note}`;
+}
+
 // ── Analytical views ────────────────────────────────────────────────
 
 /**
@@ -497,6 +528,47 @@ function printToolsView(events: Event[]): void {
 	);
 }
 
+/**
+ * Render the --errors view: every errored tool call plus every run-level
+ * `error` event, with FULL messages — the highest-signal rows in a run's
+ * log, extracted first-class so finding them never needs `--verbose` +
+ * grep. A rejected tool call is the agent colliding with the commit gate
+ * or a tool contract; a run-level error is the classified failure that
+ * ended (or interrupted) the run.
+ */
+function printErrorsView(events: Event[]): void {
+	const toolErrors = computeToolErrors(events);
+	const runErrors = events.flatMap((e) =>
+		e.kind === "conversation" && e.payload.type === "error"
+			? [{ seq: e.seq, ts: e.ts, error: e.payload.error }]
+			: [],
+	);
+
+	printSection("Errors");
+	if (toolErrors.length === 0 && runErrors.length === 0) {
+		console.log(
+			"  (none — every tool call succeeded and no run-level error was recorded)",
+		);
+		return;
+	}
+	for (const e of toolErrors) {
+		console.log(
+			`\n  [seq=${String(e.seq).padStart(4)}] ${formatTime(e.ts)}  ${e.toolName} (${e.toolCallId.slice(0, 8)})`,
+		);
+		for (const line of e.error.split("\n")) {
+			console.log(`      ${line}`);
+		}
+	}
+	for (const e of runErrors) {
+		console.log(
+			`\n  [seq=${String(e.seq).padStart(4)}] ${formatTime(e.ts)}  run-level [${e.error.type}]${e.error.fatal ? " FATAL" : ""}`,
+		);
+		for (const line of e.error.message.split("\n")) {
+			console.log(`      ${line}`);
+		}
+	}
+}
+
 /** Render the --stages mutations-by-stage table. */
 function printStagesView(events: Event[]): void {
 	const stages = computeMutationsByStage(events);
@@ -542,6 +614,9 @@ async function main() {
 		console.log(
 			`  App: ${appId}${runFilter ? ` (run=${runFilter})` : ""}\n  No events found.`,
 		);
+		for (const line of await describeUnknownId(appId, opts.prod === true)) {
+			console.log(`  ${line}`);
+		}
 		return;
 	}
 
@@ -594,6 +669,7 @@ async function main() {
 			`\n── Run ${runId.slice(0, 8)}… ─────────────────────────────────────`,
 		);
 		console.log(`  ${formatEventCounts(runEvents)}`);
+		console.log(`  ${formatErrorCounts(runEvents)}`);
 
 		if (summary) {
 			console.log();
@@ -605,6 +681,7 @@ async function main() {
 		if (showTimeline) printTimelineView(runEvents);
 		if (showTools) printToolsView(runEvents);
 		if (showStages) printStagesView(runEvents);
+		if (showErrors) printErrorsView(runEvents);
 
 		/* Default view: dump every event unless an analytical-only view was
 		 * requested. --runs is treated as analytical because the table up top
