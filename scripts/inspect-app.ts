@@ -33,6 +33,7 @@ import {
 } from "./lib/format";
 import { requireArg, runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
+import { describeUnknownId } from "./lib/resolveId";
 import type { BlueprintDoc, Form, Module, RunSummaryDoc } from "./lib/types";
 
 // ── CLI argument parsing ────────────────────────────────────────────
@@ -137,7 +138,11 @@ async function main() {
 	const data = await loadApp(appId);
 	if (!data) {
 		console.error(`App ${appId} not found.`);
-		process.exit(1);
+		for (const line of await describeUnknownId(appId, opts.prod === true)) {
+			console.error(`  ${line}`);
+		}
+		process.exitCode = 1;
+		return;
 	}
 
 	/* The app row carries the `PersistableDoc` shape (no `fieldParent`),

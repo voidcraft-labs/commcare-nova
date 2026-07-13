@@ -103,6 +103,51 @@ export function computeToolUsage(events: Event[]): ToolUsageRow[] {
 	);
 }
 
+// ── Tool errors ─────────────────────────────────────────────────────
+
+/**
+ * A single errored tool call: a `tool-result` whose output carries the
+ * `{ error }` envelope. Covers BOTH failure shapes the writer records
+ * under that envelope — a tool body's handled rejection (the commit
+ * gate's "This change wasn't applied — …", an unknown-entity refusal)
+ * and an SDK-level failure `handleAgentStep` folds in (input the schema
+ * rejected before `execute`, or an execution throw).
+ */
+export interface ToolErrorRow {
+	seq: number;
+	ts: number;
+	toolName: string;
+	toolCallId: string;
+	/** The full error text, verbatim — the message is the diagnosis. */
+	error: string;
+}
+
+/**
+ * Every errored tool call in the slice, in event order. The errors are
+ * the highest-signal rows in a run's log — a rejected call is the agent
+ * colliding with the commit gate or the tool contract — so they get a
+ * first-class extraction instead of a `--verbose` dump + grep.
+ */
+export function computeToolErrors(events: Event[]): ToolErrorRow[] {
+	const rows: ToolErrorRow[] = [];
+	for (const event of events) {
+		if (event.kind !== "conversation") continue;
+		const p = event.payload;
+		if (p.type !== "tool-result") continue;
+		const out = p.output;
+		if (typeof out === "object" && out !== null && "error" in out) {
+			rows.push({
+				seq: event.seq,
+				ts: event.ts,
+				toolName: p.toolName,
+				toolCallId: p.toolCallId,
+				error: String((out as { error: unknown }).error),
+			});
+		}
+	}
+	return rows;
+}
+
 // ── Timeline ────────────────────────────────────────────────────────
 
 /** A single row in the timeline-gap table. */
