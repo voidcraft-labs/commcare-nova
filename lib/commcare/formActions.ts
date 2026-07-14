@@ -25,12 +25,12 @@ import {
 	neverCondition,
 	RESERVED_CASE_PROPERTIES,
 } from "@/lib/commcare";
+import { caseTypeDepthMap } from "@/lib/commcare/hashtags/formContext";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	type Field,
-	reachableCaseTypes,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -347,8 +347,8 @@ export function buildFormActions(
  *
  * Every extracted ref is translated through `hqLoadReference` into the
  * `#case/`-generation vocabulary HQ's metadata layer parses — `moduleCaseType`
- * feeds the same `reachableCaseTypes` depth map the XForm builder resolves
- * per-type namespaces with, so the load map and the binds name the same case.
+ * feeds the same `caseTypeDepthMap` the XForm builder resolves per-type
+ * namespaces with, so the load map and the binds name the same case.
  */
 export function buildCaseReferencesLoad(
 	doc: BlueprintDoc,
@@ -357,17 +357,22 @@ export function buildCaseReferencesLoad(
 	moduleCaseType?: string,
 ): Record<string, string[]> {
 	const load: Record<string, string[]> = {};
-	const caseTypeDepths: ReadonlyMap<string, number> = new Map(
-		reachableCaseTypes(moduleCaseType, doc.caseTypes ?? []).map((t) => [
-			t.name,
-			t.depth,
-		]),
-	);
+	const caseTypeDepths = caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []);
+	// The one legal case ref on a registration form — `#<own_type>/case_id` /
+	// transitional `#case/case_id` — is NOT a case load: the XForm side expands
+	// it to the form-local `/data/case/@case_id` (the registration narrowing in
+	// `hashtags/formContext.ts`), so recording it here would tell HQ's App
+	// Summary the form reads `case_id` from a case database it never touches.
+	// Vanilla parity: HQ's editor can't author case refs on a non-case-loading
+	// form at all, so its load map for a registration form is empty.
+	const isRegistration = doc.forms[formUuid].type === "registration";
 	// Translate + dedupe (`#<own_type>/x` and a transitional `#case/x` in the
 	// same field's expressions collapse to one entry).
 	const toLoadRefs = (exprs: string[]): string[] => [
 		...new Set(
-			extractHashtags(exprs).map((ref) => hqLoadReference(ref, caseTypeDepths)),
+			extractHashtags(exprs)
+				.map((ref) => hqLoadReference(ref, caseTypeDepths))
+				.filter((ref) => !(isRegistration && ref === "#case/case_id")),
 		),
 	];
 

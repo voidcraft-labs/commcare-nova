@@ -11,7 +11,6 @@ import {
 	expandHashtags,
 	extractHashtags,
 	formShell,
-	hasHashtags,
 	ifCondition,
 	isReservedProperty,
 	moduleShell,
@@ -173,14 +172,6 @@ describe("hashtag expansion", () => {
 
 	it("expandHashtags leaves plain /data/ paths untouched", () => {
 		expect(expandHashtags("/data/age > 18")).toBe("/data/age > 18");
-	});
-
-	it("hasHashtags detects presence", () => {
-		expect(hasHashtags("#case/name")).toBe(true);
-		expect(hasHashtags("#user/role")).toBe(true);
-		expect(hasHashtags("#form/age")).toBe(true);
-		expect(hasHashtags("plain text")).toBe(false);
-		expect(hasHashtags("/data/age")).toBe(false);
 	});
 
 	it("extractHashtags collects unique references", () => {

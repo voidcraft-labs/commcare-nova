@@ -1831,12 +1831,14 @@ describe("#form/ hashtag expansion", () => {
 			"#case/parent/household_code",
 		).replaceAll("'", "&apos;");
 		expect(xform).toContain(`calculate="${escapedWalk}"`);
-		// The shadow is PROJECTED into the editor's vocabulary — HQ's form
-		// designer has no `#mother` namespace (its data sources speak exactly
-		// `#case/`, `#case/parent/`, `#case/grandparent/`), and an unknown
-		// namespace makes it re-serialize the raw hashtag into the real
-		// attribute on the user's next save.
-		expect(xform).toContain('vellum:calculate="#case/parent/household_code"');
+		// No shadow at all for an ancestor ref: HQ's editor has no `#mother`
+		// namespace, and even `#case/parent/` is only present when the app's own
+		// forms establish the relationship (`get_case_relationships` derives the
+		// generations from in-app subcase actions, not Nova's catalog) — an
+		// unexpandable shadow would be re-serialized raw into the real attribute
+		// on the user's next editor save. The expanded attribute alone
+		// round-trips as plain XPath.
+		expect(xform).not.toContain("vellum:calculate=");
 		expect(xform).not.toContain("#mother/");
 		// A per-type ref needs casedb just like `#case/` — the instance MUST be
 		// declared, or the emitted lookup references a non-existent source.
@@ -1885,12 +1887,11 @@ describe("#form/ hashtag expansion", () => {
 		const escapedWalk = expandHashtags(
 			"#case/parent/household_code",
 		).replaceAll("'", "&apos;");
-		// Prose lowers to an `<output>` carrying the resolved parent-index walk,
-		// with the `vellum:value` shadow projected into the editor's vocabulary
-		// (never the raw `#mother/` per-type namespace).
-		expect(xform).toContain(
-			`<output value="${escapedWalk}" vellum:value="#case/parent/household_code"/>`,
-		);
+		// Prose lowers to an `<output>` carrying the resolved parent-index walk.
+		// No `vellum:value` shadow: an ancestor generation isn't guaranteed
+		// vocabulary in HQ's editor (see the calculate variant of this test), and
+		// the raw `#mother/` per-type namespace must never reach the wire.
+		expect(xform).toContain(`<output value="${escapedWalk}"/>`);
 		expect(xform).not.toContain("#mother/");
 		// Prose case refs force the casedb instance declaration too.
 		expect(xform).toContain(
@@ -1985,6 +1986,55 @@ describe("#form/ hashtag expansion", () => {
 		// case_references load map speaks the same #case vocabulary.
 		const load = hq.modules[0].forms[0].case_references_data.load;
 		expect(load["/data/penicillin_allergy_alert"]).toEqual(["#case/allergen"]);
+	});
+
+	it("records no case_id load for a registration form — the ref reads the form-local new-case id", () => {
+		// `#<own_type>/case_id` on a registration form expands to
+		// `/data/case/@case_id` (the registration narrowing), not a casedb read,
+		// so a `#case/case_id` load entry would tell HQ's App Summary the form
+		// loads a case property it never touches.
+		const doc = buildDoc({
+			appName: "RegLoad",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([{ field: "name", header: "Name" }]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									kind: "hidden",
+									id: "tracking_code",
+									calculate: "concat('P-', #patient/case_id)",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "name", label: "Name" }] },
+			],
+		});
+		const hq = expandDoc(doc);
+		expect(hq.modules[0].forms[0].case_references_data.load).toEqual({});
+		// The XForm side reads the form-local allocated id, with no shadow (a
+		// registration form has no case vocabulary in HQ's editor).
+		const xform = Object.values(hq._attachments)[0] as string;
+		expect(xform).toContain(
+			'calculate="concat(&apos;P-&apos;, /data/case/@case_id)"',
+		);
+		expect(xform).not.toContain("vellum:calculate=");
+		expect(xform).not.toContain("#patient/");
 	});
 
 	it("keeps an unresolvable prose token literal — no <output>, no casedb", () => {

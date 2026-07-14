@@ -46,6 +46,7 @@ import {
 	splitCaseSegments,
 	VELLUM_CASE_GENERATION_PREFIXES,
 } from "@/lib/commcare/hashtags";
+import { type CaseType, reachableCaseTypes } from "@/lib/domain";
 
 /**
  * The form-shape inputs the hashtag resolver needs.
@@ -54,10 +55,10 @@ export interface FormHashtagContext {
 	readonly formType: "registration" | "followup" | "close" | "survey";
 	/**
 	 * Case-type name → parent-index hop count from the form's own loaded case
-	 * (own = 0, parent = 1, grandparent = 2, …). Built by the CALLER from
-	 * `lib/domain/caseTypes.ts::reachableCaseTypes`. A `#<type>/<prop>` ref
-	 * resolves by looking its namespace up here and reusing the parent-index
-	 * walk `#case/parent…` already emits. Empty when the form has no case type.
+	 * (own = 0, parent = 1, grandparent = 2, …). Built by the CALLER via
+	 * {@link caseTypeDepthMap}. A `#<type>/<prop>` ref resolves by looking its
+	 * namespace up here and reusing the parent-index walk `#case/parent…`
+	 * already emits. Empty when the form has no case type.
 	 */
 	readonly caseTypeDepths: ReadonlyMap<string, number>;
 }
@@ -110,61 +111,97 @@ export function expandHashtagsInContext(
 }
 
 /**
+ * The form's readable case-type depth map, name → parent-index hop count
+ * (own = 0, parent = 1, …), built from the module's case type. The ONE
+ * construction both wire builders share — `xform/builder.ts::buildXForm`
+ * resolves `#<type>/` refs through it and `formActions.ts::
+ * buildCaseReferencesLoad` translates its load entries through it, and the
+ * two MUST agree or the load map names a different case than the binds.
+ */
+export function caseTypeDepthMap(
+	moduleCaseType: string | undefined,
+	caseTypes: CaseType[],
+): ReadonlyMap<string, number> {
+	return new Map(
+		reachableCaseTypes(moduleCaseType, caseTypes).map((t) => [t.name, t.depth]),
+	);
+}
+
+/**
  * Project `expr` into HQ's EDITOR vocabulary for the `vellum:*` shadow
  * attributes, or return `undefined` when no shadow should be emitted.
  *
- * The form designer's hashtag vocabulary is fixed by HQ's data sources —
- * namespaces `#form` / `#case` / `#user`, with exactly three case generations
- * (`#case/`, `#case/parent/`, `#case/grandparent/` — see
- * `VELLUM_CASE_GENERATION_PREFIXES`). Nova's per-case-type namespaces are NOT
- * in it: the editor's XPath engine rejects an unknown namespace at parse
- * (`Vellum/src/xpath.js::isValidNamespace`), marks the whole expression
- * unparseable, and re-serializes it VERBATIM into the real attribute on the
- * user's next save (`util.js::writeHashtags`'s catch path) — shipping raw
- * hashtags to a wire that only speaks XPath. So every shadow must be spelled
- * in the editor's own vocabulary, and a ref with no editor spelling must
- * suppress the shadow entirely (the expanded real attribute alone round-trips
- * as plain XPath).
+ * The form designer's hashtag vocabulary is fixed by HQ's data sources, and a
+ * shadow spelled outside it is actively destructive: the editor's XPath engine
+ * rejects an unknown namespace at parse (`Vellum/src/xpath.js::
+ * isValidNamespace`), marks the whole expression unparseable, and re-serializes
+ * it VERBATIM into the real attribute on the user's next save
+ * (`util.js::writeHashtags`'s catch path) — raw hashtags on a wire that only
+ * speaks XPath, failing HQ's next build. So a shadow emits ONLY when its
+ * vocabulary is GUARANTEED present in the editor for this form; everything
+ * else suppresses the shadow, and the expanded real attribute alone
+ * round-trips as plain XPath (when the editor does know the vocabulary, its
+ * reverse map re-derives the shorthand from the expansion).
  *
- * Per-ref rules:
+ * What HQ's editor is guaranteed to know, per form:
  *
- *   - `#form/` / `#user/` — already editor vocabulary; kept verbatim.
- *   - any case ref on a REGISTRATION form — no shadow. HQ only feeds the
- *     editor case data sources when the form loads a case
- *     (`casedb_schema.py::get_casedb_schema` gates the subsets on
- *     `form.requires_case()`), so even `#case/` is an unknown namespace there.
- *   - `#<case_type>/<prop>` — namespace depth from `caseTypeDepths` picks the
- *     generation prefix; depth ≥ 3 has no editor spelling.
- *   - transitional `#case/…` — leading `parent` segments count into the hop
- *     depth (`#case/parent/parent/x` → `#case/grandparent/x`).
- *   - the property must be a SINGLE plain segment, not named `parent` /
- *     `grandparent`: the editor expands an unlisted hashtag by everything up
- *     to its LAST slash (`Vellum/src/xpath.js::hashtagToXPath`), so a
- *     multi-segment property has no known prefix, and a relationship-named
- *     property would be read as a WALK — both diverge from the expanded
- *     attribute, so both suppress the shadow.
+ *   - `#form/` — always (`Vellum/src/form.js` seeds it unconditionally).
+ *   - `#case/<prop>` (single plain segment) — whenever the form LOADS a case:
+ *     `casedb_schema.py::get_casedb_schema` gates the case subsets on
+ *     `form.requires_case()`, and generation 0 is unconditional inside that
+ *     gate. Nova uploads `followup`/`close` forms with `requires: "case"`
+ *     (`CASE_LOADING_FORM_TYPES`); registration and survey forms upload with
+ *     `requires: "none"`, so even `#case/` is unknown vocabulary there.
+ *
+ * Everything else is only CONDITIONALLY present, so it never gets a shadow:
+ *
+ *   - `#user/` — gated on `domain_has_usercase_access(app.domain)`, a target-
+ *     domain privilege Nova cannot know at emission time (off by default).
+ *   - `#case/parent/` / `#case/grandparent/` (depth ≥ 1 refs, whether spelled
+ *     per-type or as transitional `parent` chains) — HQ derives the parent
+ *     generations from the app's own STRUCTURE, not from any catalog:
+ *     `case_properties.py::get_case_relationships` collects case-subcase
+ *     relationships "appearing in all relevant forms", so a catalog parent
+ *     link with no in-app subcase form gives the editor no parent generation.
+ *   - Nova's per-case-type namespaces, multi-segment properties, properties
+ *     named after a relationship word — no editor spelling at all (the editor
+ *     expands an unlisted hashtag by prefix up to its LAST slash,
+ *     `Vellum/src/xpath.js::hashtagToXPath`).
+ *
+ * The head-element fallback can't rescue any of these: it is read only while
+ * HQ's data sources load, and `Vellum/src/form.js::_updateHashtags` resets the
+ * namespaces to `{form: true}` + data sources once they arrive.
+ *
+ * `onRef` (when provided) receives each translated ref alongside its expanded
+ * XPath — both computed in this single parse pass — but ONLY when the whole
+ * expression is translatable (i.e. exactly the refs a caller may publish as
+ * head metadata). `#form/` refs are not reported: they expand to plain in-form
+ * paths and carry no head metadata in vanilla output.
  *
  * An expression with no hashtags at all needs no shadow → `undefined`.
  */
 export function vellumShorthandInContext(
 	expr: string,
 	ctx: FormHashtagContext,
+	onRef?: (editorRef: string, expandedRef: string) => void,
 ): string | undefined {
 	if (!expr) return undefined;
-	const isRegistration = ctx.formType === "registration";
+	const caseVocabulary =
+		ctx.formType === "followup" || ctx.formType === "close";
 	let sawHashtag = false;
 	let untranslatable = false;
+	const refs: Array<[editorRef: string, expandedRef: string]> = [];
 
 	const out = rewriteHashtags(expr, (typeName, segments) => {
 		sawHashtag = true;
-		// `#form/` / `#user/` are the editor's own flat namespaces.
-		if (typeName === "form" || typeName === "user") return undefined;
+		// `#form/` is the editor's own namespace on every form.
+		if (typeName === "form") return undefined;
 
 		const fail = (): undefined => {
 			untranslatable = true;
 			return undefined;
 		};
-		if (isRegistration) return fail();
+		if (typeName === "user" || !caseVocabulary) return fail();
 
 		let hops: number;
 		let propSegments: string[];
@@ -179,12 +216,17 @@ export function vellumShorthandInContext(
 			propSegments = segments;
 		}
 
-		const prefix = VELLUM_CASE_GENERATION_PREFIXES[hops];
-		if (prefix === undefined || propSegments.length !== 1) return fail();
+		// Only the guaranteed generation: the form's own loaded case (depth 0).
+		if (hops !== 0 || propSegments.length !== 1) return fail();
 		const prop = propSegments[0];
 		if (prop === "parent" || prop === "grandparent") return fail();
-		return prefix + prop;
+		const editorRef = `${VELLUM_CASE_GENERATION_PREFIXES[0]}${prop}`;
+		refs.push([editorRef, expandCaseToWire(0, prop)]);
+		return editorRef;
 	});
 
-	return sawHashtag && !untranslatable ? out : undefined;
+	if (!sawHashtag || untranslatable) return undefined;
+	if (onRef)
+		for (const [editorRef, expandedRef] of refs) onRef(editorRef, expandedRef);
+	return out;
 }

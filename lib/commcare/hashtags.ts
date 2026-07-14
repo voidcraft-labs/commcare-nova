@@ -252,16 +252,6 @@ export function expandHashtags(expr: string): string {
 	);
 }
 
-/** Returns true if the expression contains any HashtagRef nodes. */
-export function hasHashtags(expr: string): boolean {
-	if (!expr) return false;
-	const cursor = parser.parse(expr).cursor();
-	do {
-		if (cursor.type === T.HashtagRef) return true;
-	} while (cursor.next());
-	return false;
-}
-
 /**
  * Extract every case-bound hashtag reference from XPath expressions: `#case/…`,
  * `#user/…`, and every `#<case_type>/…` per-type ref — i.e. every namespace
@@ -293,7 +283,7 @@ export function extractHashtags(exprs: string[]): string[] {
 
 /** Parse the namespace out of a full hashtag ref string (`#mother/x` → `mother`).
  *  Returns `undefined` for a malformed ref (no leading `#` or no segment). */
-export function hashtagNamespace(ref: string): string | undefined {
+function hashtagNamespace(ref: string): string | undefined {
 	const slash = ref.indexOf("/");
 	return ref.startsWith("#") && slash > 1 ? ref.slice(1, slash) : undefined;
 }

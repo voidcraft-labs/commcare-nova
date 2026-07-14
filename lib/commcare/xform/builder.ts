@@ -38,7 +38,6 @@ import type { ChildNode, Element } from "domhandler";
 import { decodeXML } from "entities";
 import {
 	buildVellumTransforms,
-	extractHashtags,
 	RESERVED_XFORM_NODE_PREFIX,
 	supportsValidation,
 } from "@/lib/commcare";
@@ -50,6 +49,7 @@ import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import { readFieldString } from "@/lib/commcare/fieldProps";
 import {
+	caseTypeDepthMap,
 	expandHashtagsInContext,
 	type FormHashtagContext,
 	vellumShorthandInContext,
@@ -61,14 +61,13 @@ import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { FormPath } from "@/lib/commcare/xform/formPath";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { bySortKey } from "@/lib/doc/order/compare";
-import {
-	type BlueprintDoc,
-	type Field,
-	type FieldKind,
-	type Media,
-	reachableCaseTypes,
-	type SelectOption,
-	type Uuid,
+import type {
+	BlueprintDoc,
+	Field,
+	FieldKind,
+	Media,
+	SelectOption,
+	Uuid,
 } from "@/lib/domain";
 
 /**
@@ -430,16 +429,16 @@ export function buildXForm(
 	const form = doc.forms[formUuid];
 
 	// The case types this form can READ, name → parent-index hop depth (own = 0,
-	// parent = 1, …). Built from the owning module's case type via
-	// `reachableCaseTypes` — the SAME source the deep validator's accept map
-	// reads — so a `#<type>/<prop>` ref the validator accepted resolves on the
-	// wire to the matching `…/index/parent × depth …/<prop>` walk. Empty when the
-	// module has no case type.
-	const caseTypeDepths: ReadonlyMap<string, number> = new Map(
-		reachableCaseTypes(opts.moduleCaseType, doc.caseTypes ?? []).map((t) => [
-			t.name,
-			t.depth,
-		]),
+	// parent = 1, …). Built from the owning module's case type via the shared
+	// `caseTypeDepthMap` — the SAME construction `buildCaseReferencesLoad`
+	// translates its load entries through, and the same `reachableCaseTypes`
+	// source the deep validator's accept map reads — so a `#<type>/<prop>` ref
+	// the validator accepted resolves on the wire to the matching
+	// `…/index/parent × depth …/<prop>` walk and the load map names the same
+	// case as the binds. Empty when the module has no case type.
+	const caseTypeDepths = caseTypeDepthMap(
+		opts.moduleCaseType,
+		doc.caseTypes ?? [],
 	);
 	const caseTypeNames: ReadonlySet<string> = new Set(caseTypeDepths.keys());
 
@@ -477,23 +476,23 @@ export function buildXForm(
 	// Editor-vocabulary projector for the `vellum:*` shadow attributes, threaded
 	// like `expand`. Returns the shadow text (`#patient/x` → `#case/x`) or
 	// `undefined` when the slot must emit no shadow. As a side effect it
-	// accumulates every case/user ref it clears — in editor vocabulary, mapped to
-	// the same expansion the real attribute carries — into `vellumRefs`, which
-	// becomes the head-level `<vellum:hashtags>` / `<vellum:hashtagTransforms>`
-	// metadata (the shape Vellum's own writer produces and its parser consumes as
-	// the pre-datasources fallback).
+	// accumulates every case ref it clears — in editor vocabulary, mapped to the
+	// same expansion the real attribute carries, both computed in the
+	// projection's single parse pass — into `vellumRefs`, which becomes the
+	// head-level `<vellum:hashtags>` / `<vellum:hashtagTransforms>` metadata
+	// (the shape Vellum's own writer produces and its parser consumes as the
+	// pre-datasources fallback). Memoized per expression string: this runs
+	// inside the deep-validator compile loop on every commit-gated mutation
+	// batch, and labels alone invoke it twice per itext entry (plain +
+	// markdown `<value>`).
 	const vellumRefs = new Map<string, string>();
+	const shorthandMemo = new Map<string, string | undefined>();
 	const shorthand = (expr: string): string | undefined => {
-		const projected = vellumShorthandInContext(expr, formCtx);
-		if (projected === undefined) return undefined;
-		// `extractHashtags` yields the case/user refs only (`#form/` expands to a
-		// plain in-form path and carries no head metadata in vanilla output).
-		for (const ref of extractHashtags([expr])) {
-			const editorRef = vellumShorthandInContext(ref, formCtx);
-			if (editorRef !== undefined) {
-				vellumRefs.set(editorRef, expand(ref));
-			}
-		}
+		if (shorthandMemo.has(expr)) return shorthandMemo.get(expr);
+		const projected = vellumShorthandInContext(expr, formCtx, (ref, expanded) =>
+			vellumRefs.set(ref, expanded),
+		);
+		shorthandMemo.set(expr, projected);
 		return projected;
 	};
 
