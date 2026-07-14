@@ -396,9 +396,9 @@ export function createSolutionsArchitect(
 		/* Provider 5xx / 429 at request establishment retries with the SDK's
 		 * exponential backoff — 5 attempts (~30s of patience) instead of the
 		 * default 3, so a brief provider outage rides through rather than
-		 * failing + refunding the run. Mid-stream failures are NOT retried by
-		 * the SDK (see `errorClassifier`'s `api_server` branch); those still
-		 * surface to the user as a retryable error. */
+		 * failing + refunding the run. Mid-stream failures are past the SDK's
+		 * retry layer; the chat route's turn-level re-run (`lib/agent/turnRetry`)
+		 * owns those. */
 		maxRetries: 4,
 		prepareStep: () => {
 			// The canonical reasoning literal

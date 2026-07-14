@@ -7,6 +7,7 @@ import {
 	validateUIMessages,
 } from "ai";
 import {
+	buildTurnRetryContinuation,
 	classifyError,
 	countDocumentsNeedingRead,
 	createSolutionsArchitect,
@@ -14,6 +15,9 @@ import {
 	GenerationContext,
 	MESSAGES,
 	resolveAttachments,
+	shouldRetryTurn,
+	TURN_RETRY_MESSAGE,
+	turnRetryDelayMs,
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveActiveProjectId, resolveGatewayKey } from "@/lib/auth-utils";
@@ -1303,56 +1307,116 @@ export async function POST(req: Request) {
 					messages: effectiveMessages,
 					tools: sa.tools,
 				});
-				const modelMessages = await convertToModelMessages(validated, {
+				const baseModelMessages = await convertToModelMessages(validated, {
 					tools: sa.tools,
 				});
-				const result = await sa.stream({ prompt: modelMessages });
 
-				/* Drive the drain UN-awaited so the loop advances to its terminal state
-				 * even when the forward loop below stalls (client gone). Awaiting it
-				 * before forwarding would buffer the whole run and kill live streaming.
-				 * Swallow its rejection — a failure surfaces as the UI error chunk below,
-				 * not as a thrown drain. */
-				const drained = Promise.resolve(result.consumeStream()).catch(() => {});
-
-				/* Forward model chunks to the client AND detect a FATAL run failure in
-				 * one pass. A model/stream error arrives as a `{ type: "error" }` chunk
-				 * (never a throw), so the failure signal is THAT chunk, not merely
-				 * `onError` firing. `onError` also fires for `tool-input-error` /
-				 * `tool-output-error` chunks (a bad tool call, or a tool `execute()` throw)
-				 * that the SA loop recovers from and the run completes past, so keying
-				 * failure on any `onError` would wrongly fail a successful run (see
-				 * `isFatalStreamErrorChunk`). We stash the latest `onError` value, then
-				 * commit it as the fatal error only when the terminal `"error"` chunk
-				 * arrives. Nova surfaces the error via `ctx.emitError`, so the raw fatal
-				 * chunk is dropped; tool-error chunks forward like any other. A gone
-				 * client never surfaces here: the durable writer absorbs the failed
-				 * live forward internally and keeps appending to the chunk log — which
-				 * is exactly what a later resume replays — so this loop runs to the
-				 * stream's end either way (the catch is a last-resort guard). */
+				/* The turn runs inside a bounded TRANSIENT-failure re-run loop: a
+				 * provider fault mid-generation (a 500 halfway through a step, a
+				 * dropped provider connection) re-drives the SAME turn — same POST,
+				 * same claim + lease + charge, same open stream — instead of failing
+				 * the run and making the user retry by hand. This is safe because it
+				 * IS the manual retry, performed early: every tool batch committed
+				 * inline before the failure (nothing is lost or replayed), the SA
+				 * continues against that committed doc, and the validity gate rejects
+				 * duplicate structural work at commit — the same guarantees a user's
+				 * own re-send has always relied on. Non-transient failures
+				 * (`shouldRetryTurn`) and deauthorized runs never loop. Each retry
+				 * appends ONE continuation message carrying the committed-state
+				 * summary to the UNCHANGED base prompt (cache-friendly; never
+				 * stacked), and surfaces on the wire + event log as a RECOVERABLE
+				 * conversation event — visible in admin inspect, invisible as a
+				 * failure to the user. */
 				let pendingError: unknown;
 				let sawFatalError = false;
-				for await (const chunk of result.toUIMessageStream({
-					originalMessages: validated,
-					onError: (error) => {
-						pendingError = error;
-						return error instanceof Error ? error.message : String(error);
-					},
-				})) {
-					if (isFatalStreamErrorChunk(chunk.type)) {
-						sawFatalError = true;
-						continue;
-					}
-					try {
-						writer.write(chunk);
-					} catch {
-						break;
-					}
-				}
+				let turnRetries = 0;
+				for (;;) {
+					pendingError = undefined;
+					sawFatalError = false;
 
-				/* Block on the drain so finalization runs on the run's TRUE terminal
-				 * state even if forwarding broke off early when the client left. */
-				await drained;
+					const continuation =
+						turnRetries > 0
+							? (() => {
+									const committed = ctx.latestPersistedDoc();
+									return committed
+										? buildTurnRetryContinuation(committed)
+										: null;
+								})()
+							: null;
+					const result = await sa.stream({
+						prompt: continuation
+							? [...baseModelMessages, continuation]
+							: baseModelMessages,
+					});
+
+					/* Drive the drain UN-awaited so the loop advances to its terminal state
+					 * even when the forward loop below stalls (client gone). Awaiting it
+					 * before forwarding would buffer the whole run and kill live streaming.
+					 * Swallow its rejection — a failure surfaces as the UI error chunk below,
+					 * not as a thrown drain. */
+					const drained = Promise.resolve(result.consumeStream()).catch(
+						() => {},
+					);
+
+					/* Forward model chunks to the client AND detect a FATAL run failure in
+					 * one pass. A model/stream error arrives as a `{ type: "error" }` chunk
+					 * (never a throw), so the failure signal is THAT chunk, not merely
+					 * `onError` firing. `onError` also fires for `tool-input-error` /
+					 * `tool-output-error` chunks (a bad tool call, or a tool `execute()` throw)
+					 * that the SA loop recovers from and the run completes past, so keying
+					 * failure on any `onError` would wrongly fail a successful run (see
+					 * `isFatalStreamErrorChunk`). We stash the latest `onError` value, then
+					 * commit it as the fatal error only when the terminal `"error"` chunk
+					 * arrives. Nova surfaces the error via `ctx.emitError`, so the raw fatal
+					 * chunk is dropped; tool-error chunks forward like any other. A gone
+					 * client never surfaces here: the durable writer absorbs the failed
+					 * live forward internally and keeps appending to the chunk log — which
+					 * is exactly what a later resume replays — so this loop runs to the
+					 * stream's end either way (the catch is a last-resort guard). */
+					for await (const chunk of result.toUIMessageStream({
+						originalMessages: validated,
+						onError: (error) => {
+							pendingError = error;
+							return error instanceof Error ? error.message : String(error);
+						},
+					})) {
+						if (isFatalStreamErrorChunk(chunk.type)) {
+							sawFatalError = true;
+							continue;
+						}
+						try {
+							writer.write(chunk);
+						} catch {
+							break;
+						}
+					}
+
+					/* Block on the drain so finalization runs on the run's TRUE terminal
+					 * state even if forwarding broke off early when the client left. */
+					await drained;
+
+					/* Clean, paused, or deauthorized — the post-loop arms own all three.
+					 * A deauthorized run must never re-drive: the retry would run more
+					 * gated commits as an actor who lost access. */
+					if (!sawFatalError || ctx.reauthError()) break;
+					const classified = classifyError(
+						pendingError ??
+							new Error("The generation stream ended in an error."),
+					);
+					if (!shouldRetryTurn(classified, turnRetries)) break;
+					turnRetries += 1;
+					/* Recoverable, not fatal: renders as a warning in the signal panel
+					 * and lands in the event log with the REAL classified type — the
+					 * admin-inspect breadcrumb for diagnosing in-flight provider
+					 * faults. The user-facing message says work is preserved. */
+					ctx.emitError(
+						{ ...classified, message: TURN_RETRY_MESSAGE, recoverable: true },
+						"route:turn-retry",
+					);
+					await new Promise((r) =>
+						setTimeout(r, turnRetryDelayMs(turnRetries)),
+					);
+				}
 
 				/* A guarded commit that threw `CommitReauthError` (the actor lost
 				 * edit access mid-run) is a FATAL run failure that must take

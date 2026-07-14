@@ -204,10 +204,11 @@ export function classifyError(error: unknown): ClassifiedError {
 	// transient upstream failure the user can retry, not a Nova-internal
 	// defect. Without this branch the error falls to the `internal` bucket
 	// below, which tells the user "Something went wrong during generation." —
-	// implying our bug when the fault is upstream and retriable. (This
-	// corrects only the message and bucket. The SDK's `maxRetries` covers
-	// request *establishment*, so a mid-stream failure is still not
-	// auto-retried — the user re-runs by hand.)
+	// implying our bug when the fault is upstream and retriable. The bucket is
+	// load-bearing beyond the message: the SDK's `maxRetries` covers request
+	// *establishment* only, so a mid-stream failure reaches the chat route's
+	// turn-level re-run (`turnRetry.ts`), which keys on exactly these
+	// transient types.
 	if (
 		lowerMsg.includes("server_error") ||
 		lowerMsg.includes("the server had an error") ||
