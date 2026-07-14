@@ -1333,6 +1333,13 @@ export async function POST(req: Request) {
 				for (;;) {
 					pendingError = undefined;
 					sawFatalError = false;
+					/* The attempt's `finish` chunk, held back until the retry decision:
+					 * whether an errored stream emits one is SDK-internal, and
+					 * forwarding attempt N's finish before re-running would put TWO
+					 * finish chunks on one response — the client finalizes on the
+					 * first. Written through on every non-retry exit, so a clean turn's
+					 * wire is byte-identical to before. */
+					let heldFinish: Parameters<typeof writer.write>[0] | undefined;
 
 					const continuation =
 						turnRetries > 0
@@ -1384,6 +1391,10 @@ export async function POST(req: Request) {
 							sawFatalError = true;
 							continue;
 						}
+						if (chunk.type === "finish") {
+							heldFinish = chunk;
+							continue;
+						}
 						try {
 							writer.write(chunk);
 						} catch {
@@ -1396,14 +1407,29 @@ export async function POST(req: Request) {
 					await drained;
 
 					/* Clean, paused, or deauthorized — the post-loop arms own all three.
-					 * A deauthorized run must never re-drive: the retry would run more
-					 * gated commits as an actor who lost access. */
-					if (!sawFatalError || ctx.reauthError()) break;
+					 * A deauthorized run must never re-drive (the retry would run more
+					 * gated commits as an actor who lost access), and neither must a
+					 * PAUSED one: `pausedOnInput` is a one-way latch, so an
+					 * askQuestions round that completed before a trailing transient
+					 * error must keep today's semantics (the failure funnel) rather
+					 * than carry a stale pause latch into a retried attempt — a clean
+					 * attempt 2 would then wrongly park a finished run as
+					 * awaiting-input. */
+					if (!sawFatalError || ctx.reauthError() || ctx.pausedOnInput()) {
+						if (heldFinish !== undefined) writer.write(heldFinish);
+						break;
+					}
 					const classified = classifyError(
 						pendingError ??
 							new Error("The generation stream ended in an error."),
 					);
-					if (!shouldRetryTurn(classified, turnRetries)) break;
+					if (!shouldRetryTurn(classified, turnRetries)) {
+						/* Exhausted or non-transient — the failure funnel takes it from
+						 * here. Restore the held finish first so the failing wire matches
+						 * the pre-retry-loop encoding exactly. */
+						if (heldFinish !== undefined) writer.write(heldFinish);
+						break;
+					}
 					turnRetries += 1;
 					/* Recoverable, not fatal: renders as a warning in the signal panel
 					 * and lands in the event log with the REAL classified type — the
