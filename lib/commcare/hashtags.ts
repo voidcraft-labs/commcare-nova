@@ -3,8 +3,11 @@
  *
  * Uses the Lezer XPath parser to identify HashtagRef nodes and their structured
  * children (HashtagType, HashtagSegment), then surgically replaces them with
- * expanded XPath. The shorthand is preserved in vellum:* attributes for
- * round-tripping back to the editor.
+ * expanded XPath. The shorthand survives on the wire only in HQ's EDITOR
+ * vocabulary — `vellum:*` shadow attributes via
+ * `hashtags/formContext.ts::vellumShorthandInContext`, and the
+ * `case_references_data.load` map via {@link hqLoadReference} — never as Nova's
+ * per-case-type namespaces, which the editor cannot parse.
  */
 import { parser } from "@/lib/commcare/xpath";
 
@@ -36,7 +39,8 @@ function caseById(idExpr: string): string {
 	return `${CASEDB_CASE}[@case_id = ${idExpr}]`;
 }
 
-/** HQ-shaped transforms metadata — serialized to vellum:hashtagTransforms on binds. */
+/** HQ-shaped transforms metadata — the static prefixes the head-level
+ *  `<vellum:hashtagTransforms>` element composes from. */
 export const VELLUM_HASHTAG_TRANSFORMS = {
 	prefixes: {
 		// The loaded case (`#case/<prop>`) — composed from the selector
@@ -47,6 +51,21 @@ export const VELLUM_HASHTAG_TRANSFORMS = {
 			"instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/",
 	},
 } as const;
+
+/**
+ * HQ's editor case vocabulary, by parent-index hop depth. The form designer
+ * knows exactly three case generations — `commcare-hq/corehq/apps/app_manager/
+ * app_schemas/casedb_schema.py::_get_case_schema_subsets` builds its data
+ * sources from `generation_names = ['case', 'parent', 'grandparent']` — and its
+ * XPath engine resolves an unlisted hashtag by prefix lookup against exactly
+ * these (`Vellum/src/xpath.js::hashtagToXPath`). A deeper walk has NO hashtag
+ * spelling the editor can expand, so depth ≥ 3 has no entry here.
+ */
+export const VELLUM_CASE_GENERATION_PREFIXES = [
+	"#case/",
+	"#case/parent/",
+	"#case/grandparent/",
+] as const;
 
 /**
  * Flat-prefix expansion by hashtag type, for the types whose expansion is a
@@ -247,8 +266,9 @@ export function hasHashtags(expr: string): boolean {
  * Extract every case-bound hashtag reference from XPath expressions: `#case/…`,
  * `#user/…`, and every `#<case_type>/…` per-type ref — i.e. every namespace
  * EXCEPT `#form/`, which resolves to a plain in-form `/data/` path that carries
- * no HQ-side `vellum:hashtags` metadata or `case_references_data.load` entry.
- * Feeds both the bind's `vellum:hashtags` map and `formActions.ts`'s load map.
+ * no HQ-side hashtag metadata or `case_references_data.load` entry. Feeds both
+ * the head-level `<vellum:hashtags>` map and `formActions.ts`'s load map (each
+ * translating the raw refs into HQ vocabulary before emission).
  */
 export function extractHashtags(exprs: string[]): string[] {
 	const hashtags = new Set<string>();
@@ -273,40 +293,82 @@ export function extractHashtags(exprs: string[]): string[] {
 
 /** Parse the namespace out of a full hashtag ref string (`#mother/x` → `mother`).
  *  Returns `undefined` for a malformed ref (no leading `#` or no segment). */
-function hashtagNamespace(ref: string): string | undefined {
+export function hashtagNamespace(ref: string): string | undefined {
 	const slash = ref.indexOf("/");
 	return ref.startsWith("#") && slash > 1 ? ref.slice(1, slash) : undefined;
 }
 
 /**
- * Build a bind's `vellum:hashtagTransforms` metadata: the HQ-Vellum round-trip
- * table mapping each referenced hashtag prefix to the XPath it expands to.
+ * Translate one extracted hashtag ref into the vocabulary HQ's
+ * `case_references_data.load` map speaks. HQ parses a load entry's case type
+ * by prefix — ONLY `#case/` and `#user/` are recognized
+ * (`commcare-hq/corehq/apps/app_manager/app_schemas/app_case_metadata.py::
+ * _parse_case_type`), with a leading `grandparent/` normalized to
+ * `parent/parent/` — so a per-case-type ref must land there as its
+ * `#case/`-generation equivalent or HQ records the raw `#<type>/…` string as a
+ * literal property name of the module's case type.
  *
- * Starts from the static `#case/` + `#user/` base (`VELLUM_HASHTAG_TRANSFORMS`),
- * then adds a per-type prefix for every case-type namespace actually referenced
- * in `referencedHashtags`, each the depth-N `caseById` walk `expandCaseToWire`
- * emits — so HQ's editor round-trips `#<type>/` to the same XPath the bind
- * carries. Own-type (depth 0) yields the same prefix string as `#case/`.
- *
- * A bind that references no per-type namespace returns the base unchanged, so
- * its serialized metadata is byte-identical to the pre-per-type output. Emitting
- * only the referenced types (not every reachable type) keeps the metadata
- * minimal and matches the existing "transforms only when a ref needs them"
- * posture.
+ * Depth ≥ 3 (beyond HQ's three named generations) falls back to the
+ * parent-chain spelling (`#case/parent/parent/parent/<prop>`) — HQ's own
+ * normalization shows chains are its internal canonical form, and the load map
+ * is string-recorded metadata, not editor-parsed XPath. `#case/` / `#user/`
+ * refs are already the target vocabulary and pass through verbatim, as does a
+ * ref whose namespace isn't a reachable case type (the deep validator rejects
+ * that doc; this stays total).
  */
-export function buildHashtagTransforms(
-	referencedHashtags: string[],
+export function hqLoadReference(
+	ref: string,
 	caseTypeDepths: ReadonlyMap<string, number>,
-): { prefixes: Record<string, string> } {
-	const prefixes: Record<string, string> = {
-		...VELLUM_HASHTAG_TRANSFORMS.prefixes,
-	};
-	for (const ref of referencedHashtags) {
-		const ns = hashtagNamespace(ref);
-		if (ns === undefined) continue;
-		const depth = caseTypeDepths.get(ns);
-		if (depth === undefined) continue;
-		prefixes[`#${ns}/`] = `${expandCaseToWire(depth, "")}/`;
+): string {
+	const ns = hashtagNamespace(ref);
+	if (ns === undefined) return ref;
+	// `#case` / `#user` are already the target vocabulary — checked BEFORE the
+	// depths lookup, mirroring `expandHashtagsInContext`'s precedence for a
+	// case type literally named `case`.
+	if (ns === "case" || ns === "user") return ref;
+	const depth = caseTypeDepths.get(ns);
+	if (depth === undefined) return ref;
+	const rest = ref.slice(ns.length + 2);
+	const prefix =
+		VELLUM_CASE_GENERATION_PREFIXES[depth] ??
+		`#case/${"parent/".repeat(depth)}`;
+	return prefix + rest;
+}
+
+/**
+ * Build the head-level `<vellum:hashtagTransforms>` payload for a form: the
+ * prefix → expansion table covering every generation prefix the form's
+ * (already-editor-vocabulary) refs actually use, plus `#user/` when referenced.
+ *
+ * This is the same `{prefixes}` JSON vanilla Vellum serializes
+ * (`Vellum/src/form.js::knownHashtagTransforms` → `writer.js`) and reads back
+ * as its pre-datasources fallback (`parser.js::initHashtags`). Each case
+ * generation maps to the depth-N `caseById` walk `expandCaseToWire` emits, so
+ * the table's expansion is byte-identical to the expanded attributes the binds
+ * carry.
+ */
+export function buildVellumTransforms(editorRefs: Iterable<string>): {
+	prefixes: Record<string, string>;
+} {
+	const prefixes: Record<string, string> = {};
+	for (const ref of editorRefs) {
+		if (ref.startsWith("#user/")) {
+			prefixes["#user/"] = VELLUM_HASHTAG_TRANSFORMS.prefixes["#user/"];
+			continue;
+		}
+		// Longest generation prefix first — every `#case/parent/…` ref also
+		// starts with `#case/`.
+		for (
+			let depth = VELLUM_CASE_GENERATION_PREFIXES.length - 1;
+			depth >= 0;
+			depth--
+		) {
+			if (ref.startsWith(VELLUM_CASE_GENERATION_PREFIXES[depth])) {
+				prefixes[VELLUM_CASE_GENERATION_PREFIXES[depth]] =
+					`${expandCaseToWire(depth, "")}/`;
+				break;
+			}
+		}
 	}
 	return { prefixes };
 }

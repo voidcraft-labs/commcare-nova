@@ -199,9 +199,12 @@ describe("expandDoc", () => {
 		);
 		// Vellum calculate preserves the shorthand for the editor
 		expect(xform).toContain('vellum:calculate="#case/total_visits + 1"');
-		// Hashtag metadata still present
-		expect(xform).toContain("vellum:hashtags=");
-		expect(xform).toContain("vellum:hashtagTransforms=");
+		// Hashtag metadata rides HEAD ELEMENTS (Vellum's own writer shape —
+		// its parser never reads hashtag metadata off a bind).
+		expect(xform).not.toContain("vellum:hashtags=");
+		expect(xform).not.toContain("vellum:hashtagTransforms=");
+		expect(xform).toContain("<vellum:hashtags>");
+		expect(xform).toContain("<vellum:hashtagTransforms>");
 	});
 
 	it("wires registration form actions correctly", () => {
@@ -1548,9 +1551,12 @@ describe("#form/ hashtag expansion", () => {
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 		expect(xform).toContain('required="/data/has_issue = &apos;yes&apos;"');
+		// The editor's attribute for a required condition is
+		// `vellum:requiredCondition` (Vellum never reads `vellum:required`).
 		expect(xform).toContain(
-			'vellum:required="#form/has_issue = &apos;yes&apos;"',
+			'vellum:requiredCondition="#form/has_issue = &apos;yes&apos;"',
 		);
+		expect(xform).not.toContain("vellum:required=");
 	});
 
 	it("expands #form/ in <output> tags with vellum:value", () => {
@@ -1767,9 +1773,10 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// #form/ is NOT in VELLUM_HASHTAG_TRANSFORMS — no transforms metadata needed
-		expect(xform).not.toContain("vellum:hashtags=");
-		expect(xform).not.toContain("vellum:hashtagTransforms=");
+		// #form/ resolves to a plain in-form path — a #form-only form carries no
+		// head hashtag metadata (matching vanilla Vellum's omit-when-empty).
+		expect(xform).not.toContain("<vellum:hashtags>");
+		expect(xform).not.toContain("<vellum:hashtagTransforms>");
 		// But vellum:calculate IS present (preserves shorthand for Vellum editor)
 		expect(xform).toContain('vellum:calculate="#form/a * 2"');
 		expect(xform).toContain('calculate="/data/a * 2"');
@@ -1824,8 +1831,13 @@ describe("#form/ hashtag expansion", () => {
 			"#case/parent/household_code",
 		).replaceAll("'", "&apos;");
 		expect(xform).toContain(`calculate="${escapedWalk}"`);
-		// The per-type shorthand round-trips for the Vellum editor.
-		expect(xform).toContain('vellum:calculate="#mother/household_code"');
+		// The shadow is PROJECTED into the editor's vocabulary — HQ's form
+		// designer has no `#mother` namespace (its data sources speak exactly
+		// `#case/`, `#case/parent/`, `#case/grandparent/`), and an unknown
+		// namespace makes it re-serialize the raw hashtag into the real
+		// attribute on the user's next save.
+		expect(xform).toContain('vellum:calculate="#case/parent/household_code"');
+		expect(xform).not.toContain("#mother/");
 		// A per-type ref needs casedb just like `#case/` — the instance MUST be
 		// declared, or the emitted lookup references a non-existent source.
 		expect(xform).toContain(
@@ -1873,12 +1885,106 @@ describe("#form/ hashtag expansion", () => {
 		const escapedWalk = expandHashtags(
 			"#case/parent/household_code",
 		).replaceAll("'", "&apos;");
-		// Prose lowers to an `<output>` carrying the resolved parent-index walk.
-		expect(xform).toContain(`<output value="${escapedWalk}"`);
+		// Prose lowers to an `<output>` carrying the resolved parent-index walk,
+		// with the `vellum:value` shadow projected into the editor's vocabulary
+		// (never the raw `#mother/` per-type namespace).
+		expect(xform).toContain(
+			`<output value="${escapedWalk}" vellum:value="#case/parent/household_code"/>`,
+		);
+		expect(xform).not.toContain("#mother/");
 		// Prose case refs force the casedb instance declaration too.
 		expect(xform).toContain(
 			'<instance src="jr://instance/casedb" id="casedb"/>',
 		);
+	});
+
+	it("emits the editor-vocabulary wire shape for a mixed #form + per-type display condition", () => {
+		// The regression scenario behind issue-report "Cannot make new version":
+		// a followup form's relevant mixes a #form ref with a per-type case ref.
+		// HQ's form designer only speaks #form/#case/#user (its XPath engine
+		// rejects an unknown namespace at parse and re-serializes the raw
+		// hashtag into the REAL attribute on the next editor save, which then
+		// fails HQ's build validation) — so the vellum:* shadow must carry the
+		// #case spelling and the raw per-type namespace must not reach the wire.
+		const doc = buildDoc({
+			appName: "AllergyAlert",
+			modules: [
+				{
+					name: "Patient Search",
+					caseType: "patient",
+					caseListConfig: caseListConfig([{ field: "name", header: "Name" }]),
+					forms: [
+						{
+							name: "New Encounter",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "selected_medication",
+									label: "Medication",
+								}),
+								f({
+									kind: "label",
+									id: "penicillin_allergy_alert",
+									label: "Allergy alert!",
+									relevant:
+										"#form/selected_medication != '' and contains(lower-case(#patient/allergen), 'penicillin')",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "name", label: "Name" },
+						{ name: "allergen", label: "Allergen" },
+					],
+				},
+			],
+		});
+		const hq = expandDoc(doc);
+		const xform = Object.values(hq._attachments)[0] as string;
+
+		// Real attribute: fully expanded XPath, no hashtags.
+		const expanded = expandHashtags(
+			"/data/selected_medication != '' and contains(lower-case(#case/allergen), 'penicillin')",
+		).replaceAll("'", "&apos;");
+		expect(xform).toContain(`relevant="${expanded}"`);
+		// Shadow attribute: the editor's vocabulary, not Nova's per-type namespace.
+		expect(xform).toContain(
+			'vellum:relevant="#form/selected_medication != &apos;&apos; and contains(lower-case(#case/allergen), &apos;penicillin&apos;)"',
+		);
+		expect(xform).not.toContain("#patient/");
+
+		// Head metadata: the vanilla-Vellum fallback vocabulary — the used ref
+		// mapped to its expansion, plus the prefix transforms table (JSON text
+		// content, entity-escaped by the serializer).
+		const xmlEscape = (s: string) =>
+			s.replaceAll('"', "&quot;").replaceAll("'", "&apos;");
+		expect(xform).toContain(
+			`<vellum:hashtags>${xmlEscape(
+				JSON.stringify({ "#case/allergen": expandHashtags("#case/allergen") }),
+			)}</vellum:hashtags>`,
+		);
+		expect(xform).toContain(
+			`<vellum:hashtagTransforms>${xmlEscape(
+				JSON.stringify({
+					prefixes: {
+						"#case/": expandHashtags("#case/allergen").slice(
+							0,
+							-"allergen".length,
+						),
+					},
+				}),
+			)}</vellum:hashtagTransforms>`,
+		);
+
+		// case_references load map speaks the same #case vocabulary.
+		const load = hq.modules[0].forms[0].case_references_data.load;
+		expect(load["/data/penicillin_allergy_alert"]).toEqual(["#case/allergen"]);
 	});
 
 	it("keeps an unresolvable prose token literal — no <output>, no casedb", () => {
@@ -2080,7 +2186,7 @@ describe("conditional required", () => {
 		expect(xform).not.toContain('required="true()"');
 	});
 
-	it("expands #case/ hashtags in required XPath and adds vellum:required", () => {
+	it("expands #case/ hashtags in required XPath and adds vellum:requiredCondition", () => {
 		const doc = buildDoc({
 			appName: "R",
 			modules: [
@@ -2113,7 +2219,9 @@ describe("conditional required", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('vellum:required="#case/risk = &apos;high&apos;"');
+		expect(xform).toContain(
+			'vellum:requiredCondition="#case/risk = &apos;high&apos;"',
+		);
 		expect(xform).toContain("instance(&apos;casedb&apos;)");
 	});
 });

@@ -8,10 +8,10 @@
  * nested groups / repeats produce the correct dotted address.
  *
  * `buildCaseReferencesLoad` is the complement: it scans every field's
- * XPath expressions for `#case/` / `#user/` hashtags and maps the
- * field's full `/data/...` path to the list of hashtag references used
- * at that path. CommCare's Vellum editor consumes this map to resolve
- * shorthand references back to their case sources at build time.
+ * XPath expressions for case-bound hashtag refs and maps the field's full
+ * `/data/...` path to the list of references used at that path — translated
+ * into the `#case/`-generation vocabulary HQ's case-metadata layer parses
+ * (`hqLoadReference`), which feeds HQ's app summary / case property usage.
  */
 
 import type { FormActions, OpenSubCaseAction } from "@/lib/commcare";
@@ -19,6 +19,7 @@ import {
 	alwaysCondition,
 	emptyFormActions,
 	extractHashtags,
+	hqLoadReference,
 	ifCondition,
 	MEDIA_FIELD_KINDS,
 	neverCondition,
@@ -29,6 +30,7 @@ import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	type Field,
+	reachableCaseTypes,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -342,13 +344,32 @@ export function buildFormActions(
  * pass-through; ids are valid by construction at the source). The XForm
  * builder emits its binds against those same ids, so the load-map keys here
  * line up with the bind nodesets.
+ *
+ * Every extracted ref is translated through `hqLoadReference` into the
+ * `#case/`-generation vocabulary HQ's metadata layer parses — `moduleCaseType`
+ * feeds the same `reachableCaseTypes` depth map the XForm builder resolves
+ * per-type namespaces with, so the load map and the binds name the same case.
  */
 export function buildCaseReferencesLoad(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	connect?: ResolvedConnectConfig,
+	moduleCaseType?: string,
 ): Record<string, string[]> {
 	const load: Record<string, string[]> = {};
+	const caseTypeDepths: ReadonlyMap<string, number> = new Map(
+		reachableCaseTypes(moduleCaseType, doc.caseTypes ?? []).map((t) => [
+			t.name,
+			t.depth,
+		]),
+	);
+	// Translate + dedupe (`#<own_type>/x` and a transitional `#case/x` in the
+	// same field's expressions collapse to one entry).
+	const toLoadRefs = (exprs: string[]): string[] => [
+		...new Set(
+			extractHashtags(exprs).map((ref) => hqLoadReference(ref, caseTypeDepths)),
+		),
+	];
 
 	const walk = (parentUuid: Uuid, parentPath: FormPath): void => {
 		for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
@@ -363,7 +384,7 @@ export function buildCaseReferencesLoad(
 				readFieldString(field, "default_value", doc),
 				readFieldString(field, "required", doc),
 			].filter((s): s is string => typeof s === "string");
-			const hashtags = extractHashtags(xpathExprs);
+			const hashtags = toLoadRefs(xpathExprs);
 			if (hashtags.length > 0) {
 				load[nodePath.toXPath()] = hashtags;
 			}
@@ -390,7 +411,7 @@ export function buildCaseReferencesLoad(
 		// so the load map's hashtag set always matches what the runtime will
 		// evaluate from that bind. (The default is a hashtag-free literal,
 		// so an unset user_score contributes no load entry.)
-		const h = extractHashtags([
+		const h = toLoadRefs([
 			effectiveAssessmentUserScore(connect.assessment, doc),
 		]);
 		if (h.length > 0) {
@@ -414,11 +435,11 @@ export function buildCaseReferencesLoad(
 			doc,
 		);
 		const deliverPath = FormPath.root().child(duId).child("deliver");
-		const idH = extractHashtags([entityId]);
+		const idH = toLoadRefs([entityId]);
 		if (idH.length > 0) {
 			load[deliverPath.child("entity_id").toXPath()] = idH;
 		}
-		const nameH = extractHashtags([entityName]);
+		const nameH = toLoadRefs([entityName]);
 		if (nameH.length > 0) {
 			load[deliverPath.child("entity_name").toXPath()] = nameH;
 		}

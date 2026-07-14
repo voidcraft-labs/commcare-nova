@@ -18,10 +18,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { expandHashtags } from "@/lib/commcare/hashtags";
+import { expandHashtags, hqLoadReference } from "@/lib/commcare/hashtags";
 import {
 	expandHashtagsInContext,
 	type FormHashtagContext,
+	vellumShorthandInContext,
 } from "@/lib/commcare/hashtags/formContext";
 
 const ctx = (
@@ -154,5 +155,142 @@ describe("expandHashtagsInContext", () => {
 				expandHashtagsInContext("/data/age > 18", ctx("registration")),
 			).toBe("/data/age > 18");
 		});
+	});
+});
+
+describe("vellumShorthandInContext", () => {
+	// pregnancy (own, 0) → mother (1) → household (2) → village (3): the full
+	// generation ladder plus one depth past HQ's editor vocabulary.
+	const depths = new Map([
+		["pregnancy", 0],
+		["mother", 1],
+		["household", 2],
+		["village", 3],
+	]);
+
+	it("projects each per-type depth onto HQ's case generations", () => {
+		const c = ctx("followup", depths);
+		expect(vellumShorthandInContext("#pregnancy/ga", c)).toBe("#case/ga");
+		expect(vellumShorthandInContext("#mother/code", c)).toBe(
+			"#case/parent/code",
+		);
+		expect(vellumShorthandInContext("#household/head", c)).toBe(
+			"#case/grandparent/head",
+		);
+	});
+
+	it("suppresses the shadow past HQ's three generations (depth ≥ 3)", () => {
+		expect(
+			vellumShorthandInContext("#village/name", ctx("followup", depths)),
+		).toBeUndefined();
+	});
+
+	it("normalizes a transitional #case/parent/parent/ chain to #case/grandparent/", () => {
+		expect(
+			vellumShorthandInContext("#case/parent/parent/head", ctx("followup")),
+		).toBe("#case/grandparent/head");
+		expect(vellumShorthandInContext("#case/parent/code", ctx("followup"))).toBe(
+			"#case/parent/code",
+		);
+	});
+
+	it("keeps #form/ and #user/ refs verbatim", () => {
+		expect(
+			vellumShorthandInContext(
+				"#form/age > 18 and #user/role = 'chw'",
+				ctx("followup", depths),
+			),
+		).toBe("#form/age > 18 and #user/role = 'chw'");
+	});
+
+	it("translates refs inside a larger mixed expression", () => {
+		expect(
+			vellumShorthandInContext(
+				"#form/med != '' and contains(lower-case(#pregnancy/allergen), 'pen')",
+				ctx("followup", depths),
+			),
+		).toBe("#form/med != '' and contains(lower-case(#case/allergen), 'pen')");
+	});
+
+	it("suppresses the WHOLE shadow when any ref has no editor spelling", () => {
+		expect(
+			vellumShorthandInContext(
+				"#form/med != '' and #village/name = 'x'",
+				ctx("followup", depths),
+			),
+		).toBeUndefined();
+	});
+
+	it("suppresses every case-namespace shadow on a registration form", () => {
+		// HQ only feeds the editor case data sources when the form loads a case
+		// (`get_casedb_schema` gates on `form.requires_case()`), so even the
+		// own-type case_id ref has no editor vocabulary there.
+		expect(
+			vellumShorthandInContext(
+				"#pregnancy/case_id",
+				ctx("registration", depths),
+			),
+		).toBeUndefined();
+		expect(
+			vellumShorthandInContext("#case/case_id", ctx("registration")),
+		).toBeUndefined();
+		// #form / #user shadows survive.
+		expect(
+			vellumShorthandInContext("#form/age > 18", ctx("registration")),
+		).toBe("#form/age > 18");
+	});
+
+	it("suppresses an unreachable namespace and relationship-named / multi-segment properties", () => {
+		const c = ctx("followup", depths);
+		expect(vellumShorthandInContext("#unknown/x", c)).toBeUndefined();
+		// A property literally named `grandparent` would be read by the editor
+		// as a relationship WALK, diverging from the expanded attribute.
+		expect(vellumShorthandInContext("#case/grandparent", c)).toBeUndefined();
+		expect(
+			vellumShorthandInContext("#pregnancy/grandparent", c),
+		).toBeUndefined();
+		// Multi-segment property path — no editor prefix covers it.
+		expect(vellumShorthandInContext("#pregnancy/a/b", c)).toBeUndefined();
+		// Bare relationship ref (no property) — same.
+		expect(vellumShorthandInContext("#case/parent", c)).toBeUndefined();
+	});
+
+	it("returns undefined when the expression has no hashtags at all", () => {
+		expect(
+			vellumShorthandInContext("/data/age > 18", ctx("followup", depths)),
+		).toBeUndefined();
+		expect(vellumShorthandInContext("", ctx("followup"))).toBeUndefined();
+	});
+});
+
+describe("hqLoadReference", () => {
+	const depths = new Map([
+		["pregnancy", 0],
+		["mother", 1],
+		["household", 2],
+		["village", 3],
+	]);
+
+	it("translates per-type refs to the #case/ generation vocabulary", () => {
+		expect(hqLoadReference("#pregnancy/ga", depths)).toBe("#case/ga");
+		expect(hqLoadReference("#mother/code", depths)).toBe("#case/parent/code");
+		expect(hqLoadReference("#household/head", depths)).toBe(
+			"#case/grandparent/head",
+		);
+	});
+
+	it("falls back to a parent chain past the named generations", () => {
+		expect(hqLoadReference("#village/name", depths)).toBe(
+			"#case/parent/parent/parent/name",
+		);
+	});
+
+	it("passes #case/, #user/, and unreachable namespaces through verbatim", () => {
+		expect(hqLoadReference("#case/ga", depths)).toBe("#case/ga");
+		expect(hqLoadReference("#case/parent/code", depths)).toBe(
+			"#case/parent/code",
+		);
+		expect(hqLoadReference("#user/role", depths)).toBe("#user/role");
+		expect(hqLoadReference("#unknown/x", depths)).toBe("#unknown/x");
 	});
 });

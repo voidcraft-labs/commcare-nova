@@ -33,6 +33,10 @@
  * case-loading shape just as the context-free expander would, so the
  * binding-resolution oracle catches the missing `case_id` datum at compile time;
  * the deep validator rejects it first at authoring time.
+ *
+ * The module's second export, {@link vellumShorthandInContext}, is the
+ * companion projection for the `vellum:*` SHADOW attributes: same form
+ * context, but targeting HQ's editor vocabulary instead of executable XPath.
  */
 
 import {
@@ -40,6 +44,7 @@ import {
 	resolveFlatHashtag,
 	rewriteHashtags,
 	splitCaseSegments,
+	VELLUM_CASE_GENERATION_PREFIXES,
 } from "@/lib/commcare/hashtags";
 
 /**
@@ -102,4 +107,84 @@ export function expandHashtagsInContext(
 		}
 		return expandCaseToWire(hops, propPath);
 	});
+}
+
+/**
+ * Project `expr` into HQ's EDITOR vocabulary for the `vellum:*` shadow
+ * attributes, or return `undefined` when no shadow should be emitted.
+ *
+ * The form designer's hashtag vocabulary is fixed by HQ's data sources —
+ * namespaces `#form` / `#case` / `#user`, with exactly three case generations
+ * (`#case/`, `#case/parent/`, `#case/grandparent/` — see
+ * `VELLUM_CASE_GENERATION_PREFIXES`). Nova's per-case-type namespaces are NOT
+ * in it: the editor's XPath engine rejects an unknown namespace at parse
+ * (`Vellum/src/xpath.js::isValidNamespace`), marks the whole expression
+ * unparseable, and re-serializes it VERBATIM into the real attribute on the
+ * user's next save (`util.js::writeHashtags`'s catch path) — shipping raw
+ * hashtags to a wire that only speaks XPath. So every shadow must be spelled
+ * in the editor's own vocabulary, and a ref with no editor spelling must
+ * suppress the shadow entirely (the expanded real attribute alone round-trips
+ * as plain XPath).
+ *
+ * Per-ref rules:
+ *
+ *   - `#form/` / `#user/` — already editor vocabulary; kept verbatim.
+ *   - any case ref on a REGISTRATION form — no shadow. HQ only feeds the
+ *     editor case data sources when the form loads a case
+ *     (`casedb_schema.py::get_casedb_schema` gates the subsets on
+ *     `form.requires_case()`), so even `#case/` is an unknown namespace there.
+ *   - `#<case_type>/<prop>` — namespace depth from `caseTypeDepths` picks the
+ *     generation prefix; depth ≥ 3 has no editor spelling.
+ *   - transitional `#case/…` — leading `parent` segments count into the hop
+ *     depth (`#case/parent/parent/x` → `#case/grandparent/x`).
+ *   - the property must be a SINGLE plain segment, not named `parent` /
+ *     `grandparent`: the editor expands an unlisted hashtag by everything up
+ *     to its LAST slash (`Vellum/src/xpath.js::hashtagToXPath`), so a
+ *     multi-segment property has no known prefix, and a relationship-named
+ *     property would be read as a WALK — both diverge from the expanded
+ *     attribute, so both suppress the shadow.
+ *
+ * An expression with no hashtags at all needs no shadow → `undefined`.
+ */
+export function vellumShorthandInContext(
+	expr: string,
+	ctx: FormHashtagContext,
+): string | undefined {
+	if (!expr) return undefined;
+	const isRegistration = ctx.formType === "registration";
+	let sawHashtag = false;
+	let untranslatable = false;
+
+	const out = rewriteHashtags(expr, (typeName, segments) => {
+		sawHashtag = true;
+		// `#form/` / `#user/` are the editor's own flat namespaces.
+		if (typeName === "form" || typeName === "user") return undefined;
+
+		const fail = (): undefined => {
+			untranslatable = true;
+			return undefined;
+		};
+		if (isRegistration) return fail();
+
+		let hops: number;
+		let propSegments: string[];
+		if (typeName === "case") {
+			const { hops: caseHops, propPath } = splitCaseSegments(segments);
+			hops = caseHops;
+			propSegments = propPath === "" ? [] : propPath.split("/");
+		} else {
+			const depth = ctx.caseTypeDepths.get(typeName);
+			if (depth === undefined) return fail();
+			hops = depth;
+			propSegments = segments;
+		}
+
+		const prefix = VELLUM_CASE_GENERATION_PREFIXES[hops];
+		if (prefix === undefined || propSegments.length !== 1) return fail();
+		const prop = propSegments[0];
+		if (prop === "parent" || prop === "grandparent") return fail();
+		return prefix + prop;
+	});
+
+	return sawHashtag && !untranslatable ? out : undefined;
 }
