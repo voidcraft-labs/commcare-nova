@@ -17,6 +17,7 @@ import {
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveActiveProjectId, resolveGatewayKey } from "@/lib/auth-utils";
+import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
 import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
@@ -52,6 +53,7 @@ import {
 	settleAndRelease,
 } from "@/lib/db/credits";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
+import { pruneChatStreamChunks } from "@/lib/db/streamChunks";
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
 import {
 	hydratePersistedBlueprint,
@@ -79,6 +81,12 @@ export const maxDuration = 300;
  * Run's per-request timeout so a waiter never itself trips the platform kill. */
 const CLAIM_WAIT_POLL_MS = 750;
 const CLAIM_WAIT_MAX_MS = 120_000;
+
+/* Opportunistic chunk-log retention sweep — at most one fire-and-forget prune
+ * per instance per interval, piggybacked on POST traffic (the same
+ * no-dedicated-cron pattern as the run reapers). */
+const CHUNK_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
+let lastChunkPruneAt = 0;
 
 // ── Route Handler ──────────────────────────────────────────────────────
 
@@ -239,6 +247,24 @@ export async function POST(req: Request) {
 	 * requests so threads stay aligned across turns. Minted here — before any
 	 * persistence work — so failure paths below can still surface it if needed. */
 	const effectiveRunId = runId ?? crypto.randomUUID();
+
+	/* This POST's durable-stream identity — fresh per POST (a run spans many
+	 * POSTs; resume cursors are per-POST chunk counts). Returned in the
+	 * `x-workflow-run-id` response header, which is the handle the client's
+	 * WorkflowChatTransport reconnects with (`/api/chat/{streamId}/stream`)
+	 * when this response breaks without a `finish` chunk. */
+	const streamId = crypto.randomUUID();
+
+	/* Retention sweep for the chunk log — throttled per instance, never blocks
+	 * or fails the request. */
+	if (Date.now() - lastChunkPruneAt > CHUNK_PRUNE_INTERVAL_MS) {
+		lastChunkPruneAt = Date.now();
+		pruneChatStreamChunks().catch((err) => {
+			log.warn("[chat] chunk-log prune failed", {
+				err: err instanceof Error ? err.message : String(err),
+			});
+		});
+	}
 
 	/*
 	 * Resolve appId for authenticated users. Existing apps already have
@@ -547,6 +573,12 @@ export async function POST(req: Request) {
 	 * `onEnd` must not second-guess it. */
 	let finalizeRan = false;
 
+	/* POST-scope handle on the durable stream writer (created inside execute),
+	 * for the `onEnd` net: a prelude throw skips `finalizeRun` (the writer's
+	 * normal close point), and an unterminated chunk log would leave a resuming
+	 * client tailing until the liveness fallback. Idempotent close. */
+	let durableWriter: DurableStreamWriter | undefined;
+
 	/* No `req.signal` disconnect handling: the run is no longer tied to the
 	 * browser connection. The agent loop is drained server-side (see the execute
 	 * block), so a closed tab neither cancels the run nor finalizes it — `flush()`
@@ -554,7 +586,22 @@ export async function POST(req: Request) {
 	 * still reading. A run the process can't finish (hard kill) is settled by the
 	 * stale-`generating` reaper. */
 	const stream = createUIMessageStream({
-		execute: async ({ writer }) => {
+		execute: async ({ writer: rawWriter }) => {
+			/* The one write choke point: every chunk out of this request — SDK
+			 * parts forwarded from the SA stream AND the route's own `data-*`
+			 * events — rides this wrapper, which appends it to the durable chunk
+			 * log (resume replays it) and forwards it to the live response
+			 * (best-effort; a dead client stops forwarding, never logging).
+			 * Closed by `finalizeRun` so the terminal row is durable before the
+			 * response stream ends. */
+			const writer = new DurableStreamWriter({
+				streamId,
+				appId,
+				runId: effectiveRunId,
+				inner: rawWriter,
+			});
+			durableWriter = writer;
+
 			// Send runId to client so it can send it back on subsequent requests
 			writer.write({
 				type: "data-run-id",
@@ -718,6 +765,15 @@ export async function POST(req: Request) {
 						});
 					}
 				}
+				/* Terminate the durable chunk log LAST — every user-visible write on
+				 * every terminal path (the failure funnel's error event + refund
+				 * toast, the clean build's `data-done`) precedes its path's
+				 * `finalizeRun` call, so the terminal row seals a complete stream. A
+				 * resuming client then always reaches the synthetic/real `finish`
+				 * instead of tailing a dead run until the liveness fallback. Awaited:
+				 * execute must not resolve (closing the response) before the terminal
+				 * row is durable. */
+				await writer.close();
 			};
 
 			/**
@@ -1269,9 +1325,11 @@ export async function POST(req: Request) {
 				 * `isFatalStreamErrorChunk`). We stash the latest `onError` value, then
 				 * commit it as the fatal error only when the terminal `"error"` chunk
 				 * arrives. Nova surfaces the error via `ctx.emitError`, so the raw fatal
-				 * chunk is dropped; tool-error chunks forward like any other. A failing
-				 * `writer.write` means the client is gone, so stop forwarding (releasing
-				 * the tee branch) but let the drain finish server-side. */
+				 * chunk is dropped; tool-error chunks forward like any other. A gone
+				 * client never surfaces here: the durable writer absorbs the failed
+				 * live forward internally and keeps appending to the chunk log — which
+				 * is exactly what a later resume replays — so this loop runs to the
+				 * stream's end either way (the catch is a last-resort guard). */
 				let pendingError: unknown;
 				let sawFatalError = false;
 				for await (const chunk of result.toUIMessageStream({
@@ -1453,6 +1511,11 @@ export async function POST(req: Request) {
 			 * prelude, inside the main try whose `finally` always runs `finalizeRun` →
 			 * `stopRunLeaseHeartbeat`, so a prelude throw that lands here never leaves
 			 * a timer running.) */
+			/* Seal the chunk log if `finalizeRun` never did (the prelude-throw case):
+			 * an unterminated stream would leave a resuming client tailing a dead run
+			 * until the liveness fallback. Idempotent; the live forward inside is a
+			 * no-op on this already-closed response. */
+			void durableWriter?.close();
 			void (async () => {
 				/* Flush FIRST: a prelude-throw edit's `flush()` refunds+SETTLES its
 				 * marker (zero-cost run), so the run-lock release below never leaves the
@@ -1494,5 +1557,13 @@ export async function POST(req: Request) {
 		},
 	});
 
-	return createUIMessageStreamResponse({ stream });
+	/* `x-workflow-run-id` is the WorkflowChatTransport resume contract: the
+	 * client stores it off this response and, if the stream ends without a
+	 * `finish` chunk (network blip, Cloud Run's request cap, a closed laptop),
+	 * reconnects to `/api/chat/{streamId}/stream?startIndex=<chunks received>`
+	 * and replays the difference from the durable chunk log. */
+	return createUIMessageStreamResponse({
+		stream,
+		headers: { "x-workflow-run-id": streamId },
+	});
 }

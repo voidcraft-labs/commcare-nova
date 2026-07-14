@@ -80,6 +80,24 @@ export default defineConfig({
 			...vitestConfigDefaults.exclude,
 			"**/.claude/worktrees/**",
 			"e2e/tests/**",
+			// Under the async-leak gate ONLY, skip the transport-contract suite.
+			// It drives the REAL `WorkflowChatTransport`, whose SSE parser calls
+			// `response.body.pipeThrough(new TextDecoderStream())` — and Node's
+			// web-streams `pipeThrough`/`pipeTo` machinery leaves internal
+			// promises pending FOREVER even after the pipe is fully drained and
+			// closed (reduced to a two-line repro with no app or SDK code:
+			// drain `new Response("x").body.pipeThrough(new TextDecoderStream())`
+			// → 3 flagged promises; a trailing settle delay does not clear them).
+			// That is the same benign-but-unfixable class the global Sentry /
+			// motion mocks in vitest.setup.ts handle at the module boundary —
+			// but here the pipes are per-call inside the library under test, so
+			// the boundary is the gate itself. The suite still runs in every
+			// normal `vitest run` / CI test job; only `--detect-async-leaks`
+			// skips it. Remove when Node's pipe internals (or the detector)
+			// stop flagging a drained pipe.
+			...(process.argv.includes("--detect-async-leaks")
+				? ["**/transportContract.integration.test.ts"]
+				: []),
 		],
 	},
 	resolve: {

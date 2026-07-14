@@ -4,15 +4,28 @@ import { log } from "@/lib/logger";
 /**
  * Extract a human-readable error message from a raw error string.
  * API routes return `{ error: string }` JSON — the AI SDK may pass the
- * raw response body as the error message. This extracts the `error` field
- * if the string is parseable JSON, otherwise returns the raw string.
+ * raw response body as the error message (DefaultChatTransport), or prefix
+ * it with request context (`WorkflowChatTransport` throws
+ * `Failed to fetch chat: <status> <body>`). This extracts the `error` field
+ * from the whole string or an embedded JSON object, otherwise returns the
+ * raw string.
  */
 export function parseApiErrorMessage(raw: string): string {
-	try {
-		const parsed = JSON.parse(raw);
-		if (typeof parsed?.error === "string") return parsed.error;
-	} catch {
-		/* not JSON — use raw message */
+	const fromJson = (text: string): string | undefined => {
+		try {
+			const parsed = JSON.parse(text);
+			return typeof parsed?.error === "string" ? parsed.error : undefined;
+		} catch {
+			return undefined;
+		}
+	};
+	const whole = fromJson(raw);
+	if (whole !== undefined) return whole;
+	const start = raw.indexOf("{");
+	const end = raw.lastIndexOf("}");
+	if (start !== -1 && end > start) {
+		const embedded = fromJson(raw.slice(start, end + 1));
+		if (embedded !== undefined) return embedded;
 	}
 	return raw;
 }

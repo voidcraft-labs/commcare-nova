@@ -1326,6 +1326,29 @@ export async function editRunLockHeldBy(
 }
 
 /**
+ * Whether ANY run currently holds this app live — within its mode's liveness
+ * horizon and not paused. The resumable-stream endpoint's fallback signal: a
+ * tailer waiting on a stream with no terminal row uses this to distinguish
+ * "a run on this app may still produce chunks" (keep tailing) from "nothing
+ * holds the app — the producing process died without sealing the log" (close
+ * the tail). Deliberately NOT keyed to the tailed stream's own run: during
+ * serialize-with-wait the tailed POST holds nothing while it polls behind the
+ * live holder, and keying on its runId would falsely close a healthy waiter's
+ * resumed stream. Read-only; derives through `runLeaseState` like every
+ * liveness decision.
+ */
+export async function appHeldLive(appId: string): Promise<boolean> {
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("apps")
+		.select(LEASE_COLUMNS)
+		.where("id", "=", appId)
+		.executeTakeFirst();
+	if (!row) return false;
+	return runLeaseState(leaseView(row as AppRow)).live;
+}
+
+/**
  * Re-acquire a free-continuation resume's paused run — the supersede guard
  * AND lease re-establishment in one transaction, uniform across both modes.
  * A paused run's lease lapses while the user answers (no heartbeat during a

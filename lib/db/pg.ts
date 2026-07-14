@@ -127,6 +127,24 @@ export interface ThreadsTable {
 	messages: JSONColumnType<unknown[]>;
 }
 
+/**
+ * The durable chat-stream chunk log — one row per flushed batch of UI message
+ * chunks, `first_index` the stream-wide index of `chunks[0]`. Short-lived
+ * operational state (pruned past the retention window), read back by the
+ * resumable-stream endpoint. `chunks` holds AI SDK `UIMessageChunk` objects;
+ * typed as the wire-opaque record shape here because the data layer never
+ * inspects them.
+ */
+export interface ChatStreamChunksTable {
+	stream_id: string;
+	first_index: number;
+	app_id: string;
+	run_id: string;
+	chunks: JSONColumnType<Record<string, unknown>[]>;
+	terminal: boolean;
+	created_at: Timestamp;
+}
+
 export interface RunSummariesTable {
 	app_id: string;
 	run_id: string;
@@ -241,6 +259,7 @@ export interface AppDatabase {
 	accepted_mutations: AcceptedMutationsTable;
 	events: EventsTable;
 	threads: ThreadsTable;
+	chat_stream_chunks: ChatStreamChunksTable;
 	run_summaries: RunSummariesTable;
 	presence: PresenceTable;
 	user_settings: UserSettingsTable;
@@ -316,9 +335,11 @@ export async function withAppTx<T>(
 // rows since its cursor on each poke. A NOTIFY issued inside a transaction is
 // delivered only on commit, which is exactly the ordering the stream needs.
 
-/** One channel for committed mutation batches, one for presence churn. */
+/** One channel for committed mutation batches, one for presence churn, one
+ *  for chat-stream chunk flushes. */
 export const APP_STREAM_CHANNEL = "nova_app_stream";
 export const PRESENCE_CHANNEL = "nova_presence";
+export const CHAT_STREAM_CHANNEL = "nova_chat_stream";
 
 /** Poke the stream channel from INSIDE the commit transaction. */
 export async function notifyAppStream(
@@ -335,6 +356,16 @@ export async function notifyAppStream(
 export async function notifyPresence(appId: string): Promise<void> {
 	const db = await getAppDb();
 	await sql`SELECT pg_notify(${PRESENCE_CHANNEL}, ${JSON.stringify({ appId })})`.execute(
+		db,
+	);
+}
+
+/** Poke a chat stream's tailers after a chunk-batch insert (plain connection —
+ *  the append is a single INSERT, so there is no transaction to ride; issued
+ *  after the insert resolves, so a tailer's re-SELECT sees the rows). */
+export async function notifyChatStream(streamId: string): Promise<void> {
+	const db = await getAppDb();
+	await sql`SELECT pg_notify(${CHAT_STREAM_CHANNEL}, ${JSON.stringify({ streamId })})`.execute(
 		db,
 	);
 }

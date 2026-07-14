@@ -31,6 +31,7 @@ import {
 	handleApiError,
 	isClientAbort,
 	OAUTH_REVOKE_MAX_BYTES,
+	parseApiErrorMessage,
 	readJsonBody,
 } from "../apiError";
 
@@ -225,5 +226,30 @@ describe("request-size budgets", () => {
 		]) {
 			expect(cap).toBeLessThan(32 * 1024 * 1024);
 		}
+	});
+});
+
+describe("parseApiErrorMessage — both chat-transport error shapes", () => {
+	it("extracts `error` from a bare JSON body (DefaultChatTransport shape)", () => {
+		expect(
+			parseApiErrorMessage(
+				'{"error":"Out of credits","type":"out_of_credits"}',
+			),
+		).toBe("Out of credits");
+	});
+
+	it("extracts `error` from a prefixed body (WorkflowChatTransport shape)", () => {
+		expect(
+			parseApiErrorMessage(
+				'Failed to fetch chat: 429 {"error":"Out of credits","type":"out_of_credits"}',
+			),
+		).toBe("Out of credits");
+	});
+
+	it("returns the raw string when no `error` field is recoverable", () => {
+		expect(parseApiErrorMessage("network down")).toBe("network down");
+		expect(parseApiErrorMessage('{"message":"nope"}')).toBe(
+			'{"message":"nope"}',
+		);
 	});
 });
