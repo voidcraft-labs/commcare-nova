@@ -3,10 +3,12 @@
  *
  * One dedicated `pg.Client` per process (built from the SAME config source as
  * the case-store pool via `buildDedicatedClientConfig`) holds a persistent
- * `LISTEN nova_app_stream; LISTEN nova_presence;`. The commit path pokes those
- * channels from inside its transaction (`lib/db/pg.ts::notifyAppStream` /
- * `notifyPresence`); this module fans each poke out to the in-process
- * subscribers registered by the `/stream` relay routes.
+ * `LISTEN nova_app_stream; LISTEN nova_presence; LISTEN nova_chat_stream;`.
+ * The commit path pokes the first two from inside its transaction
+ * (`lib/db/pg.ts::notifyAppStream` / `notifyPresence`) and the chat chunk log
+ * pokes the third after each batch insert (`notifyChatStream`); this module
+ * fans each poke out to the in-process subscribers registered by the
+ * `/stream` relay routes.
  *
  * The connection is DEDICATED and lives outside the pool: LISTEN state is
  * per-connection, so a pooled connection Kysely reclaims per query can't hold
@@ -26,7 +28,11 @@
 import { Client, type ClientConfig } from "pg";
 import { buildDedicatedClientConfig } from "@/lib/case-store/postgres/connection";
 import { log } from "@/lib/logger";
-import { APP_STREAM_CHANNEL, PRESENCE_CHANNEL } from "./pg";
+import {
+	APP_STREAM_CHANNEL,
+	CHAT_STREAM_CHANNEL,
+	PRESENCE_CHANNEL,
+} from "./pg";
 
 /** One open stream's callbacks. A poke re-queries; the args are advisory. */
 interface Subscriber {
@@ -36,6 +42,12 @@ interface Subscriber {
 
 /** appId → the streams currently open for it in this process. */
 const subscribers = new Map<string, Set<Subscriber>>();
+
+/** streamId → the chat-stream tailers currently open for it in this process.
+ *  Same poke semantics as the app-stream map: a poke means "re-SELECT from
+ *  your cursor", so a dropped notification degrades to the next poke or the
+ *  reconnect catch-up, never to lost chunks. */
+const chatSubscribers = new Map<string, Set<() => void>>();
 
 /** The dedicated LISTEN connection; `null` until the first subscriber builds it. */
 let client: Client | null = null;
@@ -143,11 +155,14 @@ function dispatchCatchUpAll(): void {
 			safeCall(() => sub.onPresencePoke());
 		}
 	}
+	for (const set of chatSubscribers.values()) {
+		for (const onPoke of set) safeCall(onPoke);
+	}
 }
 
 function onNotification(msg: { channel: string; payload?: string }): void {
 	if (!msg.payload) return;
-	let parsed: { appId?: unknown; seq?: unknown };
+	let parsed: { appId?: unknown; seq?: unknown; streamId?: unknown };
 	try {
 		parsed = JSON.parse(msg.payload);
 	} catch (err) {
@@ -155,6 +170,14 @@ function onNotification(msg: { channel: string; payload?: string }): void {
 			channel: msg.channel,
 			err: err instanceof Error ? err.message : String(err),
 		});
+		return;
+	}
+	if (msg.channel === CHAT_STREAM_CHANNEL) {
+		const streamId = parsed.streamId;
+		if (typeof streamId !== "string") return;
+		const set = chatSubscribers.get(streamId);
+		if (set === undefined) return;
+		for (const onPoke of set) safeCall(onPoke);
 		return;
 	}
 	const appId = parsed.appId;
@@ -167,7 +190,7 @@ function onNotification(msg: { channel: string; payload?: string }): void {
 	}
 }
 
-/** Connect a fresh client, LISTEN on both channels, and fire the catch-up poke. */
+/** Connect a fresh client, LISTEN on all channels, and fire the catch-up poke. */
 async function establish(): Promise<void> {
 	const config = await resolveConfig();
 	const c = new Client(config);
@@ -177,6 +200,7 @@ async function establish(): Promise<void> {
 		await c.connect();
 		await c.query(`LISTEN ${APP_STREAM_CHANNEL}`);
 		await c.query(`LISTEN ${PRESENCE_CHANNEL}`);
+		await c.query(`LISTEN ${CHAT_STREAM_CHANNEL}`);
 	} catch (err) {
 		/* A throw AFTER a successful connect (a LISTEN query failing) would
 		 * otherwise leak a live connection that was never latched into `client`
@@ -300,6 +324,36 @@ export function subscribeAppStream(
 }
 
 /**
+ * Subscribe an open resumable-chat-stream connection to a stream's chunk-flush
+ * pokes (`nova_chat_stream`). Same shared LISTEN client, lazy connect, and
+ * idempotent unsubscribe as `subscribeAppStream`.
+ */
+export function subscribeChatStream(
+	streamId: string,
+	onPoke: () => void,
+): () => void {
+	torndown = false;
+	let set = chatSubscribers.get(streamId);
+	if (set === undefined) {
+		set = new Set();
+		chatSubscribers.set(streamId, set);
+	}
+	set.add(onPoke);
+
+	void ensureConnected();
+
+	let unsubscribed = false;
+	return () => {
+		if (unsubscribed) return;
+		unsubscribed = true;
+		const current = chatSubscribers.get(streamId);
+		if (current === undefined) return;
+		current.delete(onPoke);
+		if (current.size === 0) chatSubscribers.delete(streamId);
+	};
+}
+
+/**
  * Tear down the dedicated LISTEN connection and cancel any pending reconnect.
  * For tests (and process teardown): drops every subscriber, ends the client, and
  * cancels the backoff timer so nothing survives into the next per-test database.
@@ -313,6 +367,7 @@ export async function closeStreamListener(): Promise<void> {
 	}
 	reconnectAttempt = 0;
 	subscribers.clear();
+	chatSubscribers.clear();
 	// Await any in-flight connect so a client it establishes can't latch AFTER
 	// this returns (its own `torndown` check discards it, but awaiting closes the
 	// race window against the next test's connection).

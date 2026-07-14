@@ -40,12 +40,25 @@ scan script's fold check is the tripwire.
 **Realtime pokes ride LISTEN/NOTIFY.** `writeCommittedBatch` calls
 `pg_notify('nova_app_stream', {appId, seq})` INSIDE the commit transaction
 (delivered on commit, after the rows are visible); presence writes poke
-`nova_presence`. Payloads are pokes only — the relay
-(`app/api/apps/[id]/stream`) SELECTs since its cursor, so a missed
-notification degrades to the next poke/catch-up, never to lost data. The
-dedicated LISTEN connection lives in `streamListener.ts` (one per instance,
-outside the pool — see the connection budget in
-`lib/case-store/postgres/connection.ts`).
+`nova_presence`; chat chunk-log appends poke `nova_chat_stream`. Payloads are
+pokes only — the relay (`app/api/apps/[id]/stream`) and the chat-resume
+endpoint SELECT since their cursor, so a missed notification degrades to the
+next poke/catch-up, never to lost data. The dedicated LISTEN connection lives
+in `streamListener.ts` (one per instance, outside the pool — see the
+connection budget in `lib/case-store/postgres/connection.ts`).
+
+**`chat_stream_chunks` is the resumable-chat log — operational, not
+history.** The chat route's `DurableStreamWriter` (its ONE write choke point)
+appends every UI chunk a POST streams, in write order, batched; the reconnect
+endpoint (`app/api/chat/[streamId]/stream`, the server half of the AI SDK's
+`WorkflowChatTransport` contract) replays from a client cursor and tails
+live, so a broken connection (network blip, Cloud Run's 60-min request cap)
+resumes instead of losing the run. Every stream is guaranteed to END: the
+writer seals a terminal row (synthesizing the `finish` chunk on error paths),
+and a run that died sealing nothing is closed by the endpoint's
+`appHeldLive`-based fallback. Rows prune past `CHAT_STREAM_RETENTION_MS`
+(opportunistically, on POST traffic) — conversation HISTORY lives in
+`threads` + the event log, never here.
 
 ## Two ledgers, different lifecycles
 

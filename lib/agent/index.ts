@@ -22,3 +22,11 @@ export {
 } from "./resolveAttachments";
 // solutionsArchitect — the one ToolLoopAgent factory.
 export { createSolutionsArchitect } from "./solutionsArchitect";
+
+// turnRetry — the chat route's transient mid-stream failure re-run policy.
+export {
+	buildTurnRetryContinuation,
+	shouldRetryTurn,
+	TURN_RETRY_MESSAGE,
+	turnRetryDelayMs,
+} from "./turnRetry";

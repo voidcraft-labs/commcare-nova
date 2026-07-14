@@ -393,6 +393,13 @@ export function createSolutionsArchitect(
 		// summary.
 		instructions: buildSolutionsArchitectPrompt(editing ? doc : undefined),
 		stopWhen: stepCountIs(80),
+		/* Provider 5xx / 429 at request establishment retries with the SDK's
+		 * exponential backoff — 5 attempts (~30s of patience) instead of the
+		 * default 3, so a brief provider outage rides through rather than
+		 * failing + refunding the run. Mid-stream failures are past the SDK's
+		 * retry layer; the chat route's turn-level re-run (`lib/agent/turnRetry`)
+		 * owns those. */
+		maxRetries: 4,
 		prepareStep: () => {
 			// The canonical reasoning literal
 			// (`lib/models.ts::reasoningProviderOptions`) — effort plus the

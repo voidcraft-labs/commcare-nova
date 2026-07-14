@@ -7,6 +7,7 @@ import {
 	validateUIMessages,
 } from "ai";
 import {
+	buildTurnRetryContinuation,
 	classifyError,
 	countDocumentsNeedingRead,
 	createSolutionsArchitect,
@@ -14,12 +15,17 @@ import {
 	GenerationContext,
 	MESSAGES,
 	resolveAttachments,
+	shouldRetryTurn,
+	TURN_RETRY_MESSAGE,
+	turnRetryDelayMs,
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveActiveProjectId, resolveGatewayKey } from "@/lib/auth-utils";
+import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
 import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
+import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
 	AppAccessError,
@@ -52,6 +58,7 @@ import {
 	settleAndRelease,
 } from "@/lib/db/credits";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
+import { pruneChatStreamChunks } from "@/lib/db/streamChunks";
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
 import {
 	hydratePersistedBlueprint,
@@ -79,6 +86,12 @@ export const maxDuration = 300;
  * Run's per-request timeout so a waiter never itself trips the platform kill. */
 const CLAIM_WAIT_POLL_MS = 750;
 const CLAIM_WAIT_MAX_MS = 120_000;
+
+/* Opportunistic chunk-log retention sweep — at most one fire-and-forget prune
+ * per instance per interval, piggybacked on POST traffic (the same
+ * no-dedicated-cron pattern as the run reapers). */
+const CHUNK_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
+let lastChunkPruneAt = 0;
 
 // ── Route Handler ──────────────────────────────────────────────────────
 
@@ -239,6 +252,24 @@ export async function POST(req: Request) {
 	 * requests so threads stay aligned across turns. Minted here — before any
 	 * persistence work — so failure paths below can still surface it if needed. */
 	const effectiveRunId = runId ?? crypto.randomUUID();
+
+	/* This POST's durable-stream identity — fresh per POST (a run spans many
+	 * POSTs; resume cursors are per-POST chunk counts). Returned in the
+	 * `x-workflow-run-id` response header, which is the handle the client's
+	 * WorkflowChatTransport reconnects with (`/api/chat/{streamId}/stream`)
+	 * when this response breaks without a `finish` chunk. */
+	const streamId = crypto.randomUUID();
+
+	/* Retention sweep for the chunk log — throttled per instance, never blocks
+	 * or fails the request. */
+	if (Date.now() - lastChunkPruneAt > CHUNK_PRUNE_INTERVAL_MS) {
+		lastChunkPruneAt = Date.now();
+		pruneChatStreamChunks().catch((err) => {
+			log.warn("[chat] chunk-log prune failed", {
+				err: err instanceof Error ? err.message : String(err),
+			});
+		});
+	}
 
 	/*
 	 * Resolve appId for authenticated users. Existing apps already have
@@ -547,6 +578,12 @@ export async function POST(req: Request) {
 	 * `onEnd` must not second-guess it. */
 	let finalizeRan = false;
 
+	/* POST-scope handle on the durable stream writer (created inside execute),
+	 * for the `onEnd` net: a prelude throw skips `finalizeRun` (the writer's
+	 * normal close point), and an unterminated chunk log would leave a resuming
+	 * client tailing until the liveness fallback. Idempotent close. */
+	let durableWriter: DurableStreamWriter | undefined;
+
 	/* No `req.signal` disconnect handling: the run is no longer tied to the
 	 * browser connection. The agent loop is drained server-side (see the execute
 	 * block), so a closed tab neither cancels the run nor finalizes it — `flush()`
@@ -554,7 +591,22 @@ export async function POST(req: Request) {
 	 * still reading. A run the process can't finish (hard kill) is settled by the
 	 * stale-`generating` reaper. */
 	const stream = createUIMessageStream({
-		execute: async ({ writer }) => {
+		execute: async ({ writer: rawWriter }) => {
+			/* The one write choke point: every chunk out of this request — SDK
+			 * parts forwarded from the SA stream AND the route's own `data-*`
+			 * events — rides this wrapper, which appends it to the durable chunk
+			 * log (resume replays it) and forwards it to the live response
+			 * (best-effort; a dead client stops forwarding, never logging).
+			 * Closed by `finalizeRun` so the terminal row is durable before the
+			 * response stream ends. */
+			const writer = new DurableStreamWriter({
+				streamId,
+				appId,
+				runId: effectiveRunId,
+				inner: rawWriter,
+			});
+			durableWriter = writer;
+
 			// Send runId to client so it can send it back on subsequent requests
 			writer.write({
 				type: "data-run-id",
@@ -718,6 +770,15 @@ export async function POST(req: Request) {
 						});
 					}
 				}
+				/* Terminate the durable chunk log LAST — every user-visible write on
+				 * every terminal path (the failure funnel's error event + refund
+				 * toast, the clean build's `data-done`) precedes its path's
+				 * `finalizeRun` call, so the terminal row seals a complete stream. A
+				 * resuming client then always reaches the synthetic/real `finish`
+				 * instead of tailing a dead run until the liveness fallback. Awaited:
+				 * execute must not resolve (closing the response) before the terminal
+				 * row is durable. */
+				await writer.close();
 			};
 
 			/**
@@ -1247,54 +1308,164 @@ export async function POST(req: Request) {
 					messages: effectiveMessages,
 					tools: sa.tools,
 				});
-				const modelMessages = await convertToModelMessages(validated, {
+				const baseModelMessages = await convertToModelMessages(validated, {
 					tools: sa.tools,
 				});
-				const result = await sa.stream({ prompt: modelMessages });
 
-				/* Drive the drain UN-awaited so the loop advances to its terminal state
-				 * even when the forward loop below stalls (client gone). Awaiting it
-				 * before forwarding would buffer the whole run and kill live streaming.
-				 * Swallow its rejection — a failure surfaces as the UI error chunk below,
-				 * not as a thrown drain. */
-				const drained = Promise.resolve(result.consumeStream()).catch(() => {});
-
-				/* Forward model chunks to the client AND detect a FATAL run failure in
-				 * one pass. A model/stream error arrives as a `{ type: "error" }` chunk
-				 * (never a throw), so the failure signal is THAT chunk, not merely
-				 * `onError` firing. `onError` also fires for `tool-input-error` /
-				 * `tool-output-error` chunks (a bad tool call, or a tool `execute()` throw)
-				 * that the SA loop recovers from and the run completes past, so keying
-				 * failure on any `onError` would wrongly fail a successful run (see
-				 * `isFatalStreamErrorChunk`). We stash the latest `onError` value, then
-				 * commit it as the fatal error only when the terminal `"error"` chunk
-				 * arrives. Nova surfaces the error via `ctx.emitError`, so the raw fatal
-				 * chunk is dropped; tool-error chunks forward like any other. A failing
-				 * `writer.write` means the client is gone, so stop forwarding (releasing
-				 * the tee branch) but let the drain finish server-side. */
+				/* The turn runs inside a bounded TRANSIENT-failure re-run loop: a
+				 * provider fault mid-generation (a 500 halfway through a step, a
+				 * dropped provider connection) re-drives the SAME turn — same POST,
+				 * same claim + lease + charge, same open stream — instead of failing
+				 * the run and making the user retry by hand. This is safe because it
+				 * IS the manual retry, performed early: every tool batch committed
+				 * inline before the failure (nothing is lost or replayed), the SA
+				 * continues against that committed doc, and the validity gate rejects
+				 * duplicate structural work at commit — the same guarantees a user's
+				 * own re-send has always relied on. Non-transient failures
+				 * (`shouldRetryTurn`) and deauthorized runs never loop. Each retry
+				 * appends ONE continuation message carrying the committed-state
+				 * summary to the UNCHANGED base prompt (cache-friendly; never
+				 * stacked), and surfaces on the wire + event log as a RECOVERABLE
+				 * conversation event — visible in admin inspect, invisible as a
+				 * failure to the user. */
 				let pendingError: unknown;
 				let sawFatalError = false;
-				for await (const chunk of result.toUIMessageStream({
-					originalMessages: validated,
-					onError: (error) => {
-						pendingError = error;
-						return error instanceof Error ? error.message : String(error);
-					},
-				})) {
-					if (isFatalStreamErrorChunk(chunk.type)) {
-						sawFatalError = true;
-						continue;
+				let turnRetries = 0;
+				/* Mirrors the client's part-lifetime state over the forwarded chunks
+				 * so a retried attempt can CLOSE the aborted attempt's dangling parts
+				 * (`closures()` below) — the client accumulates the whole response
+				 * into one assistant message, so without explicit closure a text
+				 * part interrupted mid-stream renders stuck-streaming above the
+				 * retried answer, live and on every replay. */
+				const openParts = createOpenPartTracker();
+				for (;;) {
+					pendingError = undefined;
+					sawFatalError = false;
+					/* The attempt's `finish` chunk, held back until the retry decision:
+					 * whether an errored stream emits one is SDK-internal, and
+					 * forwarding attempt N's finish before re-running would put TWO
+					 * finish chunks on one response — the client finalizes on the
+					 * first. Written through on every non-retry exit, so a clean turn's
+					 * wire is byte-identical to before. */
+					let heldFinish: Parameters<typeof writer.write>[0] | undefined;
+
+					const continuation =
+						turnRetries > 0
+							? (() => {
+									const committed = ctx.latestPersistedDoc();
+									return committed
+										? buildTurnRetryContinuation(committed)
+										: null;
+								})()
+							: null;
+					const result = await sa.stream({
+						prompt: continuation
+							? [...baseModelMessages, continuation]
+							: baseModelMessages,
+					});
+
+					/* Drive the drain UN-awaited so the loop advances to its terminal state
+					 * even when the forward loop below stalls (client gone). Awaiting it
+					 * before forwarding would buffer the whole run and kill live streaming.
+					 * Swallow its rejection — a failure surfaces as the UI error chunk below,
+					 * not as a thrown drain. */
+					const drained = Promise.resolve(result.consumeStream()).catch(
+						() => {},
+					);
+
+					/* Forward model chunks to the client AND detect a FATAL run failure in
+					 * one pass. A model/stream error arrives as a `{ type: "error" }` chunk
+					 * (never a throw), so the failure signal is THAT chunk, not merely
+					 * `onError` firing. `onError` also fires for `tool-input-error` /
+					 * `tool-output-error` chunks (a bad tool call, or a tool `execute()` throw)
+					 * that the SA loop recovers from and the run completes past, so keying
+					 * failure on any `onError` would wrongly fail a successful run (see
+					 * `isFatalStreamErrorChunk`). We stash the latest `onError` value, then
+					 * commit it as the fatal error only when the terminal `"error"` chunk
+					 * arrives. Nova surfaces the error via `ctx.emitError`, so the raw fatal
+					 * chunk is dropped; tool-error chunks forward like any other. A gone
+					 * client never surfaces here: the durable writer absorbs the failed
+					 * live forward internally and keeps appending to the chunk log — which
+					 * is exactly what a later resume replays — so this loop runs to the
+					 * stream's end either way (the catch is a last-resort guard). */
+					for await (const chunk of result.toUIMessageStream({
+						originalMessages: validated,
+						onError: (error) => {
+							pendingError = error;
+							return error instanceof Error ? error.message : String(error);
+						},
+					})) {
+						if (isFatalStreamErrorChunk(chunk.type)) {
+							sawFatalError = true;
+							continue;
+						}
+						if (chunk.type === "finish") {
+							heldFinish = chunk;
+							continue;
+						}
+						/* A retried attempt continues the SAME assistant message (the
+						 * client keeps one accumulating message per response), so its
+						 * fresh `start` — carrying a new message id that would strand
+						 * the first attempt's content under the old id — is dropped;
+						 * everything else appends after the closures written below. */
+						if (chunk.type === "start" && turnRetries > 0) continue;
+						openParts.observe(chunk);
+						try {
+							writer.write(chunk);
+						} catch {
+							break;
+						}
 					}
-					try {
-						writer.write(chunk);
-					} catch {
+
+					/* Block on the drain so finalization runs on the run's TRUE terminal
+					 * state even if forwarding broke off early when the client left. */
+					await drained;
+
+					/* Clean, paused, or deauthorized — the post-loop arms own all three.
+					 * A deauthorized run must never re-drive (the retry would run more
+					 * gated commits as an actor who lost access), and neither must a
+					 * PAUSED one: `pausedOnInput` is a one-way latch, so an
+					 * askQuestions round that completed before a trailing transient
+					 * error must keep today's semantics (the failure funnel) rather
+					 * than carry a stale pause latch into a retried attempt — a clean
+					 * attempt 2 would then wrongly park a finished run as
+					 * awaiting-input. */
+					if (!sawFatalError || ctx.reauthError() || ctx.pausedOnInput()) {
+						if (heldFinish !== undefined) writer.write(heldFinish);
 						break;
 					}
+					const classified = classifyError(
+						pendingError ??
+							new Error("The generation stream ended in an error."),
+					);
+					if (!shouldRetryTurn(classified, turnRetries)) {
+						/* Exhausted or non-transient — the failure funnel takes it from
+						 * here. Restore the held finish first so the failing wire matches
+						 * the pre-retry-loop encoding exactly. */
+						if (heldFinish !== undefined) writer.write(heldFinish);
+						break;
+					}
+					turnRetries += 1;
+					/* Close the aborted attempt's dangling parts BEFORE anything else
+					 * lands on the wire: the transcript then reads as a step that
+					 * stopped cleanly, followed by the retried step — nothing stuck
+					 * in a streaming state, live or on replay. (The held finish is
+					 * deliberately discarded — the message is not done.) */
+					for (const closure of openParts.closures()) {
+						writer.write(closure);
+					}
+					/* Recoverable, not fatal: renders as a warning in the signal panel
+					 * and lands in the event log with the REAL classified type — the
+					 * admin-inspect breadcrumb for diagnosing in-flight provider
+					 * faults. The user-facing message says work is preserved. */
+					ctx.emitError(
+						{ ...classified, message: TURN_RETRY_MESSAGE, recoverable: true },
+						"route:turn-retry",
+					);
+					await new Promise((r) =>
+						setTimeout(r, turnRetryDelayMs(turnRetries)),
+					);
 				}
-
-				/* Block on the drain so finalization runs on the run's TRUE terminal
-				 * state even if forwarding broke off early when the client left. */
-				await drained;
 
 				/* A guarded commit that threw `CommitReauthError` (the actor lost
 				 * edit access mid-run) is a FATAL run failure that must take
@@ -1454,6 +1625,16 @@ export async function POST(req: Request) {
 			 * `stopRunLeaseHeartbeat`, so a prelude throw that lands here never leaves
 			 * a timer running.) */
 			void (async () => {
+				/* Seal the chunk log FIRST if `finalizeRun` never did (the
+				 * prelude-throw case): an unterminated stream would leave a resuming
+				 * client tailing a dead run until the liveness fallback. Awaited
+				 * ahead of the flushes below so the terminal row gets the best
+				 * chance of landing before Cloud Run throttles the post-response
+				 * container; like those flushes, it cannot hold the already-closing
+				 * response open — the reconnect endpoint's liveness fallback stays
+				 * the backstop for a freeze that outruns it. Idempotent; the live
+				 * forward inside is a no-op on this closed response. */
+				await durableWriter?.close().catch(() => {});
 				/* Flush FIRST: a prelude-throw edit's `flush()` refunds+SETTLES its
 				 * marker (zero-cost run), so the run-lock release below never leaves the
 				 * app lock-absent-while-unsettled — the same "clear the lock only once
@@ -1494,5 +1675,13 @@ export async function POST(req: Request) {
 		},
 	});
 
-	return createUIMessageStreamResponse({ stream });
+	/* `x-workflow-run-id` is the WorkflowChatTransport resume contract: the
+	 * client stores it off this response and, if the stream ends without a
+	 * `finish` chunk (network blip, Cloud Run's request cap, a closed laptop),
+	 * reconnects to `/api/chat/{streamId}/stream?startIndex=<chunks received>`
+	 * and replays the difference from the durable chunk log. */
+	return createUIMessageStreamResponse({
+		stream,
+		headers: { "x-workflow-run-id": streamId },
+	});
 }

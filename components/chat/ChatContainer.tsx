@@ -12,7 +12,8 @@
  */
 "use client";
 import { Chat, useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import { WorkflowChatTransport } from "@ai-sdk/workflow";
+import type { UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createBlankApp } from "@/app/(app)/build/actions";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
@@ -75,50 +76,72 @@ function createChatInstance(
 	lastResponseAtRef: { current: string | undefined },
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 ): Chat<NovaUIMessage> {
+	/* The per-send request fields (beyond `messages`). The blueprint is NEVER
+	 * sent — the route loads the persisted doc server-side off the
+	 * authorization read. We send only the `appId`; `hasData` still feeds the
+	 * `appReady` phase derivation below.
+	 *
+	 * `appReady` gates whether the server strips generation tools (editing
+	 * mode) vs exposes them (build mode). We use the derived phase as the
+	 * single source of truth — Ready or Completed both imply "app is usable,
+	 * this is an edit-mode request." Generating / Idle / Loading all mean
+	 * "don't strip tools." This handles the askQuestions-auto-resend during an
+	 * initial build correctly: the buffer still carries the build's
+	 * stage-tagged events and the run opened on an empty doc, so phase stays
+	 * Generating → appReady=false → the planning tools remain available. */
+	const requestFields = () => {
+		const doc = docStoreRef.current?.getState();
+		const session = sessionStoreRef.current;
+		if (!session) return {};
+		const sessionState = session.getState();
+		const hasData = (doc?.moduleOrder.length ?? 0) > 0;
+		const phase = derivePhase(
+			{
+				loading: sessionState.loading,
+				runCompletedAt: sessionState.runCompletedAt,
+				events: sessionState.events,
+				runStartedWithData: sessionState.runStartedWithData,
+			},
+			hasData,
+		);
+		const appReady =
+			phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
+		return {
+			runId: runIdRef.current,
+			appId: sessionState.appId,
+			lastResponseAt: lastResponseAtRef.current,
+			appReady,
+		};
+	};
+
 	return new Chat<NovaUIMessage>({
 		// Validates any message metadata the SDK parses on the client. Outbound
 		// attachment metadata rides `sendMessage` regardless; this guards the
 		// (currently unused) inbound path where the server sets message metadata.
 		messageMetadataSchema,
-		transport: new DefaultChatTransport({
+		/* WorkflowChatTransport (from @ai-sdk/workflow) instead of
+		 * DefaultChatTransport: when the POST's SSE ends WITHOUT a `finish`
+		 * chunk — a network blip, a mid-run deploy hiccup, Cloud Run's
+		 * 60-minute request cap — it reconnects to
+		 * `/api/chat/{x-workflow-run-id}/stream?startIndex=<chunks received>`
+		 * and resumes from the durable chunk log, instead of surfacing
+		 * "Generation failed" while the run keeps going server-side. Only the
+		 * transport is from the workflow package — the server side is Nova's
+		 * own Postgres-backed endpoint, no workflow runtime involved. */
+		transport: new WorkflowChatTransport<NovaUIMessage>({
 			api: "/api/chat",
-			body: () => {
-				const doc = docStoreRef.current?.getState();
-				const session = sessionStoreRef.current;
-				if (!session) return {};
-				const sessionState = session.getState();
-				const hasData = (doc?.moduleOrder.length ?? 0) > 0;
-				/* The blueprint is NEVER sent — the route loads the persisted doc
-				 * server-side off the authorization read. We send only the `appId`;
-				 * `hasData` still feeds the `appReady` phase derivation below. */
-				/* `appReady` gates whether the server strips generation tools
-				 * (editing mode) vs exposes them (build mode). We use the
-				 * derived phase as the single source of truth — Ready or
-				 * Completed both imply "app is usable, this is an edit-mode
-				 * request." Generating / Idle / Loading all mean "don't strip
-				 * tools." This handles the askQuestions-auto-resend during an
-				 * initial build correctly: the buffer still carries the
-				 * build's stage-tagged events and the run opened on an empty
-				 * doc, so phase stays Generating → appReady=false → the
-				 * planning tools remain available. */
-				const phase = derivePhase(
-					{
-						loading: sessionState.loading,
-						runCompletedAt: sessionState.runCompletedAt,
-						events: sessionState.events,
-						runStartedWithData: sessionState.runStartedWithData,
-					},
-					hasData,
-				);
-				const appReady =
-					phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
-				return {
-					runId: runIdRef.current,
-					appId: sessionState.appId,
-					lastResponseAt: lastResponseAtRef.current,
-					appReady,
-				};
-			},
+			maxConsecutiveErrors: 5,
+			/* Unlike DefaultChatTransport there is no `body` option — the
+			 * request is assembled here. The returned body REPLACES the default
+			 * wholesale, so `messages` must be included explicitly — and so do
+			 * the headers: the transport sends exactly what this returns, and a
+			 * JSON POST without an explicit content-type goes out as
+			 * `text/plain` (fetch's default for a string body). */
+			prepareSendMessagesRequest: ({ api, messages }) => ({
+				api,
+				headers: { "content-type": "application/json" },
+				body: { messages, ...requestFields() },
+			}),
 		}),
 		sendAutomaticallyWhen: shouldAutoResend,
 		onData: (part) => {
