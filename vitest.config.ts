@@ -93,8 +93,13 @@ export default defineConfig({
 			// but here the pipes are per-call inside the library under test, so
 			// the boundary is the gate itself. The suite still runs in every
 			// normal `vitest run` / CI test job; only `--detect-async-leaks`
-			// skips it. Remove when Node's pipe internals (or the detector)
-			// stop flagging a drained pipe.
+			// skips it — and the exemption blinds the gate ONLY to the
+			// third-party transport's internals: the resume ROUTE's own async
+			// discipline (timers, LISTEN subscriptions, stream teardown) stays
+			// fully leak-gated via streamResume.integration.test.ts, which
+			// drives the same endpoint without the transport. Remove when
+			// Node's pipe internals (or the detector) stop flagging a drained
+			// pipe.
 			...(process.argv.includes("--detect-async-leaks")
 				? ["**/transportContract.integration.test.ts"]
 				: []),

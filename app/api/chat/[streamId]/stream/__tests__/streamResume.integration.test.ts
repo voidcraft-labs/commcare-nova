@@ -259,6 +259,23 @@ describe("replay", () => {
 		expect(frames).toEqual([delta(2), delta(3), { type: "finish" }, "[DONE]"]);
 	});
 
+	it("seals a replay whose cursor sits past the log's own finish with a synthetic finish", async () => {
+		// The wire/log skew shape: an error chunk enqueued on the raw response
+		// (bypassing the durable writer) leaves the client's count past the
+		// sealed log. Without a finish chunk on THIS response the transport
+		// reconnects forever with zero backoff.
+		await seedRow("s12", 0, [delta(0), { type: "finish" }], {
+			terminal: true,
+		});
+
+		const { frames, ended } = await collectUntil("s12", {
+			startIndex: 5,
+			timeoutMs: 3_000,
+		});
+		expect(frames).toEqual([{ type: "finish" }, "[DONE]"]);
+		expect(ended).toBe(true);
+	});
+
 	it("resolves a negative startIndex from the end and returns the tail header", async () => {
 		await seedRow("s3", 0, [delta(0), delta(1), delta(2)]);
 		await seedRow("s3", 3, [delta(3), { type: "finish" }], { terminal: true });
@@ -408,6 +425,28 @@ describe("auth posture", () => {
 		// Closed WITHOUT [DONE] — a revoked tail is not a completed stream.
 		expect(ended).toBe(true);
 		expect(frames).toEqual([delta(0)]);
+	});
+});
+
+describe("append idempotency", () => {
+	it("converges a retried append of the same (stream, firstIndex) batch instead of raising", async () => {
+		// The writer's in-chain retry can re-send a batch whose INSERT actually
+		// committed (lost ack, or a failed advisory poke on the first call) —
+		// the duplicate must be a no-op, not a PK violation that marks the
+		// stream broken.
+		const batch = {
+			streamId: "s13",
+			appId: "app-1",
+			runId: "run-1",
+			firstIndex: 0,
+			chunks: [delta(0), { type: "finish" }],
+			terminal: true,
+		};
+		await appendStreamChunks(batch);
+		await expect(appendStreamChunks(batch)).resolves.toBeUndefined();
+
+		const { frames } = await collectUntil("s13", {});
+		expect(frames).toEqual([delta(0), { type: "finish" }, "[DONE]"]);
 	});
 });
 

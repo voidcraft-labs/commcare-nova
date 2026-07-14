@@ -8,8 +8,11 @@
  * (the client half ships in `@ai-sdk/workflow`; Nova serves the contract from
  * its own Postgres — no workflow runtime involved). The transport calls this
  * whenever a chat POST's response ends without a `finish` chunk — a network
- * blip, a page refresh mid-run, Cloud Run's 60-minute request cap — passing
- * the count of chunks it already received as `startIndex`, and expects:
+ * blip, a mid-run deploy hiccup, Cloud Run's 60-minute request cap — passing
+ * the count of chunks it already received as `startIndex`. (The endpoint
+ * equally serves a cursor-0 cold reconnect from a client with no prior POST;
+ * nothing wires that on refresh yet — a live run's stream is discoverable
+ * only by the transport instance that started it.) It expects:
  *
  *  - the same SSE encoding the POST uses (`data: <UIMessageChunk JSON>`
  *    frames, `data: [DONE]` at the end),
@@ -200,10 +203,20 @@ function openStream(args: {
 			}
 			teardownRef = teardown;
 
-			/** Seal the wire: `[DONE]` then close (the transport stops on the
-			 *  `finish` CHUNK; `[DONE]` matches the POST encoding and is ignored
-			 *  by its parser). */
+			/** Seal the wire. The transport terminates on a `finish` CHUNK — a
+			 *  response that closes without ever delivering one sends the client
+			 *  back into an immediate reconnect, forever (`[DONE]` is ignored by
+			 *  its parser). A completed replay can legitimately deliver none: a
+			 *  resume cursor at or past the log's own finish (reachable when a
+			 *  throw escaping the POST's execute enqueues an error chunk on the
+			 *  raw response, skewing the client's count past the sealed log), or
+			 *  the dead-run fallback. So EVERY close synthesizes the missing
+			 *  finish first. */
 			function finishAndClose(): void {
+				if (!sawFinishChunk) {
+					sawFinishChunk = true;
+					send(JSON.stringify({ type: "finish" }));
+				}
 				send("[DONE]");
 				teardown();
 			}
@@ -312,7 +325,12 @@ function openStream(args: {
 						return;
 					}
 					if (closed) return;
-					if (!sawFinishChunk) send(JSON.stringify({ type: "finish" }));
+					/* Final drain BEFORE concluding: rows appended since the last
+					 * poll (the released run's closing flush) must reach the client
+					 * rather than be cut off by the synthetic close. The pump itself
+					 * closes the stream if it consumes the terminal row. */
+					await pump();
+					if (closed) return;
 					finishAndClose();
 				})();
 			}, CADENCE_MS);

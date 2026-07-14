@@ -133,9 +133,13 @@ function createChatInstance(
 			maxConsecutiveErrors: 5,
 			/* Unlike DefaultChatTransport there is no `body` option — the
 			 * request is assembled here. The returned body REPLACES the default
-			 * wholesale, so `messages` must be included explicitly. */
+			 * wholesale, so `messages` must be included explicitly — and so do
+			 * the headers: the transport sends exactly what this returns, and a
+			 * JSON POST without an explicit content-type goes out as
+			 * `text/plain` (fetch's default for a string body). */
 			prepareSendMessagesRequest: ({ api, messages }) => ({
 				api,
+				headers: { "content-type": "application/json" },
 				body: { messages, ...requestFields() },
 			}),
 		}),

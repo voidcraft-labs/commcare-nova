@@ -133,6 +133,12 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			const url = new URL(String(input), "http://localhost");
 			requests.push(`${init?.method ?? "GET"} ${url.pathname}${url.search}`);
 			if (init?.method === "POST") {
+				// The transport sends exactly the headers ChatContainer's
+				// prepareSendMessagesRequest returns — without the explicit
+				// content-type, a stringified JSON body defaults to text/plain.
+				expect(new Headers(init.headers).get("content-type")).toBe(
+					"application/json",
+				);
 				// The POST breaks after 3 chunks — no finish, no [DONE].
 				return new Response(sseBody(FULL.slice(0, 3)), {
 					headers: {
@@ -151,6 +157,13 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		const transport = new WorkflowChatTransport({
 			api: "/api/chat",
 			fetch: routedFetch,
+			// The same request shape ChatContainer wires: explicit JSON
+			// content-type (the transport sends exactly what this returns).
+			prepareSendMessagesRequest: ({ api, messages }) => ({
+				api,
+				headers: { "content-type": "application/json" },
+				body: { messages },
+			}),
 		});
 
 		const stream = await transport.sendMessages({

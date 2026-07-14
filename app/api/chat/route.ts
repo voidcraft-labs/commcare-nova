@@ -25,6 +25,7 @@ import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
 import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
 import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
+import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
 	AppAccessError,
@@ -1330,6 +1331,13 @@ export async function POST(req: Request) {
 				let pendingError: unknown;
 				let sawFatalError = false;
 				let turnRetries = 0;
+				/* Mirrors the client's part-lifetime state over the forwarded chunks
+				 * so a retried attempt can CLOSE the aborted attempt's dangling parts
+				 * (`closures()` below) — the client accumulates the whole response
+				 * into one assistant message, so without explicit closure a text
+				 * part interrupted mid-stream renders stuck-streaming above the
+				 * retried answer, live and on every replay. */
+				const openParts = createOpenPartTracker();
 				for (;;) {
 					pendingError = undefined;
 					sawFatalError = false;
@@ -1395,6 +1403,13 @@ export async function POST(req: Request) {
 							heldFinish = chunk;
 							continue;
 						}
+						/* A retried attempt continues the SAME assistant message (the
+						 * client keeps one accumulating message per response), so its
+						 * fresh `start` — carrying a new message id that would strand
+						 * the first attempt's content under the old id — is dropped;
+						 * everything else appends after the closures written below. */
+						if (chunk.type === "start" && turnRetries > 0) continue;
+						openParts.observe(chunk);
 						try {
 							writer.write(chunk);
 						} catch {
@@ -1431,6 +1446,14 @@ export async function POST(req: Request) {
 						break;
 					}
 					turnRetries += 1;
+					/* Close the aborted attempt's dangling parts BEFORE anything else
+					 * lands on the wire: the transcript then reads as a step that
+					 * stopped cleanly, followed by the retried step — nothing stuck
+					 * in a streaming state, live or on replay. (The held finish is
+					 * deliberately discarded — the message is not done.) */
+					for (const closure of openParts.closures()) {
+						writer.write(closure);
+					}
 					/* Recoverable, not fatal: renders as a warning in the signal panel
 					 * and lands in the event log with the REAL classified type — the
 					 * admin-inspect breadcrumb for diagnosing in-flight provider
@@ -1601,12 +1624,17 @@ export async function POST(req: Request) {
 			 * prelude, inside the main try whose `finally` always runs `finalizeRun` →
 			 * `stopRunLeaseHeartbeat`, so a prelude throw that lands here never leaves
 			 * a timer running.) */
-			/* Seal the chunk log if `finalizeRun` never did (the prelude-throw case):
-			 * an unterminated stream would leave a resuming client tailing a dead run
-			 * until the liveness fallback. Idempotent; the live forward inside is a
-			 * no-op on this already-closed response. */
-			void durableWriter?.close();
 			void (async () => {
+				/* Seal the chunk log FIRST if `finalizeRun` never did (the
+				 * prelude-throw case): an unterminated stream would leave a resuming
+				 * client tailing a dead run until the liveness fallback. Awaited
+				 * ahead of the flushes below so the terminal row gets the best
+				 * chance of landing before Cloud Run throttles the post-response
+				 * container; like those flushes, it cannot hold the already-closing
+				 * response open — the reconnect endpoint's liveness fallback stays
+				 * the backstop for a freeze that outruns it. Idempotent; the live
+				 * forward inside is a no-op on this closed response. */
+				await durableWriter?.close().catch(() => {});
 				/* Flush FIRST: a prelude-throw edit's `flush()` refunds+SETTLES its
 				 * marker (zero-cost run), so the run-lock release below never leaves the
 				 * app lock-absent-while-unsettled — the same "clear the lock only once

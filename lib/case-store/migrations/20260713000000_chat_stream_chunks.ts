@@ -4,9 +4,10 @@
 // Every chunk the chat route writes to a run's UI message stream is appended
 // here (batched rows, in write order) by the route's durable stream writer,
 // alongside its best-effort delivery to the live POST response. A client whose
-// connection broke — a network blip, a page refresh, Cloud Run's 60-minute
-// request cap — reconnects with a chunk cursor and replays exactly the chunks
-// it missed, then tails the rest live (poked over `nova_chat_stream`).
+// connection broke — a network blip, a mid-run deploy hiccup, Cloud Run's
+// 60-minute request cap — reconnects with a chunk cursor and replays exactly
+// the chunks it missed, then tails the rest live (poked over
+// `nova_chat_stream`).
 //
 //  - `stream_id` identifies ONE POST's stream (a conversation run spans many
 //    POSTs; each mints a fresh stream id and returns it in the

@@ -16,6 +16,7 @@
  */
 
 import { sql } from "kysely";
+import { log } from "@/lib/logger";
 import { getAppDb, notifyChatStream } from "./pg";
 
 /**
@@ -40,8 +41,18 @@ export interface StreamChunkAppend {
 }
 
 /**
- * Append one batch of chunks and poke the stream's tailers. The poke is
- * issued after the insert resolves so a tailer's re-SELECT sees the rows.
+ * Append one batch of chunks and poke the stream's tailers.
+ *
+ * Idempotent per `(streamId, firstIndex)`: the writer's in-chain retry may
+ * re-send a batch whose INSERT actually committed (the ack was lost, or the
+ * poke below failed the first call), and `ON CONFLICT DO NOTHING` makes that
+ * converge instead of raising a PK violation that would falsely mark a
+ * healthy stream broken. Within one writer the content at a given index is
+ * fixed, so dropping the duplicate is exact.
+ *
+ * The poke is advisory (tailers also poll), so a notify failure never fails
+ * the append — the rows are durable either way; issued after the insert
+ * resolves so a poked tailer's re-SELECT sees them.
  */
 export async function appendStreamChunks(
 	append: StreamChunkAppend,
@@ -57,8 +68,16 @@ export async function appendStreamChunks(
 			chunks: JSON.stringify(append.chunks),
 			terminal: append.terminal,
 		})
+		.onConflict((oc) => oc.columns(["stream_id", "first_index"]).doNothing())
 		.execute();
-	await notifyChatStream(append.streamId);
+	try {
+		await notifyChatStream(append.streamId);
+	} catch (err) {
+		log.warn("[streamChunks] tailer poke failed (rows are durable)", {
+			streamId: append.streamId,
+			err: err instanceof Error ? err.message : String(err),
+		});
+	}
 }
 
 /** Everything a tailer needs from one cursor read. */
@@ -72,25 +91,32 @@ export interface StreamChunkRead {
 }
 
 /**
- * Read a stream's chunks from `fromIndex` through its current end. Rows are
- * range-scanned on the `(stream_id, first_index)` key; the terminal marker row
- * is included even when empty so completion is visible from any cursor.
+ * Read a stream's chunks from `fromIndex` through its current end. Two
+ * PK-friendly queries: an anchor lookup (the last row starting at or before
+ * the cursor — the one row a mid-batch cursor lands inside) and a forward
+ * range scan from that anchor, both pure `(stream_id, first_index)` index
+ * ranges. Reading from the anchor to the end always includes the terminal
+ * marker row (it carries the stream's highest `first_index`, even when
+ * empty), so completion is visible from any cursor.
  */
 export async function readStreamChunksFrom(
 	streamId: string,
 	fromIndex: number,
 ): Promise<StreamChunkRead> {
 	const db = await getAppDb();
+	const anchor = await db
+		.selectFrom("chat_stream_chunks")
+		.select("first_index")
+		.where("stream_id", "=", streamId)
+		.where("first_index", "<=", fromIndex)
+		.orderBy("first_index", "desc")
+		.limit(1)
+		.executeTakeFirst();
 	const rows = await db
 		.selectFrom("chat_stream_chunks")
 		.select(["first_index", "chunks", "terminal"])
 		.where("stream_id", "=", streamId)
-		.where((eb) =>
-			eb.or([
-				sql<boolean>`first_index + jsonb_array_length(chunks) > ${fromIndex}`,
-				eb("terminal", "=", true),
-			]),
-		)
+		.where("first_index", ">=", anchor?.first_index ?? fromIndex)
 		.orderBy("first_index", "asc")
 		.execute();
 
