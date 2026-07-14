@@ -61,7 +61,7 @@ import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchema
 import { pruneChatStreamChunks } from "@/lib/db/streamChunks";
 import {
 	appendThreadResponse,
-	threadAppId,
+	resolveThreadStream,
 	upsertThreadTurn,
 } from "@/lib/db/threads";
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
@@ -249,7 +249,10 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const { runId, threadId, appReady } = parsed.data;
+	const { runId, appReady } = parsed.data;
+	/* A turn without a thread id starts a fresh server-minted thread (see the
+	 * schema): the conversation persists either way. */
+	const threadId = parsed.data.threadId ?? crypto.randomUUID();
 
 	/* Stable per-request run identifier. Every event envelope (mutation or
 	 * conversation) carries this value; the client echoes it back on follow-up
@@ -266,10 +269,10 @@ export async function POST(req: Request) {
 	 * CLOSED on a read error — proceeding unguarded would let the later
 	 * guarded write silently drop the conversation instead. */
 	try {
-		const existingThreadApp = await threadAppId(threadId);
+		const existingThread = await resolveThreadStream(threadId);
 		if (
-			existingThreadApp !== null &&
-			(!parsed.data.appId || existingThreadApp !== parsed.data.appId)
+			existingThread !== null &&
+			(!parsed.data.appId || existingThread.appId !== parsed.data.appId)
 		) {
 			return Response.json(
 				{
@@ -836,14 +839,22 @@ export async function POST(req: Request) {
 					 * askQuestions round) streams its response as a CONTINUATION of
 					 * that message — seed the assembly with it so the persisted
 					 * transcript keeps ONE merged message, exactly as the client
-					 * does. */
+					 * does. `streamId` scopes the marker clear to THIS run: the app
+					 * was released above, so a competing POST may already own a
+					 * fresh claim on this thread — its marker and turns must survive
+					 * this late write (the append merges; it never rewrites). */
 					const trailing = messages.at(-1);
 					const responseMessage = await assembleResponseMessage(
 						streamId,
 						trailing?.role === "assistant" ? trailing : undefined,
 					);
 					try {
-						await appendThreadResponse({ appId, threadId, responseMessage });
+						await appendThreadResponse({
+							appId,
+							threadId,
+							streamId,
+							responseMessage,
+						});
 					} catch (err) {
 						log.error("[chat] thread response append failed", err, {
 							appId,
@@ -865,9 +876,12 @@ export async function POST(req: Request) {
 				ctx.emitError(classified, source);
 				if (chargeable && !refundSignalled) {
 					refundSignalled = true;
+					/* `userId` names the CHARGED actor — a co-member replaying this
+					 * run's stream (a shared thread's refresh-resume) must not be
+					 * told THEIR credits were refunded. */
 					writer.write({
 						type: "data-credit-refund",
-						data: { amount: cost },
+						data: { amount: cost, userId },
 						transient: true,
 					});
 				}

@@ -17,8 +17,11 @@ import { z } from "zod";
 export const chatRequestSchema = z.object({
 	/** The conversation this turn belongs to — client-minted uuid, one per
 	 *  thread. The route persists the incoming history onto this row and
-	 *  appends the assistant response at finalize. */
-	threadId: z.string().min(1).max(128),
+	 *  appends the assistant response at finalize. OPTIONAL by design: a
+	 *  turn without one (a tab loaded before threads shipped, a raw API
+	 *  caller) starts a fresh server-minted thread rather than 400ing —
+	 *  the conversation still persists, it just isn't continuing one. */
+	threadId: z.string().min(1).max(128).optional(),
 	runId: z.string().optional(),
 	/** App ID — present after first save so subsequent saves update the same doc. */
 	appId: z.string().optional(),

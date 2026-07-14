@@ -226,11 +226,12 @@ async function main(): Promise<void> {
 		),
 	);
 	const threadId = randomUUID();
+	const threadStreamId = randomUUID();
 	const written = await upsertThreadTurn({
 		appId: threadsAppId,
 		threadId,
 		runId: randomUUID(),
-		streamId: randomUUID(),
+		streamId: threadStreamId,
 		threadType: "build",
 		messages: [
 			{
@@ -244,6 +245,7 @@ async function main(): Promise<void> {
 	await appendThreadResponse({
 		appId: threadsAppId,
 		threadId,
+		streamId: threadStreamId,
 		responseMessage: {
 			id: "smoke-m2",
 			role: "assistant",

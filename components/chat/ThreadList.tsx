@@ -16,23 +16,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerMessage from "@iconify-icons/tabler/message";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import type { ThreadMeta } from "@/lib/db/types";
-
-/** Format an ISO date string into a short human-readable label. */
-function formatThreadDate(isoDate: string): string {
-	const date = new Date(isoDate);
-	const now = new Date();
-	const diffMs = now.getTime() - date.getTime();
-	const diffMinutes = Math.floor(diffMs / (1000 * 60));
-	const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-	if (diffMinutes < 1) return "Just now";
-	if (diffMinutes < 60) return `${diffMinutes}m ago`;
-	if (diffDays === 0) return `${Math.floor(diffMinutes / 60)}h ago`;
-	if (diffDays === 1) return "Yesterday";
-	if (diffDays < 7) return `${diffDays}d ago`;
-
-	return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
+import { formatRelativeDate } from "@/lib/utils/format";
 
 interface ThreadListProps {
 	threads: ThreadMeta[];
@@ -110,7 +94,7 @@ export function ThreadList({
 								{thread.thread_type === "build" ? "Initial build" : "Edit"}
 							</span>
 							<span aria-hidden>·</span>
-							<span>{formatThreadDate(thread.updated_at)}</span>
+							<span>{formatRelativeDate(new Date(thread.updated_at))}</span>
 							<span aria-hidden>·</span>
 							<span className="tabular-nums">
 								{thread.message_count}{" "}

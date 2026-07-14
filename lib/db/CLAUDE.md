@@ -66,10 +66,16 @@ server-written by the chat route at exactly two moments (`lib/db/threads.ts`
 is the whole contract): `upsertThreadTurn` the instant a run claims the app
 (persists the incoming history + marks the thread live via
 `active_stream_id` — the page-refresh resume handle), and
-`appendThreadResponse` at finalize (appends the assistant message assembled
-from the chunk log by `assembleResponseMessage`, REPLACING a trailing
-same-id message on an askQuestions continuation, and clears the live marker
-in the same write — a loader never sees "response persisted + stream live").
+`appendThreadResponse` at finalize (the assistant message assembled from the
+chunk log by `assembleResponseMessage`). Both writers are row-locked and
+MERGE by message id (`mergeTranscript` — union, richer version wins), never
+rewrite: a stale tab or a late finalize can add turns, not erase them, and
+an askQuestions continuation lands as ONE merged message. The finalize
+retires the live marker ONLY while it still names its own run's stream (the
+app releases before finalize completes, so a newer claim may already own a
+fresh marker), and the loaders reconcile any marker against actual app
+liveness (`appHeldLive`) — stripping and healing one stranded by a run that
+died before finalize.
 The reconnect endpoint resolves a GET id as stream-first, thread-second, so
 `useChat`'s `resumeStream({chatId: threadId})` reconnects a refreshed page
 to the in-flight run by thread id alone; a thread with nothing in flight

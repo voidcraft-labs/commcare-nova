@@ -80,6 +80,11 @@ interface BuilderContentAreaProps {
 	threads?: ThreadMeta[];
 	/** The most recently active thread, transcript included. */
 	initialThread?: ThreadDoc | null;
+	/** True when the page loaded a `generating` app — a live-thread resume
+	 *  reconnects to an initial BUILD run. */
+	appGenerating?: boolean;
+	/** The signed-in user, for owner-scoped chat notices. */
+	currentUserId?: string;
 }
 
 export function BuilderContentArea({
@@ -87,6 +92,8 @@ export function BuilderContentArea({
 	isExistingApp,
 	threads,
 	initialThread,
+	appGenerating,
+	currentUserId,
 }: BuilderContentAreaProps) {
 	const phase = useBuilderPhase();
 	const isReady = useBuilderIsReady();
@@ -301,6 +308,8 @@ export function BuilderContentArea({
 						isExistingApp={isExistingApp}
 						threads={threads}
 						initialThread={initialThread}
+						appGenerating={appGenerating}
+						currentUserId={currentUserId}
 					/>
 				</ErrorBoundary>
 			</motion.div>

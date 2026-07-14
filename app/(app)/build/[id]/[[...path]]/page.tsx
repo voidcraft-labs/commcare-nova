@@ -99,8 +99,12 @@ export default async function BuilderPage({
 	const canEdit = roleAllowsApp(role, "edit");
 
 	/* Conversations — the list plus the most recent thread's transcript.
-	 * Best-effort: the builder is fully usable without chat history, so a
-	 * thread-read fault degrades to an empty conversation, never a 500. */
+	 * Best-effort for a COMPLETE app (the builder is fully usable without
+	 * chat history, so a read fault degrades to an empty conversation, never
+	 * a 500). A GENERATING app is different: it was admitted PRECISELY so the
+	 * live build resumes, and that resume rides the hydrated thread — landing
+	 * without it would show a half-built app with an empty chat and no sign a
+	 * build is running, so the degraded path keeps the old redirect. */
 	let threads: ThreadMeta[] = [];
 	let initialThread: ThreadDoc | null = null;
 	try {
@@ -110,6 +114,7 @@ export default async function BuilderPage({
 		}
 	} catch (err) {
 		log.error("[build-page] thread hydration failed", err, { appId: id });
+		if (app.status === "generating") redirect("/");
 	}
 
 	return (
@@ -126,6 +131,8 @@ export default async function BuilderPage({
 				impersonating={impersonating}
 				threads={threads}
 				initialThread={initialThread}
+				appGenerating={app.status === "generating"}
+				currentUserId={session.user.id}
 			/>
 		</BuilderProvider>
 	);

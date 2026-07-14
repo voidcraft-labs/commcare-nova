@@ -92,6 +92,7 @@ function createChatInstance(
 	sessionStoreRef: { current: BuilderSessionStoreApi | null },
 	runIdRef: { current: string | undefined },
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
+	ownUserIdRef: { current: string | undefined },
 ): Chat<NovaUIMessage> {
 	/* The per-send request fields (beyond `messages`). The blueprint is NEVER
 	 * sent — the route loads the persisted doc server-side off the
@@ -188,6 +189,12 @@ function createChatInstance(
 				return;
 			}
 			if (type === "data-credit-refund") {
+				/* Owner check: a shared thread's refresh-resume replays another
+				 * member's run, refund chunk included — "you weren't charged" must
+				 * only reach the actor who was. `userId` names the charged actor;
+				 * a chunk without one (logged before the field existed) shows. */
+				const refundedUser = data.userId as string | undefined;
+				if (refundedUser && ownUserIdRef.current !== refundedUser) return;
 				const amount = data.amount as number;
 				// Reassurance, not an error — the failure itself is surfaced separately as
 				// the generation-error toast (a data-conversation-event with an error
@@ -253,6 +260,15 @@ interface ChatContainerProps {
 	/** The most recently active thread, transcript included — what this
 	 *  session opens into. Null/absent on a brand-new build. */
 	initialThread?: ThreadDoc | null;
+	/** True when the page loaded a `generating` app — the ONE case where a
+	 *  live-thread resume reconnects to an initial BUILD run (an edit run
+	 *  never flips a complete app's status). Drives the `beginRun`
+	 *  build-capture override; `thread_type` can't (it freezes at thread
+	 *  creation, so the app's first conversation reads "build" forever). */
+	appGenerating?: boolean;
+	/** The signed-in user — a replayed run's credit-refund notice is shown
+	 *  only to the actor who was actually charged. */
+	currentUserId?: string;
 }
 
 export function ChatContainer({
@@ -260,6 +276,8 @@ export function ChatContainer({
 	isExistingApp,
 	threads,
 	initialThread,
+	appGenerating,
+	currentUserId,
 }: ChatContainerProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
@@ -279,6 +297,8 @@ export function ChatContainer({
 	 * instance. */
 	const reconcilerCtxRef = useRef(reconcilerCtx);
 	reconcilerCtxRef.current = reconcilerCtx;
+	const ownUserIdRef = useRef(currentUserId);
+	ownUserIdRef.current = currentUserId;
 	const runIdRef = useRef<string | undefined>(initialThread?.run_id);
 	/** Whether the SSE transport was open on the previous render — used
 	 *  to detect `ready`→`streaming` and `streaming`→`ready` transitions
@@ -298,13 +318,17 @@ export function ChatContainer({
 	const pendingResumeRef = useRef<string | null>(
 		initialThread?.active_stream_id ? initialThread.thread_id : null,
 	);
-	/** One-shot: the next `beginRun` belongs to a reconnected BUILD run, so
-	 *  its build-vs-edit capture must read "started empty" even though the
-	 *  build's committed modules are already in the loaded doc. */
+	/** One-shot: the next `beginRun` belongs to a reconnected BUILD run
+	 *  (page loaded a `generating` app), so its build-vs-edit capture must
+	 *  read "started empty" even though the build's committed modules are
+	 *  already in the loaded doc. */
 	const pendingBuildResumeRef = useRef(
-		initialThread?.active_stream_id != null &&
-			initialThread?.thread_type === "build",
+		initialThread?.active_stream_id != null && !!appGenerating,
 	);
+	/** Set to the resuming Chat's id when `resumeStream()` fires; consumed on
+	 *  stream close to heal the refresh-races-finalize gap (see the status
+	 *  effect below). */
+	const resumeHealRef = useRef<string | null>(null);
 
 	// ── Blank-app escape hatch (new builds only) ─────────────────────────
 
@@ -336,11 +360,38 @@ export function ChatContainer({
 	}, []);
 
 	// ── Chat instance — recreated on session change or thread switch ──────
+
+	/** The ONE thread-activation path: stamp the per-thread refs (run id for
+	 *  free-continuation resumes, the pending resume + build-capture
+	 *  one-shots) and build the Chat instance those refs feed. Every way a
+	 *  conversation becomes active — mount, session change, thread switch,
+	 *  New chat — goes through here so the refs can't drift out of step. */
+	const activateThread = useCallback(
+		(
+			init: ActiveThreadInit,
+			opts?: { runId?: string; resume?: boolean; buildResume?: boolean },
+		): Chat<NovaUIMessage> => {
+			runIdRef.current = opts?.runId;
+			pendingResumeRef.current = opts?.resume ? init.threadId : null;
+			pendingBuildResumeRef.current = !!opts?.buildResume;
+			return createChatInstance(
+				init,
+				docStoreRef,
+				sessionStoreRef,
+				runIdRef,
+				reconcilerCtxRef,
+				ownUserIdRef,
+			);
+		},
+		[],
+	);
+
 	/* The session store is recreated inside `BuilderSessionProvider` on every
 	 * buildId change (the parent `BuilderProvider` keys on buildId, unmounting
 	 * and remounting all children). Its reference is the canonical per-app
 	 * identity. Clear stale local state from the previous app: run ID and
-	 * the Chat instance. */
+	 * the Chat instance. (The mount initializer reads the refs the component
+	 * seeded above rather than restamping them.) */
 	const prevSessionRef = useRef(sessionApi);
 	const [chat, setChat] = useState(() =>
 		createChatInstance(
@@ -352,23 +403,13 @@ export function ChatContainer({
 			sessionStoreRef,
 			runIdRef,
 			reconcilerCtxRef,
+			ownUserIdRef,
 		),
 	);
 
 	if (sessionApi !== prevSessionRef.current) {
 		prevSessionRef.current = sessionApi;
-		runIdRef.current = undefined;
-		pendingResumeRef.current = null;
-		pendingBuildResumeRef.current = false;
-		setChat(
-			createChatInstance(
-				{ threadId: crypto.randomUUID(), messages: [] },
-				docStoreRef,
-				sessionStoreRef,
-				runIdRef,
-				reconcilerCtxRef,
-			),
-		);
+		setChat(activateThread({ threadId: crypto.randomUUID(), messages: [] }));
 	}
 
 	// ── Chat hook — the core reason this component exists ─────────────────
@@ -379,6 +420,7 @@ export function ChatContainer({
 		messages,
 		sendMessage,
 		addToolOutput,
+		setMessages,
 		status,
 		error: chatError,
 		stop,
@@ -397,8 +439,35 @@ export function ChatContainer({
 	useEffect(() => {
 		if (pendingResumeRef.current !== chat.id) return;
 		pendingResumeRef.current = null;
+		resumeHealRef.current = chat.id;
 		resumeStream();
 	}, [chat, resumeStream]);
+
+	/* The refresh-races-finalize heal. A resume can legitimately deliver
+	 * NOTHING: the page's RSC read saw the run live (transcript without the
+	 * response, marker set), the run finalized during load, and the reconnect
+	 * then answers a bare finish — leaving the user's message visibly
+	 * unanswered even though the response is persisted. When a resume closes
+	 * with the transcript still ending on a user turn, re-fetch the thread
+	 * once and adopt its messages (a no-op when nothing newer exists, e.g. a
+	 * failed run's dangling user turn). */
+	const healAfterResume = useCallback(async () => {
+		const appId = sessionStoreRef.current?.getState().appId;
+		if (!appId) return;
+		try {
+			const res = await fetch(
+				`/api/apps/${appId}/threads/${encodeURIComponent(chat.id)}`,
+			);
+			if (!res.ok) return;
+			const { thread } = (await res.json()) as { thread: ThreadDoc };
+			if (thread.messages.length > 0) {
+				setMessages(thread.messages as NovaUIMessage[]);
+			}
+		} catch {
+			/* Best-effort — the conversation still works; the response shows on
+			 * the next open. */
+		}
+	}, [chat, setMessages]);
 
 	// ── Thread switching ──────────────────────────────────────────────────
 
@@ -425,44 +494,33 @@ export function ChatContainer({
 			/* Abort the current thread's client-side stream read (the run — if
 			 * any — continues server-side and stays resumable from its row). */
 			stopRef.current?.();
-			runIdRef.current = thread.run_id;
-			pendingResumeRef.current = thread.active_stream_id
-				? thread.thread_id
-				: null;
-			pendingBuildResumeRef.current =
-				thread.active_stream_id != null && thread.thread_type === "build";
+			const live = thread.active_stream_id != null;
 			setChat(
-				createChatInstance(
+				activateThread(
 					{
 						threadId: thread.thread_id,
 						messages: thread.messages as NovaUIMessage[],
 					},
-					docStoreRef,
-					sessionStoreRef,
-					runIdRef,
-					reconcilerCtxRef,
+					{
+						runId: thread.run_id,
+						resume: live,
+						/* `appGenerating` (not thread_type, which freezes at
+						 * creation) is the build-run signal — an edit run resumed
+						 * in the app's original build-typed thread must keep the
+						 * edit-mode capture. */
+						buildResume: live && !!appGenerating,
+					},
 				),
 			);
 		},
-		[chat],
+		[chat, appGenerating, activateThread],
 	);
 
 	const startNewChat = useCallback(() => {
 		if (messages.length === 0) return; // already a fresh conversation
 		stopRef.current?.();
-		runIdRef.current = undefined;
-		pendingResumeRef.current = null;
-		pendingBuildResumeRef.current = false;
-		setChat(
-			createChatInstance(
-				{ threadId: crypto.randomUUID(), messages: [] },
-				docStoreRef,
-				sessionStoreRef,
-				runIdRef,
-				reconcilerCtxRef,
-			),
-		);
-	}, [messages.length]);
+		setChat(activateThread({ threadId: crypto.randomUUID(), messages: [] }));
+	}, [messages.length, activateThread]);
 
 	// ── Chat effects ─────────────────────────────────────────────────────
 
@@ -512,8 +570,14 @@ export function ChatContainer({
 			// page reload. Idempotent: a no-op once tracking is already live, so
 			// calling it on every run-end is safe.
 			docStoreRef.current?.getState().startTracking();
+			/* A closed RESUME that delivered no response (transcript still ends
+			 * on the user's turn) raced finalize — adopt the persisted thread. */
+			if (resumeHealRef.current === chat.id) {
+				resumeHealRef.current = null;
+				if (chat.lastMessage?.role === "user") void healAfterResume();
+			}
 		}
-	}, [status, sessionApi]);
+	}, [status, sessionApi, chat, healAfterResume]);
 
 	/* Surface stream-level failures (network drops, spend cap, auth,
 	 * server crashes) that never got a chance to produce a

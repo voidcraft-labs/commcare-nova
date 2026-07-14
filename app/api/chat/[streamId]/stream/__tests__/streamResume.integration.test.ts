@@ -497,6 +497,7 @@ describe("thread resolution", () => {
 		await appendThreadResponse({
 			appId,
 			threadId: "thread-idle",
+			streamId: "s15",
 			responseMessage: null,
 		});
 

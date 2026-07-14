@@ -269,6 +269,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		await appendThreadResponse({
 			appId,
 			threadId: "thread-2",
+			streamId: "stream-idle",
 			responseMessage: null,
 		});
 

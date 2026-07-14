@@ -67,6 +67,11 @@ interface BuilderLayoutProps {
 	/** The most recently active thread, transcript included — the
 	 *  conversation this session opens into. */
 	initialThread?: ThreadDoc | null;
+	/** True when the page loaded a `generating` app — a live-thread resume
+	 *  reconnects to an initial BUILD run. */
+	appGenerating?: boolean;
+	/** The signed-in user, for owner-scoped chat notices. */
+	currentUserId?: string;
 	/** True when the app was loaded from Postgres (not a new build).
 	 *  Drives the chat empty-state copy. */
 	isExistingApp?: boolean;
@@ -90,6 +95,8 @@ const EMPTY_DOMAINS: { name: string; displayName: string }[] = [];
 export function BuilderLayout({
 	threads,
 	initialThread,
+	appGenerating,
+	currentUserId,
 	isExistingApp,
 	commcareSettings,
 	impersonating,
@@ -407,6 +414,8 @@ export function BuilderLayout({
 					isExistingApp={!!isExistingApp}
 					threads={threads}
 					initialThread={initialThread}
+					appGenerating={appGenerating}
+					currentUserId={currentUserId}
 				/>
 			</div>
 		</BuilderReferenceProvider>
