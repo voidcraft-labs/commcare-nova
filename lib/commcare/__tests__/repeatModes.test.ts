@@ -11,7 +11,8 @@
  *
  *   - `count_bound`: `<repeat nodeset="..." jr:count="<expanded XPath>"
  *     jr:noAddRemove="true()">`. The hashtag-shorthand version is
- *     preserved in `vellum:count` when the count contains hashtags.
+ *     preserved in `vellum:jr__count` when the count contains hashtags
+ *     and the count is a direct path (the hoisted shape carries no shadow).
  *
  *   - `query_bound`: Vellum's "model iteration" pattern. The data
  *     section nests `<item ...>` under the outer container, the body's
@@ -108,9 +109,11 @@ describe("repeat modes — XForm emission", () => {
 			],
 		});
 		const xml = firstFormXml(doc);
-		// Hashtag-shorthand round-trip: the original `#form/...` is
-		// preserved in `vellum:count`; the expanded path lands on `jr:count`.
-		expect(xml).toContain('vellum:count="#form/desired_count"');
+		// Hashtag-shorthand round-trip: the original `#form/...` is preserved in
+		// `vellum:jr__count` — the shadow name Vellum actually reads for
+		// `jr:count` (`parseVellumAttrs` maps `:` → `__`); the expanded path
+		// lands on `jr:count`.
+		expect(xml).toContain('vellum:jr__count="#form/desired_count"');
 		expect(xml).toContain('jr:count="/data/desired_count"');
 		expect(xml).toContain('jr:noAddRemove="true()"');
 		// Repeat targets the parent path (no /item nesting in count_bound).
@@ -166,8 +169,11 @@ describe("repeat modes — XForm emission", () => {
 			'jr:count="/data/__nova_count_rounds" jr:noAddRemove="true()"',
 		);
 		expect(xml).not.toContain('jr:count="3"');
-		// The author's original count is preserved as round-trip metadata.
-		expect(xml).toContain('vellum:count="3"');
+		// No editor shadow on the hoisted shape: `vellum:jr__count` is what
+		// Vellum reads as the count's source of truth, and shadowing the raw
+		// expression would make its next save write a non-path into `jr:count`.
+		expect(xml).not.toContain("vellum:jr__count=");
+		expect(xml).not.toContain("vellum:count=");
 		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
@@ -206,8 +212,8 @@ describe("repeat modes — XForm emission", () => {
 			'<setvalue event="xforms-ready" ref="/data/__nova_count_slots" value="/data/base + 2"/>',
 		);
 		expect(xml).toContain('jr:count="/data/__nova_count_slots"');
-		// Original shorthand preserved verbatim.
-		expect(xml).toContain('vellum:count="#form/base + 2"');
+		// No editor shadow on the hoisted shape (see the literal-count test).
+		expect(xml).not.toContain("vellum:jr__count=");
 		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 

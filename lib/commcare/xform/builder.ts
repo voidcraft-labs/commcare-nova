@@ -37,9 +37,7 @@ import render from "dom-serializer";
 import type { ChildNode, Element } from "domhandler";
 import { decodeXML } from "entities";
 import {
-	buildHashtagTransforms,
-	extractHashtags,
-	hasHashtags,
+	buildVellumTransforms,
 	RESERVED_XFORM_NODE_PREFIX,
 	supportsValidation,
 } from "@/lib/commcare";
@@ -51,8 +49,10 @@ import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import { readFieldString } from "@/lib/commcare/fieldProps";
 import {
+	caseTypeDepthMap,
 	expandHashtagsInContext,
 	type FormHashtagContext,
+	vellumShorthandInContext,
 } from "@/lib/commcare/hashtags/formContext";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
@@ -61,14 +61,13 @@ import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { FormPath } from "@/lib/commcare/xform/formPath";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { bySortKey } from "@/lib/doc/order/compare";
-import {
-	type BlueprintDoc,
-	type Field,
-	type FieldKind,
-	type Media,
-	reachableCaseTypes,
-	type SelectOption,
-	type Uuid,
+import type {
+	BlueprintDoc,
+	Field,
+	FieldKind,
+	Media,
+	SelectOption,
+	Uuid,
 } from "@/lib/domain";
 
 /**
@@ -129,6 +128,7 @@ const BARE_HASHTAG_RE = new RegExp(BARE_HASHTAG_PATTERN, "g");
 function buildLabelNodes(
 	label: string,
 	expand: (expr: string) => string,
+	shorthand: (expr: string) => string | undefined,
 ): ChildNode[] {
 	const nodes: ChildNode[] = [];
 	// `BARE_HASHTAG_RE` is a module-level /g regex; reset `lastIndex` so a
@@ -155,10 +155,15 @@ function buildLabelNodes(
 			if (match.index > cursor) {
 				nodes.push(text(decodeXML(label.slice(cursor, match.index))));
 			}
-			// `value` is the expanded XPath; `vellum:value` shadows the original
-			// shorthand for the Vellum round-trip (always present here — a resolved
-			// ref always differs from its shorthand).
-			nodes.push(el("output", { value: expanded, "vellum:value": original }));
+			// `value` is the expanded XPath; `vellum:value` shadows the ref in the
+			// EDITOR's vocabulary (`#patient/x` → `#case/x`) so HQ's form designer
+			// round-trips it (`Vellum/src/richText.js::extractXPathInfo` prefers
+			// `vellum:value`). A ref with no editor spelling gets no shadow — the
+			// expanded XPath alone round-trips as a plain expression.
+			const outputAttribs: Record<string, string> = { value: expanded };
+			const editorRef = shorthand(original);
+			if (editorRef !== undefined) outputAttribs["vellum:value"] = editorRef;
+			nodes.push(el("output", outputAttribs));
 			cursor = match.index + original.length;
 		}
 		match = BARE_HASHTAG_RE.exec(label);
@@ -424,16 +429,16 @@ export function buildXForm(
 	const form = doc.forms[formUuid];
 
 	// The case types this form can READ, name → parent-index hop depth (own = 0,
-	// parent = 1, …). Built from the owning module's case type via
-	// `reachableCaseTypes` — the SAME source the deep validator's accept map
-	// reads — so a `#<type>/<prop>` ref the validator accepted resolves on the
-	// wire to the matching `…/index/parent × depth …/<prop>` walk. Empty when the
-	// module has no case type.
-	const caseTypeDepths: ReadonlyMap<string, number> = new Map(
-		reachableCaseTypes(opts.moduleCaseType, doc.caseTypes ?? []).map((t) => [
-			t.name,
-			t.depth,
-		]),
+	// parent = 1, …). Built from the owning module's case type via the shared
+	// `caseTypeDepthMap` — the SAME construction `buildCaseReferencesLoad`
+	// translates its load entries through, and the same `reachableCaseTypes`
+	// source the deep validator's accept map reads — so a `#<type>/<prop>` ref
+	// the validator accepted resolves on the wire to the matching
+	// `…/index/parent × depth …/<prop>` walk and the load map names the same
+	// case as the binds. Empty when the module has no case type.
+	const caseTypeDepths = caseTypeDepthMap(
+		opts.moduleCaseType,
+		doc.caseTypes ?? [],
 	);
 	const caseTypeNames: ReadonlySet<string> = new Set(caseTypeDepths.keys());
 
@@ -468,13 +473,28 @@ export function buildXForm(
 	const expand = (expr: string): string =>
 		expandHashtagsInContext(expr, formCtx);
 
-	// Per-bind `vellum:hashtagTransforms` builder, captured here so `caseTypeDepths`
-	// stays out of the (already long) field-walk signatures — its only consumer is
-	// this one call, threaded like `expand`.
-	const transformsFor = (
-		refs: string[],
-	): { prefixes: Record<string, string> } =>
-		buildHashtagTransforms(refs, caseTypeDepths);
+	// Editor-vocabulary projector for the `vellum:*` shadow attributes, threaded
+	// like `expand`. Returns the shadow text (`#patient/x` → `#case/x`) or
+	// `undefined` when the slot must emit no shadow. As a side effect it
+	// accumulates every case ref it clears — in editor vocabulary, mapped to the
+	// same expansion the real attribute carries, both computed in the
+	// projection's single parse pass — into `vellumRefs`, which becomes the
+	// head-level `<vellum:hashtags>` / `<vellum:hashtagTransforms>` metadata
+	// (the shape Vellum's own writer produces and its parser consumes as the
+	// pre-datasources fallback). Memoized per expression string: this runs
+	// inside the deep-validator compile loop on every commit-gated mutation
+	// batch, and labels alone invoke it twice per itext entry (plain +
+	// markdown `<value>`).
+	const vellumRefs = new Map<string, string>();
+	const shorthandMemo = new Map<string, string | undefined>();
+	const shorthand = (expr: string): string | undefined => {
+		if (shorthandMemo.has(expr)) return shorthandMemo.get(expr);
+		const projected = vellumShorthandInContext(expr, formCtx, (ref, expanded) =>
+			vellumRefs.set(ref, expanded),
+		);
+		shorthandMemo.set(expr, projected);
+		return projected;
+	};
 
 	// Register an itext `<text>` entry. Every entry emits both the plain value
 	// AND a `<value form="markdown">` duplicate — CommCare only renders
@@ -515,8 +535,12 @@ export function buildXForm(
 		const labelText = label ?? "";
 		itextEntries.push(
 			el("text", { id }, [
-				el("value", {}, buildLabelNodes(labelText, expand)),
-				el("value", { form: "markdown" }, buildLabelNodes(labelText, expand)),
+				el("value", {}, buildLabelNodes(labelText, expand, shorthand)),
+				el(
+					"value",
+					{ form: "markdown" },
+					buildLabelNodes(labelText, expand, shorthand),
+				),
 				...mediaValues,
 			]),
 		);
@@ -545,7 +569,7 @@ export function buildXForm(
 			dataElements,
 			binds,
 			expand,
-			transformsFor,
+			shorthand,
 			opts.assets,
 		);
 	}
@@ -586,6 +610,33 @@ export function buildXForm(
 		]),
 	];
 
+	// Head-level hashtag metadata — the shape Vellum's own writer serializes
+	// after `</model>` (`Vellum/src/writer.js`) and its parser reads back as the
+	// fallback vocabulary while HQ's data sources are still loading
+	// (`parser.js::initHashtags`, "load hashtags from form to prevent unknown
+	// hashtag warnings"). `<vellum:hashtags>` maps each case/user ref the form
+	// uses (in editor vocabulary) to its expanded XPath;
+	// `<vellum:hashtagTransforms>` carries the `{prefixes}` expansion table for
+	// the generation prefixes those refs need. Omitted entirely when the form
+	// references no case/user hashtags, matching vanilla output. These are HEAD
+	// ELEMENTS, not per-bind attributes: the editor never reads hashtag metadata
+	// off a bind, and an unread `vellum:*` bind attribute survives into
+	// `rawBindAttributes` and accretes a prefix on every editor save.
+	const headChildren: ChildNode[] = [
+		el("h:title", {}, [text(form.name)]),
+		el("model", {}, modelChildren),
+	];
+	if (vellumRefs.size > 0) {
+		headChildren.push(
+			el("vellum:hashtags", {}, [
+				text(JSON.stringify(Object.fromEntries(vellumRefs))),
+			]),
+			el("vellum:hashtagTransforms", {}, [
+				text(JSON.stringify(buildVellumTransforms(vellumRefs.keys()))),
+			]),
+		);
+	}
+
 	const html = el(
 		"h:html",
 		{
@@ -601,13 +652,7 @@ export function buildXForm(
 			"xmlns:jr": "http://openrosa.org/javarosa",
 			"xmlns:vellum": "http://commcarehq.org/xforms/vellum",
 		},
-		[
-			el("h:head", {}, [
-				el("h:title", {}, [text(form.name)]),
-				el("model", {}, modelChildren),
-			]),
-			el("h:body", {}, bodyElements),
-		],
+		[el("h:head", {}, headChildren), el("h:body", {}, bodyElements)],
 	);
 
 	// Single serialization of the whole tree. The XML declaration is the one
@@ -737,7 +782,7 @@ function buildFieldParts(
 	topDataElements: Element[],
 	topBinds: Element[],
 	expand: (expr: string) => string,
-	transformsFor: (refs: string[]) => { prefixes: Record<string, string> },
+	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
 ): void {
 	const field = doc.fields[fieldUuid];
@@ -792,8 +837,9 @@ function buildFieldParts(
 	const dataSlot = dataElements.length;
 	dataElements.push(el(field.id, {}));
 
-	// Bind: real attributes get expanded XPath; `vellum:*` attrs preserve the
-	// original shorthand for the Vellum editor on round-trip. Attributes are
+	// Bind: real attributes get expanded XPath; `vellum:*` attrs carry the
+	// shorthand PROJECTED INTO THE EDITOR'S VOCABULARY (`shorthand` — see
+	// `vellumShorthandInContext`) for the Vellum round-trip. Attributes are
 	// accumulated in an ordered object so the emitted attribute sequence
 	// matches the prior emitter (the serializer preserves insertion order).
 	const nodePathStr = nodePath.toXPath();
@@ -805,7 +851,19 @@ function buildFieldParts(
 	const bindType = getBindType(field.kind);
 	if (bindType) bindAttribs.type = bindType;
 	if (required) {
-		if (hasHashtags(required)) bindAttribs["vellum:required"] = required;
+		// The editor's attribute for a required CONDITION is
+		// `vellum:requiredCondition` (`Vellum/src/parser.js::parseBindElement`),
+		// not `vellum:required` — Vellum never reads the latter, and an unread
+		// `vellum:*` attribute survives into `rawBindAttributes` and accretes an
+		// extra prefix on every editor save. The runtime semantics ride on the
+		// real `required` attribute (JavaRosa builds its required condition from
+		// it); the bare `requiredCondition` attribute Vellum itself writes is
+		// deliberately NOT emitted — JavaRosa ignores it with an "unrecognized
+		// attributes" parse warning, and Vellum reconstructs the condition from
+		// `required` when it's absent.
+		const requiredShorthand = shorthand(required);
+		if (requiredShorthand !== undefined)
+			bindAttribs["vellum:requiredCondition"] = requiredShorthand;
 		bindAttribs.required = expand(required);
 	}
 
@@ -816,7 +874,9 @@ function buildFieldParts(
 	// `validate` on non-input kinds as its own error.
 	const canValidate = supportsValidation(field.kind);
 	if (canValidate && validate) {
-		if (hasHashtags(validate)) bindAttribs["vellum:constraint"] = validate;
+		const validateShorthand = shorthand(validate);
+		if (validateShorthand !== undefined)
+			bindAttribs["vellum:constraint"] = validateShorthand;
 		bindAttribs.constraint = expand(validate);
 	}
 
@@ -833,11 +893,15 @@ function buildFieldParts(
 	}
 
 	if (relevant) {
-		if (hasHashtags(relevant)) bindAttribs["vellum:relevant"] = relevant;
+		const relevantShorthand = shorthand(relevant);
+		if (relevantShorthand !== undefined)
+			bindAttribs["vellum:relevant"] = relevantShorthand;
 		bindAttribs.relevant = expand(relevant);
 	}
 	if (calculate) {
-		if (hasHashtags(calculate)) bindAttribs["vellum:calculate"] = calculate;
+		const calculateShorthand = shorthand(calculate);
+		if (calculateShorthand !== undefined)
+			bindAttribs["vellum:calculate"] = calculateShorthand;
 		bindAttribs.calculate = expand(calculate);
 	}
 
@@ -850,31 +914,13 @@ function buildFieldParts(
 			"vellum:ref": vellumPathStr,
 			ref: nodePathStr,
 		};
-		if (hasHashtags(defaultValue))
-			setvalueAttribs["vellum:value"] = defaultValue;
+		const defaultShorthand = shorthand(defaultValue);
+		if (defaultShorthand !== undefined)
+			setvalueAttribs["vellum:value"] = defaultShorthand;
 		setvalueAttribs.value = expand(defaultValue);
 		setvalues.push(el("setvalue", setvalueAttribs));
 	}
 
-	// Vellum hashtag metadata: the editor needs the hashtag map + the shared
-	// transforms table to round-trip `#case/` / `#user/` refs. Scan only the
-	// expressions that actually made it onto the bind (validation was dropped
-	// for non-input kinds above).
-	const xpathExprs: string[] = [];
-	if (relevant) xpathExprs.push(relevant);
-	if (canValidate && validate) xpathExprs.push(validate);
-	if (calculate) xpathExprs.push(calculate);
-	if (defaultValue) xpathExprs.push(defaultValue);
-	if (required) xpathExprs.push(required);
-
-	const hashtags = extractHashtags(xpathExprs);
-	if (hashtags.length > 0) {
-		const hashtagMap = Object.fromEntries(hashtags.map((h) => [h, null]));
-		bindAttribs["vellum:hashtags"] = JSON.stringify(hashtagMap);
-		bindAttribs["vellum:hashtagTransforms"] = JSON.stringify(
-			transformsFor(hashtags),
-		);
-	}
 	// Record this leaf bind's slot so a container can rewrite it IN PLACE after
 	// recursion — same reasoning as `dataSlot`: a descendant repeat may append
 	// a hoisted count node's bind to this same array, so a blind `pop()` would
@@ -962,7 +1008,7 @@ function buildFieldParts(
 			topDataElements,
 			topBinds,
 			expand,
-			transformsFor,
+			shorthand,
 			assets,
 		);
 		return;
@@ -1095,7 +1141,7 @@ function buildContainer(
 	topDataElements: Element[],
 	topBinds: Element[],
 	expand: (expr: string) => string,
-	transformsFor: (refs: string[]) => { prefixes: Record<string, string> },
+	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
@@ -1141,7 +1187,7 @@ function buildContainer(
 			topDataElements,
 			topBinds,
 			expand,
-			transformsFor,
+			shorthand,
 			assets,
 		);
 	}
@@ -1193,7 +1239,9 @@ function buildContainer(
 			"vellum:nodeset": nodePath.toVellum(),
 			nodeset: nodePath.toXPath(),
 		};
-		if (hasHashtags(relevant)) groupBindAttribs["vellum:relevant"] = relevant;
+		const relevantShorthand = shorthand(relevant);
+		if (relevantShorthand !== undefined)
+			groupBindAttribs["vellum:relevant"] = relevantShorthand;
 		groupBindAttribs.relevant = expand(relevant);
 		binds[bindSlot] = el("bind", groupBindAttribs);
 	} else {
@@ -1230,6 +1278,7 @@ function buildContainer(
 				topBinds,
 				instances,
 				expand,
+				shorthand,
 			),
 		);
 		return;
@@ -1291,6 +1340,7 @@ function buildRepeatBody(
 	topBinds: Element[],
 	instances: InstanceTracker,
 	expand: (expr: string) => string,
+	shorthand: (expr: string) => string | undefined,
 ): Element {
 	let repeatNodeset = nodePath.toXPath();
 	const repeatAttribs: Record<string, string> = {};
@@ -1318,13 +1368,16 @@ function buildRepeatBody(
 		// hidden form-root node seeded by `<setvalue event="xforms-ready">` and
 		// point `jr:count` at it — the group_relevancy_in_repeat.xml shape.
 		if (isCountReferencePath(expandedCount)) {
-			// Path → emit directly. `vellum:count` mirrors the prior behavior:
-			// stamped only when the author wrote a hashtag shorthand worth
-			// round-tripping back into the editor. Insertion order matches the
-			// prior emitter: vellum:count (when present), then jr:count, then
-			// jr:noAddRemove.
-			if (hasHashtags(repeatCount)) {
-				repeatAttribs["vellum:count"] = repeatCount;
+			// Path → emit directly. The editor's shadow for `jr:count` is
+			// `vellum:jr__count` — `parseVellumAttrs` maps a namespaced key by
+			// replacing `:` with `__` (`Vellum/src/parser.js`), and Vellum's own
+			// writer produces the same name via `writeHashtags('jr:count', …)`
+			// (`modeliteration.js`). Stamped only when the author wrote hashtag
+			// shorthand with an editor spelling. Insertion order: vellum:jr__count
+			// (when present), then jr:count, then jr:noAddRemove.
+			const countShorthand = shorthand(repeatCount);
+			if (countShorthand !== undefined) {
+				repeatAttribs["vellum:jr__count"] = countShorthand;
 			}
 			repeatAttribs["jr:count"] = expandedCount;
 			repeatAttribs["jr:noAddRemove"] = "true()";
@@ -1377,13 +1430,14 @@ function buildRepeatBody(
 					value: expandedCount,
 				}),
 			);
-			// The author's original count (literal or expression) is the only
-			// place the un-hoisted intent survives, so preserve it
-			// unconditionally as `vellum:count` round-trip metadata. Vellum reads
-			// `vellum:*` attrs opportunistically and tolerates a non-path value
-			// here. Insertion order matches the prior emitter: vellum:count,
-			// jr:count, jr:noAddRemove.
-			repeatAttribs["vellum:count"] = repeatCount;
+			// No editor shadow on the hoisted shape: `vellum:jr__count` is what
+			// the editor treats as the count's source of truth, and shadowing the
+			// author's raw EXPRESSION here would make the editor's next save write
+			// that expression straight into `jr:count` — which JavaRosa rejects
+			// (path-only). Shadowing the hoisted path instead adds nothing over
+			// the real attribute, so the editor reads `jr:count` and round-trips
+			// the hidden node's path; the authored expression survives in the
+			// node's seeding `<setvalue>`.
 			repeatAttribs["jr:count"] = countNodeXPath;
 			repeatAttribs["jr:noAddRemove"] = "true()";
 		}

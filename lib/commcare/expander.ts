@@ -252,7 +252,10 @@ export function expandDoc(
 				xmlns,
 				CASE_LOADING_FORM_TYPES.has(form.type) ? "case" : "none",
 				buildFormActions(doc, formUuid, caseType),
-				buildCaseReferencesLoad(doc, formUuid, effectiveConnect),
+				// Raw `mod.caseType` for the same reason as `buildXForm`'s
+				// `moduleCaseType` above: the depth map must match the deep
+				// validator's accept map.
+				buildCaseReferencesLoad(doc, formUuid, effectiveConnect, mod.caseType),
 				toHqWorkflow(form.postSubmit ?? defaultPostSubmit(form.type)),
 				hqFormLinks,
 			);
