@@ -75,7 +75,14 @@ retires the live marker ONLY while it still names its own run's stream (the
 app releases before finalize completes, so a newer claim may already own a
 fresh marker), and the loaders reconcile any marker against actual app
 liveness (`appHeldLive`) — stripping and healing one stranded by a run that
-died before finalize.
+died before finalize. The heal stamps a TRANSIENT `resume_interrupted` on
+the returned row (never persisted — it fires exactly once): the client's
+auto-RE-DRIVE signal, which re-runs the interrupted turn through the normal
+POST/claim/charge machinery (`redrive: true` on the wire; a claim conflict
+there means another session already re-drove, so the request closes clean
+instead of serialize-waiting a duplicate). A died BUILD (reaped to `error`)
+is admitted by the build page only on this signal, and its re-drive claim
+flips the row back to `generating`.
 The reconnect endpoint resolves a GET id as stream-first, thread-second, so
 `useChat`'s `resumeStream({chatId: threadId})` reconnects a refreshed page
 to the in-flight run by thread id alone; a thread with nothing in flight

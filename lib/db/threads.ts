@@ -33,6 +33,7 @@
  */
 import type { UIMessage } from "ai";
 import { sql } from "kysely";
+import { log } from "@/lib/logger";
 import { appHeldLive } from "./apps";
 import { getAppDb, withAppTx } from "./pg";
 import {
@@ -41,6 +42,18 @@ import {
 	threadDocSchema,
 	threadMetaSchema,
 } from "./types";
+
+/**
+ * Loader projections carry one TRANSIENT field beyond the stored shape:
+ * `resume_interrupted` is true only on the load that HEALED a dead
+ * live-stream marker (`reconcileDeadMarkers`) — the signature of a run
+ * killed before finalize (instance death), as opposed to a run that failed
+ * and finalized cleanly (its marker was retired with the failure). The flag
+ * is never persisted: it fires exactly once, which is what lets the client
+ * auto-re-drive the interrupted turn without ever looping on it.
+ */
+export type LoadedThreadMeta = ThreadMeta & { resume_interrupted?: boolean };
+export type LoadedThread = ThreadDoc & { resume_interrupted?: boolean };
 
 /** First user text in the incoming history, truncated for the thread list. */
 const SUMMARY_MAX_LENGTH = 200;
@@ -227,10 +240,14 @@ export async function appendThreadResponse(args: {
  * an idle app reads as dead: stripped from the returned values and cleared
  * on the rows best-effort. Fails OPEN on a liveness read fault (a transient
  * blip must not hide a genuinely live run from the resume path).
+ *
+ * A healed row comes back stamped `resume_interrupted: true` — the one-shot
+ * instance-death signal the client's auto-re-drive keys on (see
+ * `LoadedThread`).
  */
 async function reconcileDeadMarkers<
 	T extends { thread_id: string; active_stream_id: string | null },
->(appId: string, rows: T[]): Promise<T[]> {
+>(appId: string, rows: T[]): Promise<(T & { resume_interrupted?: boolean })[]> {
 	const marked = rows.filter((row) => row.active_stream_id !== null);
 	if (marked.length === 0) return rows;
 	try {
@@ -252,9 +269,19 @@ async function reconcileDeadMarkers<
 			.where("active_stream_id", "=", row.active_stream_id)
 			.execute()
 			.catch(() => {});
+		/* The event-log breadcrumb for an instance death: a run claimed this
+		 * thread's turn and never finalized. The client re-drives off the
+		 * returned flag; this line is how an operator finds the death. */
+		log.warn("[threads] healed a dead live-stream marker", {
+			appId,
+			threadId: row.thread_id,
+			streamId: row.active_stream_id,
+		});
 	}
 	return rows.map((row) =>
-		row.active_stream_id === null ? row : { ...row, active_stream_id: null },
+		row.active_stream_id === null
+			? row
+			: { ...row, active_stream_id: null, resume_interrupted: true },
 	);
 }
 
@@ -262,7 +289,9 @@ async function reconcileDeadMarkers<
  * Thread-list projection for an app, most recently active first. No
  * transcripts — the list stays cheap however long conversations get.
  */
-export async function listThreadMetas(appId: string): Promise<ThreadMeta[]> {
+export async function listThreadMetas(
+	appId: string,
+): Promise<LoadedThreadMeta[]> {
 	const db = await getAppDb();
 	const rows = await db
 		.selectFrom("threads")
@@ -284,19 +313,24 @@ export async function listThreadMetas(appId: string): Promise<ThreadMeta[]> {
 		.orderBy("thread_id", "asc")
 		.execute();
 	const reconciled = await reconcileDeadMarkers(appId, rows);
-	return reconciled.map((row) =>
-		threadMetaSchema.parse({
+	return reconciled.map((row) => {
+		const meta = threadMetaSchema.parse({
 			...row,
 			message_count: Number(row.message_count),
-		}),
-	);
+		});
+		// Transient, deliberately outside the stored-shape schema — see
+		// `LoadedThreadMeta`.
+		return row.resume_interrupted
+			? { ...meta, resume_interrupted: true }
+			: meta;
+	});
 }
 
 /** One full thread (meta + transcript), or null. `appId` scopes the read. */
 export async function loadThread(
 	appId: string,
 	threadId: string,
-): Promise<ThreadDoc | null> {
+): Promise<LoadedThread | null> {
 	const db = await getAppDb();
 	const row = await db
 		.selectFrom("threads")
@@ -315,7 +349,12 @@ export async function loadThread(
 		.executeTakeFirst();
 	if (!row) return null;
 	const [reconciled] = await reconcileDeadMarkers(appId, [row]);
-	return threadDocSchema.parse(reconciled);
+	const doc = threadDocSchema.parse(reconciled);
+	// Transient, deliberately outside the stored-shape schema — see
+	// `LoadedThread`.
+	return reconciled.resume_interrupted
+		? { ...doc, resume_interrupted: true }
+		: doc;
 }
 
 /**

@@ -424,6 +424,9 @@ describe("loaders", () => {
 
 		const metas = await listThreadMetas(deadApp);
 		expect(metas[0].active_stream_id).toBeNull();
+		/* The heal stamps the ONE-SHOT instance-death signal the client's
+		 * auto-re-drive keys on. */
+		expect(metas[0].resume_interrupted).toBe(true);
 
 		// The row itself healed — the raw column is cleared, not just stripped.
 		const db = await getAppDb();
@@ -433,5 +436,49 @@ describe("loaders", () => {
 			.where("thread_id", "=", "t-stranded")
 			.executeTakeFirst();
 		expect(row?.active_stream_id).toBeNull();
+
+		/* One-shot: the marker is gone, so the NEXT load carries no signal —
+		 * a re-drive can never loop off repeated loads. */
+		const again = await listThreadMetas(deadApp);
+		expect(again[0].resume_interrupted).toBeUndefined();
+		const doc = await loadThread(deadApp, "t-stranded");
+		expect(doc?.resume_interrupted).toBeUndefined();
+	});
+
+	it("stamps the heal signal on loadThread when it performs the heal itself", async () => {
+		const deadApp = await h.seedApp({ id: "app-dead-2", status: "complete" });
+		await upsertThreadTurn({
+			appId: deadApp,
+			threadId: "t-stranded-2",
+			runId: "run-dead",
+			streamId: "stream-dead-2",
+			threadType: "edit",
+			messages: [userMsg("m1", "an edit the deploy killed")],
+		});
+
+		const doc = await loadThread(deadApp, "t-stranded-2");
+		expect(doc?.active_stream_id).toBeNull();
+		expect(doc?.resume_interrupted).toBe(true);
+	});
+
+	it("never stamps the signal on a thread whose run is genuinely live", async () => {
+		/* `h.seedApp` seeds `generating` apps as live builds — the marker must
+		 * survive AND carry no interruption signal. */
+		const liveApp = await h.seedApp({
+			id: "app-live-marker",
+			status: "generating",
+		});
+		await upsertThreadTurn({
+			appId: liveApp,
+			threadId: "t-live",
+			runId: "run-live",
+			streamId: "stream-live",
+			threadType: "build",
+			messages: [userMsg("m1", "a build mid-flight")],
+		});
+
+		const doc = await loadThread(liveApp, "t-live");
+		expect(doc?.active_stream_id).toBe("stream-live");
+		expect(doc?.resume_interrupted).toBeUndefined();
 	});
 });

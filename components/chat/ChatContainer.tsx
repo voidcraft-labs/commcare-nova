@@ -18,6 +18,12 @@
  *    flight (`active_stream_id`) is resumed on mount via `resumeStream()`:
  *    the transport reconnects by thread id and replays the live stream, so a
  *    refresh mid-run looks like nothing happened.
+ *  - A thread whose run DIED mid-flight (instance kill — the loader healed
+ *    its dead marker and stamped `resume_interrupted`) is RE-DRIVEN on open:
+ *    `regenerate()` re-runs the unanswered turn through the normal
+ *    POST/claim/charge machinery, so from the user's side the response
+ *    simply arrives. One-shot by construction; a lost race against another
+ *    session's re-drive bails clean and attaches to the winner's stream.
  *  - Switching threads (or "New chat") swaps the Chat instance; sending in
  *    any thread just continues it — the full history rides every POST.
  */
@@ -83,6 +89,12 @@ interface ActiveThreadInit {
 	messages: NovaUIMessage[];
 }
 
+/** A thread doc as the LOADERS return it: the stored shape plus the
+ *  transient `resume_interrupted` stamp — set only on the load that healed a
+ *  dead live-stream marker (a run killed before finalize). That one-shot is
+ *  the auto-re-drive trigger; it never persists, so a re-drive can't loop. */
+type LoadedThreadDoc = ThreadDoc & { resume_interrupted?: boolean };
+
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
  *  store references — safe across re-renders within the same app session. */
@@ -93,6 +105,7 @@ function createChatInstance(
 	runIdRef: { current: string | undefined },
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 	ownUserIdRef: { current: string | undefined },
+	appGeneratingRef: { current: boolean },
 ): Chat<NovaUIMessage> {
 	/* The per-send request fields (beyond `messages`). The blueprint is NEVER
 	 * sent — the route loads the persisted doc server-side off the
@@ -122,8 +135,19 @@ function createChatInstance(
 			},
 			hasData,
 		);
+		/* An UNFINISHED build owns the mode regardless of what the phase
+		 * derivation reads off a fresh session: the page loaded a `generating`
+		 * app (or an interrupted build being re-driven), its committed modules
+		 * make `hasData` true and the event buffer is empty, so the derived
+		 * phase would read Ready and flip this send to edit mode. Until a run
+		 * COMPLETES in this session (`runCompletedAt`), sends against such an
+		 * app are build-mode sends — the paused-round answer after a mid-build
+		 * refresh and the instance-death re-drive both depend on it. */
+		const unfinishedBuild =
+			appGeneratingRef.current && sessionState.runCompletedAt == null;
 		const appReady =
-			phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
+			!unfinishedBuild &&
+			(phase === BuilderPhase.Ready || phase === BuilderPhase.Completed);
 		return {
 			threadId: init.threadId,
 			runId: runIdRef.current,
@@ -165,10 +189,19 @@ function createChatInstance(
 			 * the headers: the transport sends exactly what this returns, and a
 			 * JSON POST without an explicit content-type goes out as
 			 * `text/plain` (fetch's default for a string body). */
-			prepareSendMessagesRequest: ({ api, messages }) => ({
+			prepareSendMessagesRequest: ({ api, messages, trigger }) => ({
 				api,
 				headers: { "content-type": "application/json" },
-				body: { messages, ...requestFields() },
+				body: {
+					messages,
+					...requestFields(),
+					/* `regenerate()` fires in exactly one place — the instance-death
+					 * re-drive — so the trigger doubles as the wire flag. The route
+					 * treats a re-drive's claim conflict as "someone else already
+					 * re-drove this" and closes clean instead of queueing a
+					 * duplicate run. */
+					...(trigger === "regenerate-message" ? { redrive: true } : {}),
+				},
 			}),
 		}),
 		sendAutomaticallyWhen: shouldAutoResend,
@@ -258,13 +291,17 @@ interface ChatContainerProps {
 	 *  page; refreshed client-side after each run. */
 	threads?: ThreadMeta[];
 	/** The most recently active thread, transcript included — what this
-	 *  session opens into. Null/absent on a brand-new build. */
-	initialThread?: ThreadDoc | null;
-	/** True when the page loaded a `generating` app — the ONE case where a
-	 *  live-thread resume reconnects to an initial BUILD run (an edit run
-	 *  never flips a complete app's status). Drives the `beginRun`
-	 *  build-capture override; `thread_type` can't (it freezes at thread
-	 *  creation, so the app's first conversation reads "build" forever). */
+	 *  session opens into. Null/absent on a brand-new build. May carry the
+	 *  loader's transient `resume_interrupted` stamp (an instance-killed run
+	 *  healed on this load), which triggers the auto-re-drive. */
+	initialThread?: LoadedThreadDoc | null;
+	/** True when the page loaded an app whose BUILD is unfinished — a
+	 *  `generating` app, or an interrupted build admitted for re-drive. It's
+	 *  the build-run signal for a live-thread resume/re-drive (an edit run
+	 *  never flips a complete app's status) and keeps sends in build mode
+	 *  until a run completes. `thread_type` can't drive this (it freezes at
+	 *  thread creation, so the app's first conversation reads "build"
+	 *  forever). */
 	appGenerating?: boolean;
 	/** The signed-in user — a replayed run's credit-refund notice is shown
 	 *  only to the actor who was actually charged. */
@@ -299,6 +336,11 @@ export function ChatContainer({
 	reconcilerCtxRef.current = reconcilerCtx;
 	const ownUserIdRef = useRef(currentUserId);
 	ownUserIdRef.current = currentUserId;
+	/** The page-load "this app's build is unfinished" signal (a `generating`
+	 *  app, or an interrupted build admitted for re-drive) — read by
+	 *  `requestFields` to keep sends in build mode until a run completes. */
+	const appGeneratingRef = useRef(!!appGenerating);
+	appGeneratingRef.current = !!appGenerating;
 	const runIdRef = useRef<string | undefined>(initialThread?.run_id);
 	/** Whether the SSE transport was open on the previous render — used
 	 *  to detect `ready`→`streaming` and `streaming`→`ready` transitions
@@ -329,6 +371,13 @@ export function ChatContainer({
 	 *  stream close to heal the refresh-races-finalize gap (see the status
 	 *  effect below). */
 	const resumeHealRef = useRef<string | null>(null);
+	/** The open thread's chat id awaiting an instance-death RE-DRIVE — set
+	 *  when a loader healed the thread's dead stream marker
+	 *  (`resume_interrupted`), consumed once by the re-drive effect below.
+	 *  Mutually exclusive with a pending resume (a healed marker is null). */
+	const pendingRedriveRef = useRef<string | null>(
+		initialThread?.resume_interrupted ? initialThread.thread_id : null,
+	);
 
 	// ── Blank-app escape hatch (new builds only) ─────────────────────────
 
@@ -369,10 +418,16 @@ export function ChatContainer({
 	const activateThread = useCallback(
 		(
 			init: ActiveThreadInit,
-			opts?: { runId?: string; resume?: boolean; buildResume?: boolean },
+			opts?: {
+				runId?: string;
+				resume?: boolean;
+				buildResume?: boolean;
+				redrive?: boolean;
+			},
 		): Chat<NovaUIMessage> => {
 			runIdRef.current = opts?.runId;
 			pendingResumeRef.current = opts?.resume ? init.threadId : null;
+			pendingRedriveRef.current = opts?.redrive ? init.threadId : null;
 			pendingBuildResumeRef.current = !!opts?.buildResume;
 			return createChatInstance(
 				init,
@@ -381,6 +436,7 @@ export function ChatContainer({
 				runIdRef,
 				reconcilerCtxRef,
 				ownUserIdRef,
+				appGeneratingRef,
 			);
 		},
 		[],
@@ -404,6 +460,7 @@ export function ChatContainer({
 			runIdRef,
 			reconcilerCtxRef,
 			ownUserIdRef,
+			appGeneratingRef,
 		),
 	);
 
@@ -425,6 +482,7 @@ export function ChatContainer({
 		error: chatError,
 		stop,
 		resumeStream,
+		regenerate,
 	} = useChat({ chat });
 	const stopRef = useRef(stop);
 	stopRef.current = stop;
@@ -443,6 +501,25 @@ export function ChatContainer({
 		resumeStream();
 	}, [chat, resumeStream]);
 
+	/* The instance-death RE-DRIVE. A loader that healed this thread's dead
+	 * stream marker proved a run claimed the turn and died before answering
+	 * (a deploy kill, an OOM — the reaper already refunded it). Re-run the
+	 * turn through the normal POST/claim/charge machinery so, from the user's
+	 * side, the response simply arrives: `regenerate()` re-sends the current
+	 * transcript (its trailing message is the unanswered user turn — a thread
+	 * paused on askQuestions ends on `assistant` and never re-drives). The
+	 * one-shot ref can't loop — a re-driven run that fails again finalizes
+	 * cleanly, so no future load sees another heal. The heal ref covers the
+	 * lost-race close (another session's re-drive won the claim): this send
+	 * bails clean, the refetch attaches to the winner. */
+	useEffect(() => {
+		if (pendingRedriveRef.current !== chat.id) return;
+		pendingRedriveRef.current = null;
+		if (chat.lastMessage?.role !== "user") return;
+		resumeHealRef.current = chat.id;
+		void regenerate();
+	}, [chat, regenerate]);
+
 	/* The refresh-races-finalize heal. A resume can legitimately deliver
 	 * NOTHING: the page's RSC read saw the run live (transcript without the
 	 * response, marker set), the run finalized during load, and the reconnect
@@ -459,7 +536,28 @@ export function ChatContainer({
 				`/api/apps/${appId}/threads/${encodeURIComponent(chat.id)}`,
 			);
 			if (!res.ok) return;
-			const { thread } = (await res.json()) as { thread: ThreadDoc };
+			const { thread } = (await res.json()) as { thread: LoadedThreadDoc };
+			/* A LIVE marker here means another session's run owns this thread
+			 * right now — the shape a lost re-drive race leaves behind (this
+			 * send bailed clean while the winner streams). Attach to it: swap in
+			 * the fetched transcript and resume the winner's stream by thread
+			 * id, exactly as a page load over a live run would. */
+			if (thread.active_stream_id != null) {
+				setChat(
+					activateThread(
+						{
+							threadId: thread.thread_id,
+							messages: thread.messages as NovaUIMessage[],
+						},
+						{
+							runId: thread.run_id,
+							resume: true,
+							buildResume: appGeneratingRef.current,
+						},
+					),
+				);
+				return;
+			}
 			if (thread.messages.length > 0) {
 				setMessages(thread.messages as NovaUIMessage[]);
 			}
@@ -467,7 +565,7 @@ export function ChatContainer({
 			/* Best-effort — the conversation still works; the response shows on
 			 * the next open. */
 		}
-	}, [chat, setMessages]);
+	}, [chat, setMessages, activateThread]);
 
 	// ── Thread switching ──────────────────────────────────────────────────
 
@@ -476,13 +574,13 @@ export function ChatContainer({
 			if (threadId === chat.id) return;
 			const appId = sessionStoreRef.current?.getState().appId;
 			if (!appId) return;
-			let thread: ThreadDoc;
+			let thread: LoadedThreadDoc;
 			try {
 				const res = await fetch(
 					`/api/apps/${appId}/threads/${encodeURIComponent(threadId)}`,
 				);
 				if (!res.ok) throw new Error(`HTTP ${res.status}`);
-				({ thread } = (await res.json()) as { thread: ThreadDoc });
+				({ thread } = (await res.json()) as { thread: LoadedThreadDoc });
 			} catch {
 				showToast(
 					"error",
@@ -495,6 +593,9 @@ export function ChatContainer({
 			 * any — continues server-side and stays resumable from its row). */
 			stopRef.current?.();
 			const live = thread.active_stream_id != null;
+			/* This fetch just HEALED a dead marker on the opened thread — the
+			 * same instance-death signal the page load acts on. Re-drive it. */
+			const redrive = !live && thread.resume_interrupted === true;
 			setChat(
 				activateThread(
 					{
@@ -504,11 +605,12 @@ export function ChatContainer({
 					{
 						runId: thread.run_id,
 						resume: live,
+						redrive,
 						/* `appGenerating` (not thread_type, which freezes at
 						 * creation) is the build-run signal — an edit run resumed
 						 * in the app's original build-typed thread must keep the
 						 * edit-mode capture. */
-						buildResume: live && !!appGenerating,
+						buildResume: (live || redrive) && !!appGenerating,
 					},
 				),
 			);

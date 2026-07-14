@@ -24,6 +24,7 @@ import { resolveActiveProjectId, resolveGatewayKey } from "@/lib/auth-utils";
 import { assembleResponseMessage } from "@/lib/chat/assembleResponseMessage";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
+import { sanitizeHistoricalReasoningParts } from "@/lib/chat/sanitizeReasoningParts";
 import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
 import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
@@ -586,7 +587,8 @@ export async function POST(req: Request) {
 		userId,
 		runId: effectiveRunId,
 		// Must match the model `createSolutionsArchitect` picks off the same
-		// signal — build and edit run different tiers.
+		// signal (one model today; the constants stay separate so the roles
+		// can diverge again).
 		model: appReady ? SA_EDIT_MODEL : SA_BUILD_MODEL,
 		promptMode: appReady ? "edit" : "build",
 		appReady: !!appReady,
@@ -897,6 +899,21 @@ export async function POST(req: Request) {
 			 * successful claim sets `claimedRun` + `reservation`, so the rest of
 			 * `execute` runs exactly as the non-conflict path does. */
 			if (waitForClaim && claimMode) {
+				/* A RE-DRIVE that lost the claim race bails instead of queueing:
+				 * the conflict means another session already re-drove this turn
+				 * (or a real run holds the app), and a serialize-wait winner would
+				 * RE-RUN the same turn — a second charge for a duplicate response.
+				 * The clean close (the durable writer seals a terminal `finish`)
+				 * ends the client's send; its post-close heal re-fetches the
+				 * thread and attaches to whatever the winner is streaming. */
+				if (parsed.data.redrive) {
+					log.info("[chat] re-drive lost the claim race — bailing clean", {
+						appId,
+						threadId,
+					});
+					await finalizeRun(undefined, { heldApp: false });
+					return;
+				}
 				/* A same-actor conflict is real (the requester's OWN still-running
 				 * request from another tab, or one whose tab they closed — a closed
 				 * tab neither cancels nor finalizes a run), and naming the user to
@@ -1270,23 +1287,15 @@ export async function POST(req: Request) {
 			}
 
 			try {
-				/* Two orthogonal decisions:
-				 *
-				 * 1. **Editing vs. build** — determined by appReady alone. If the app
-				 *    exists (builder phase Ready/Completed), the SA always gets the
-				 *    editing prompt + blueprint summary and only shared tools. This
-				 *    holds for the entire edit session, including follow-up requests
-				 *    after askQuestions rounds.
-				 *
-				 * 2. **Message strategy** — determined by cache expiry. When the
-				 *    provider prompt cache has expired (>30 min since last response),
-				 *    only the last user message is sent (one-shot). Within the cache
-				 *    window, full conversation history is sent so the SA can iterate
-				 *    with context from prior turns (e.g. askQuestions answers).
-				 *
-				 * appReady is false during initial generation even after modules
-				 * exist, so generation tools are never stripped mid-build. */
+				/* Editing vs. build — determined by appReady alone. If the app
+				 * exists (builder phase Ready/Completed), the SA gets the editing
+				 * prompt + medium reasoning effort; a build gets the build prompt
+				 * at the xhigh ceiling. This holds for the entire edit session,
+				 * including follow-up requests after askQuestions rounds. appReady
+				 * is false during initial generation even after modules exist, so
+				 * a build's follow-up turns keep build mode mid-build. */
 				const editing = !!appReady;
+				const saModel = editing ? SA_EDIT_MODEL : SA_BUILD_MODEL;
 
 				/* Backfill the accumulator seed now that we know the real
 				 * editing signals. These fields land on the per-run
@@ -1382,9 +1391,24 @@ export async function POST(req: Request) {
 				 * edit turn continuing a build thread drops the generation-tool
 				 * parts; the dialogue survives). Keyed on `sa.tools` so
 				 * the filter never drifts from the active set. */
-				const effectiveMessages = await sanitizeHistoricalToolParts(
+				const sanitizedMessages = await sanitizeHistoricalToolParts(
 					preparedMessages,
 					sa.tools,
+				);
+
+				/* Apply the reasoning-part wire contract AFTER the tool repair
+				 * (what pairing survives depends on which tool parts did):
+				 * historical assistant messages drop their reasoning parts —
+				 * prior-turn reasoning is ignored server-side, bills as input
+				 * every turn, and is model-bound (one model change would 400
+				 * every old thread) — while a trailing answered-askQuestions
+				 * continuation keeps its reasoning (the wire REQUIRES it beside
+				 * the function call whose output this turn submits) unless the
+				 * pause crossed a model change, in which case the round rides as
+				 * plain dialogue text. Contract + sources on the module. */
+				const effectiveMessages = sanitizeHistoricalReasoningParts(
+					sanitizedMessages,
+					saModel,
 				);
 
 				/* Record the input-context composition for the per-run finalize
@@ -1460,6 +1484,13 @@ export async function POST(req: Request) {
 					 * wire is byte-identical to before. */
 					let heldFinish: Parameters<typeof writer.write>[0] | undefined;
 
+					/* A RE-DRIVE gets the retry continuation on its FIRST attempt too:
+					 * the dead run's committed work is already in the doc (its tool
+					 * transcript died with it), so without the committed-state message
+					 * the SA re-plans from the conversation and burns its early calls
+					 * re-creating work the validity gate then rejects. Same recovery
+					 * shape as the in-route retry — attempt-N's retry continuation
+					 * (built from the run's own latest commit) supersedes it. */
 					const continuation =
 						turnRetries > 0
 							? (() => {
@@ -1468,7 +1499,9 @@ export async function POST(req: Request) {
 										? buildTurnRetryContinuation(committed)
 										: null;
 								})()
-							: null;
+							: parsed.data.redrive
+								? buildTurnRetryContinuation(sessionDoc, "redrive")
+								: null;
 					const result = await sa.stream({
 						prompt: continuation
 							? [...baseModelMessages, continuation]
@@ -1501,6 +1534,13 @@ export async function POST(req: Request) {
 					 * stream's end either way (the catch is a last-resort guard). */
 					for await (const chunk of result.toUIMessageStream({
 						originalMessages: validated,
+						/* Stamp the producing model on the assistant message (rides the
+						 * `start` chunk into the client, the chunk log, and the thread
+						 * transcript). `sanitizeHistoricalReasoningParts` reads it on
+						 * later turns to decide whether a paused round's reasoning is
+						 * still replayable — encrypted reasoning is model-bound. */
+						messageMetadata: ({ part }) =>
+							part.type === "start" ? { model: saModel } : undefined,
 						onError: (error) => {
 							pendingError = error;
 							return error instanceof Error ? error.message : String(error);

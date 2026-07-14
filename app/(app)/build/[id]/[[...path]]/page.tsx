@@ -34,8 +34,13 @@ import {
 	type CommCareSettingsPublic,
 	getCommCareSettings,
 } from "@/lib/db/settings";
-import { listThreadMetas, loadThread } from "@/lib/db/threads";
-import type { AppDoc, ThreadDoc, ThreadMeta } from "@/lib/db/types";
+import {
+	type LoadedThread,
+	type LoadedThreadMeta,
+	listThreadMetas,
+	loadThread,
+} from "@/lib/db/threads";
+import type { AppDoc } from "@/lib/db/types";
 import { log } from "@/lib/logger";
 
 export default async function BuilderPage({
@@ -88,10 +93,20 @@ export default async function BuilderPage({
 	}
 	/* `complete` apps open normally, and so does a `generating` build — the
 	 * builder hydrates its thread and reconnects to the live stream, so a
-	 * refresh mid-build resumes instead of locking the user out. Only
-	 * `error` builds redirect: there is no run to rejoin and no usable app
-	 * behind them. */
-	if (app.status !== "complete" && app.status !== "generating") redirect("/");
+	 * refresh mid-build resumes instead of locking the user out. `error`
+	 * builds are decided BELOW, off the thread load: a build whose run died
+	 * mid-flight (instance kill — the reaper flipped it to `error`, the
+	 * thread heal just stripped its dead stream marker) is admitted so the
+	 * client can auto-re-drive the interrupted turn; every other error app
+	 * still redirects — there is no run to rejoin and no usable app behind
+	 * it. */
+	if (
+		app.status !== "complete" &&
+		app.status !== "generating" &&
+		app.status !== "error"
+	) {
+		redirect("/");
+	}
 
 	/* Viewers (view-only members) get the read-only builder — every edit
 	 * affordance hides and auto-save is suppressed. Editors/admins/owners
@@ -105,8 +120,8 @@ export default async function BuilderPage({
 	 * live build resumes, and that resume rides the hydrated thread — landing
 	 * without it would show a half-built app with an empty chat and no sign a
 	 * build is running, so the degraded path keeps the old redirect. */
-	let threads: ThreadMeta[] = [];
-	let initialThread: ThreadDoc | null = null;
+	let threads: LoadedThreadMeta[] = [];
+	let initialThread: LoadedThread | null = null;
 	try {
 		threads = await listThreadMetas(id);
 		if (threads.length > 0) {
@@ -114,8 +129,24 @@ export default async function BuilderPage({
 		}
 	} catch (err) {
 		log.error("[build-page] thread hydration failed", err, { appId: id });
-		if (app.status === "generating") redirect("/");
+		if (app.status !== "complete") redirect("/");
 	}
+
+	/* The metas load performs the dead-marker heal (it runs first), so the
+	 * one-shot instance-death signal lands on the META — carry it onto the
+	 * hydrated doc the client keys its auto-re-drive on. */
+	if (threads[0]?.resume_interrupted && initialThread) {
+		initialThread = { ...initialThread, resume_interrupted: true };
+	}
+
+	/* An `error` app earns admission ONLY as an interrupted build: this very
+	 * load healed the most recent thread's dead marker and hydrated its
+	 * transcript (the auto-re-drive rides both). Anything else — a build
+	 * that failed and finalized cleanly, a faulted hydration — keeps the
+	 * old redirect. */
+	const buildInterrupted =
+		app.status === "error" && initialThread?.resume_interrupted === true;
+	if (app.status === "error" && !buildInterrupted) redirect("/");
 
 	return (
 		<BuilderProvider
@@ -131,7 +162,9 @@ export default async function BuilderPage({
 				impersonating={impersonating}
 				threads={threads}
 				initialThread={initialThread}
-				appGenerating={app.status === "generating"}
+				/* An interrupted build counts: its re-drive must run in build
+				 * mode (the claim flips the `error` row back to `generating`). */
+				appGenerating={app.status === "generating" || buildInterrupted}
 				currentUserId={session.user.id}
 			/>
 		</BuilderProvider>
