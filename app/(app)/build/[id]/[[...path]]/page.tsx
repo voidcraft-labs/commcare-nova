@@ -18,9 +18,13 @@
  * Stale deep links (bookmarks with deleted UUIDs) are handled client-side
  * by `LocationRecoveryEffect`, which detects URL/location mismatches
  * and issues `replaceState` to fix the path.
+ *
+ * Conversation state loads here too: the thread list plus the most
+ * recently active thread's full transcript, so a refresh always lands
+ * back in the conversation the user was in — including a thread whose
+ * run is still streaming (the client reconnects to it by thread id).
  */
 import { notFound, redirect } from "next/navigation";
-import { Suspense } from "react";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { BuilderProvider } from "@/components/builder/BuilderProvider";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
@@ -30,8 +34,9 @@ import {
 	type CommCareSettingsPublic,
 	getCommCareSettings,
 } from "@/lib/db/settings";
-import type { AppDoc } from "@/lib/db/types";
-import { ThreadHistory } from "./thread-history";
+import { listThreadMetas, loadThread } from "@/lib/db/threads";
+import type { AppDoc, ThreadDoc, ThreadMeta } from "@/lib/db/types";
+import { log } from "@/lib/logger";
 
 export default async function BuilderPage({
 	params,
@@ -81,15 +86,31 @@ export default async function BuilderPage({
 		if (err instanceof AppAccessError) notFound();
 		throw err;
 	}
-	/* `complete` apps open normally. `generating` / `error` builds
-	 * redirect: their lifecycle lives in the chat flow, not a direct page
-	 * load. */
-	if (app.status !== "complete") redirect("/");
+	/* `complete` apps open normally, and so does a `generating` build — the
+	 * builder hydrates its thread and reconnects to the live stream, so a
+	 * refresh mid-build resumes instead of locking the user out. Only
+	 * `error` builds redirect: there is no run to rejoin and no usable app
+	 * behind them. */
+	if (app.status !== "complete" && app.status !== "generating") redirect("/");
 
 	/* Viewers (view-only members) get the read-only builder — every edit
 	 * affordance hides and auto-save is suppressed. Editors/admins/owners
 	 * edit normally. The write paths enforce this server-side regardless. */
 	const canEdit = roleAllowsApp(role, "edit");
+
+	/* Conversations — the list plus the most recent thread's transcript.
+	 * Best-effort: the builder is fully usable without chat history, so a
+	 * thread-read fault degrades to an empty conversation, never a 500. */
+	let threads: ThreadMeta[] = [];
+	let initialThread: ThreadDoc | null = null;
+	try {
+		threads = await listThreadMetas(id);
+		if (threads.length > 0) {
+			initialThread = await loadThread(id, threads[0].thread_id);
+		}
+	} catch (err) {
+		log.error("[build-page] thread hydration failed", err, { appId: id });
+	}
 
 	return (
 		<BuilderProvider
@@ -103,11 +124,9 @@ export default async function BuilderPage({
 				isExistingApp
 				commcareSettings={commcareSettings}
 				impersonating={impersonating}
-			>
-				<Suspense fallback={null}>
-					<ThreadHistory appId={id} />
-				</Suspense>
-			</BuilderLayout>
+				threads={threads}
+				initialThread={initialThread}
+			/>
 		</BuilderProvider>
 	);
 }

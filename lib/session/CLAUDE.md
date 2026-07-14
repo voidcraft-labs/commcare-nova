@@ -17,13 +17,13 @@ Same as `lib/doc`: the store is private. Consumers go through the named hooks in
 Four session fields describe "what phase is the builder in":
 
 - `events: Event[]` — the current active run's events. **Cleared at both `beginRun()` and `endRun()`**, so `events.length > 0` is itself the "a run is in progress" signal — no `agentActive` shadow flag, no mirror to drift. The stream dispatcher appends as `data-mutations` + `data-conversation-event` envelopes arrive.
-- `runStartedWithData: boolean` — captured once in `beginRun()` (did the doc already have data when the run opened?). The build-vs-edit discriminator: builds and edits emit the SAME stage tags now (`app`, `module:create`, `form:M-F`), so the buffer alone can't tell them apart, and a build's own mutations populating the doc mid-run must not flip the derivation. False outside runs.
+- `runStartedWithData: boolean` — captured once in `beginRun()` (did the doc already have data when the run opened?). The build-vs-edit discriminator: builds and edits emit the SAME stage tags now (`app`, `module:create`, `form:M-F`), so the buffer alone can't tell them apart, and a build's own mutations populating the doc mid-run must not flip the derivation. False outside runs. `beginRun({startedWithData})` overrides the capture for ONE case: reconnecting to an in-flight BUILD run after a page refresh, where the build's committed modules are already in the loaded doc and the default capture would misread the resumed build as an edit.
 - `runCompletedAt: number | undefined` — stamped by the dispatcher's `data-done` handler (the chat route's drain-end build-finished signal). Cleared by `acknowledgeCompletion()` after the celebration timer. askQuestions / clarifying-text / edit-tool runs never stamp — they close silently.
 - `loading: boolean` — initial hydration flag (existing app load or replay).
 
 Run-boundary actions are orthogonal and atomic:
 
-- `beginRun()` — pause doc undo, clear events buffer, clear runCompletedAt, capture runStartedWithData.
+- `beginRun(opts?)` — pause doc undo, clear events buffer, clear runCompletedAt, capture runStartedWithData (or take the caller's override).
 - `endRun()` — resume doc undo, clear events buffer. Does NOT touch runCompletedAt.
 - `markRunCompleted()` — stamp runCompletedAt. Does NOT touch events or doc undo.
 - `acknowledgeCompletion()` — clear runCompletedAt.

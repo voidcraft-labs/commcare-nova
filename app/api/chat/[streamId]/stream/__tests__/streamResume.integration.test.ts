@@ -23,6 +23,10 @@
  *     404 (IDOR-safe).
  *   - Confirmed-only revocation: an `AppAccessError` on the cadence closes
  *     the stream; a transient scope throw leaves it open.
+ *   - Thread resolution: a THREAD id resolves through its row's
+ *     `active_stream_id` to the live stream (the cold page-refresh resume);
+ *     a thread with nothing in flight answers a bare `finish`; a foreign
+ *     thread is 404.
  *
  * Auth (`requireSession` / `getSessionSafe` / `resolveAppScope` /
  * `isUserActive`) is mocked exactly like the app relay's suite — the chunk
@@ -86,6 +90,9 @@ const { __setListenerConfigForTests, closeStreamListener } = await import(
 	"@/lib/db/streamListener"
 );
 const { createApp } = await import("@/lib/db/apps");
+const { appendThreadResponse, upsertThreadTurn } = await import(
+	"@/lib/db/threads"
+);
 
 const USER = "user-1";
 const PROJECT = "project-1";
@@ -447,6 +454,77 @@ describe("append idempotency", () => {
 
 		const { frames } = await collectUntil("s13", {});
 		expect(frames).toEqual([delta(0), { type: "finish" }, "[DONE]"]);
+	});
+});
+
+describe("thread resolution", () => {
+	/* The cold page-refresh resume: the GET's id is a THREAD id (the Chat
+	 * instance's id), resolved through the thread row's `active_stream_id`
+	 * to the live POST's chunk log. */
+	it("resolves a thread id to its live stream and replays it", async () => {
+		const appId = await createApp(USER, PROJECT, "run-t1");
+		await upsertThreadTurn({
+			appId,
+			threadId: "thread-live",
+			runId: "run-t1",
+			streamId: "s14",
+			threadType: "build",
+			messages: [{ id: "m1", role: "user", parts: [] }],
+		});
+		await seedRow("s14", 0, [delta(0), delta(1), { type: "finish" }], {
+			appId,
+			terminal: true,
+		});
+
+		const { frames, ended } = await collectUntil("thread-live", {});
+		expect(frames).toEqual([delta(0), delta(1), { type: "finish" }, "[DONE]"]);
+		expect(ended).toBe(true);
+	});
+
+	it("answers a bare finish for a thread with nothing in flight", async () => {
+		const appId = await createApp(USER, PROJECT, "run-t2");
+		await upsertThreadTurn({
+			appId,
+			threadId: "thread-idle",
+			runId: "run-t2",
+			streamId: "s15",
+			threadType: "edit",
+			messages: [{ id: "m1", role: "user", parts: [] }],
+		});
+		/* Finalize cleared the marker — nothing to resume. The reply must be a
+		 * 200 that terminates on its first chunk: the transport ERRORS on any
+		 * non-OK response (it has no null arm on this class). */
+		await appendThreadResponse({
+			appId,
+			threadId: "thread-idle",
+			responseMessage: null,
+		});
+
+		const { frames, ended } = await collectUntil("thread-idle", {
+			timeoutMs: 2_000,
+		});
+		expect(frames).toEqual([{ type: "finish" }, "[DONE]"]);
+		expect(ended).toBe(true);
+	});
+
+	it("404s a thread scope denial identically to a missing id", async () => {
+		const appId = await createApp(USER, PROJECT, "run-t3");
+		await upsertThreadTurn({
+			appId,
+			threadId: "thread-foreign",
+			runId: "run-t3",
+			streamId: "s16",
+			threadType: "build",
+			messages: [{ id: "m1", role: "user", parts: [] }],
+		});
+		resolveAppScopeMock.mockRejectedValue(new MockAppAccessError("not-member"));
+		requireSessionMock.mockResolvedValue(sessionFor(USER));
+		const res = await GET(
+			new Request("http://localhost/api/chat/thread-foreign/stream"),
+			{ params: Promise.resolve({ streamId: "thread-foreign" }) },
+		);
+		expect(res.status).toBe(404);
+		await res.text();
 	});
 });
 

@@ -5,9 +5,9 @@
  *   2. `writeRunSummary`'s accumulate-on-conflict logic over a real `run_summaries`
  *      row (the per-test DB harness): first write inserts the full row; a
  *      subsequent write for the same `(app_id, run_id)` accumulates the numeric
- *      deltas, overwrites the scalars (finished_at / module_count), unions the
- *      booleans, and leaves the pinned fields (started_at / prompt_mode /
- *      app_ready / model) as the first write's — all read back via `loadRunSummary`.
+ *      deltas, overwrites the scalars (finished_at / module_count), and leaves
+ *      the pinned fields (started_at / prompt_mode / app_ready / model) as the
+ *      first write's — all read back via `loadRunSummary`.
  *
  * On typed Postgres columns there is no converter to fail parsing, so the
  * `"overwritten"` action is unreachable; the deadlock/serialization retry lives
@@ -35,9 +35,7 @@ describe("runSummaryDocSchema", () => {
 		startedAt: "2026-04-18T12:00:00.000Z",
 		finishedAt: "2026-04-18T12:01:30.000Z",
 		promptMode: "build" as const,
-		freshEdit: false,
 		appReady: false,
-		cacheExpired: false,
 		moduleCount: 0,
 		stepCount: 7,
 		model: "openai/gpt-5.6-sol",
@@ -98,9 +96,7 @@ describe("writeRunSummary", () => {
 		startedAt: "2026-04-20T05:00:00.000Z",
 		finishedAt: "2026-04-20T05:01:00.000Z",
 		promptMode: "edit",
-		freshEdit: true,
 		appReady: true,
-		cacheExpired: true,
 		moduleCount: 3,
 		stepCount: 2,
 		model: "openai/gpt-5.6-sol",
@@ -119,15 +115,13 @@ describe("writeRunSummary", () => {
 		expect(await loadRunSummary(APP, RUN)).toEqual(delta);
 	});
 
-	it("accumulates numerics, overwrites scalars, unions booleans, and pins the first write's identity fields", async () => {
+	it("accumulates numerics, overwrites scalars, and pins the first write's identity fields", async () => {
 		const prev: RunSummaryDoc = {
 			runId: RUN,
 			startedAt: "2026-04-20T04:50:00.000Z",
 			finishedAt: "2026-04-20T04:50:30.000Z",
 			promptMode: "build",
-			freshEdit: false,
 			appReady: false,
-			cacheExpired: false,
 			moduleCount: 0,
 			stepCount: 5,
 			model: "openai/gpt-5.6-sol",
@@ -154,9 +148,6 @@ describe("writeRunSummary", () => {
 			// Scalar overwrite — latest turn wins.
 			finishedAt: delta.finishedAt,
 			moduleCount: delta.moduleCount,
-			// Union — any cold-cache/fresh-edit turn taints the whole run.
-			freshEdit: true,
-			cacheExpired: true,
 			// Accumulated — prev + delta.
 			stepCount: 5 + 2,
 			toolCallCount: 7 + 3,
@@ -169,17 +160,13 @@ describe("writeRunSummary", () => {
 		});
 	});
 
-	it("unions freshEdit/cacheExpired across turns and advances moduleCount to latest", async () => {
+	it("advances moduleCount to the latest turn's value", async () => {
 		const prev: RunSummaryDoc = {
 			...delta,
-			freshEdit: true,
-			cacheExpired: true,
 			moduleCount: 0,
 		};
 		const later: RunSummaryDoc = {
 			...delta,
-			freshEdit: false,
-			cacheExpired: false,
 			moduleCount: 7,
 		};
 		const { writeRunSummary, loadRunSummary } = await import("../runSummary");
@@ -188,8 +175,6 @@ describe("writeRunSummary", () => {
 		await writeRunSummary(APP, RUN, later);
 
 		const stored = await loadRunSummary(APP, RUN);
-		expect(stored?.freshEdit).toBe(true);
-		expect(stored?.cacheExpired).toBe(true);
 		expect(stored?.moduleCount).toBe(7);
 	});
 

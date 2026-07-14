@@ -60,6 +60,26 @@ and a run that died sealing nothing is closed by the endpoint's
 (opportunistically, on POST traffic) — conversation HISTORY lives in
 `threads` + the event log, never here.
 
+**`threads` is the durable conversation store — one row per CONVERSATION,
+spanning runs.** `messages` holds the full `UIMessage[]` transcript,
+server-written by the chat route at exactly two moments (`lib/db/threads.ts`
+is the whole contract): `upsertThreadTurn` the instant a run claims the app
+(persists the incoming history + marks the thread live via
+`active_stream_id` — the page-refresh resume handle), and
+`appendThreadResponse` at finalize (appends the assistant message assembled
+from the chunk log by `assembleResponseMessage`, REPLACING a trailing
+same-id message on an askQuestions continuation, and clears the live marker
+in the same write — a loader never sees "response persisted + stream live").
+The reconnect endpoint resolves a GET id as stream-first, thread-second, so
+`useChat`'s `resumeStream({chatId: threadId})` reconnects a refreshed page
+to the in-flight run by thread id alone; a thread with nothing in flight
+answers a bare `finish` (the transport errors on any non-OK response).
+`updated_at` orders the list (a refresh opens the most recent thread);
+`thread_id` is the PK (client-minted uuid) with writers app-guarded so a
+forged id can't write across apps. Every POST sends the thread's FULL
+history — there is no cache-window trim (the run summary's
+`fresh_edit`/`cache_expired` fields retired with it).
+
 ## Two ledgers, different lifecycles
 
 Cost and quota live in **separate tables** so an admin intervention on one

@@ -10,14 +10,14 @@ import { chargeAmount, isChargeableTurn } from "@/lib/db/creditPolicy";
  * up the whole handler, and so the route reads as a single destructure at the
  * top of the gate.
  *
- * CRITICAL — `rawMessages` must be the array straight off `body.messages`,
- * BEFORE the route's message-strategy transform (the `editing && cacheExpired`
- * last-user-message-only path). That transform leaves a `user` message last on
- * every POST, so reading the transformed array here would mark every
- * clarification round-trip chargeable and silently break the free-continuation
- * property. The amount keys off `appReady` (from the raw request body), so it is
- * unaffected by the transform — but the charge-or-not signal is, hence the
- * raw-array requirement.
+ * CRITICAL — `rawMessages` must be the array straight off `body.messages`.
+ * The last message's ROLE is the charge signal (a fresh instruction ends with
+ * `user`; an answered-askQuestions auto-resend ends with `assistant` and
+ * rides free), so any transform of the history the SA receives — the
+ * tool-part sanitizer today, anything else tomorrow — must never feed back
+ * into this read: a transform that leaves a `user` message last would mark
+ * every clarification round-trip chargeable and silently break the
+ * free-continuation property.
  */
 export function creditGateDecision(input: {
 	rawMessages: readonly UIMessage[];

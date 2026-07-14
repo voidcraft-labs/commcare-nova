@@ -178,9 +178,7 @@ export interface AccumulatorSeed {
 	runId: string;
 	model: string;
 	promptMode: "build" | "edit";
-	freshEdit: boolean;
 	appReady: boolean;
-	cacheExpired: boolean;
 	moduleCount: number;
 	/**
 	 * Input-context composition for the per-run finalize log (observability
@@ -218,9 +216,7 @@ export interface AccumulatorSeed {
 /** Fields that can be updated mid-request via `configureRun`. */
 interface AccumulatorRunConfig {
 	promptMode: "build" | "edit";
-	freshEdit: boolean;
 	appReady: boolean;
-	cacheExpired: boolean;
 	moduleCount: number;
 	/** Input-context composition for the finalize log — see `AccumulatorSeed`. */
 	sentMessageCount: number;
@@ -333,9 +329,7 @@ export class UsageAccumulator {
 			runId: this.seed.runId,
 			startedAt: this.startedAt,
 			promptMode: this.seed.promptMode,
-			freshEdit: this.seed.freshEdit,
 			appReady: this.seed.appReady,
-			cacheExpired: this.seed.cacheExpired,
 			moduleCount: this.seed.moduleCount,
 			stepCount: this.stepCount,
 			model: this.seed.model,
@@ -475,8 +469,6 @@ export class UsageAccumulator {
 			runId: this.seed.runId,
 			userId: this.seed.userId,
 			promptMode: this.seed.promptMode,
-			freshEdit: this.seed.freshEdit,
-			cacheExpired: this.seed.cacheExpired,
 			stepCount: summary.stepCount,
 			toolCallCount: summary.toolCallCount,
 			inputTokens: summary.inputTokens,

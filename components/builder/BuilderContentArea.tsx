@@ -35,7 +35,7 @@
  */
 "use client";
 import { AnimatePresence, motion } from "motion/react";
-import { type ReactNode, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { AppTreeRail } from "@/components/builder/appTree/AppTreeRail";
 import { BreadcrumbStrip } from "@/components/builder/BreadcrumbStrip";
 import {
@@ -49,6 +49,7 @@ import { ChatRail } from "@/components/chat/ChatRail";
 import { CHAT_SIDEBAR_WIDTH } from "@/components/chat/ChatSidebar";
 import { PreviewShell } from "@/components/preview/PreviewShell";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useNavigate } from "@/lib/routing/hooks";
 import { BuilderPhase } from "@/lib/session/builderTypes";
@@ -75,14 +76,17 @@ interface BuilderContentAreaProps {
 	isCentered: boolean;
 	/** Whether the app was loaded from Postgres (not a new build). */
 	isExistingApp: boolean;
-	/** Server-rendered thread history for ChatContainer. */
-	children?: ReactNode;
+	/** Thread-list projection for ChatContainer — loaded by the RSC page. */
+	threads?: ThreadMeta[];
+	/** The most recently active thread, transcript included. */
+	initialThread?: ThreadDoc | null;
 }
 
 export function BuilderContentArea({
 	isCentered,
 	isExistingApp,
-	children,
+	threads,
+	initialThread,
 }: BuilderContentAreaProps) {
 	const phase = useBuilderPhase();
 	const isReady = useBuilderIsReady();
@@ -292,9 +296,12 @@ export function BuilderContentArea({
 				inert={chatParked}
 			>
 				<ErrorBoundary>
-					<ChatContainer centered={isCentered} isExistingApp={isExistingApp}>
-						{children}
-					</ChatContainer>
+					<ChatContainer
+						centered={isCentered}
+						isExistingApp={isExistingApp}
+						threads={threads}
+						initialThread={initialThread}
+					/>
 				</ErrorBoundary>
 			</motion.div>
 		</div>

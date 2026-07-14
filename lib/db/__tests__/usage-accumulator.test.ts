@@ -69,9 +69,7 @@ describe("UsageAccumulator", () => {
 			runId: "run-1",
 			model: "openai/gpt-5.6-sol",
 			promptMode: "build",
-			freshEdit: false,
 			appReady: false,
-			cacheExpired: false,
 			moduleCount: 0,
 		});
 		acc.track({
@@ -110,9 +108,7 @@ describe("UsageAccumulator", () => {
 			runId: "r",
 			model: "openai/gpt-5.6-sol",
 			promptMode: "build",
-			freshEdit: false,
 			appReady: false,
-			cacheExpired: false,
 			moduleCount: 0,
 		});
 		acc.track({ inputTokens: 10, outputTokens: 5 }, { step: true });
@@ -130,9 +126,7 @@ describe("UsageAccumulator", () => {
 			runId: "r",
 			model: "openai/gpt-5.6-sol",
 			promptMode: "build",
-			freshEdit: false,
 			appReady: false,
-			cacheExpired: false,
 			moduleCount: 0,
 			startedAt: "2026-04-18T12:00:00.000Z",
 		});
@@ -153,9 +147,7 @@ describe("UsageAccumulator", () => {
 			runId: "r",
 			model: "openai/gpt-5.6-sol",
 			promptMode: "edit",
-			freshEdit: true,
 			appReady: true,
-			cacheExpired: true,
 			moduleCount: 5,
 		});
 		await acc.flush();
@@ -174,9 +166,7 @@ describe("UsageAccumulator", () => {
 			runId: "run-getter-test",
 			model: "openai/gpt-5.6-sol",
 			promptMode: "build",
-			freshEdit: false,
 			appReady: false,
-			cacheExpired: false,
 			moduleCount: 0,
 		});
 		expect(acc.runId).toBe("run-getter-test");
@@ -198,9 +188,7 @@ describe("UsageAccumulator", () => {
 			runId: "r",
 			model: "openai/gpt-5.6-sol",
 			promptMode: "build" as const,
-			freshEdit: false,
 			appReady: false,
-			cacheExpired: false,
 			moduleCount: 0,
 			didReserve: true,
 			reservedAmount: 100,
@@ -348,9 +336,7 @@ describe("UsageAccumulator", () => {
 			runId: "r",
 			model: "openai/gpt-5.6-sol",
 			promptMode: "build" as const,
-			freshEdit: false,
 			appReady: false,
-			cacheExpired: false,
 			moduleCount: 0,
 			didReserve: true,
 			reservedAmount: 100,

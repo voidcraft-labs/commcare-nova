@@ -41,6 +41,7 @@ import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollR
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { Logo } from "@/components/ui/Logo";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
+import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
@@ -60,11 +61,14 @@ const SCROLL_MARGIN = 20;
 const SCROLL_MARGIN_WITH_TOOLBAR = 60;
 
 interface BuilderLayoutProps {
-	/** Server-rendered thread history — passed through to ChatContainer.
-	 *  Rendered inside a Suspense boundary by the RSC page. */
-	children?: React.ReactNode;
+	/** Thread-list projection — loaded by the RSC page, passed through to
+	 *  ChatContainer. */
+	threads?: ThreadMeta[];
+	/** The most recently active thread, transcript included — the
+	 *  conversation this session opens into. */
+	initialThread?: ThreadDoc | null;
 	/** True when the app was loaded from Postgres (not a new build).
-	 *  Drives thread type classification (build vs edit). */
+	 *  Drives the chat empty-state copy. */
 	isExistingApp?: boolean;
 	/** CommCare HQ settings read by the RSC page — drives the export
 	 *  dropdown's configured/unconfigured state and upload dialog domain. */
@@ -84,7 +88,8 @@ interface BuilderLayoutProps {
 const EMPTY_DOMAINS: { name: string; displayName: string }[] = [];
 
 export function BuilderLayout({
-	children,
+	threads,
+	initialThread,
 	isExistingApp,
 	commcareSettings,
 	impersonating,
@@ -400,9 +405,9 @@ export function BuilderLayout({
 				<BuilderContentArea
 					isCentered={isCentered}
 					isExistingApp={!!isExistingApp}
-				>
-					{children}
-				</BuilderContentArea>
+					threads={threads}
+					initialThread={initialThread}
+				/>
 			</div>
 		</BuilderReferenceProvider>
 	);

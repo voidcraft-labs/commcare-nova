@@ -1,7 +1,10 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
+import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerChevronUp from "@iconify-icons/tabler/chevron-up";
+import tablerHistory from "@iconify-icons/tabler/history";
+import tablerMessagePlus from "@iconify-icons/tabler/message-plus";
 import { motion } from "motion/react";
 import {
 	type ReactNode,
@@ -23,8 +26,10 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
+import { ThreadList } from "@/components/chat/ThreadList";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import type { ThreadMeta } from "@/lib/db/types";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
@@ -124,9 +129,14 @@ interface ChatSidebarProps {
 	/** Whether the app was loaded from Postgres (not a new build).
 	 *  Drives the empty-state prompt text. */
 	isExistingApp?: boolean;
-	/** Server-rendered thread history — pre-rendered by the RSC page
-	 *  inside a Suspense boundary, passed through the client boundary. */
-	children?: ReactNode;
+	/** Thread-list projection, most recently active first. */
+	threads?: ThreadMeta[];
+	/** The open conversation's id (the Chat instance id = thread id). */
+	activeThreadId?: string;
+	/** Open a conversation from the list (fetches + hydrates it). */
+	onSelectThread?: (threadId: string) => void;
+	/** Start a fresh conversation. */
+	onNewChat?: () => void;
 }
 
 export function ChatSidebar({
@@ -141,7 +151,10 @@ export function ChatSidebar({
 	readOnly,
 	readOnlyNotice,
 	isExistingApp,
-	children,
+	threads,
+	activeThreadId,
+	onSelectThread,
+	onNewChat,
 }: ChatSidebarProps) {
 	const sessionApi = useBuilderSessionApi();
 	const docStore = useContext(BlueprintDocContext);
@@ -410,6 +423,29 @@ export function ChatSidebar({
 		}
 	}, [centered]);
 
+	// ── Conversations view ───────────────────────────────────────────────
+	/* The thread list swaps into the conversation region while open. Local
+	 * state on purpose: opening the list is a peek, not a navigation — any
+	 * action that returns attention to the conversation (picking a thread,
+	 * starting a new one, sending a message) closes it. */
+	const [threadListOpen, setThreadListOpen] = useState(false);
+	const showThreadAffordances =
+		!centered && threads !== undefined && !!onSelectThread;
+	const listVisible = threadListOpen && showThreadAffordances;
+
+	const handleSelectThread = useCallback(
+		(threadId: string) => {
+			setThreadListOpen(false);
+			onSelectThread?.(threadId);
+		},
+		[onSelectThread],
+	);
+
+	const handleNewChat = useCallback(() => {
+		setThreadListOpen(false);
+		onNewChat?.();
+	}, [onNewChat]);
+
 	const pendingAnswerRef = useRef<((text: string) => void) | null>(null);
 
 	/* The StickToBottom scroll context, captured from Conversation. We don't drive
@@ -425,8 +461,10 @@ export function ChatSidebar({
 	// Route typed messages as question answers when an AskQuestionsCard is waiting.
 	// Answers are text-only (the question UI is multiple-choice); any staged
 	// attachments are forwarded only on a normal send, never folded into an answer.
+	// Sending returns attention to the conversation, so the thread list closes.
 	const handleSend = useCallback(
 		(message: { text: string; attachments?: AttachmentRef[] }) => {
+			setThreadListOpen(false);
 			if (pendingAnswerRef.current) {
 				pendingAnswerRef.current(message.text);
 			} else {
@@ -507,20 +545,66 @@ export function ChatSidebar({
 				}`}
 				transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
 			>
-				{/* Sidebar header */}
+				{/* Sidebar header — flips between the conversation ("Chat" + the
+				 *  thread affordances) and the conversations list ("Conversations"
+				 *  + back). The collapse chevron stays put in both. */}
 				{!centered && !docked && (
-					<div className="flex items-center justify-between px-4 h-11 border-b border-nova-border shrink-0">
-						<span className="text-[13px] font-medium text-nova-text-secondary">
-							Chat
-						</span>
-						<button
-							type="button"
-							onClick={() => setSidebarOpen("chat", false)}
-							aria-label="Collapse chat sidebar"
-							className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
-						>
-							<Icon icon={tablerChevronRight} width="14" height="14" />
-						</button>
+					<div className="flex items-center px-4 h-11 border-b border-nova-border shrink-0">
+						{threadListOpen ? (
+							<>
+								<button
+									type="button"
+									onClick={() => setThreadListOpen(false)}
+									aria-label="Back to the conversation"
+									className="-ml-2 px-2 h-11 flex items-center gap-1 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
+								>
+									<Icon icon={tablerChevronLeft} width="14" height="14" />
+								</button>
+								<span className="text-[13px] font-medium text-nova-text-secondary">
+									Conversations
+								</span>
+							</>
+						) : (
+							<span className="text-[13px] font-medium text-nova-text-secondary">
+								Chat
+							</span>
+						)}
+						<div className="ml-auto flex items-center">
+							{showThreadAffordances && !threadListOpen && (
+								<>
+									{!readOnly && (
+										<SimpleTooltip content="New chat" side="bottom">
+											<button
+												type="button"
+												onClick={handleNewChat}
+												aria-label="New chat"
+												className="px-2 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
+											>
+												<Icon icon={tablerMessagePlus} width="15" height="15" />
+											</button>
+										</SimpleTooltip>
+									)}
+									<SimpleTooltip content="Conversations" side="bottom">
+										<button
+											type="button"
+											onClick={() => setThreadListOpen(true)}
+											aria-label="Conversations"
+											className="px-2 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
+										>
+											<Icon icon={tablerHistory} width="15" height="15" />
+										</button>
+									</SimpleTooltip>
+								</>
+							)}
+							<button
+								type="button"
+								onClick={() => setSidebarOpen("chat", false)}
+								aria-label="Collapse chat sidebar"
+								className="pl-2 -mr-1 pr-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
+							>
+								<Icon icon={tablerChevronRight} width="14" height="14" />
+							</button>
+						</div>
 					</div>
 				)}
 
@@ -568,7 +652,20 @@ export function ChatSidebar({
 					</>
 				)}
 
-				{/* Messages — historical threads above, active thread below.
+				{/* Conversations list — swapped in over the conversation region
+				 *  while open. The signal panel + composer below stay; sending
+				 *  returns to the conversation (handleSend closes the list). */}
+				{!docked && listVisible && (
+					<ThreadList
+						threads={threads ?? []}
+						activeThreadId={activeThreadId ?? ""}
+						activeThreadStreaming={isLoading}
+						onSelect={handleSelectThread}
+					/>
+				)}
+
+				{/* Messages — the open conversation's transcript (hydrated
+				 *  history + live turns through one render path).
 				 *  Conversation (a use-stick-to-bottom root) owns the scroll: it
 				 *  keeps the view pinned to the latest message and across the
 				 *  center↔sidebar morph, replacing the former hand-rolled
@@ -587,7 +684,7 @@ export function ChatSidebar({
 				 *    is the fix: its basis is the CONTENT height (welcome intro sizes
 				 *    naturally), and `min-h-0` lets it shrink + scroll once content exceeds
 				 *    `max-h`, keeping the composer on-screen. */}
-				{!docked && (
+				{!docked && !listVisible && (
 					<Conversation
 						className={centered ? "flex-auto min-h-0" : "flex-1"}
 						contextRef={stickContextRef}
@@ -596,11 +693,7 @@ export function ChatSidebar({
 						 *  density; override to `gap-4` (matches the former `space-y-4`).
 						 *  Single-source the spacing via gap rather than stacking margins. */}
 						<ConversationContent className="gap-4 p-4">
-							{/* Historical threads — server-rendered by ThreadHistory,
-							 *  passed through the client boundary as children. */}
-							{children}
-
-							{/* Active thread empty state */}
+							{/* Empty-conversation state */}
 							{messages.length === 0 &&
 								!isLoading &&
 								(centered ? (

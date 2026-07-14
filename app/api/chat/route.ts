@@ -21,9 +21,9 @@ import {
 } from "@/lib/agent";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveActiveProjectId, resolveGatewayKey } from "@/lib/auth-utils";
+import { assembleResponseMessage } from "@/lib/chat/assembleResponseMessage";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
-import { selectMessagesToSend } from "@/lib/chat/messageStrategy";
 import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
 import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
@@ -59,6 +59,11 @@ import {
 } from "@/lib/db/credits";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { pruneChatStreamChunks } from "@/lib/db/streamChunks";
+import {
+	appendThreadResponse,
+	threadAppId,
+	upsertThreadTurn,
+} from "@/lib/db/threads";
 import { getMonthlyUsage, UsageAccumulator } from "@/lib/db/usage";
 import {
 	hydratePersistedBlueprint,
@@ -70,7 +75,7 @@ import { LogWriter } from "@/lib/log/writer";
 import { log } from "@/lib/logger";
 import { SA_BUILD_MODEL, SA_EDIT_MODEL } from "@/lib/models";
 import { creditGateDecision } from "./creditGate";
-import { CACHE_TTL_MS, chatRequestSchema } from "./schema";
+import { chatRequestSchema } from "./schema";
 import { isFatalStreamErrorChunk } from "./streamFailure";
 
 /* Advisory only. The real per-request ceiling is the Cloud Run service's
@@ -181,12 +186,11 @@ export async function POST(req: Request) {
 	const userId = keyResult.session.user.id;
 
 	/* The credit-gate decision for this POST. Computed from the RAW `messages`
-	 * array (the validated-but-untransformed history) and the raw `body.appReady`
-	 * — BEFORE the message-strategy transform further down (the `editing &&
-	 * cacheExpired` last-user-message-only path). That transform leaves a `user`
-	 * message last on every POST, so reading the transformed array here would
-	 * charge every clarification round-trip and break the free-continuation
-	 * property. (`validateChatMessages` only validates + types the array; it does
+	 * array and the raw `body.appReady`. The last message's ROLE is the charge
+	 * signal (a fresh instruction ends with `user`; an answered-askQuestions
+	 * auto-resend ends with `assistant` and rides free), so any future
+	 * transform of the history the SA receives must not feed back into this
+	 * read. (`validateChatMessages` only validates + types the array; it does
 	 * not reorder or trim, so `messages` here is still the raw history.) */
 	const { chargeable, cost } = creditGateDecision({
 		rawMessages: messages,
@@ -245,13 +249,47 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const { runId, lastResponseAt, appReady } = parsed.data;
+	const { runId, threadId, appReady } = parsed.data;
 
 	/* Stable per-request run identifier. Every event envelope (mutation or
 	 * conversation) carries this value; the client echoes it back on follow-up
 	 * requests so threads stay aligned across turns. Minted here — before any
 	 * persistence work — so failure paths below can still surface it if needed. */
 	const effectiveRunId = runId ?? crypto.randomUUID();
+
+	/* Thread-identity guard — BEFORE any persistence work (a rejection here
+	 * must not mint an orphan app). `threadId` is client-minted, so an id that
+	 * already exists must belong to THIS app: on a new build no thread can
+	 * exist yet, and on an existing app a mismatch means a forged or stale id.
+	 * The write path re-enforces this structurally (`upsertThreadTurn` guards
+	 * `app_id`); this read just turns the failure into a clean 400. Fails
+	 * CLOSED on a read error — proceeding unguarded would let the later
+	 * guarded write silently drop the conversation instead. */
+	try {
+		const existingThreadApp = await threadAppId(threadId);
+		if (
+			existingThreadApp !== null &&
+			(!parsed.data.appId || existingThreadApp !== parsed.data.appId)
+		) {
+			return Response.json(
+				{
+					error:
+						"That conversation belongs to a different app. Reload the page to pick up the right conversation list.",
+					type: "invalid_request",
+				},
+				{ status: 400 },
+			);
+		}
+	} catch (err) {
+		log.error("[chat] thread-identity read failed", err);
+		return Response.json(
+			{
+				error: "Couldn't load this conversation. Please try again shortly.",
+				type: "internal",
+			},
+			{ status: 503 },
+		);
+	}
 
 	/* This POST's durable-stream identity — fresh per POST (a run spans many
 	 * POSTs; resume cursors are per-POST chunk counts). Returned in the
@@ -527,7 +565,7 @@ export async function POST(req: Request) {
 	 *    so a failed or no-op run can refund it. Flushed on every terminal path.
 	 *
 	 * The run-shape fields are seeded from what this POST already knows
-	 * (`appReady` from the request, `lastResponseAt` for cache expiry, the
+	 * (`appReady` from the request, the
 	 * authorization read's module count) and re-written via
 	 * `usage.configureRun()` inside the execute block at their authoritative
 	 * moment. The seed must be REAL, not placeholder: `prompt_mode` /
@@ -540,9 +578,6 @@ export async function POST(req: Request) {
 	 * with `source: "mcp"`; the writer is the single authority on the
 	 * surface tag so the two cannot drift. */
 	const logWriter = new LogWriter(appId, "chat");
-	const seedCacheExpired =
-		!lastResponseAt ||
-		Date.now() - new Date(lastResponseAt).getTime() > CACHE_TTL_MS;
 	const usage = new UsageAccumulator({
 		appId,
 		userId,
@@ -551,9 +586,7 @@ export async function POST(req: Request) {
 		// signal — build and edit run different tiers.
 		model: appReady ? SA_EDIT_MODEL : SA_BUILD_MODEL,
 		promptMode: appReady ? "edit" : "build",
-		freshEdit: !!appReady && seedCacheExpired,
 		appReady: !!appReady,
-		cacheExpired: seedCacheExpired,
 		moduleCount: loadedApp?.module_count ?? 0,
 		/* Reservation context for the refund branch in `flush()`. All three travel
 		 * together (a chargeable turn that reserved) or all absent (a free
@@ -649,6 +682,13 @@ export async function POST(req: Request) {
 			let refundSignalled = false;
 			/* Finalize-once guard — see `finalizeRun`. */
 			let finalized = false;
+			/* Set once `upsertThreadTurn` persisted this POST's history onto the
+			 * thread row (which also marked it live via `active_stream_id`).
+			 * Gates the finalize-time response append + stream-marker clear:
+			 * a POST that bailed before owning the run (serialize-wait timeout,
+			 * lost resume) wrote no thread state and must not touch the row the
+			 * true holder owns. */
+			let threadPersisted = false;
 
 			/**
 			 * The single authoritative finalization — the charge-vs-refund credit
@@ -779,6 +819,38 @@ export async function POST(req: Request) {
 				 * execute must not resolve (closing the response) before the terminal
 				 * row is durable. */
 				await writer.close();
+
+				/* Durable conversation history — append the assistant message this
+				 * run streamed and clear the thread's live-stream marker, in one
+				 * write. Assembled from the now-sealed chunk log (the single source
+				 * of truth for what streamed, including retry closures), so the
+				 * persisted message is byte-for-byte what a live client assembled.
+				 * AFTER `writer.close()`: the log must be fully flushed to read it
+				 * back. A paused (askQuestions) run appends its question round with
+				 * the tool part still `input-available` — exactly what a refreshed
+				 * page needs to re-render the interactive card. Best-effort: history
+				 * persistence must never take down run finalization (the failure is
+				 * error-logged; the thread converges on the next turn's upsert). */
+				if (threadPersisted) {
+					/* A history ending in an ASSISTANT message (an answered
+					 * askQuestions round) streams its response as a CONTINUATION of
+					 * that message — seed the assembly with it so the persisted
+					 * transcript keeps ONE merged message, exactly as the client
+					 * does. */
+					const trailing = messages.at(-1);
+					const responseMessage = await assembleResponseMessage(
+						streamId,
+						trailing?.role === "assistant" ? trailing : undefined,
+					);
+					try {
+						await appendThreadResponse({ appId, threadId, responseMessage });
+					} catch (err) {
+						log.error("[chat] thread response append failed", err, {
+							appId,
+							threadId,
+						});
+					}
+				}
 			};
 
 			/**
@@ -1011,6 +1083,41 @@ export async function POST(req: Request) {
 				 * never touched the app a co-member now owns. No separate pause-clear. */
 			}
 
+			/* Every path past this point OWNS the run (pre-stream claim,
+			 * serialize-wait win, or re-acquired resume) — persist the turn onto
+			 * its thread NOW: the full incoming history (already carrying the new
+			 * user turn / answered askQuestions parts) plus the live-stream marker
+			 * (`active_stream_id` = this POST's chunk-log stream). From this write
+			 * on, a page refresh hydrates the user's turn and reconnects to the
+			 * run by THREAD id. Rejection paths above deliberately never write —
+			 * a request that ran nothing must not grow the durable conversation.
+			 * `false` means the id belongs to another app (the pre-stream guard
+			 * catches this before any claim; this is the structural backstop) —
+			 * surfaced as a failed run rather than silently streaming a
+			 * conversation that will never persist. */
+			try {
+				threadPersisted = await upsertThreadTurn({
+					appId,
+					threadId,
+					runId: effectiveRunId,
+					streamId,
+					threadType: appReady ? "edit" : "build",
+					messages,
+				});
+			} catch (err) {
+				log.error("[chat] thread turn upsert failed", err, { appId, threadId });
+			}
+			if (!threadPersisted) {
+				/* A run whose conversation can't persist still runs — the doc
+				 * commits inline and the event log records everything — but say so
+				 * where an admin will find it. (The cross-app forgery case never
+				 * reaches here; the 400 guard handled it pre-claim.) */
+				log.warn("[chat] thread row not persisted; history will not resume", {
+					appId,
+					threadId,
+				});
+			}
+
 			/* Build the SA's working doc. For an existing app the seed is the
 			 * SAVED blueprint (`loadedApp.blueprint`, the persistable slice with
 			 * no `fieldParent`), loaded off the authorization read above — never
@@ -1166,19 +1273,14 @@ export async function POST(req: Request) {
 				 * appReady is false during initial generation even after modules
 				 * exist, so generation tools are never stripped mid-build. */
 				const editing = !!appReady;
-				const cacheExpired =
-					!lastResponseAt ||
-					Date.now() - new Date(lastResponseAt).getTime() > CACHE_TTL_MS;
 
 				/* Backfill the accumulator seed now that we know the real
-				 * editing/cache signals. These fields land on the per-run
+				 * editing signals. These fields land on the per-run
 				 * summary doc via `usage.flush()` — replaces the deleted
 				 * `logger.logConfig` call (ConfigEvent removed in T3). */
 				usage.configureRun({
 					promptMode: editing ? "edit" : "build",
-					freshEdit: editing && cacheExpired,
 					appReady: editing,
-					cacheExpired,
 					moduleCount: sessionDoc.moduleOrder.length,
 				});
 
@@ -1195,18 +1297,13 @@ export async function POST(req: Request) {
 				 * alive. */
 				ctx.startRunLeaseHeartbeat();
 
-				/* The messages to actually send the SA this turn. `selectMessagesToSend`
-				 * applies the one-shot trim (expired-cache edit → only the last user
-				 * message; its system prompt already carries a compact blueprint
-				 * summary, so prior turns would just burn tokens against a dead cache).
-				 * Selecting BEFORE the resolve below is what makes an expired-cache edit
-				 * avoid downloading/extracting history attachments it would then
-				 * discard — the resolve runs over exactly the messages that will be
-				 * sent. */
-				const messagesToSend = selectMessagesToSend(messages, {
-					editing,
-					cacheExpired,
-				});
+				/* The SA receives the FULL conversation history, every turn. The old
+				 * expired-cache one-shot trim (edit + lapsed prompt cache → last user
+				 * message only) is retired: threads resume across page loads and
+				 * days now, and a resumed conversation the SA can't see isn't a
+				 * conversation. A cold-cache turn pays one cache re-write — the
+				 * price of the chat behaving like a chat. */
+				const messagesToSend = messages;
 
 				/* Resolve attachment references into model-ready content BEFORE the SA.
 				 * The composer sends asset-id refs in message metadata; this appends,
@@ -1265,11 +1362,11 @@ export async function POST(req: Request) {
 				 * fail+refund the run, and re-poison every retry with the same
 				 * history). The full contract, the drop semantics, and the
 				 * validation mirror live on `sanitizeHistoricalToolParts`. The
-				 * repair runs on EVERY continuation: build continuations always
-				 * send full history, and a build paused on `awaiting_input` is
-				 * exactly the shape designed to SURVIVE a deploy. (An
-				 * expired-cache edit was already trimmed to the last user
-				 * message above, so it strips nothing.) Keyed on `sa.tools` so
+				 * repair runs on EVERY turn: every request sends full history,
+				 * and resumed threads routinely carry parts recorded under
+				 * earlier deploys — or under the OTHER tool set entirely (an
+				 * edit turn continuing a build thread drops the generation-tool
+				 * parts; the dialogue survives). Keyed on `sa.tools` so
 				 * the filter never drifts from the active set. */
 				const effectiveMessages = await sanitizeHistoricalToolParts(
 					preparedMessages,
@@ -1277,8 +1374,8 @@ export async function POST(req: Request) {
 				);
 
 				/* Record the input-context composition for the per-run finalize
-				 * log: how many messages were actually sent (after the cache-expiry
-				 * last-message-only trim + the resolve) and their serialized size. The
+				 * log: how many messages were actually sent (after the sanitizer's
+				 * drops + the resolve) and their serialized size. The
 				 * system prompt is ~constant, so this is the variable part of the
 				 * per-request input cost — the lever the cost investigation needs
 				 * visibility into. */

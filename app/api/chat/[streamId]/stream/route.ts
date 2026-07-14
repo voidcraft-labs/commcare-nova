@@ -2,17 +2,27 @@
  * Resumable chat stream — replay + live tail of one chat POST's UI message
  * chunk stream, from the durable chunk log (`lib/db/streamChunks`).
  *
- * GET /api/chat/{streamId}/stream?startIndex=N
+ * GET /api/chat/{streamId|threadId}/stream?startIndex=N
  *
  * This is the server half of the AI SDK's `WorkflowChatTransport` contract
  * (the client half ships in `@ai-sdk/workflow`; Nova serves the contract from
- * its own Postgres — no workflow runtime involved). The transport calls this
- * whenever a chat POST's response ends without a `finish` chunk — a network
- * blip, a mid-run deploy hiccup, Cloud Run's 60-minute request cap — passing
- * the count of chunks it already received as `startIndex`. (The endpoint
- * equally serves a cursor-0 cold reconnect from a client with no prior POST;
- * nothing wires that on refresh yet — a live run's stream is discoverable
- * only by the transport instance that started it.) It expects:
+ * its own Postgres — no workflow runtime involved). The path id is resolved
+ * in two steps:
+ *
+ *  1. A STREAM id (the `x-workflow-run-id` a POST returned) — the transport
+ *     reconnects here whenever that POST's response ends without a `finish`
+ *     chunk: a network blip, a mid-run deploy hiccup, Cloud Run's 60-minute
+ *     request cap. `startIndex` is the count of chunks already received.
+ *  2. A THREAD id — the cold page-refresh resume (`useChat`'s `resumeStream`
+ *     calls `reconnectToStream({chatId})`, and the Chat instance's id IS the
+ *     thread id). The thread row's `active_stream_id` names the live POST's
+ *     stream; the reply serves THAT stream from cursor 0, replaying the
+ *     whole in-flight response and tailing it live. A thread with no live
+ *     stream answers a bare `finish` — the transport treats a non-OK
+ *     response as an error (it never returns null), so "nothing to resume"
+ *     must be a well-formed, instantly-terminating stream.
+ *
+ * It expects:
  *
  *  - the same SSE encoding the POST uses (`data: <UIMessageChunk JSON>`
  *    frames, `data: [DONE]` at the end),
@@ -49,6 +59,7 @@ import {
 	streamChunkTail,
 } from "@/lib/db/streamChunks";
 import { subscribeChatStream } from "@/lib/db/streamListener";
+import { resolveThreadStream } from "@/lib/db/threads";
 import { log } from "@/lib/logger";
 
 /* Node runtime — the route holds a long-lived subscription to the Postgres
@@ -112,13 +123,32 @@ export async function GET(
 		({ streamId } = await params);
 		userId = session.user.id;
 
-		/* The stream's owning app is the auth anchor. A stream that never wrote
-		 * a row (or was pruned) is indistinguishable from one the caller may not
-		 * see — both 404. */
+		/* Resolve the path id: a stream id first (the hot path — a broken POST
+		 * reconnecting), then a thread id (the cold page-refresh resume). The
+		 * owning app is the auth anchor either way. An id that is neither — or
+		 * one the caller may not see — is 404 (the IDOR-safe posture; a pruned
+		 * stream is indistinguishable from a foreign one on purpose). */
 		const meta = await streamChunkMeta(streamId);
-		if (!meta) throw new ApiError("Stream not found", 404);
-		appId = meta.appId;
-		await resolveAppScope(appId, userId, "view");
+		if (meta) {
+			appId = meta.appId;
+			await resolveAppScope(appId, userId, "view");
+		} else {
+			const thread = await resolveThreadStream(streamId);
+			if (!thread) throw new ApiError("Stream not found", 404);
+			appId = thread.appId;
+			await resolveAppScope(appId, userId, "view");
+			if (!thread.activeStreamId) {
+				/* Nothing in flight on this thread. Answer a bare, well-formed
+				 * finish: the transport ERRORS on any non-OK response (it has no
+				 * null arm on this class), so "nothing to resume" must be a
+				 * 200 that terminates on its first chunk. */
+				return finishOnlyResponse();
+			}
+			/* Serve the LIVE stream under the thread's name — the client's
+			 * cursor math (`startIndex` = chunks received on this GET chain)
+			 * applies to that stream verbatim. */
+			streamId = thread.activeStreamId;
+		}
 
 		const startIndex = parseStartIndex(req);
 		if (startIndex < 0) {
@@ -139,6 +169,26 @@ export async function GET(
 	}
 
 	return openStream({ req, streamId, appId, userId, cursor, tailHeader });
+}
+
+/**
+ * A complete, instantly-terminating stream — one `finish` chunk, then
+ * `[DONE]`. What a thread with nothing in flight answers: the client's
+ * stream processor consumes it as a zero-content response and returns to
+ * `ready` without touching the hydrated messages.
+ */
+function finishOnlyResponse(): Response {
+	const encoder = new TextEncoder();
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(
+				encoder.encode(`data: ${JSON.stringify({ type: "finish" })}\n\n`),
+			);
+			controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+			controller.close();
+		},
+	});
+	return new Response(body, { headers: { ...UI_MESSAGE_STREAM_HEADERS } });
 }
 
 /**

@@ -8,7 +8,18 @@
  * useChat here instead of in BuilderLayout, those per-token re-renders
  * are scoped to ChatSidebar — the only component that needs messages.
  *
- * Server-rendered thread history is passed through as children.
+ * THREADS. A conversation is a durable thread (`threads` row, server-written
+ * by the chat route). This component owns which thread is open:
+ *
+ *  - The page loads with the most recently active thread hydrated
+ *    (`initialThread`) — a refresh always lands back in the conversation the
+ *    user was in, with its full transcript in `useChat`.
+ *  - The Chat instance's id IS the thread id, and a thread that has a run in
+ *    flight (`active_stream_id`) is resumed on mount via `resumeStream()`:
+ *    the transport reconnects by thread id and replays the live stream, so a
+ *    refresh mid-run looks like nothing happened.
+ *  - Switching threads (or "New chat") swaps the Chat instance; sending in
+ *    any thread just continues it — the full history rides every POST.
  */
 "use client";
 import { Chat, useChat } from "@ai-sdk/react";
@@ -25,10 +36,9 @@ import {
 	messageMetadataSchema,
 	type NovaUIMessage,
 } from "@/lib/chat/attachmentRefs";
-import { extractThread } from "@/lib/chat/threadUtils";
 import type { ReconcilerContextValue } from "@/lib/collab/context";
 import { useReconcilerContext } from "@/lib/collab/context";
-import { saveThread } from "@/lib/db/threads";
+import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
@@ -66,14 +76,21 @@ function shouldAutoResend({ messages }: { messages: UIMessage[] }): boolean {
 	);
 }
 
+/** The active thread as the Chat instance sees it — the id doubles as the
+ *  transport's reconnect handle. */
+interface ActiveThreadInit {
+	threadId: string;
+	messages: NovaUIMessage[];
+}
+
 /** Create a Chat instance with transport, data handling, and auto-resend config.
  *  Closures capture refs (not direct values) so they always read the latest
  *  store references — safe across re-renders within the same app session. */
 function createChatInstance(
+	init: ActiveThreadInit,
 	docStoreRef: { current: BlueprintDocStore | null },
 	sessionStoreRef: { current: BuilderSessionStoreApi | null },
 	runIdRef: { current: string | undefined },
-	lastResponseAtRef: { current: string | undefined },
 	reconcilerCtxRef: { current: ReconcilerContextValue | null },
 ): Chat<NovaUIMessage> {
 	/* The per-send request fields (beyond `messages`). The blueprint is NEVER
@@ -107,14 +124,24 @@ function createChatInstance(
 		const appReady =
 			phase === BuilderPhase.Ready || phase === BuilderPhase.Completed;
 		return {
+			threadId: init.threadId,
 			runId: runIdRef.current,
 			appId: sessionState.appId,
-			lastResponseAt: lastResponseAtRef.current,
 			appReady,
 		};
 	};
 
 	return new Chat<NovaUIMessage>({
+		/* The thread id IS the chat id: the transport's cold reconnect
+		 * (`resumeStream` → `reconnectToStream({chatId})`) hits
+		 * `/api/chat/{chatId}/stream`, and the endpoint resolves a thread id
+		 * to its live stream — so a page refresh resumes with zero extra
+		 * wiring. */
+		id: init.threadId,
+		/* The hydrated transcript — history renders through the same
+		 * ChatMessage path as live turns, and every send carries the whole
+		 * conversation to the SA. */
+		messages: init.messages,
 		// Validates any message metadata the SDK parses on the client. Outbound
 		// attachment metadata rides `sendMessage` regardless; this guards the
 		// (currently unused) inbound path where the server sets message metadata.
@@ -185,7 +212,10 @@ function createChatInstance(
 			 * is unambiguous proof that this is the /build/new → /build/{id}
 			 * transition, so we can stamp the session store and rewrite the
 			 * URL without any further checks. Edit requests never emit this
-			 * event, so the handler never runs for them. */
+			 * event, so the handler never runs for them. (A RESUMED build
+			 * replays it: the session setAppId and the URL rewrite are
+			 * idempotent there, and the reconciler provider's `activate`
+			 * no-ops once active.) */
 			if (type === "data-app-id") {
 				const newAppId = data.appId as string;
 				sessionApi.getState().setAppId(newAppId);
@@ -215,17 +245,21 @@ interface ChatContainerProps {
 	/** Whether the layout is in centered mode (Idle phase — chat is the main content). */
 	centered: boolean;
 	/** Whether the app was loaded from Postgres (not a new build).
-	 *  Drives thread type classification (build vs edit). */
+	 *  Drives the empty-state prompt text. */
 	isExistingApp: boolean;
-	/** Server-rendered thread history — pre-rendered by the RSC page
-	 *  inside a Suspense boundary, passed through the client boundary. */
-	children?: React.ReactNode;
+	/** Thread-list projection, most recently active first — loaded by the RSC
+	 *  page; refreshed client-side after each run. */
+	threads?: ThreadMeta[];
+	/** The most recently active thread, transcript included — what this
+	 *  session opens into. Null/absent on a brand-new build. */
+	initialThread?: ThreadDoc | null;
 }
 
 export function ChatContainer({
 	centered,
 	isExistingApp,
-	children,
+	threads,
+	initialThread,
 }: ChatContainerProps) {
 	const docStore = useContext(BlueprintDocContext);
 	const sessionApi = useContext(BuilderSessionContext);
@@ -245,7 +279,7 @@ export function ChatContainer({
 	 * instance. */
 	const reconcilerCtxRef = useRef(reconcilerCtx);
 	reconcilerCtxRef.current = reconcilerCtx;
-	const runIdRef = useRef<string | undefined>(undefined);
+	const runIdRef = useRef<string | undefined>(initialThread?.run_id);
 	/** Whether the SSE transport was open on the previous render — used
 	 *  to detect `ready`→`streaming` and `streaming`→`ready` transitions
 	 *  for the `beginRun` / `endRun` handoff. Local to this component so
@@ -253,9 +287,24 @@ export function ChatContainer({
 	 *  shadow field. Initial false matches the SDK's initial `status:
 	 *  "ready"` so the very first render is a no-op. */
 	const prevStreamOpenRef = useRef(false);
-	/** ISO timestamp of the SA's last response — used to determine if the
-	 *  provider prompt cache is still warm on subsequent requests. */
-	const lastResponseAtRef = useRef<string | undefined>(undefined);
+
+	// ── Threads ──────────────────────────────────────────────────────────
+
+	/** The thread list — seeded by the RSC page, refreshed after each run. */
+	const [threadMetas, setThreadMetas] = useState<ThreadMeta[]>(threads ?? []);
+	/** The open thread's chat id awaiting a `resumeStream()` — set when a
+	 *  hydrated thread has a run in flight, consumed once by the resume
+	 *  effect below. */
+	const pendingResumeRef = useRef<string | null>(
+		initialThread?.active_stream_id ? initialThread.thread_id : null,
+	);
+	/** One-shot: the next `beginRun` belongs to a reconnected BUILD run, so
+	 *  its build-vs-edit capture must read "started empty" even though the
+	 *  build's committed modules are already in the loaded doc. */
+	const pendingBuildResumeRef = useRef(
+		initialThread?.active_stream_id != null &&
+			initialThread?.thread_type === "build",
+	);
 
 	// ── Blank-app escape hatch (new builds only) ─────────────────────────
 
@@ -286,7 +335,7 @@ export function ChatContainer({
 		};
 	}, []);
 
-	// ── Chat instance — recreated when the session store identity changes ──
+	// ── Chat instance — recreated on session change or thread switch ──────
 	/* The session store is recreated inside `BuilderSessionProvider` on every
 	 * buildId change (the parent `BuilderProvider` keys on buildId, unmounting
 	 * and remounting all children). Its reference is the canonical per-app
@@ -295,10 +344,13 @@ export function ChatContainer({
 	const prevSessionRef = useRef(sessionApi);
 	const [chat, setChat] = useState(() =>
 		createChatInstance(
+			{
+				threadId: initialThread?.thread_id ?? crypto.randomUUID(),
+				messages: (initialThread?.messages ?? []) as NovaUIMessage[],
+			},
 			docStoreRef,
 			sessionStoreRef,
 			runIdRef,
-			lastResponseAtRef,
 			reconcilerCtxRef,
 		),
 	);
@@ -306,13 +358,14 @@ export function ChatContainer({
 	if (sessionApi !== prevSessionRef.current) {
 		prevSessionRef.current = sessionApi;
 		runIdRef.current = undefined;
-		lastResponseAtRef.current = undefined;
+		pendingResumeRef.current = null;
+		pendingBuildResumeRef.current = false;
 		setChat(
 			createChatInstance(
+				{ threadId: crypto.randomUUID(), messages: [] },
 				docStoreRef,
 				sessionStoreRef,
 				runIdRef,
-				lastResponseAtRef,
 				reconcilerCtxRef,
 			),
 		);
@@ -328,7 +381,88 @@ export function ChatContainer({
 		addToolOutput,
 		status,
 		error: chatError,
+		stop,
+		resumeStream,
 	} = useChat({ chat });
+	const stopRef = useRef(stop);
+	stopRef.current = stop;
+
+	// ── Live-run resume ───────────────────────────────────────────────────
+	/* A hydrated thread with a run in flight reconnects HERE: `resumeStream`
+	 * asks the transport to `reconnectToStream({chatId})` — the thread id —
+	 * and the endpoint replays the live stream from its first chunk, then
+	 * tails it. From the user's side a refresh mid-run changes nothing: the
+	 * response keeps streaming. A thread whose run finished between the page
+	 * load and this effect answers a bare `finish` (a clean no-op). */
+	useEffect(() => {
+		if (pendingResumeRef.current !== chat.id) return;
+		pendingResumeRef.current = null;
+		resumeStream();
+	}, [chat, resumeStream]);
+
+	// ── Thread switching ──────────────────────────────────────────────────
+
+	const openThread = useCallback(
+		async (threadId: string) => {
+			if (threadId === chat.id) return;
+			const appId = sessionStoreRef.current?.getState().appId;
+			if (!appId) return;
+			let thread: ThreadDoc;
+			try {
+				const res = await fetch(
+					`/api/apps/${appId}/threads/${encodeURIComponent(threadId)}`,
+				);
+				if (!res.ok) throw new Error(`HTTP ${res.status}`);
+				({ thread } = (await res.json()) as { thread: ThreadDoc });
+			} catch {
+				showToast(
+					"error",
+					"Couldn't open the conversation",
+					"Check your connection and try again.",
+				);
+				return;
+			}
+			/* Abort the current thread's client-side stream read (the run — if
+			 * any — continues server-side and stays resumable from its row). */
+			stopRef.current?.();
+			runIdRef.current = thread.run_id;
+			pendingResumeRef.current = thread.active_stream_id
+				? thread.thread_id
+				: null;
+			pendingBuildResumeRef.current =
+				thread.active_stream_id != null && thread.thread_type === "build";
+			setChat(
+				createChatInstance(
+					{
+						threadId: thread.thread_id,
+						messages: thread.messages as NovaUIMessage[],
+					},
+					docStoreRef,
+					sessionStoreRef,
+					runIdRef,
+					reconcilerCtxRef,
+				),
+			);
+		},
+		[chat],
+	);
+
+	const startNewChat = useCallback(() => {
+		if (messages.length === 0) return; // already a fresh conversation
+		stopRef.current?.();
+		runIdRef.current = undefined;
+		pendingResumeRef.current = null;
+		pendingBuildResumeRef.current = false;
+		setChat(
+			createChatInstance(
+				{ threadId: crypto.randomUUID(), messages: [] },
+				docStoreRef,
+				sessionStoreRef,
+				runIdRef,
+				reconcilerCtxRef,
+			),
+		);
+	}, [messages.length]);
 
 	// ── Chat effects ─────────────────────────────────────────────────────
 
@@ -347,15 +481,22 @@ export function ChatContainer({
 	 * in the celebration sense is decided by the dispatcher's
 	 * `data-done` handler via `markRunCompleted()`. So askQuestions
 	 * runs, clarifying text, and edit-tool responses close silently
-	 * without any animation. Stamps `lastResponseAtRef` on the ready
-	 * transition for the next request's prompt-cache warmth check. */
+	 * without any animation. */
 	useEffect(() => {
 		if (!sessionApi) return;
 		const streamOpen = status === "submitted" || status === "streaming";
 		const wasOpen = prevStreamOpenRef.current;
 		prevStreamOpenRef.current = streamOpen;
 		if (streamOpen && !wasOpen) {
-			sessionApi.getState().beginRun();
+			/* A reconnected BUILD run must not read the already-committed
+			 * modules as pre-existing data — consume the one-shot override. */
+			const startedWithData = pendingBuildResumeRef.current ? false : undefined;
+			pendingBuildResumeRef.current = false;
+			sessionApi
+				.getState()
+				.beginRun(
+					startedWithData === undefined ? undefined : { startedWithData },
+				);
 		} else if (!streamOpen && wasOpen) {
 			sessionApi.getState().endRun();
 			/* The run is over — clear the reconciler's active run id. Every batch
@@ -371,9 +512,6 @@ export function ChatContainer({
 			// page reload. Idempotent: a no-op once tracking is already live, so
 			// calling it on every run-end is safe.
 			docStoreRef.current?.getState().startTracking();
-			if (status === "ready") {
-				lastResponseAtRef.current = new Date().toISOString();
-			}
 		}
 	}, [status, sessionApi]);
 
@@ -425,27 +563,30 @@ export function ChatContainer({
 		}
 	}, [chatError, sessionApi]);
 
-	/* Persist the active conversation thread on each status=ready transition.
-	 * Fire-and-forget via server action — a Postgres outage never blocks the UI. */
-	const threadStartRef = useRef<string | undefined>(undefined);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: sessionApi is stable; snapshot read at fire time for appId
+	/* Refresh the thread list after each run settles. The server is the
+	 * writer (the route persists the turn at claim and the response at
+	 * finalize), so a re-read is the one honest way to reflect it — it also
+	 * picks up threads co-editors created since the page loaded. Best-effort:
+	 * a failed read keeps the current list. */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: messages.length is a fire-time guard, not a trigger; sessionApi read at fire time
 	useEffect(() => {
-		if (status !== "ready" || messages.length === 0 || !sessionApi) return;
-		const appId = sessionApi.getState().appId;
-		const runId = runIdRef.current;
-		if (!appId || !runId) return;
-
-		if (!threadStartRef.current) {
-			threadStartRef.current = new Date().toISOString();
-		}
-		const thread = extractThread(
-			messages,
-			runId,
-			isExistingApp,
-			threadStartRef.current,
-		);
-		saveThread(appId, thread);
-	}, [status, messages, isExistingApp]);
+		if (status !== "ready" || messages.length === 0) return;
+		const appId = sessionStoreRef.current?.getState().appId;
+		if (!appId) return;
+		let cancelled = false;
+		fetch(`/api/apps/${appId}/threads`)
+			.then(async (res) => {
+				if (!res.ok || cancelled) return;
+				const { threads: fresh } = (await res.json()) as {
+					threads: ThreadMeta[];
+				};
+				if (!cancelled) setThreadMetas(fresh);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, [status]);
 
 	const handleSend = useCallback(
 		({
@@ -557,8 +698,10 @@ export function ChatContainer({
 					: undefined
 			}
 			isExistingApp={isExistingApp}
-		>
-			{children}
-		</ChatSidebar>
+			threads={threadMetas}
+			activeThreadId={chat.id}
+			onSelectThread={openThread}
+			onNewChat={startNewChat}
+		/>
 	);
 }
