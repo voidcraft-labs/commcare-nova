@@ -40,18 +40,19 @@ import {
 	printSection,
 	printTable,
 	tok,
-	truncate,
 	usd,
 } from "./lib/format";
 import {
 	computeEventKindCounts,
 	computeMutationsByStage,
 	computeTimeline,
+	computeToolErrors,
 	computeToolUsage,
 	groupByRun,
 } from "./lib/log-stats";
 import { requireArg, runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
+import { describeUnknownId } from "./lib/resolveId";
 import type { ConversationPayload, Event } from "./lib/types";
 
 // ── CLI argument parsing ────────────────────────────────────────────
@@ -62,6 +63,7 @@ interface InspectLogsOptions {
 	timeline?: boolean;
 	tools?: boolean;
 	stages?: boolean;
+	errors?: boolean;
 	run?: string;
 	last?: number;
 	prod?: boolean;
@@ -100,6 +102,10 @@ program
 	.option("--timeline", "per-run event-time-gap table")
 	.option("--tools", "per-run tool-call distribution")
 	.option("--stages", "per-run mutations-by-stage counts")
+	.option(
+		"--errors",
+		"per-run errored tool calls + run-level errors, full messages",
+	)
 	.option("--run <runId>", "only show events for this run")
 	.option(
 		"--last <n>",
@@ -116,6 +122,7 @@ program
 			"  $ npx tsx scripts/inspect-logs.ts <appId>\n" +
 			"  $ npx tsx scripts/inspect-logs.ts <appId> --runs\n" +
 			"  $ npx tsx scripts/inspect-logs.ts <appId> --timeline --tools\n" +
+			"  $ npx tsx scripts/inspect-logs.ts <appId> --errors\n" +
 			"  $ npx tsx scripts/inspect-logs.ts <appId> --run=<runId> --verbose\n" +
 			"  $ npx tsx scripts/inspect-logs.ts <appId> --last=50\n",
 	);
@@ -133,6 +140,7 @@ const showRunsTable = opts.runs === true;
 const showTimeline = opts.timeline === true;
 const showTools = opts.tools === true;
 const showStages = opts.stages === true;
+const showErrors = opts.errors === true;
 /* `opts.run` already widens from `InspectLogsOptions`; no annotation needed.
  * `lastN` keeps its explicit `number` annotation because the ?? 0 collapses
  * `number | undefined` to `number`, and the annotation documents the coercion. */
@@ -144,7 +152,7 @@ const lastN: number = opts.last ?? 0;
  * run summary header is always shown regardless.
  */
 const hasAnalyticalView =
-	showRunsTable || showTimeline || showTools || showStages;
+	showRunsTable || showTimeline || showTools || showStages || showErrors;
 
 /**
  * `--runs` is the only view that can render without touching the events
@@ -154,7 +162,12 @@ const hasAnalyticalView =
  * we skip the full-events scan entirely.
  */
 const runsTableOnly =
-	showRunsTable && !showTimeline && !showTools && !showStages && !runFilter;
+	showRunsTable &&
+	!showTimeline &&
+	!showTools &&
+	!showStages &&
+	!showErrors &&
+	!runFilter;
 
 // ── Data loading ────────────────────────────────────────────────────
 
@@ -246,17 +259,17 @@ function formatTime(ts: number): string {
 function summarizeConversation(payload: ConversationPayload): string {
 	switch (payload.type) {
 		case "user-message":
-			return `user: ${truncate(payload.text, 80)}`;
+			return `user: ${payload.text}`;
 		case "assistant-text":
-			return `assistant: ${truncate(payload.text, 80)}`;
+			return `assistant: ${payload.text}`;
 		case "assistant-reasoning":
-			return `reasoning: ${truncate(payload.text, 80)}`;
+			return `reasoning: ${payload.text}`;
 		case "tool-call":
 			return `tool-call ${payload.toolName} (${payload.toolCallId.slice(0, 8)})`;
 		case "tool-result":
 			return `tool-result ${payload.toolName} (${payload.toolCallId.slice(0, 8)})`;
 		case "error":
-			return `error [${payload.error.type}]${payload.error.fatal ? " FATAL" : ""}: ${truncate(payload.error.message, 80)}`;
+			return `error [${payload.error.type}]${payload.error.fatal ? " FATAL" : ""}: ${payload.error.message}`;
 		case "validation-attempt":
 			return `validation-attempt #${payload.attempt}: ${payload.errors.length} error${payload.errors.length === 1 ? "" : "s"}`;
 		case "attachment-prep":
@@ -289,9 +302,7 @@ function printEventVerbose(event: Event): void {
 		console.log(`  │ actor:    ${event.actor}`);
 		if (event.stage) console.log(`  │ stage:    ${event.stage}`);
 		console.log(`  │ mutation: ${event.mutation.kind}`);
-		console.log(
-			`  │ payload:  ${truncate(JSON.stringify(event.mutation), 300)}`,
-		);
+		console.log(`  │ payload:  ${JSON.stringify(event.mutation)}`);
 		console.log("  └─");
 		return;
 	}
@@ -302,22 +313,22 @@ function printEventVerbose(event: Event): void {
 		case "user-message":
 		case "assistant-text":
 		case "assistant-reasoning":
-			console.log(`  │ text: ${truncate(p.text, 400)}`);
+			console.log(`  │ text: ${p.text}`);
 			break;
 		case "tool-call":
 			console.log(`  │ toolCallId: ${p.toolCallId}`);
 			console.log(`  │ toolName:   ${p.toolName}`);
-			console.log(`  │ input:      ${truncate(JSON.stringify(p.input), 400)}`);
+			console.log(`  │ input:      ${JSON.stringify(p.input)}`);
 			break;
 		case "tool-result":
 			console.log(`  │ toolCallId: ${p.toolCallId}`);
 			console.log(`  │ toolName:   ${p.toolName}`);
-			console.log(`  │ output:     ${truncate(JSON.stringify(p.output), 400)}`);
+			console.log(`  │ output:     ${JSON.stringify(p.output)}`);
 			break;
 		case "error":
 			console.log(`  │ error.type:    ${p.error.type}`);
 			console.log(`  │ error.fatal:   ${p.error.fatal}`);
-			console.log(`  │ error.message: ${truncate(p.error.message, 400)}`);
+			console.log(`  │ error.message: ${p.error.message}`);
 			break;
 	}
 	console.log("  └─");
@@ -356,7 +367,8 @@ function printRunSummary(summary: RunSummaryDoc): void {
 		["Cache read", tok(summary.cacheReadTokens)],
 		["Cache write", tok(summary.cacheWriteTokens)],
 		["Cache hit rate", cacheHitRate],
-		["Total cost", usd(summary.costEstimate)],
+		["Est. cost", usd(summary.costEstimate)],
+		["Actual cost", usd(summary.actualCost)],
 	]);
 }
 
@@ -368,6 +380,23 @@ function formatEventCounts(events: Event[]): string {
 		parts.push(`${type}: ${count}`);
 	}
 	return parts.join(" | ");
+}
+
+/**
+ * Error one-liner for the run header — ALWAYS printed, so a zero reads as
+ * explicit success rather than "nobody looked". Errored tool calls hide
+ * inside `tool-result` outputs (the kind counts above can't see them),
+ * which is exactly why they get their own line; `--errors` renders the
+ * full messages.
+ */
+function formatErrorCounts(events: Event[]): string {
+	const toolErrors = computeToolErrors(events).length;
+	const runErrors = events.filter(
+		(e) => e.kind === "conversation" && e.payload.type === "error",
+	).length;
+	const note =
+		toolErrors + runErrors > 0 && !showErrors ? " (--errors for detail)" : "";
+	return `Errors: ${toolErrors} tool, ${runErrors} run-level${note}`;
 }
 
 // ── Analytical views ────────────────────────────────────────────────
@@ -400,12 +429,14 @@ function printRunsTableView(
 			{ header: "Input", align: "right" },
 			{ header: "Output", align: "right" },
 			{ header: "Cache%", align: "right" },
-			{ header: "Cost", align: "right" },
+			{ header: "Est", align: "right" },
+			{ header: "Actual", align: "right" },
 		],
 		rows.map(({ runId, summary }) => {
 			if (!summary) {
 				return [
 					`${runId.slice(0, 8)}…`,
+					"—",
 					"—",
 					"—",
 					"—",
@@ -426,6 +457,7 @@ function printRunsTableView(
 				tok(summary.outputTokens),
 				pct(summary.cacheReadTokens, summary.inputTokens),
 				usd(summary.costEstimate),
+				usd(summary.actualCost),
 			];
 		}),
 	);
@@ -496,6 +528,47 @@ function printToolsView(events: Event[]): void {
 	);
 }
 
+/**
+ * Render the --errors view: every errored tool call plus every run-level
+ * `error` event, with FULL messages — the highest-signal rows in a run's
+ * log, extracted first-class so finding them never needs `--verbose` +
+ * grep. A rejected tool call is the agent colliding with the commit gate
+ * or a tool contract; a run-level error is the classified failure that
+ * ended (or interrupted) the run.
+ */
+function printErrorsView(events: Event[]): void {
+	const toolErrors = computeToolErrors(events);
+	const runErrors = events.flatMap((e) =>
+		e.kind === "conversation" && e.payload.type === "error"
+			? [{ seq: e.seq, ts: e.ts, error: e.payload.error }]
+			: [],
+	);
+
+	printSection("Errors");
+	if (toolErrors.length === 0 && runErrors.length === 0) {
+		console.log(
+			"  (none — every tool call succeeded and no run-level error was recorded)",
+		);
+		return;
+	}
+	for (const e of toolErrors) {
+		console.log(
+			`\n  [seq=${String(e.seq).padStart(4)}] ${formatTime(e.ts)}  ${e.toolName} (${e.toolCallId.slice(0, 8)})`,
+		);
+		for (const line of e.error.split("\n")) {
+			console.log(`      ${line}`);
+		}
+	}
+	for (const e of runErrors) {
+		console.log(
+			`\n  [seq=${String(e.seq).padStart(4)}] ${formatTime(e.ts)}  run-level [${e.error.type}]${e.error.fatal ? " FATAL" : ""}`,
+		);
+		for (const line of e.error.message.split("\n")) {
+			console.log(`      ${line}`);
+		}
+	}
+}
+
 /** Render the --stages mutations-by-stage table. */
 function printStagesView(events: Event[]): void {
 	const stages = computeMutationsByStage(events);
@@ -541,6 +614,9 @@ async function main() {
 		console.log(
 			`  App: ${appId}${runFilter ? ` (run=${runFilter})` : ""}\n  No events found.`,
 		);
+		for (const line of await describeUnknownId(appId, opts.prod === true)) {
+			console.log(`  ${line}`);
+		}
 		return;
 	}
 
@@ -593,6 +669,7 @@ async function main() {
 			`\n── Run ${runId.slice(0, 8)}… ─────────────────────────────────────`,
 		);
 		console.log(`  ${formatEventCounts(runEvents)}`);
+		console.log(`  ${formatErrorCounts(runEvents)}`);
 
 		if (summary) {
 			console.log();
@@ -604,6 +681,7 @@ async function main() {
 		if (showTimeline) printTimelineView(runEvents);
 		if (showTools) printToolsView(runEvents);
 		if (showStages) printStagesView(runEvents);
+		if (showErrors) printErrorsView(runEvents);
 
 		/* Default view: dump every event unless an analytical-only view was
 		 * requested. --runs is treated as analytical because the table up top

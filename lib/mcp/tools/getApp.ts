@@ -29,7 +29,7 @@ import type { ToolContext } from "../types";
  * Register the single-argument `get_app` tool on an `McpServer`.
  *
  * `loadAppBlueprint` ownership-gates and loads the doc in one
- * Firestore read, throwing `McpAccessError` on a cross-tenant probe
+ * read, throwing `McpAccessError` on a cross-tenant probe
  * or a vanished row. Only `.doc` is consumed here — the full `AppDoc`
  * envelope is available for callers that need denormalized columns
  * (see `compile_app`).
@@ -44,7 +44,7 @@ export function registerGetApp(server: McpServer, ctx: ToolContext): void {
 				app_id: z
 					.string()
 					.describe(
-						"Firestore app id to summarize. Must be an app the authenticated user owns.",
+						"App id to summarize. Must be an app the authenticated user owns.",
 					),
 			},
 		},

@@ -2232,3 +2232,30 @@ const _driftGuard: {
 	unwrapList: true,
 	formatDate: true,
 };
+
+// ---------- JSON-schema definition names ----------
+//
+// A registered id makes every `z.toJSONSchema` emission — including the
+// AI SDK's default tool-schema serialization — extract the schema into
+// the `definitions` block ONCE under that name and emit
+// `{"$ref": "#/definitions/Predicate"}` at each use site. Without it,
+// each of a predicate-carrying tool's operator arms re-inlines the full
+// term structure (~28k tokens of duplication across the SA tool set),
+// and only the recursion-forced nodes get extracted, under positional
+// `__schemaN` keys that renumber per tool (same label, different meaning
+// across tools). One stable name per AST family member, identical in
+// every emission surface (SA tools and the MCP listing alike).
+// `globalRegistry.add` attaches to the instance in place (no clone —
+// unlike `.meta()`, which clones and double-serializes shared child
+// nodes into stray micro-definitions); parsing is untouched.
+
+z.globalRegistry.add(relationStepSchema, { id: "RelationStep" });
+z.globalRegistry.add(relationPathSchema, { id: "RelationPath" });
+z.globalRegistry.add(propertyRefSchema, { id: "PropertyRef" });
+z.globalRegistry.add(searchInputRefSchema, { id: "SearchInputRef" });
+z.globalRegistry.add(sessionUserSchema, { id: "SessionUser" });
+z.globalRegistry.add(sessionContextSchema, { id: "SessionContext" });
+z.globalRegistry.add(literalSchema, { id: "Literal" });
+z.globalRegistry.add(termSchema, { id: "Term" });
+z.globalRegistry.add(predicateSchema, { id: "Predicate" });
+z.globalRegistry.add(valueExpressionSchema, { id: "ValueExpression" });

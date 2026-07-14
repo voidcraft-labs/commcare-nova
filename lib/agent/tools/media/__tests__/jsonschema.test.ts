@@ -5,7 +5,7 @@
  * compiler smoke test on machines without an AI_GATEWAY_API_KEY — a Zod
  * `.transform()` (which the media slots deliberately avoid) is what would
  * make `z.toJSONSchema` throw, so a clean lowering proves the schemas are
- * representable for the Anthropic tool-input compiler.
+ * representable for the provider tool-input compiler.
  */
 import { describe, expect, it } from "vitest";
 import { z } from "zod";

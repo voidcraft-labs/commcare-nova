@@ -91,8 +91,8 @@ export type BlueprintDocState = BlueprintDoc & {
 	 */
 	commitDoc: (next: BlueprintDoc) => void;
 	/**
-	 * Replace the entire doc from a `PersistableDoc` (the Firestore-persisted
-	 * shape that omits `fieldParent`).
+	 * Replace the entire doc from a `PersistableDoc` (the persisted shape that
+	 * omits `fieldParent`).
 	 *
 	 * Accepts the normalized doc shape directly. `fieldParent` is always
 	 * rebuilt from `fieldOrder`, so callers never need to supply it.
@@ -388,9 +388,9 @@ export function createBlueprintDocStore() {
 						/**
 						 * Hydrate the store from a normalized `BlueprintDoc`.
 						 *
-						 * Accepts the doc shape that Firestore stores directly. The
-						 * incoming doc may omit `fieldParent` (Firestore does not
-						 * persist it); this method always rebuilds it from `fieldOrder`
+						 * Accepts the normalized persisted doc shape directly. The
+						 * incoming doc may omit `fieldParent` (it is never persisted);
+						 * this method always rebuilds it from `fieldOrder`
 						 * so every downstream consumer can rely on it being present.
 						 *
 						 * Writes every field atomically, then clears and re-pauses the

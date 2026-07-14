@@ -70,7 +70,7 @@ export type SetCaseSearchDisplayResult =
 
 export const setCaseSearchDisplayTool = {
 	description:
-		"Set the display cluster of a module's case-search config: search-screen title + search-screen subtitle + search button label + the search-button display predicate. Pass `null` on any slot to clear it. The advanced cluster (niche search-side filters; the `excludedOwnerIds` expression) is not touched — use setCaseSearchAdvanced for that.",
+		"Set a module's case-search display cluster: screen title, subtitle, button label, button display predicate. null clears a slot. Advanced filters live on setCaseSearchAdvanced.",
 	inputSchema: setCaseSearchDisplayInputSchema,
 	async execute(
 		input: SetCaseSearchDisplayInput,

@@ -96,11 +96,11 @@ function prepareAndGuard(doc: BlueprintDoc): void {
  */
 function parseSuite(suiteXml: string): {
 	resources: string[];
-	entries: Array<{ datumIds: Set<string> }>;
+	entries: Array<{ datumIds: Set<string>; hasForm: boolean }>;
 } {
 	const resources: string[] = [];
-	const entries: Array<{ datumIds: Set<string> }> = [];
-	let currentEntry: { datumIds: Set<string> } | null = null;
+	const entries: Array<{ datumIds: Set<string>; hasForm: boolean }> = [];
+	let currentEntry: { datumIds: Set<string>; hasForm: boolean } | null = null;
 
 	const parser = new Parser(
 		{
@@ -112,7 +112,15 @@ function parseSuite(suiteXml: string): {
 					return;
 				}
 				if (name === "entry") {
-					currentEntry = { datumIds: new Set() };
+					currentEntry = { datumIds: new Set(), hasForm: false };
+					return;
+				}
+				// A `caseListOnly` viewer module emits a FORMLESS case-list-
+				// browse entry (no `<form>` child, no xform resource) — mark
+				// form-bearing entries so the lockstep pairing below can skip
+				// the browse commands.
+				if (currentEntry && name === "form") {
+					currentEntry.hasForm = true;
 					return;
 				}
 				if (currentEntry && name === "datum" && attribs.id) {
@@ -199,9 +207,14 @@ describe("binding-resolution emitter totality (property-based fuzz)", () => {
 				}
 				const suiteXml = suiteEntry.getData().toString("utf-8");
 				const { resources, entries } = parseSuite(suiteXml);
-				if (resources.length !== entries.length) {
+				// Formless entries (a caseListOnly module's case-list-browse
+				// command) carry no xform resource — the lockstep pairing is
+				// between resources and FORM-BEARING entries, both emitted in
+				// document order.
+				const formEntries = entries.filter((e) => e.hasForm);
+				if (resources.length !== formEntries.length) {
 					throw new Error(
-						`suite.xml has ${resources.length} xform resources but ${entries.length} entries — expected lockstep`,
+						`suite.xml has ${resources.length} xform resources but ${formEntries.length} form-bearing entries — expected lockstep`,
 					);
 				}
 
@@ -221,7 +234,7 @@ describe("binding-resolution emitter totality (property-based fuzz)", () => {
 						xform,
 						formPath,
 						doc.appName,
-						entries[i].datumIds,
+						formEntries[i].datumIds,
 						manifestPaths,
 					);
 					if (errors.length > 0) {

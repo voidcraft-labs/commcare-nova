@@ -19,7 +19,7 @@
 //    constants both the storage layer and the upload routes consume.
 //
 // The stored-record shapes live with their boundaries: the
-// Firestore-shaped doc schema in `lib/db/types.ts`, the client-facing
+// `MediaAssetDoc` interface in `lib/db/types.ts`, the client-facing
 // wire shape in `lib/db/mediaAssets.ts`.
 
 import { z } from "zod";
@@ -57,7 +57,7 @@ export function asAssetId(s: string): AssetId {
  * carries just the slug; every app points at one shared, deployment-bundled
  * copy. The prefix can't collide with a real id — those are `randomUUID()`
  * (`lib/db/mediaAssets.ts::createPendingAsset`), which never contain a colon —
- * so consumers ask `isBuiltinIconRef` BEFORE any Firestore/GCS lookup
+ * so consumers ask `isBuiltinIconRef` BEFORE any Postgres/GCS lookup
  * (`lib/media/manifest.ts`, `boundaryValidation.ts`, `lib/db/apps.ts`,
  * `components/builder/media/mediaClient.ts`, `useAttachBudget.ts`).
  */
@@ -74,7 +74,7 @@ export const NOVA_ICON_REF_PREFIX = "nova-icon:";
  * MIME types accepted at the upload validation gate, partitioned by
  * kind. The sniffed `mimeType` on a `MediaAsset` MUST be one of
  * these — any other value is a validation-pipeline failure (the
- * upload is rejected, the GCS object is deleted, the Firestore row
+ * upload is rejected, the GCS object is deleted, the Postgres row
  * is removed).
  *
  * SVG is deliberately absent — it's a script container with active
@@ -432,7 +432,7 @@ export type Media = z.infer<typeof mediaSchema>;
 /**
  * Lifecycle status of a stored media asset. Two states only:
  *
- *  - `pending` — the Firestore row exists; the GCS object may or
+ *  - `pending` — the Postgres row exists; the GCS object may or
  *    may not be in flight; bytes have NOT been validated. The
  *    upload-confirm step flips this to `ready` once the validator
  *    runs against the stored bytes. Pending assets must never
@@ -442,17 +442,17 @@ export type Media = z.infer<typeof mediaSchema>;
  *    sniffed `mimeType` / `extension` / `dimensions` / `durationMs`
  *    are written.
  *
- * `failed` is not a state — the confirm step deletes the Firestore
+ * `failed` is not a state — the confirm step deletes the Postgres
  * row and, when unshared, the pending GCS object on validation failure.
  * A `pending` row left dangling by a client that never confirms is
  * filtered out of the library list and rejected by the validator gate;
  * its abandoned GCS object is reaped by the bucket's `pending/` lifecycle
- * rule (1-day TTL), and the dangling Firestore row stays harmless (it
+ * rule (1-day TTL), and the dangling Postgres row stays harmless (it
  * never surfaces in the library or a shipped app — there is no row reaper
  * today, only the object-side lifecycle rule).
  *
  * The stored-record shapes live with their respective boundaries:
- * `mediaAssetDocSchema` (Firestore-shaped, `Timestamp`-typed) in
+ * `MediaAssetDoc` (the `media_assets` row shape, `Date`-typed) in
  * `lib/db/types.ts`, and `WireMediaAsset` (client-facing, ISO
  * strings, internals stripped) in `lib/db/mediaAssets.ts`. This
  * domain module owns only the cross-cutting primitives both
@@ -542,7 +542,7 @@ export function extractGcsObjectKeyFor(
  * helper must never drag the office-parsing libraries (mammoth/xlsx) into a
  * caller's import graph; keeping the constant here is what makes that possible.
  */
-export const EXTRACTOR_VERSION = 1;
+export const EXTRACTOR_VERSION = 2;
 
 /**
  * The GCS object key of a document's stored extract, or `null` for a media kind

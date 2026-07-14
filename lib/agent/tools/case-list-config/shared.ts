@@ -35,6 +35,7 @@ import {
 	type Column,
 	columnSchema,
 	type SearchInputDef,
+	type SearchInputType,
 	searchInputDefSchema,
 	type Uuid,
 } from "@/lib/domain";
@@ -95,12 +96,42 @@ const [simpleSearchInputArm, advancedSearchInputArm] =
 	searchInputDefSchema.options;
 
 /**
- * Per-arm `SearchInputDef` schema with the `uuid` and `order` slots omitted.
+ * The widget kinds the SA (and MCP clients) can author — the domain
+ * enum minus `select`. Nova's wire prompt carries no itemset slot, so
+ * CCHQ renders a `select` prompt as a plain text input
+ * (`QueryPrompt.isSelect()` is false without an `<itemset>` child):
+ * the validator rejects the simple-arm shape outright
+ * (`searchInputSelectWidgetNotSupported`) and the advanced-arm shape
+ * silently degrades to text. Neither is a state the model should be
+ * able to express, so the tool boundary narrows the enum instead of
+ * letting the gate (or the runtime) break the news. The domain enum
+ * keeps `select` for the day the wire grows an itemset source.
+ */
+export const SA_SEARCH_INPUT_TYPES = [
+	"text",
+	"date",
+	"date-range",
+	"barcode",
+] as const satisfies readonly SearchInputType[];
+
+const saSearchInputType = z
+	.enum(SA_SEARCH_INPUT_TYPES)
+	.describe(
+		"Widget the search screen renders for this input. There is no dropdown widget — filter a fixed-option property with a `text` input, or compose the membership check as an advanced-arm `selected(...)` predicate.",
+	);
+
+/**
+ * Per-arm `SearchInputDef` schema with the `uuid` and `order` slots omitted
+ * and the `type` enum narrowed to the SA-authorable widget kinds.
  * Mirrors `columnInputSchema` for the search-input add / update tools.
  */
 export const searchInputDefInputSchema = z.discriminatedUnion("kind", [
-	simpleSearchInputArm.omit({ uuid: true, order: true }),
-	advancedSearchInputArm.omit({ uuid: true, order: true }),
+	simpleSearchInputArm
+		.omit({ uuid: true, order: true })
+		.extend({ type: saSearchInputType }),
+	advancedSearchInputArm
+		.omit({ uuid: true, order: true })
+		.extend({ type: saSearchInputType }),
 ]);
 export type SearchInputDefInput = z.infer<typeof searchInputDefInputSchema>;
 
@@ -164,7 +195,7 @@ export function newUuid(): Uuid {
 // `Uuid` via `.transform(...)`. That transform makes the schema
 // unrepresentable in JSON Schema — `z.toJSONSchema(uuidSchema)` throws,
 // which means the SA tool surface (which lowers every input schema to
-// JSON Schema for the Anthropic compiler) can't accept `uuidSchema`
+// JSON Schema for the provider tool-input compiler) can't accept `uuidSchema`
 // directly as a top-level field.
 //
 // `uuidInputSchema` is the wire-shape version: a plain

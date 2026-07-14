@@ -28,7 +28,7 @@ import type { GenerationContext } from "../generationContext";
 import { makeMinimalDoc, makeTestContext } from "./fixtures";
 
 /* Both record methods await `commitGuardedBatch` (kind:'chat'). Mock the
- * unified writer at module scope so no Firestore transaction is touched;
+ * unified writer at module scope so no Postgres transaction is touched;
  * each test tweaks the resolved `{ seq, committedDoc, deduped }`
  * via `mockResolvedValueOnce` / `mockRejectedValueOnce`. */
 vi.mock("@/lib/db/apps", () => ({

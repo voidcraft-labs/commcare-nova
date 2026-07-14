@@ -36,7 +36,7 @@ vi.mock("@/lib/db/apps", () => ({
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
 	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
 }));
-// Firestore-constructing module stubbed at the import boundary; the
+// The db-constructing module stubbed at the import boundary; the
 // attach verdict's asset reads resolve against the fixtures' in-memory
 // table instead.
 vi.mock("@/lib/db/mediaAssets", async () => ({
@@ -322,7 +322,7 @@ describe("menu-media built-in icons", () => {
 		// The SA preserves the icon while setting the audio label by passing
 		// back the STORED value it read via getModule — the prefixed ref, not
 		// the bare slug. It must resolve without a library expectation ("nova-
-		// icon:household" has no Firestore row) and store unchanged.
+		// icon:household" has no `media_assets` row) and store unchanged.
 		const preserved = await setMenuMediaTool.execute(
 			{ items: [moduleItem("nova-icon:household", "asset-audio")] },
 			ctx,

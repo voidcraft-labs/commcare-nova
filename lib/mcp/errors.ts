@@ -257,7 +257,7 @@ export function toMcpErrorResult(
 	if (err instanceof BlueprintCommitRejectedError) {
 		/* The transactional commit's fresh-doc re-verdict rejected the batch
 		 * (a concurrent write landed between the optimistic gate and the
-		 * Firestore transaction, and the batch introduces a finding against
+		 * commit transaction, and the batch introduces a finding against
 		 * the doc as it now stands). Nothing was written. This is the same
 		 * validity-rejection shape the optimistic gate produces inside a
 		 * tool body, so it gets the same envelope: `invalid_input` with the
@@ -358,7 +358,7 @@ export function toMcpErrorResult(
 	}
 
 	/* Generic branch — anything that isn't one of the three short-circuit
-	 * error classes lands here. Almost always a server bug (Firestore
+	 * error classes lands here. Almost always a server bug (a database
 	 * exception, missing index, null deref, etc.) and almost always
 	 * something we want in Cloud Logging with the full stack. `log.error`
 	 * with the raw `err` lets the logger extract `stack_trace` for GCP

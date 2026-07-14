@@ -83,7 +83,7 @@ export type AttachOptionMediaResult = MutationSuccess | { error: string };
 
 export const attachOptionMediaTool = {
 	description:
-		"Set or clear the image/audio/video on one or more options of single_select / multi_select fields in a single call — a whole picture-choice field authors in one batch. Locate each option by its value; supply asset ids from list_media_assets, or an empty media object to clear it.",
+		"Set or clear image/audio/video on select-field options — attachments may span fields and forms. An empty media object clears.",
 	inputSchema: attachOptionMediaInputSchema,
 	async execute(
 		input: AttachOptionMediaInput,

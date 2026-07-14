@@ -184,7 +184,7 @@ describe("applyStreamEvent — data-mutations", () => {
 	});
 
 	// The end-to-end echo-vs-register race across the two transports. The chat
-	// commit writes Firestore (→ the /stream echo frame) BEFORE the
+	// commit writes Postgres (→ the /stream echo frame) BEFORE the
 	// `data-mutations` chunk is written. When the echo lands FIRST, the reconciler
 	// folds the batch into `displayed`; the late `data-mutations` chunk must NOT
 	// re-apply it to the store, or the non-dedup `addModule` reducer splices the

@@ -10,8 +10,8 @@
  *     30-day retention window.
  *   - A write against a missing row THROWS (the Kysely `numUpdatedRows === 0`
  *     guard) so callers surface a missing-row error rather than a silent no-op —
- *     the Postgres analogue of the old Firestore `update()`-NOT-`set()` ghost-row
- *     guarantee (there is no `set` upsert path to guard against anymore).
+ *     an UPDATE against an absent id touches zero rows and creates nothing, so
+ *     the guard turns that into an explicit error.
  */
 
 import { describe, expect, it } from "vitest";

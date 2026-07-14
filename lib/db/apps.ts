@@ -8,8 +8,8 @@
  * batch actually changed. The app ROW is the serialization point: every
  * transaction that decides anything about a run locks it first
  * (`SELECT … FOR UPDATE`), so per-app contention resolves as row-lock waits
- * and the in-transaction re-reads the Firestore-era code fought for are just
- * how the code reads.
+ * and every decision reads the row's fresh state inside its own locking
+ * transaction.
  *
  * **Claim and reserve are ONE transaction** (`claimAndReserveRun`): the busy
  * check, the cross-app concurrency guard, the leftover-marker refund, the

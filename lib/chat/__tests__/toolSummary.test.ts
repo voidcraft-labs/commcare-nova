@@ -1,7 +1,12 @@
 import type { ToolUIPart } from "ai";
 import { describe, expect, it } from "vitest";
 import type { ToolCallSummary } from "@/lib/agent/tools/shared/toolCallSummary";
-import { toolAction, toolDetail, toolLocation } from "../toolSummary";
+import {
+	isEditToolPart,
+	toolAction,
+	toolDetail,
+	toolLocation,
+} from "../toolSummary";
 
 /** A completed tool part carrying a mutating-success output. */
 const donePart = (tool: string, summary: ToolCallSummary): ToolUIPart =>
@@ -114,6 +119,54 @@ describe("updateApp transcript row", () => {
 		const part = donePart("updateApp", { subject: "Client Registration" });
 		expect(toolAction(part)).toBe("Updated app settings");
 		expect(toolLocation(part)).toBe("Client Registration");
+	});
+});
+
+describe("generateSchema transcript row", () => {
+	it("keeps the static headline with the type names on the → line", () => {
+		// Not countable: the → line lists the recorded type names, so a
+		// count in the headline would restate them — and the longer phrase
+		// truncates in the chip.
+		const part = donePart("generateSchema", {
+			subject: "patient, visit, referral",
+			count: 3,
+		});
+		expect(toolAction(part)).toBe("Recorded the data model");
+		expect(toolLocation(part)).toBe("patient, visit, referral");
+		expect(toolDetail(part)).toBeNull();
+	});
+
+	it("surfaces a refused schema commit as its error text", () => {
+		const refused = {
+			type: "tool-generateSchema",
+			toolCallId: "call_1",
+			state: "output-available",
+			input: {},
+			output: { error: "Nothing was recorded — …" },
+		} as ToolUIPart;
+		expect(toolAction(refused)).toBe("Recording the data model");
+		expect(toolDetail(refused)).toBe("Nothing was recorded — …");
+	});
+
+	it("keeps planning-era parts out of the change summary — they wrote nothing", () => {
+		// A thread persisted while generateSchema was a pure planning step:
+		// its output is `{ planned: true, … }` and no mutation ever landed,
+		// so rendering it as a completed doc change would assert an edit
+		// history that never happened.
+		const planningEra = {
+			type: "tool-generateSchema",
+			toolCallId: "call_1",
+			state: "output-available",
+			input: { appName: "Clinic", caseTypes: [] },
+			output: { planned: true, appName: "Clinic", caseTypes: [] },
+		} as ToolUIPart;
+		expect(isEditToolPart(planningEra)).toBe(false);
+		// Today's committing tool groups like any other edit tool — both a
+		// completed commit and an in-flight call (no output yet).
+		expect(
+			isEditToolPart(donePart("generateSchema", { subject: "patient" })),
+		).toBe(true);
+		expect(isEditToolPart(pendingPart("generateSchema"))).toBe(true);
 	});
 });
 

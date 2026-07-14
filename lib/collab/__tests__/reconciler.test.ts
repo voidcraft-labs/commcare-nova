@@ -667,7 +667,7 @@ describe("reconciler", () => {
 		});
 
 		// The race: the echo frame beats the `data-mutations` chunk (two independent
-		// transports — the commit writes Firestore → /stream echo BEFORE the chat
+		// transports — the commit writes the durable stream → /stream echo BEFORE the chat
 		// chunk is written). The echo applies the batch to confirmedDoc and advances
 		// baseSeq; the late registration must NOT re-register (its seq is already
 		// confirmed) or the non-dedup addModule reducer splices the uuid TWICE.

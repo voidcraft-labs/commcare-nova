@@ -1,7 +1,7 @@
 /**
  * Unit tests for the pure upload-target resolver. No I/O — this is exactly
  * the kind of decision logic that belongs in a pure function so it can be
- * exhaustively covered without Firestore or HQ mocks.
+ * exhaustively covered without database or HQ mocks.
  *
  * The cases that matter are the failure shapes: `not_authorized` (a deliberate
  * ask for an unreachable space) and `ambiguous` (multi-space key, no request —

@@ -10,7 +10,7 @@
 // One builder, two callers: the HTTP download (`app/api/compile/json`) and the
 // MCP `compile_app` json tool both ship THIS archive when their app has media,
 // so the manual-import and programmatic surfaces can't drift in format. It is
-// pure assembly over an already-resolved manifest — no Firestore, no expand —
+// pure assembly over an already-resolved manifest — no Postgres, no expand —
 // and depends only on this package's `bulkUploadZip` plus the `HqApplication` /
 // `AssetManifest` types (no `lib/media` import), so it sits inside the CommCare
 // emission boundary alongside its sibling wire builders.

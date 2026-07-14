@@ -1,20 +1,19 @@
 /**
- * Verifies that the SA's tool input schemas are accepted by the Anthropic
+ * Verifies that the SA's tool input schemas are accepted by the OpenAI
  * API — i.e. the model makes a tool call against each schema without the
  * request erroring.
  *
  * All SA tools run in **tool-input** mode (`tools[name].inputSchema`).
- * Tool use is NOT grammar-constrained, so there is no schema-grammar
+ * Tool use is NOT constrained-decoded, so there is no schema-grammar
  * compilation step and no per-array-item optional-field ceiling — the
- * `addFields` batch item carries ten optionals and compiles fine on every
- * model. (The "Grammar compilation timed out" ceiling is specific to
- * GRAMMAR-CONSTRAINED decoding — the `Output.object` / structured-output
- * path — which these tools do not use, so it isn't exercised here.)
+ * `addFields` batch item carries ten optionals and is accepted on every
+ * model. (Structured-output constraints apply to the `Output.object` path,
+ * which these tools do not use, so they aren't exercised here.)
  *
- * Usage: `npx tsx scripts/test-schema.ts [opus] [schema-name]`
- *   - Pass `opus` to test against the production SA model (`SA_MODEL`);
- *     default is Haiku 4.5 (cheap + fast — tool-input acceptance is the
- *     same across models).
+ * Usage: `npx tsx scripts/test-schema.ts [sol] [schema-name]`
+ *   - Pass `sol` to test against the production SA build model
+ *     (`SA_BUILD_MODEL`); default is GPT-5.6 Luna (cheap + fast —
+ *     tool-input acceptance is the same across models).
  *   - Pass a schema name to test only that schema; omit to test every
  *     registered schema. Known names: `addFields`,
  *     `addCaseListColumns`, `updateCaseListColumn`,
@@ -52,14 +51,13 @@ import { listMediaAssetsTool } from "../lib/agent/tools/media/listMediaAssets";
 import { removeMediaAssetTool } from "../lib/agent/tools/media/removeMediaAsset";
 import { setAppLogoTool } from "../lib/agent/tools/media/setAppLogo";
 import { setMenuMediaTool } from "../lib/agent/tools/media/setMenuMedia";
-import { planAppDesignTool } from "../lib/agent/tools/planAppDesign";
 import { updateAppTool } from "../lib/agent/tools/updateApp";
 import {
 	updateModuleInputSchema,
 	updateModuleTool,
 } from "../lib/agent/tools/updateModule";
 import { uploadMediaAssetInputSchema } from "../lib/mcp/tools/uploadMediaAsset";
-import { SA_MODEL } from "../lib/models";
+import { GATEWAY_PROVIDER_OPTIONS, SA_BUILD_MODEL } from "../lib/models";
 
 /**
  * One tool-input schema test: register the tool with a no-op `execute`,
@@ -190,21 +188,14 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: createModuleTool.description,
 		schema: createModuleTool.inputSchema,
 		prompt:
-			"Use createModule to add a module named 'Households' with case_type household and its case_type_record (properties case_name labeled 'Household name' and head_name labeled 'Head of household'), one registration form named 'Register household' whose fields are case_name (text labeled 'Household name', case_property_on household) and head_name (text labeled 'Head of household', case_property_on household), and one plain case-list column on field case_name with header Name.",
+			"Use createModule to add a module named 'Households' with case_type household, one registration form named 'Register household' whose fields are case_name (text labeled 'Household name', case_property_on household) and head_name (text labeled 'Head of household', case_property_on household), and one plain case-list column on field case_name with header Name.",
 	},
 	{
 		name: "generateSchema",
 		description: generateSchemaTool.description,
 		schema: generateSchemaTool.inputSchema,
 		prompt:
-			"Use generateSchema to plan an app named 'Village Health' with one case type patient carrying properties case_name (labeled 'Full name') and village (labeled 'Village').",
-	},
-	{
-		name: "planAppDesign",
-		description: planAppDesignTool.description,
-		schema: planAppDesignTool.inputSchema,
-		prompt:
-			"Use planAppDesign to plan an app named 'Village Health' (description: track patient visits, standard app so connect_type is the empty string) with one module 'Patients' (case_type patient, not case-list-only, purpose 'Patient tracking') holding one registration form 'Register patient' whose purpose is enrollment and whose formDesign describes capturing name and village.",
+			"Use generateSchema to record one case type patient carrying properties case_name (labeled 'Full name') and village (labeled 'Village').",
 	},
 	{
 		name: "updateApp",
@@ -275,9 +266,9 @@ if (!apiKey) {
 
 const gateway = createGateway({ apiKey });
 const args = process.argv.slice(2);
-const useOpus = args.includes("opus");
-const explicitName = args.find((a) => a !== "opus");
-const model = useOpus ? SA_MODEL : "anthropic/claude-haiku-4.5";
+const useSol = args.includes("sol");
+const explicitName = args.find((a) => a !== "sol");
+const model = useSol ? SA_BUILD_MODEL : "openai/gpt-5.6-luna";
 
 const tests = explicitName
 	? SCHEMA_TESTS.filter((t) => t.name === explicitName)
@@ -313,6 +304,10 @@ console.log(`Testing with ${model}...`);
 					[test.name]: tool({
 						description: test.description,
 						inputSchema: test.schema,
+						// Mirrors production (`solutionsArchitect.ts` wrappers): opt
+						// out of Responses strict-mode normalization so optionals
+						// stay omittable.
+						strict: false,
 						execute: async () => "ok",
 					}),
 				},
@@ -326,6 +321,7 @@ console.log(`Testing with ${model}...`);
 				prompt: test.prompt,
 				maxOutputTokens: 1024,
 				abortSignal: controller.signal,
+				providerOptions: { gateway: GATEWAY_PROVIDER_OPTIONS },
 			});
 			clearTimeout(timer);
 			console.log(

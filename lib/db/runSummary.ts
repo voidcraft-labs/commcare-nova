@@ -49,8 +49,10 @@ export type RunSummaryWriteAction =
  * - `prompt_mode` — a thread that starts as "build" stays a build thread
  *   in the summary, even after the follow-up edits switch prompts.
  * - `app_ready` — same logic: was the app ready when the thread opened?
- * - `model` — would require a different field if we ever mix SA models
- *   inside a single thread, but `SA_MODEL` is a code constant today.
+ * - `model` — pinned at the thread's first turn, so a build thread keeps
+ *   `SA_BUILD_MODEL` even after follow-up edits switch to `SA_EDIT_MODEL`.
+ *   Cost is unaffected: each turn's accumulator prices its own tokens at
+ *   that turn's model.
  *
  * **Scalar overwrite (latest turn wins):**
  * - `finished_at` — last turn's finalize time. Note this means
@@ -69,7 +71,8 @@ export type RunSummaryWriteAction =
  *
  * **Accumulated (cumulative numeric deltas):**
  * - `step_count`, `tool_call_count`, `input_tokens`, `output_tokens`,
- *   `cache_read_tokens`, `cache_write_tokens`, `cost_estimate`. The `bigint`
+ *   `cache_read_tokens`, `cache_write_tokens`, `cost_estimate`,
+ *   `actual_cost`. The `bigint`
  *   token columns come back from pg as strings, so each is `Number(...)`-ed
  *   before adding this turn's delta.
  *
@@ -126,6 +129,7 @@ export async function writeRunSummary(
 						cache_read_tokens: summary.cacheReadTokens,
 						cache_write_tokens: summary.cacheWriteTokens,
 						cost_estimate: summary.costEstimate,
+						actual_cost: summary.actualCost,
 						tool_call_count: summary.toolCallCount,
 					})
 					.execute();
@@ -150,6 +154,7 @@ export async function writeRunSummary(
 					cache_write_tokens:
 						Number(existing.cache_write_tokens) + summary.cacheWriteTokens,
 					cost_estimate: existing.cost_estimate + summary.costEstimate,
+					actual_cost: existing.actual_cost + summary.actualCost,
 				})
 				.where("app_id", "=", appId)
 				.where("run_id", "=", runId)
@@ -208,6 +213,7 @@ export async function loadRunSummary(
 		cacheReadTokens: Number(row.cache_read_tokens),
 		cacheWriteTokens: Number(row.cache_write_tokens),
 		costEstimate: row.cost_estimate,
+		actualCost: row.actual_cost,
 		toolCallCount: row.tool_call_count,
 	};
 }

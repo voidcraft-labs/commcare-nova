@@ -19,7 +19,7 @@ export async function AdminContent() {
 	/* Prevent execution during next build's static generation phase.
 	 * The admin layout already bails via connection() in getSession(), but
 	 * Next.js may still evaluate Suspense children independently — without
-	 * this guard, getAdminUsersWithStats() would attempt a Firestore read
+	 * this guard, getAdminUsersWithStats() would attempt a Postgres read
 	 * in an environment with no database credentials (Docker build). */
 	await connection();
 	const { users, stats } = await getAdminUsersWithStats();

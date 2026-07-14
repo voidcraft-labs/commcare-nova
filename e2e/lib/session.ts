@@ -3,7 +3,7 @@
  *
  * The smoke tests don't drive real Google OAuth (the sign-in is hard-gated to
  * `@dimagi.com` / `@dimagi-ai.com` and CI has no Workspace account). Instead a
- * session row is written straight into Firestore (`e2e/seed.ts`) and this module
+ * session row is written straight into Postgres (`e2e/seed.ts`) and this module
  * forges the cookie Better Auth would have set on a real login, so Playwright
  * can present an authenticated request.
  *

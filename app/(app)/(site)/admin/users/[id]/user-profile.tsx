@@ -1,7 +1,7 @@
 /**
  * Async server component — user profile card.
  *
- * Fetches the user document from Firestore and renders the profile card
+ * Fetches the user row from Postgres and renders the profile card
  * with an impersonate action for admins viewing another user's profile.
  * Wrapped in a Suspense boundary by the parent page so it streams in
  * independently of the usage table and app list.

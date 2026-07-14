@@ -1,10 +1,11 @@
 /**
  * Schema-compilation contract for the case-list-config SA tools.
  *
- * The Anthropic structured-output compiler imposes a hard ceiling of 8
- * `.optional()` fields per per-arm shape — verified hard limit on
- * opus-4-7. Each tool's `inputSchema` carries a typed AST shape lifted
- * from `lib/domain/predicate` + `lib/domain/modules`; this test ensures
+ * Nova caps tool schemas at 8 optional fields per arm — a hard ceiling
+ * inherited from the strictest provider structured-output compiler,
+ * kept as a portability bound. Each tool's `inputSchema` carries a
+ * typed AST shape lifted from `lib/domain/predicate` +
+ * `lib/domain/modules`; this test ensures
  * the compilation survives the Zod 4 → JSON Schema bridge AND stays
  * inside the per-arm ceiling on the column / search-input discriminated
  * unions.
@@ -17,20 +18,22 @@
  *   2. The discriminated-union slot's per-arm shape carries ≤8 optional
  *      fields. Recursive AST cycles expand under nested keys via
  *      `$defs` references in JSON Schema output; we count optionals at
- *      each arm's *immediate* level (the surface the Anthropic compiler
- *      sees) per `lib/agent/__tests__/toolSchemaGenerator.test.ts`'s
- *      "8-optional ceiling" precedent.
+ *      each arm's *immediate* level (the surface a provider compiler
+ *      sees) against the standing 8-optional bound every SA tool
+ *      surface holds itself to — a schema-bloat guard; the wire itself
+ *      imposes no hard ceiling (`scripts/test-schema.ts`).
  *   3. A representative payload `safeParse`s — round-trip smoke test
  *      that the schema is structurally usable from the SA's call site.
  *
  * The `scripts/test-schema.ts` harness covers the live-API
- * verification (it drives `generateText` against Anthropic and waits
+ * verification (it drives `generateText` against the live API and waits
  * for the response). This vitest file is the structural defense — it
  * runs in every CI pipeline without burning API credits.
  */
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { SEARCH_INPUT_TYPES } from "@/lib/domain";
 import { addCaseListColumnsTool } from "../addCaseListColumns";
 import { addSearchInputsTool } from "../addSearchInputs";
 import { removeCaseListColumnTool } from "../removeCaseListColumn";
@@ -38,6 +41,7 @@ import { removeSearchInputTool } from "../removeSearchInput";
 import { reorderCaseListColumnsTool } from "../reorderCaseListColumns";
 import { reorderSearchInputsTool } from "../reorderSearchInputs";
 import { setCaseListFilterTool } from "../setCaseListFilter";
+import { SA_SEARCH_INPUT_TYPES } from "../shared";
 import { updateCaseListColumnTool } from "../updateCaseListColumn";
 import { updateSearchInputTool } from "../updateSearchInput";
 
@@ -166,7 +170,7 @@ const FLAT_TOOLS = [
 	{ name: "setCaseListFilter", tool: setCaseListFilterTool },
 ] as const;
 
-describe("case-list-config tool schemas — Anthropic compiler contract", () => {
+describe("case-list-config tool schemas — 8-optional ceiling contract", () => {
 	for (const { name, tool } of [...UNION_TOOLS, ...FLAT_TOOLS]) {
 		it(`${name}: \`z.toJSONSchema\` succeeds`, () => {
 			const json = z.toJSONSchema(tool.inputSchema) as ObjectJsonSchema;
@@ -176,7 +180,7 @@ describe("case-list-config tool schemas — Anthropic compiler contract", () => 
 	}
 
 	for (const { name, tool, unionKey, arrayItems } of UNION_TOOLS) {
-		it(`${name}: per-arm optional count ≤8 (Anthropic compiler ceiling)`, () => {
+		it(`${name}: per-arm optional count ≤8 (8-optional ceiling)`, () => {
 			const json = z.toJSONSchema(tool.inputSchema) as ObjectJsonSchema;
 			const slot = json.properties?.[unionKey];
 			if (!slot) {
@@ -313,12 +317,57 @@ describe("case-list-config tool schemas — Anthropic compiler contract", () => 
 					kind: "advanced",
 					name: "active_only",
 					label: "Active only",
-					type: "select",
+					type: "text",
 					predicate: { kind: "match-all" },
 				},
 			],
 		});
 		expect(result.success).toBe(true);
+	});
+
+	it("rejects the `select` widget type on both arms at parse time", () => {
+		// Nova's wire prompt carries no itemset slot, so a `select` prompt
+		// renders as plain text at runtime — the simple arm is
+		// gate-rejected (`searchInputSelectWidgetNotSupported`) and the
+		// advanced arm silently degrades. The SA boundary narrows the enum
+		// so neither state is expressible (this run's trap: a build
+		// authored status-queue filters as `select` and burned a
+		// rejection + retry step per module).
+		const simple = addSearchInputsTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			searchInputs: [
+				{
+					kind: "simple",
+					name: "referral_status",
+					label: "Status",
+					type: "select",
+					property: "referral_status",
+				},
+			],
+		});
+		expect(simple.success).toBe(false);
+		const advanced = updateSearchInputTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			searchInputUuid: "11111111-1111-1111-1111-111111111111",
+			searchInput: {
+				kind: "advanced",
+				name: "active_only",
+				label: "Active only",
+				type: "select",
+				predicate: { kind: "match-all" },
+			},
+		});
+		expect(advanced.success).toBe(false);
+	});
+
+	it("SA widget enum tracks the domain enum minus `select`", () => {
+		// Tripwire: adding a member to `SEARCH_INPUT_TYPES` must be a
+		// deliberate decision at the SA boundary too — this fails until
+		// `SA_SEARCH_INPUT_TYPES` names the new member (or documents its
+		// exclusion beside `select`'s).
+		expect([...SA_SEARCH_INPUT_TYPES]).toEqual(
+			SEARCH_INPUT_TYPES.filter((t) => t !== "select"),
+		);
 	});
 
 	it("updateSearchInput: parses with full simple-arm optional coverage", () => {
@@ -329,7 +378,7 @@ describe("case-list-config tool schemas — Anthropic compiler contract", () => 
 				kind: "simple",
 				name: "household_region",
 				label: "Region",
-				type: "select",
+				type: "text",
 				property: "region",
 				via: {
 					kind: "ancestor",

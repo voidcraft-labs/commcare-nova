@@ -43,7 +43,7 @@ import type { ToolContext } from "../types";
  * Register the `create_app` tool on an `McpServer`.
  *
  * The only input is an optional name; the underlying `createApp`
- * helper mints the Firestore document id.
+ * helper mints the app id (a `crypto.randomUUID()`) and inserts the apps row.
  */
 export function registerCreateApp(server: McpServer, ctx: ToolContext): void {
 	server.registerTool(

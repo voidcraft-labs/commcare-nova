@@ -60,7 +60,7 @@
  * shared dispatch with the verified key's `referenceId` + scopes.
  *
  * The OAuth verify layer + plugin verify endpoint + tool registration
- * + consent lookup are mocked so the tests don't reach into Firestore
+ * + consent lookup are mocked so the tests don't reach into the DB
  * or KMS.
  */
 
@@ -149,13 +149,13 @@ vi.mock("@better-auth/oauth-provider", () => ({
 			}),
 }));
 
-/** Skip the consent revocation lookup (would otherwise hit Firestore). */
+/** Skip the consent revocation lookup (would otherwise hit the DB). */
 vi.mock("@/lib/db/oauth-consents", () => ({
 	hasActiveConsent: async () => true,
 }));
 
 /**
- * Tool registration is mocked so the test doesn't drag Firestore and
+ * Tool registration is mocked so the test doesn't drag the DB and
  * KMS clients into the unit suite, but the mock is a real `vi.fn()`
  * (not a no-op) so tests can assert on the `ToolContext` shape that
  * reaches it. Both auth paths produce a `ToolContext`; the right
@@ -467,11 +467,11 @@ describe("POST /api/mcp (API-key path)", () => {
 
 	it("fails closed with 401 'api key verify failed' when the user-status lookup throws", async () => {
 		/* The route wraps `isUserActive` in try/catch and converts a
-		 * Firestore failure into a 401, deliberately rejecting rather
+		 * DB failure into a 401, deliberately rejecting rather
 		 * than authenticating during a transient outage. A regression
 		 * that drops the catch (or wraps the call in a helper that
 		 * swallows the throw) would silently invert that posture and
-		 * authenticate any verified-key holder while Firestore is
+		 * authenticate any verified-key holder while the DB is
 		 * unreachable — including banned users. This test pins the
 		 * fail-closed contract. */
 		verifyApiKeyMock.mockResolvedValue({
@@ -483,7 +483,7 @@ describe("POST /api/mcp (API-key path)", () => {
 				permissions: { scope: ["nova.read", "nova.write"] },
 			},
 		});
-		isUserActiveMock.mockRejectedValue(new Error("firestore unavailable"));
+		isUserActiveMock.mockRejectedValue(new Error("db unavailable"));
 		const res = await dispatch(buildRequest("Bearer sk-nova-v1-fsdown"));
 
 		expect(res.status).toBe(401);
@@ -627,7 +627,7 @@ describe("POST /api/mcp (API-key path)", () => {
 		/* Defense in depth: the plugin's `ApiKey` type pins `referenceId`
 		 * as a string, but if a future verify regression returned a
 		 * blank value, downstream tools would otherwise see `userId: ""`
-		 * and run Firestore queries against the empty user. The 401
+		 * and run DB queries against the empty user. The 401
 		 * path is the right failure mode. */
 		verifyApiKeyMock.mockResolvedValue({
 			valid: true,

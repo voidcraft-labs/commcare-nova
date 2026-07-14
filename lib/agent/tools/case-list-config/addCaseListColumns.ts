@@ -47,7 +47,7 @@ export const addCaseListColumnsInputSchema = z
 			.array(columnInputSchema)
 			.min(1)
 			.describe(
-				"The columns to append, in order. Each: pick a kind (`plain` / `date` / `phone` / `id-mapping` / `image-map` / `interval` / `calculated`) and supply the kind's required fields plus any optional `sort`, `visibleInList`, `visibleInDetail` slots. The tool mints each column's uuid; do not supply one. Calculated columns carry an `expression` instead of a `field` — the expression is the source. An `image-map` column carries a `mapping: { value, assetId }[]` — each row maps a stored case-property value to an image asset id (use list_media_assets to find ids).",
+				"The columns to append, in display order. Pick each column's kind and fill its fields; the tool mints uuids — never supply one.",
 			),
 	})
 	.strict();
@@ -72,7 +72,7 @@ export type AddCaseListColumnsResult =
 
 export const addCaseListColumnsTool = {
 	description:
-		"Add one or more columns to a module's case list in a single call. Pass the columns in display order. The tool mints a fresh uuid for each column and returns them (aligned with the input order); use those uuids on subsequent updateCaseListColumn / removeCaseListColumn / reorderCaseListColumns calls. Calculated columns carry an expression instead of a field.",
+		"Add columns to a module's case list. Returns the minted uuids (input order) for later update/remove/reorder calls.",
 	inputSchema: addCaseListColumnsInputSchema,
 	async execute(
 		input: AddCaseListColumnsInput,

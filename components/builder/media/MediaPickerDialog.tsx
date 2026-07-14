@@ -918,7 +918,7 @@ function FilterChip({
  * A `MediaAssetView` standing in for a built-in icon, built from its catalog
  * entry. Its id is the reserved `nova-icon:<slug>` ref the slot stores; the
  * other fields back the preview header + `mediaSrc` (which routes a built-in id
- * to its static bytes). There is no Firestore row — built-ins never reach the
+ * to its static bytes). There is no `media_assets` row — built-ins never reach the
  * library list or the budget fetch.
  */
 function builtinIconAssetView(entry: IconCatalogEntry): MediaAssetView {

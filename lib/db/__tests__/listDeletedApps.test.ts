@@ -6,8 +6,8 @@
  * summary, so the trash card's "Deleted X ago" line has a real date to format
  * (the "Deleted Invalid Date" regression). A row past its recovery window is
  * dropped before it reaches the UI — the trash is a recovery surface, not an
- * archive. (The former Firestore `.select()`-projection assertion is a builder
- * internal with no Postgres analogue; the same contract is pinned on the RESULT.)
+ * archive. The contract is pinned on the RESULT (the returned summaries), not on
+ * query-builder internals.
  */
 
 import { describe, expect, it } from "vitest";

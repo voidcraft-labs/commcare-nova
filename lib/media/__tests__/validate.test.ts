@@ -12,7 +12,7 @@
  *   - Hand-crafted byte arrays simulate magic-mismatch + truncation
  *     rejection paths.
  *
- * No GCS, no Firestore, no HTTP — the pipeline takes a `Buffer`
+ * No GCS, no Postgres, no HTTP — the pipeline takes a `Buffer`
  * and returns a `ValidationResult`.
  */
 

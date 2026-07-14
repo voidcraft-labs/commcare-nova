@@ -206,10 +206,11 @@ describe("handleApiError — client-abort vs genuine error", () => {
 });
 
 describe("request-size budgets", () => {
-	it("keep the public/auth caps tiny, blueprint above the 1 MiB doc limit, and all under the platform ceiling", () => {
+	it("keep the public/auth caps tiny, blueprint generously above a megabyte, and all under the platform ceiling", () => {
 		expect(CLIENT_ERROR_MAX_BYTES).toBeLessThanOrEqual(64 * 1024);
 		expect(OAUTH_REVOKE_MAX_BYTES).toBeLessThanOrEqual(64 * 1024);
-		// A blueprint is one ~1 MiB-bounded Firestore doc; the cap must clear it.
+		// The cap must sit generously above a megabyte so a real blueprint
+		// (far smaller) never trips it.
 		expect(BLUEPRINT_REQUEST_MAX_BYTES).toBeGreaterThan(1024 * 1024);
 		// Chat carries the blueprint PLUS bounded history, so it's the largest.
 		expect(CHAT_REQUEST_MAX_BYTES).toBeGreaterThanOrEqual(

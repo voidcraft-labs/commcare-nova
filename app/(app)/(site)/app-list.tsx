@@ -7,8 +7,8 @@
  * nothing about per-card state, action wiring, or filtering.
  *
  * Wrapped in a Suspense boundary by the page so the shell streams
- * before the Firestore queries resolve. Both queries read different
- * ends of the same collection (live rows vs. `deleted_at`-flagged
+ * before the Postgres queries resolve. Both queries read different
+ * ends of the same table (live rows vs. `deleted_at`-flagged
  * rows) so they have no read-after-write dependency and run in
  * parallel.
  */

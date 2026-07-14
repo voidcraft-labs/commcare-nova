@@ -282,9 +282,9 @@ export type SchemaChangeKind =
  * function regenerates the JSON Schema for the targeted case type,
  * then (when `change` is present) runs the matching per-row
  * migration. The caller-supplied-snapshot shape is the cross-store
- * saga seam: the orchestrator commits Firestore on success and
+ * saga seam: the orchestrator commits the blueprint on success and
  * runs a compensating `applySchemaChange(previousState)` on
- * Firestore-commit failure.
+ * blueprint-commit failure.
  *
  * `property` is required when `change` is present and ignored
  * otherwise.
@@ -397,7 +397,7 @@ export interface SchemaCaseStore {
 	 * Drop the `case_type_schemas` row + every per-property
 	 * expression index for `(appId, caseType)`. Used by the cross-
 	 * store saga's compensation path to revert a case-type-addition
-	 * Phase 1 commit when the Firestore commit fails: the prior
+	 * Phase 1 commit when the blueprint commit fails: the prior
 	 * blueprint has no `caseTypes` entry for this case type, so
 	 * `applySchemaChange(prior)` cannot run (it would throw
 	 * `CaseTypeNotInBlueprintError`); a direct DROP is the only

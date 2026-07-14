@@ -46,11 +46,11 @@ function decodeJsonStringEscapes(s: string): string {
 }
 
 /**
- * Repair an extract the summarizer emitted DOUBLE-escaped. Gemini 3.5 Flash, when
- * it emits a LARGE markdown document as a JSON string value under structured
- * generation, sometimes escapes its whole output one level too deep: every newline
- * comes back as the two literal characters `\` `n`, every quote as `\` `"`, and so
- * on, collapsing the entire extract to a single physical line of escape sequences.
+ * Repair an extract the summarizer emitted DOUBLE-escaped. A model emitting a
+ * LARGE markdown document as a JSON string value under structured generation
+ * can escape its whole output one level too deep: every newline comes back as
+ * the two literal characters `\` `n`, every quote as `\` `"`, and so on,
+ * collapsing the entire extract to a single physical line of escape sequences.
  * (Verified by isolation: the SAME large input run as plain text — or as a small
  * structured output — is clean; it's the size of the JSON-string-embedded output
  * that degrades the model's escaping. The instruction prompt can't reliably

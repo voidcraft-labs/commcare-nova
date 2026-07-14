@@ -18,10 +18,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { expandHashtags } from "@/lib/commcare/hashtags";
+import { expandHashtags, hqLoadReference } from "@/lib/commcare/hashtags";
 import {
 	expandHashtagsInContext,
 	type FormHashtagContext,
+	vellumShorthandInContext,
 } from "@/lib/commcare/hashtags/formContext";
 
 const ctx = (
@@ -154,5 +155,175 @@ describe("expandHashtagsInContext", () => {
 				expandHashtagsInContext("/data/age > 18", ctx("registration")),
 			).toBe("/data/age > 18");
 		});
+	});
+});
+
+describe("vellumShorthandInContext", () => {
+	// pregnancy (own, 0) → mother (1) → household (2): the guaranteed own
+	// generation plus two ancestor depths HQ's editor only knows when the
+	// app's own forms establish the relationship.
+	const depths = new Map([
+		["pregnancy", 0],
+		["mother", 1],
+		["household", 2],
+	]);
+
+	it("projects an own-type ref onto #case/ and keeps transitional #case/ refs", () => {
+		const c = ctx("followup", depths);
+		expect(vellumShorthandInContext("#pregnancy/ga", c)).toBe("#case/ga");
+		expect(vellumShorthandInContext("#case/ga", c)).toBe("#case/ga");
+	});
+
+	it("suppresses ancestor-generation shadows — HQ derives parent generations from in-app subcase forms, not the catalog", () => {
+		// `case_properties.py::get_case_relationships` builds the editor's
+		// parent/grandparent generations from case-subcase relationships
+		// "appearing in all relevant forms"; Nova's catalog parent link doesn't
+		// guarantee any, so a `#case/parent/` shadow could be unexpandable.
+		const c = ctx("followup", depths);
+		expect(vellumShorthandInContext("#mother/code", c)).toBeUndefined();
+		expect(vellumShorthandInContext("#household/head", c)).toBeUndefined();
+		expect(vellumShorthandInContext("#case/parent/code", c)).toBeUndefined();
+		expect(
+			vellumShorthandInContext("#case/parent/parent/head", c),
+		).toBeUndefined();
+	});
+
+	it("suppresses #user/ shadows — the usercase namespace is a domain privilege Nova can't know", () => {
+		// `casedb_schema.py::get_casedb_schema` adds the user subset only under
+		// `domain_has_usercase_access(app.domain)` (off by default), and
+		// `Vellum/src/form.js::_updateHashtags` wipes the head-element fallback
+		// once data sources load.
+		expect(
+			vellumShorthandInContext("#user/role = 'chw'", ctx("followup", depths)),
+		).toBeUndefined();
+		expect(
+			vellumShorthandInContext("#user/a/b", ctx("followup")),
+		).toBeUndefined();
+	});
+
+	it("keeps #form/ refs verbatim", () => {
+		expect(
+			vellumShorthandInContext("#form/age > 18", ctx("followup", depths)),
+		).toBe("#form/age > 18");
+	});
+
+	it("translates refs inside a larger mixed expression", () => {
+		expect(
+			vellumShorthandInContext(
+				"#form/med != '' and contains(lower-case(#pregnancy/allergen), 'pen')",
+				ctx("followup", depths),
+			),
+		).toBe("#form/med != '' and contains(lower-case(#case/allergen), 'pen')");
+	});
+
+	it("suppresses the WHOLE shadow when any ref has no guaranteed editor spelling", () => {
+		expect(
+			vellumShorthandInContext(
+				"#form/med != '' and #mother/code = 'x'",
+				ctx("followup", depths),
+			),
+		).toBeUndefined();
+	});
+
+	it("suppresses every case-namespace shadow on non-case-loading forms", () => {
+		// Registration AND survey forms upload with `requires: "none"`, and HQ
+		// only feeds the editor case data sources when the form loads a case
+		// (`get_casedb_schema` gates on `form.requires_case()`), so even the
+		// own-type ref has no editor vocabulary there.
+		expect(
+			vellumShorthandInContext(
+				"#pregnancy/case_id",
+				ctx("registration", depths),
+			),
+		).toBeUndefined();
+		expect(
+			vellumShorthandInContext("#case/case_id", ctx("registration")),
+		).toBeUndefined();
+		expect(
+			vellumShorthandInContext("#pregnancy/ga", ctx("survey", depths)),
+		).toBeUndefined();
+		// #form shadows survive on every form type.
+		expect(
+			vellumShorthandInContext("#form/age > 18", ctx("registration")),
+		).toBe("#form/age > 18");
+	});
+
+	it("suppresses an unreachable namespace and relationship-named / multi-segment properties", () => {
+		const c = ctx("followup", depths);
+		expect(vellumShorthandInContext("#unknown/x", c)).toBeUndefined();
+		// A property literally named after a relationship word would be read by
+		// the editor as a WALK, diverging from the expanded attribute.
+		expect(vellumShorthandInContext("#case/grandparent", c)).toBeUndefined();
+		expect(
+			vellumShorthandInContext("#pregnancy/grandparent", c),
+		).toBeUndefined();
+		expect(vellumShorthandInContext("#pregnancy/parent", c)).toBeUndefined();
+		// Multi-segment property path — no editor prefix covers it.
+		expect(vellumShorthandInContext("#pregnancy/a/b", c)).toBeUndefined();
+		// Bare relationship ref (no property) — same.
+		expect(vellumShorthandInContext("#case/parent", c)).toBeUndefined();
+	});
+
+	it("returns undefined when the expression has no hashtags at all", () => {
+		expect(
+			vellumShorthandInContext("/data/age > 18", ctx("followup", depths)),
+		).toBeUndefined();
+		expect(vellumShorthandInContext("", ctx("followup"))).toBeUndefined();
+	});
+
+	it("reports each cleared ref with its expansion via onRef, only when the whole expression clears", () => {
+		const c = ctx("followup", depths);
+		const seen: Array<[string, string]> = [];
+		vellumShorthandInContext(
+			"#pregnancy/ga > 20 and #case/risk = 'high'",
+			c,
+			(ref, expanded) => seen.push([ref, expanded]),
+		);
+		expect(seen).toEqual([
+			["#case/ga", expandHashtags("#case/ga")],
+			["#case/risk", expandHashtags("#case/risk")],
+		]);
+
+		// A suppressed expression reports nothing — its refs must not leak into
+		// head metadata for a shadow that was never emitted.
+		const none: Array<[string, string]> = [];
+		vellumShorthandInContext(
+			"#pregnancy/ga > #mother/min_ga",
+			c,
+			(ref, expanded) => none.push([ref, expanded]),
+		);
+		expect(none).toEqual([]);
+	});
+});
+
+describe("hqLoadReference", () => {
+	const depths = new Map([
+		["pregnancy", 0],
+		["mother", 1],
+		["household", 2],
+		["village", 3],
+	]);
+
+	it("translates per-type refs to the #case/ generation vocabulary", () => {
+		expect(hqLoadReference("#pregnancy/ga", depths)).toBe("#case/ga");
+		expect(hqLoadReference("#mother/code", depths)).toBe("#case/parent/code");
+		expect(hqLoadReference("#household/head", depths)).toBe(
+			"#case/grandparent/head",
+		);
+	});
+
+	it("falls back to a parent chain past the named generations", () => {
+		expect(hqLoadReference("#village/name", depths)).toBe(
+			"#case/parent/parent/parent/name",
+		);
+	});
+
+	it("passes #case/, #user/, and unreachable namespaces through verbatim", () => {
+		expect(hqLoadReference("#case/ga", depths)).toBe("#case/ga");
+		expect(hqLoadReference("#case/parent/code", depths)).toBe(
+			"#case/parent/code",
+		);
+		expect(hqLoadReference("#user/role", depths)).toBe("#user/role");
+		expect(hqLoadReference("#unknown/x", depths)).toBe("#unknown/x");
 	});
 });

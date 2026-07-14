@@ -70,7 +70,7 @@ import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
 
 /** A projected `mutation` frame off the durable stream (see the `/stream`
- *  route's `send("mutation", …)` — the raw Firestore doc's `Timestamp`s are
+ *  route's `send("mutation", …)` — the raw stream row's timestamp is
  *  stripped before the wire). */
 export interface MutationFrame {
 	readonly seq: number;
@@ -959,8 +959,8 @@ export function createReconciler(
 		// reload / data-done drain can drop it.
 		if (dormant) return { alreadyConfirmed: false }; // a new build applies direct
 		// The batch's echo can beat its `data-mutations` chunk here — the commit
-		// writes Firestore (→ the /stream echo frame) BEFORE the chat chunk is
-		// written, two independent transports. If the echo landed first, `onFrame`
+		// writes the durable stream (→ the /stream echo frame) BEFORE the chat
+		// chunk is written, two independent transports. If the echo landed first, `onFrame`
 		// already classified it (actorId + active runId) as an echo and `applyEcho`
 		// folded these mutations into `confirmedDoc` (advancing `baseSeq` to this
 		// seq) AND into `displayed` (its `refoldDisplayed`). Registering the batch

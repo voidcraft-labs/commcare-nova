@@ -43,7 +43,7 @@ export function registerDeleteApp(server: McpServer, ctx: ToolContext): void {
 				app_id: z
 					.string()
 					.describe(
-						"Firestore app id to delete. Must be an app the authenticated user owns.",
+						"App id to delete. Must be an app the authenticated user owns.",
 					),
 			},
 		},

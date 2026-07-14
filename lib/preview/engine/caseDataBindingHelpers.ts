@@ -683,9 +683,9 @@ export function applySurveyMutation(): Extract<
  *   - `SchemaNotSyncedError` — the row is MISSING. A blueprint writer's
  *     case-store sync never landed (canonical producer: a transient
  *     Postgres failure at an edit run's drain-end materialize — the chat
- *     surface's saves are Firestore-only, so nothing re-attempts the
- *     sync until a case-type-touching commit happens to run the
- *     cross-store saga). Always a sync gap, so always healed.
+ *     surface's saves persist only the blueprint doc, so nothing
+ *     re-attempts the case-store sync until a case-type-touching commit
+ *     happens to run the cross-store saga). Always a sync gap, so always healed.
  *   - `CasePropertiesValidationError` whose failures include an
  *     `additionalProperty` — the row is PRESENT but STALE, built from an
  *     older catalog, and rejected a property added since it last synced.
@@ -694,7 +694,7 @@ export function applySurveyMutation(): Extract<
  *     live catalog while validation runs against the stale row. ONLY this
  *     drift signature is healed — a type / format / enum failure carries
  *     no `additionalProperty` and is treated as genuine invalid data, so
- *     it surfaces immediately WITHOUT a Firestore read + re-materialize.
+ *     it surfaces immediately WITHOUT a Postgres read + re-materialize.
  *     (Genuine bad data that happens to be an extra-property write — not
  *     drift — re-fails the retry against the unchanged schema and surfaces
  *     honestly; never masked.)
@@ -710,7 +710,7 @@ export function applySurveyMutation(): Extract<
  *
  * Limitation: the heal can only fix drift that the PERSISTED blueprint
  * reflects. If the same failure that left the row stale ALSO left
- * Firestore stale (or an in-session edit isn't persisted yet), the
+ * the persisted blueprint stale (or an in-session edit isn't persisted yet), the
  * re-materialize regenerates the same schema and the retry surfaces the
  * error — correct, since the schema must mirror what is stored.
  *
@@ -743,7 +743,7 @@ export async function withSchemaHeal<T>(
 		// a newly-added property (`additionalProperty` set — schema
 		// drift). A type/format/enum validation failure carries no
 		// `additionalProperty` and is genuine invalid data — surface it
-		// immediately rather than pay a Firestore read + re-materialize.
+		// immediately rather than pay a Postgres read + re-materialize.
 		const isMissingRow = err instanceof SchemaNotSyncedError;
 		const isStaleRowDrift =
 			err instanceof CasePropertiesValidationError &&

@@ -1,18 +1,18 @@
 // Behavioral tests for the SA tool schema generator.
 //
 // The generator is the single source of truth for the `addFields` and
-// `editField` tool inputs. Each is a per-kind
-// `discriminatedUnion("kind", …)`: an arm exposes ONLY the properties its
-// kind's domain schema declares, so a "wrong property for this kind" input
-// (e.g. `calculate` on a `single_select`) is rejected at the tool boundary
-// rather than dropped downstream. These tests pin that contract
-// behaviorally (via `safeParse`) rather than introspecting the emitted JSON
-// schema shape, which keeps them robust to Zod's serialization choices.
+// `editField` tool inputs. Each is ONE flat kind-gated object: every slot
+// stated once, with the kind policy (`superRefine` over
+// `fieldKindDeclaresKey`) rejecting a "wrong property for this kind" input
+// (e.g. `calculate` on a `single_select`) at the tool boundary rather than
+// dropping it downstream. These tests pin that contract behaviorally (via
+// `safeParse`) rather than introspecting the emitted JSON schema shape,
+// which keeps them robust to Zod's serialization choices.
 
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { fieldKinds, fieldRegistry } from "@/lib/domain";
-import { generateToolSchemas } from "../toolSchemaGenerator";
+import { buildSolutionsArchitectPrompt } from "../prompts";
+import { fieldKindGuide, generateToolSchemas } from "../toolSchemaGenerator";
 
 const generated = generateToolSchemas();
 
@@ -48,14 +48,12 @@ function validAddPayload(kind: string): Record<string, unknown> {
 }
 
 describe("toolSchemaGenerator", () => {
-	it("exposes the two tool inputs plus the two wide processing-type sources", () => {
+	it("exposes the two tool inputs", () => {
 		expect(generated.addFieldsItemSchema).toBeDefined();
 		expect(generated.editFieldUpdatesSchema).toBeDefined();
-		expect(generated.wideFlatItemSchema).toBeDefined();
-		expect(generated.wideEditUpdatesSchema).toBeDefined();
 	});
 
-	it("has an arm for every registry kind on the add tool", () => {
+	it("accepts a valid payload for every registry kind on the add tool", () => {
 		for (const kind of fieldKinds) {
 			const payload = validAddPayload(kind);
 			expect(
@@ -65,30 +63,57 @@ describe("toolSchemaGenerator", () => {
 		}
 	});
 
-	it("surfaces each kind's saDocs in the schema the model sees", () => {
-		// Per-kind guidance now rides each arm's `kind` literal description
-		// (rather than one umbrella enum). Collect every `description` in the
-		// emitted JSON schema (deep-walking the OBJECT, not the stringified
-		// form — saDocs contain quotes that JSON-escaping would mangle) and
-		// assert each kind's saDocs is one of them.
-		const descriptions: string[] = [];
-		const walk = (node: unknown): void => {
-			if (!node || typeof node !== "object") return;
-			for (const [key, value] of Object.entries(node)) {
-				if (key === "description" && typeof value === "string") {
-					descriptions.push(value);
-				} else {
-					walk(value);
-				}
-			}
-		};
-		walk(z.toJSONSchema(generated.addFieldsItemSchema));
+	it("lets a case-bound field omit label and options — the record seeds them", () => {
+		// The prompt teaches stating those slots on a case-bound field only
+		// to OVERRIDE the catalog record, so the parse boundary must accept
+		// the instructed shape — `applyDefaults` seeds label/options/
+		// validation/required right after this parse.
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "blood_type",
+				kind: "single_select",
+				case_property_on: "patient",
+			}).success,
+		).toBe(true);
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "age",
+				kind: "int",
+				case_property_on: "patient",
+			}).success,
+		).toBe(true);
+		// Without the case binding the label/options floors still hold.
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "blood_type",
+				kind: "single_select",
+			}).success,
+		).toBe(false);
+		// A STATED override must still be a real choice list — a 1-entry
+		// list is wrong on every path, case-bound included.
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				id: "blood_type",
+				kind: "single_select",
+				case_property_on: "patient",
+				options: [{ value: "a", label: "A" }],
+			}).success,
+		).toBe(false);
+	});
+
+	it("surfaces each kind's saDocs through the prompt's Field kinds guide", () => {
+		// The per-kind guide is stated ONCE — in the system prompt via
+		// `fieldKindGuide()` — rather than repeated on each schema's kind
+		// enum. Assert every kind's saDocs appears in the guide, and that
+		// the built prompt carries the guide.
+		const guide = fieldKindGuide();
 		for (const kind of fieldKinds) {
 			expect(
-				descriptions.some((d) => d.includes(fieldRegistry[kind].saDocs)),
+				guide.includes(fieldRegistry[kind].saDocs),
 				`saDocs for ${kind}`,
 			).toBe(true);
 		}
+		expect(buildSolutionsArchitectPrompt()).toContain(guide);
 	});
 
 	// ── The structural win: per-kind property scoping ───────────────────

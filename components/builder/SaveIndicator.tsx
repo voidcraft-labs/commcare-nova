@@ -10,7 +10,7 @@
  * Owns the `useAutoSave` subscription internally — save status transitions
  * (idle → saving → saved) re-render only this component, not the parent
  * BuilderLayout. The hook subscribes to entity map changes and fires
- * Firestore PUTs; the indicator displays the result.
+ * save PUTs; the indicator displays the result.
  *
  * AnimatePresence handles only the mount/unmount transition (idle ↔ visible).
  * Status changes within the visible state (saving → saved, timestamp ticks)

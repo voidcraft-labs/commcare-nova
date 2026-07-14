@@ -2,9 +2,11 @@
 //
 // Unit tests for the chat route's message-delivery selection. Pure in/out — the
 // route harness it lives in isn't testable, but this transform is. It guards the
-// one-shot trim: an expired-cache EDIT sends only the last user message, while
-// every other mode sends the full history. Getting this wrong either wastes
-// tokens against a dead cache or drops context the SA needs.
+// one-shot trim: an expired-cache EDIT sends the last user message onward (a
+// trailing answered-askQuestions assistant message rides along — the SA must see
+// the answers the event log records as delivered), while every other mode sends
+// the full history. Getting this wrong either wastes tokens against a dead cache
+// or drops context the SA needs.
 
 import { describe, expect, it } from "vitest";
 import type { NovaUIMessage } from "../attachmentRefs";
@@ -48,14 +50,25 @@ describe("selectMessagesToSend", () => {
 		).toBe(history);
 	});
 
-	it("picks the last USER message even when a later assistant turn trails", () => {
-		// A malformed history ending in an assistant message must still resolve to
-		// the latest user request, never the empty trailing turn.
+	it("keeps a trailing assistant message — it carries an answered question round", () => {
+		// The answered-askQuestions resend ends with the ASSISTANT message whose
+		// tool part holds the user's answers. The one-shot trim must deliver it:
+		// anchoring on the last user message and slicing FORWARD keeps the round,
+		// so the SA sees the answers the event log records as delivered.
 		const trailing = [...history, msg("a3", "assistant")];
 		const out = selectMessagesToSend(trailing, {
 			editing: true,
 			cacheExpired: true,
 		});
-		expect(out.map((m) => m.id)).toEqual(["u3"]);
+		expect(out.map((m) => m.id)).toEqual(["u3", "a3"]);
+	});
+
+	it("sends nothing for a history with no user message at all", () => {
+		const assistantOnly = [msg("a1", "assistant")];
+		const out = selectMessagesToSend(assistantOnly, {
+			editing: true,
+			cacheExpired: true,
+		});
+		expect(out).toEqual([]);
 	});
 });

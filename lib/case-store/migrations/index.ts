@@ -21,6 +21,7 @@ import * as addCasesProjectId from "./20260627000000_add_cases_project_id";
 import * as addCaseTypeSchemasSyncedSeq from "./20260630000000_add_case_type_schemas_synced_seq";
 import * as appState from "./20260708000000_app_state";
 import * as addCasesExternalId from "./20260709000000_add_cases_external_id";
+import * as addActualCost from "./20260710000000_add_actual_cost";
 
 /** Migration name → module, in apply order (lexicographic by key). */
 export const caseStoreMigrations: Record<string, Migration> = {
@@ -31,6 +32,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 		addCaseTypeSchemasSyncedSeq,
 	"20260708000000_app_state": appState,
 	"20260709000000_add_cases_external_id": addCasesExternalId,
+	"20260710000000_add_actual_cost": addActualCost,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

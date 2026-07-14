@@ -1,9 +1,11 @@
 import { z } from "zod";
 
-/** Anthropic prompt cache TTL — 5 minutes. Used to decide whether the SA's
- *  prior conversation context is still cached or if a fresh edit session
- *  (with injected blueprint summary) would be cheaper. */
-export const CACHE_TTL_MS = 5 * 60 * 1000;
+/** OpenAI prompt cache TTL — 30 minutes (the fixed retention floor for the
+ *  GPT-5.6 family; OpenAI may keep a prefix longer, but 30 min is what's
+ *  guaranteed). Used to decide whether the SA's prior conversation context is
+ *  still cached or if a fresh edit session (with injected blueprint summary)
+ *  would be cheaper. */
+export const CACHE_TTL_MS = 30 * 60 * 1000;
 
 /**
  * Wire shape of the chat endpoint's request body.
@@ -16,7 +18,7 @@ export const CACHE_TTL_MS = 5 * 60 * 1000;
  */
 export const chatRequestSchema = z.object({
 	runId: z.string().optional(),
-	/** Firestore app ID — present after first save so subsequent saves update the same doc. */
+	/** App ID — present after first save so subsequent saves update the same doc. */
 	appId: z.string().optional(),
 	/** ISO timestamp of the last SA response in this session. Used with CACHE_TTL_MS
 	 *  to determine whether the conversation is within the prompt cache window. */

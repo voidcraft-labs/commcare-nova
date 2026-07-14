@@ -64,7 +64,7 @@ export type GuardedMutateOutcome =
  * `evaluateCommit`) accepts a batch iff it introduces no validator
  * finding of a gating class — shape, soundness, or completeness. A
  * rejected batch persists NOTHING: the gate runs before the write, so an
- * invalid intermediate state never reaches Firestore or the mutation
+ * invalid intermediate state never reaches Postgres or the mutation
  * stream, on the chat surface and MCP alike.
  *
  * Tools must route every batch through here rather than calling

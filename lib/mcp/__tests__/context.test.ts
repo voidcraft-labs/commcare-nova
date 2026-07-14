@@ -30,7 +30,7 @@ import type { LogWriter } from "@/lib/log/writer";
 import { McpContext } from "../context";
 import type { ProgressEmitter } from "../progress";
 
-/* Mock the saga module wholesale so no Firestore / Postgres client is
+/* Mock the saga module wholesale so no Postgres client is
  * ever needed. `vi.mock` hoists above imports, so the mock is installed
  * before `../context` resolves `@/lib/db/applyBlueprintChange`.
  * Individual tests tweak the implementation via `mockImplementationOnce`
@@ -45,7 +45,7 @@ vi.mock("@/lib/db/applyBlueprintChange", () => ({
 /**
  * Minimal `LogWriter` mock — only the two methods `McpContext` actually
  * touches. `as unknown as LogWriter` is the narrow cast: we assert the
- * caller-visible surface without pulling in the real writer's Firestore
+ * caller-visible surface without pulling in the real writer's persistence
  * sink / batching state.
  */
 function mockLogWriter(): LogWriter {

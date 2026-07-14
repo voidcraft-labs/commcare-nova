@@ -72,9 +72,13 @@ interface Writer {
  * `hidden`); structural containers and media kinds resolve to
  * `undefined` because their schemas omit the key. Mirrors the
  * `fieldProps.ts` pattern: structural reads through a Record cast
- * stay free of N×M narrowing cascades.
+ * stay free of N×M narrowing cascades. Exported so sibling rules
+ * (`app.ts::childCaseTypeMissingModule`) read the slot the same way —
+ * their WALKS stay separate because they differ on the survey axis
+ * (that rule skips wire-inert survey forms; this one covers every
+ * form).
  */
-function readCasePropertyOn(field: Field): string | undefined {
+export function readCasePropertyOn(field: Field): string | undefined {
 	const value = (field as unknown as Record<string, unknown>).case_property_on;
 	return typeof value === "string" && value.length > 0 ? value : undefined;
 }

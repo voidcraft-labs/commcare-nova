@@ -10,12 +10,15 @@ import {
  * post-submit navigation. Both the SA chat factory and the MCP adapter
  * call this through the shared `ToolExecutionContext` interface.
  *
- * Every nullable key follows the convention the store's
- * `updateFormMutations` helper establishes: omitted → leave alone,
- * `null` → clear, a value → set. Connect-config patches go through
- * `buildConnectConfig`, a structural partial-update merge: each
- * sub-config the SA explicitly supplied is merged with the matching
- * existing sub-config; the others pass through unchanged.
+ * Omission keeps, null clears: a slot left out keeps its current value;
+ * an explicit `null` clears it (unconditional close again, post-submit
+ * back to the form-type default, Connect block removed). `name` is not
+ * nullable — a form always has a name. Connect-config patches go through
+ * `buildConnectConfig`, a structural partial-update merge that applies
+ * the same law per sub-config: a supplied sub-config merges with its
+ * existing counterpart, a null one is REMOVED, an omitted one passes
+ * through unchanged — and a patch that removes the last sub-config
+ * collapses to whole-block removal (an empty block means nothing).
  *
  * The merged connect config then runs through `enforceConnectIds` (the
  * agent-path source guard): an omitted connect id is autofilled with a
@@ -37,14 +40,17 @@ import {
  */
 
 import { z } from "zod";
-import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
 import type { BlueprintDoc, PostSubmitDestination } from "@/lib/domain";
-import { asUuid, USER_FACING_DESTINATIONS } from "@/lib/domain";
+import { USER_FACING_DESTINATIONS } from "@/lib/domain";
 import {
 	resolveFormUuid,
 	resolveModuleUuid,
 	updateFormMutations,
 } from "../blueprintHelpers";
+import {
+	closeConditionInputSchema,
+	connectFormPatchSchema,
+} from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	guardedMutate,
@@ -53,6 +59,7 @@ import {
 } from "./common";
 import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import { buildConnectConfig } from "./shared/connectInput";
+import { resolveCloseCondition } from "./shared/fieldAssembly";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -62,109 +69,29 @@ export const updateFormInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
-		name: z.string().optional().describe("New form name"),
-		close_condition: z
-			.object({
-				field: z.string().describe("Field id to check"),
-				answer: z.string().describe("Value that triggers closure"),
-				operator: z
-					.enum(["=", "selected"])
-					.optional()
-					.describe(
-						'"=" for exact match (default). "selected" for multi-select fields.',
-					),
-			})
-			.strict()
+		name: z
+			.string()
+			.min(1)
+			.optional()
+			.describe("New form name. Leave it out to keep the current name."),
+		close_condition: closeConditionInputSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Close forms only. Set conditional close. Use operator "selected" for multi-select fields. null to make unconditional (default). Omit to leave unchanged.',
+				'Close forms only. Set conditional close; use operator "selected" for multi-select fields. Pass null to make the close unconditional again; leave it out to keep the current condition.',
 			),
 		post_submit: z
 			.enum(USER_FACING_DESTINATIONS)
 			.nullable()
 			.optional()
 			.describe(
-				"Where the user goes after submitting this form. " +
-					'"app_home" = main menu. ' +
-					'"module" = this module\'s form list. ' +
-					'"previous" = back to where the user was (e.g. case list). ' +
-					'Defaults to "previous" for followup, "app_home" for registration/survey. ' +
-					"null to reset to default. Omit to leave unchanged.",
+				'Post-submit destination: "app_home", "module" (its form list), or "previous". null resets to the form-type default.',
 			),
-		connect: z
-			.object({
-				learn_module: z
-					.object({
-						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
-						name: z.string(),
-						description: z.string(),
-						// Match the domain's `connectLearnModuleSchema`:
-						// positive integer minutes. The reducer doesn't
-						// re-parse patches via Zod, so the SA-facing schema
-						// is the only gate against invalid values.
-						time_estimate: z
-							.number()
-							.refine(
-								(n) => Number.isInteger(n) && n >= 1,
-								"time_estimate must be a positive integer (minutes).",
-							),
-					})
-					.strict()
-					.optional()
-					.describe(
-						"Set for forms with educational/training content. Omit for quiz-only forms.",
-					),
-				assessment: z
-					.object({
-						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
-						user_score: z.string(),
-					})
-					.strict()
-					.optional()
-					.describe(
-						"Set for forms with a quiz/test. Omit for content-only forms.",
-					),
-				deliver_unit: z
-					.object({
-						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
-						name: z.string(),
-						entity_id: z
-							.string()
-							.optional()
-							.describe(
-								"XPath that resolves to the dedup key Connect uses to group form submissions into one logical delivery (one CompletedWork). Connect deduplicates per `(FLW, entity_id, payment_unit)`: two visits with the same entity_id from the same FLW in the same payment unit collapse into one CompletedWork; a different entity_id (or a different payment unit) produces a separate one. " +
-									"Omit to fall back to `concat(#user/username, '-', today())` — one CompletedWork per FLW per day, the right default when the unit of payment is the FLW's daily aggregate. " +
-									"Override when one paid delivery corresponds to a specific beneficiary, case, or site rather than a daily aggregate. The expression must produce the same value across all forms in the same payment unit for the same delivery target — that's how Connect links a multi-form payment unit (e.g. registration + followup + close) into one CompletedWork. Examples: `#<case_type>/case_id` for case-tracking deliveries, `#form/beneficiary_id` for forms that capture the beneficiary identifier directly, `concat(#<case_type>/household_id, '-', #form/visit_date)` when one paid delivery is one household visit on one date.",
-							),
-						entity_name: z
-							.string()
-							.optional()
-							.describe(
-								"XPath that resolves to a human-readable label Connect shows in dashboards for this delivery. Display-only; doesn't affect dedup or payment. " +
-									"Omit to fall back to `#user/username` — the FLW's username, fine when no more meaningful identifier is available. " +
-									"Override to surface a more useful label: a beneficiary name (`#<case_type>/case_name`), a location label, or any human-readable identifier captured in the form.",
-							),
-					})
-					.strict()
-					.optional()
-					.describe(
-						"Set on a deliver-app form that counts as a payable delivery. `name` is what shows up in the deliver-unit picker on Connect. `entity_id` and `entity_name` are wire-format defaults that work for daily-aggregate workflows; override only when the workflow demands a different dedup key or a more useful display label.",
-					),
-				task: z
-					.object({
-						id: z.string().optional().describe(CONNECT_ID_FIELD_DESCRIPTION),
-						name: z.string(),
-						description: z.string(),
-					})
-					.strict()
-					.optional(),
-			})
-			.strict()
+		connect: connectFormPatchSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Set Connect config on this form — a block opts the form into Connect. null removes it (the form stops participating; rejected only when it is the app's last participating form). Learn apps: set learn_module and/or assessment independently. Deliver apps: set deliver_unit and/or task independently.",
+				"Connect participation patch: omitted sub-configs keep their current value, null on a sub-config removes just it, a stated one replaces it (learn apps: learn_module/assessment; deliver apps: deliver_unit/task). null for the whole slot removes the block (rejected only on the app's last participating form).",
 			),
 	})
 	.strict();
@@ -213,42 +140,51 @@ export const updateFormTool = {
 
 			// Build the helper's patch shape. The SA's tool arg uses
 			// `field` directly — no translation needed since the SA speaks
-			// domain vocabulary. `null` clears.
+			// domain vocabulary. Omitted = leave unchanged; `null` = clear
+			// (a `null` patch entry — the reducer deletes the key).
 			const patch: Parameters<typeof updateFormMutations>[2] = {};
 			if (name !== undefined) patch.name = name;
-			if (close_condition !== undefined) {
-				// The SA names the checked field by id; the stored form is the
-				// field's stable uuid. An id nothing answers to stays verbatim
-				// — the gate rejects the introduction with the validator's
-				// close-condition finding.
-				patch.closeCondition =
-					close_condition === null
-						? null
-						: {
-								field: asUuid(
-									resolveCloseFieldRef(doc, formUuid, close_condition.field),
-								),
-								answer: close_condition.answer,
-								...(close_condition.operator && {
-									operator: close_condition.operator,
-								}),
-							};
+			if (close_condition === null) patch.closeCondition = null;
+			// The SA names the checked field by id; the stored form is the
+			// field's stable uuid. An id nothing answers to stays verbatim
+			// — the gate rejects the introduction with the validator's
+			// close-condition finding. One resolver shared with the
+			// creation tools (`fieldAssembly.ts::resolveCloseCondition`);
+			// a null/omitted condition resolves to undefined and patches
+			// nothing here (the null-clears arm above already ran).
+			const resolvedClose = resolveCloseCondition(
+				(ref) => resolveCloseFieldRef(doc, formUuid, ref),
+				close_condition,
+			);
+			if (resolvedClose) patch.closeCondition = resolvedClose;
+			if (post_submit === null) patch.postSubmit = null;
+			if (post_submit != null) {
+				patch.postSubmit = post_submit as PostSubmitDestination;
 			}
-			if (post_submit !== undefined) {
-				patch.postSubmit = post_submit as PostSubmitDestination | null;
-			}
-			if (connect !== undefined) {
-				if (connect === null) {
+			if (connect === null) patch.connect = null;
+			if (connect != null) {
+				// Structural partial-update merge + the text → AST parse
+				// boundary for the connect XPath slots, resolved against
+				// the owning form (`shared/connectInput.ts`). Per
+				// sub-config: omitted keeps the existing one, an explicit
+				// null REMOVES it, a stated one replaces it.
+				const merged = buildConnectConfig(
+					connect,
+					existing.connect ?? undefined,
+					(text) => parseXPathForForm(doc, formUuid, text),
+				);
+				if (
+					!merged.learn_module &&
+					!merged.assessment &&
+					!merged.deliver_unit &&
+					!merged.task
+				) {
+					// The patch removed the last sub-config. An empty block
+					// means nothing on the doc, so the patch collapses to
+					// whole-block removal — the same write as
+					// `connect: null`.
 					patch.connect = null;
 				} else {
-					// Structural partial-update merge + the text → AST parse
-					// boundary for the connect XPath slots, resolved against
-					// the owning form (`shared/connectInput.ts`).
-					const merged = buildConnectConfig(
-						connect,
-						existing.connect ?? undefined,
-						(text) => parseXPathForForm(doc, formUuid, text),
-					);
 					// Force connect ids correct at the source: autofill omitted
 					// ids, reject explicit-invalid ids (fail the call, write
 					// nothing). `existingIds` excludes this form's own ids so a
@@ -277,7 +213,7 @@ export const updateFormTool = {
 
 			// Compute the mutations, apply via Immer, and persist through
 			// the shared context so both surfaces write the same stream +
-			// log + Firestore trio.
+			// log + Postgres trio.
 			const mutations = updateFormMutations(doc, formUuid, patch);
 			const commit = await guardedMutate(
 				ctx,
@@ -308,19 +244,19 @@ export const updateFormTool = {
 			}
 			const formChanges: string[] = [];
 			if (name !== undefined) formChanges.push(`name → "${formAfter.name}"`);
-			if (close_condition !== undefined)
-				formChanges.push(
-					close_condition === null
-						? "close_condition removed (unconditional close)"
-						: "close_condition updated",
-				);
+			if (close_condition === null)
+				formChanges.push("close_condition removed (unconditional close)");
+			if (close_condition != null) formChanges.push("close_condition updated");
 			if (post_submit !== undefined)
 				formChanges.push(
 					`post_submit → "${formAfter.postSubmit ?? "form-type default"}"`,
 				);
+			// A partial patch can itself collapse to removal (last sub-config
+			// cleared), so the phrase keys off what was WRITTEN, not the
+			// input shape.
 			if (connect !== undefined)
 				formChanges.push(
-					connect === null ? "connect removed" : "connect updated",
+					patch.connect === null ? "connect removed" : "connect updated",
 				);
 			return {
 				kind: "mutate" as const,

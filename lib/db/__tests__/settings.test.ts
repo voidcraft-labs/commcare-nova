@@ -7,11 +7,9 @@
  * The `user_settings` row is a real Postgres row (the per-test DB harness);
  * only the KMS (`@/lib/commcare/encryption`) and HQ (`@/lib/commcare/client`)
  * boundaries are mocked, so the read/resolve/decrypt ordering under test is the
- * real one. The former `userSettingsDocSchema` Zod-parse tests are gone: that
- * schema was the Firestore converter's field guard; on Postgres `commcare_server`
- * is a nullable column and the "pre-migration row reads as not-configured"
- * behavior is the reader's `!data.commcare_server` collapse (pinned below),
- * not a Zod parse.
+ * real one. `commcare_server` is a nullable column, so the "a row without a
+ * server reads as not-configured" behavior is the reader's
+ * `!data.commcare_server` collapse (pinned below), not a Zod parse.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";

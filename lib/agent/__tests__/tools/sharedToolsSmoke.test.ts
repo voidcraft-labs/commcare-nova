@@ -26,7 +26,7 @@ import { addFieldsTool } from "../../tools/addFields";
 import { updateFormTool } from "../../tools/updateForm";
 import { makeMcpTestContext, makeStubToolContext } from "../fixtures";
 
-/* Mock the apps module so importing it doesn't reach Firestore.
+/* Mock the apps module so importing it doesn't reach Postgres.
  * `completeApp` is stubbed for the SA's success-path status flip; the chat
  * ctx here is a `makeStubToolContext`, so its guarded commit never touches
  * this module. */
@@ -36,7 +36,7 @@ vi.mock("@/lib/db/apps", () => ({
 
 /* Mock the cross-store saga so `McpContext.recordMutations` — which
  * routes through `applyBlueprintChange` for the awaited blueprint
- * write — doesn't try to reach Firestore + Postgres. The chat surface
+ * write — doesn't try to reach the app-state store + case-store. The chat surface
  * doesn't go through the saga (it commits inline through
  * `commitGuardedBatch`), so this mock only matters for the MCP path. */
 vi.mock("@/lib/db/applyBlueprintChange", () => ({

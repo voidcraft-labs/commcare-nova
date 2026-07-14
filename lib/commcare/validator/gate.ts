@@ -49,7 +49,7 @@ import { runValidation } from "./runner";
  *     Pre-existing findings (birth NO_MODULES, a legacy doc's gaps) only
  *     ever shrink; the identity diff keeps them from blocking unrelated
  *     edits.
- *   - `environment` — media-asset state vs external Firestore/GCS rows.
+ *   - `environment` — media-asset state vs external Postgres/GCS rows.
  *     Boundary-only: the rules are manifest-gated and the commit path
  *     never passes a manifest.
  *   - `oracle` — wire-oracle codes (`XFORM_*` / `SUITE_*` / `HQJSON_*` /
@@ -662,7 +662,7 @@ export function evaluateCommit({
  * The aggregate export-budget guard (`MEDIA_EXPORT_TOO_LARGE`) is NOT run
  * here: it lives with the manifest loader
  * (`lib/media/boundaryValidation.ts::collectBoundaryViolations`) because
- * it is a property of the loaded Firestore rows, which this pure function
+ * it is a property of the loaded media-asset rows, which this pure function
  * never fetches. The boundary call sites all go through that composer.
  */
 export function evaluateBoundary(

@@ -1,8 +1,8 @@
 /**
- * Shared harness for the CI outbound healthz probes (auth-healthz,
- * firestore-healthz). Each probe does the real outbound work and returns a
- * one-line success summary; this owns the cross-cutting machinery so the two
- * gates can't drift apart:
+ * Shared harness for CI outbound healthz probes — `auth-healthz` is the only
+ * one today. Each probe does the real outbound work and returns a
+ * one-line success summary; this owns the cross-cutting machinery every probe
+ * shares:
  *
  *   - a hard watchdog — a broken keep-alive can HANG rather than throw, and CI
  *     must not sit to the job timeout;

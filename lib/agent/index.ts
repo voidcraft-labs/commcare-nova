@@ -1,18 +1,14 @@
 // lib/agent/index.ts
 //
 // Public barrel for the lib/agent layer. Server-only: every symbol here
-// transitively imports Anthropic and the server data layer.
+// transitively imports the LLM provider layer and the server data layer.
 
 // errorClassifier — shared error taxonomy + user-facing messages.
 export type { ClassifiedError, ErrorType } from "./errorClassifier";
 export { classifyError, MESSAGES } from "./errorClassifier";
-// generationContext — shared LLM wrapper around the Anthropic client, SSE
+// generationContext — shared LLM wrapper around the AI Gateway provider, SSE
 // writer, event log, and usage accumulator.
-export {
-	GenerationContext,
-	logWarnings,
-	thinkingProviderOptions,
-} from "./generationContext";
+export { GenerationContext, logWarnings } from "./generationContext";
 // resolveAttachments — server-side resolution of chat attachment refs. The
 // composer sends asset-id refs in message metadata; the chat route calls
 // `resolveAttachments` to append each ref's stored requirements extract

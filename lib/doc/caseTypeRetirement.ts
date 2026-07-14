@@ -2,18 +2,18 @@
  * Orphaned case-type-record retirement — what keeps "stop tracking this
  * case type" satisfiable under the single commit rule.
  *
- * A case-type record can only LAND with the module that satisfies its
- * validator obligations (`createModule`'s atomic shape), so removing
- * that module — or retyping it via a module case-type change — leaves
- * the record with no owning module. For a CHILD record that state IS a
- * finding (`MISSING_CHILD_CASE_MODULE`), and a batch that introduces it
- * would be rejected with guidance opposite to the user's intent ("add a
- * module with case_type X" when the user is deleting X). The cascade
- * here resolves that: when the displaced type's record would be left
- * module-less AND nothing else in the doc references the type, the same
- * batch retires the record (`setCaseTypes` minus that entry); when
- * references remain, the planner reports them so the rejection names a
- * repair the user can actually perform.
+ * Removing a case type's owning module — or retyping it via a module
+ * case-type change — leaves the record with no owning module. When
+ * other modules' forms still WRITE the type, that state IS a finding
+ * (`MISSING_CHILD_CASE_MODULE` keys on writers), and a batch that
+ * introduces it would be rejected with guidance opposite to the user's
+ * intent ("add a module with case_type X" when the user is deleting X).
+ * The cascade here resolves that: when the displaced type's record
+ * would be left module-less AND nothing else in the doc references the
+ * type, the same batch retires the record (a stale record would
+ * otherwise linger as dead plan state); when references remain, the
+ * planner reports them so the rejection names a repair the user can
+ * actually perform.
  *
  * The cascade is emitted as EXPLICIT mutations by the batch-building
  * surfaces (the SA/MCP `removeModule` / `updateModule` tools and the

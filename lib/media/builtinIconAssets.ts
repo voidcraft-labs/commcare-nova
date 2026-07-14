@@ -2,14 +2,14 @@
 //
 // The server-side bridge that lets a built-in icon reference (`nova-icon:<slug>`)
 // flow through the export pipeline exactly like an uploaded image — without a
-// Firestore row or GCS object. The blueprint stores just the slug; every app
+// `media_assets` row or GCS object. The blueprint stores just the slug; every app
 // points at ONE shared copy of the bytes shipped at `public/nova-icons/<slug>.png`.
 //
 // Built-in awareness is QUARANTINED here (plus the reverse-index sync + the
 // browser's `mediaSrc`): the validator, the wire emitters, and the export budget
 // stay built-in-agnostic and consume the entries this module synthesizes. The
 // manifest (`./manifest.ts`) and the boundary (`./boundaryValidation.ts`) each
-// partition refs through `partitionAssetRefs`, run the existing Firestore path on
+// partition refs through `partitionAssetRefs`, run the existing asset-load path on
 // the real ids only, and merge in these synthesized entries.
 //
 // Server-only: it reads the shipped PNG bytes from disk. (For the runtime read to
@@ -40,7 +40,7 @@ const BUILTIN_IMAGE_MIME = "image/png";
 const BUILTIN_IMAGE_EXTENSION = ".png";
 
 /**
- * Split a doc's collected asset refs into real (Firestore-backed) ids and the
+ * Split a doc's collected asset refs into real (Postgres-backed) ids and the
  * built-in icon slugs they reference. Built-in slugs are deduped + known-only:
  * a stale `nova-icon:<gone>` ref drops out here (parse returns `null`) so it
  * fails closed downstream exactly like a deleted upload.
@@ -121,10 +121,9 @@ export async function resolveBuiltinManifestEntries(
  * Synthetic `ready`/`image` asset rows for the export boundary. The boundary's
  * only consumers — the media validator rules (`mediaAssetExists`/`mediaAssetReady`/
  * `mediaKindMatches`) and the export budget — read `status`/`kind`/`mimeType`/
- * `sizeBytes`; the remaining fields are filled for shape. `created_at` (a Firestore
- * `Timestamp` the boundary never reads) is omitted, so the cast mirrors the test
- * factories' `as unknown as MediaAssetRecord` convention and this path stays free
- * of the Firestore SDK.
+ * `sizeBytes`; the remaining fields are filled for shape. `created_at` (a `Date`
+ * the boundary never reads) is omitted, so the cast mirrors the test factories'
+ * `as unknown as MediaAssetRecord` convention.
  */
 export function builtinAssetRows(
 	slugs: readonly IconSlug[],

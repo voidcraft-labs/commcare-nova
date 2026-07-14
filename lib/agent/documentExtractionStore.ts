@@ -293,7 +293,7 @@ async function runExtraction(opts: {
  *      through to producing the extract ourselves — the backstop's real job.
  *
  * `condenser` is injected so the route can pass the standalone (unmetered)
- * Gemini backend and the chat path can pass its usage-tracked
+ * extraction backend and the chat path can pass its usage-tracked
  * `GenerationContext`; only the actual `claimAndExtract` path consumes it, so
  * the common reuse/fast paths meter nothing.
  */

@@ -31,6 +31,10 @@ Three data-model states: key absent, key present with JSON null, key present wit
 
 `caseTypeToJsonSchema` feeds the case-store's write-time AJV validator (rationale for TS-side validation lives in `lib/case-store/CLAUDE.md`). Properties without a declared `data_type` default to `{ type: "string" }` — deliberately matching the term compiler's `text` default at the same site. `int` emits a bounded `{ type: "integer", minimum, maximum }` at int4's signed-32-bit range so AJV's acceptance set matches the Postgres `::integer` cast — an out-of-range value fails as a typed validation error, never a raw Postgres error at INSERT.
 
+## Named tool-schema definitions
+
+The AST family schemas carry registered ids (`z.globalRegistry.add`, end of `types.ts`), so every `z.toJSONSchema` emission — the SA tool wire, the MCP listing — extracts each one ONCE into `definitions` under a stable human name (`#/definitions/Predicate`, `Term`, `ValueExpression`, …) and `$ref`s it at every use site. Without the ids, each predicate-carrying tool re-inlines the term structure per operator arm (~28k tokens of duplication across the SA tool set) and the recursion-forced extractions get per-tool `__schemaN` names. Register via `globalRegistry.add` (attaches in place), never `.meta()` (clones, and double-serializes shared child nodes into stray micro-definitions). A new reused-or-recursive family member should get an id here too.
+
 ## Two simplification layers — opposite contracts
 
 **Construction-time reduction** (`reduction.ts`: `reduceAnd` / `reduceOr` / `reduceNot`) is scoped DELIBERATELY to empty / single-clause / double-negation: `and([])` → match-all, `or([])` → match-none, `[single]` → single, `not(not(x))` → x. Multi-clause lists are preserved verbatim — embedded sentinels are NOT dropped, same-kind nesting is NOT flattened — because a multi-clause `and` whose middle element is `match-all` is a meaningful intermediate editing state. Builders apply these on every call; hand-built object literals bypass them.

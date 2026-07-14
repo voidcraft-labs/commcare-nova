@@ -48,7 +48,7 @@ const MEDIA_DIR = "commcare";
 /**
  * One referenced asset, resolved to everything the wire emitters need.
  * The caller (the compile / upload route, or the bundle builder) loads
- * the asset row from Firestore and — when producing an actual archive —
+ * the asset row from Postgres and — when producing an actual archive —
  * the bytes from GCS, then projects to this shape.
  *
  * `bytes` is optional because not every consumer needs them: the

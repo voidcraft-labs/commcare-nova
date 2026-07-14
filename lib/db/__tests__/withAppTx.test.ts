@@ -2,10 +2,9 @@
  * `withAppTx` — the one transaction entry point for `lib/db`, with a bounded
  * deadlock/serialization retry.
  *
- * This replaces the Firestore write-throttle ride-out (`runThrottledTransaction`
- * / `runThrottledWrite`): on Postgres the only transport-level transient worth a
- * bounded in-process retry is a serialization/deadlock SQLSTATE, and the SDK
- * doesn't retry those for us. `withAppTx` re-runs the body from scratch on a
+ * On Postgres the only transport-level transient worth a bounded in-process
+ * retry is a serialization/deadlock SQLSTATE, and the SDK doesn't retry those
+ * for us. `withAppTx` re-runs the body from scratch on a
  * `40P01` (deadlock detected) or `40001` (serialization failure), up to
  * `TX_RETRY_DELAYS_MS.length` times; every OTHER error — a domain rejection
  * (`OutOfCreditsError`, a commit-gate reject) or any non-retryable SQLSTATE

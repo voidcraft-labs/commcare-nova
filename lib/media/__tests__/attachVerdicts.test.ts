@@ -14,7 +14,7 @@
  *      (clears stay free).
  *
  * `@/lib/db/mediaAssets` is stubbed at the import boundary (the real
- * module reaches Firestore); the mock serves rows from a per-test map.
+ * module reaches Postgres); the mock serves rows from a per-test map.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";

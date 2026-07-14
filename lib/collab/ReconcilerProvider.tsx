@@ -18,7 +18,7 @@
  * cursor 0.
  *
  * Auth rides the session cookie — same-origin `EventSource` + `fetch` carry it
- * automatically; the browser holds no Firestore SDK and no second identity.
+ * automatically; the browser holds no database SDK and no second identity.
  */
 
 "use client";

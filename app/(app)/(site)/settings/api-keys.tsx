@@ -820,7 +820,7 @@ function MintDialog({ open, onOpenChange, onComplete }: MintDialogProps) {
 	 *   1. **Reveal phase.** The plaintext key lives in component
 	 *      state only; once the dialog closes the reset effect clears
 	 *      `revealedKey` and the user has no recovery path — the row
-	 *      exists hashed in Firestore but the plaintext is
+	 *      exists hashed in Postgres but the plaintext is
 	 *      unrecoverable, costing a credential and a slot toward the
 	 *      per-user limit. The "I've saved this key" button is the
 	 *      only acknowledgment path the design admits.
@@ -1026,7 +1026,7 @@ function MintForm({
 			 * same data-loss race (mid-mint dismissal closes the dialog
 			 * before `mintApiKey` resolves, the close-effect nulls
 			 * `revealedKey`, the user can't see the plaintext but the
-			 * row exists hashed in Firestore consuming a slot):
+			 * row exists hashed in Postgres consuming a slot):
 			 *   - Button level (here): Escape / outside-press still
 			 *     work without these but the buttons themselves bypass
 			 *     the dialog's `onOpenChange`, so the dialog-level guard

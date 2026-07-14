@@ -107,7 +107,7 @@ export const listAppsInputSchema = {
  * Register the `list_apps` tool on an `McpServer`.
  *
  * The handler is a thin adapter: it resolves the caller's enumeration
- * scope (every Project they're a member of), delegates the Firestore
+ * scope (every Project they're a member of), delegates the
  * query to `listAppsAcrossProjects`, projects each row via `toEntry`,
  * and passes `nextCursor` through unchanged. Any error is classified
  * through the shared `toMcpErrorResult` surface so callers see a uniform

@@ -1,7 +1,7 @@
 /**
  * Async server component — user usage history table.
  *
- * Fetches all monthly usage periods from Firestore and renders a data table.
+ * Fetches all monthly usage periods from Postgres and renders a data table.
  * Wrapped in a Suspense boundary by the parent page so it streams in
  * independently of the profile card and app list.
  */

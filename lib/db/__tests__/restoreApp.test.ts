@@ -5,8 +5,8 @@
  * Clears exactly the two soft-delete fields (`deleted_at`, `recoverable_until`)
  * as a PAIR and never touches lifecycle status: a deleted `error` app stays
  * `error` after restore. Soft-delete is the existence axis, status is its own. A
- * restore against a missing row THROWS (the `numUpdatedRows === 0` guard) — the
- * Postgres analogue of the old Firestore ghost-row guarantee.
+ * restore against a missing row THROWS (the `numUpdatedRows === 0` guard), so a
+ * missing app surfaces as an error rather than a silent no-op.
  */
 
 import { describe, expect, it } from "vitest";

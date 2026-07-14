@@ -16,11 +16,10 @@
 export const RETENTION_COUNT = 500;
 
 /**
- * TTL for an `acceptedMutations/{seq}` entry (~7 days). Set as an absolute
- * `expireAt` Timestamp at write time; a Firestore TTL policy provisioned
- * out-of-band on the `expireAt` field reaps expired entries. Retention is
- * primarily count-bounded (`RETENTION_COUNT`); the TTL is the durable floor
- * that sweeps an abandoned app's stream.
+ * Nominal ~7-day TTL floor for an `accepted_mutations` entry, sitting beneath
+ * the count-bounded retention (`RETENTION_COUNT`). The `accepted_mutations` log
+ * is retained permanently today (no prune), so this value backs no active
+ * sweep.
  */
 export const ACCEPTED_MUTATIONS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 

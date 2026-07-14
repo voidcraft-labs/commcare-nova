@@ -23,8 +23,8 @@
  *     `extracting`/`failed` status off the asset itself).
  *
  * Project-gated on every path (a non-member reads as 404, never enumerable).
- * Not on a chat run, so it passes the standalone Gemini condenser rather than a
- * `GenerationContext` — the Flash call's cost isn't folded into a run's usage
+ * Not on a chat run, so it passes the standalone extraction condenser rather than
+ * a `GenerationContext` — the summarizer call's cost isn't folded into a run's usage
  * accumulator. It IS gated by the same monthly actual-cost backstop as the chat
  * route, though: a `POST` from a user already over budget 429s before any model
  * work, so eager extraction can't keep billing past the backstop.
@@ -32,7 +32,7 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import {
-	createGeminiCondenser,
+	createExtractionCondenser,
 	EXTRACT_MAX_BYTES,
 } from "@/lib/agent/documentExtraction";
 import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
@@ -52,7 +52,7 @@ import {
 import { log } from "@/lib/logger";
 import { readTextObject } from "@/lib/storage/media";
 
-/** Gemini high-reasoning over a large PDF runs for tens of seconds; give the
+/** High-effort reasoning over a large PDF runs for tens of seconds; give the
  *  extraction the same ceiling the chat run gets rather than the route default.
  *  This also bounds how long a `POST` can run as the claiming caller (the store
  *  treats an `extracting` record older than this as a dead job). */
@@ -128,7 +128,14 @@ export async function POST(
 		// transient read error pauses extraction rather than waving it through.
 		try {
 			const usage = await getMonthlyUsage(session.user.id);
-			if ((usage?.cost_estimate ?? 0) >= ACTUAL_COST_BACKSTOP_USD) {
+			// The larger of the token-math estimate and the gateway-metered
+			// actual — same trip condition as the chat route, so the two
+			// paid surfaces can't drift apart on when a month is over cap.
+			const monthlySpend = Math.max(
+				usage?.cost_estimate ?? 0,
+				usage?.actual_cost ?? 0,
+			);
+			if (monthlySpend >= ACTUAL_COST_BACKSTOP_USD) {
 				throw new ApiError(
 					"You've reached this month's usage limit, so document extraction is paused until it resets. Your file is still saved.",
 					429,
@@ -163,7 +170,7 @@ export async function POST(
 					const result = await ensureStoredExtract({
 						asset,
 						documentKind,
-						condenser: createGeminiCondenser(),
+						condenser: createExtractionCondenser(),
 						// Eager fan-out surface: report an in-flight job rather than
 						// waiting, so a concurrent caller gets a fast `done`/extracting and
 						// polls instead of holding open behind the running job.

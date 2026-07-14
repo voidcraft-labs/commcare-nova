@@ -20,8 +20,8 @@
 //    the list/library cursors compare `(timestamp, id)` tuples and a sub-ms
 //    residue would let boundary rows slip between pages.
 //  - The reservation marker is "present" iff `res_period IS NOT NULL`; the
-//    edit lock iff `lock_run_id IS NOT NULL` — the same optional-map
-//    semantics the Firestore doc had, as nullable column groups.
+//    edit lock iff `lock_run_id IS NOT NULL` — an optional sub-object modeled
+//    as a group of nullable columns, present iff its discriminator is non-null.
 //  - `accepted_mutations` is append-only and permanent: fold(all batches from
 //    seq 1) reproduces the entity rows for any app whose full history is
 //    retained (apps migrated from Firestore start at their cutover snapshot).
