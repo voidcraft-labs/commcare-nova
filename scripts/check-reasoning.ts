@@ -4,7 +4,7 @@ import { z } from "zod";
 import {
 	reasoningProviderOptions,
 	SA_BUILD_MODEL,
-	SA_REASONING,
+	SA_BUILD_REASONING,
 } from "../lib/models";
 
 const apiKey = process.env.AI_GATEWAY_API_KEY;
@@ -18,7 +18,7 @@ async function main() {
 		output: Output.object({ schema: z.object({ answer: z.string() }) }),
 		prompt: "What is 15 * 37? Show your work.",
 		maxOutputTokens: 256,
-		providerOptions: reasoningProviderOptions(SA_REASONING.effort),
+		providerOptions: reasoningProviderOptions(SA_BUILD_REASONING.effort),
 	});
 
 	for await (const _p of result.partialOutputStream) {

@@ -26,7 +26,7 @@ export type ReasoningEffort =
 	| "xhigh";
 
 /** Fallback model for GenerationContext methods when no model is specified. */
-export const MODEL_DEFAULT = "openai/gpt-5.6-terra";
+export const MODEL_DEFAULT = "openai/gpt-5.6-sol";
 
 /**
  * Gateway-level provider options EVERY Nova LLM call carries (under the
@@ -90,12 +90,27 @@ export function gatewayActualCost(providerMetadata: unknown): number {
 /** Model ID for the Solutions Architect agent building a NEW app. */
 export const SA_BUILD_MODEL = "openai/gpt-5.6-sol";
 
-/** Model ID for the Solutions Architect agent editing an EXISTING app —
- * edits are narrower than a ground-up build, so they run the mid-tier model. */
-export const SA_EDIT_MODEL = "openai/gpt-5.6-terra";
+/** Model ID for the Solutions Architect agent editing an EXISTING app.
+ * Same model as builds, at a lower reasoning effort (`SA_EDIT_REASONING`):
+ * per the intelligence-per-cost leaderboards, every terra effort tier is
+ * dominated by sol or luna at a lower price, so terra holds no SA role —
+ * edits buy their savings through effort, not a weaker model. One model
+ * across both roles also keeps a thread's reasoning items replayable:
+ * encrypted reasoning is model-bound, so a build→edit continuation never
+ * crosses models mid-thread. */
+export const SA_EDIT_MODEL = "openai/gpt-5.6-sol";
 
-/** Reasoning configuration for the Solutions Architect agent (both modes). */
-export const SA_REASONING: { effort: ReasoningEffort } = { effort: "xhigh" };
+/** Reasoning effort for the Solutions Architect building a NEW app —
+ * the quality-first ceiling; a ground-up design is the hardest call site. */
+export const SA_BUILD_REASONING: { effort: ReasoningEffort } = {
+	effort: "xhigh",
+};
+
+/** Reasoning effort for the Solutions Architect editing an EXISTING app —
+ * edits are narrower than a ground-up build, so they run medium effort. */
+export const SA_EDIT_REASONING: { effort: ReasoningEffort } = {
+	effort: "medium",
+};
 
 /**
  * Pricing per million tokens, keyed by gateway model ID.
@@ -120,12 +135,6 @@ export const MODEL_PRICING: Record<
 		output: 30,
 		cacheWrite: 6.25,
 		cacheRead: 0.5,
-	},
-	"openai/gpt-5.6-terra": {
-		input: 2.5,
-		output: 15,
-		cacheWrite: 3.125,
-		cacheRead: 0.25,
 	},
 	"openai/gpt-5.6-luna": {
 		input: 1,
