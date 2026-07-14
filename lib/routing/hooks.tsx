@@ -209,10 +209,12 @@ export interface BreadcrumbItem {
  * Derived breadcrumb trail from the current location + doc names.
  * Everything is read through shallow-stable selectors, so unrelated
  * doc mutations don't cause re-renders here.
+ *
+ * The trail roots at a "Home" crumb; the app's name titles the
+ * structure sidebar instead.
  */
 export function useBreadcrumbs(): BreadcrumbItem[] {
 	const loc = useLocation();
-	const appName = useBlueprintDoc((s) => s.appName);
 
 	const moduleUuid =
 		loc.kind === "module" ||
@@ -238,7 +240,7 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 
 	return useMemo<BreadcrumbItem[]>(() => {
 		const items: BreadcrumbItem[] = [
-			{ key: "home", label: appName || "Home", location: { kind: "home" } },
+			{ key: "home", label: "Home", location: { kind: "home" } },
 		];
 		if (moduleUuid) {
 			items.push({
@@ -297,15 +299,7 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 			});
 		}
 		return items;
-	}, [
-		appName,
-		loc,
-		moduleUuid,
-		formUuid,
-		moduleName,
-		formName,
-		moduleIsBareCaseList,
-	]);
+	}, [loc, moduleUuid, formUuid, moduleName, formName, moduleIsBareCaseList]);
 }
 
 /**

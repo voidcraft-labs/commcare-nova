@@ -24,21 +24,14 @@ import { AddModulePopover } from "@/components/builder/appTree/insertion/AddModu
 import { interleaveInsertions } from "@/components/builder/appTree/insertion/interleaveInsertions";
 import { ModuleCard } from "@/components/builder/appTree/ModuleCard";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
-import { useAppName } from "@/lib/doc/hooks/useAppName";
 import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
 import { useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import { useBuilderPhase } from "@/lib/session/hooks";
 import { InsertionIntentProvider } from "@/lib/ui/hooks/useInsertionZone";
 
-interface AppTreeProps {
-	actions?: React.ReactNode;
-	hideHeader?: boolean;
-}
-
-export function AppTree({ actions, hideHeader }: AppTreeProps) {
+export function AppTree() {
 	const moduleOrder = useModuleIds();
-	const appName = useAppName();
 	const phase = useBuilderPhase();
 
 	const locked =
@@ -75,19 +68,6 @@ export function AppTree({ actions, hideHeader }: AppTreeProps) {
 			{/* data-insertion-surface: hits inside this tree count as unobstructed
 			 * for insertion-intent arming; hits in portalled popups don't. */}
 			<div className="h-full flex flex-col" data-insertion-surface>
-				{!hideHeader && (
-					<div className="flex items-center justify-between px-6 h-12 border-b border-nova-border shrink-0">
-						<div className="flex items-center min-w-0">
-							<span className="text-sm font-medium text-nova-text truncate">
-								{appName}
-							</span>
-						</div>
-						{actions && (
-							<div className="flex items-center gap-2 shrink-0">{actions}</div>
-						)}
-					</div>
-				)}
-
 				{/* Search input */}
 				<div
 					className={`px-3 py-3 shrink-0 ${locked ? "pointer-events-none opacity-40" : ""}`}
