@@ -59,9 +59,20 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          # setup-node's npm cache lookup runs before we can replace the npm 11
+          # bundled with Node 24, so the exact npm 12 devEngine rejects it.
+          package-manager-cache: false
       - name: Install pinned npm
-        run: npm install --global "npm@$(node -p "require('./package.json').devEngines.packageManager.version")" --ignore-scripts
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       - name: Lint (Biome)
         run: npm run lint
@@ -76,9 +87,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
       - name: Install pinned npm
-        run: npm install --global "npm@$(node -p "require('./package.json').devEngines.packageManager.version")" --ignore-scripts
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       # The suite boots a Postgres testcontainer and applies the case-store
       # migrations in-process via Kysely's Migrator
@@ -108,9 +128,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
       - name: Install pinned npm
-        run: npm install --global "npm@$(node -p "require('./package.json').devEngines.packageManager.version")" --ignore-scripts
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       # Scope the leak sweep to what the PR touched. `vitest --changed <base>`
       # runs only the test files whose module import graph reaches a changed
@@ -136,9 +165,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
       - name: Install pinned npm
-        run: npm install --global "npm@$(node -p "require('./package.json').devEngines.packageManager.version")" --ignore-scripts
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       # next build resolves the fumadocs `@/.source/server` import; this
       # generates it first, the same way the typecheck script does before tsc.
@@ -156,9 +194,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
       - name: Install pinned npm
-        run: npm install --global "npm@$(node -p "require('./package.json').devEngines.packageManager.version")" --ignore-scripts
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       # Cache the Chromium binary (~150MB) so it isn't re-downloaded every run.
       # Keyed on the whole lockfile (coarse — any dep bump re-saves, but
@@ -212,9 +259,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
       - name: Install pinned npm
-        run: npm install --global "npm@$(node -p "require('./package.json').devEngines.packageManager.version")" --ignore-scripts
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       # Keyless auth to the isolated commcare-nova-ci project: GitHub's OIDC
       # token is exchanged via Workload Identity Federation for a CI service
@@ -246,9 +302,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
       - name: Install pinned npm
-        run: npm install --global "npm@$(node -p "require('./package.json').devEngines.packageManager.version")" --ignore-scripts
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       - name: Session-cookie contract (Postgres testcontainer)
         run: node_modules/.bin/vitest run sessionCookie.integration.test.ts
