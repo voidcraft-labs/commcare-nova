@@ -30,7 +30,7 @@ export const chatRequestSchema = z.object({
 	 *  when modules exist but the build isn't finished yet. */
 	appReady: z.boolean().optional(),
 	/** True on the client's automatic re-drive of an instance-killed run (the
-	 *  loader healed a dead live-stream marker and the thread's last turn is
+	 *  loader detected a dead live-stream marker and the thread's last turn is
 	 *  an unanswered user message). One behavioral difference from a normal
 	 *  send: on a CLAIM CONFLICT the request bails with a clean close instead
 	 *  of serialize-waiting — a conflict means another session's re-drive (or
