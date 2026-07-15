@@ -132,18 +132,13 @@ export default async function BuilderPage({
 		if (app.status !== "complete") redirect("/");
 	}
 
-	/* The metas load performs the dead-marker heal (it runs first), so the
-	 * one-shot instance-death signal lands on the META — carry it onto the
-	 * hydrated doc the client keys its auto-re-drive on. */
-	if (threads[0]?.resume_interrupted && initialThread) {
-		initialThread = { ...initialThread, resume_interrupted: true };
-	}
-
-	/* An `error` app earns admission ONLY as an interrupted build: this very
-	 * load healed the most recent thread's dead marker and hydrated its
-	 * transcript (the auto-re-drive rides both). Anything else — a build
-	 * that failed and finalized cleanly, a faulted hydration — keeps the
-	 * old redirect. */
+	/* An `error` app earns admission ONLY as an interrupted build: the
+	 * hydrated thread carries a dead live-stream marker (`loadThread` derives
+	 * `resume_interrupted` itself — the detection is level-triggered, so it
+	 * doesn't matter which loader read the row first, and a NON-most-recent
+	 * interrupted thread keeps its own signal for the Conversations list to
+	 * act on). Anything else — a build that failed and finalized cleanly, a
+	 * faulted hydration — keeps the old redirect. */
 	const buildInterrupted =
 		app.status === "error" && initialThread?.resume_interrupted === true;
 	if (app.status === "error" && !buildInterrupted) redirect("/");

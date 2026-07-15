@@ -16,11 +16,14 @@
  *    askQuestions round) REPLACES it rather than appending a same-id
  *    sibling — mirroring the client's own continuation semantics.
  *  - `listThreadMetas` orders by recency and carries the live marker; the
- *    loaders reconcile a marker against ACTUAL app liveness, stripping and
- *    healing one stranded by a run that died before finalize.
+ *    loaders reconcile a marker against ACTUAL app liveness — REPORT-ONLY:
+ *    a marker stranded by a run that died before finalize is stripped from
+ *    the projection and stamped `resume_interrupted`, but the row is never
+ *    written, so the signal stands until a re-drive retires it.
  *
  * The seeded app is `generating` (held live) so live markers survive the
- *  loaders' liveness reconciliation; the heal test seeds an at-rest app.
+ *  loaders' liveness reconciliation; the dead-marker tests seed an at-rest
+ *  app.
  */
 import type { UIMessage } from "ai";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -29,6 +32,7 @@ import {
 	appendThreadResponse,
 	listThreadMetas,
 	loadThread,
+	mergeThreadTurnMessages,
 	mergeTranscript,
 	resolveThreadStream,
 	upsertThreadTurn,
@@ -407,11 +411,14 @@ describe("loaders", () => {
 		expect(await resolveThreadStream("nope")).toBeNull();
 	});
 
-	it("strips AND heals a marker stranded by a run that died before finalize", async () => {
+	it("strips a dead marker from the projection but NEVER writes the row — the signal is level-triggered", async () => {
 		/* An at-rest app (no live run) with a marked thread is the
 		 * instance-death signature — finalize never ran, so nothing cleared
 		 * the marker. The loaders must report it dead (no perpetual LIVE
-		 * badge, no phantom resume) and repair the row. */
+		 * badge, no phantom resume) while leaving the ROW untouched: a read
+		 * must not consume the recovery signal (the thread list, a heal
+		 * refetch, and the page load all read these rows, and only one of
+		 * them re-drives). */
 		const deadApp = await h.seedApp({ id: "app-dead", status: "complete" });
 		await upsertThreadTurn({
 			appId: deadApp,
@@ -424,28 +431,47 @@ describe("loaders", () => {
 
 		const metas = await listThreadMetas(deadApp);
 		expect(metas[0].active_stream_id).toBeNull();
-		/* The heal stamps the ONE-SHOT instance-death signal the client's
-		 * auto-re-drive keys on. */
 		expect(metas[0].resume_interrupted).toBe(true);
 
-		// The row itself healed — the raw column is cleared, not just stripped.
+		// Report-only: the raw column survives the read.
 		const db = await getAppDb();
 		const row = await db
 			.selectFrom("threads")
 			.select(["active_stream_id"])
 			.where("thread_id", "=", "t-stranded")
 			.executeTakeFirst();
-		expect(row?.active_stream_id).toBeNull();
+		expect(row?.active_stream_id).toBe("stream-dead");
 
-		/* One-shot: the marker is gone, so the NEXT load carries no signal —
-		 * a re-drive can never loop off repeated loads. */
+		/* Level-triggered: EVERY subsequent load re-derives the signal until
+		 * an acting re-drive retires the marker through its own run. */
 		const again = await listThreadMetas(deadApp);
-		expect(again[0].resume_interrupted).toBeUndefined();
+		expect(again[0].resume_interrupted).toBe(true);
 		const doc = await loadThread(deadApp, "t-stranded");
-		expect(doc?.resume_interrupted).toBeUndefined();
+		expect(doc?.resume_interrupted).toBe(true);
+
+		/* A re-drive retires it: its claim's upsert overwrites the marker
+		 * (fresh live stream), its finalize clears it — after which no load
+		 * sees the signal. */
+		await upsertThreadTurn({
+			appId: deadApp,
+			threadId: "t-stranded",
+			runId: "run-redrive",
+			streamId: "stream-redrive",
+			threadType: "build",
+			messages: [userMsg("m1", "a build the deploy killed")],
+		});
+		await appendThreadResponse({
+			appId: deadApp,
+			threadId: "t-stranded",
+			streamId: "stream-redrive",
+			responseMessage: assistantMsg("m2", "recovered"),
+		});
+		const recovered = await loadThread(deadApp, "t-stranded");
+		expect(recovered?.active_stream_id).toBeNull();
+		expect(recovered?.resume_interrupted).toBeUndefined();
 	});
 
-	it("stamps the heal signal on loadThread when it performs the heal itself", async () => {
+	it("stamps the signal on loadThread when it performs the detection itself", async () => {
 		const deadApp = await h.seedApp({ id: "app-dead-2", status: "complete" });
 		await upsertThreadTurn({
 			appId: deadApp,
@@ -459,6 +485,72 @@ describe("loaders", () => {
 		const doc = await loadThread(deadApp, "t-stranded-2");
 		expect(doc?.active_stream_id).toBeNull();
 		expect(doc?.resume_interrupted).toBe(true);
+	});
+
+	it("mergeThreadTurnMessages merges history without touching identity, liveness, or foreign apps", async () => {
+		/* The bailed-POST writer: a serialize-wait timeout or superseded
+		 * resume ran nothing, but its history carries the user's answered
+		 * question round — that must land WITHOUT claiming the thread. */
+		const app = await h.seedApp({ id: "app-bail", status: "generating" });
+		await upsertThreadTurn({
+			appId: app,
+			threadId: "t-bail",
+			runId: "run-owner",
+			streamId: "stream-owner",
+			threadType: "build",
+			messages: [userMsg("m1", "build it")],
+		});
+
+		await mergeThreadTurnMessages({
+			appId: app,
+			threadId: "t-bail",
+			messages: [userMsg("m1", "build it"), assistantMsg("m2", "answered")],
+		});
+
+		const db = await getAppDb();
+		const row = await db
+			.selectFrom("threads")
+			.select(["run_id", "active_stream_id", "messages"])
+			.where("thread_id", "=", "t-bail")
+			.executeTakeFirstOrThrow();
+		/* The owning run's identity + marker survive the merge untouched. */
+		expect(row.run_id).toBe("run-owner");
+		expect(row.active_stream_id).toBe("stream-owner");
+		expect((row.messages as UIMessage[]).map((m) => m.id)).toEqual([
+			"m1",
+			"m2",
+		]);
+
+		/* Foreign app: writes nothing. */
+		const other = await h.seedApp({ id: "app-bail-2", status: "complete" });
+		await mergeThreadTurnMessages({
+			appId: other,
+			threadId: "t-bail",
+			messages: [userMsg("mx", "cross-app forge")],
+		});
+		const unchanged = await db
+			.selectFrom("threads")
+			.select(["messages"])
+			.where("thread_id", "=", "t-bail")
+			.executeTakeFirstOrThrow();
+		expect((unchanged.messages as UIMessage[]).map((m) => m.id)).toEqual([
+			"m1",
+			"m2",
+		]);
+
+		/* Unknown thread id: update-only, never an insert (nothing ran, so
+		 * there is nothing to continue). */
+		await mergeThreadTurnMessages({
+			appId: app,
+			threadId: "t-never-existed",
+			messages: [userMsg("m1", "hello")],
+		});
+		const ghost = await db
+			.selectFrom("threads")
+			.select(["thread_id"])
+			.where("thread_id", "=", "t-never-existed")
+			.executeTakeFirst();
+		expect(ghost).toBeUndefined();
 	});
 
 	it("never stamps the signal on a thread whose run is genuinely live", async () => {

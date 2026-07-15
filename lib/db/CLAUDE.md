@@ -67,17 +67,25 @@ is the whole contract): `upsertThreadTurn` the instant a run claims the app
 (persists the incoming history + marks the thread live via
 `active_stream_id` — the page-refresh resume handle), and
 `appendThreadResponse` at finalize (the assistant message assembled from the
-chunk log by `assembleResponseMessage`). Both writers are row-locked and
+chunk log by `assembleResponseMessage`). (A BAILED POST —
+serialize-wait gate/timeout, superseded resume — additionally merges its
+incoming messages via `mergeThreadTurnMessages`, identity/marker untouched,
+so an answered question round survives the refresh the bail recommends.)
+Both writers are row-locked and
 MERGE by message id (`mergeTranscript` — union, richer version wins), never
 rewrite: a stale tab or a late finalize can add turns, not erase them, and
 an askQuestions continuation lands as ONE merged message. The finalize
 retires the live marker ONLY while it still names its own run's stream (the
 app releases before finalize completes, so a newer claim may already own a
-fresh marker), and the loaders reconcile any marker against actual app
-liveness (`appHeldLive`) — stripping and healing one stranded by a run that
-died before finalize. The heal stamps a TRANSIENT `resume_interrupted` on
-the returned row (never persisted — it fires exactly once): the client's
-auto-RE-DRIVE signal, which re-runs the interrupted turn through the normal
+fresh marker) — with one retry then a marker-only clear, because a marker
+stranded on a FINALIZED run reads as an instance death and would re-drive
+(re-charge) a completed turn. The loaders reconcile any marker against
+actual app liveness (`appHeldLive`) REPORT-ONLY: a dead marker is stripped
+from the projection and stamped `resume_interrupted`, but the row is never
+written — the signal is LEVEL-TRIGGERED, standing load after load (any
+reader may run first: the thread list, a heal refetch, the page) until an
+acting client's RE-DRIVE retires the marker through its own claim +
+finalize. The re-drive re-runs the interrupted turn through the normal
 POST/claim/charge machinery (`redrive: true` on the wire; a claim conflict
 there means another session already re-drove, so the request closes clean
 instead of serialize-waiting a duplicate). A died BUILD (reaped to `error`)

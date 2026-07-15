@@ -44,13 +44,20 @@ import {
 } from "./types";
 
 /**
- * Loader projections carry one TRANSIENT field beyond the stored shape:
- * `resume_interrupted` is true only on the load that HEALED a dead
- * live-stream marker (`reconcileDeadMarkers`) — the signature of a run
- * killed before finalize (instance death), as opposed to a run that failed
- * and finalized cleanly (its marker was retired with the failure). The flag
- * is never persisted: it fires exactly once, which is what lets the client
- * auto-re-drive the interrupted turn without ever looping on it.
+ * Loader projections carry one DERIVED field beyond the stored shape:
+ * `resume_interrupted` is true when the row holds a live-stream marker whose
+ * app is NOT held by any live run (`reconcileDeadMarkers`) — the signature
+ * of a run killed before finalize (instance death), as opposed to a run that
+ * failed and finalized cleanly (its marker was retired with the failure).
+ *
+ * The loaders never clear the marker themselves: a read must not consume a
+ * recovery signal another surface needs (the thread list, a heal refetch,
+ * and the page load all read these rows, and only ONE of them re-drives).
+ * The signal therefore stands, load after load, until an acting client's
+ * RE-DRIVE claims the turn — its `upsertThreadTurn` overwrites the marker
+ * with its own live stream and its finalize retires it — so a re-drive that
+ * itself dies is simply detected again. The projection still strips
+ * `active_stream_id`, so nothing ever tails the dead stream.
  */
 export type LoadedThreadMeta = ThreadMeta & { resume_interrupted?: boolean };
 export type LoadedThread = ThreadDoc & { resume_interrupted?: boolean };
@@ -178,6 +185,46 @@ export async function upsertThreadTurn(args: {
 }
 
 /**
+ * Merge a bailed POST's incoming history into the stored transcript WITHOUT
+ * touching the thread's identity or liveness (`run_id`, `active_stream_id`
+ * stay exactly as the run that owns the app left them).
+ *
+ * The bail paths (a serialize-wait timeout or gate rejection, a superseded
+ * resume) run nothing — but their HISTORY is real client state: an answered
+ * askQuestions round exists only in the client's memory until a write lands,
+ * and losing it forces the user to re-answer after the refresh the bail
+ * error itself recommends. Merge-only and update-only: a thread under
+ * another app writes nothing, and a thread id with no row (nothing ever ran,
+ * so there is nothing to continue) is NOT created here.
+ */
+export async function mergeThreadTurnMessages(args: {
+	appId: string;
+	threadId: string;
+	messages: UIMessage[];
+}): Promise<void> {
+	const now = new Date().toISOString();
+	await withAppTx(async (tx) => {
+		const existing = await tx
+			.selectFrom("threads")
+			.select(["app_id", "messages"])
+			.where("thread_id", "=", args.threadId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (!existing || existing.app_id !== args.appId) return;
+		const merged = mergeTranscript(
+			(existing.messages ?? []) as StoredMessage[],
+			args.messages,
+		);
+		await tx
+			.updateTable("threads")
+			.set({ updated_at: now, messages: JSON.stringify(merged) })
+			.where("thread_id", "=", args.threadId)
+			.where("app_id", "=", args.appId)
+			.execute();
+	});
+}
+
+/**
  * Persist the run's assembled assistant message and retire this run's
  * live-stream marker — one row-locked read-modify-write.
  *
@@ -232,18 +279,24 @@ export async function appendThreadResponse(args: {
 // ── Loaders ────────────────────────────────────────────────────────
 
 /**
- * Reconcile loaded rows' live-stream markers against ACTUAL app liveness.
- * `active_stream_id` is cleared by finalize — a run whose process died
- * (instance kill, OOM) never finalizes, stranding the marker: a perpetual
- * LIVE badge and a phantom resume on every open. The app-level lease is the
- * truth (`appHeldLive` — no live run means no live stream), so a marker on
- * an idle app reads as dead: stripped from the returned values and cleared
- * on the rows best-effort. Fails OPEN on a liveness read fault (a transient
- * blip must not hide a genuinely live run from the resume path).
+ * Reconcile loaded rows' live-stream markers against ACTUAL app liveness —
+ * REPORT-ONLY. `active_stream_id` is cleared by finalize; a run whose
+ * process died (instance kill, OOM) never finalizes, stranding the marker.
+ * The app-level lease is the truth (`appHeldLive` — no live run means no
+ * live stream), so a marker on an idle app reads as dead: stripped from the
+ * returned PROJECTION (no perpetual LIVE badge, no phantom resume) and
+ * stamped `resume_interrupted: true` for the re-drive.
  *
- * A healed row comes back stamped `resume_interrupted: true` — the one-shot
- * instance-death signal the client's auto-re-drive keys on (see
- * `LoadedThread`).
+ * The row itself is deliberately untouched. Clearing it here would make the
+ * recovery signal one-shot-per-READ: whichever loader happens to run first
+ * (the thread list, a heal refetch, a page load over a different thread)
+ * would consume it, and the one client positioned to re-drive would never
+ * see it — stranding the turn and, for a reaped build, bricking the app
+ * behind the `error`-status redirect. Only an acting re-drive retires the
+ * marker (its claim's `upsertThreadTurn` overwrites it; its finalize clears
+ * it), so the signal is level-triggered: it stands until recovery actually
+ * happens. Fails OPEN on a liveness read fault (a transient blip must not
+ * hide a genuinely live run from the resume path).
  */
 async function reconcileDeadMarkers<
 	T extends { thread_id: string; active_stream_id: string | null },
@@ -255,24 +308,12 @@ async function reconcileDeadMarkers<
 	} catch {
 		return rows;
 	}
-	const db = await getAppDb();
 	for (const row of marked) {
-		/* Guarded on the exact stream seen dead — a run that claimed between
-		 * the liveness read and this write owns a FRESH marker this heal must
-		 * not clobber. Best-effort: the stripped return value already tells
-		 * the caller the truth; the next load re-derives regardless. */
-		await db
-			.updateTable("threads")
-			.set({ active_stream_id: null })
-			.where("app_id", "=", appId)
-			.where("thread_id", "=", row.thread_id)
-			.where("active_stream_id", "=", row.active_stream_id)
-			.execute()
-			.catch(() => {});
 		/* The event-log breadcrumb for an instance death: a run claimed this
-		 * thread's turn and never finalized. The client re-drives off the
-		 * returned flag; this line is how an operator finds the death. */
-		log.warn("[threads] healed a dead live-stream marker", {
+		 * thread's turn and never finalized. Fires on every read until a
+		 * re-drive retires the marker — bounded by page loads, and the
+		 * repetition is itself the "still unrecovered" signal. */
+		log.warn("[threads] detected a dead live-stream marker", {
 			appId,
 			threadId: row.thread_id,
 			streamId: row.active_stream_id,

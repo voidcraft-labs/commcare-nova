@@ -62,6 +62,7 @@ import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchema
 import { pruneChatStreamChunks } from "@/lib/db/streamChunks";
 import {
 	appendThreadResponse,
+	mergeThreadTurnMessages,
 	resolveThreadStream,
 	upsertThreadTurn,
 } from "@/lib/db/threads";
@@ -851,18 +852,48 @@ export async function POST(req: Request) {
 							streamId,
 							trailing?.role === "assistant" ? trailing : undefined,
 						);
-						try {
-							await appendThreadResponse({
-								appId,
-								threadId,
-								streamId,
-								responseMessage,
-							});
-						} catch (err) {
-							log.error("[chat] thread response append failed", err, {
-								appId,
-								threadId,
-							});
+						/* One retry, then a marker-only fallback. The response text is
+						 * best-effort history — but the MARKER must not survive a
+						 * finalized run: a stranded `active_stream_id` on an at-rest app
+						 * reads as an instance death on the next load, and the client
+						 * auto-RE-DRIVES (re-claims, RE-CHARGES) a turn that already
+						 * completed. The fallback clears just the marker (null response,
+						 * same `streamId` guard) — the smallest write that closes that
+						 * hole; if even that fails, the log line names the consequence
+						 * for the operator. */
+						let appended = false;
+						for (let attempt = 0; attempt < 2 && !appended; attempt++) {
+							try {
+								await appendThreadResponse({
+									appId,
+									threadId,
+									streamId,
+									responseMessage,
+								});
+								appended = true;
+							} catch (err) {
+								log.error("[chat] thread response append failed", err, {
+									appId,
+									threadId,
+									attempt,
+								});
+							}
+						}
+						if (!appended) {
+							try {
+								await appendThreadResponse({
+									appId,
+									threadId,
+									streamId,
+									responseMessage: null,
+								});
+							} catch (err) {
+								log.error(
+									"[chat] thread marker clear failed — a stranded marker will read as an instance death and re-drive this completed turn on the next open",
+									err,
+									{ appId, threadId },
+								);
+							}
 						}
 					}
 				};
@@ -892,6 +923,29 @@ export async function POST(req: Request) {
 						});
 					}
 					await finalizeRun(classified);
+				};
+
+				/**
+				 * Persist a BAILED POST's incoming history before it closes. A bail
+				 * (a serialize-wait gate rejection or timeout, a superseded resume)
+				 * runs nothing and must not claim the thread — but its history is
+				 * real client state: an answered askQuestions round exists only in
+				 * the client's memory until a write lands, and every bail message
+				 * tells the user to refresh, which would erase it. Merge-only: the
+				 * thread's `run_id` / live-stream marker belong to the run that owns
+				 * the app and are not touched. (The RE-DRIVE bail deliberately skips
+				 * this — its history is the same unanswered turn the winning
+				 * re-drive already persisted when it claimed.)
+				 */
+				const persistBailedHistory = async (): Promise<void> => {
+					try {
+						await mergeThreadTurnMessages({ appId, threadId, messages });
+					} catch (err) {
+						log.error("[chat] bail-path history merge failed", err, {
+							appId,
+							threadId,
+						});
+					}
 				};
 
 				/* Serialize-with-wait — the pre-stream claim CONFLICTED (another run
@@ -1000,6 +1054,7 @@ export async function POST(req: Request) {
 							},
 							"route:serialize-wait-gate",
 						);
+						await persistBailedHistory();
 						await finalizeRun(undefined, { heldApp: false });
 						return;
 					}
@@ -1030,6 +1085,7 @@ export async function POST(req: Request) {
 						);
 						/* Held nothing (never won the claim) — flush + log only, and do NOT
 						 * touch the marker/lock (the app is still held by the OTHER run). */
+						await persistBailedHistory();
 						await finalizeRun(undefined, { heldApp: false });
 						return;
 					}
@@ -1114,6 +1170,7 @@ export async function POST(req: Request) {
 									},
 							superseded ? "route:resume-superseded" : "route:resume-released",
 						);
+						await persistBailedHistory();
 						await finalizeRun(undefined, { heldApp: false });
 						return;
 					}
@@ -1128,8 +1185,11 @@ export async function POST(req: Request) {
 				 * user turn / answered askQuestions parts) plus the live-stream marker
 				 * (`active_stream_id` = this POST's chunk-log stream). From this write
 				 * on, a page refresh hydrates the user's turn and reconnects to the
-				 * run by THREAD id. Rejection paths above deliberately never write —
-				 * a request that ran nothing must not grow the durable conversation.
+				 * run by THREAD id. Rejection paths above never CLAIM the thread —
+				 * `run_id` and the live-stream marker stay the owning run's — but
+				 * they do merge the incoming messages (`persistBailedHistory`) so an
+				 * answered question round survives the refresh their bail messages
+				 * recommend.
 				 * `false` means the id belongs to another app (the pre-stream guard
 				 * catches this before any claim; this is the structural backstop) —
 				 * surfaced as a failed run rather than silently streaming a
