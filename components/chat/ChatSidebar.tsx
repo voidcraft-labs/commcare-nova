@@ -283,6 +283,21 @@ export function ChatSidebar({
 		return () => gridController.setOnModeApplied(null);
 	}, [gridController]);
 
+	/* True while the current `submitted` window was opened by a LOCAL send —
+	 * a typed message or an answered question round (the two `triggerSendWave`
+	 * callers). A refresh-resume (`resumeStream`) and the instance-death
+	 * re-drive (`regenerate`) ALSO pass through `submitted` while they
+	 * reconnect, but nothing is transmitting there — mapping that window to
+	 * the send wave replayed the one-shot "Transmitting" state on every
+	 * refresh of a live run. Cleared when the status moves off `submitted`
+	 * (derive-during-render, the same pattern as the elapsed timer below). */
+	const localSendRef = useRef(false);
+	const prevStatusRef = useRef(status);
+	if (prevStatusRef.current !== status) {
+		prevStatusRef.current = status;
+		if (status !== "submitted") localSendRef.current = false;
+	}
+
 	// Desired mode + label from builder state — sent to controller, which queues if busy.
 	// Gate reasoning/editing on `status === 'streaming'` so the send wave keeps looping
 	// during the 'submitted' wait period (server hasn't started responding yet).
@@ -318,7 +333,16 @@ export function ChatSidebar({
 			// Keep the send wave looping until the server actually starts streaming.
 			// During 'submitted', no tokens are flowing so reasoning/editing would
 			// look dead — the whole point of the signal grid is to show activity.
-			if (status === "submitted") return "sending";
+			// Only a LOCAL send shows the send wave: a resume/re-drive reconnect
+			// also sits in 'submitted', and replaying "Transmitting" there would
+			// narrate a send that never happened (see `localSendRef`).
+			if (status === "submitted") {
+				return localSendRef.current
+					? "sending"
+					: postBuildEdit
+						? "editing"
+						: "reasoning";
+			}
 			return postBuildEdit ? "editing" : "reasoning";
 		}
 		// Welcome screen intro — the first 3.5s on a fresh build shows the
@@ -455,6 +479,10 @@ export function ChatSidebar({
 	const stickContextRef = useRef<StickToBottomContext | null>(null);
 
 	const triggerSendWave = useCallback(() => {
+		/* Mark the coming `submitted` window as a real send so desiredMode
+		 * sustains the wave — the flag is what separates it from a
+		 * resume/re-drive reconnect, which must never show "Transmitting". */
+		localSendRef.current = true;
 		gridController.setMode("sending");
 	}, [gridController]);
 
