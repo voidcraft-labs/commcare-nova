@@ -1,9 +1,9 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
-import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
-import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerChevronUp from "@iconify-icons/tabler/chevron-up";
 import tablerHistory from "@iconify-icons/tabler/history";
+import tablerLayoutSidebarRightCollapse from "@iconify-icons/tabler/layout-sidebar-right-collapse";
+import tablerMessageCircle from "@iconify-icons/tabler/message-circle";
 import tablerMessagePlus from "@iconify-icons/tabler/message-plus";
 import { motion } from "motion/react";
 import {
@@ -27,6 +27,7 @@ import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SignalGrid } from "@/components/chat/SignalGrid";
 import { SignalPanel } from "@/components/chat/SignalPanel";
 import { ThreadList } from "@/components/chat/ThreadList";
+import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import type { ThreadMeta } from "@/lib/db/types";
@@ -135,7 +136,7 @@ interface ChatSidebarProps {
 	/** The open conversation's id (the Chat instance id = thread id). */
 	activeThreadId?: string;
 	/** Open a conversation from the list (fetches + hydrates it). */
-	onSelectThread?: (threadId: string) => void;
+	onSelectThread?: (threadId: string) => Promise<boolean>;
 	/** Start a fresh conversation. */
 	onNewChat?: () => void;
 }
@@ -449,30 +450,70 @@ export function ChatSidebar({
 	 * action that returns attention to the conversation (picking a thread,
 	 * starting a new one, sending a message) closes it. */
 	const [threadListOpen, setThreadListOpen] = useState(false);
+	const [openingThreadId, setOpeningThreadId] = useState<string | null>(null);
 	const showThreadAffordances =
 		!centered && threads !== undefined && !!onSelectThread;
 	const listVisible = threadListOpen && showThreadAffordances;
 
 	const handleSelectThread = useCallback(
-		(threadId: string) => {
-			setThreadListOpen(false);
-			onSelectThread?.(threadId);
+		async (threadId: string) => {
+			if (threadId === activeThreadId) {
+				setThreadListOpen(false);
+				return;
+			}
+			if (openingThreadId) return;
+			setOpeningThreadId(threadId);
+			const opened = await onSelectThread?.(threadId);
+			if (!opened) setOpeningThreadId(null);
 		},
-		[onSelectThread],
+		[activeThreadId, onSelectThread, openingThreadId],
 	);
+
+	/* Keep the list covering the old transcript until the parent has activated
+	 * the requested Chat instance. Closing it from the click handler exposed the
+	 * previous conversation during the network fetch, then replaced it in-place. */
+	useEffect(() => {
+		if (!openingThreadId || activeThreadId !== openingThreadId) return;
+		setThreadListOpen(false);
+		setOpeningThreadId(null);
+	}, [activeThreadId, openingThreadId]);
 
 	const handleNewChat = useCallback(() => {
 		setThreadListOpen(false);
+		setOpeningThreadId(null);
 		onNewChat?.();
 	}, [onNewChat]);
 
 	const pendingAnswerRef = useRef<((text: string) => void) | null>(null);
 
-	/* The StickToBottom scroll context, captured from Conversation. We don't drive
-	 * the auto-pin ourselves (use-stick-to-bottom owns that, including across the
-	 * center↔sidebar morph), but the question-card autoscroll below still needs to
-	 * reach into the live content element to scroll a mid-list card into view. */
+	/* The StickToBottom scroll context, captured from Conversation. The library's
+	 * initial="instant" path still waits for ResizeObserver + rAF, which leaves one
+	 * top-positioned frame when this scroll root remounts after closing History.
+	 * Initialize each NEW scroll element synchronously from the imperative-ref
+	 * commit instead: DOM refs and layout are ready, but the browser has not painted.
+	 * Tracking element identity keeps later context updates from fighting manual
+	 * scrolling; use-stick-to-bottom owns all pinning after this first position. */
 	const stickContextRef = useRef<StickToBottomContext | null>(null);
+	const initializedScrollElementRef = useRef<HTMLElement | null>(null);
+	const captureStickContext = useCallback(
+		(context: StickToBottomContext | null) => {
+			stickContextRef.current = context;
+			const scrollElement = context?.scrollRef.current;
+			if (
+				!scrollElement ||
+				scrollElement === initializedScrollElementRef.current
+			) {
+				return;
+			}
+
+			initializedScrollElementRef.current = scrollElement;
+			if (getComputedStyle(scrollElement).overflow === "visible") {
+				scrollElement.style.overflow = "auto";
+			}
+			scrollElement.scrollTop = scrollElement.scrollHeight;
+		},
+		[],
+	);
 
 	const triggerSendWave = useCallback(() => {
 		/* Mark the coming `submitted` window as a real send so desiredMode
@@ -569,67 +610,60 @@ export function ChatSidebar({
 				}`}
 				transition={{ layout: { duration: 0.45, ease: [0.4, 0, 0.2, 1] } }}
 			>
-				{/* Sidebar header — flips between the conversation ("Chat" + the
-				 *  thread affordances) and the conversations list ("Conversations"
-				 *  + back). The collapse chevron stays put in both. */}
+				{/* Sidebar header owns only identity + collapse. Conversation actions
+				 *  live in the labeled command row below instead of competing as
+				 *  ambiguous icon-only controls in this title bar. */}
 				{!centered && !docked && (
-					<div className="flex items-center px-4 h-11 border-b border-nova-border shrink-0">
-						{threadListOpen ? (
-							<>
-								<button
-									type="button"
-									onClick={() => setThreadListOpen(false)}
-									aria-label="Back to the conversation"
-									className="-ml-2 px-2 h-11 flex items-center gap-1 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
-								>
-									<Icon icon={tablerChevronLeft} width="14" height="14" />
-								</button>
-								<span className="text-[13px] font-medium text-nova-text-secondary">
-									Conversations
-								</span>
-							</>
-						) : (
-							<span className="text-[13px] font-medium text-nova-text-secondary">
-								Chat
+					<>
+						<div className="flex items-center gap-2 pl-4 pr-2 h-12 border-b border-nova-border shrink-0">
+							<span className="flex-1 min-w-0 text-sm font-medium text-nova-text">
+								{listVisible ? "Conversations" : "Chat"}
 							</span>
-						)}
-						<div className="ml-auto flex items-center">
-							{showThreadAffordances && !threadListOpen && (
-								<>
-									{!readOnly && (
-										<SimpleTooltip content="New chat" side="bottom">
-											<button
-												type="button"
-												onClick={handleNewChat}
-												aria-label="New chat"
-												className="px-2 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
-											>
-												<Icon icon={tablerMessagePlus} width="15" height="15" />
-											</button>
-										</SimpleTooltip>
-									)}
-									<SimpleTooltip content="Conversations" side="bottom">
-										<button
-											type="button"
-											onClick={() => setThreadListOpen(true)}
-											aria-label="Conversations"
-											className="px-2 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
-										>
-											<Icon icon={tablerHistory} width="15" height="15" />
-										</button>
-									</SimpleTooltip>
-								</>
-							)}
-							<button
-								type="button"
-								onClick={() => setSidebarOpen("chat", false)}
-								aria-label="Collapse chat sidebar"
-								className="pl-2 -mr-1 pr-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
-							>
-								<Icon icon={tablerChevronRight} width="14" height="14" />
-							</button>
+							<SimpleTooltip content="Collapse chat" side="left">
+								<Button
+									type="button"
+									onClick={() => setSidebarOpen("chat", false)}
+									aria-label="Collapse chat sidebar"
+									variant="ghost"
+									size="icon-lg"
+									className="text-nova-text-muted hover:text-nova-text"
+								>
+									<Icon icon={tablerLayoutSidebarRightCollapse} />
+								</Button>
+							</SimpleTooltip>
 						</div>
-					</div>
+						{showThreadAffordances && (
+							<div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-nova-border shrink-0">
+								{!readOnly && (
+									<Button
+										type="button"
+										onClick={handleNewChat}
+										disabled={openingThreadId !== null}
+										variant="ghost"
+										size="lg"
+										className="justify-start text-nova-text-secondary not-disabled:hover:text-nova-text"
+									>
+										<Icon icon={tablerMessagePlus} />
+										New chat
+									</Button>
+								)}
+								<Button
+									type="button"
+									onClick={() => setThreadListOpen((open) => !open)}
+									disabled={openingThreadId !== null}
+									aria-pressed={listVisible}
+									variant="ghost"
+									size="lg"
+									className="justify-start text-nova-text-secondary not-disabled:hover:text-nova-text aria-pressed:bg-nova-violet/10 aria-pressed:text-nova-violet-bright"
+								>
+									<Icon
+										icon={listVisible ? tablerMessageCircle : tablerHistory}
+									/>
+									{listVisible ? "Back to chat" : "History"}
+								</Button>
+							</div>
+						)}
+					</>
 				)}
 
 				{/* Inspector dock — the slot the active InspectorSurface portals
@@ -684,6 +718,7 @@ export function ChatSidebar({
 						threads={threads ?? []}
 						activeThreadId={activeThreadId ?? ""}
 						activeThreadStreaming={isLoading}
+						openingThreadId={openingThreadId}
 						onSelect={handleSelectThread}
 					/>
 				)}
@@ -710,8 +745,9 @@ export function ChatSidebar({
 				 *    `max-h`, keeping the composer on-screen. */}
 				{!docked && !listVisible && (
 					<Conversation
+						key={activeThreadId}
 						className={centered ? "flex-auto min-h-0" : "flex-1"}
-						contextRef={stickContextRef}
+						contextRef={captureStickContext}
 					>
 						{/* ConversationContent's base `gap-8` is roomier than Nova's chat
 						 *  density; override to `gap-4` (matches the former `space-y-4`).

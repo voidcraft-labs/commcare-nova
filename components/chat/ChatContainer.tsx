@@ -634,10 +634,10 @@ export function ChatContainer({
 	// ── Thread switching ──────────────────────────────────────────────────
 
 	const openThread = useCallback(
-		async (threadId: string) => {
-			if (threadId === chat.id) return;
+		async (threadId: string): Promise<boolean> => {
+			if (threadId === chat.id) return true;
 			const appId = sessionStoreRef.current?.getState().appId;
-			if (!appId) return;
+			if (!appId) return false;
 			let thread: LoadedThreadDoc;
 			try {
 				const res = await fetch(
@@ -651,7 +651,7 @@ export function ChatContainer({
 					"Couldn't open the conversation",
 					"Check your connection and try again.",
 				);
-				return;
+				return false;
 			}
 			/* Abort the current thread's client-side stream read (the run — if
 			 * any — continues server-side and stays resumable from its row). */
@@ -678,6 +678,7 @@ export function ChatContainer({
 					},
 				),
 			);
+			return true;
 		},
 		[chat, appGenerating, activateThread],
 	);

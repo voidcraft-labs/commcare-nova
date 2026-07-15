@@ -23,6 +23,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { UIMessage } from "ai";
 import { betterAuth } from "better-auth";
 import type { Pool } from "pg";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -52,6 +53,8 @@ export const SEED = {
 	threadsAppName: "Smoke — Conversations",
 	threadUserText: "Smoke: build a visit tracker",
 	threadAssistantText: "Smoke: the visit tracker is ready.",
+	olderThreadUserText: "Smoke: add an intake notes field",
+	olderThreadAssistantText: "Smoke: the intake notes field is ready.",
 } as const;
 
 const AUTH_DIR = path.join(process.cwd(), "e2e", ".auth");
@@ -59,6 +62,75 @@ const STATE_FILE = path.join(AUTH_DIR, "state.json");
 const SEED_FILE = path.join(AUTH_DIR, "seed.json");
 /** The two-user multiplayer fixture manifest (`multiplayer.spec.ts` reads it). */
 const MULTIPLAYER_FILE = path.join(AUTH_DIR, "multiplayer.json");
+
+/** A tall, realistic transcript makes the smoke fixture exercise the initial
+ * bottom position instead of accidentally passing because two messages fit in
+ * the rail. The final assistant turn is appended separately through the same
+ * writer a completed run uses. */
+function tallThreadHistory(prefix: string, firstUserText: string): UIMessage[] {
+	const messages: UIMessage[] = [
+		{
+			id: `${prefix}-user-0`,
+			role: "user",
+			parts: [{ type: "text", text: firstUserText }],
+		},
+	];
+	for (let turn = 1; turn <= 7; turn++) {
+		messages.push(
+			{
+				id: `${prefix}-assistant-${turn}`,
+				role: "assistant",
+				parts: [
+					{
+						type: "text",
+						text: `Smoke fixture response ${turn}: I reviewed the requested workflow and updated the app design with the relevant form details.`,
+					},
+				],
+			},
+			{
+				id: `${prefix}-user-${turn}`,
+				role: "user",
+				parts: [
+					{
+						type: "text",
+						text: `Smoke fixture follow-up ${turn}: please keep refining this conversation so the transcript remains tall enough to scroll.`,
+					},
+				],
+			},
+		);
+	}
+	return messages;
+}
+
+async function seedSettledThread(args: {
+	appId: string;
+	threadId: string;
+	prefix: string;
+	firstUserText: string;
+	finalAssistantText: string;
+	threadType: "build" | "edit";
+}): Promise<void> {
+	const streamId = randomUUID();
+	const written = await upsertThreadTurn({
+		appId: args.appId,
+		threadId: args.threadId,
+		runId: randomUUID(),
+		streamId,
+		threadType: args.threadType,
+		messages: tallThreadHistory(args.prefix, args.firstUserText),
+	});
+	if (!written) throw new Error("e2e/seed.ts: thread seed write failed");
+	await appendThreadResponse({
+		appId: args.appId,
+		threadId: args.threadId,
+		streamId,
+		responseMessage: {
+			id: `${args.prefix}-assistant-final`,
+			role: "assistant",
+			parts: [{ type: "text", text: args.finalAssistantText }],
+		},
+	});
+}
 
 function requireEnv(name: string): string {
 	const value = process.env[name];
@@ -185,11 +257,11 @@ async function main(): Promise<void> {
 		appName: SEED.openAppName,
 		status: "complete",
 	});
-	/* The conversations fixture: a module-bearing app (docked chat — the
-	 * thread affordances live in the sidebar header) plus one settled
-	 * conversation written through the real thread store (turn upsert +
-	 * response append, live marker cleared) — exactly the rows a finished run
-	 * leaves. The builder must hydrate the transcript on load. */
+	/* The conversations fixture: a module-bearing app (docked chat) plus two
+	 * tall, settled conversations written through the real thread store (turn
+	 * upsert + response append, live marker cleared) — exactly the rows finished
+	 * runs leave. The builder must hydrate the newest transcript on load and
+	 * switch to the older one without exposing the prior transcript. */
 	const threadsAppId = await createApp(
 		SEED.userId,
 		seedProjectId,
@@ -225,33 +297,40 @@ async function main(): Promise<void> {
 			}),
 		),
 	);
+	const olderThreadId = randomUUID();
+	await seedSettledThread({
+		appId: threadsAppId,
+		threadId: olderThreadId,
+		prefix: "smoke-older",
+		firstUserText: SEED.olderThreadUserText,
+		finalAssistantText: SEED.olderThreadAssistantText,
+		threadType: "edit",
+	});
 	const threadId = randomUUID();
-	const threadStreamId = randomUUID();
-	const written = await upsertThreadTurn({
+	await seedSettledThread({
 		appId: threadsAppId,
 		threadId,
-		runId: randomUUID(),
-		streamId: threadStreamId,
+		prefix: "smoke-current",
+		firstUserText: SEED.threadUserText,
+		finalAssistantText: SEED.threadAssistantText,
 		threadType: "build",
-		messages: [
-			{
-				id: "smoke-m1",
-				role: "user",
-				parts: [{ type: "text", text: SEED.threadUserText }],
-			},
+	});
+	/* Stable ordering even when both writes land in the same millisecond. */
+	await pool.query(
+		`UPDATE threads SET updated_at = CASE
+			WHEN thread_id = $1 THEN $3
+			WHEN thread_id = $2 THEN $4
+			ELSE updated_at
+		END
+		WHERE thread_id = ANY($5)`,
+		[
+			olderThreadId,
+			threadId,
+			new Date(Date.now() - 60_000).toISOString(),
+			new Date().toISOString(),
+			[olderThreadId, threadId],
 		],
-	});
-	if (!written) throw new Error("e2e/seed.ts: thread seed write failed");
-	await appendThreadResponse({
-		appId: threadsAppId,
-		threadId,
-		streamId: threadStreamId,
-		responseMessage: {
-			id: "smoke-m2",
-			role: "assistant",
-			parts: [{ type: "text", text: SEED.threadAssistantText }],
-		},
-	});
+	);
 	const deleteAppIds: string[] = [];
 	for (let i = 0; i < DELETE_APP_COUNT; i++) {
 		deleteAppIds.push(
@@ -270,7 +349,14 @@ async function main(): Promise<void> {
 	await writeFile(
 		SEED_FILE,
 		JSON.stringify(
-			{ ...SEED, openAppId, deleteAppIds, threadsAppId, baseUrl },
+			{
+				...SEED,
+				openAppId,
+				deleteAppIds,
+				threadsAppId,
+				olderThreadId,
+				baseUrl,
+			},
 			null,
 			2,
 		),

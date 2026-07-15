@@ -15,6 +15,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerMessage from "@iconify-icons/tabler/message";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
+import { Spinner } from "@/components/shadcn/spinner";
 import type { ThreadMeta } from "@/lib/db/types";
 import { formatRelativeDate } from "@/lib/utils/format";
 
@@ -25,13 +26,15 @@ interface ThreadListProps {
 	/** True while the OPEN conversation's stream is live in this tab — lights
 	 *  its LIVE badge even before the server-side marker round-trips. */
 	activeThreadStreaming: boolean;
-	onSelect: (threadId: string) => void;
+	openingThreadId: string | null;
+	onSelect: (threadId: string) => void | Promise<void>;
 }
 
 export function ThreadList({
 	threads,
 	activeThreadId,
 	activeThreadStreaming,
+	openingThreadId,
 	onSelect,
 }: ThreadListProps) {
 	if (threads.length === 0) {
@@ -45,65 +48,71 @@ export function ThreadList({
 	}
 
 	return (
-		<div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
+		<ul className="flex-1 min-h-0 overflow-y-auto list-none m-0 p-0">
 			{threads.map((thread) => {
 				const active = thread.thread_id === activeThreadId;
+				const opening = thread.thread_id === openingThreadId;
 				const live =
 					thread.active_stream_id !== null || (active && activeThreadStreaming);
 				return (
-					<button
-						key={thread.thread_id}
-						type="button"
-						onClick={() => onSelect(thread.thread_id)}
-						className={`w-full min-h-11 rounded-lg border px-3 py-2.5 text-left transition-colors cursor-pointer ${
-							active
-								? "border-nova-violet/30 bg-nova-violet/[0.08]"
-								: "border-transparent hover:bg-nova-surface/40"
-						}`}
-					>
-						<div className="flex items-start gap-2">
-							<Icon
-								icon={
-									thread.thread_type === "build"
-										? tablerSparkles
-										: tablerMessage
-								}
-								width="14"
-								height="14"
-								className={`mt-0.5 shrink-0 ${
-									active ? "text-nova-violet-bright" : "text-nova-text-muted"
-								}`}
-							/>
-							<span className="flex-1 min-w-0 text-[13px] leading-snug text-nova-text line-clamp-2">
-								{thread.summary}
-							</span>
-							{live && (
-								<span className="shrink-0 flex items-center gap-1.5 mt-0.5">
-									<span className="relative flex size-2">
-										<span className="absolute inline-flex size-full rounded-full bg-nova-emerald/60 animate-ping motion-reduce:hidden" />
-										<span className="relative inline-flex size-2 rounded-full bg-nova-emerald" />
-									</span>
-									<span className="text-[9px] font-mono tracking-[0.18em] text-nova-text-muted">
-										LIVE
-									</span>
+					<li key={thread.thread_id}>
+						<button
+							type="button"
+							onClick={() => void onSelect(thread.thread_id)}
+							disabled={openingThreadId !== null}
+							aria-current={active ? "true" : undefined}
+							aria-busy={opening || undefined}
+							className={`relative w-full min-h-11 border-b border-nova-border px-4 py-3 text-left outline-none transition-colors cursor-pointer focus-visible:z-10 focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40 ${
+								active
+									? "bg-nova-violet/[0.08] before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-nova-violet"
+									: "not-disabled:hover:bg-nova-surface/40"
+							}`}
+						>
+							<div className="flex items-start gap-2">
+								<Icon
+									icon={
+										thread.thread_type === "build"
+											? tablerSparkles
+											: tablerMessage
+									}
+									width="14"
+									height="14"
+									className={`mt-0.5 shrink-0 ${
+										active ? "text-nova-violet-bright" : "text-nova-text-muted"
+									}`}
+								/>
+								<span className="flex-1 min-w-0 text-[13px] leading-snug text-nova-text line-clamp-2">
+									{thread.summary}
 								</span>
-							)}
-						</div>
-						<div className="mt-1 pl-6 flex items-center gap-1.5 text-[11px] text-nova-text-muted">
-							<span>
-								{thread.thread_type === "build" ? "Initial build" : "Edit"}
-							</span>
-							<span aria-hidden>·</span>
-							<span>{formatRelativeDate(new Date(thread.updated_at))}</span>
-							<span aria-hidden>·</span>
-							<span className="tabular-nums">
-								{thread.message_count}{" "}
-								{thread.message_count === 1 ? "message" : "messages"}
-							</span>
-						</div>
-					</button>
+								{opening ? (
+									<Spinner className="mt-0.5 size-3.5 shrink-0 text-nova-violet-bright" />
+								) : live ? (
+									<span className="shrink-0 flex items-center gap-1.5 mt-0.5">
+										<span className="relative flex size-2">
+											<span className="absolute inline-flex size-full rounded-full bg-nova-emerald/60 animate-ping motion-reduce:hidden" />
+											<span className="relative inline-flex size-2 rounded-full bg-nova-emerald" />
+										</span>
+										<span className="text-[9px] font-mono tracking-[0.18em] text-nova-text-muted">
+											LIVE
+										</span>
+									</span>
+								) : null}
+							</div>
+							<div className="mt-1 pl-6 flex items-center gap-1.5 text-[11px] text-nova-text-muted">
+								<span>
+									{thread.thread_type === "build" ? "Initial build" : "Edit"}
+								</span>
+								<span aria-hidden>·</span>
+								<span>{formatRelativeDate(new Date(thread.updated_at))}</span>
+								<span className="ml-auto tabular-nums">
+									{thread.message_count}{" "}
+									{thread.message_count === 1 ? "message" : "messages"}
+								</span>
+							</div>
+						</button>
+					</li>
 				);
 			})}
-		</div>
+		</ul>
 	);
 }
