@@ -682,6 +682,22 @@ describe("generation lifecycle", () => {
 		expect(doc.temporal.getState().isTracking).toBe(false);
 	});
 
+	it("beginRun captures runStartedWithData from the doc by default", () => {
+		const { session } = createGenerationTestStores(/* withData */ true);
+		session.getState().beginRun();
+		expect(session.getState().runStartedWithData).toBe(true);
+	});
+
+	it("beginRun honors the startedWithData override (a reconnected build resume)", () => {
+		/* A page refresh mid-BUILD reconnects to the run with the build's
+		 * committed modules already in the loaded doc — the default capture
+		 * would misread the resumed build as an edit. The override keeps the
+		 * lifecycle derivations (phase chrome, appReady) on the build arm. */
+		const { session } = createGenerationTestStores(/* withData */ true);
+		session.getState().beginRun({ startedWithData: false });
+		expect(session.getState().runStartedWithData).toBe(false);
+	});
+
 	it("endRun clears events buffer + resumes doc undo; does NOT stamp runCompletedAt", () => {
 		/* Stream-close is not the completion signal. A run that closes
 		 * without `data-done` (askQuestions, clarifying text, edit-tool

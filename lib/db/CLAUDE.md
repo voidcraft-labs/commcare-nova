@@ -60,6 +60,47 @@ and a run that died sealing nothing is closed by the endpoint's
 (opportunistically, on POST traffic) — conversation HISTORY lives in
 `threads` + the event log, never here.
 
+**`threads` is the durable conversation store — one row per CONVERSATION,
+spanning runs.** `messages` holds the full `UIMessage[]` transcript,
+server-written by the chat route at exactly two moments (`lib/db/threads.ts`
+is the whole contract): `upsertThreadTurn` the instant a run claims the app
+(persists the incoming history + marks the thread live via
+`active_stream_id` — the page-refresh resume handle), and
+`appendThreadResponse` at finalize (the assistant message assembled from the
+chunk log by `assembleResponseMessage`). (A BAILED POST —
+serialize-wait gate/timeout, superseded resume — additionally merges its
+incoming messages via `mergeThreadTurnMessages`, identity/marker untouched,
+so an answered question round survives the refresh the bail recommends.)
+Both writers are row-locked and
+MERGE by message id (`mergeTranscript` — union, richer version wins), never
+rewrite: a stale tab or a late finalize can add turns, not erase them, and
+an askQuestions continuation lands as ONE merged message. The finalize
+retires the live marker ONLY while it still names its own run's stream (the
+app releases before finalize completes, so a newer claim may already own a
+fresh marker) — with one retry then a marker-only clear, because a marker
+stranded on a FINALIZED run reads as an instance death and would re-drive
+(re-charge) a completed turn. The loaders reconcile any marker against
+actual app liveness (`appHeldLive`) REPORT-ONLY: a dead marker is stripped
+from the projection and stamped `resume_interrupted`, but the row is never
+written — the signal is LEVEL-TRIGGERED, standing load after load (any
+reader may run first: the thread list, a heal refetch, the page) until an
+acting client's RE-DRIVE retires the marker through its own claim +
+finalize. The re-drive re-runs the interrupted turn through the normal
+POST/claim/charge machinery (`redrive: true` on the wire; a claim conflict
+there means another session already re-drove, so the request closes clean
+instead of serialize-waiting a duplicate). A died BUILD (reaped to `error`)
+is admitted by the build page only on this signal, and its re-drive claim
+flips the row back to `generating`.
+The reconnect endpoint resolves a GET id as stream-first, thread-second, so
+`useChat`'s `resumeStream({chatId: threadId})` reconnects a refreshed page
+to the in-flight run by thread id alone; a thread with nothing in flight
+answers a bare `finish` (the transport errors on any non-OK response).
+`updated_at` orders the list (a refresh opens the most recent thread);
+`thread_id` is the PK (client-minted uuid) with writers app-guarded so a
+forged id can't write across apps. Every POST sends the thread's FULL
+history — there is no cache-window trim (the run summary's
+`fresh_edit`/`cache_expired` fields retired with it).
+
 ## Two ledgers, different lifecycles
 
 Cost and quota live in **separate tables** so an admin intervention on one

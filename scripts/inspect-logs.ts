@@ -353,9 +353,7 @@ function printRunSummary(summary: RunSummaryDoc): void {
 	printKV([
 		["Model", summary.model],
 		["Prompt mode", summary.promptMode],
-		["Fresh edit", String(summary.freshEdit)],
 		["App ready", String(summary.appReady)],
-		["Cache expired", String(summary.cacheExpired)],
 		["Module count", String(summary.moduleCount)],
 		["First turn", summary.startedAt],
 		["Last turn", summary.finishedAt],

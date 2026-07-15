@@ -326,8 +326,15 @@ export interface BuilderSessionState {
 	 *  accumulates from this point until `endRun()` is the "a run is in
 	 *  progress" signal for all lifecycle derivations. Called by
 	 *  ChatContainer's chat-transport status effect on the
-	 *  ready→submitted/streaming transition. */
-	beginRun: () => void;
+	 *  ready→submitted/streaming transition.
+	 *
+	 *  `startedWithData` overrides the build-vs-edit capture for a
+	 *  RECONNECT to an in-flight BUILD run: the doc already carries the
+	 *  build's committed modules at page load, so the default "does the
+	 *  doc have data?" capture would misread the resumed build as an
+	 *  edit (wrong phase chrome, and — via the client's `appReady`
+	 *  derivation — generation tools stripped from follow-up sends). */
+	beginRun: (opts?: { startedWithData?: boolean }) => void;
 
 	/** Close a run. Clears the events buffer and resumes doc undo
 	 *  tracking. Does NOT touch `runCompletedAt` — stream-close is not
@@ -583,21 +590,25 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				// ── Generation lifecycle actions ─────────────────────────
 
-				beginRun() {
+				beginRun(opts) {
 					/* Open a run atomically: pause doc undo (whole run
 					 * collapses into one undoable unit on resume), clear the
 					 * events buffer, clear any stale completion stamp, and
 					 * capture the build-vs-edit discriminator (whether the doc
-					 * already has data) for the lifecycle derivations. The
-					 * non-empty buffer that accumulates from here is the
-					 * "a run is in progress" signal — no agentActive mirror
-					 * to maintain. */
+					 * already has data) for the lifecycle derivations — unless
+					 * the caller overrides it (a reconnect to an in-flight
+					 * build, whose committed modules would otherwise read as
+					 * pre-existing data). The non-empty buffer that
+					 * accumulates from here is the "a run is in progress"
+					 * signal — no agentActive mirror to maintain. */
 					const docState = docStoreRef?.getState();
 					docState?.beginAgentWrite();
 					set({
 						events: [],
 						runCompletedAt: undefined,
-						runStartedWithData: docState ? docHasData(docState) : false,
+						runStartedWithData:
+							opts?.startedWithData ??
+							(docState ? docHasData(docState) : false),
 					});
 				},
 

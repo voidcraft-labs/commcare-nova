@@ -95,15 +95,22 @@ export const TURN_RETRY_MESSAGE =
  */
 export function buildTurnRetryContinuation(
 	doc: BlueprintDoc,
+	cause: "provider-retry" | "redrive" = "provider-retry",
 ): ModelMessage | null {
 	const hasContent =
 		doc.moduleOrder.length > 0 ||
 		(doc.caseTypes != null && Object.keys(doc.caseTypes).length > 0);
 	if (!hasContent) return null;
+	const interruption =
+		cause === "redrive"
+			? // The instance-death re-drive: the prior run was killed mid-flight
+				// (deploy, OOM) and this is a fresh run over the same turn.
+				"Your previous attempt at this request was interrupted partway through. "
+			: "A temporary provider error interrupted your previous attempt at this request partway through. ";
 	return {
 		role: "user",
 		content:
-			"A temporary provider error interrupted your previous attempt at this request partway through. " +
+			interruption +
 			"Everything in the summary below is already committed to the app — do not re-create, re-declare, or re-add any of it. " +
 			"Continue from this state and complete only the remaining work for the original request above.\n\n" +
 			`Current app state:\n${summarizeBlueprint(doc)}`,

@@ -64,11 +64,6 @@ export type RunSummaryWriteAction =
  *   at turn-1 would permanently mark every successful build→edit thread
  *   as a zero-module app.
  *
- * **Union (boolean OR across turns):**
- * - `fresh_edit`, `cache_expired` — cost-relevant signals. An admin needs
- *   "did any turn hit a cold cache / run a fresh edit?" rather than
- *   "was turn 1 cold." OR-ing via `prev || delta` captures that.
- *
  * **Accumulated (cumulative numeric deltas):**
  * - `step_count`, `tool_call_count`, `input_tokens`, `output_tokens`,
  *   `cache_read_tokens`, `cache_write_tokens`, `cost_estimate`,
@@ -118,9 +113,7 @@ export async function writeRunSummary(
 						started_at: summary.startedAt,
 						finished_at: summary.finishedAt,
 						prompt_mode: summary.promptMode,
-						fresh_edit: summary.freshEdit,
 						app_ready: summary.appReady,
-						cache_expired: summary.cacheExpired,
 						module_count: summary.moduleCount,
 						step_count: summary.stepCount,
 						model: summary.model,
@@ -143,8 +136,6 @@ export async function writeRunSummary(
 				.set({
 					finished_at: summary.finishedAt,
 					module_count: summary.moduleCount,
-					fresh_edit: existing.fresh_edit || summary.freshEdit,
-					cache_expired: existing.cache_expired || summary.cacheExpired,
 					step_count: existing.step_count + summary.stepCount,
 					tool_call_count: existing.tool_call_count + summary.toolCallCount,
 					input_tokens: Number(existing.input_tokens) + summary.inputTokens,
@@ -202,9 +193,7 @@ export async function loadRunSummary(
 		startedAt: row.started_at,
 		finishedAt: row.finished_at,
 		promptMode: row.prompt_mode as RunSummaryDoc["promptMode"],
-		freshEdit: row.fresh_edit,
 		appReady: row.app_ready,
-		cacheExpired: row.cache_expired,
 		moduleCount: row.module_count,
 		stepCount: row.step_count,
 		model: row.model,

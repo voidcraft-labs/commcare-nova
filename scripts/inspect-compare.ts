@@ -340,19 +340,9 @@ async function main() {
 			sumB?.promptMode ?? "—",
 		);
 		printCompRow(
-			"Fresh edit",
-			sumA ? String(sumA.freshEdit) : "—",
-			sumB ? String(sumB.freshEdit) : "—",
-		);
-		printCompRow(
 			"App ready",
 			sumA ? String(sumA.appReady) : "—",
 			sumB ? String(sumB.appReady) : "—",
-		);
-		printCompRow(
-			"Cache expired",
-			sumA ? String(sumA.cacheExpired) : "—",
-			sumB ? String(sumB.cacheExpired) : "—",
 		);
 		printCompRow(
 			"Module count (in)",

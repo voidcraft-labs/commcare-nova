@@ -17,7 +17,7 @@
  *   apps(id) + blueprint_entities    → AppDoc           (scalars + assembled blueprint)
  *   events                           → Event            (unified mutation+conversation log — lib/log/types)
  *   run_summaries(app_id, run_id)    → RunSummaryDoc    (per-run cost/behavior summary)
- *   threads(app_id, thread_id)       → ThreadDoc        (chat conversation history)
+ *   threads(thread_id)               → ThreadDoc        (full conversation transcripts)
  *   accepted_mutations(app_id, seq)  → AcceptedMutationDoc (the durable, PERMANENT batch stream)
  *   presence(app_id, user, session)  → PresenceDoc      (live roster; expire_at-swept)
  *   media_assets / media_asset_refs  → MediaAssetDoc    (Project-scoped media metadata)
@@ -26,7 +26,6 @@
  */
 
 import { z } from "zod";
-import { attachmentRefSchema } from "@/lib/chat/attachmentRefs";
 import type { COMMCARE_SERVER_IDS } from "@/lib/commcare/servers";
 import type { Mutation } from "@/lib/doc/types";
 import { type Location, locationSchema } from "@/lib/routing/types";
@@ -104,12 +103,8 @@ export const runSummaryDocSchema = z.object({
 	finishedAt: z.string(),
 	/** Which prompt the SA received. */
 	promptMode: z.enum(["build", "edit"]),
-	/** Fresh-edit mode (cache expired + editing). */
-	freshEdit: z.boolean(),
 	/** Client signal: app existed when request was sent. */
 	appReady: z.boolean(),
-	/** Client signal: Anthropic prompt cache TTL had lapsed. */
-	cacheExpired: z.boolean(),
 	/** Number of modules on the blueprint at request time (0 for new builds). */
 	moduleCount: z.number().int().nonnegative(),
 	/** Number of agent LLM steps in the run. */
@@ -278,57 +273,42 @@ export { locationSchema };
 // ── Chat Threads ──────────────────────────────────────────────────
 
 /**
- * Chat threads (`threads`) — one row per conversation session, messages
- * embedded as jsonb (threads are 2–10 messages, always loaded together). The
- * threadId is the session's `runId`, linking the thread to the event log.
- * Only display-relevant parts are stored: user text and answered
- * askQuestions; tool calls live in the event log.
+ * Chat threads (`threads`) — one row per CONVERSATION. `messages` is the
+ * full `UIMessage[]` transcript (rehydrates `useChat`; resumes send it back
+ * to the SA whole). Validation here is deliberately shallow — the envelope
+ * only: the chat route re-validates every part against the active tool set
+ * (`validateUIMessages` + `sanitizeHistoricalToolParts`) before anything
+ * reaches the model, and the chat UI renders parts defensively. A deep zod
+ * mirror of the AI SDK's UIMessage union would drift with every SDK bump
+ * and reject history the sanitizer is designed to repair.
  */
-const storedMessagePartSchema = z.discriminatedUnion("type", [
-	z.object({
-		type: z.literal("text"),
-		/** The visible text content. */
-		text: z.string(),
-	}),
-	z.object({
-		type: z.literal("askQuestions"),
-		/** Tool call ID from the original UIMessage part. */
-		toolCallId: z.string(),
-		/** Section header the SA provided for this question block. */
-		header: z.string(),
-		/** Flattened question–answer pairs — just the text, no options array. */
-		questions: z.array(
-			z.object({
-				question: z.string(),
-				answer: z.string(),
-			}),
-		),
-	}),
-]);
-export type StoredMessagePart = z.infer<typeof storedMessagePartSchema>;
-
-const storedThreadMessageSchema = z.object({
-	/** Original UIMessage ID — used for deduplication on incremental saves. */
+export const threadMessageSchema = z.looseObject({
 	id: z.string(),
-	role: z.enum(["user", "assistant"]),
-	parts: z.array(storedMessagePartSchema),
-	/** Attachment manifest for a user turn — the same `AttachmentRef` shape the
-	 *  live transcript uses, so loaded history renders the chips through the
-	 *  one render path. */
-	attachments: z.array(attachmentRefSchema).optional(),
+	role: z.enum(["user", "assistant", "system"]),
+	parts: z.array(z.looseObject({ type: z.string() })),
 });
-export type StoredThreadMessage = z.infer<typeof storedThreadMessageSchema>;
+export type ThreadMessage = z.infer<typeof threadMessageSchema>;
 
-export const threadDocSchema = z.object({
-	/** ISO 8601 timestamp when the thread started. */
+/** Thread-list projection — everything the thread rows UI needs, no
+ *  transcript. `activeStreamId` non-null means a run is streaming into the
+ *  thread right now (the client may reconnect to it by thread id). */
+export const threadMetaSchema = z.object({
+	thread_id: z.string(),
 	created_at: z.string(),
+	updated_at: z.string(),
 	thread_type: z.enum(["build", "edit"]),
-	/** First user message text, truncated to ~200 chars — collapsed display. */
 	summary: z.string(),
-	/** Generation run ID — links to the event log. */
 	run_id: z.string(),
-	messages: z.array(storedThreadMessageSchema),
+	active_stream_id: z.string().nullable(),
+	message_count: z.number().int().nonnegative(),
 });
+export type ThreadMeta = z.infer<typeof threadMetaSchema>;
+
+export const threadDocSchema = threadMetaSchema
+	.omit({ message_count: true })
+	.extend({
+		messages: z.array(threadMessageSchema),
+	});
 export type ThreadDoc = z.infer<typeof threadDocSchema>;
 
 // ── Media Assets ───────────────────────────────────────────────────

@@ -117,13 +117,24 @@ export interface EventsTable {
 	event: JSONColumnType<Record<string, unknown>>;
 }
 
+/**
+ * Chat threads — one row per CONVERSATION (not per run; a thread spans many
+ * runs). `messages` is the full `UIMessage[]` transcript, server-written: the
+ * incoming history upserts when a run claims the app, the assembled assistant
+ * response appends at finalize. `active_stream_id` points at the in-flight
+ * POST's durable chunk-log stream (the page-refresh resume handle) and is
+ * cleared in the same finalize write. Timestamps are ISO-8601 text (this
+ * table's convention); `updated_at` orders the thread list.
+ */
 export interface ThreadsTable {
-	app_id: string;
 	thread_id: string;
+	app_id: string;
 	created_at: string;
+	updated_at: string;
 	thread_type: string;
 	summary: string;
 	run_id: string;
+	active_stream_id: string | null;
 	messages: JSONColumnType<unknown[]>;
 }
 
@@ -151,9 +162,7 @@ export interface RunSummariesTable {
 	started_at: string;
 	finished_at: string;
 	prompt_mode: string;
-	fresh_edit: boolean;
 	app_ready: boolean;
-	cache_expired: boolean;
 	module_count: number;
 	step_count: number;
 	model: string;

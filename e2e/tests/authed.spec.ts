@@ -19,6 +19,9 @@ interface SeedManifest {
 	deleteAppName: string;
 	openAppId: string;
 	deleteAppIds: string[];
+	threadsAppId: string;
+	threadUserText: string;
+	threadAssistantText: string;
 }
 
 // Loaded in beforeAll, NOT at module scope: Playwright imports every spec to
@@ -111,6 +114,49 @@ test.describe("authenticated builder", () => {
 			page.getByRole("button", { name: "Collapse chat sidebar" }),
 		).toBeVisible({ timeout: 20_000 });
 		await expect(startBlank).toHaveCount(0);
+	});
+
+	test("a conversation hydrates on load, lists in Conversations, and survives New chat → reopen", async ({
+		page,
+	}) => {
+		await page.goto(`/build/${seed.threadsAppId}`);
+
+		// Docked chat — the app has a module, so the sidebar chrome mounts.
+		await expect(
+			page.getByRole("button", { name: "Collapse chat sidebar" }),
+		).toBeVisible({ timeout: 20_000 });
+
+		// The seeded transcript hydrated into the LIVE message path (server
+		// rows → RSC props → useChat initial messages), not a separate
+		// historical rendering.
+		await expect(page.getByText(seed.threadUserText)).toBeVisible();
+		await expect(page.getByText(seed.threadAssistantText)).toBeVisible();
+
+		// The Conversations list replaces the transcript and shows the thread
+		// row — summary is the first user text.
+		await page.getByRole("button", { name: "Conversations" }).click();
+		await expect(page.getByText("Initial build")).toBeVisible();
+		await expect(page.getByText(seed.threadAssistantText)).toHaveCount(0);
+
+		// Clicking the row reopens the conversation.
+		await page.getByText(seed.threadUserText).click();
+		await expect(page.getByText(seed.threadAssistantText)).toBeVisible({
+			timeout: 10_000,
+		});
+
+		// New chat starts fresh: transcript gone, edit-mode empty state shown.
+		await page.getByRole("button", { name: "New chat" }).click();
+		await expect(page.getByText(seed.threadAssistantText)).toHaveCount(0);
+		await expect(
+			page.getByText("What changes would you like to make?"),
+		).toBeVisible();
+
+		// The old conversation is one list-click away — nothing was lost.
+		await page.getByRole("button", { name: "Conversations" }).click();
+		await page.getByText(seed.threadUserText).click();
+		await expect(page.getByText(seed.threadAssistantText)).toBeVisible({
+			timeout: 10_000,
+		});
 	});
 
 	test("GET /api/auth/get-session returns the seeded user", async ({

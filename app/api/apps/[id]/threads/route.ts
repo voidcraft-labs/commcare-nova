@@ -1,7 +1,9 @@
 /**
- * Chat threads API — load conversation history for an app.
+ * Chat threads API — the conversation list for an app.
  *
- * GET /api/apps/{id}/threads — returns all threads ordered chronologically.
+ * GET /api/apps/{id}/threads — thread METAS (no transcripts), most recently
+ * active first. The thread switcher's list read; full transcripts load per
+ * thread via `/api/apps/{id}/threads/{threadId}`.
  *
  * Requires an authenticated session and Project membership (view) on the app,
  * via `resolveAppScope`.
@@ -10,7 +12,7 @@
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { resolveAppScope } from "@/lib/db/appAccess";
-import { loadThreads } from "@/lib/db/threads";
+import { listThreadMetas } from "@/lib/db/threads";
 
 export async function GET(
 	req: Request,
@@ -25,7 +27,7 @@ export async function GET(
 		 * in `handleApiError` (shared IDOR-safe not-found posture). */
 		await resolveAppScope(id, session.user.id, "view");
 
-		const threads = await loadThreads(id);
+		const threads = await listThreadMetas(id);
 		return Response.json({ threads });
 	} catch (err) {
 		return handleApiError(

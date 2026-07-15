@@ -61,6 +61,10 @@ const { appendStreamChunks } = await import("@/lib/db/streamChunks");
 const { __setListenerConfigForTests, closeStreamListener } = await import(
 	"@/lib/db/streamListener"
 );
+const { createApp } = await import("@/lib/db/apps");
+const { appendThreadResponse, upsertThreadTurn } = await import(
+	"@/lib/db/threads"
+);
 
 const USER = "user-1";
 const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "chat_tport_" });
@@ -193,10 +197,23 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		]);
 	});
 
-	it("performs a whole-stream replay (page-refresh shape) via reconnectToStream", async () => {
+	it("performs a whole-stream replay by THREAD id (page-refresh shape) via reconnectToStream", async () => {
+		/* The refresh-resume path end-to-end: `useChat`'s `resumeStream` calls
+		 * `reconnectToStream({chatId})` with the Chat instance's id — the
+		 * THREAD id — and the endpoint resolves the thread's live stream and
+		 * replays it whole. */
+		const appId = await createApp(USER, "project-1", "run-1");
+		await upsertThreadTurn({
+			appId,
+			threadId: "thread-1",
+			runId: "run-1",
+			streamId: STREAM_ID,
+			threadType: "build",
+			messages: [{ id: "m1", role: "user", parts: [] }],
+		});
 		await appendStreamChunks({
 			streamId: STREAM_ID,
-			appId: "app-1",
+			appId,
 			runId: "run-1",
 			firstIndex: 0,
 			chunks: FULL,
@@ -217,9 +234,9 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		});
 
 		// A cold reconnect with no prior POST in this transport instance —
-		// the chatId maps to the stream via the default `{api}/{chatId}/stream`.
+		// the chatId (= thread id) maps via the default `{api}/{chatId}/stream`.
 		const stream = await transport.reconnectToStream({
-			chatId: STREAM_ID,
+			chatId: "thread-1",
 			metadata: undefined,
 			headers: undefined,
 			body: undefined,
@@ -234,5 +251,56 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			received.push(value);
 		}
 		expect(received).toEqual(FULL);
+	});
+
+	it("resolves a thread with nothing in flight to a clean, terminating no-op", async () => {
+		/* The transport THROWS on any non-OK reconnect response, so "nothing
+		 * to resume" must be a 200 that terminates on its first chunk — this
+		 * pins that the real parser consumes it without erroring or looping. */
+		const appId = await createApp(USER, "project-1", "run-2");
+		await upsertThreadTurn({
+			appId,
+			threadId: "thread-2",
+			runId: "run-2",
+			streamId: "stream-idle",
+			threadType: "edit",
+			messages: [{ id: "m1", role: "user", parts: [] }],
+		});
+		await appendThreadResponse({
+			appId,
+			threadId: "thread-2",
+			streamId: "stream-idle",
+			responseMessage: null,
+		});
+
+		const routedFetch: typeof fetch = async (input) => {
+			const url = new URL(String(input), "http://localhost");
+			const streamId = url.pathname.split("/")[3];
+			return GET(new Request(url), {
+				params: Promise.resolve({ streamId }),
+			});
+		};
+
+		const transport = new WorkflowChatTransport({
+			api: "/api/chat",
+			fetch: routedFetch,
+		});
+
+		const stream = await transport.reconnectToStream({
+			chatId: "thread-2",
+			metadata: undefined,
+			headers: undefined,
+			body: undefined,
+		});
+		expect(stream).not.toBeNull();
+
+		const received: UIMessageChunk[] = [];
+		const reader = (stream as ReadableStream<UIMessageChunk>).getReader();
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			received.push(value);
+		}
+		expect(received).toEqual([{ type: "finish" }]);
 	});
 });

@@ -27,8 +27,9 @@ import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import {
 	reasoningProviderOptions,
 	SA_BUILD_MODEL,
+	SA_BUILD_REASONING,
 	SA_EDIT_MODEL,
-	SA_REASONING,
+	SA_EDIT_REASONING,
 } from "@/lib/models";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
@@ -384,8 +385,9 @@ export function createSolutionsArchitect(
 	// tool — the route finalizes a build when the run's drain ends.
 
 	const agent = new ToolLoopAgent({
-		// Build and edit run different tiers: a ground-up build gets the
-		// flagship model, an edit of an existing app the mid-tier one.
+		// Build and edit run the same model at different reasoning efforts:
+		// a ground-up build reasons at the ceiling, an edit of an existing
+		// app at medium (`SA_BUILD_REASONING` / `SA_EDIT_REASONING`).
 		model: ctx.model(editing ? SA_EDIT_MODEL : SA_BUILD_MODEL),
 		// The prompt summary is rendered from the current normalized doc
 		// when the app already exists. `buildSolutionsArchitectPrompt`
@@ -407,7 +409,9 @@ export function createSolutionsArchitect(
 			// cache option: OpenAI prompt caching is implicit (managed
 			// breakpoints, 30-min TTL).
 			return {
-				providerOptions: reasoningProviderOptions(SA_REASONING.effort),
+				providerOptions: reasoningProviderOptions(
+					(editing ? SA_EDIT_REASONING : SA_BUILD_REASONING).effort,
+				),
 			};
 		},
 		onStepEnd: (step) => {

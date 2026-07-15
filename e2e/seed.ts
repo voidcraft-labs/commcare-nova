@@ -25,13 +25,16 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { betterAuth } from "better-auth";
 import type { Pool } from "pg";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import {
 	closeCaseStoreDatabase,
 	getCaseStorePool,
 } from "@/lib/case-store/postgres/connection";
-import { createApp } from "@/lib/db/apps";
+import { appendSyntheticBatch, createApp } from "@/lib/db/apps";
+import { appendThreadResponse, upsertThreadTurn } from "@/lib/db/threads";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { DELETE_APP_COUNT } from "./lib/config";
 import { MP_SEED, seedMultiplayerFixture } from "./lib/multiplayerSeed";
 import { buildSessionStorageState } from "./lib/session";
@@ -43,6 +46,12 @@ export const SEED = {
 	userName: "Smoke Test User",
 	openAppName: "Smoke — Open Me",
 	deleteAppName: "Smoke — Delete Me",
+	/** Module-bearing app with a settled conversation — the smoke asserts the
+	 *  transcript hydrates into the docked chat on load, lists in the
+	 *  Conversations view, and survives a New chat → reopen round trip. */
+	threadsAppName: "Smoke — Conversations",
+	threadUserText: "Smoke: build a visit tracker",
+	threadAssistantText: "Smoke: the visit tracker is ready.",
 } as const;
 
 const AUTH_DIR = path.join(process.cwd(), "e2e", ".auth");
@@ -176,6 +185,73 @@ async function main(): Promise<void> {
 		appName: SEED.openAppName,
 		status: "complete",
 	});
+	/* The conversations fixture: a module-bearing app (docked chat — the
+	 * thread affordances live in the sidebar header) plus one settled
+	 * conversation written through the real thread store (turn upsert +
+	 * response append, live marker cleared) — exactly the rows a finished run
+	 * leaves. The builder must hydrate the transcript on load. */
+	const threadsAppId = await createApp(
+		SEED.userId,
+		seedProjectId,
+		randomUUID(),
+		{ appName: SEED.threadsAppName, status: "complete" },
+	);
+	await appendSyntheticBatch(
+		threadsAppId,
+		toPersistableDoc(
+			buildDoc({
+				appName: SEED.threadsAppName,
+				modules: [
+					{
+						uuid: "0f000000-0000-4000-8000-000000000001",
+						name: "Visits",
+						forms: [
+							{
+								uuid: "0f000000-0000-4000-8000-000000000002",
+								name: "Log visit",
+								type: "survey",
+								fields: [
+									f({
+										uuid: "0f000000-0000-4000-8000-000000000003",
+										kind: "text",
+										id: "visit_notes",
+										label: "Visit notes",
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+		),
+	);
+	const threadId = randomUUID();
+	const threadStreamId = randomUUID();
+	const written = await upsertThreadTurn({
+		appId: threadsAppId,
+		threadId,
+		runId: randomUUID(),
+		streamId: threadStreamId,
+		threadType: "build",
+		messages: [
+			{
+				id: "smoke-m1",
+				role: "user",
+				parts: [{ type: "text", text: SEED.threadUserText }],
+			},
+		],
+	});
+	if (!written) throw new Error("e2e/seed.ts: thread seed write failed");
+	await appendThreadResponse({
+		appId: threadsAppId,
+		threadId,
+		streamId: threadStreamId,
+		responseMessage: {
+			id: "smoke-m2",
+			role: "assistant",
+			parts: [{ type: "text", text: SEED.threadAssistantText }],
+		},
+	});
 	const deleteAppIds: string[] = [];
 	for (let i = 0; i < DELETE_APP_COUNT; i++) {
 		deleteAppIds.push(
@@ -193,7 +269,11 @@ async function main(): Promise<void> {
 	await writeFile(STATE_FILE, JSON.stringify(storageState, null, 2));
 	await writeFile(
 		SEED_FILE,
-		JSON.stringify({ ...SEED, openAppId, deleteAppIds, baseUrl }, null, 2),
+		JSON.stringify(
+			{ ...SEED, openAppId, deleteAppIds, threadsAppId, baseUrl },
+			null,
+			2,
+		),
 	);
 
 	// Two-user shared-Project fixture for the multiplayer acceptance spec —

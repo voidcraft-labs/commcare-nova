@@ -17,7 +17,7 @@ import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { loadApp } from "@/lib/db/apps";
 import { getAppDb } from "@/lib/db/pg";
-import { loadThreads } from "@/lib/db/threads";
+import { listThreadMetas, loadThread } from "@/lib/db/threads";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
 import { buildFieldTree, countFieldsUnder } from "@/lib/doc/fieldWalk";
@@ -368,12 +368,12 @@ async function main() {
 	}
 
 	/* ── Threads ──────────────────────────────────────────────────── */
-	const threads = await loadThreads(appId);
+	const threads = await listThreadMetas(appId);
 
 	if (threads.length > 0) {
 		/* Pre-fetch the per-run summary for every thread unconditionally. The
-		 * run_summaries row (keyed by run_id) carries prompt mode, app-ready
-		 * state, cache-expiry flag, and module count — rendered per thread
+		 * run_summaries row (keyed by the thread's LATEST run_id) carries
+		 * prompt mode, app-ready state, and module count — rendered per thread
 		 * below. Gating the fetch on `--threads` would silently hide the
 		 * "Run: ..." line in the default structure view. */
 		const runIds = threads
@@ -394,42 +394,38 @@ async function main() {
 		printSection("Chat Threads");
 
 		for (const t of threads) {
-			const msgCount = t.messages.length;
-			/* Threads are keyed by run_id (the generation session UUID), so it
-			 * doubles as the thread's stable id. */
 			console.log(
-				`  Thread ${t.run_id.slice(0, 8)}… (${t.thread_type}) — ${msgCount} messages`,
+				`  Thread ${t.thread_id.slice(0, 8)}… (${t.thread_type}) — ${t.message_count} messages${t.active_stream_id ? " [LIVE]" : ""}`,
 			);
 			console.log(`    Created:  ${t.created_at}`);
+			console.log(`    Updated:  ${t.updated_at}`);
 			console.log(`    Summary:  ${t.summary ?? ""}`);
-			console.log(`    Run ID:   ${t.run_id}`);
+			console.log(`    Last run: ${t.run_id}`);
 
 			const summary = summaryByRun.get(t.run_id);
 			if (summary) {
 				console.log(
-					`    Run:      prompt=${summary.promptMode} appReady=${summary.appReady} cacheExpired=${summary.cacheExpired} modules=${summary.moduleCount}`,
+					`    Run:      prompt=${summary.promptMode} appReady=${summary.appReady} modules=${summary.moduleCount}`,
 				);
 			} else {
 				console.log("    Run:      (no run summary doc for this run)");
 			}
 
-			/* Full message content when --threads is active. */
+			/* Full transcript when --threads is active. Messages are full
+			 * UIMessages; text parts print verbatim, everything else (tool
+			 * calls, reasoning, step markers) prints as a one-line tag. */
 			if (showThreads) {
-				const messages = t.messages ?? [];
-				for (const msg of messages) {
+				const full = await loadThread(appId, t.thread_id);
+				for (const msg of full?.messages ?? []) {
 					console.log();
 					console.log(`    [${msg.role}]`);
 					for (const part of msg.parts ?? []) {
-						if (part.type === "text") {
+						if (part.type === "text" && typeof part.text === "string") {
 							for (const line of part.text.split("\n")) {
 								console.log(`      ${line}`);
 							}
-						} else if (part.type === "askQuestions") {
-							console.log(`      askQuestions: "${part.header}"`);
-							for (const qa of part.questions ?? []) {
-								console.log(`        Q: ${qa.question}`);
-								console.log(`        A: ${qa.answer}`);
-							}
+						} else {
+							console.log(`      <${part.type}>`);
 						}
 					}
 				}
