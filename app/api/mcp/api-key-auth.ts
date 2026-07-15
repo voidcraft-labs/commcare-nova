@@ -190,7 +190,7 @@ export async function handleApiKeyMcp(
 	 * leak nothing — but the cleaner failure is a 401). */
 	const userId = verifiedKey.referenceId;
 	if (typeof userId !== "string" || !userId) {
-		log.error("[mcp/api-key] verified key has no referenceId", {
+		log.error("[mcp/api-key] verified key has no referenceId", undefined, {
 			keyId: verifiedKey.id,
 		});
 		return apiKeyUnauthorizedResponse("api key invalid");
@@ -229,12 +229,11 @@ export async function handleApiKeyMcp(
 	try {
 		active = await isUserActive(userId);
 	} catch (err) {
-		log.error("[mcp/api-key] user-status lookup failed", {
+		log.error("[mcp/api-key] user-status lookup failed", err, {
 			keyId: verifiedKey.id,
 			userId,
 			prefixSeen: key.slice(0, PREFIX_LOG_LENGTH),
 			ip: callerIpFromHeaders(req.headers),
-			err: err instanceof Error ? err.message : String(err),
 		});
 		return apiKeyUnauthorizedResponse("api key verify failed");
 	}

@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
 				warnings.push(
 					"Media upload could not be completed; the app was created but its media may not display.",
 				);
-				log.error("[commcare/upload] media bundle upload failed", {
+				log.error("[commcare/upload] media bundle upload failed", undefined, {
 					domain: body.domain,
 					appId: result.appId,
 					status: mediaResult.status,

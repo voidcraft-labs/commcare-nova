@@ -37,6 +37,10 @@ import {
 	CaseTypeNotInBlueprintError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
+// Leaf module for the same client-bundle reason as `errors` above:
+// the alias table is pure data (type-only imports), and the barrel
+// would drag the connection layer in.
+import { RESERVED_SCALAR_COLUMN_BY_PROPERTY } from "@/lib/case-store/sql/dataTypeTokens";
 import type { BlueprintDoc, Column } from "@/lib/domain";
 import { pickByKeys } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
@@ -102,11 +106,12 @@ export function pickBlueprintDoc<T extends BlueprintDoc>(
 }
 
 /**
- * Flatten a `CaseRow`'s JSONB document + `case_name` into the
- * `Map<string, string>` shape `useFormEngine` consumes as preload.
- * `case_name` folds into the map under its own key so the form
- * engine sees one source — mirrors the runtime path where the
- * term compiler reads it via `RESERVED_SCALAR_COLUMN_BY_PROPERTY`.
+ * Flatten a `CaseRow`'s JSONB document + reserved scalar columns into
+ * the `Map<string, string>` shape `useFormEngine` consumes as preload.
+ * The scalar columns fold in under their standard names (both spellings
+ * where CCHQ admits two) so the form engine sees one source — mirrors
+ * the runtime path where the term compiler reads them via
+ * `RESERVED_SCALAR_COLUMN_BY_PROPERTY`.
  *
  * `null` values become `""` — the form engine treats missing
  * case-data the same as empty, and JSONB `null` is the same
@@ -114,9 +119,31 @@ export function pickBlueprintDoc<T extends BlueprintDoc>(
  */
 export function caseRowToFormPreload(row: CaseRow): Map<string, string> {
 	const preload = new Map<string, string>();
-	preload.set("case_name", row.case_name);
 	for (const [key, value] of Object.entries(row.properties)) {
-		preload.set(key, jsonValueToString(value));
+		// Arrays are multi_select values, and the FORM value convention is
+		// space-separated tokens (`SelectMultiField` splits on " ";
+		// `coerceValueForProperty` splits on /\s+/ at submit) — a
+		// JSON.stringify'd array would match no option and round-trip back
+		// into the JSONB document as one garbage token. Non-array values
+		// keep the display coercion.
+		preload.set(
+			key,
+			Array.isArray(value)
+				? value.map(jsonValueToString).join(" ")
+				: jsonValueToString(value),
+		);
+	}
+	// The standard-name aliases every case carries implicitly, mirroring
+	// what the device's casedb exposes on a loaded `<case>` — so a form
+	// expression reading `#<type>/date_opened` or `#<type>/last_modified`
+	// resolves in preview exactly as it would on-device. The key set comes
+	// from the SQL compiler's own alias table and the values from
+	// `caseRowDisplayValue`, so the preload can't drift from how the same
+	// names query, filter, and display. Written LAST because the scalar
+	// columns shadow same-named JSONB keys, exactly as the device shadows
+	// them; `case_type` and `case_id` also resolve through the table.
+	for (const alias of RESERVED_SCALAR_COLUMN_BY_PROPERTY.keys()) {
+		preload.set(alias, caseRowDisplayValue(row, alias));
 	}
 	return preload;
 }

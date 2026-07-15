@@ -15,6 +15,19 @@ External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / 
 
 **One deliberate exception:** the connection layer's `getCaseStorePool()` (subpath `@/lib/case-store/postgres/connection`) is a runtime export the auth layer (`lib/auth.ts`, `lib/auth/db.ts`) imports so Better Auth runs on the SAME `pg.Pool` — one pool per instance is what keeps the connection budget (`enforceConnectionBudget`) intact. Do not route it through the barrel or "tidy" it back to tests-only; the pool-sharing the budget depends on is the reason it's exposed.
 
+## Creation stamps — every insert path sets `opened_on` + `modified_on`
+
+All three insert paths (`insert`, `insertWithChildren`, the package-private
+bulk path the sample generator rides) default `opened_on` AND `modified_on`
+to the insert's server time (`postgres/store.ts::creationStamps`), mirroring
+CommCare's case lifecycle — a device stamps `date_opened` and `last_modified`
+the moment a case is created, no sync involved. An explicit caller value
+wins. `update`/`close` re-stamp `modified_on`. Without this, the standard-name
+aliases read blank on freshly created rows in every case list, filter, and
+sort. Rows inserted before the stamps existed are backfilled by
+`scripts/scan-case-timestamps.ts` + `scripts/migrate-case-timestamps.ts`
+(creation time recovered from the UUIDv7 `case_id`).
+
 ## No preview mode — the running-app view shares the editor's rows
 
 The running-app view reads the SAME `cases` rows the editor

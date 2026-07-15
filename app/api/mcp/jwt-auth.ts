@@ -121,13 +121,13 @@ export const handleJwtMcp: (req: Request) => Promise<Response> = mcpHandler(
 		}
 		const clientId = typeof jwt.azp === "string" ? jwt.azp : undefined;
 		if (!clientId) {
-			log.error("[mcp] access token missing required `azp` claim", {
+			log.error("[mcp] access token missing required `azp` claim", undefined, {
 				sub: jwt.sub,
 			});
 			return jwtUnauthorizedResponse("missing client identity");
 		}
 		if (typeof jwt.iat !== "number" || !Number.isFinite(jwt.iat)) {
-			log.error("[mcp] access token missing required `iat` claim", {
+			log.error("[mcp] access token missing required `iat` claim", undefined, {
 				sub: jwt.sub,
 				clientId,
 			});

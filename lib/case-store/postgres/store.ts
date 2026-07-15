@@ -44,7 +44,13 @@
 import { createHash } from "node:crypto";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
-import { type Insertable, type Kysely, sql, type Transaction } from "kysely";
+import {
+	type Insertable,
+	type InsertObject,
+	type Kysely,
+	sql,
+	type Transaction,
+} from "kysely";
 import { v7 as uuidv7 } from "uuid";
 import type {
 	CaseProperty,
@@ -78,7 +84,6 @@ import {
 import type {
 	CaseIndicesTable,
 	CasesQuarantineTable,
-	CasesTable,
 	Database,
 	JsonObject,
 	JsonValue,
@@ -482,18 +487,19 @@ export class PostgresCaseStore implements CaseStore {
 			properties: propertiesObject,
 		});
 
-		// `properties` re-stringifies because `Insertable<CasesTable>`'s
-		// JSONB insert side is a JSON string for pg's JSONB cast. The
+		// `properties` re-stringifies because the `cases` table's JSONB
+		// insert side is a JSON string for pg's JSONB cast. The
 		// caller may pass either string or `JsonObject`; both converge
 		// through `parseJsonbInput` and stringify back to wire form
 		// here. Without this, a `JsonObject` caller silently writes
 		// `[object Object]` (pg's parameter binder calls `String(value)`
 		// on non-string inputs to a text-cast slot).
-		const insertRow: Insertable<CasesTable> = {
+		const insertRow: InsertObject<Database, "cases"> = {
 			...args.row,
 			app_id: args.appId,
 			project_id: this.requireProjectId(),
 			owner_id: this.requireActorUserId(),
+			...creationStamps(args.row),
 			properties: JSON.stringify(propertiesObject),
 		};
 
@@ -577,12 +583,13 @@ export class PostgresCaseStore implements CaseStore {
 
 			// Insert the primary row. With an explicit `case_id` the
 			// `RETURNING` round-trip is unnecessary.
-			const primaryRow: Insertable<CasesTable> = {
+			const primaryRow: InsertObject<Database, "cases"> = {
 				...args.primary,
 				case_id: primaryCaseId,
 				app_id: args.appId,
 				project_id: this.requireProjectId(),
 				owner_id: this.requireActorUserId(),
+				...creationStamps(args.primary),
 				properties: JSON.stringify(primaryProperties),
 			};
 			await trx.insertInto("cases").values(primaryRow).execute();
@@ -730,22 +737,29 @@ export class PostgresCaseStore implements CaseStore {
 
 		const validator = await this.getValidator(args.appId, caseType, trx);
 
-		const insertRows: Insertable<CasesTable>[] = args.rows.map((row, index) => {
-			const propertiesObject = parseJsonbInput(row.properties);
-			const ok = validator(propertiesObject);
-			if (!ok) {
-				const failures = (validator.errors ?? []).map(ajvErrorToCaseFailure);
-				throw new CasePropertiesValidationError(args.appId, caseType, failures);
-			}
-			return {
-				...row,
-				case_id: caseIds[index],
-				app_id: args.appId,
-				project_id: this.requireProjectId(),
-				owner_id: this.requireActorUserId(),
-				properties: JSON.stringify(propertiesObject),
-			};
-		});
+		const insertRows: InsertObject<Database, "cases">[] = args.rows.map(
+			(row, index) => {
+				const propertiesObject = parseJsonbInput(row.properties);
+				const ok = validator(propertiesObject);
+				if (!ok) {
+					const failures = (validator.errors ?? []).map(ajvErrorToCaseFailure);
+					throw new CasePropertiesValidationError(
+						args.appId,
+						caseType,
+						failures,
+					);
+				}
+				return {
+					...row,
+					case_id: caseIds[index],
+					app_id: args.appId,
+					project_id: this.requireProjectId(),
+					owner_id: this.requireActorUserId(),
+					...creationStamps(row),
+					properties: JSON.stringify(propertiesObject),
+				};
+			},
+		);
 
 		// Cases first so derived edges' `ancestor_id` references can
 		// resolve. No FK constraint declared, so the order is
@@ -1775,6 +1789,28 @@ export class PostgresCaseStore implements CaseStore {
 function stripTenantKey<T extends object>(row: T): Omit<T, "project_id"> {
 	const { project_id: _omit, ...rest } = row as T & { project_id?: unknown };
 	return rest as Omit<T, "project_id">;
+}
+
+/**
+ * The creation-time stamps every INSERT carries unless the caller supplied
+ * its own values: `opened_on` and `modified_on` both default to the insert's
+ * server time. This mirrors CommCare's own case lifecycle — a device sets
+ * `date_opened` AND `last_modified` the moment a case is created
+ * (`commcare-core .../cases/model/Case.java` constructor), and the casedb
+ * exposes both locally with no sync involved — so the standard-name aliases
+ * (`date_opened` → `opened_on`, `last_modified` → `modified_on`) resolve to
+ * real values on a freshly registered case, exactly as they would on a
+ * device. `update`/`close` keep re-stamping `modified_on` on every write.
+ * `?? sql\`now()\`` (not spread-if-present) so an explicit caller value —
+ * a future importer carrying device timestamps — always wins.
+ */
+function creationStamps(
+	row: CaseInsert,
+): Pick<InsertObject<Database, "cases">, "opened_on" | "modified_on"> {
+	return {
+		opened_on: row.opened_on ?? sql<Date>`now()`,
+		modified_on: row.modified_on ?? sql<Date>`now()`,
+	};
 }
 
 /**

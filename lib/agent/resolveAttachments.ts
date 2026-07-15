@@ -219,10 +219,9 @@ export async function resolveAttachments(
 	try {
 		records = await loadAssetsByIds([...ids], projectId);
 	} catch (err) {
-		log.error("[resolveAttachments] batch asset load failed", {
+		log.error("[resolveAttachments] batch asset load failed", err, {
 			projectId,
 			count: ids.size,
-			err,
 		});
 	}
 	const assetById = new Map<AssetId, MediaAssetRecord>(

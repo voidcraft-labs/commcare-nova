@@ -33,6 +33,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import {
+	CASE_LOADING_FORM_TYPES,
 	casePropertyDataTypes,
 	expressionSource,
 	type XPathPrintableDoc,
@@ -125,7 +126,10 @@ export class FormEngine {
 		this.instance = new DataInstance();
 		this.instance.initFromFields(this.tree);
 
-		if (input.form.type === "followup" && this.caseData.size > 0) {
+		if (
+			CASE_LOADING_FORM_TYPES.has(input.form.type) &&
+			this.caseData.size > 0
+		) {
 			this.preloadCaseData(this.tree);
 		}
 
@@ -788,7 +792,7 @@ export class FormEngine {
 
 		/* Re-preload case data for followup forms. Track which paths changed. */
 		const changedPaths: string[] = [];
-		if (input.form.type === "followup" && caseData.size > 0) {
+		if (CASE_LOADING_FORM_TYPES.has(input.form.type) && caseData.size > 0) {
 			this.preloadCaseDataTracked(this.tree, changedPaths);
 		}
 
@@ -854,7 +858,10 @@ export class FormEngine {
 		this.instance = new DataInstance();
 		this.instance.initFromFields(this.tree);
 
-		if (input.form.type === "followup" && this.caseData.size > 0) {
+		if (
+			CASE_LOADING_FORM_TYPES.has(input.form.type) &&
+			this.caseData.size > 0
+		) {
 			this.preloadCaseData(this.tree);
 		}
 
@@ -901,7 +908,7 @@ export class FormEngine {
 		this.instance = new DataInstance();
 		this.instance.initFromFields(this.tree);
 
-		if (this.formType === "followup" && this.caseData.size > 0) {
+		if (isCaseLoadingFormType(this.formType) && this.caseData.size > 0) {
 			this.preloadCaseData(this.tree);
 		}
 
@@ -1242,10 +1249,6 @@ export class FormEngine {
 					const fieldId = ref.slice(6);
 					return this.instance.get(`/data/${fieldId}`) ?? "";
 				}
-				if (ref.startsWith("#case/")) {
-					const prop = ref.slice(6);
-					return this.caseData.get(prop) ?? "";
-				}
 				if (ref.startsWith("#user/")) {
 					const prop = ref.slice(6);
 					const userDefaults: Record<string, string> = {
@@ -1255,6 +1258,28 @@ export class FormEngine {
 						phone_number: "+1234567890",
 					};
 					return userDefaults[prop] ?? `[user:${prop}]`;
+				}
+				// Case references. The authoring vocabulary is per-case-type —
+				// `#<case_type>/<prop>` (printXPath's `case-ref` spelling) — where
+				// the form's OWN module case type addresses the loaded case
+				// (wire depth 0). The transitional `#case/<prop>` spelling reads
+				// the same loaded case. Both resolve against `caseData`, the
+				// loaded case's property map; on a registration form the map is
+				// empty and every case ref reads blank, matching the wire's
+				// narrowing (the new case isn't in casedb at form init).
+				//
+				// ANCESTOR refs (`#<parent_type>/<prop>`, wire depth ≥ 1) resolve
+				// blank here: the running-app view threads only the bound case's
+				// row into the engine today, so there is no ancestor data to read.
+				// Threading the parent chain through `caseDataBinding` is the
+				// missing piece — until then this is the one divergence from the
+				// wire's `reachableCaseTypes` semantics.
+				const match = /^#([^/]+)\/(.+)$/.exec(ref);
+				if (
+					match &&
+					(match[1] === "case" || match[1] === this.moduleCaseType)
+				) {
+					return this.caseData.get(match[2] ?? "") ?? "";
 				}
 				return "";
 			},
@@ -1315,6 +1340,12 @@ interface ChildBucket {
 function readCasePropertyOn(field: Field): string | undefined {
 	const value = (field as unknown as Record<string, unknown>).case_property_on;
 	return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** String-typed membership check for the engine's `formType` slot (the
+ *  constructor keeps it as `string`), widening the domain set once. */
+function isCaseLoadingFormType(formType: string): boolean {
+	return (CASE_LOADING_FORM_TYPES as ReadonlySet<string>).has(formType);
 }
 
 /**

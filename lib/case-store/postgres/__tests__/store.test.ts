@@ -1750,6 +1750,114 @@ describe("PostgresCaseStore — bulk-insert rollback semantics", () => {
 });
 
 // ---------------------------------------------------------------
+// Creation stamps — `opened_on` / `modified_on` on every insert path
+// ---------------------------------------------------------------
+//
+// CommCare sets a case's `date_opened` AND `last_modified` at creation
+// on-device (`Case.java`'s constructor), and the casedb exposes both
+// with no sync involved — so the standard-name aliases must read real
+// values the moment a row lands, on every insert path. A regression
+// here shows up to users as a blank "Last Modified" / "Date Opened"
+// column for freshly registered cases.
+
+describe("PostgresCaseStore — creation stamps", () => {
+	const caseType: CaseType = {
+		name: "patient",
+		properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+	};
+
+	it("stamps opened_on and modified_on on per-row insert", async () => {
+		const store = makeStore(OWNER_A);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildSchemaMap(caseType),
+		});
+
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_type: "patient",
+				case_name: "Mary",
+				status: "open",
+				properties: {},
+			},
+		});
+
+		const [row] = await store.query({ appId: APP_ID, caseType: "patient" });
+		expect(row?.opened_on).toBeInstanceOf(Date);
+		expect(row?.modified_on).toBeInstanceOf(Date);
+	});
+
+	it("stamps every row of a registration insert (primary + children)", async () => {
+		const childType: CaseType = {
+			name: "medication_order",
+			properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+		};
+		const schemas = buildCaseTypeMap(
+			buildSimpleBlueprint([caseType, childType], APP_ID),
+		);
+		const store = makeStore(OWNER_A);
+		for (const name of ["patient", "medication_order"]) {
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: name,
+				caseTypeSchemas: schemas,
+			});
+		}
+
+		await store.insertWithChildren({
+			appId: APP_ID,
+			primary: {
+				case_type: "patient",
+				case_name: "Mary",
+				status: "open",
+				properties: {},
+			},
+			children: [
+				{
+					case_type: "medication_order",
+					case_name: "Rifampin",
+					status: "open",
+					properties: {},
+				},
+			],
+		});
+
+		for (const name of ["patient", "medication_order"]) {
+			const [row] = await store.query({ appId: APP_ID, caseType: name });
+			expect(row?.opened_on).toBeInstanceOf(Date);
+			expect(row?.modified_on).toBeInstanceOf(Date);
+		}
+	});
+
+	it("an explicit caller-supplied timestamp wins over the stamp", async () => {
+		const store = makeStore(OWNER_A);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildSchemaMap(caseType),
+		});
+
+		const supplied = new Date("2025-03-01T12:00:00Z");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_type: "patient",
+				case_name: "Imported",
+				status: "open",
+				opened_on: supplied,
+				properties: {},
+			},
+		});
+
+		const [row] = await store.query({ appId: APP_ID, caseType: "patient" });
+		expect(row?.opened_on?.toISOString()).toBe(supplied.toISOString());
+		expect(row?.modified_on).toBeInstanceOf(Date);
+	});
+});
+
+// ---------------------------------------------------------------
 // `resetSampleData` — atomic delete + regenerate
 // ---------------------------------------------------------------
 //

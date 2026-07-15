@@ -94,6 +94,39 @@ describe("XPath evaluator", () => {
 			expect(evaluate("3 >= 3", makeCtx())).toBe(true);
 			expect(evaluate("2 <= 3", makeCtx())).toBe(true);
 		});
+
+		it("date strings compare against today() (JavaRosa's toNumeric date fallback)", () => {
+			// A date field's instance value is the ISO string — the natural
+			// authored rule `. <= today()` must accept a past date, exactly
+			// as it does on-device.
+			expect(evaluate('"2000-05-01" <= today()', makeCtx())).toBe(true);
+			expect(evaluate('"2099-01-01" <= today()', makeCtx())).toBe(false);
+			expect(evaluate('today() >= "2000-05-01"', makeCtx())).toBe(true);
+		});
+
+		it("ISO datetime strings compare (the date_opened/last_modified preload shape)", () => {
+			// The standard-property preloads carry full timestamps; on-device
+			// these are typed dates, so preview must reach the same
+			// day-number instead of NaN-failing at the character gate.
+			expect(evaluate('"2000-05-01T21:31:18.377Z" <= today()', makeCtx())).toBe(
+				true,
+			);
+			expect(evaluate('"2099-01-01T00:00:00Z" <= today()', makeCtx())).toBe(
+				false,
+			);
+		});
+
+		it("non-padded date literals compare (JavaRosa parses '1900-1-1')", () => {
+			// DateUtils.parseDate Integer.parseInt's dash-split pieces, so a
+			// non-padded authored literal is legal on-device.
+			expect(evaluate('"2000-05-01" >= "1900-1-1"', makeCtx())).toBe(true);
+			expect(evaluate('"1899-12-31" >= "1900-1-1"', makeCtx())).toBe(false);
+		});
+
+		it("non-numeric non-date strings compare as NaN (always false)", () => {
+			expect(evaluate('"banana" <= today()', makeCtx())).toBe(false);
+			expect(evaluate('"banana" > today()', makeCtx())).toBe(false);
+		});
 	});
 
 	describe("logical", () => {

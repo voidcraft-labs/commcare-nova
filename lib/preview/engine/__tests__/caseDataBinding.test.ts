@@ -1054,9 +1054,21 @@ describe("caseRowToFormPreload", () => {
 		if (result.kind !== "row") throw new Error("expected row");
 
 		const preload = caseRowToFormPreload(result.row);
-		expect(preload.get("name")).toBe("Alice");
+		// `name` is a reserved standard alias for `case_name` — the scalar
+		// column SHADOWS the same-named JSONB key, exactly as the SQL term
+		// compiler resolves it (`RESERVED_SCALAR_COLUMN_BY_PROPERTY`) and
+		// as the device's casedb shadows it.
+		expect(preload.get("name")).toBe("test-case");
+		expect(preload.get("case_name")).toBe("test-case");
 		// Numbers stringify via String() — `30` becomes `"30"`.
 		expect(preload.get("age")).toBe("30");
+		// The reserved scalar columns ride the preload under their
+		// standard names, so form expressions can read them like casedb.
+		expect(preload.get("case_id")).toBe(ALICE_CASE_ID);
+		expect(preload.get("status")).toBe("open");
+		// Creation-stamped at insert — reads as an ISO timestamp string.
+		expect(preload.get("date_opened")).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+		expect(preload.get("last_modified")).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 	});
 
 	it("coerces every JsonValue branch to its string form", () => {
@@ -1078,10 +1090,12 @@ describe("caseRowToFormPreload", () => {
 		// `null` collapses to the empty string — the form engine
 		// treats absent and empty as the same domain state.
 		expect(preload.get("null_prop")).toBe("");
-		// Arrays + objects round-trip through JSON.stringify so
-		// downstream inspectors (calculate fields, agent debug
-		// views) can parse them back.
-		expect(preload.get("array_prop")).toBe('["a","b"]');
+		// Arrays are multi_select values and preload in the FORM value
+		// convention — space-separated tokens (`SelectMultiField` splits
+		// on " ", and submit's coerceValueForProperty splits on /\s+/) —
+		// so the stored selections round-trip: options render checked and
+		// an untouched submit writes the same array back.
+		expect(preload.get("array_prop")).toBe("a b");
 		expect(preload.get("object_prop")).toBe('{"nested":"value"}');
 	});
 });
