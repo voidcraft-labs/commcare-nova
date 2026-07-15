@@ -178,10 +178,8 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci
-      # next build resolves the fumadocs `@/.source/server` import; this
-      # generates it first, the same way the typecheck script does before tsc.
-      - name: Generate fumadocs sources
-        run: npx fumadocs-mdx
+      # `npm ci` above runs the `postinstall: fumadocs-mdx` step, which
+      # materializes the gitignored `.source/` that `next build` imports.
       - name: Build
         run: npm run build
 
