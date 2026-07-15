@@ -9,7 +9,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import { motion } from "motion/react";
-import { useCallback, useRef, useState } from "react";
+import { useRef } from "react";
 import {
 	useAgentError,
 	useAgentStage,
@@ -62,12 +62,9 @@ function getStageStatus(
 	return "pending";
 }
 
-/** Map generation stage to its display stage index (0-based, + stageCount for Done). */
-function getStageIndex(
-	stage: GenerationStage | null,
-	stageCount: number,
-): number {
-	if (!stage) return stageCount;
+/** Map a generation stage to its zero-based position in the visible stepper. */
+function getStageIndex(stage: GenerationStage | null): number {
+	if (!stage) return 0;
 	const map: Record<string, number> = {
 		[GenerationStage.Foundation]: 0,
 		[GenerationStage.Build]: 1,
@@ -75,6 +72,14 @@ function getStageIndex(
 		[GenerationStage.Fix]: 2,
 	};
 	return map[stage] ?? 0;
+}
+
+/** Progress through the visible milestones plus their terminal Done position. */
+export function generationProgressPercent(
+	stage: GenerationStage | null,
+	displayStageCount: number,
+): number {
+	return ((getStageIndex(stage) + 1) / (displayStageCount + 1)) * 100;
 }
 
 export function GenerationProgress() {
@@ -99,82 +104,23 @@ export function GenerationProgress() {
 				]
 			: baseStages;
 
-	// Refs for measuring label centers
-	const containerRef = useRef<HTMLDivElement>(null);
-	const barElRef = useRef<HTMLDivElement>(null);
-	const labelRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-	const [labelCenters, setLabelCenters] = useState<number[]>([]);
-
-	const setLabelRef = useCallback(
-		(idx: number) => (el: HTMLDivElement | null) => {
-			if (el) labelRefs.current.set(idx, el);
-			else labelRefs.current.delete(idx);
-		},
-		[],
+	/* Progress is the current visible position out of every visible position,
+	 * including Done. It must not depend on where a label happened to render. */
+	const pct = generationProgressPercent(
+		isError ? lastActiveStageRef.current : stage,
+		displayStages.length,
 	);
-
-	// Measure label centers via ref callback + ResizeObserver.
-	// The ResizeObserver is tracked in a ref so it can be disconnected when the
-	// callback identity changes (useCallback deps shift when Fix stage appears).
-	// Without this, the null call from the old callback would skip cleanup.
-	const roRef = useRef<ResizeObserver | null>(null);
-	const barRefCallback = useCallback(
-		(el: HTMLDivElement | null) => {
-			roRef.current?.disconnect();
-			roRef.current = null;
-			barElRef.current = el;
-			if (!el) return;
-
-			const measure = () => {
-				const barRect = el.getBoundingClientRect();
-				if (barRect.width === 0) return;
-				const totalLabels = displayStages.length + 1; // stages + Done
-				const centers: number[] = [];
-				for (let i = 0; i < totalLabels; i++) {
-					const labelEl = labelRefs.current.get(i);
-					if (labelEl) {
-						const r = labelEl.getBoundingClientRect();
-						const centerX = r.left + r.width / 2 - barRect.left;
-						centers[i] = (centerX / barRect.width) * 100;
-					}
-				}
-				setLabelCenters(centers);
-			};
-
-			measure();
-			const ro = new ResizeObserver(measure);
-			ro.observe(el);
-			roRef.current = ro;
-			return () => {
-				ro.disconnect();
-				roRef.current = null;
-			};
-		},
-		[displayStages.length],
-	);
-
-	// Compute progress bar width — snap to the measured center of the active stage.
-	// On error, use the last active stage so the bar freezes at the point of failure.
-	let pct = 0;
-	if (labelCenters.length > 0) {
-		const stageIdx = getStageIndex(
-			isError ? lastActiveStageRef.current : stage,
-			displayStages.length,
-		);
-		pct = labelCenters[stageIdx] ?? 0;
-	}
 
 	return (
 		<motion.div
 			layout
 			layoutId="generation-progress"
-			ref={containerRef}
 			transition={{ layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }}
 			className="relative rounded-xl shadow-lg backdrop-blur-sm border border-nova-violet/30 bg-nova-surface/90 px-8 py-5 shadow-nova-violet/10 min-w-[400px]"
 		>
 			{/* Stage indicators */}
-			<div className="flex items-center gap-3">
-				{displayStages.map((displayStage, i) => {
+			<div className="flex items-center justify-between gap-3">
+				{displayStages.map((displayStage) => {
 					// On error, compute status from the last active stage, then mark the active one as 'error'
 					let status: StageStatus;
 					if (isError) {
@@ -225,7 +171,7 @@ export function GenerationProgress() {
 										className="inline-block w-2 h-2 rounded-full bg-nova-rose"
 									/>
 								)}
-								<span ref={setLabelRef(i)}>{displayStage.label}</span>
+								<span>{displayStage.label}</span>
 							</div>
 							<span
 								className={`text-sm transition-colors duration-300 ${
@@ -242,15 +188,12 @@ export function GenerationProgress() {
 
 				{/* Done — terminal label, never active while card is mounted */}
 				<div className="flex items-center gap-1.5 text-sm font-medium text-nova-text-muted">
-					<span ref={setLabelRef(displayStages.length)}>Done</span>
+					<span>Done</span>
 				</div>
 			</div>
 
 			{/* Progress bar */}
-			<div
-				ref={barRefCallback}
-				className="mt-3 h-[3px] rounded-full bg-nova-surface overflow-hidden"
-			>
+			<div className="mt-3 h-[3px] overflow-hidden rounded-full bg-nova-surface">
 				<motion.div
 					className="h-full rounded-full"
 					style={{
