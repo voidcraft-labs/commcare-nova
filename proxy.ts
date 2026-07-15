@@ -366,13 +366,16 @@ export function proxy(request: NextRequest): NextResponse {
 	 * short-circuit and page handling. We do not want platform-level
 	 * requests to 404, but we also do not want them to bypass auth.
 	 *
-	 * Dev affordance: when working locally without setting up the docs
-	 * subdomain, let `/docs` paths render the docs without an auth
-	 * redirect. Production never reaches this branch for `/docs` because
-	 * the main host's allowlist excludes `/docs` (it is docs-host only). */
+	 * Dev affordances: let `/docs` render without a local docs subdomain, and
+	 * expose the interactive generation-progress visual harness. Both remain
+	 * authenticated/host-gated outside development; the dev-only route-group
+	 * layout also returns 404 for the harness in production builds. */
 	if (isDev && (pathname === "/docs" || pathname.startsWith("/docs/"))) {
 		/* Same HTML shape as the production docs response, so attach CSP
 		 * here too — keeps dev preview faithful to prod headers. */
+		return attachCsp(requestHeaders, { type: "next" }, isDev);
+	}
+	if (isDev && pathname === "/progress-test") {
 		return attachCsp(requestHeaders, { type: "next" }, isDev);
 	}
 

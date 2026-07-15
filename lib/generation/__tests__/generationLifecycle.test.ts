@@ -395,15 +395,22 @@ describe("generation lifecycle (end-to-end)", () => {
 
 		// ── Post-build edit: new run opens on an app with data ──
 		s().beginRun();
-		/* Buffer has been cleared by beginRun; no schema/scaffold events yet
-		 * in this new run → no build foundation → phase stays Ready
-		 * (suppresses Generating) even once edit-tool mutations land. */
+		/* The run started with an existing document, so it stays Ready even
+		 * when edit tools reuse the same Foundation/Build tags as initial
+		 * generation. The discriminator is runStartedWithData, not tag absence. */
 		expect(derivePhaseLocal(sessionStore, docStore)).toBe(BuilderPhase.Ready);
 
-		// Edit-tool mutation — `updateForm` emits `form:M-F` stage. This
-		// stage tag matches initial-build `addQuestions`, but with no
-		// schema/scaffold foundation in the buffer, derivePhase stays
-		// Ready.
+		// `updateApp` emits the Foundation-stage `app` tag during an edit run.
+		emitMutations(
+			[{ kind: "setAppName", name: "Edited app" }],
+			"app",
+			docStore,
+			sessionStore,
+		);
+		expect(docStore.getState().appName).toBe("Edited app");
+		expect(derivePhaseLocal(sessionStore, docStore)).toBe(BuilderPhase.Ready);
+
+		// `updateForm` likewise reuses the Build-stage `form:M-F` tag.
 		emitMutations(
 			[
 				{

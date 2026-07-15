@@ -8,14 +8,12 @@ import {
 } from "../GenerationProgress";
 
 describe("GenerationProgressCard", () => {
-	it("uses every visible position, including Done, as its denominator", () => {
-		expect(
-			generationProgressPercent(GenerationStage.Foundation, 3),
-		).toBeCloseTo(100 / 3);
-		expect(generationProgressPercent(GenerationStage.Build, 3)).toBeCloseTo(
+	it("aligns progress with phase anchors spanning the full-width track", () => {
+		expect(generationProgressPercent(GenerationStage.Foundation, 3)).toBe(0);
+		expect(generationProgressPercent(GenerationStage.Build, 3)).toBe(50);
+		expect(generationProgressPercent(GenerationStage.Fix, 4)).toBeCloseTo(
 			200 / 3,
 		);
-		expect(generationProgressPercent(GenerationStage.Fix, 4)).toBe(75);
 	});
 
 	it("renders the current two milestones plus Done", () => {
@@ -40,7 +38,7 @@ describe("GenerationProgressCard", () => {
 					.getByRole("progressbar", { name: "App generation progress" })
 					.getAttribute("aria-valuenow"),
 			),
-		).toBeCloseTo(100 / 3);
+		).toBe(0);
 		expect(
 			screen
 				.getByText("Set Up")
@@ -101,10 +99,39 @@ describe("GenerationProgressCard", () => {
 			container.querySelectorAll("[data-progress-connector]"),
 		).toHaveLength(3);
 		expect(
-			screen
-				.getByRole("progressbar", { name: "App generation progress" })
-				.getAttribute("aria-valuenow"),
-		).toBe("75");
+			Number(
+				screen
+					.getByRole("progressbar", { name: "App generation progress" })
+					.getAttribute("aria-valuenow"),
+			),
+		).toBeCloseTo(200 / 3);
 		expect(screen.getByText("Could not repair app")).toBeTruthy();
+	});
+
+	it("keeps the error height region mounted while it collapses after recovery", () => {
+		const { container, rerender } = render(
+			<GenerationProgressCard
+				stage={GenerationStage.Build}
+				generationError={{ message: "Build failed", severity: "failed" }}
+				statusMessage="Build failed"
+			/>,
+		);
+		const errorRegion = container.querySelector(
+			"[data-generation-error-region]",
+		);
+		expect(errorRegion?.getAttribute("aria-hidden")).toBe("false");
+
+		rerender(
+			<GenerationProgressCard
+				stage={GenerationStage.Fix}
+				generationError={null}
+				statusMessage=""
+			/>,
+		);
+
+		expect(container.querySelector("[data-generation-error-region]")).toBe(
+			errorRegion,
+		);
+		expect(errorRegion?.getAttribute("aria-hidden")).toBe("true");
 	});
 });

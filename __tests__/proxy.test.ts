@@ -469,13 +469,11 @@ describe("proxy: /warmup stays probe-only on the custom domains", () => {
 });
 
 /**
- * The dev-mode `/docs` bypass on unknown hosts is the one branch in the proxy
- * whose behavior depends on `NODE_ENV`. The test framework runs with
- * `NODE_ENV === "test"`, so without `vi.stubEnv` the branch is silently
- * unreachable from any of the other tests — and a future regression that
- * flipped the gate (e.g. `!isProd`, an inverted env check) would not show
- * up in CI. The two specs below pin both halves of the gate: dev grants
- * passthrough, production redirects.
+ * The dev-mode internal-page bypasses on unknown hosts depend on `NODE_ENV`.
+ * The test framework runs with `NODE_ENV === "test"`, so without `vi.stubEnv`
+ * those branches are silently unreachable from the other tests — and a future
+ * inverted environment check would not show up in CI. The specs below pin both
+ * halves of the gate: development grants passthrough, production redirects.
  *
  * The bypass is needed locally because `localhost:3000` doesn't classify
  * as the docs hostname, so the docs-host rewrite branch never fires; the
@@ -483,7 +481,7 @@ describe("proxy: /warmup stays probe-only on the custom domains", () => {
  * `/docs/<...>` route directly without setting up `docs.commcare.app`
  * against their loopback.
  */
-describe("proxy: dev-mode /docs bypass on unknown hosts", () => {
+describe("proxy: dev-mode internal-page bypasses on unknown hosts", () => {
 	beforeEach(() => {
 		vi.stubEnv("NODE_ENV", "development");
 	});
@@ -504,9 +502,16 @@ describe("proxy: dev-mode /docs bypass on unknown hosts", () => {
 		expect(res.status).not.toBe(307);
 		expect(res.headers.get("x-middleware-rewrite")).toBeNull();
 	});
+
+	it("passes the progress preview through with CSP on localhost", () => {
+		const res = proxy(req("localhost:3000", "/progress-test"));
+		expectPassthrough(res);
+		expect(res.status).not.toBe(307);
+		expect(res.headers.get("content-security-policy")).not.toBeNull();
+	});
 });
 
-describe("proxy: dev-mode /docs bypass does NOT fire in production", () => {
+describe("proxy: dev-mode internal-page bypasses do NOT fire in production", () => {
 	beforeEach(() => {
 		vi.stubEnv("NODE_ENV", "production");
 	});
@@ -522,6 +527,11 @@ describe("proxy: dev-mode /docs bypass does NOT fire in production", () => {
 		 * the dev-only condition has regressed and is now leaking into
 		 * production. */
 		const res = proxy(req("nova-abc-uc.a.run.app", "/docs"));
+		expectAuthRedirect(res);
+	});
+
+	it("does not bypass auth for the progress preview in production", () => {
+		const res = proxy(req("nova-abc-uc.a.run.app", "/progress-test"));
 		expectAuthRedirect(res);
 	});
 });

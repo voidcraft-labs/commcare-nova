@@ -9,7 +9,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import { motion } from "motion/react";
-import { Fragment, useRef } from "react";
+import { useRef } from "react";
 import {
 	useAgentError,
 	useAgentStage,
@@ -54,13 +54,14 @@ function getStageIndex(stage: GenerationStage | null): number {
 	return map[stage];
 }
 
-/** Progress is one completed position out of every visible position, including
- *  the terminal Done position. The bar remains a single continuous track. */
+/** Align the fill endpoint to the current phase anchor. The first and last
+ *  anchors sit on the full-width track's endpoints. */
 export function generationProgressPercent(
 	stage: GenerationStage | null,
 	visiblePositionCount: number,
 ): number {
-	return ((getStageIndex(stage) + 1) / visiblePositionCount) * 100;
+	if (visiblePositionCount <= 1) return 0;
+	return (getStageIndex(stage) / (visiblePositionCount - 1)) * 100;
 }
 
 /** Determine the status of a display stage relative to the current generation stage. */
@@ -110,11 +111,16 @@ export function GenerationProgressCard({
 	statusMessage,
 }: GenerationProgressCardProps) {
 	const isError = generationError !== null;
+	const showErrorMessage = isError && Boolean(statusMessage);
 
 	// Track the last active stage so we can show which step failed on error
 	const lastActiveStageRef = useRef(stage);
 	if (stage !== null) {
 		lastActiveStageRef.current = stage;
+	}
+	const lastErrorMessageRef = useRef(statusMessage);
+	if (showErrorMessage) {
+		lastErrorMessageRef.current = statusMessage;
 	}
 
 	// Only show Fix stage if we've reached it
@@ -146,47 +152,49 @@ export function GenerationProgressCard({
 		}
 		return getStageStatus(displayStage.stages, stage);
 	});
-	const labelGridColumns = visibleStages
-		.map((_, index) => (index === 0 ? "auto" : "minmax(0, 1fr) auto"))
-		.join(" ");
-
 	return (
-		<motion.div
-			layout
-			layoutId="generation-progress"
-			transition={{ layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }}
+		<div
+			data-generation-progress-card=""
 			className="relative rounded-xl shadow-lg backdrop-blur-sm border border-nova-violet/30 bg-nova-surface/90 px-8 py-5 shadow-nova-violet/10 min-w-[400px]"
 		>
-			{/* Labels occupy the milestone positions; each CSS connector spans the
-			    flexible space between neighboring labels. */}
+			{/* Zero-width anchors are distributed from edge to edge, so the first and
+			    last phase centers match the full-width progress track below. Connector
+			    segments are CSS rules inset around each label. */}
 			<div
-				className="grid items-center"
-				style={{ gridTemplateColumns: labelGridColumns }}
+				data-generation-stage-row=""
+				className="relative mx-auto flex h-5 w-[90%] items-center justify-between"
 			>
+				<div
+					aria-hidden="true"
+					className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2"
+				>
+					{visibleStages.slice(0, -1).map((displayStage, index) => (
+						<span
+							key={`${displayStage.key}-connector`}
+							data-progress-connector=""
+							className={`mx-10 h-px min-w-0 flex-1 rounded-full transition-colors duration-300 ${
+								stageStatuses[index] === "done"
+									? "bg-nova-emerald/60"
+									: "bg-nova-text-muted/45"
+							}`}
+						/>
+					))}
+				</div>
 				{visibleStages.map((displayStage, index) => {
 					const status = stageStatuses[index];
-					const previousStatus = stageStatuses[index - 1];
 
 					return (
-						<Fragment key={displayStage.key}>
-							{index > 0 && (
-								<span
-									aria-hidden="true"
-									data-progress-connector=""
-									className={`mx-4 block h-px rounded-full transition-colors duration-300 ${
-										previousStatus === "done"
-											? "bg-nova-emerald/60"
-											: "bg-nova-text-muted/45"
-									}`}
-								/>
-							)}
+						<div
+							key={displayStage.key}
+							className="relative z-10 flex w-0 shrink-0 justify-center"
+						>
 							<div
 								data-stage={displayStage.key}
 								data-status={status}
 								aria-current={
 									status === "active" || status === "error" ? "step" : undefined
 								}
-								className={`flex items-center gap-1.5 text-sm font-medium transition-colors duration-300 ${
+								className={`flex shrink-0 items-center gap-1.5 text-sm font-medium transition-colors duration-300 ${
 									status === "done"
 										? "text-nova-emerald"
 										: status === "active"
@@ -209,7 +217,7 @@ export function GenerationProgressCard({
 								)}
 								<span>{displayStage.label}</span>
 							</div>
-						</Fragment>
+						</div>
 					);
 				})}
 			</div>
@@ -222,10 +230,10 @@ export function GenerationProgressCard({
 				aria-valuemin={0}
 				aria-valuemax={100}
 				aria-valuenow={progressPercent}
-				className="mt-3 h-[3px] overflow-hidden rounded-full bg-nova-violet/15"
+				className="relative mx-auto mt-3 h-[3px] w-[90%] rounded-full bg-nova-violet/15"
 			>
-				<div
-					className="h-full rounded-full"
+				<motion.div
+					className="h-full overflow-hidden rounded-full"
 					style={{
 						background: isError
 							? "linear-gradient(90deg, var(--nova-violet), var(--nova-rose))"
@@ -233,17 +241,53 @@ export function GenerationProgressCard({
 						boxShadow: isError
 							? "0 0 8px var(--nova-rose)"
 							: "0 0 8px var(--nova-violet)",
-						width: `${progressPercent}%`,
 					}}
+					initial={false}
+					animate={{ width: `${progressPercent}%` }}
+					transition={{ type: "spring", stiffness: 100, damping: 20 }}
+				/>
+				<motion.span
+					aria-hidden="true"
+					data-progress-marker=""
+					className={`absolute top-1/2 block h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full ${
+						isError ? "bg-nova-rose" : "bg-nova-violet-bright"
+					}`}
+					style={{
+						boxShadow: isError
+							? "0 0 8px var(--nova-rose)"
+							: "0 0 8px var(--nova-violet)",
+					}}
+					initial={false}
+					animate={{ left: `${progressPercent}%` }}
+					transition={{ type: "spring", stiffness: 100, damping: 20 }}
 				/>
 			</div>
 
-			{/* Error message */}
-			{isError && statusMessage && (
-				<p className="text-nova-rose mt-3 text-center text-xs">
-					{statusMessage}
-				</p>
-			)}
-		</motion.div>
+			{/* Only the error region animates. Keeping the card and phase row out of
+			    Motion's layout animation prevents the active stage text from scaling. */}
+			<motion.div
+				data-generation-error-region=""
+				aria-hidden={!showErrorMessage}
+				className="grid"
+				initial={false}
+				animate={{
+					gridTemplateRows: showErrorMessage ? "1fr" : "0fr",
+					opacity: showErrorMessage ? 1 : 0,
+					y: showErrorMessage ? 0 : -4,
+				}}
+				transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+			>
+				<div className="min-h-0 overflow-hidden">
+					{lastErrorMessageRef.current && (
+						<p
+							data-generation-error=""
+							className="text-nova-rose mt-3 text-center text-xs"
+						>
+							{lastErrorMessageRef.current}
+						</p>
+					)}
+				</div>
+			</motion.div>
+		</div>
 	);
 }
