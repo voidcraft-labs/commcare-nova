@@ -29,18 +29,19 @@ describe("softDeleteApp", () => {
 		const recoverableUntil = await softDeleteApp(APP);
 
 		const row = await h.readAppRow(APP);
-		expect(row?.deleted_at).toBeInstanceOf(Date);
-		expect(row?.recoverable_until).toBeInstanceOf(Date);
+		if (!row) throw new Error("soft-deleted app row missing");
+		expect(row.deleted_at).toBeInstanceOf(Date);
+		expect(row.recoverable_until).toBeInstanceOf(Date);
 		// Soft-delete is the existence axis — status stays exactly as it was.
-		expect(row?.status).toBe("complete");
+		expect(row.status).toBe("complete");
 		// The returned value is the same ISO string written to `recoverable_until`.
 		expect(recoverableUntil).toBe(
-			(row?.recoverable_until as Date).toISOString(),
+			(row.recoverable_until as Date).toISOString(),
 		);
 		// The retention window: recoverable_until − deleted_at ≈ 30 days.
 		const delta =
-			(row?.recoverable_until as Date).getTime() -
-			(row?.deleted_at as Date).getTime();
+			(row.recoverable_until as Date).getTime() -
+			(row.deleted_at as Date).getTime();
 		expect(delta).toBeCloseTo(RETENTION_MS, -3);
 	});
 

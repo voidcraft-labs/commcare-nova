@@ -539,13 +539,16 @@ describe("run-lifecycle invariant matrix", () => {
 		const aged = new Date(Date.now() - 9 * 60_000);
 		await patchApp(APP, { updated_at: aged });
 		await refreshBuildLiveness(APP, "b1");
-		const ownedMs = ((await readApp(APP))?.updated_at as Date).getTime();
-		expect(ownedMs).toBeGreaterThan(aged.getTime());
+		const owned = await readApp(APP);
+		if (!owned) throw new Error("app row missing after the owner's beat");
+		expect((owned.updated_at as Date).getTime()).toBeGreaterThan(
+			aged.getTime(),
+		);
 		// A NON-owning runId's beat leaves the clock untouched.
 		await patchApp(APP, { updated_at: aged });
 		await refreshBuildLiveness(APP, "ghost");
-		expect(((await readApp(APP))?.updated_at as Date).getTime()).toBe(
-			aged.getTime(),
-		);
+		const ghosted = await readApp(APP);
+		if (!ghosted) throw new Error("app row missing after the ghost's beat");
+		expect((ghosted.updated_at as Date).getTime()).toBe(aged.getTime());
 	});
 });
