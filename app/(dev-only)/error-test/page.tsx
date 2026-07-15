@@ -54,7 +54,7 @@ const errorScenarios: ErrorScenario[] = [
 				// "Server responds with auth error" — show as toast only (Idle phase → no progress bar)
 				setGridMode("error-fatal");
 				setPhase(BuilderPhase.Generating);
-				setStage(GenerationStage.DataModel);
+				setStage(GenerationStage.Foundation);
 				setGenerationError({
 					message: "Your API key is invalid or expired. Check Settings.",
 					severity: "failed",
@@ -90,10 +90,10 @@ const errorScenarios: ErrorScenario[] = [
 			injectEnergy,
 		}) => {
 			setPhase(BuilderPhase.Generating);
-			setStage(GenerationStage.DataModel);
+			setStage(GenerationStage.Foundation);
 			setGenerationError(null);
-			setStatusMessage(STAGE_LABELS[GenerationStage.DataModel]);
-			setGridMode("building");
+			setStatusMessage(STAGE_LABELS[GenerationStage.Foundation]);
+			setGridMode("scaffolding");
 
 			const timers: ReturnType<typeof setTimeout>[] = [];
 			const intervals: ReturnType<typeof setInterval>[] = [];
@@ -104,26 +104,14 @@ const errorScenarios: ErrorScenario[] = [
 			);
 			intervals.push(energyId);
 
-			// Progress through stages
+			// Progress from foundation into content construction.
 			timers.push(
 				setTimeout(() => {
-					setStage(GenerationStage.Structure);
-					setStatusMessage(STAGE_LABELS[GenerationStage.Structure]);
+					setStage(GenerationStage.Build);
+					setStatusMessage(STAGE_LABELS[GenerationStage.Build]);
 				}, 1500),
 			);
-			timers.push(
-				setTimeout(() => {
-					setStage(GenerationStage.Modules);
-					setStatusMessage(STAGE_LABELS[GenerationStage.Modules]);
-				}, 3000),
-			);
 			timers.push(setTimeout(() => injectEnergy(200), 3500));
-			timers.push(
-				setTimeout(() => {
-					setStage(GenerationStage.Forms);
-					setStatusMessage(STAGE_LABELS[GenerationStage.Forms]);
-				}, 4500),
-			);
 			timers.push(setTimeout(() => injectEnergy(200), 5000));
 
 			// Error at 6s — phase stays Generating, error is metadata
@@ -168,10 +156,10 @@ const errorScenarios: ErrorScenario[] = [
 			injectEnergy,
 		}) => {
 			setPhase(BuilderPhase.Generating);
-			setStage(GenerationStage.DataModel);
+			setStage(GenerationStage.Foundation);
 			setGenerationError(null);
-			setStatusMessage(STAGE_LABELS[GenerationStage.DataModel]);
-			setGridMode("building");
+			setStatusMessage(STAGE_LABELS[GenerationStage.Foundation]);
+			setGridMode("scaffolding");
 
 			const timers: ReturnType<typeof setTimeout>[] = [];
 			const energyId = setInterval(
@@ -223,9 +211,9 @@ const errorScenarios: ErrorScenario[] = [
 			injectEnergy,
 		}) => {
 			setPhase(BuilderPhase.Generating);
-			setStage(GenerationStage.Modules);
+			setStage(GenerationStage.Build);
 			setGenerationError(null);
-			setStatusMessage(STAGE_LABELS[GenerationStage.Modules]);
+			setStatusMessage(STAGE_LABELS[GenerationStage.Build]);
 			setGridMode("building");
 
 			const timers: ReturnType<typeof setTimeout>[] = [];
@@ -261,14 +249,14 @@ const errorScenarios: ErrorScenario[] = [
 					);
 					intervals.push(recoverEnergy);
 
-					// Recovery at 5s — error clears, stage advances
+					// Recovery at 5s — error clears and Build resumes.
 					timers.push(
 						setTimeout(() => {
 							clearInterval(recoverEnergy);
 							setGridMode("building");
-							setStage(GenerationStage.Forms);
+							setStage(GenerationStage.Build);
 							setGenerationError(null);
-							setStatusMessage(STAGE_LABELS[GenerationStage.Forms]);
+							setStatusMessage(STAGE_LABELS[GenerationStage.Build]);
 							showToast(
 								"info",
 								"Recovered",

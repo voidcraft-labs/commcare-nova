@@ -251,9 +251,8 @@ export function useGetEditScroll(): (
 // so a non-empty buffer implies an active run), and every derived value is
 // a pure function of that buffer.
 
-/** Latest generation stage derived from the events buffer — `null` when
- *  the run hasn't emitted any generation-stage mutations yet (the
- *  askQuestions / thinking window). */
+/** Furthest cumulative generation milestone established by the events buffer
+ *  — `null` during the askQuestions / thinking window before a mutation. */
 export function useAgentStage(): GenerationStage | null {
 	const events = useBuilderSession((s) => s.events);
 	return useMemo(() => deriveAgentStage(events), [events]);

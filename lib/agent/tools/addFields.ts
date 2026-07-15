@@ -172,7 +172,7 @@ export const addFieldsTool = {
 			// Compute the post-mutation doc once and persist via the shared
 			// context. The client applies via `applyMany` — no wire snapshot
 			// needed; the mutations ARE the update. The `form:M-F` stage tag
-			// drives lifecycle derivation on the chat client (forms phase).
+			// establishes the cumulative Build milestone on the chat client.
 			const commit = await guardedMutate(
 				ctx,
 				doc,
