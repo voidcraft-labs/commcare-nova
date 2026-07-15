@@ -46,8 +46,12 @@ export class XPathDate {
 			if (Number.isNaN(d.getTime())) return null;
 			return XPathDate.fromJSDate(d);
 		}
-		/* Date-only — strict YYYY-MM-DD to avoid Date.parse quirks */
-		const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+		/* Date-only — explicit component parse to avoid Date.parse quirks.
+		 * Components may be non-padded ("2024-5-1"): JavaRosa's parseDate
+		 * splits on dash and Integer.parseInt's each piece
+		 * (commcare-core DateUtils.java::parseDateFragment), so a
+		 * non-padded literal is legal on-device and must parse here too. */
+		const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(trimmed);
 		if (!m) return null;
 		const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
 		if (Number.isNaN(d.getTime())) return null;

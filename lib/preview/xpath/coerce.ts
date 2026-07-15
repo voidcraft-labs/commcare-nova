@@ -8,7 +8,7 @@ import { isXPathDate, XPathDate } from "./types";
  * matching `DateUtils.daysSinceEpoch()` in commcare-core. This is what
  * makes `today() + 1` return tomorrow's day-number.
  *
- * String coercion mirrors JavaRosa's `FunctionUtils.toNumeric` exactly
+ * String coercion mirrors JavaRosa's `FunctionUtils.toNumeric`
  * (`commcare-core .../xpath/expr/FunctionUtils.java`): a character gate
  * admits only `[0-9.-]` (rejecting scientific notation and `Infinity`
  * per the XPath spec), then numeric parse, then — the load-bearing
@@ -16,6 +16,16 @@ import { isXPathDate, XPathDate } from "./types";
  * makes `. <= today()` hold on a date field, whose instance value is
  * the ISO string: without it the comparison reads `NaN <= <days>` and
  * every authored date validation fails on every value the user enters.
+ *
+ * One deliberate extension past the string-for-string mirror: a gate-
+ * rejected string still gets a date-parse attempt, so full ISO
+ * DATETIMES ("…T21:31:18Z") coerce to their day-number. On-device those
+ * values are never strings — casedb hands JavaRosa a typed date the
+ * Date arm converts — so "what the device computes" is the datetime's
+ * day-number, and preview (where every value IS a string, including the
+ * `date_opened`/`last_modified` preloads) must reach the same result.
+ * A non-date gate-rejected string ("banana") still fails the parse and
+ * lands on NaN, preserving the gate's spec-side rejections.
  */
 export function toNumber(v: XPathValue): number {
 	if (typeof v === "number") return v;
@@ -23,7 +33,10 @@ export function toNumber(v: XPathValue): number {
 	if (isXPathDate(v)) return v.days;
 	const trimmed = (v as string).trim();
 	if (trimmed === "") return NaN;
-	if (/[^0-9.-]/.test(trimmed)) return NaN;
+	if (/[^0-9.-]/.test(trimmed)) {
+		const date = XPathDate.parse(trimmed);
+		return date !== null ? date.days : NaN;
+	}
 	const parsed = Number(trimmed);
 	if (!Number.isNaN(parsed)) return parsed;
 	const date = XPathDate.parse(trimmed);

@@ -1090,10 +1090,12 @@ describe("caseRowToFormPreload", () => {
 		// `null` collapses to the empty string — the form engine
 		// treats absent and empty as the same domain state.
 		expect(preload.get("null_prop")).toBe("");
-		// Arrays + objects round-trip through JSON.stringify so
-		// downstream inspectors (calculate fields, agent debug
-		// views) can parse them back.
-		expect(preload.get("array_prop")).toBe('["a","b"]');
+		// Arrays are multi_select values and preload in the FORM value
+		// convention — space-separated tokens (`SelectMultiField` splits
+		// on " ", and submit's coerceValueForProperty splits on /\s+/) —
+		// so the stored selections round-trip: options render checked and
+		// an untouched submit writes the same array back.
+		expect(preload.get("array_prop")).toBe("a b");
 		expect(preload.get("object_prop")).toBe('{"nested":"value"}');
 	});
 });

@@ -229,12 +229,11 @@ export async function handleApiKeyMcp(
 	try {
 		active = await isUserActive(userId);
 	} catch (err) {
-		log.error("[mcp/api-key] user-status lookup failed", undefined, {
+		log.error("[mcp/api-key] user-status lookup failed", err, {
 			keyId: verifiedKey.id,
 			userId,
 			prefixSeen: key.slice(0, PREFIX_LOG_LENGTH),
 			ip: callerIpFromHeaders(req.headers),
-			err: err instanceof Error ? err.message : String(err),
 		});
 		return apiKeyUnauthorizedResponse("api key verify failed");
 	}

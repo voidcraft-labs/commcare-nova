@@ -169,10 +169,9 @@ export async function POST(
 		});
 		if (pendingObjectToDelete) {
 			await deleteGcsObject(pendingObjectToDelete).catch((err: unknown) => {
-				log.error("[media:confirm] pending-object cleanup failed", undefined, {
+				log.error("[media:confirm] pending-object cleanup failed", err, {
 					assetId,
 					gcsObjectKey: pendingObjectToDelete,
-					err,
 				});
 			});
 		}
@@ -216,10 +215,9 @@ async function deleteRejectedUpload(asset: MediaAssetRecord): Promise<void> {
 		asset.gcsObjectKey,
 		asset.id,
 	).catch((err: unknown) => {
-		log.error("[media:confirm] shared-object check failed", undefined, {
+		log.error("[media:confirm] shared-object check failed", err, {
 			assetId: asset.id,
 			gcsObjectKey: asset.gcsObjectKey,
-			err,
 		});
 		// Fail closed on bytes deletion: if we cannot prove the object is
 		// unshared, leave it behind and delete only the invalid row.

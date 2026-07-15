@@ -80,6 +80,21 @@ runMain(async () => {
 			console.log(
 				`DRY RUN — ${total} rows carry a NULL opened_on / modified_on. Re-run with --execute to backfill.`,
 			);
+			// Sample of the would-be writes so the recovered timestamps can
+			// be eyeballed before the real run.
+			const sample = await db
+				.selectFrom("cases")
+				.select(["case_id", "app_id", UUID_CREATION_TIME.as("recovered")])
+				.where((eb) =>
+					eb.or([eb("opened_on", "is", null), eb("modified_on", "is", null)]),
+				)
+				.limit(5)
+				.execute();
+			for (const row of sample) {
+				console.log(
+					`  sample: ${row.case_id}  app=${row.app_id}  → ${new Date(row.recovered as unknown as string | Date).toISOString()}`,
+				);
+			}
 			return;
 		}
 

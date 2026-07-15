@@ -145,10 +145,9 @@ export async function purgeAssetStorage(
 		asset.gcsObjectKey,
 		asset.id,
 	).catch((err: unknown) => {
-		log.error("[asset-deletion] shared-object check failed", undefined, {
+		log.error("[asset-deletion] shared-object check failed", err, {
 			assetId: asset.id,
 			gcsObjectKey: asset.gcsObjectKey,
-			err,
 		});
 		// If we can't prove the bytes are unshared, retain them.
 		return true;
