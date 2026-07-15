@@ -1,78 +1,55 @@
 // components/builder/case-list-config/canvas/CaseListCanvas.tsx
 //
-// The case-list tab's canvas: the case list ITSELF, rendered as a
-// live table over real case-store rows, is the configuration surface.
-// Clicking a thing configures that thing in the inspector rail —
-// column headers and cells select their column, the title selects the
-// list panel (sort order + menu-link appearance), the filter
-// affordance selects the filter. Headers drag to reorder columns; a
-// dashed ghost cell appends one.
+// The Case List authoring canvas is a vertical screen outline, not a
+// spreadsheet. Only fields actually visible in the running list occupy
+// the primary layout; supporting/detail-only fields live in a clearly
+// named secondary inventory. This keeps the normal two-sidebar canvas
+// readable at any column count and prevents wire-level invisible fields
+// from looking like accidental user-facing columns.
 //
-// Every column renders regardless of `visibleInList` — hidden ones
-// dim with an eye-off glyph so the full structure stays reachable for
-// editing (the same rule the form editor applies to
-// relevance-hidden fields). The app-true rendering is the Preview
-// mode's `CaseListScreen`.
-//
-// The table never crushes: columns have a readable minimum and the
-// card pans horizontally instead, matching the runtime list on small
-// screens.
+// The global Preview toggle remains the app-true table run-through. In
+// edit mode each field row carries a live value from the first real case,
+// so the author still sees the consequence of formatting choices without
+// making horizontal table geometry the configuration mechanism. Rows select
+// fields only; the right inspector owns the one complete order shared with
+// case detail.
 
 "use client";
+
 import { Icon } from "@iconify/react/offline";
-import tablerEyeOff from "@iconify-icons/tabler/eye-off";
+import tablerArrowsSort from "@iconify-icons/tabler/arrows-sort";
 import tablerFilter from "@iconify-icons/tabler/filter";
+import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
-import tablerPlus from "@iconify-icons/tabler/plus";
-import { useId } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
-import {
-	ReorderableRow,
-	useReorderableList,
-} from "@/components/builder/shared/useReorderableList";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseListConfig, Column } from "@/lib/domain";
+import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import { renderColumnCell } from "../columnCellRenderer";
 import { summarizeFilter } from "../predicateSummary";
 import { GenerateSampleDataButton } from "../SampleDataButton";
 import { describeSortOrder, sortPositionByUuid } from "../sortPriority";
 import type { CaseListPreviewState } from "../useCaseListPreview";
 import type { SampleDataAction } from "../useSampleData";
+import { projectCaseWorkspaceColumns } from "../workspaceProjection";
 import type { WorkspaceSelection } from "../workspaceSelection";
 import {
-	activateOnKeyDown,
-	CanvasNotice,
-	ColumnDragPreview,
-	previewNotice,
-} from "./canvasChrome";
-
-/** Readable per-column floor — below this the card pans instead. */
-const COLUMN_MIN_WIDTH = 150;
-/** Width of the trailing add-column ghost cell. */
-const ADD_CELL_WIDTH = 48;
+	columnLabel,
+	columnSource,
+	SupportingColumnInventory,
+} from "./ColumnInventory";
+import { AddGhostButton, CanvasNotice, previewNotice } from "./canvasChrome";
 
 export interface CaseListCanvasProps {
 	readonly config: CaseListConfig;
-	/** Columns with a configuration error (`configValidity.ts::
-	 *  caseListConfigVerdicts`) — the header cell carries a rose dot +
-	 *  explanation so the tab strip's dot points at something findable. */
 	readonly brokenColumns: ReadonlySet<string>;
-	/** The case list's title — the module IS the case-list title (no
-	 *  separate title slot). */
 	readonly moduleName: string;
 	readonly preview: CaseListPreviewState;
 	readonly selection: WorkspaceSelection | null;
 	readonly onSelect: (next: WorkspaceSelection) => void;
 	readonly onAddColumn: () => void;
-	/** Disabled-add hint — `undefined` means add is enabled. */
 	readonly addColumnDisabledReason: string | undefined;
-	readonly onReorderColumns: (next: readonly Column[]) => void;
-	/** A preview reload is in flight while the rows on screen are the
-	 *  previous settle — the table dims instead of unmounting. */
 	readonly refreshing?: boolean;
-	/** Populate-sample-data action — surfaced in the table's empty
-	 *  state so an empty store never dead-ends the canvas. */
 	readonly generateSampleData: SampleDataAction;
 }
 
@@ -85,378 +62,315 @@ export function CaseListCanvas({
 	onSelect,
 	onAddColumn,
 	addColumnDisabledReason,
-	onReorderColumns,
 	refreshing = false,
 	generateSampleData,
 }: CaseListCanvasProps) {
-	const containerKey = useId();
-	// DISPLAY order (`sort-by-(order, uuid)`, the same sequence the wire +
-	// preview show), not `columns` array position — render, the reorder drag's
-	// from/to indices, and the sort badges all key off this so an SA/MCP
-	// `moveColumn` reflects here and a subsequent drag computes correct indices.
-	const columns = [...config.columns].sort(bySortKey);
+	const projection = projectCaseWorkspaceColumns(config.columns);
 	const selectedColumnUuid =
 		selection?.type === "column" ? selection.uuid : null;
+	const sampleRow = preview.kind === "rows" ? preview.rows[0] : undefined;
 
-	const { pendingDrop } = useReorderableList<Column>({
-		containerKey,
-		containerKind: "case-list-canvas-columns",
-		items: columns,
-		onReorder: onReorderColumns,
-	});
-
-	const sortPositions = sortPositionByUuid(columns);
+	const sortPositions = sortPositionByUuid(projection.ordered);
 	const filterPhrase = summarizeFilter(config.filter);
 	const hasFilter = config.filter !== undefined;
 	const filterSelected = selection?.type === "filter";
 	const panelSelected = selection?.type === "list-panel";
-
-	const template =
-		columns.map(() => `minmax(${COLUMN_MIN_WIDTH}px, 1fr)`).join(" ") +
-		` ${ADD_CELL_WIDTH}px`;
-	const tableMinWidth = columns.length * COLUMN_MIN_WIDTH + ADD_CELL_WIDTH;
-
-	const rows = preview.kind === "rows" ? preview.rows : [];
-	const sortSummary = describeSortOrder(columns);
+	const sortSummary = describeSortOrder(projection.ordered);
 
 	return (
-		<ContentFrame width="5xl" className="px-6 pt-6 pb-24">
-			<p className="mb-5 text-[13px] text-nova-text-muted">
-				The case list, live from your data — click a column to set it up, or
-				drag headers to reorder.
-			</p>
+		<ContentFrame width="3xl" className="px-6 pb-24 pt-6">
+			<div data-case-list-layout>
+				<div className="mb-5 flex items-start gap-3">
+					<span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl border border-nova-border bg-nova-surface/40 text-nova-violet-bright">
+						<Icon icon={tablerListDetails} width="17" height="17" />
+					</span>
+					<div className="min-w-0">
+						<h1 className="font-display text-lg font-semibold tracking-tight text-nova-text">
+							Case list layout
+						</h1>
+						<p className="mt-0.5 text-[13px] leading-relaxed text-nova-text-muted">
+							Choose the information people scan in each result. Field order is
+							shared with case detail and arranged in the right panel.
+						</p>
+					</div>
+				</div>
 
-			{/* Title row — the list-panel selection target — plus the
-			 *  human-language filter affordance. */}
-			<div className="flex items-center gap-3 mb-4 min-h-10">
-				<SimpleTooltip content="List settings — sort order and sample data">
+				<div className="mb-3 flex min-h-11 items-center gap-3">
+					<SimpleTooltip content="List settings — field order, sort order, and sample data">
+						<button
+							type="button"
+							onClick={() => onSelect({ type: "list-panel" })}
+							className={`-ml-2 min-h-11 min-w-0 cursor-pointer rounded-lg border px-2 py-1 text-left transition-colors ${
+								panelSelected
+									? "border-nova-violet bg-nova-violet/[0.10]"
+									: "border-transparent hover:bg-white/[0.03]"
+							}`}
+						>
+							<span className="block truncate font-display text-xl font-bold tracking-tight text-nova-text">
+								{moduleName}
+							</span>
+						</button>
+					</SimpleTooltip>
 					<button
 						type="button"
-						onClick={() => onSelect({ type: "list-panel" })}
-						className={`px-2 py-1 -ml-2 min-h-11 rounded-lg text-left transition-all cursor-pointer border ${
-							panelSelected
-								? "border-nova-violet bg-nova-violet/[0.10] shadow-[0_0_14px_rgba(139,92,246,0.25)]"
+						onClick={() => onSelect({ type: "filter" })}
+						className={`ml-auto inline-flex min-h-11 max-w-[52%] cursor-pointer items-center gap-2 rounded-lg border px-3 text-xs transition-colors ${
+							filterSelected
+								? "border-nova-violet bg-nova-violet/[0.12]"
 								: "border-transparent hover:bg-white/[0.03]"
-						}`}
+						} ${hasFilter ? "text-nova-text-secondary" : "text-nova-text-muted"}`}
 					>
-						<h1 className="font-display font-bold text-2xl tracking-tight text-nova-text">
-							{moduleName}
-						</h1>
-					</button>
-				</SimpleTooltip>
-				<button
-					type="button"
-					onClick={() => onSelect({ type: "filter" })}
-					className={`ml-auto inline-flex items-center gap-2 px-3 min-h-11 max-w-[55%] rounded-lg cursor-pointer border transition-all text-xs ${
-						filterSelected
-							? "border-nova-violet bg-nova-violet/[0.14] shadow-[0_0_14px_rgba(139,92,246,0.25)]"
-							: "border-transparent hover:bg-white/[0.03]"
-					} ${hasFilter ? "text-nova-text-secondary" : "text-nova-text-muted"}`}
-				>
-					<Icon
-						icon={tablerFilter}
-						width="15"
-						height="15"
-						className={
-							hasFilter ? "text-nova-violet-bright" : "text-nova-text-muted"
-						}
-					/>
-					<span className="truncate first-letter:uppercase">
-						{filterPhrase ?? "Filter"}
-					</span>
-				</button>
-			</div>
-
-			{/* The table — dims (never unmounts) while a reload settles. The
-			 *  header (and live rows) pan horizontally inside the inner
-			 *  scroller; every non-rows state renders as a notice BELOW it, at
-			 *  the card's visible width, so an empty / loading message stays
-			 *  centered in view instead of across the off-screen scroll width
-			 *  when the columns overflow. */}
-			<div
-				className={`rounded-lg border border-nova-border bg-nova-surface/40 overflow-hidden transition-opacity ${refreshing ? "opacity-70" : "opacity-100"}`}
-			>
-				<div className="overflow-x-auto">
-					<div style={{ minWidth: tableMinWidth }}>
-						{/* Header row */}
-						<div
-							className="grid bg-nova-deep/70 border-b border-nova-border"
-							style={{ gridTemplateColumns: template }}
-						>
-							{columns.map((col, i) => (
-								<ReorderableRow
-									key={col.uuid}
-									index={i}
-									containerKey={containerKey}
-									containerKind="case-list-canvas-columns"
-									pendingDrop={pendingDrop}
-									axis="horizontal"
-									preview={<ColumnDragPreview column={col} index={i} />}
-								>
-									{({
-										wrapperRef,
-										setHandleEl,
-										closestEdge,
-										previewPortal,
-										beingMoved,
-									}) => (
-										<div
-											ref={wrapperRef}
-											className={`relative ${beingMoved ? "opacity-50" : ""}`}
-										>
-											{closestEdge !== null && (
-												<div
-													aria-hidden="true"
-													className="absolute top-1 bottom-1 w-0.5 bg-nova-violet rounded-full z-10"
-													style={{
-														left: closestEdge === "left" ? -1 : undefined,
-														right: closestEdge === "right" ? -1 : undefined,
-													}}
-												/>
-											)}
-											<HeaderCell
-												column={col}
-												broken={brokenColumns.has(col.uuid)}
-												selected={selectedColumnUuid === col.uuid}
-												isFirst={i === 0}
-												sortPosition={sortPositions.get(col.uuid)}
-												setHandleEl={setHandleEl}
-												onClick={() =>
-													onSelect({ type: "column", uuid: col.uuid })
-												}
-											/>
-											{previewPortal}
-										</div>
-									)}
-								</ReorderableRow>
-							))}
-							<SimpleTooltip
-								content={addColumnDisabledReason ?? "Add a Column"}
-							>
-								<button
-									type="button"
-									onClick={onAddColumn}
-									disabled={addColumnDisabledReason !== undefined}
-									aria-label="Add a Column"
-									className="grid place-items-center min-h-11 border-l border-dashed border-nova-border-bright text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-								>
-									<Icon icon={tablerPlus} width="16" height="16" />
-								</button>
-							</SimpleTooltip>
-						</div>
-
-						{/* Live rows align to the header grid. Every non-rows state —
-						 *  and a column-less config, whose rows would be empty grids —
-						 *  renders as a notice below, outside this scroller. */}
-						{columns.length > 0 &&
-							preview.kind === "rows" &&
-							rows.map((row) => (
-								<div
-									key={row.case_id}
-									className="grid border-t border-nova-violet/[0.07]"
-									style={{ gridTemplateColumns: template }}
-								>
-									{columns.map((col) => {
-										const hidden = col.visibleInList === false;
-										const isSel = selectedColumnUuid === col.uuid;
-										const select = () =>
-											onSelect({ type: "column", uuid: col.uuid });
-										return (
-											/* Cells mirror their header's affordance. They stay
-											 * out of the tab order (tabIndex -1) — the header
-											 * carries the keyboard path so a 6×50 table doesn't
-											 * add 300 tab stops. */
-											// biome-ignore lint/a11y/useSemanticElements: can't use <button> — cell content may include interactive media, and buttons can't nest
-											<div
-												key={col.uuid}
-												role="button"
-												tabIndex={-1}
-												onClick={select}
-												onKeyDown={activateOnKeyDown(select)}
-												className={`px-3.5 py-2.5 min-h-11 flex items-center text-[13px] text-nova-text-secondary whitespace-nowrap overflow-hidden text-ellipsis cursor-pointer border-r border-nova-violet/[0.06] last:border-r-0 ${
-													isSel ? "bg-nova-violet/[0.06]" : ""
-												} ${hidden ? "opacity-35" : ""} ${col.kind === "calculated" ? "font-mono text-xs" : ""}`}
-											>
-												{renderColumnCell(col, row)}
-											</div>
-										);
-									})}
-									<div aria-hidden="true" />
-								</div>
-							))}
-					</div>
-				</div>
-
-				{/* State arms — pinned to the card's visible width (outside the
-				 *  scroller), so the message centers in view even when the
-				 *  columns overflow horizontally. */}
-				{columns.length === 0 ? (
-					<CanvasNotice tone="muted">
-						No columns yet — add one to choose what the list shows about each
-						case.
-					</CanvasNotice>
-				) : preview.kind === "rows" ? (
-					rows.length === 0 ? (
-						<CanvasNotice tone="muted">
-							No cases match the current filter.
-						</CanvasNotice>
-					) : null
-				) : preview.kind === "empty" ? (
-					/* An empty case store would dead-end every live surface —
-					 * the populate action lives right where the gap shows. */
-					<div className="px-5 py-9 text-center">
-						<p className="text-xs text-nova-text-muted mb-3.5">
-							No cases yet — generate sample data to see this list with
-							realistic rows.
-						</p>
-						<GenerateSampleDataButton generate={generateSampleData} />
-					</div>
-				) : (
-					<PreviewStateNotice preview={preview} />
-				)}
-			</div>
-
-			{/* Status line — only when live rows are on screen; the body's
-			 *  state arms explain every other situation themselves. */}
-			{preview.kind === "rows" && (
-				<div className="flex items-center gap-2.5 mt-2.5 text-xs text-nova-text-muted">
-					<span className="font-mono text-[9px] tracking-[0.13em] text-nova-violet-bright">
-						LIVE
-					</span>
-					<span>
-						{rows.length} {rows.length === 1 ? "case" : "cases"}
-						{hasFilter ? " · filtered" : ""}
-						{sortSummary ? ` · sorted by ${sortSummary}` : ""}
-					</span>
-					{refreshing && (
 						<Icon
-							icon={tablerLoader2}
-							width="12"
-							height="12"
-							className="animate-spin"
-							aria-label="Updating"
+							icon={tablerFilter}
+							width="15"
+							height="15"
+							className={
+								hasFilter ? "text-nova-violet-bright" : "text-nova-text-muted"
+							}
 						/>
-					)}
+						<span className="truncate first-letter:uppercase">
+							{filterPhrase ?? "Filter cases"}
+						</span>
+					</button>
 				</div>
-			)}
+
+				<div className="overflow-hidden rounded-xl border border-nova-border bg-nova-surface/35">
+					<div className="flex items-center gap-3 border-b border-nova-border bg-nova-deep/45 px-4 py-2.5">
+						<div className="min-w-0 flex-1">
+							<p className="text-[13px] font-semibold text-nova-text">
+								Fields in this list
+							</p>
+							<p className="text-[11px] leading-relaxed text-nova-text-muted">
+								Only these fields appear as list columns.
+							</p>
+						</div>
+						<button
+							type="button"
+							onClick={() => onSelect({ type: "list-panel" })}
+							className="inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-transparent px-2.5 text-[11px] text-nova-violet-bright transition-colors hover:border-nova-violet/25 hover:bg-nova-violet/[0.08]"
+						>
+							<Icon icon={tablerArrowsSort} width="14" height="14" />
+							Arrange fields
+						</button>
+						<span className="rounded-full border border-nova-border px-2 py-0.5 font-mono text-[10px] text-nova-text-muted">
+							{projection.listVisible.length} shown
+						</span>
+					</div>
+
+					{projection.listVisible.length === 0 ? (
+						<CanvasNotice tone="muted">
+							No fields are shown in the list. Open a field below and turn on
+							Case List visibility, or add a new one.
+						</CanvasNotice>
+					) : (
+						<div>
+							{projection.listVisible.map((column) => (
+								<ListFieldRow
+									key={column.uuid}
+									column={column}
+									sampleRow={sampleRow}
+									selected={selectedColumnUuid === column.uuid}
+									broken={brokenColumns.has(column.uuid)}
+									sortPosition={sortPositions.get(column.uuid)}
+									onSelect={() =>
+										onSelect({ type: "column", uuid: column.uuid })
+									}
+								/>
+							))}
+						</div>
+					)}
+
+					<div className="border-t border-nova-border/80 p-3">
+						<AddGhostButton
+							label="Add List Field"
+							onClick={onAddColumn}
+							disabledReason={addColumnDisabledReason}
+							className="w-full"
+						/>
+					</div>
+				</div>
+
+				<PreviewDataStatus
+					preview={preview}
+					refreshing={refreshing}
+					hasFields={projection.listVisible.length > 0}
+					hasFilter={hasFilter}
+					sortSummary={sortSummary}
+					generateSampleData={generateSampleData}
+				/>
+
+				<SupportingColumnInventory
+					columns={projection.listHidden}
+					surface="list"
+					selectedUuid={selectedColumnUuid}
+					brokenColumns={brokenColumns}
+					onSelect={(column) => onSelect({ type: "column", uuid: column.uuid })}
+				/>
+			</div>
 		</ContentFrame>
 	);
 }
 
-// ── Header cell ───────────────────────────────────────────────────
-
-interface HeaderCellProps {
+interface ListFieldRowProps {
 	readonly column: Column;
-	/** This column carries a configuration error — render the mark. */
-	readonly broken: boolean;
+	readonly sampleRow: CaseRowWithCalculated | undefined;
 	readonly selected: boolean;
-	/** Whether this header occupies the table's top-left corner — the
-	 *  one spot where the cell's shape includes the container's curve. */
-	readonly isFirst: boolean;
+	readonly broken: boolean;
 	readonly sortPosition: number | undefined;
-	readonly setHandleEl: (el: HTMLElement | null) => void;
-	readonly onClick: () => void;
+	readonly onSelect: () => void;
 }
 
-function HeaderCell({
+function ListFieldRow({
 	column,
-	broken,
+	sampleRow,
 	selected,
-	isFirst,
+	broken,
 	sortPosition,
-	setHandleEl,
-	onClick,
-}: HeaderCellProps) {
-	const hidden = column.visibleInList === false;
-	const label =
-		column.kind === "calculated"
-			? column.header || "untitled"
-			: column.header || column.field || "untitled";
-	const direction = column.sort?.direction;
+	onSelect,
+}: ListFieldRowProps) {
 	return (
-		<SimpleTooltip
-			content={
-				broken
-					? "This column has an error — click to fix it"
-					: "Click to set up · drag to reorder"
-			}
+		<button
+			type="button"
+			onClick={onSelect}
+			className={`group/field flex min-h-16 w-full cursor-pointer items-stretch border-b border-nova-violet/[0.07] px-4 text-left transition-colors last:border-b-0 ${
+				selected
+					? "bg-nova-violet/[0.09] shadow-[inset_0_0_0_1.5px_var(--nova-violet)]"
+					: "hover:bg-white/[0.025]"
+			}`}
+			data-case-field-role="visible"
+			data-column-uuid={column.uuid}
 		>
-			<button
-				type="button"
-				ref={setHandleEl}
-				onClick={onClick}
-				className={`flex items-center gap-1.5 px-3.5 min-h-11 w-full text-left font-semibold text-[13px] whitespace-nowrap overflow-hidden cursor-pointer border-r border-nova-border last:border-r-0 transition-colors ${
-					selected
-						? /* The ring traces the cell's TRUE shape: square corners
-						   everywhere, except the first cell's top-left — the one
-						   corner the container's rounded clip actually curves —
-						   which matches the wrapper's inner radius (rounded-lg
-						   outer minus its 1px border). */
-							`bg-nova-violet/[0.14] shadow-[inset_0_0_0_1.5px_var(--nova-violet)] text-nova-text ${isFirst ? "rounded-tl-[calc(var(--radius)-1px)]" : ""}`
-						: "text-nova-text hover:bg-white/[0.03]"
-				} ${hidden ? "opacity-50" : ""}`}
-			>
-				{hidden && (
-					<span
-						role="img"
-						className="inline-flex shrink-0"
-						aria-label="Hidden from the case list"
-					>
-						<Icon
-							icon={tablerEyeOff}
-							width="13"
-							height="13"
-							className="text-nova-text-muted"
+			<span className="min-w-0 flex-1 py-2.5">
+				<span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+					<span className="min-w-0 truncate text-[13px] font-semibold text-nova-text">
+						{columnLabel(column)}
+					</span>
+					{column.visibleInDetail !== false && (
+						<span className="rounded-full border border-nova-border px-1.5 py-px text-[9px] text-nova-text-muted">
+							Detail too
+						</span>
+					)}
+					{sortPosition !== undefined && (
+						<span className="rounded-full border border-nova-violet/20 bg-nova-violet/[0.1] px-1.5 py-px font-mono text-[9px] text-nova-violet-bright">
+							Sort {sortPosition}
+						</span>
+					)}
+					{broken && (
+						<span
+							role="img"
+							className="size-1.5 shrink-0 rounded-full bg-nova-rose"
+							aria-label="This field has a configuration error"
 						/>
-					</span>
-				)}
-				<span
-					className={`overflow-hidden text-ellipsis ${column.header ? "" : "italic text-nova-text-muted"}`}
-				>
-					{label}
+					)}
 				</span>
-				{direction !== undefined && (
-					<span
-						role="img"
-						className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-sm bg-nova-violet/15 border border-nova-violet/20 text-nova-violet-bright font-mono text-[10px] shrink-0"
-						aria-label={`Sorted ${direction === "asc" ? "ascending" : "descending"}, sort key ${sortPosition}`}
-					>
-						{direction === "asc" ? "↑" : "↓"}
-						{sortPosition}
+				<span className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-nova-text-muted">
+					<span className="max-w-[42%] shrink-0 truncate font-mono">
+						{columnSource(column)}
 					</span>
-				)}
-				{broken && (
-					<span
-						role="img"
-						aria-label="This column has a configuration error"
-						className="ml-auto inline-flex shrink-0 size-1.5 rounded-full bg-nova-rose"
-					/>
-				)}
-			</button>
-		</SimpleTooltip>
+					<span aria-hidden="true">·</span>
+					<span className="min-w-0 truncate text-nova-text-secondary">
+						{sampleRow === undefined
+							? "No sample value yet"
+							: renderColumnCell(column, sampleRow)}
+					</span>
+				</span>
+			</span>
+		</button>
 	);
 }
 
-// ── Preview state arm ─────────────────────────────────────────────
-
-function PreviewStateNotice({
+function PreviewDataStatus({
 	preview,
+	refreshing,
+	hasFields,
+	hasFilter,
+	sortSummary,
+	generateSampleData,
 }: {
-	readonly preview: Exclude<CaseListPreviewState, { kind: "rows" }>;
+	readonly preview: CaseListPreviewState;
+	readonly refreshing: boolean;
+	readonly hasFields: boolean;
+	readonly hasFilter: boolean;
+	readonly sortSummary: string;
+	readonly generateSampleData: SampleDataAction;
 }) {
+	/* An all-hidden list needs neither live-row metadata nor a sample-data
+	 * prompt, but a paused/error notice still carries the only explanation for
+	 * a broken filter. Keep that verdict visible so a badged List tab always
+	 * points at a findable problem. */
+	if (!hasFields) {
+		if (
+			preview.kind === "rows" ||
+			preview.kind === "empty" ||
+			preview.kind === "idle" ||
+			preview.kind === "loading"
+		) {
+			return null;
+		}
+		const notice = previewNotice(preview);
+		return (
+			<div className="mt-3 overflow-hidden rounded-xl border border-nova-border">
+				<CanvasNotice tone={notice.tone}>{notice.text}</CanvasNotice>
+			</div>
+		);
+	}
+
+	if (preview.kind === "rows") {
+		return (
+			<div className="mt-3 flex min-h-8 flex-wrap items-center gap-x-2.5 gap-y-1 px-1 text-xs text-nova-text-muted">
+				<span className="font-mono text-[9px] tracking-[0.13em] text-nova-violet-bright">
+					LIVE
+				</span>
+				<span>
+					{preview.rows.length} {preview.rows.length === 1 ? "case" : "cases"}
+					{hasFilter ? " · filtered" : ""}
+					{sortSummary ? ` · sorted by ${sortSummary}` : ""}
+				</span>
+				{refreshing && (
+					<Icon
+						icon={tablerLoader2}
+						width="12"
+						height="12"
+						className="animate-spin"
+						aria-label="Updating"
+					/>
+				)}
+				{preview.rows.length === 0 && (
+					<span>No cases match the current filter.</span>
+				)}
+			</div>
+		);
+	}
+
+	if (preview.kind === "empty") {
+		return (
+			<div className="mt-3 rounded-xl border border-dashed border-nova-border-bright px-5 py-5 text-center">
+				<p className="mb-3 text-xs leading-relaxed text-nova-text-muted">
+					Generate realistic cases to see live values beside every field.
+				</p>
+				<GenerateSampleDataButton generate={generateSampleData} />
+			</div>
+		);
+	}
+
 	if (preview.kind === "idle" || preview.kind === "loading") {
 		return (
-			<div className="flex items-center justify-center gap-2 py-10 text-xs text-nova-text-muted">
+			<div className="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-xl border border-nova-border text-xs text-nova-text-muted">
 				<Icon
 					icon={tablerLoader2}
 					width="14"
 					height="14"
 					className="animate-spin"
 				/>
-				<span>Loading cases…</span>
+				Loading live values…
 			</div>
 		);
 	}
+
 	const notice = previewNotice(preview);
-	return <CanvasNotice tone={notice.tone}>{notice.text}</CanvasNotice>;
+	return (
+		<div className="mt-3 overflow-hidden rounded-xl border border-nova-border">
+			<CanvasNotice tone={notice.tone}>{notice.text}</CanvasNotice>
+		</div>
+	);
 }

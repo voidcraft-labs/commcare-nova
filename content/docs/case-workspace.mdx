@@ -1,0 +1,61 @@
+---
+title: Case search, list & detail
+description: Configure how people find, compare, and open cases in the Nova builder.
+---
+
+The case workspace controls how people find a case, compare the results, and
+understand the case they open. It is split into three focused tabs so you can
+work on one part of that experience at a time.
+
+## Three focused tabs
+
+| Tab | What you configure |
+| --- | --- |
+| **Search** | The questions people use to narrow the case list, including their labels and input types. |
+| **List** | The information people scan while choosing a case. |
+| **Detail** | The information people see after opening a case. |
+
+The count on each tab includes only the fields visible on that screen. A field
+that is useful behind the scenes does not inflate the visible field count.
+
+## Visible and supporting fields
+
+The List and Detail canvases show only what the person using the app will see.
+Fields that are not shown on the current screen are collected under
+**Supporting fields** instead of being mixed into the visible layout. A
+supporting field may still appear on the other screen, sort the case list, or
+support app logic.
+
+Select any field to edit it in the right sidebar. The **Shown on** settings are
+the one place to choose whether it appears in the case list, the case detail,
+both, or neither. When neither is selected, the field stays available as a
+supporting field without becoming a visible row or column.
+
+## One field order, shared by both screens
+
+The case list and case detail share one field order. Choose **Arrange fields**
+from either tab to open **Field order** in the right sidebar, then drag the full
+stack into place. Supporting fields keep their position in the stack, so a
+field appears in the expected place if you show it later.
+
+Field order controls where information appears. **Sort order** is separate: it
+controls which cases appear first in the list.
+
+## Preview without starting over
+
+The edit canvases can show values from your real case data while you configure
+the layout. To try the complete experience, use **Preview** in the builder
+header. Preview runs the actual search, list, and detail screens against the
+same case data.
+
+Nova keeps the running preview in its flipbook. Switch back to edit a setting,
+then return to Preview and continue where you left off instead of restarting
+the app and retracing every step.
+
+## Working with the sidebars
+
+The workspace is designed to remain readable with both sidebars open. Use the
+left sidebar to keep your place in the app and the right sidebar for chat or
+the settings of the selected item. You can collapse either sidebar when you
+want more room; the canvas reflows without moving a setting to a different
+place.

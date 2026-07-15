@@ -6,7 +6,7 @@
 //   - `concat.parts` (variadic text concatenation)
 //   - `coalesce.values` (variadic fallback chain)
 //   - `switch.cases` (multi-case dispatch)
-//   - `sort` (case-list sort-key list)
+//   - case-list display order + `sort` priority
 //
 // Each surface reorders inside ONE container; cross-container drops
 // never apply. The hook is generic over `T` (the row payload type)

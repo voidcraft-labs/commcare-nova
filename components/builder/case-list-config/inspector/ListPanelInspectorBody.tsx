@@ -1,8 +1,12 @@
 // components/builder/case-list-config/inspector/ListPanelInspectorBody.tsx
 //
 // Properties for the case list as a whole — what clicking the list's
-// title chrome selects. Two clusters:
+// title chrome or either canvas's Arrange fields action selects. Three
+// clusters:
 //
+//   - **Field order** — the one complete shared list/detail sequence.
+//     Every field is present, including supporting fields, because Nova's
+//     domain has one canonical column order rather than per-screen orders.
 //   - **Sorting** — the sort-priority pill stack. Per-column sort
 //     direction lives on each column's inspector; the priority ORDER
 //     across sorted columns is a list-level concern, so it lives
@@ -29,6 +33,7 @@ import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
 import type { Uuid } from "@/lib/doc/types";
 import { asAssetId, type CaseListConfig, type Column } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
+import { DisplayOrderStack } from "../DisplayOrderStack";
 import { SortPriorityStack } from "../SortPriorityStack";
 import type { SampleDataAction } from "../useSampleData";
 
@@ -39,6 +44,9 @@ export interface ListPanelInspectorBodyProps {
 	readonly moduleUuid: Uuid;
 	readonly config: CaseListConfig;
 	readonly onChange: (next: CaseListConfig) => void;
+	/** Re-sequence the complete column list. This is separate from `onChange`
+	 *  because the document persists order keys, not array positions. */
+	readonly onReorderColumns: (next: readonly Column[]) => void;
 	/** Whether the module is a `caseListOnly` shape — gates the
 	 *  appearance cluster (see file header). */
 	readonly caseListOnly: boolean;
@@ -54,6 +62,7 @@ export function ListPanelInspectorBody({
 	moduleUuid,
 	config,
 	onChange,
+	onReorderColumns,
 	caseListOnly,
 	sampleData,
 }: ListPanelInspectorBodyProps) {
@@ -79,6 +88,14 @@ export function ListPanelInspectorBody({
 
 	return (
 		<>
+			<InspectorSection label="Field order">
+				<InspectorHint>
+					Shared by the list and case detail. Drag any field, or focus its
+					handle and press ↑ or ↓.
+				</InspectorHint>
+				<DisplayOrderStack value={config.columns} onChange={onReorderColumns} />
+			</InspectorSection>
+
 			<InspectorSection label="Sort order">
 				<SortPriorityStack value={config.columns} onChange={setColumns} />
 			</InspectorSection>

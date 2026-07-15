@@ -1,9 +1,11 @@
 // components/builder/case-list-config/CaseListConfigWorkspace.tsx
 //
 // The unified case-list authoring workspace — three focused config
-// tabs (Search / Case List / Case Detail). Each tab is an
-// artifact-first canvas where clicking a thing configures that thing
-// in the right-rail inspector. The tab IS the URL (`/cases`,
+// tabs (Search / Case List / Case Detail). Search depicts the running
+// search screen; List and Detail use screen-specific vertical outlines
+// that separate visible fields from supporting fields. Clicking a thing
+// configures it in the right-rail inspector; both screen outlines link to
+// the inspector's one complete, shared field-order stack. The tab IS the URL (`/cases`,
 // `/search-config`, `/detail-config`), so tab switches are ordinary
 // history navigation and deep links land on the right canvas. The
 // run-through lives behind the chrome's global Preview toggle —
@@ -307,6 +309,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		caseListOnly: mod.caseListOnly === true,
 		sampleData,
 		onConfigChange: updateConfig,
+		onReorderColumns: reorderColumns,
 		onSearchConfigChange: updateSearchConfig,
 		replaceColumn,
 		removeColumn,
@@ -315,6 +318,9 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		onSelectListPanel: () => setSel({ type: "list-panel" }),
 	});
 
+	const listFieldCount = config.columns.filter(
+		(c) => c.visibleInList !== false,
+	).length;
 	const detailFieldCount = config.columns.filter(
 		(c) => c.visibleInDetail !== false,
 	).length;
@@ -337,7 +343,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 				header={moduleHeader}
 				tab={tab}
 				searchMeta={`${config.searchInputs.length} ${config.searchInputs.length === 1 ? "field" : "fields"}`}
-				listMeta={`${config.columns.length} ${config.columns.length === 1 ? "column" : "columns"}`}
+				listMeta={`${listFieldCount} ${listFieldCount === 1 ? "field" : "fields"}`}
 				detailMeta={`${detailFieldCount} ${detailFieldCount === 1 ? "field" : "fields"}`}
 				errorAreas={errorAreas}
 				onSelectTab={(next) => {
@@ -373,7 +379,6 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					onSelect={setSel}
 					onAddColumn={() => addColumn()}
 					addColumnDisabledReason={addDisabledReason}
-					onReorderColumns={reorderColumns}
 					generateSampleData={sampleData.generate}
 				/>
 			)}
@@ -419,6 +424,7 @@ interface ResolveInspectorArgs {
 	readonly caseListOnly: boolean;
 	readonly sampleData: ReturnType<typeof useSampleData>;
 	readonly onConfigChange: (next: CaseListConfig) => void;
+	readonly onReorderColumns: (next: readonly Column[]) => void;
 	readonly onSearchConfigChange: (next: CaseSearchConfig) => void;
 	readonly replaceColumn: (uuid: string, next: Column) => void;
 	readonly removeColumn: (uuid: string) => void;
@@ -539,6 +545,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						moduleUuid={args.moduleUuid}
 						config={config}
 						onChange={args.onConfigChange}
+						onReorderColumns={args.onReorderColumns}
 						caseListOnly={args.caseListOnly}
 						sampleData={args.sampleData}
 					/>
@@ -565,11 +572,29 @@ interface WorkspaceTabsProps {
 const TAB_DEFS: ReadonlyArray<{
 	id: CaseListWorkspaceTab;
 	icon: IconifyIcon;
+	/** Concise visible label — the workspace is commonly only ~560px wide. */
 	label: string;
+	/** Full accessible name + tooltip copy. */
+	accessibleLabel: string;
 }> = [
-	{ id: "search", icon: tablerSearch, label: "Search" },
-	{ id: "list", icon: tablerListDetails, label: "Case List" },
-	{ id: "detail", icon: tablerId, label: "Case Detail" },
+	{
+		id: "search",
+		icon: tablerSearch,
+		label: "Search",
+		accessibleLabel: "Search",
+	},
+	{
+		id: "list",
+		icon: tablerListDetails,
+		label: "List",
+		accessibleLabel: "Case List",
+	},
+	{
+		id: "detail",
+		icon: tablerId,
+		label: "Detail",
+		accessibleLabel: "Case Detail",
+	},
 ];
 
 /**
@@ -592,9 +617,9 @@ function WorkspaceTabs({
 		detail: detailMeta,
 	};
 	/* The canvas narrows when the inspector docks (and again with both
-	 * sidebars open), so the row compacts by container width: metas
-	 * drop first, then labels go icon-only with the tooltip carrying
-	 * the name. The bar spans the column (sticky, border); its contents
+	 * sidebars open), so metadata drops by container width while the
+	 * concise Search / List / Detail labels ALWAYS remain visible. The
+	 * bar spans the column (sticky, border); its contents
 	 * sit in the workspace's shared ContentFrame — the same `5xl` frame
 	 * the case-list canvas, the breadcrumb strip, and the preview
 	 * run-through use, so every layer shares one left edge. */
@@ -603,23 +628,28 @@ function WorkspaceTabs({
 			<ContentFrame width="5xl" className="px-6">
 				{header}
 				<div className="flex items-center gap-1.5 @2xl:gap-2">
-					{TAB_DEFS.map(({ id, icon, label }) => {
+					{TAB_DEFS.map(({ id, icon, label, accessibleLabel }) => {
 						const active = tab === id;
 						const hasErrors = errorAreas[id];
+						const accessibleName = `${accessibleLabel}, ${metas[id]}${
+							hasErrors ? ", needs attention" : ""
+						}`;
 						return (
 							<SimpleTooltip
 								key={id}
 								content={
 									hasErrors
-										? `${label} needs attention — open it to see what's wrong`
-										: label
+										? `${accessibleLabel} needs attention — open it to see what's wrong`
+										: accessibleLabel
 								}
 								side="bottom"
 							>
 								<button
 									type="button"
+									aria-label={accessibleName}
+									aria-current={active ? "page" : undefined}
 									onClick={() => onSelectTab(id)}
-									className={`relative flex items-center gap-2.5 px-3 @2xl:px-3.5 py-1.5 min-h-11 rounded-lg text-left whitespace-nowrap cursor-pointer border transition-all ${
+									className={`relative flex min-w-0 flex-1 items-center justify-center gap-2 px-2 @2xl:px-3.5 py-1.5 min-h-11 rounded-lg text-left whitespace-nowrap cursor-pointer border transition-all ${
 										active
 											? "bg-nova-violet/[0.13] border-nova-border-bright"
 											: "border-transparent hover:bg-white/[0.03]"
@@ -647,7 +677,7 @@ function WorkspaceTabs({
 									 *  label and bottom-weights the whole text block. Flex children
 									 *  size to their own line-height, so label + meta center as a
 									 *  unit against the icon. */}
-									<span className="hidden @xl:flex flex-col gap-0.5">
+									<span className="flex min-w-0 flex-col gap-0.5">
 										{/* Grid stacks the visible label over an invisible bold
 										 *  ghost, so the slot is always as wide as the bold form —
 										 *  selecting a tab must never nudge its neighbors. */}
@@ -668,7 +698,7 @@ function WorkspaceTabs({
 												{label}
 											</span>
 										</span>
-										<span className="hidden @min-[40rem]:block text-[10px] text-nova-text-muted leading-tight">
+										<span className="hidden @min-[40rem]:block truncate text-[10px] text-nova-text-muted leading-tight">
 											{metas[id]}
 										</span>
 									</span>

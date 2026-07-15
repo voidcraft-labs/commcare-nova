@@ -29,7 +29,8 @@
 //   - `errorAreas` — which tabs carry the error dot: every finding,
 //     including search-input problems and column-kind applicability
 //     mismatches. A broken column badges BOTH the list and detail
-//     tabs — both canvases render every column (hidden ones dim), so
+//     tabs — both canvases keep omitted columns in a supporting-field
+//     inventory, and an inventory containing an error opens itself so
 //     the entity is findable and fixable from either.
 //   - `brokenColumns` — the per-column set behind the in-canvas
 //     error marks (a tab dot must point at something findable).

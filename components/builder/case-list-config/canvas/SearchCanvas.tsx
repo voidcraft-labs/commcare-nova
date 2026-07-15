@@ -99,9 +99,20 @@ export function SearchCanvas({
 
 	return (
 		<ContentFrame width="lg" className="px-6 pt-6 pb-24">
-			<p className="mb-5 text-[13px] text-nova-text-muted">
-				The search screen, as your app shows it — click any part to set it up.
-			</p>
+			<div className="mb-5 flex items-start gap-3">
+				<span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl border border-nova-border bg-nova-surface/40 text-nova-violet-bright">
+					<Icon icon={tablerSearch} width="17" height="17" />
+				</span>
+				<div className="min-w-0">
+					<h1 className="font-display text-lg font-semibold tracking-tight text-nova-text">
+						Case search
+					</h1>
+					<p className="mt-0.5 text-[13px] leading-relaxed text-nova-text-muted">
+						Design how people narrow the case list. Select any part to configure
+						it in the right panel.
+					</p>
+				</div>
+			</div>
 
 			{/* The search panel. Clicking panel chrome selects the panel;
 			 *  inner rows stop propagation and select themselves. */}

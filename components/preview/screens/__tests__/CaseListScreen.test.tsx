@@ -28,7 +28,13 @@
 //      `navigate.openForm` with the module's first form — the same
 //      case-select → confirm → form flow the shipped app runs.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
@@ -320,8 +326,9 @@ describe("CaseListScreen — visibleInList filter", () => {
 			],
 		});
 		await waitFor(() => {
-			// Visible column's header + cell render.
-			expect(screen.getByText("Name")).toBeDefined();
+			// The wide header and compact card label both carry the visible
+			// field name; the cell carries its value.
+			expect(screen.getAllByText("Name").length).toBeGreaterThan(0);
 			expect(screen.getByText("Alice")).toBeDefined();
 		});
 		// Hidden column's header is absent — the filter applies to
@@ -349,8 +356,8 @@ describe("CaseListScreen — visibleInList filter", () => {
 			],
 		});
 		await waitFor(() => {
-			expect(screen.getByText("Name")).toBeDefined();
-			expect(screen.getByText("Age")).toBeDefined();
+			expect(screen.getAllByText("Name").length).toBeGreaterThan(0);
+			expect(screen.getAllByText("Age").length).toBeGreaterThan(0);
 			expect(screen.getByText("Alice")).toBeDefined();
 			expect(screen.getByText("30")).toBeDefined();
 		});
@@ -383,7 +390,7 @@ describe("CaseListScreen — calculated columns", () => {
 			],
 		});
 		await waitFor(() => {
-			expect(screen.getByText("Status")).toBeDefined();
+			expect(screen.getAllByText("Status").length).toBeGreaterThan(0);
 			// The header row carries the calc column's `header`; the
 			// body cell carries its materialized `calculated` value.
 			expect(screen.getByText("Alice — overdue")).toBeDefined();
@@ -411,13 +418,103 @@ describe("CaseListScreen — calculated columns", () => {
 		await waitFor(() => {
 			// Header still renders — the column itself is still in
 			// the visible set.
-			expect(screen.getByText("Status")).toBeDefined();
+			expect(screen.getAllByText("Status").length).toBeGreaterThan(0);
 			expect(screen.getByText("Alice")).toBeDefined();
 		});
 		// Plain column's cell rendered "Alice"; the calc cell rendered
 		// the "—" placeholder — present in Alice's row, not absent.
 		const row = screen.getByRole("button", { name: /Alice/ });
 		expect(row.textContent).toContain("—");
+	});
+});
+
+// ── Responsive result layout ─────────────────────────────────────
+
+describe("CaseListScreen — responsive results", () => {
+	it("keeps every visible field in a labelled card without a horizontal-scroll minimum", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValueOnce({
+			kind: "rows",
+			rows: [
+				makeRow(
+					SELECTED_CASE_ID,
+					{ name: "Alice", age: 30 },
+					{ [COL_CALC_UUID]: "Needs follow-up" },
+				),
+			],
+		});
+		const { container } = renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_AGE_UUID, "age", "Age"),
+				calculatedColumn(COL_CALC_UUID, "Status", term(literal(""))),
+			],
+		});
+
+		await waitFor(() => {
+			expect(screen.getByText("Alice")).toBeDefined();
+		});
+
+		const results = container.querySelector<HTMLElement>(
+			'[data-case-results="responsive"]',
+		);
+		expect(results).not.toBeNull();
+		expect(results?.className).toContain("@container/results");
+		expect(results?.className).not.toContain("overflow-x-auto");
+		expect(results?.querySelector('[style*="min-width"]')).toBeNull();
+
+		const row = screen.getByRole("button", { name: /Alice/ });
+		const rowQueries = within(row);
+		const accessibleNameLabel = rowQueries.getByText("Name");
+		expect(accessibleNameLabel.className).toContain("@xl/results:sr-only");
+		expect(accessibleNameLabel.className).not.toContain("@xl/results:hidden");
+		expect(rowQueries.getByText("Age")).toBeDefined();
+		expect(rowQueries.getByText("Status")).toBeDefined();
+		expect(rowQueries.getByText("30")).toBeDefined();
+		expect(rowQueries.getByText("Needs follow-up")).toBeDefined();
+		// Three fields graduate to the aligned presentation only when this
+		// result container itself reaches Tailwind's xl container width.
+		expect(row.className).toContain("@xl/results:grid");
+		expect(
+			results
+				?.querySelector("[data-case-results-header]")
+				?.getAttribute("aria-hidden"),
+		).toBe("true");
+	});
+
+	it.each([
+		[3, "@xl/results:grid"],
+		[4, "@2xl/results:grid"],
+		[5, "@3xl/results:grid"],
+		[6, "@4xl/results:grid"],
+		[7, null],
+	] as const)("uses the count-aware responsive threshold for %i fields", async (count, expectedClass) => {
+		const columns = Array.from({ length: count }, (_, index) =>
+			plainColumn(
+				asDomainUuid(
+					`00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+				),
+				`field_${index + 1}`,
+				`Field ${index + 1}`,
+			),
+		);
+		const properties = Object.fromEntries(
+			columns.map((column, index) => [
+				column.kind === "plain" ? column.field : `field_${index + 1}`,
+				`Value ${index + 1}`,
+			]),
+		);
+		vi.mocked(loadCasesAction).mockResolvedValueOnce({
+			kind: "rows",
+			rows: [makeRow(SELECTED_CASE_ID, properties)],
+		});
+		renderCaseListScreen({ columns });
+
+		const row = await screen.findByRole("button", { name: /Value 1/ });
+		if (expectedClass === null) {
+			expect(row.className).not.toContain("/results:grid");
+		} else {
+			expect(row.className).toContain(expectedClass);
+		}
 	});
 });
 
@@ -613,7 +710,7 @@ describe("CaseListScreen — detail confirm step", () => {
 				}),
 			],
 		});
-		renderCaseListScreen({
+		const { container } = renderCaseListScreen({
 			columns: [
 				plainColumn(COL_NAME_UUID, "name", "Name"),
 				plainColumn(COL_AGE_UUID, "age", "Age"),
@@ -631,6 +728,19 @@ describe("CaseListScreen — detail confirm step", () => {
 		expect(
 			screen.getByRole("button", { name: /Back to Results/ }),
 		).toBeDefined();
+		const detail = container.querySelector<HTMLElement>(
+			'[data-case-detail="responsive"]',
+		);
+		expect(detail?.className).toContain("@container/detail");
+		const detailValues = detail?.querySelectorAll<HTMLElement>(
+			"[data-case-detail-value]",
+		);
+		expect(detailValues?.length).toBe(2);
+		for (const value of detailValues ?? []) {
+			expect(value.className).toContain("break-words");
+			expect(value.className).not.toContain("whitespace-nowrap");
+			expect(value.className).not.toContain("text-ellipsis");
+		}
 
 		// Continue — the confirm step ends in the module's case-loading
 		// form (the followup, NOT the order-zero registration form), with

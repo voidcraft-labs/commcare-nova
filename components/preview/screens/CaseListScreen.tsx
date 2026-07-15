@@ -21,7 +21,9 @@
 //
 // Composition is width-driven: search beside the results when the
 // canvas is wide, stacked when it isn't — the same responsive truth
-// the running app follows, so authors never pick an export mode.
+// the running app follows, so authors never pick an export mode. The
+// result rows respond to THEIR OWN remaining width: compact canvases
+// show labelled case cards, while roomy panes retain aligned columns.
 //
 // Two flicker guards, both deliberate:
 //   - the canvas measures its width synchronously in the ref callback
@@ -430,7 +432,10 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			<h2 className="font-display font-bold text-xl tracking-tight text-nova-text mb-4">
 				{openCase.case_name || "Case"}
 			</h2>
-			<div className="rounded-lg border border-pv-input-border bg-pv-surface overflow-hidden">
+			<div
+				data-case-detail="responsive"
+				className="@container/detail overflow-hidden rounded-lg border border-pv-input-border bg-pv-surface"
+			>
 				{detailColumns.map((col, i) => {
 					const label =
 						col.kind === "calculated"
@@ -439,12 +444,16 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 					return (
 						<div
 							key={col.uuid}
-							className={`flex items-center gap-2.5 px-4 py-3 ${i > 0 ? "border-t border-nova-violet/[0.08]" : ""}`}
+							data-case-detail-field={col.uuid}
+							className={`grid grid-cols-1 items-start gap-1 px-4 py-3 @sm/detail:grid-cols-[minmax(110px,0.38fr)_minmax(0,1fr)] @sm/detail:gap-3 ${i > 0 ? "border-t border-nova-violet/[0.08]" : ""}`}
 						>
-							<span className="w-[140px] shrink-0 text-[13px] text-nova-text-muted">
+							<span className="break-words text-xs font-medium text-nova-text-muted">
 								{label}
 							</span>
-							<span className="min-w-0 text-[13px] text-nova-text-secondary overflow-hidden text-ellipsis whitespace-nowrap">
+							<span
+								data-case-detail-value
+								className="min-w-0 break-words text-[13px] leading-relaxed text-nova-text-secondary [overflow-wrap:anywhere]"
+							>
 								{renderColumnCell(col, openCase)}
 							</span>
 						</div>
@@ -793,7 +802,80 @@ function NoMatchNotice({
 	);
 }
 
-// ── Results table ─────────────────────────────────────────────────
+// ── Responsive results ────────────────────────────────────────────
+
+/**
+ * Container-query classes for the point where a labelled result card can
+ * become an aligned table row without squeezing or scrolling its fields.
+ *
+ * The results pane is narrower than the canvas whenever search sits beside
+ * it, so viewport breakpoints (or the canvas's split boolean) are the wrong
+ * measurement. These named container variants key off the result list
+ * itself. The threshold rises with the number of configured columns; seven
+ * or more stay as cards because this screen's 5xl frame can never give each
+ * one a useful table-cell width.
+ */
+interface ResultsLayoutClasses {
+	readonly header: string;
+	readonly row: string;
+	readonly cell: string;
+	readonly label: string;
+	readonly arrow: string;
+}
+
+const ALWAYS_STACKED_RESULTS: ResultsLayoutClasses = {
+	header: "",
+	row: "",
+	cell: "",
+	label: "",
+	arrow: "",
+};
+
+const XL_RESULTS: ResultsLayoutClasses = {
+	header: "@xl/results:grid",
+	row: "@xl/results:grid @xl/results:py-0 @xl/results:pr-0",
+	cell: "@xl/results:flex @xl/results:min-h-11 @xl/results:py-2.5",
+	label: "@xl/results:sr-only",
+	arrow: "@xl/results:static @xl/results:grid",
+};
+
+const TWO_XL_RESULTS: ResultsLayoutClasses = {
+	header: "@2xl/results:grid",
+	row: "@2xl/results:grid @2xl/results:py-0 @2xl/results:pr-0",
+	cell: "@2xl/results:flex @2xl/results:min-h-11 @2xl/results:py-2.5",
+	label: "@2xl/results:sr-only",
+	arrow: "@2xl/results:static @2xl/results:grid",
+};
+
+const THREE_XL_RESULTS: ResultsLayoutClasses = {
+	header: "@3xl/results:grid",
+	row: "@3xl/results:grid @3xl/results:py-0 @3xl/results:pr-0",
+	cell: "@3xl/results:flex @3xl/results:min-h-11 @3xl/results:py-2.5",
+	label: "@3xl/results:sr-only",
+	arrow: "@3xl/results:static @3xl/results:grid",
+};
+
+const FOUR_XL_RESULTS: ResultsLayoutClasses = {
+	header: "@4xl/results:grid",
+	row: "@4xl/results:grid @4xl/results:py-0 @4xl/results:pr-0",
+	cell: "@4xl/results:flex @4xl/results:min-h-11 @4xl/results:py-2.5",
+	label: "@4xl/results:sr-only",
+	arrow: "@4xl/results:static @4xl/results:grid",
+};
+
+function resultsLayoutClasses(columnCount: number): ResultsLayoutClasses {
+	if (columnCount <= 3) return XL_RESULTS;
+	if (columnCount === 4) return TWO_XL_RESULTS;
+	if (columnCount === 5) return THREE_XL_RESULTS;
+	if (columnCount === 6) return FOUR_XL_RESULTS;
+	return ALWAYS_STACKED_RESULTS;
+}
+
+function resultColumnLabel(col: CaseListConfig["columns"][number]): string {
+	return col.kind === "calculated"
+		? col.header || "untitled"
+		: col.header || col.field || "untitled";
+}
 
 function ResultsTable({
 	rows,
@@ -807,58 +889,69 @@ function ResultsTable({
 	readonly onOpenCase: (row: CaseRowWithCalculated) => void;
 }) {
 	const clickable = rowAction !== "none";
+	const layout = resultsLayoutClasses(visibleColumns.length);
+	const gridTemplateColumns = `${visibleColumns.map(() => "minmax(0, 1fr)").join(" ")} 36px`;
 	return (
-		<div className="rounded-lg border border-pv-input-border bg-pv-surface overflow-x-auto">
-			<div style={{ minWidth: visibleColumns.length * 140 + 36 }}>
-				<div
-					className="grid bg-pv-bg/60 border-b border-pv-input-border"
-					style={{
-						gridTemplateColumns: `${visibleColumns.map(() => "minmax(140px, 1fr)").join(" ")} 36px`,
-					}}
-				>
-					{visibleColumns.map((col) => (
-						<div
-							key={col.uuid}
-							className="px-3.5 py-2.5 text-[13px] font-semibold text-nova-text whitespace-nowrap overflow-hidden text-ellipsis"
-						>
-							{col.kind === "calculated"
-								? col.header || "untitled"
-								: col.header || col.field || "untitled"}
-						</div>
-					))}
-					<div aria-hidden="true" />
-				</div>
-				{rows.map((row) => (
-					<button
-						type="button"
-						key={row.case_id}
-						onClick={() => onOpenCase(row)}
-						disabled={!clickable}
-						className={`grid w-full text-left border-t border-nova-violet/[0.07] transition-colors ${
-							clickable
-								? "hover:bg-nova-violet/[0.05] cursor-pointer"
-								: "cursor-default"
-						}`}
-						style={{
-							gridTemplateColumns: `${visibleColumns.map(() => "minmax(140px, 1fr)").join(" ")} 36px`,
-						}}
+		<div
+			data-case-results="responsive"
+			className="@container/results overflow-clip rounded-lg border border-pv-input-border bg-pv-surface"
+		>
+			<div
+				data-case-results-header
+				aria-hidden="true"
+				className={`hidden border-b border-pv-input-border bg-pv-bg/60 ${layout.header}`}
+				style={{ gridTemplateColumns }}
+			>
+				{visibleColumns.map((col) => (
+					<div
+						key={col.uuid}
+						className="min-w-0 px-3.5 py-2.5 text-[13px] font-semibold text-nova-text break-words"
 					>
-						{visibleColumns.map((col) => (
+						{resultColumnLabel(col)}
+					</div>
+				))}
+				<div aria-hidden="true" />
+			</div>
+			{rows.map((row) => (
+				<button
+					type="button"
+					key={row.case_id}
+					onClick={() => onOpenCase(row)}
+					disabled={!clickable}
+					className={`relative block w-full border-b border-nova-violet/[0.07] py-1.5 pr-9 text-left transition-colors last:border-b-0 ${layout.row} ${
+						clickable
+							? "hover:bg-nova-violet/[0.05] cursor-pointer"
+							: "cursor-default"
+					}`}
+					style={{ gridTemplateColumns }}
+				>
+					{visibleColumns.map((col, index) => (
+						<span
+							key={col.uuid}
+							data-case-result-field={col.uuid}
+							className={`grid min-w-0 grid-cols-[minmax(84px,0.38fr)_minmax(0,1fr)] items-start gap-3 px-3.5 py-2 text-[13px] ${layout.cell}`}
+						>
 							<span
-								key={col.uuid}
-								className="px-3.5 py-2.5 min-h-11 inline-flex items-center text-[13px] text-nova-text-secondary whitespace-nowrap overflow-hidden text-ellipsis"
+								className={`text-xs font-medium text-nova-text-muted ${layout.label}`}
+							>
+								{resultColumnLabel(col)}
+							</span>
+							<span
+								className={`min-w-0 break-words ${index === 0 ? "font-medium text-nova-text" : "text-nova-text-secondary"}`}
 							>
 								{renderColumnCell(col, row)}
 							</span>
-						))}
-						<span className="grid place-items-center text-nova-text-muted">
-							{clickable && (
-								<Icon icon={tablerChevronRight} width="14" height="14" />
-							)}
 						</span>
-					</button>
-				))}
-			</div>
+					))}
+					<span
+						className={`absolute top-3 right-3 grid place-items-center text-nova-text-muted ${layout.arrow}`}
+					>
+						{clickable && (
+							<Icon icon={tablerChevronRight} width="14" height="14" />
+						)}
+					</span>
+				</button>
+			))}
 		</div>
 	);
 }

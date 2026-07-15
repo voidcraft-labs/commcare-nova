@@ -2,16 +2,12 @@
 //
 // Shared chrome for the workspace canvases: the inline notice card
 // (state arms rendered inside an artifact card), the preview-state →
-// notice mapping, the dashed add affordance, and the column drag
-// preview.
+// notice mapping, and the dashed add affordance.
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
-import tablerColumns from "@iconify-icons/tabler/columns";
-import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import type { Column } from "@/lib/domain";
 import type { CaseListPreviewState } from "../useCaseListPreview";
 
 // ── Inline notice ─────────────────────────────────────────────────
@@ -135,38 +131,5 @@ export function AddGhostButton({
 				<span>{label}</span>
 			</button>
 		</SimpleTooltip>
-	);
-}
-
-// ── Column drag preview ───────────────────────────────────────────
-
-export function ColumnDragPreview({
-	column,
-	index,
-}: {
-	readonly column: Column;
-	readonly index: number;
-}) {
-	const labelSource =
-		column.kind === "calculated"
-			? column.header
-			: column.header || column.field;
-	const label = labelSource || `Column ${index + 1}`;
-	return (
-		<div className="inline-flex items-center gap-1.5 rounded-lg border border-nova-violet/40 bg-nova-surface/95 px-3 py-1.5 text-sm text-nova-text shadow-lg backdrop-blur-sm">
-			<Icon
-				icon={tablerGripVertical}
-				width="14"
-				height="14"
-				className="text-nova-text-muted"
-			/>
-			<Icon
-				icon={tablerColumns}
-				width="14"
-				height="14"
-				className="text-nova-violet-bright"
-			/>
-			<span className="max-w-[240px] truncate">{label}</span>
-		</div>
 	);
 }

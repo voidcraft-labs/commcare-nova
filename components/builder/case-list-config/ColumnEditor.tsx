@@ -6,7 +6,7 @@
 //   - **Display** — what kind of thing this column shows (full-width
 //     picker, every choice labeled and described) and the kind's own
 //     fields (property, header, date pattern, mapping table, …).
-//   - **Visibility** — labeled switches for the two surfaces a column
+//   - **Shown on** — labeled switches for the two surfaces a column
 //     can appear on (the case list, the case detail).
 //   - **Sorting** — a segmented Off / Ascending / Descending control,
 //     plus the column's place in the sort order when several columns
@@ -118,7 +118,7 @@ interface ColumnEditorProps {
 
 /**
  * Column inspector body. Display (kind + per-kind fields) →
- * Visibility → Sorting, every control labeled.
+ * Shown on → Sorting, every control labeled.
  */
 export function ColumnEditor({
 	value,
@@ -231,19 +231,25 @@ export function ColumnEditor({
 				/>
 			</InspectorSection>
 
-			<InspectorSection label="Visibility">
+			<InspectorSection label="Shown on">
 				<ToggleRow
-					label="Show in the Case List"
-					description="A column in the list itself."
+					label="Case list"
+					description="Visible while choosing a case."
 					checked={visibleInList}
 					onChange={setVisibleInList}
 				/>
 				<ToggleRow
-					label="Show in Case Detail"
-					description="A row on the screen that opens from the list."
+					label="Case detail"
+					description="Visible after opening a case."
 					checked={visibleInDetail}
 					onChange={setVisibleInDetail}
 				/>
+				{!visibleInList && !visibleInDetail && (
+					<InspectorHint>
+						Supporting field only. It stays available for search, sorting, or
+						app logic, but is not shown as a list column or detail row.
+					</InspectorHint>
+				)}
 			</InspectorSection>
 
 			<InspectorSection label="Sorting">
