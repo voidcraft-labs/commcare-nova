@@ -5,6 +5,9 @@
  * `.nvmrc` — the single source of truth CI (`node-version-file`) and the Docker
  * image (the `quality` job's guard) also use. A local/prod patch divergence is
  * the #143 class, so `npm run dev` enforces the match.
+ * npm itself enforces the exact Node and npm versions in package.json's
+ * `devEngines` before install, ci, and run commands; this keeps the tailored
+ * local guidance for the most common `npm run dev` mismatch.
  *
  * This ENFORCES the version; it can't auto-switch (an npm script runs on the
  * Node that invoked it). For zero-thought switching, enable your version
