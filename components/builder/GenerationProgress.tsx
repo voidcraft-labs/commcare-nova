@@ -17,35 +17,27 @@ import {
 } from "@/lib/session/hooks";
 import { GenerationStage } from "@/lib/session/types";
 
-/** Display stages — Modules+Forms are combined into "Build". There is no
- *  Validate step: every change is checked as it lands, so the build is
- *  done the moment its last change is. */
+/** Display milestones. Foundation covers app settings plus the optional data
+ *  model; Build covers the atomic module/form tools. There is no separate
+ *  Structure or Validate step because neither exists in the live workflow. */
 const baseStages: { key: string; stages: GenerationStage[]; label: string }[] =
 	[
 		{
-			key: "data-model",
-			stages: [GenerationStage.DataModel],
-			label: "Data Model",
-		},
-		{
-			key: "structure",
-			stages: [GenerationStage.Structure],
-			label: "Structure",
+			key: "foundation",
+			stages: [GenerationStage.Foundation],
+			label: "Set Up",
 		},
 		{
 			key: "build",
-			stages: [GenerationStage.Modules, GenerationStage.Forms],
+			stages: [GenerationStage.Build],
 			label: "Build",
 		},
 	];
 
 /** Ordered list of generation stages for determining relative position. */
 const stageOrder = [
-	GenerationStage.DataModel,
-	GenerationStage.Structure,
-	GenerationStage.Modules,
-	GenerationStage.Forms,
-	GenerationStage.Validate,
+	GenerationStage.Foundation,
+	GenerationStage.Build,
 	GenerationStage.Fix,
 ];
 
@@ -77,13 +69,10 @@ function getStageIndex(
 ): number {
 	if (!stage) return stageCount;
 	const map: Record<string, number> = {
-		[GenerationStage.DataModel]: 0,
-		[GenerationStage.Structure]: 1,
-		[GenerationStage.Modules]: 2,
-		[GenerationStage.Forms]: 2,
+		[GenerationStage.Foundation]: 0,
+		[GenerationStage.Build]: 1,
 		/* Historical replays only — live runs never reach these stages. */
-		[GenerationStage.Validate]: 3,
-		[GenerationStage.Fix]: 3,
+		[GenerationStage.Fix]: 2,
 	};
 	return map[stage] ?? 0;
 }

@@ -49,7 +49,6 @@ import {
 import { deriveAgentStage } from "@/lib/session/lifecycle";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import { GenerationStage } from "@/lib/session/types";
 import { signalGrid } from "@/lib/signalGrid/store";
 import {
 	defaultLabel,
@@ -57,7 +56,10 @@ import {
 	type SignalMode,
 } from "@/lib/signalGridController";
 import { INSPECTOR_RAIL_WIDTH, useInspectorContext } from "@/lib/ui/inspector";
-import { computeScaffoldProgress } from "./scaffoldProgress";
+import {
+	computeScaffoldProgress,
+	deriveGenerationSignalMode,
+} from "./scaffoldProgress";
 
 /** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */
@@ -96,7 +98,6 @@ function createGridController(
 				phase,
 				deriveAgentStage(s.events),
 				(doc?.caseTypes?.length ?? 0) > 0,
-				hasData,
 			);
 		},
 	});
@@ -308,15 +309,10 @@ export function ChatSidebar({
 				? "error-recovering"
 				: "error-fatal";
 		}
-		// Early generation stages get the scaffolding visual (tetris board)
-		if (
-			agentStage === GenerationStage.DataModel ||
-			agentStage === GenerationStage.Structure
-		) {
-			return "scaffolding";
-		}
-		// Later generation stages get the building visual (pink sweep + bursts)
-		if (isGenerating) return "building";
+		// Initial-build milestones own the scaffold/build visuals. The phase gate
+		// keeps the same tags in a post-build edit on the editing visual below.
+		const generationMode = deriveGenerationSignalMode(isGenerating, agentStage);
+		if (generationMode) return generationMode;
 		// Completed = celebration after generation finishes. Takes priority over
 		// the streaming branches below because data-done fires mid-stream (the
 		// LLM's wrap-up text keeps the stream open). Without this, the grid
@@ -397,7 +393,7 @@ export function ChatSidebar({
 	}, [phase, bufferEmpty, sessionApi]);
 
 	// Elapsed timer — resets when the controller's active label or mode changes.
-	// Label changes (e.g. "Designing data model" → "Building app content") reset the timer during
+	// Label changes (e.g. "Setting up app" → "Building app content") reset the timer during
 	// render via React's "derive state from props" pattern, so the interval continues
 	// with the new base time. Mode changes are handled by the effect (start/stop).
 	const [elapsed, setElapsed] = useState(0);

@@ -201,7 +201,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		 * as the stream dispatcher pushes events. */
 		expect(docStore.temporal.getState().isTracking).toBe(false);
 
-		// ── Schema mutation lands → stage = DataModel ──
+		// ── Schema mutation lands → foundation established ──
 		emitMutations(
 			[{ kind: "setCaseTypes", caseTypes: CASE_TYPES }],
 			"schema",
@@ -209,17 +209,17 @@ describe("generation lifecycle (end-to-end)", () => {
 			sessionStore,
 		);
 		expect(doc().caseTypes).toEqual(CASE_TYPES);
-		expect(deriveAgentStage(s().events)).toBe(GenerationStage.DataModel);
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Foundation);
 		expect(derivePhaseLocal(sessionStore, docStore)).toBe(
 			BuilderPhase.Generating,
 		);
 
-		// ── Scaffold mutations → stage = Structure ──
+		// ── Historical scaffold mutations remain in Foundation ──
 		emitMutations(SCAFFOLD_MUTATIONS, "scaffold", docStore, sessionStore);
 		expect(doc().moduleOrder).toEqual([MOD_UUID]);
-		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Structure);
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Foundation);
 
-		// ── Module-detail mutation → stage = Modules ──
+		// ── Module-detail mutation → Build established ──
 		// `CaseListConfig` literal: per-column `uuid`, no top-level
 		// `sort` / `calculatedColumns` (sort lives on each column;
 		// calculated is a kind in the column union).
@@ -247,12 +247,12 @@ describe("generation lifecycle (end-to-end)", () => {
 			sessionStore,
 		);
 		expect(doc().modules[MOD_UUID].caseListConfig).toEqual(config);
-		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Modules);
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Build);
 
-		// ── Form-content mutations → stage = Forms ──
+		// ── Form-content mutations remain in Build ──
 		emitMutations(FORM_CONTENT_MUTATIONS, "form:0-0", docStore, sessionStore);
 		expect(doc().fieldOrder[FORM_UUID]).toEqual([Q_NAME_UUID, Q_AGE_UUID]);
-		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Forms);
+		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Build);
 
 		// ── data-done arrives (models the dispatcher's markRunCompleted) ──
 		s().markRunCompleted();

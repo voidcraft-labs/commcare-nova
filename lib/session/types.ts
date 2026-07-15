@@ -84,18 +84,14 @@ export interface StagedUpload {
 
 // ── Generation lifecycle ─────────────────────────────────────────────────
 
-/** Progress stages within a generation run. Live builds move
- *  data model → structure → modules → forms (plan, then one
- *  `createModule` per planned module). `Validate` / `Fix` are
- *  HISTORICAL ONLY — stages of the retired validate-fix loop, kept so
- *  runs logged before its retirement still replay with their original
- *  progress states. */
+/** Cumulative milestones within a generation run. Live builds establish
+ *  their foundation (app settings plus an optional data model), then build
+ *  content through atomic module/form tools. `Fix` is HISTORICAL ONLY — a
+ *  milestone of the retired validate-fix loop, kept so old runs still replay
+ *  intelligibly. */
 export enum GenerationStage {
-	DataModel = "data-model",
-	Structure = "structure",
-	Modules = "modules",
-	Forms = "forms",
-	Validate = "validate",
+	Foundation = "foundation",
+	Build = "build",
 	Fix = "fix",
 }
 
@@ -108,11 +104,8 @@ export type GenerationError = {
 
 /** Status label for each generation stage, shown in the Signal Grid panel. */
 export const STAGE_LABELS: Record<GenerationStage, string> = {
-	[GenerationStage.DataModel]: "Designing data model",
-	[GenerationStage.Structure]: "Designing app structure",
-	[GenerationStage.Modules]: "Building app content",
-	[GenerationStage.Forms]: "Building app content",
-	[GenerationStage.Validate]: "Validating blueprint",
+	[GenerationStage.Foundation]: "Setting up app",
+	[GenerationStage.Build]: "Building app content",
 	[GenerationStage.Fix]: "Fixing validation errors",
 };
 

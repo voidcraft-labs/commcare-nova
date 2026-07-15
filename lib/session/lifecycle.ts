@@ -18,47 +18,58 @@ import type { GenerationError } from "./types";
 import { GenerationStage, STAGE_LABELS } from "./types";
 
 /**
- * Map an event-log `stage` tag to the `GenerationStage` enum. Stages
- * that carry no narrate-worthy phase (`edit:*`, `rename:*`,
- * `module:remove:N`) return null. The `schema` / `scaffold` / `fix:…`
- * rows exist for HISTORICAL buffers only — runs persisted by the
- * retired generation tools and validate-fix loop still replay; live
- * builds open with `app` (updateApp) and build through
- * `module:create` (createModule).
+ * Map an event-log `stage` tag to the milestone it establishes. Stages
+ * that carry no narrate-worthy progress (`edit:*`, `rename:*`,
+ * `module:remove:N`) return null. `scaffold` / `fix:…` exist only in
+ * historical buffers; projecting their tags here lets old runs use the
+ * current, simpler progress model without rewriting stored events.
  * Build-vs-edit is NOT this function's job — `derivePhase` keys that on
  * `runStartedWithData`, so an edit-mode createModule resolving to
- * `Modules` only drives the status text, never the layout.
+ * `Build` only drives the status text, never the layout.
  */
 export function stageTagToGenerationStage(
 	stage: string,
 ): GenerationStage | null {
-	if (stage === "app") return GenerationStage.Structure;
-	if (stage === "schema") return GenerationStage.DataModel;
-	if (stage === "scaffold") return GenerationStage.Structure;
-	if (stage === "module:create") return GenerationStage.Modules;
+	if (stage === "app") return GenerationStage.Foundation;
+	if (stage === "schema") return GenerationStage.Foundation;
+	if (stage === "scaffold") return GenerationStage.Foundation;
+	if (stage === "module:create") return GenerationStage.Build;
 	if (stage.startsWith("module:remove:")) return null;
-	if (stage.startsWith("module:")) return GenerationStage.Modules;
-	if (stage.startsWith("form:")) return GenerationStage.Forms;
+	if (stage.startsWith("module:")) return GenerationStage.Build;
+	if (stage.startsWith("form:")) return GenerationStage.Build;
 	if (stage.startsWith("fix")) return GenerationStage.Fix;
 	return null;
 }
 
 /**
- * Latest generation stage in the buffer. Returns null when no mutation
- * events carry a recognized stage tag — the "SA is thinking /
- * askQuestions" window. `derivePhase` treats null-stage-while-active as
- * Idle (centered chat layout) — the phase only transitions to
- * Generating once the SA actually starts producing structural output.
+ * Furthest generation milestone established by the buffer. A milestone is a
+ * cumulative fact about work already committed, not the label on the latest
+ * tool call: enriching the data model after a module exists cannot un-build
+ * that module. This also makes replay/scrubbing deterministic from the event
+ * prefix itself; there is no separate "last stage" latch to clamp.
+ *
+ * Returns null when no mutation establishes progress — the "SA is thinking /
+ * askQuestions" window. `derivePhase` treats null-stage-while-active as Idle
+ * (centered chat layout), transitioning only once the SA commits output.
  */
 export function deriveAgentStage(
 	events: readonly Event[],
 ): GenerationStage | null {
-	for (let i = events.length - 1; i >= 0; i--) {
-		const e = events[i];
+	let establishedFoundation = false;
+	let establishedBuild = false;
+	let enteredHistoricalFix = false;
+
+	for (const e of events) {
 		if (e.kind !== "mutation" || !e.stage) continue;
 		const resolved = stageTagToGenerationStage(e.stage);
-		if (resolved !== null) return resolved;
+		if (resolved === GenerationStage.Foundation) establishedFoundation = true;
+		if (resolved === GenerationStage.Build) establishedBuild = true;
+		if (resolved === GenerationStage.Fix) enteredHistoricalFix = true;
 	}
+
+	if (enteredHistoricalFix) return GenerationStage.Fix;
+	if (establishedBuild) return GenerationStage.Build;
+	if (establishedFoundation) return GenerationStage.Foundation;
 	return null;
 }
 
