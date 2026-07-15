@@ -2,6 +2,28 @@
 	"name": "commcare-nova",
 	"version": "0.5.0",
 	"private": true,
+	"devEngines": {
+		"runtime": {
+			"name": "node",
+			"version": "24.18.0",
+			"onFail": "error"
+		},
+		"packageManager": {
+			"name": "npm",
+			"version": "12.0.1",
+			"onFail": "error"
+		}
+	},
+	"allowScripts": {
+		"@sentry/cli": false,
+		"cpu-features": false,
+		"esbuild": false,
+		"fsevents": false,
+		"lefthook": false,
+		"protobufjs": false,
+		"sharp": false,
+		"ssh2": false
+	},
 	"scripts": {
 		"predev": "node scripts/check-node.mjs",
 		"dev": "npm run db:dev && NEXT_TELEMETRY_DISABLED=1 next dev",
@@ -121,7 +143,7 @@
 		"@types/adm-zip": "^0.5.7",
 		"@types/markdown-it": "^14.1.2",
 		"@types/mdx": "^2.0.13",
-		"@types/node": "^20",
+		"@types/node": "^24",
 		"@types/pg": "^8.20.0",
 		"@types/react": "19.2.17",
 		"@types/react-dom": "19.2.3",

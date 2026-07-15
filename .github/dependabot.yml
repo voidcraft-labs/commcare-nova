@@ -15,7 +15,7 @@ updates:
       semver-patch-days: 3
     ignore:
       # Keep @types/node aligned to the Node runtime major (the Dockerfile runs
-      # node:22) — type defs shouldn't run ahead of the engine they describe.
+      # node:24) — type defs shouldn't run ahead of the engine they describe.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
     groups:

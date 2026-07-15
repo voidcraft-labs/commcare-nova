@@ -1,5 +1,5 @@
 # Base image pinned to an exact Node patch, shared by every stage so they
-# can't drift. The floating `node:22-alpine` tag silently advanced
+# can't drift. The floating `node:22-alpine` tag previously advanced
 # 22.22.3 → 22.23.0 between two source rebuilds with no code change, and
 # 22.23.0 (a security release) carried an http keep-alive change that
 # regressed the bundled undici: gaxios / google-auth-library token fetches
@@ -10,23 +10,31 @@
 # own try/catch). See nodejs/node#63989. This is the same mutable-tag
 # supply-chain logic that digest-pins the testcontainers postgis image in
 # `lib/case-store/sql/__tests__/globalSetup.ts`; an exact patch tag suffices
-# here — it freezes Node while still flowing Alpine security patches. Bump
-# deliberately once a corrected Node 22.x ships the undici fix.
+# here — it freezes Node while still flowing Alpine security patches. Node
+# 24.18.0 is the LTS runtime and is new enough for independently pinned npm 12.
 #
 # `.nvmrc` is the canonical Node version (CI reads it via `node-version-file`,
 # local nvm/fnm read it directly). Keep this patch in lockstep with it — the
 # `quality` CI job fails if `.nvmrc` and this ARG drift.
-ARG NODE_IMAGE=node:22.22.3-alpine
+ARG NODE_IMAGE=node:24.18.0-alpine
+ARG NPM_VERSION=12.0.1
+
+# Node 24 still bundles npm 11. Install the reviewed npm major independently
+# for build-time dependency policy; the production runner invokes only `node`.
+FROM ${NODE_IMAGE} AS build-base
+ARG NPM_VERSION
+RUN npm install --global "npm@${NPM_VERSION}" --ignore-scripts && \
+	test "$(npm --version)" = "${NPM_VERSION}"
 
 # --- Stage 1: Install dependencies ---
-FROM ${NODE_IMAGE} AS deps
+FROM build-base AS deps
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci --ignore-scripts
 
 # --- Stage 2: Build the application ---
-FROM ${NODE_IMAGE} AS builder
+FROM build-base AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -87,7 +95,7 @@ RUN npm run build
 # (lazily required behind a guard) — left external so the bundle doesn't try to
 # resolve a module that isn't installed.
 RUN npx esbuild scripts/migrate.ts \
-      --bundle --platform=node --target=node22 --format=cjs \
+      --bundle --platform=node --target=node24 --format=cjs \
       --tsconfig=tsconfig.json --external:pg-native \
       --outfile=migrate.cjs
 

@@ -23,13 +23,14 @@ concurrency:
 permissions:
   contents: read
 
-# Node is single-sourced in `.nvmrc`: every `setup-node` below reads it via
-# `node-version-file`, and the guard step in the `quality` job asserts the
-# Dockerfile's `ARG NODE_IMAGE` matches it, so CI, the deployed image, and local
-# nvm/fnm can't drift. Pin the exact patch the production image ships — the
-# floating `22` major silently advanced to 22.23.0, whose undici regression took
-# prod login down (#143), and a green CI on a different patch would have masked
-# it. Bump in one place (`.nvmrc`); the guard flags the Dockerfile if it lags.
+# `.nvmrc` is canonical for Node; package.json's `devEngines` is canonical for
+# npm and mirrors Node so npm can enforce both before commands run. Every setup
+# below reads those versions, and the `quality` guard asserts the Dockerfile and
+# package metadata match, so CI, the deployed image, and local tooling can't
+# drift. Pin the exact production patches: the floating `22` major silently
+# advanced to 22.23.0, whose undici regression took prod login down (#143), and
+# a green CI on a different patch would have masked it. Bump `.nvmrc` and its
+# mirrors together; the guard flags any drift.
 
 jobs:
   quality:
@@ -37,22 +38,41 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # Enforce the single source of truth: the deployed image's Node must match
-      # `.nvmrc` (which CI reads). A drift here is the #143 class — CI green on a
-      # different patch than prod ships.
-      - name: Node version is single-sourced (.nvmrc ⇄ Dockerfile)
+      # Enforce both sources of truth. A runtime drift here is the #143 class —
+      # CI green on different tooling than the production image ships.
+      - name: Runtime versions are single-sourced
         run: |
           nvmrc="$(cat .nvmrc)"
           docker_node="$(sed -n 's/^ARG NODE_IMAGE=node:\([0-9.]*\)-.*/\1/p' Dockerfile)"
-          if [ "$nvmrc" != "$docker_node" ]; then
-            echo "::error::Node drift: .nvmrc=$nvmrc but the Dockerfile pins $docker_node. Update the Dockerfile ARG NODE_IMAGE to match .nvmrc."
+          package_node="$(jq -r '.devEngines.runtime.version' package.json)"
+          package_npm="$(jq -r '.devEngines.packageManager.version' package.json)"
+          docker_npm="$(sed -n 's/^ARG NPM_VERSION=\([0-9.]*\).*/\1/p' Dockerfile)"
+          if [ "$nvmrc" != "$docker_node" ] || [ "$nvmrc" != "$package_node" ]; then
+            echo "::error::Node drift: .nvmrc=$nvmrc, package.json=$package_node, Dockerfile=$docker_node. Update both mirrors to match .nvmrc."
             exit 1
           fi
-          echo "Node pinned to $nvmrc in both .nvmrc and the Dockerfile."
+          if [ "$package_npm" != "$docker_npm" ]; then
+            echo "::error::npm drift: package.json=$package_npm but the Dockerfile pins $docker_npm. Update the Dockerfile ARG NPM_VERSION to match package.json."
+            exit 1
+          fi
+          echo "Node $nvmrc and npm $package_npm are pinned consistently."
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          # setup-node's npm cache lookup runs before we can replace the npm 11
+          # bundled with Node 24, so the exact npm 12 devEngine rejects it.
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       - name: Lint (Biome)
         run: npm run lint
@@ -67,7 +87,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       # The suite boots a Postgres testcontainer and applies the case-store
       # migrations in-process via Kysely's Migrator
@@ -97,7 +128,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       # Scope the leak sweep to what the PR touched. `vitest --changed <base>`
       # runs only the test files whose module import graph reaches a changed
@@ -123,7 +165,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       # next build resolves the fumadocs `@/.source/server` import; this
       # generates it first, the same way the typecheck script does before tsc.
@@ -141,7 +194,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       # Cache the Chromium binary (~150MB) so it isn't re-downloaded every run.
       # Keyed on the whole lockfile (coarse — any dep bump re-saves, but
@@ -195,7 +259,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       # Keyless auth to the isolated commcare-nova-ci project: GitHub's OIDC
       # token is exchanged via Workload Identity Federation for a CI service
@@ -227,7 +302,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       - name: Session-cookie contract (Postgres testcontainer)
         run: node_modules/.bin/vitest run sessionCookie.integration.test.ts
