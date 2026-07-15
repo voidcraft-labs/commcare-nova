@@ -618,7 +618,7 @@ export function ChatSidebar({
 										disabled={openingThreadId !== null}
 										variant="ghost"
 										size="lg"
-										className="flex-1 justify-start text-nova-text-secondary not-disabled:hover:text-nova-text"
+										className="justify-start text-nova-text-secondary not-disabled:hover:text-nova-text"
 									>
 										<Icon icon={tablerMessagePlus} />
 										New chat
@@ -631,7 +631,7 @@ export function ChatSidebar({
 									aria-pressed={listVisible}
 									variant="ghost"
 									size="lg"
-									className={`${readOnly ? "flex-1" : ""} justify-start text-nova-text-secondary not-disabled:hover:text-nova-text aria-pressed:bg-nova-violet/10 aria-pressed:text-nova-violet-bright`}
+									className="justify-start text-nova-text-secondary not-disabled:hover:text-nova-text aria-pressed:bg-nova-violet/10 aria-pressed:text-nova-violet-bright"
 								>
 									<Icon
 										icon={listVisible ? tablerMessageCircle : tablerHistory}
