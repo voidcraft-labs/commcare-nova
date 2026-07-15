@@ -5,6 +5,7 @@ import {
 } from "@/lib/domain";
 import { extractPathRefs } from "../xpath/dependencies";
 import type { FieldTreeNode } from "./fieldTree";
+import { stripIndices } from "./instancePaths";
 import { parseBareHashtags } from "./labelRefs";
 
 type ExpressionType =
@@ -19,22 +20,39 @@ interface DagNode {
 	expressions: { type: ExpressionType; expr: string }[];
 }
 
+/** Resolves a concrete repeat container path to its live instance count.
+ *  The engine passes its `DataInstance.getRepeatCount` — the DAG itself
+ *  stays a pure topology with no runtime state. */
+export type RepeatCountResolver = (repeatPath: string) => number;
+
 /**
  * Directed acyclic graph mapping field paths to dependent expressions.
  * When a value at path X changes, the DAG tells us which other paths
  * need their expressions re-evaluated.
+ *
+ * The topology is INDEX-FREE: nodes and dependency edges are keyed by
+ * generic paths (`/data/orders/case_name`), the same shape `printXPath` /
+ * `extractPathRefs` produce, so a reference inside a repeat matches its
+ * sibling's node no matter which instance is live. Query methods
+ * materialize generic paths back to concrete per-instance paths
+ * (`/data/orders[1]/case_name`) over the live counts a
+ * `RepeatCountResolver` reports — which is why repeat add/remove needs no
+ * DAG bookkeeping at all.
  *
  * Walks the engine's `FieldTreeNode` rose tree (domain `Field` plus nested
  * children). The tree is built once by the engine from the normalized
  * doc's `fieldOrder` index.
  */
 export class TriggerDag {
-	/** Map from path → the DagNode for that field */
+	/** Map from generic path → the DagNode for that field */
 	private nodes = new Map<string, DagNode>();
-	/** Map from dependency path → set of paths that depend on it */
+	/** Map from generic dependency path → set of generic paths that depend on it */
 	private dependedOnBy = new Map<string, Set<string>>();
-	/** Topologically sorted evaluation order */
+	/** Topologically sorted evaluation order (generic paths) */
 	private sortedPaths: string[] = [];
+	/** Generic paths of the repeat containers — the expansion points
+	 *  `materialize` fans out over. */
+	private repeatPaths = new Set<string>();
 	/** Doc surface the expression reads print against — AST slots
 	 *  resolve identity leaves through it. Set by `build`. */
 	private doc: XPathPrintableDoc = { forms: {}, fields: {}, fieldOrder: {} };
@@ -46,6 +64,7 @@ export class TriggerDag {
 		this.doc = doc;
 		this.nodes.clear();
 		this.dependedOnBy.clear();
+		this.repeatPaths.clear();
 		this.collectExpressions(tree, prefix);
 		this.detectAndBreakCycles();
 		this.sortedPaths = this.topologicalSort();
@@ -61,12 +80,17 @@ export class TriggerDag {
 	}
 
 	/**
-	 * Get all paths affected by a change at `changedPath`, in evaluation order.
-	 * Uses BFS through dependedOnBy edges, then returns them in topological order.
+	 * Get all concrete paths affected by a change at `changedPath`, in
+	 * evaluation order. The change path is generalized, BFS runs over the
+	 * index-free dependedOnBy edges, and each affected generic node fans
+	 * out to every live instance. An affected node in a repeat re-evaluates
+	 * across ALL instances rather than only the changed one — each
+	 * evaluation binds to its own instance's context, so the extra
+	 * evaluations are no-ops that skip the store write.
 	 */
-	getAffected(changedPath: string): string[] {
+	getAffected(changedPath: string, repeatCount: RepeatCountResolver): string[] {
 		const visited = new Set<string>();
-		const queue = [changedPath];
+		const queue = [stripIndices(changedPath)];
 
 		while (queue.length > 0) {
 			const current = queue.shift();
@@ -81,18 +105,63 @@ export class TriggerDag {
 			}
 		}
 
-		// Return in topological order
-		return this.sortedPaths.filter((p) => visited.has(p));
+		// Materialize in topological order
+		const result: string[] = [];
+		for (const generic of this.sortedPaths) {
+			if (visited.has(generic)) {
+				result.push(...this.materialize(generic, repeatCount));
+			}
+		}
+		return result;
 	}
 
-	/** Get all expressions registered for a path. */
+	/** Get all expressions registered for a path (concrete or generic —
+	 *  instance indices are stripped before the lookup). */
 	getExpressions(path: string): { type: ExpressionType; expr: string }[] {
-		return this.nodes.get(path)?.expressions ?? [];
+		return this.nodes.get(stripIndices(path))?.expressions ?? [];
 	}
 
-	/** Get all paths that have expressions (for initial evaluation). */
-	getAllPaths(): string[] {
-		return this.sortedPaths;
+	/** Get all concrete paths that have expressions, in evaluation order —
+	 *  every generic node expanded over its live instances. */
+	getAllPaths(repeatCount: RepeatCountResolver): string[] {
+		const result: string[] = [];
+		for (const generic of this.sortedPaths) {
+			result.push(...this.materialize(generic, repeatCount));
+		}
+		return result;
+	}
+
+	/**
+	 * Expand a generic node path to every live concrete instance path. A
+	 * node nested under K repeats fans out over the cartesian product of
+	 * live instance indices. The repeat container's OWN node stays
+	 * index-free — its FieldState (relevance, label, `repeatCount`) is one
+	 * shared entry per container, matching the engine store's shape.
+	 */
+	private materialize(
+		generic: string,
+		repeatCount: RepeatCountResolver,
+	): string[] {
+		let concretes = [""];
+		let genericSoFar = "";
+		for (const segment of generic.split("/")) {
+			if (!segment) continue;
+			genericSoFar += `/${segment}`;
+			const expandsHere =
+				genericSoFar !== generic && this.repeatPaths.has(genericSoFar);
+			const next: string[] = [];
+			for (const base of concretes) {
+				const path = `${base}/${segment}`;
+				if (expandsHere) {
+					const count = repeatCount(path);
+					for (let i = 0; i < count; i++) next.push(`${path}[${i}]`);
+				} else {
+					next.push(path);
+				}
+			}
+			concretes = next;
+		}
+		return concretes;
 	}
 
 	private collectExpressions(tree: FieldTreeNode[], prefix: string): void {
@@ -106,8 +175,10 @@ export class TriggerDag {
 				if (node.children) this.collectExpressions(node.children, path);
 			} else if (f.kind === "repeat") {
 				this.registerExpressions(path, f);
-				// For repeats, children paths live under the [0] template instance
-				if (node.children) this.collectExpressions(node.children, `${path}[0]`);
+				// Repeat children register index-free — `materialize` expands
+				// them over live instances at query time.
+				this.repeatPaths.add(path);
+				if (node.children) this.collectExpressions(node.children, path);
 			} else {
 				this.registerExpressions(path, f);
 			}
@@ -181,11 +252,14 @@ export class TriggerDag {
 		// Temporarily swap in fresh maps, collect, then swap back
 		const savedNodes = this.nodes;
 		const savedDeps = this.dependedOnBy;
+		const savedRepeats = this.repeatPaths;
 		this.nodes = nodes;
 		this.dependedOnBy = dependedOnBy;
+		this.repeatPaths = new Set();
 		this.collectExpressions(tree, prefix);
 		this.nodes = savedNodes;
 		this.dependedOnBy = savedDeps;
+		this.repeatPaths = savedRepeats;
 
 		const WHITE = 0,
 			GRAY = 1,

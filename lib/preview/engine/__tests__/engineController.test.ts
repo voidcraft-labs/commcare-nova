@@ -538,6 +538,128 @@ describe("EngineController", () => {
 		});
 	});
 
+	describe("repeat-instance runtime state", () => {
+		const repeatUuid = asUuid("eeeeeeee-0001-0001-0001-000000000001");
+		const nameUuid = asUuid("eeeeeeee-0001-0001-0001-000000000002");
+
+		function repeatDoc(): PersistableDoc {
+			return makeDoc(
+				{
+					[repeatUuid]: {
+						uuid: repeatUuid,
+						id: "orders",
+						kind: "repeat",
+						label: "Orders",
+						repeat_mode: "user_controlled",
+					},
+					[nameUuid]: {
+						uuid: nameUuid,
+						id: "name",
+						kind: "text",
+						label: "Name",
+					},
+				},
+				{
+					[FORM_UUID]: [repeatUuid],
+					[repeatUuid]: [nameUuid],
+				},
+			);
+		}
+
+		it("activation writes path-keyed entries for repeat children", () => {
+			const store = createLoadedStore(repeatDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+
+			const runtime = ctrl.store.getState();
+			// Template `[0]` children carry BOTH keys: the uuid (edit-mode
+			// rows) and the concrete path (interactive instance rows).
+			expect(runtime[nameUuid]).toBeDefined();
+			expect(runtime["/data/orders[0]/name"]).toBeDefined();
+		});
+
+		it("setValueAt keeps instances independent in the runtime store", () => {
+			const store = createLoadedStore(repeatDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+
+			ctrl.addRepeat(repeatUuid);
+			ctrl.setValueAt("/data/orders[0]/name", "Hydrangea");
+			ctrl.setValueAt("/data/orders[1]/name", "Aspirin");
+
+			const runtime = ctrl.store.getState();
+			expect(runtime["/data/orders[0]/name"].value).toBe("Hydrangea");
+			expect(runtime["/data/orders[1]/name"].value).toBe("Aspirin");
+			// The uuid key tracks the `[0]` template slot.
+			expect(runtime[nameUuid].value).toBe("Hydrangea");
+		});
+
+		it("addRepeat syncs the new instance's states; removeRepeat unplugs them", () => {
+			const store = createLoadedStore(repeatDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+
+			ctrl.addRepeat(repeatUuid);
+			const afterAdd = ctrl.store.getState();
+			expect(afterAdd[repeatUuid].repeatCount).toBe(2);
+			expect(afterAdd["/data/orders[1]/name"]).toBeDefined();
+			expect(afterAdd["/data/orders[1]/name"].value).toBe("");
+
+			ctrl.removeRepeat(repeatUuid, 1);
+			const afterRemove = ctrl.store.getState();
+			expect(afterRemove[repeatUuid].repeatCount).toBe(1);
+			// The removed instance's entry is unplugged to the engine's frozen
+			// empty default (`path: ""`), so stale subscribers render nothing.
+			expect(afterRemove["/data/orders[1]/name"].path).toBe("");
+			expect(afterRemove["/data/orders[1]/name"].value).toBe("");
+		});
+
+		it("per-instance values reach the submission walk", () => {
+			const patientCaseType: CaseType = {
+				name: "patient",
+				properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+			};
+			const doc = repeatDoc();
+			const nameField = doc.fields[nameUuid];
+			doc.fields[nameUuid] = {
+				...nameField,
+				id: "case_name",
+				case_property_on: "medication_order",
+			} as Field;
+			doc.fieldOrder[repeatUuid] = [nameUuid];
+			doc.forms[FORM_UUID] = {
+				...doc.forms[FORM_UUID],
+				type: "registration",
+			};
+			doc.modules[MODULE_UUID] = {
+				...doc.modules[MODULE_UUID],
+				caseType: "patient",
+			};
+			const store = createLoadedStore(doc);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+
+			ctrl.addRepeat(repeatUuid);
+			ctrl.setValueAt("/data/orders[0]/case_name", "Hydrangea");
+			ctrl.setValueAt("/data/orders[1]/case_name", "Aspirin");
+
+			const mutation = ctrl.computeSubmissionMutation({
+				caseTypes: [patientCaseType],
+			});
+			expect(mutation).toMatchObject({
+				kind: "registration",
+				children: [
+					{ caseType: "medication_order", caseName: "Hydrangea" },
+					{ caseType: "medication_order", caseName: "Aspirin" },
+				],
+			});
+		});
+	});
+
 	describe("computeSubmissionMutation", () => {
 		const patientCaseType: CaseType = {
 			name: "patient",

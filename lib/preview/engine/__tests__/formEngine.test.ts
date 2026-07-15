@@ -1892,4 +1892,295 @@ describe("FormEngine", () => {
 			);
 		});
 	});
+
+	describe("repeat-instance references", () => {
+		// The prod-incident shape: a hidden case_name inside a repeat
+		// calculates from a typed sibling, and both fields author a child
+		// case. The typed value must reach the child case's name.
+		const ordersFixture = (): FormEngineInput =>
+			dTree([
+				{
+					id: "orders",
+					kind: "repeat",
+					label: "Orders",
+					children: [
+						{
+							id: "medication_name",
+							kind: "text",
+							label: "Medication",
+							case_property_on: "medication_order",
+						},
+						{
+							id: "case_name",
+							kind: "hidden",
+							calculate:
+								"coalesce(#form/orders/medication_name, 'Medication order')",
+							case_property_on: "medication_order",
+						},
+					],
+				},
+			]);
+
+		it("a calculate inside a repeat reads its typed sibling", () => {
+			const engine = new FormEngine(ordersFixture(), "patient");
+
+			// Fallback arm computes at init…
+			expect(engine.getState("/data/orders[0]/case_name").value).toBe(
+				"Medication order",
+			);
+
+			// …and the typed value re-fires the calc in the same instance.
+			engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
+			expect(engine.getState("/data/orders[0]/case_name").value).toBe(
+				"Hydrangea",
+			);
+		});
+
+		it("the typed value reaches the child case's name at submit", () => {
+			const engine = new FormEngine(ordersFixture(), "patient");
+			engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
+
+			const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
+			expect(mutation).toMatchObject({
+				kind: "registration",
+				children: [{ caseType: "medication_order", caseName: "Hydrangea" }],
+			});
+		});
+
+		it("each instance's calc evaluates against its own values", () => {
+			const engine = new FormEngine(ordersFixture(), "patient");
+			engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
+			engine.addRepeat("/data/orders");
+			engine.setValue("/data/orders[1]/medication_name", "Aspirin");
+
+			expect(engine.getState("/data/orders[0]/case_name").value).toBe(
+				"Hydrangea",
+			);
+			expect(engine.getState("/data/orders[1]/case_name").value).toBe(
+				"Aspirin",
+			);
+
+			const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
+			expect(mutation).toMatchObject({
+				kind: "registration",
+				children: [
+					{ caseType: "medication_order", caseName: "Hydrangea" },
+					{ caseType: "medication_order", caseName: "Aspirin" },
+				],
+			});
+		});
+
+		it("a new instance's calc evaluates immediately on addRepeat", () => {
+			const engine = new FormEngine(ordersFixture(), "patient");
+			engine.addRepeat("/data/orders");
+
+			expect(engine.getState("/data/orders[1]/case_name").value).toBe(
+				"Medication order",
+			);
+		});
+
+		it("relevance inside a repeat toggles per instance", () => {
+			const input = dTree([
+				{
+					id: "orders",
+					kind: "repeat",
+					children: [
+						{ id: "flag", kind: "text", label: "Flag" },
+						{
+							id: "details",
+							kind: "text",
+							label: "Details",
+							relevant: "#form/orders/flag = 'yes'",
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
+
+			engine.setValue("/data/orders[1]/flag", "yes");
+			expect(engine.getState("/data/orders[0]/details").visible).toBe(false);
+			expect(engine.getState("/data/orders[1]/details").visible).toBe(true);
+		});
+
+		it("validation inside a repeat judges per instance", () => {
+			const input = dTree([
+				{
+					id: "orders",
+					kind: "repeat",
+					children: [
+						{
+							id: "qty",
+							kind: "text",
+							label: "Qty",
+							validate: ". != 'bad'",
+							validate_msg: "No bad values",
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
+
+			engine.setValue("/data/orders[0]/qty", "good");
+			engine.setValue("/data/orders[1]/qty", "bad");
+			expect(engine.getState("/data/orders[0]/qty").valid).toBe(true);
+			expect(engine.getState("/data/orders[1]/qty").valid).toBe(false);
+		});
+
+		it("bare-hashtag labels resolve per instance", () => {
+			const input = dTree([
+				{
+					id: "orders",
+					kind: "repeat",
+					children: [
+						{ id: "medication_name", kind: "text", label: "Medication" },
+						{
+							id: "confirm",
+							kind: "text",
+							label: "Confirm #form/orders/medication_name",
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
+			engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
+			engine.setValue("/data/orders[1]/medication_name", "Aspirin");
+
+			expect(engine.getState("/data/orders[0]/confirm").resolvedLabel).toBe(
+				"Confirm Hydrangea",
+			);
+			expect(engine.getState("/data/orders[1]/confirm").resolvedLabel).toBe(
+				"Confirm Aspirin",
+			);
+		});
+
+		it("a reference to a field outside the repeat fans out to every instance", () => {
+			const input = dTree([
+				{ id: "prefix", kind: "text", label: "Prefix" },
+				{
+					id: "orders",
+					kind: "repeat",
+					children: [
+						{
+							id: "tag",
+							kind: "hidden",
+							calculate: "concat(#form/prefix, '-', position())",
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
+
+			engine.setValue("/data/prefix", "RX");
+			expect(engine.getState("/data/orders[0]/tag").value).toBe("RX-1");
+			expect(engine.getState("/data/orders[1]/tag").value).toBe("RX-2");
+		});
+
+		it("position()-dependent calcs recompute when an instance is removed", () => {
+			const input = dTree([
+				{
+					id: "orders",
+					kind: "repeat",
+					children: [{ id: "idx", kind: "hidden", calculate: "position()" }],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
+			engine.addRepeat("/data/orders");
+			expect(engine.getState("/data/orders[2]/idx").value).toBe("3");
+
+			engine.removeRepeat("/data/orders", 0);
+			expect(engine.getState("/data/orders[0]/idx").value).toBe("1");
+			expect(engine.getState("/data/orders[1]/idx").value).toBe("2");
+		});
+
+		it("default_value applies to a new instance against its own context", () => {
+			const input = dTree([
+				{
+					id: "orders",
+					kind: "repeat",
+					children: [
+						{
+							id: "stamp",
+							kind: "text",
+							label: "Stamp",
+							default_value: "concat('entry-', position())",
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			expect(engine.getState("/data/orders[0]/stamp").value).toBe("entry-1");
+
+			engine.addRepeat("/data/orders");
+			expect(engine.getState("/data/orders[1]/stamp").value).toBe("entry-2");
+		});
+
+		it("group visibility inside a repeat is per-instance", () => {
+			const input = dTree([
+				{
+					id: "orders",
+					kind: "repeat",
+					children: [
+						{ id: "flag", kind: "text", label: "Flag" },
+						{
+							id: "extras",
+							kind: "group",
+							label: "Extras",
+							relevant: "#form/orders/flag = 'yes'",
+							children: [{ id: "note", kind: "text", label: "Note" }],
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
+			engine.setValue("/data/orders[1]/flag", "yes");
+
+			expect(engine.getState("/data/orders[0]/extras").visible).toBe(false);
+			expect(engine.getState("/data/orders[1]/extras").visible).toBe(true);
+		});
+
+		it("nested repeats bind to the innermost shared instance", () => {
+			const input = dTree([
+				{
+					id: "households",
+					kind: "repeat",
+					children: [
+						{ id: "surname", kind: "text", label: "Surname" },
+						{
+							id: "members",
+							kind: "repeat",
+							children: [
+								{ id: "first", kind: "text", label: "First name" },
+								{
+									id: "full",
+									kind: "hidden",
+									calculate:
+										"concat(#form/households/members/first, ' ', #form/households/surname)",
+								},
+							],
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.addRepeat("/data/households");
+
+			engine.setValue("/data/households[0]/surname", "Smith");
+			engine.setValue("/data/households[1]/surname", "Jones");
+			engine.setValue("/data/households[0]/members[0]/first", "Mary");
+			engine.setValue("/data/households[1]/members[0]/first", "Ada");
+
+			expect(engine.getState("/data/households[0]/members[0]/full").value).toBe(
+				"Mary Smith",
+			);
+			expect(engine.getState("/data/households[1]/members[0]/full").value).toBe(
+				"Ada Jones",
+			);
+		});
+	});
 });

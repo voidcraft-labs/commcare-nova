@@ -45,9 +45,15 @@ writes) can still produce it. Consumers of `is-blank` should
 read `lib/domain/predicate/CLAUDE.md` § "Null vs blank semantics
 — locked invariant".
 
-## Repeat-count reactivity
+## Repeat instances are first-class
 
-In render paths, read repeat instance counts from `state.repeatCount` (via `useEngineState`), not from `controller.getRepeatCount(uuid)`. The latter is a non-reactive method call — the row only re-renders if it subscribes to something whose reference changed. `addRepeat` / `removeRepeat` bump `repeatCount` on the repeat's own `FieldState` precisely to give subscribers that signal; the new `[N]/...` child writes don't reach the runtime store because `pathToUuid` only registers the `[0]` template path. `getRepeatCount` is fine outside render or in render paths whose lifecycle guarantees no add/remove can happen while mounted (e.g. edit-mode-only rows).
+Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one FieldState per live instance, while everything AUTHORED about them is index-free — `printXPath` emits `#form/orders/name`, the dependency extractor emits `/data/orders/name`. Three mechanisms bridge the two shapes (`instancePaths.ts` holds the conversions):
+
+- **Evaluation binds to the instance.** `createEvalContext` rebases every read — `#form/` hashtags and absolute `/data/` paths — onto the evaluating node's own repeat instance by longest-common-repeat-prefix (`rebaseOntoContext`), CommCare's relative-reference semantic. A reference from OUTSIDE a repeat to a child inside one is not rebased and reads blank — the wire's nodeset semantics (sum over instances, indexed predicates) are not modeled.
+- **The TriggerDag topology is index-free; queries materialize.** Nodes and edges are keyed by generic paths, and `getAffected` / `getAllPaths` fan each generic node out over the live instance counts (a `RepeatCountResolver` the engine supplies). Repeat add/remove therefore needs NO DAG bookkeeping; `addRepeat` seeds the new instance's states (defaults-then-evaluate, same order as form load), `removeRepeat` re-evaluates survivors (`position()` shifts) — both then cascade to outside dependents.
+- **The runtime store is dual-keyed.** Every field keeps its uuid key (edit-mode rows); every path with an `[N]` segment ALSO gets a path key — the interactive renderer subscribes via `useEngineStateAt(uuid, path)` and writes through `controller.setValueAt(path, …)` / `touchAt(path)`, so two instances of one field hold independent value/visibility/validity. Uuid-keyed flows (`onValueChange`) address the `[0]` template only.
+
+In render paths, read repeat instance counts from `state.repeatCount` (via the engine-state hooks), not from `controller.getRepeatCount(uuid)` — the latter is a non-reactive method call. `addRepeat` / `removeRepeat` bump `repeatCount` on the repeat's own `FieldState` precisely to give subscribers that signal. `getRepeatCount` is fine outside render or in render paths whose lifecycle guarantees no add/remove can happen while mounted (e.g. edit-mode-only rows).
 
 ## Value persistence across engine recreation
 

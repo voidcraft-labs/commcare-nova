@@ -48,6 +48,7 @@ import type { EvalContext } from "../xpath/types";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import { DataInstance } from "./dataInstance";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
+import { rebaseOntoContext, stripIndices } from "./instancePaths";
 import { resolveLabel } from "./labelRefs";
 import { TriggerDag } from "./triggerDag";
 import { type FieldState, fieldStatesEqual } from "./types";
@@ -110,6 +111,10 @@ export class FormEngine {
 	private caseData: Map<string, string>;
 	private moduleCaseType: string | undefined;
 	private formType: string;
+	/** Live repeat-instance counts for the DAG's generic→concrete
+	 *  materialization. Arrow property so it can pass as a bare callback. */
+	private repeatCounts = (repeatPath: string): number =>
+		this.instance.getRepeatCount(repeatPath);
 
 	constructor(
 		input: FormEngineInput,
@@ -161,7 +166,7 @@ export class FormEngine {
 
 		/* Cascade: re-evaluate expressions for all affected paths. Only
 		 * paths whose state actually changed are included in the update. */
-		const affected = this.dag.getAffected(path);
+		const affected = this.dag.getAffected(path, this.repeatCounts);
 		for (const affectedPath of affected) {
 			this.evaluateAndCollect(affectedPath, updates);
 		}
@@ -184,12 +189,15 @@ export class FormEngine {
 	/** Add a new repeat instance. Returns the new index. */
 	addRepeat(repeatPath: string): number {
 		const newIndex = this.instance.addRepeatInstance(repeatPath);
+		const instancePrefix = `${repeatPath}[${newIndex}]`;
 
 		const updates: EngineStoreState = {};
 		const templatePrefix = `${repeatPath}[0]/`;
+		const newLeafPaths: string[] = [];
 		for (const [key] of this.instance.entries()) {
-			if (key.startsWith(`${repeatPath}[${newIndex}]/`)) {
-				const suffix = key.slice(`${repeatPath}[${newIndex}]/`.length);
+			if (key.startsWith(`${instancePrefix}/`)) {
+				newLeafPaths.push(key);
+				const suffix = key.slice(`${instancePrefix}/`.length);
 				const templatePath = templatePrefix + suffix;
 				const templateState = this.store.getState()[templatePath];
 				updates[key] = {
@@ -203,12 +211,18 @@ export class FormEngine {
 			}
 		}
 
+		/* Containers inside the new instance need their own FieldState —
+		 * group visibility and nested-repeat cardinality are per-instance.
+		 * The DataInstance walk above only covers leaves. */
+		const repeatNode = this.findTreeNode(repeatPath);
+		if (repeatNode?.children) {
+			this.seedContainerStates(updates, repeatNode.children, instancePrefix);
+		}
+
 		// Bump `repeatCount` on the repeat's own state — this is what
-		// `useEngineState` subscribers observe to re-render with the new
-		// cardinality. New `[N]/...` child writes don't reach the
-		// runtime store because `pathToUuid` only registers the `[0]`
-		// template path; the parent's `repeatCount` is the only signal
-		// per-field subscribers can observe to drive a re-render.
+		// repeat-container subscribers observe to re-render with the new
+		// cardinality; the per-instance child states above are keyed by
+		// their concrete `[N]/...` paths.
 		const repeatState = this.store.getState()[repeatPath];
 		if (repeatState) {
 			updates[repeatPath] = { ...repeatState, repeatCount: newIndex + 1 };
@@ -217,6 +231,13 @@ export class FormEngine {
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
+
+		/* One-time defaults for the new instance's leaves, then evaluate
+		 * the instance's expressions plus every outside dependent — the
+		 * same defaults-then-evaluate order form load runs for `[0]`. */
+		this.applyInstanceDefaults(newLeafPaths);
+		this.evaluateRepeatCascade(`${instancePrefix}/`, newLeafPaths);
+
 		return newIndex;
 	}
 
@@ -260,6 +281,99 @@ export class FormEngine {
 		this.instance.removeRepeatInstance(repeatPath, index);
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
+		}
+
+		/* Re-evaluate the surviving instances — `position()` / `last()` and
+		 * renumbered sibling values shift — plus every outside dependent. */
+		const survivingLeaves: string[] = [];
+		for (const [key] of this.instance.entries()) {
+			if (key.startsWith(`${repeatPath}[`)) survivingLeaves.push(key);
+		}
+		this.evaluateRepeatCascade(`${repeatPath}[`, survivingLeaves);
+	}
+
+	/**
+	 * Evaluate every DAG node inside a repeat's subtree (all paths under
+	 * `subtreePrefix`) plus everything outside it that depends on the given
+	 * leaf paths. Runs after instance cardinality changes, where the
+	 * instance's own expressions AND cross-repeat dependents both need a
+	 * fresh pass.
+	 */
+	private evaluateRepeatCascade(
+		subtreePrefix: string,
+		leafPaths: string[],
+	): void {
+		const toEvaluate = new Set<string>();
+		for (const path of this.dag.getAllPaths(this.repeatCounts)) {
+			if (path.startsWith(subtreePrefix)) toEvaluate.add(path);
+		}
+		for (const leaf of leafPaths) {
+			for (const dep of this.dag.getAffected(leaf, this.repeatCounts)) {
+				toEvaluate.add(dep);
+			}
+		}
+		if (toEvaluate.size > 0) {
+			this.evaluatePathsInto([...toEvaluate]);
+		}
+	}
+
+	/**
+	 * Apply `default_value` one-time to freshly created repeat-instance
+	 * leaves — mirrors `applyDefaultsInto`, but against the live store.
+	 * The eval context binds to each leaf's own instance, so a default
+	 * reading a repeat sibling reads the new instance, not `[0]`.
+	 */
+	private applyInstanceDefaults(paths: string[]): void {
+		const updates: EngineStoreState = {};
+		for (const path of paths) {
+			const field = this.findField(path);
+			if (!field) continue;
+			const defaultValue = expressionSource(
+				field,
+				"default_value",
+				this.printDoc,
+			);
+			if (!defaultValue) continue;
+			const ctx = this.createEvalContext(path);
+			const value = xpathToString(evaluate(defaultValue, ctx));
+			if (value && value !== "false") {
+				this.instance.set(path, value);
+				const state = this.store.getState()[path];
+				if (state) updates[path] = { ...state, value };
+			}
+		}
+		if (Object.keys(updates).length > 0) {
+			this.store.setState(updates);
+		}
+	}
+
+	/**
+	 * Create container FieldStates for a freshly added repeat instance —
+	 * groups carry per-instance visibility, nested repeats per-instance
+	 * cardinality. Nested-repeat counts read from the DataInstance, whose
+	 * instance walk seeded the new subtree's value slots first.
+	 */
+	private seedContainerStates(
+		updates: EngineStoreState,
+		nodes: ReadonlyArray<FieldTreeNode>,
+		prefix: string,
+	): void {
+		for (const node of nodes) {
+			const f = node.field;
+			if (f.kind !== "group" && f.kind !== "repeat") continue;
+			const path = `${prefix}/${f.id}`;
+			const base = this.initialContainerState(path, f.kind);
+			updates[path] =
+				f.kind === "repeat"
+					? {
+							...base,
+							repeatCount: Math.max(1, this.instance.getRepeatCount(path)),
+						}
+					: base;
+			if (node.children) {
+				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
+				this.seedContainerStates(updates, node.children, childPrefix);
+			}
 		}
 	}
 
@@ -562,9 +676,9 @@ export class FormEngine {
 
 	/** Get all paths affected by a change at the given path, in topological
 	 *  evaluation order. Used by the EngineController to sync only the
-	 *  affected UUIDs to the runtime store after a setValue cascade. */
+	 *  affected entries to the runtime store after a setValue cascade. */
 	getAffectedPaths(path: string): string[] {
-		return this.dag.getAffected(path);
+		return this.dag.getAffected(path, this.repeatCounts);
 	}
 
 	/**
@@ -601,7 +715,7 @@ export class FormEngine {
 
 	/** Return all paths tracked by the DAG, in topological order. */
 	getAllPaths(): string[] {
-		return this.dag.getAllPaths();
+		return this.dag.getAllPaths(this.repeatCounts);
 	}
 
 	// ── Incremental operations ───────────────────────────────────────
@@ -769,7 +883,7 @@ export class FormEngine {
 		}
 
 		/* Cascade — the value change may affect dependent fields */
-		const affected = this.dag.getAffected(path);
+		const affected = this.dag.getAffected(path, this.repeatCounts);
 		if (affected.length > 0) {
 			this.evaluatePathsInto(affected);
 		}
@@ -800,7 +914,7 @@ export class FormEngine {
 		if (changedPaths.length > 0) {
 			const allAffected = new Set(changedPaths);
 			for (const path of changedPaths) {
-				for (const dep of this.dag.getAffected(path)) {
+				for (const dep of this.dag.getAffected(path, this.repeatCounts)) {
 					allAffected.add(dep);
 				}
 			}
@@ -1093,7 +1207,7 @@ export class FormEngine {
 	 *  Used during init and schema rebuild. */
 	private evaluateAllInto(): void {
 		const updates: EngineStoreState = {};
-		const allPaths = this.dag.getAllPaths();
+		const allPaths = this.dag.getAllPaths(this.repeatCounts);
 		for (const path of allPaths) {
 			this.evaluateAndCollect(path, updates);
 		}
@@ -1235,19 +1349,28 @@ export class FormEngine {
 	private createEvalContext(path: string): EvalContext {
 		let position = 1;
 		let size = 1;
-		const repeatMatch = path.match(/\[(\d+)\]/);
+		// The DEEPEST instance segment carries the evaluating node's own
+		// position — for `/data/a[1]/b[0]/c`, position() is b's index.
+		const repeatMatch = path.match(/\[(\d+)\][^[]*$/);
 		if (repeatMatch) {
 			position = Number.parseInt(repeatMatch[1], 10) + 1;
-			const repeatBase = path.slice(0, path.indexOf("["));
+			const repeatBase = path.slice(0, path.lastIndexOf("["));
 			size = this.instance.getRepeatCount(repeatBase);
 		}
 
+		/* References print index-free (`#form/orders/name`), but repeat
+		 * children live at indexed paths — bind each read onto the
+		 * evaluating node's own instance, CommCare's relative-reference
+		 * semantic. Reads outside the context's repeats pass through. */
+		const read = (p: string): string | undefined =>
+			this.instance.get(rebaseOntoContext(p, path));
+
 		return {
-			getValue: (p: string) => this.instance.get(p),
+			getValue: read,
 			resolveHashtag: (ref: string) => {
 				if (ref.startsWith("#form/")) {
 					const fieldId = ref.slice(6);
-					return this.instance.get(`/data/${fieldId}`) ?? "";
+					return read(`/data/${fieldId}`) ?? "";
 				}
 				if (ref.startsWith("#user/")) {
 					const prop = ref.slice(6);
@@ -1289,20 +1412,25 @@ export class FormEngine {
 		};
 	}
 
-	private findField(
+	private findField(path: string): Field | undefined {
+		return this.findTreeNode(path)?.field;
+	}
+
+	/** Locate the tree node a concrete OR generic path addresses —
+	 *  instance indices are stripped on both sides before comparing. */
+	private findTreeNode(
 		path: string,
 		tree?: FieldTreeNode[],
 		prefix = "/data",
-	): Field | undefined {
+	): FieldTreeNode | undefined {
+		const target = stripIndices(path);
 		for (const node of tree ?? this.tree) {
 			const f = node.field;
 			const fPath = `${prefix}/${f.id}`;
-			const normalizedPath = path.replace(/\[\d+\]/g, "[0]");
-			const normalizedFPath = fPath.replace(/\[\d+\]/g, "[0]");
-			if (normalizedPath === normalizedFPath) return f;
+			if (stripIndices(fPath) === target) return node;
 			if (node.children) {
 				const childPrefix = f.kind === "repeat" ? `${fPath}[0]` : fPath;
-				const found = this.findField(path, node.children, childPrefix);
+				const found = this.findTreeNode(path, node.children, childPrefix);
 				if (found) return found;
 			}
 		}

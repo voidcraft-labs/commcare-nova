@@ -352,21 +352,37 @@ export class EngineController {
 
 	// ── Public actions (called by components) ────────────────────────
 
-	/** Set a test-mode value and cascade through the DAG. */
+	/** Set a test-mode value and cascade through the DAG. Resolves the
+	 *  uuid to its template path — edit-mode rows have no instance
+	 *  dimension. Interactive rows call `setValueAt` with their concrete
+	 *  path instead. */
 	onValueChange(uuid: string, value: string): void {
-		if (!this.engine) return;
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return;
+		this.setValueAt(path, value);
+	}
+
+	/** Set a value at a concrete engine path — the interactive renderer's
+	 *  entry point, where repeat children carry per-instance indexed paths
+	 *  the uuid map can't address. */
+	setValueAt(path: string, value: string): void {
+		if (!this.engine) return;
 		this.engine.setValue(path, value);
 		const affectedPaths = [path, ...this.engine.getAffectedPaths(path)];
 		this.syncPathsToStore(affectedPaths);
 	}
 
-	/** Mark a field as touched (on blur). */
+	/** Mark a field as touched (on blur). Uuid-resolved template path —
+	 *  see `onValueChange`. */
 	onTouch(uuid: string): void {
-		if (!this.engine) return;
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return;
+		this.touchAt(path);
+	}
+
+	/** Mark the field at a concrete engine path as touched (on blur). */
+	touchAt(path: string): void {
+		if (!this.engine) return;
 		this.engine.touch(path);
 		this.syncPathsToStore([path]);
 	}
@@ -417,36 +433,30 @@ export class EngineController {
 	 * "UI is first defense, reducer is authoritative" rule documented
 	 * for `convertField`.
 	 */
-	addRepeat(uuid: string): number {
+	addRepeat(uuid: string, atPath?: string): number {
 		if (!this.engine) return 0;
 		if (!this.isUserControlledRepeat(uuid)) return 0;
-		const path = this.uuidToPath.get(uuid);
+		const path = atPath ?? this.uuidToPath.get(uuid);
 		if (!path) return 0;
 		const result = this.engine.addRepeat(path);
-		// Targeted sync — only the repeat's own path round-trips to
-		// the runtime store. `addRepeat` / `removeRepeat` bump
-		// `repeatCount` on the repeat's own `FieldState` to give
-		// subscribers the re-render signal; new `[N]/...` child
-		// writes don't reach the store because `pathToUuid` only
-		// registers the `[0]` template path. `syncAllToStore` would
-		// replace every UUID's reference and re-render every leaf
-		// row in the form, the exact fan-out the per-field
-		// subscription model is built to avoid.
-		this.syncPathsToStore([path]);
+		// Cardinality changes touch the repeat's own `repeatCount`, the
+		// new instance's per-path states, and any outside dependents —
+		// the selective sweep diff-writes only entries that actually
+		// changed, so untouched rows keep their references.
+		this.syncAllPathsSelectively();
 		return result;
 	}
 
 	/** Remove a repeat instance. Same gate as `addRepeat` — only
 	 *  `user_controlled` repeats can shed instances at runtime. */
-	removeRepeat(uuid: string, index: number): void {
+	removeRepeat(uuid: string, index: number, atPath?: string): void {
 		if (!this.engine) return;
 		if (!this.isUserControlledRepeat(uuid)) return;
-		const path = this.uuidToPath.get(uuid);
+		const path = atPath ?? this.uuidToPath.get(uuid);
 		if (!path) return;
 		this.engine.removeRepeat(path, index);
-		// Targeted sync — see `addRepeat` for why the repeat's own path
-		// is the only entry that round-trips to the runtime store.
-		this.syncPathsToStore([path]);
+		// Selective sweep — see `addRepeat`.
+		this.syncAllPathsSelectively();
 	}
 
 	/** True iff `uuid` resolves to a repeat field whose `repeat_mode`
@@ -895,22 +905,41 @@ export class EngineController {
 
 	// ── Store sync ───────────────────────────────────────────────────
 
-	/** Sync ALL engine state to the UUID-keyed runtime store. Used only
-	 *  during initial activation and full reset. */
+	/**
+	 * Runtime-store keys for one engine path. Every path with a uuid
+	 * mapping gets its uuid key (the edit-mode rows' subscription);
+	 * every path inside a repeat instance (any `[N]` segment) ALSO gets
+	 * a path key — one entry per live instance, the interactive
+	 * renderer's subscription. The two sets overlap on `[0]` template
+	 * paths, which carry both keys. Uuid strings never start with `/`,
+	 * so the two key spaces can't collide.
+	 */
+	private runtimeKeysFor(path: string): string[] {
+		const keys: string[] = [];
+		const uuid = this.pathToUuid.get(path);
+		if (uuid) keys.push(uuid);
+		if (path.includes("[")) keys.push(path);
+		return keys;
+	}
+
+	/** Sync ALL engine state to the runtime store. Used only during
+	 *  initial activation and full reset. */
 	private syncAllToStore(): void {
 		if (!this.engine) return;
 		const engineState = this.engine.store.getState();
 		const runtime: RuntimeStoreState = {};
 		for (const [path, state] of Object.entries(engineState)) {
-			const uuid = this.pathToUuid.get(path);
-			if (uuid) runtime[uuid] = state;
+			for (const key of this.runtimeKeysFor(path)) {
+				runtime[key] = state;
+			}
 		}
 		this.store.setState(runtime, true);
 	}
 
-	/** Sync ALL paths but only write UUIDs whose state actually changed.
-	 *  Used by validateAll and resetValidation where many fields are
-	 *  touched but most states don't change. */
+	/** Sync ALL paths but only write entries whose state actually changed.
+	 *  Used by validateAll, resetValidation, and repeat cardinality
+	 *  changes, where many fields are touched but most states don't
+	 *  change. */
 	private syncAllPathsSelectively(): void {
 		if (!this.engine) return;
 		const engineState = this.engine.store.getState();
@@ -919,12 +948,12 @@ export class EngineController {
 		let hasChanges = false;
 
 		for (const [path, newState] of Object.entries(engineState)) {
-			const uuid = this.pathToUuid.get(path);
-			if (!uuid) continue;
-			const oldState = currentRuntime[uuid];
-			if (!oldState || !fieldStatesEqual(oldState, newState)) {
-				updates[uuid] = newState;
-				hasChanges = true;
+			for (const key of this.runtimeKeysFor(path)) {
+				const oldState = currentRuntime[key];
+				if (!oldState || !fieldStatesEqual(oldState, newState)) {
+					updates[key] = newState;
+					hasChanges = true;
+				}
 			}
 		}
 
@@ -934,8 +963,8 @@ export class EngineController {
 	}
 
 	/** Sync specific paths to the runtime store. The primary sync method —
-	 *  used after every targeted operation. Only writes UUIDs whose state
-	 *  actually changed. */
+	 *  used after every targeted operation. Only writes entries whose
+	 *  state actually changed. */
 	private syncPathsToStore(paths: string[]): void {
 		if (!this.engine) return;
 		const engineState = this.engine.store.getState();
@@ -944,14 +973,14 @@ export class EngineController {
 		let hasChanges = false;
 
 		for (const path of paths) {
-			const uuid = this.pathToUuid.get(path);
-			if (!uuid) continue;
 			const newState = engineState[path];
 			if (!newState) continue;
-			const oldState = currentRuntime[uuid];
-			if (!oldState || !fieldStatesEqual(oldState, newState)) {
-				updates[uuid] = newState;
-				hasChanges = true;
+			for (const key of this.runtimeKeysFor(path)) {
+				const oldState = currentRuntime[key];
+				if (!oldState || !fieldStatesEqual(oldState, newState)) {
+					updates[key] = newState;
+					hasChanges = true;
+				}
 			}
 		}
 

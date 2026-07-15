@@ -25,3 +25,26 @@ export function useEngineState(uuid: string): FieldState {
 		(s: RuntimeStoreState) => s[uuid] ?? DEFAULT_RUNTIME_STATE,
 	);
 }
+
+/**
+ * useEngineStateAt — subscribe to runtime state for a field at a concrete
+ * engine path.
+ *
+ * Repeat-instance paths (any `[N]` segment, e.g. `/data/orders[1]/name`)
+ * are keyed by path in the runtime store — one FieldState per live
+ * instance, which is what lets two instances of the same field hold
+ * different values, visibility, and validity. Every other field keeps the
+ * uuid key, and the uuid also covers the render before the doc row (and
+ * therefore the path) resolves.
+ */
+export function useEngineStateAt(
+	uuid: string,
+	path: string | undefined,
+): FieldState {
+	const controller = useEngineController();
+	const key = path?.includes("[") ? path : uuid;
+	return useStore(
+		controller.store,
+		(s: RuntimeStoreState) => s[key] ?? DEFAULT_RUNTIME_STATE,
+	);
+}

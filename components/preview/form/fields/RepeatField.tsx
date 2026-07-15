@@ -37,7 +37,7 @@ import type { FieldPath } from "@/lib/doc/fieldPath";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { RepeatField as RepeatFieldEntity } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
-import { useEngineState } from "@/lib/preview/hooks/useEngineState";
+import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useFormLayout } from "../FormLayoutContext";
 import { FIELD_STYLES } from "../fieldStyles";
@@ -109,14 +109,16 @@ export function RepeatField({
 	// only render when the repeat is visible. State is still needed for
 	// resolved label text + the "Add …" button.
 	const controller = useEngineController();
-	const state = useEngineState(field.uuid);
+	// Path-keyed subscription so a repeat NESTED inside another repeat
+	// reads its own instance's cardinality, not the template's.
+	const state = useEngineStateAt(field.uuid, path);
 	const { toggleCollapse, isCollapsed } = useFormLayout();
 	const collapsed = isCollapsed(field.uuid);
 
 	const hasChildren = useHasFieldsInForm(field.uuid);
 
 	// Reactive count — read from `state.repeatCount` (via
-	// `useEngineState`), not `controller.getRepeatCount(uuid)`.
+	// `useEngineStateAt`), not `controller.getRepeatCount(uuid)`.
 	// The latter is a non-reactive method call; `addRepeat` /
 	// `removeRepeat` bump `repeatCount` on the repeat's own
 	// `FieldState` to give subscribers the re-render signal.
@@ -238,7 +240,7 @@ export function RepeatField({
 										depth={depth + 1}
 										onRemove={
 											isUserControlled && count > 1
-												? () => controller.removeRepeat(field.uuid, idx)
+												? () => controller.removeRepeat(field.uuid, idx, path)
 												: undefined
 										}
 									/>
@@ -274,7 +276,7 @@ export function RepeatField({
 							>
 								<button
 									type="button"
-									onClick={() => controller.addRepeat(field.uuid)}
+									onClick={() => controller.addRepeat(field.uuid, path)}
 									className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent-bright hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
 								>
 									<Icon icon={tablerPlus} width="14" height="14" />
