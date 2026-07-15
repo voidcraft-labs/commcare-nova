@@ -25,6 +25,7 @@
 		"ssh2": false
 	},
 	"scripts": {
+		"postinstall": "fumadocs-mdx",
 		"predev": "node scripts/check-node.mjs",
 		"dev": "npm run db:dev && NEXT_TELEMETRY_DISABLED=1 next dev",
 		"db:dev": "docker compose up -d --wait && NOVA_DB_LOCAL_URL=postgres://nova:nova@localhost:5432/nova_cases?sslmode=disable npm run db:migrate",
