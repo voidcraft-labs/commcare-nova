@@ -486,11 +486,34 @@ export function ChatSidebar({
 
 	const pendingAnswerRef = useRef<((text: string) => void) | null>(null);
 
-	/* The StickToBottom scroll context, captured from Conversation. We don't drive
-	 * the auto-pin ourselves (use-stick-to-bottom owns that, including across the
-	 * center↔sidebar morph), but the question-card autoscroll below still needs to
-	 * reach into the live content element to scroll a mid-list card into view. */
+	/* The StickToBottom scroll context, captured from Conversation. The library's
+	 * initial="instant" path still waits for ResizeObserver + rAF, which leaves one
+	 * top-positioned frame when this scroll root remounts after closing History.
+	 * Initialize each NEW scroll element synchronously from the imperative-ref
+	 * commit instead: DOM refs and layout are ready, but the browser has not painted.
+	 * Tracking element identity keeps later context updates from fighting manual
+	 * scrolling; use-stick-to-bottom owns all pinning after this first position. */
 	const stickContextRef = useRef<StickToBottomContext | null>(null);
+	const initializedScrollElementRef = useRef<HTMLElement | null>(null);
+	const captureStickContext = useCallback(
+		(context: StickToBottomContext | null) => {
+			stickContextRef.current = context;
+			const scrollElement = context?.scrollRef.current;
+			if (
+				!scrollElement ||
+				scrollElement === initializedScrollElementRef.current
+			) {
+				return;
+			}
+
+			initializedScrollElementRef.current = scrollElement;
+			if (getComputedStyle(scrollElement).overflow === "visible") {
+				scrollElement.style.overflow = "auto";
+			}
+			scrollElement.scrollTop = scrollElement.scrollHeight;
+		},
+		[],
+	);
 
 	const triggerSendWave = useCallback(() => {
 		/* Mark the coming `submitted` window as a real send so desiredMode
@@ -724,7 +747,7 @@ export function ChatSidebar({
 					<Conversation
 						key={activeThreadId}
 						className={centered ? "flex-auto min-h-0" : "flex-1"}
-						contextRef={stickContextRef}
+						contextRef={captureStickContext}
 					>
 						{/* ConversationContent's base `gap-8` is roomier than Nova's chat
 						 *  density; override to `gap-4` (matches the former `space-y-4`).
