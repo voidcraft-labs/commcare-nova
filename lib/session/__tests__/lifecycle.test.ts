@@ -74,18 +74,20 @@ function attachmentPrep(
 
 describe("stageTagToGenerationStage", () => {
 	it("maps the live build stages (app / module:create / module:N / form:M-F)", () => {
-		expect(stageTagToGenerationStage("app")).toBe(GenerationStage.Structure);
+		expect(stageTagToGenerationStage("app")).toBe(GenerationStage.Foundation);
 		expect(stageTagToGenerationStage("module:create")).toBe(
-			GenerationStage.Modules,
+			GenerationStage.Build,
 		);
-		expect(stageTagToGenerationStage("module:0")).toBe(GenerationStage.Modules);
-		expect(stageTagToGenerationStage("form:0-1")).toBe(GenerationStage.Forms);
+		expect(stageTagToGenerationStage("module:0")).toBe(GenerationStage.Build);
+		expect(stageTagToGenerationStage("form:0-1")).toBe(GenerationStage.Build);
 	});
 
 	it("maps the historical stages (schema / scaffold / fix) so old logs still render", () => {
-		expect(stageTagToGenerationStage("schema")).toBe(GenerationStage.DataModel);
+		expect(stageTagToGenerationStage("schema")).toBe(
+			GenerationStage.Foundation,
+		);
 		expect(stageTagToGenerationStage("scaffold")).toBe(
-			GenerationStage.Structure,
+			GenerationStage.Foundation,
 		);
 		expect(stageTagToGenerationStage("fix:attempt-2")).toBe(
 			GenerationStage.Fix,
@@ -106,33 +108,84 @@ describe("deriveAgentStage", () => {
 		expect(deriveAgentStage([])).toBeNull();
 	});
 
-	it("tracks the latest generation-stage tag across the run", () => {
+	it("derives the furthest milestone established across the run", () => {
 		expect(
 			deriveAgentStage([
 				mut("schema", 0),
 				mut("scaffold", 1),
 				mut("module:0", 2),
 			]),
-		).toBe(GenerationStage.Modules);
+		).toBe(GenerationStage.Build);
 	});
 
 	it("skips mutations without stage tags", () => {
 		expect(deriveAgentStage([mut(undefined, 0), mut("schema", 1)])).toBe(
-			GenerationStage.DataModel,
+			GenerationStage.Foundation,
 		);
 	});
 
 	it("walks past phase-less tags to find a generation stage", () => {
 		/* edit:* / rename:* / module:remove:N don't resolve to a generation
-		 * stage — the walker should continue past them to find the latest
-		 * resolving tag instead. */
+		 * stage, so they do not affect the milestone facts in the prefix. */
 		expect(
 			deriveAgentStage([
 				mut("app", 0),
 				mut("module:remove:1", 1),
 				mut("edit:0-1", 2),
 			]),
-		).toBe(GenerationStage.Structure);
+		).toBe(GenerationStage.Foundation);
+	});
+
+	it("treats app naming and data-model recording as one foundation milestone", () => {
+		expect(deriveAgentStage([mut("app", 0)])).toBe(GenerationStage.Foundation);
+		expect(deriveAgentStage([mut("app", 0), mut("schema", 1)])).toBe(
+			GenerationStage.Foundation,
+		);
+	});
+
+	it("does not rewind when the data model is enriched after content work starts", () => {
+		expect(
+			deriveAgentStage([
+				mut("schema", 0),
+				mut("module:create", 1),
+				mut("schema", 2),
+			]),
+		).toBe(GenerationStage.Build);
+	});
+
+	it.each([
+		{
+			name: "live retries and late foundation work",
+			tags: ["app", "schema", "schema", "module:create", "schema", "app"],
+			expected: [
+				GenerationStage.Foundation,
+				GenerationStage.Foundation,
+				GenerationStage.Foundation,
+				GenerationStage.Build,
+				GenerationStage.Build,
+				GenerationStage.Build,
+			],
+		},
+		{
+			name: "historical replay through the retired fix loop",
+			tags: ["schema", "scaffold", "form:0-0", "fix:attempt-1", "schema"],
+			expected: [
+				GenerationStage.Foundation,
+				GenerationStage.Foundation,
+				GenerationStage.Build,
+				GenerationStage.Fix,
+				GenerationStage.Fix,
+			],
+		},
+	])("derives every $name prefix monotonically from facts", ({
+		tags,
+		expected,
+	}) => {
+		const events = tags.map((tag, seq) => mut(tag, seq));
+		const actual = events.map((_, index) =>
+			deriveAgentStage(events.slice(0, index + 1)),
+		);
+		expect(actual).toEqual(expected);
 	});
 });
 
@@ -309,8 +362,8 @@ describe("deriveStatusMessage", () => {
 	});
 
 	it("returns stage label", () => {
-		expect(deriveStatusMessage(GenerationStage.Structure, null, null)).toBe(
-			STAGE_LABELS[GenerationStage.Structure],
+		expect(deriveStatusMessage(GenerationStage.Foundation, null, null)).toBe(
+			STAGE_LABELS[GenerationStage.Foundation],
 		);
 	});
 
@@ -341,7 +394,7 @@ describe("deriveStatusMessage", () => {
 	it("prefers error message over stage label", () => {
 		expect(
 			deriveStatusMessage(
-				GenerationStage.Forms,
+				GenerationStage.Build,
 				{ message: "boom", severity: "failed" },
 				null,
 			),
