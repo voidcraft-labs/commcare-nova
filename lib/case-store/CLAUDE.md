@@ -24,9 +24,7 @@ CommCare's case lifecycle — a device stamps `date_opened` and `last_modified`
 the moment a case is created, no sync involved. An explicit caller value
 wins. `update`/`close` re-stamp `modified_on`. Without this, the standard-name
 aliases read blank on freshly created rows in every case list, filter, and
-sort. Rows inserted before the stamps existed are backfilled by
-`scripts/scan-case-timestamps.ts` + `scripts/migrate-case-timestamps.ts`
-(creation time recovered from the UUIDv7 `case_id`).
+sort.
 
 ## No preview mode — the running-app view shares the editor's rows
 
