@@ -179,6 +179,7 @@ describe("blueprint clear nested field", () => {
 		});
 
 		const after = await h.readAppRow(APP_ID);
+		if (!before || !after) throw new Error("app row missing around the commit");
 		// The committed-batch write touches only the scalar/denorm snapshot +
 		// `mutation_seq` + the stream; the other columns come back untouched.
 		expect(after?.owner).toBe(TEST_OWNER);
@@ -187,8 +188,8 @@ describe("blueprint clear nested field", () => {
 		expect(after?.deleted_at).toBe(null);
 		expect(after?.recoverable_until).toBe(null);
 		expect(after?.status).toBe("complete");
-		expect((after?.created_at as Date).getTime()).toBe(
-			(before?.created_at as Date).getTime(),
+		expect((after.created_at as Date).getTime()).toBe(
+			(before.created_at as Date).getTime(),
 		);
 	});
 
