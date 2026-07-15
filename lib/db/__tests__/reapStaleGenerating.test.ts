@@ -82,9 +82,10 @@ describe("setAwaitingInput", () => {
 		await setAwaitingInput(APP, false);
 
 		const row = await h.readAppRow(APP);
-		expect(row?.awaiting_input).toBe(false);
+		if (!row) throw new Error("seeded app row missing");
+		expect(row.awaiting_input).toBe(false);
 		// updated_at re-armed to ~now (the frozen-during-pause clock restarts).
-		expect(Date.now() - (row?.updated_at as Date).getTime()).toBeLessThan(
+		expect(Date.now() - (row.updated_at as Date).getTime()).toBeLessThan(
 			30_000,
 		);
 	});
@@ -102,8 +103,9 @@ describe("setAwaitingInput", () => {
 		await setAwaitingInput(APP, true);
 
 		const row = await h.readAppRow(APP);
-		expect(row?.awaiting_input).toBe(true);
+		if (!row) throw new Error("seeded app row missing");
+		expect(row.awaiting_input).toBe(true);
 		// The clock is untouched — still the seeded stale timestamp.
-		expect((row?.updated_at as Date).getTime()).toBe(stale.getTime());
+		expect((row.updated_at as Date).getTime()).toBe(stale.getTime());
 	});
 });

@@ -660,11 +660,9 @@ describe("GenerationContext.handleAgentStep", () => {
 		);
 
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
-		const payload = (
-			logWriter.logEvent.mock.calls[0]?.[0] as {
-				payload: unknown;
-			}
-		).payload;
+		const call = logWriter.logEvent.mock.calls[0];
+		if (!call) throw new Error("logEvent was never called");
+		const payload = (call[0] as { payload: unknown }).payload;
 		expect(payload).toEqual({
 			type: "tool-call",
 			toolCallId: "tc-1",

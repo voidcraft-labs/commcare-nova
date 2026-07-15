@@ -321,7 +321,9 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 		const mutations = frames.filter((f) => f.event === "mutation");
 		expect(mutations.map((f) => f.id)).toEqual(["1", "2", "3"]);
-		expect((mutations[0]?.data as { seq: number }).seq).toBe(1);
+		const first = mutations[0];
+		if (!first) throw new Error("no mutation frames were replayed");
+		expect((first.data as { seq: number }).seq).toBe(1);
 	});
 
 	it("delivers a live commit after the stream is open (real NOTIFY end-to-end)", async () => {
@@ -345,8 +347,8 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		});
 
 		const frame = frames.find((f) => f.event === "mutation" && f.id === "1");
-		expect(frame).toBeDefined();
-		expect((frame?.data as { mutations: unknown[] }).mutations).toEqual([
+		if (!frame) throw new Error("the live mutation frame never arrived");
+		expect((frame.data as { mutations: unknown[] }).mutations).toEqual([
 			{ kind: "setAppName", name: "Live" },
 		]);
 	});
@@ -490,7 +492,8 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		});
 
 		const presence = frames.filter((f) => f.event === "presence").at(-1);
-		const entry = (presence?.data as Record<string, unknown>[])[0];
+		if (!presence) throw new Error("no presence frame arrived");
+		const entry = (presence.data as Record<string, unknown>[])[0];
 		expect(entry?.userId).toBe(USER);
 		// The wire shape is exactly the reconciler/presence-relevant fields —
 		// `updatedAt` is epoch MILLIS (a number the client does `now − updatedAt`

@@ -141,20 +141,19 @@ describe("POST /api/compile/json", () => {
 
 		// The bundled JSON is the (media-ON) app source.
 		const jsonEntry = bundle.getEntry(jsonName as string);
-		expect(
-			JSON.parse((jsonEntry?.getData() as Buffer).toString("utf-8")),
-		).toMatchObject({ name: "Vaccine Tracker" });
+		if (!jsonEntry) throw new Error("app json entry missing from the bundle");
+		expect(JSON.parse(jsonEntry.getData().toString("utf-8"))).toMatchObject({
+			name: "Vaccine Tracker",
+		});
 
 		// The multimedia.zip is HQ's bulk-upload format: each file lives at
 		// `commcare/<hash><ext>` so get_form_path matches the app's refs.
 		const mediaZip = new AdmZip(bundle.getEntry("multimedia.zip")?.getData());
 		const mediaNames = mediaZip.getEntries().map((e) => e.entryName);
 		expect(mediaNames).toEqual(["commcare/abc123def.png"]);
-		expect(
-			(
-				mediaZip.getEntry("commcare/abc123def.png")?.getData() as Buffer
-			).toString(),
-		).toBe("PNG-BYTES");
+		const pngEntry = mediaZip.getEntry("commcare/abc123def.png");
+		if (!pngEntry) throw new Error("png entry missing from multimedia.zip");
+		expect(pngEntry.getData().toString()).toBe("PNG-BYTES");
 	});
 
 	it("returns 422 (not 500) when a media reference is stale", async () => {
