@@ -9,13 +9,13 @@
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import { motion } from "motion/react";
-import { useRef } from "react";
+import { Fragment, useRef } from "react";
 import {
 	useAgentError,
 	useAgentStage,
 	useStatusMessage,
 } from "@/lib/session/hooks";
-import { GenerationStage } from "@/lib/session/types";
+import { type GenerationError, GenerationStage } from "@/lib/session/types";
 
 /** Display milestones. Foundation covers app settings plus the optional data
  *  model; Build covers the atomic module/form tools. There is no separate
@@ -43,6 +43,26 @@ const stageOrder = [
 
 type StageStatus = "done" | "active" | "error" | "pending";
 
+/** Map a generation stage to its zero-based position in the visible stepper. */
+function getStageIndex(stage: GenerationStage | null): number {
+	if (!stage) return 0;
+	const map: Record<GenerationStage, number> = {
+		[GenerationStage.Foundation]: 0,
+		[GenerationStage.Build]: 1,
+		[GenerationStage.Fix]: 2,
+	};
+	return map[stage];
+}
+
+/** Progress is one completed position out of every visible position, including
+ *  the terminal Done position. The bar remains a single continuous track. */
+export function generationProgressPercent(
+	stage: GenerationStage | null,
+	visiblePositionCount: number,
+): number {
+	return ((getStageIndex(stage) + 1) / visiblePositionCount) * 100;
+}
+
 /** Determine the status of a display stage relative to the current generation stage. */
 function getStageStatus(
 	displayStages: GenerationStage[],
@@ -62,30 +82,33 @@ function getStageStatus(
 	return "pending";
 }
 
-/** Map a generation stage to its zero-based position in the visible stepper. */
-function getStageIndex(stage: GenerationStage | null): number {
-	if (!stage) return 0;
-	const map: Record<string, number> = {
-		[GenerationStage.Foundation]: 0,
-		[GenerationStage.Build]: 1,
-		/* Historical replays only — live runs never reach these stages. */
-		[GenerationStage.Fix]: 2,
-	};
-	return map[stage] ?? 0;
-}
-
-/** Progress through the visible milestones plus their terminal Done position. */
-export function generationProgressPercent(
-	stage: GenerationStage | null,
-	displayStageCount: number,
-): number {
-	return ((getStageIndex(stage) + 1) / (displayStageCount + 1)) * 100;
-}
-
 export function GenerationProgress() {
 	const stage = useAgentStage();
 	const generationError = useAgentError();
 	const statusMessage = useStatusMessage();
+
+	return (
+		<GenerationProgressCard
+			stage={stage}
+			generationError={generationError}
+			statusMessage={statusMessage}
+		/>
+	);
+}
+
+interface GenerationProgressCardProps {
+	stage: GenerationStage | null;
+	generationError: GenerationError;
+	statusMessage: string;
+}
+
+/** Presentational card kept separate so every lifecycle state can be rendered
+ *  directly during visual regression checks without seeding the session store. */
+export function GenerationProgressCard({
+	stage,
+	generationError,
+	statusMessage,
+}: GenerationProgressCardProps) {
 	const isError = generationError !== null;
 
 	// Track the last active stage so we can show which step failed on error
@@ -104,12 +127,28 @@ export function GenerationProgress() {
 				]
 			: baseStages;
 
-	/* Progress is the current visible position out of every visible position,
-	 * including Done. It must not depend on where a label happened to render. */
-	const pct = generationProgressPercent(
+	const visibleStages = [
+		...displayStages,
+		{ key: "done", stages: [] as GenerationStage[], label: "Done" },
+	];
+	const progressPercent = generationProgressPercent(
 		isError ? lastActiveStageRef.current : stage,
-		displayStages.length,
+		visibleStages.length,
 	);
+	const stageStatuses = visibleStages.map((displayStage) => {
+		if (displayStage.key === "done") return "pending" as const;
+		if (isError) {
+			const status = getStageStatus(
+				displayStage.stages,
+				lastActiveStageRef.current,
+			);
+			return status === "active" ? ("error" as const) : status;
+		}
+		return getStageStatus(displayStage.stages, stage);
+	});
+	const labelGridColumns = visibleStages
+		.map((_, index) => (index === 0 ? "auto" : "minmax(0, 1fr) auto"))
+		.join(" ");
 
 	return (
 		<motion.div
@@ -118,24 +157,35 @@ export function GenerationProgress() {
 			transition={{ layout: { duration: 0.5, ease: [0.4, 0, 0.2, 1] } }}
 			className="relative rounded-xl shadow-lg backdrop-blur-sm border border-nova-violet/30 bg-nova-surface/90 px-8 py-5 shadow-nova-violet/10 min-w-[400px]"
 		>
-			{/* Stage indicators */}
-			<div className="flex items-center justify-between gap-3">
-				{displayStages.map((displayStage) => {
-					// On error, compute status from the last active stage, then mark the active one as 'error'
-					let status: StageStatus;
-					if (isError) {
-						status = getStageStatus(
-							displayStage.stages,
-							lastActiveStageRef.current,
-						);
-						if (status === "active") status = "error";
-					} else {
-						status = getStageStatus(displayStage.stages, stage);
-					}
+			{/* Labels occupy the milestone positions; each CSS connector spans the
+			    flexible space between neighboring labels. */}
+			<div
+				className="grid items-center"
+				style={{ gridTemplateColumns: labelGridColumns }}
+			>
+				{visibleStages.map((displayStage, index) => {
+					const status = stageStatuses[index];
+					const previousStatus = stageStatuses[index - 1];
 
 					return (
-						<div key={displayStage.key} className="flex items-center gap-2">
+						<Fragment key={displayStage.key}>
+							{index > 0 && (
+								<span
+									aria-hidden="true"
+									data-progress-connector=""
+									className={`mx-4 block h-px rounded-full transition-colors duration-300 ${
+										previousStatus === "done"
+											? "bg-nova-emerald/60"
+											: "bg-nova-text-muted/45"
+									}`}
+								/>
+							)}
 							<div
+								data-stage={displayStage.key}
+								data-status={status}
+								aria-current={
+									status === "active" || status === "error" ? "step" : undefined
+								}
 								className={`flex items-center gap-1.5 text-sm font-medium transition-colors duration-300 ${
 									status === "done"
 										? "text-nova-emerald"
@@ -147,54 +197,34 @@ export function GenerationProgress() {
 								}`}
 							>
 								{status === "done" && (
-									<motion.span
-										initial={{ scale: 0 }}
-										animate={{ scale: 1 }}
-										transition={{ type: "spring", stiffness: 500, damping: 25 }}
-									>
+									<span>
 										<Icon icon={tablerCheck} width={12} height={12} />
-									</motion.span>
+									</span>
 								)}
 								{status === "active" && (
-									<motion.span
-										initial={{ scale: 0 }}
-										animate={{ scale: 1 }}
-										transition={{ type: "spring", stiffness: 500, damping: 25 }}
-										className="inline-block w-2 h-2 rounded-full bg-nova-violet-bright animate-pulse"
-									/>
+									<span className="inline-block w-2 h-2 rounded-full bg-nova-violet-bright animate-pulse" />
 								)}
 								{status === "error" && (
-									<motion.span
-										initial={{ scale: 0 }}
-										animate={{ scale: 1 }}
-										transition={{ type: "spring", stiffness: 500, damping: 25 }}
-										className="inline-block w-2 h-2 rounded-full bg-nova-rose"
-									/>
+									<span className="inline-block w-2 h-2 rounded-full bg-nova-rose" />
 								)}
 								<span>{displayStage.label}</span>
 							</div>
-							<span
-								className={`text-sm transition-colors duration-300 ${
-									status === "done"
-										? "text-nova-emerald"
-										: "text-nova-text-muted"
-								}`}
-							>
-								&mdash;
-							</span>
-						</div>
+						</Fragment>
 					);
 				})}
-
-				{/* Done — terminal label, never active while card is mounted */}
-				<div className="flex items-center gap-1.5 text-sm font-medium text-nova-text-muted">
-					<span>Done</span>
-				</div>
 			</div>
 
-			{/* Progress bar */}
-			<div className="mt-3 h-[3px] overflow-hidden rounded-full bg-nova-surface">
-				<motion.div
+			{/* One continuous track; the visible background keeps the filled fraction
+			    legible as progress rather than as an underline for the first label. */}
+			<div
+				role="progressbar"
+				aria-label="App generation progress"
+				aria-valuemin={0}
+				aria-valuemax={100}
+				aria-valuenow={progressPercent}
+				className="mt-3 h-[3px] overflow-hidden rounded-full bg-nova-violet/15"
+			>
+				<div
 					className="h-full rounded-full"
 					style={{
 						background: isError
@@ -203,22 +233,16 @@ export function GenerationProgress() {
 						boxShadow: isError
 							? "0 0 8px var(--nova-rose)"
 							: "0 0 8px var(--nova-violet)",
+						width: `${progressPercent}%`,
 					}}
-					initial={{ width: "0%" }}
-					animate={{ width: `${pct}%` }}
-					transition={{ type: "spring", stiffness: 100, damping: 20 }}
 				/>
 			</div>
 
 			{/* Error message */}
 			{isError && statusMessage && (
-				<motion.p
-					initial={{ opacity: 0 }}
-					animate={{ opacity: 1 }}
-					className="text-nova-rose mt-1.5 text-xs"
-				>
+				<p className="text-nova-rose mt-3 text-center text-xs">
 					{statusMessage}
-				</motion.p>
+				</p>
 			)}
 		</motion.div>
 	);
