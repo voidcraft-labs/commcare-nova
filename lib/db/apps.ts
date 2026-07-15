@@ -1252,8 +1252,8 @@ export async function refreshBuildLiveness(
 /**
  * Release an edit run's `run_lock` WITHOUT touching the reservation marker —
  * for terminal states that are NOT a clean kept-charge completion (a failed
- * edit whose marker the failure funnel already settled, the `onEnd` release
- * of a prelude-throw-stranded lock). Fire-and-forget; a dropped clear
+ * edit whose marker the failure funnel already settled, the prelude-throw
+ * net's release of a stranded lock). Fire-and-forget; a dropped clear
  * degrades to the lock expiring at `expireAt`.
  */
 export function clearRunLock(appId: string): Promise<void> {
@@ -1308,7 +1308,7 @@ export async function clearRunLockAndSettle(
 
 /**
  * Whether the app is STILL an EDIT run owned by `runId` — the guard the
- * route's `onEnd` net runs before releasing a prelude-throw-stranded lock.
+ * route's prelude-throw net runs before releasing a stranded lock.
  */
 export async function editRunLockHeldBy(
 	appId: string,
