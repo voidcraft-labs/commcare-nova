@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import type { Page } from "@playwright/test";
 import { expect, test } from "../lib/fixtures";
 
 /**
@@ -22,6 +23,17 @@ interface SeedManifest {
 	threadsAppId: string;
 	threadUserText: string;
 	threadAssistantText: string;
+	olderThreadId: string;
+	olderThreadUserText: string;
+	olderThreadAssistantText: string;
+}
+
+async function bottomGap(page: Page): Promise<number> {
+	return page
+		.getByRole("log")
+		.evaluate((el) =>
+			Math.abs(el.scrollHeight - el.clientHeight - el.scrollTop),
+		);
 }
 
 // Loaded in beforeAll, NOT at module scope: Playwright imports every spec to
@@ -116,7 +128,7 @@ test.describe("authenticated builder", () => {
 		await expect(startBlank).toHaveCount(0);
 	});
 
-	test("a conversation hydrates on load, lists in Conversations, and survives New chat → reopen", async ({
+	test("conversations open at the bottom and switch without exposing the prior transcript", async ({
 		page,
 	}) => {
 		await page.goto(`/build/${seed.threadsAppId}`);
@@ -129,30 +141,57 @@ test.describe("authenticated builder", () => {
 		// The seeded transcript hydrated into the LIVE message path (server
 		// rows → RSC props → useChat initial messages), not a separate
 		// historical rendering.
-		await expect(page.getByText(seed.threadUserText)).toBeVisible();
+		await expect(page.getByText(seed.threadUserText)).toBeAttached();
 		await expect(page.getByText(seed.threadAssistantText)).toBeVisible();
+		expect(await bottomGap(page)).toBeLessThanOrEqual(1);
 
-		// The Conversations list replaces the transcript and shows the thread
-		// row — summary is the first user text.
-		await page.getByRole("button", { name: "Conversations" }).click();
+		// History is a labeled action below the title bar. The list replaces the
+		// transcript with full-width rows — summary is the first user text.
+		await page.getByRole("button", { name: "History" }).click();
 		await expect(page.getByText("Initial build")).toBeVisible();
+		await expect(page.getByText("Edit", { exact: true })).toBeVisible();
 		await expect(page.getByText(seed.threadAssistantText)).toHaveCount(0);
+		await expect(
+			page.getByRole("button", { name: "Back to chat" }),
+		).toBeVisible();
 
-		// Clicking the row reopens the conversation.
-		await page.getByText(seed.threadUserText).click();
-		await expect(page.getByText(seed.threadAssistantText)).toBeVisible({
-			timeout: 10_000,
+		// Hold the older-thread request. While it is loading, History must stay
+		// over the transcript instead of flashing the original conversation.
+		let releaseThreadRequest: (() => void) | undefined;
+		const threadRequestGate = new Promise<void>((resolve) => {
+			releaseThreadRequest = resolve;
 		});
+		await page.route(
+			`**/api/apps/${seed.threadsAppId}/threads/${seed.olderThreadId}`,
+			async (route) => {
+				await threadRequestGate;
+				await route.continue();
+			},
+		);
+		await page
+			.getByRole("button", { name: new RegExp(seed.olderThreadUserText) })
+			.click();
+		await expect(
+			page.getByText("Conversations", { exact: true }),
+		).toBeVisible();
+		await expect(page.getByText(seed.threadAssistantText)).toHaveCount(0);
+		releaseThreadRequest?.();
+
+		// The requested transcript replaces the list in one commit and is already
+		// at the bottom — no smooth trip through historical messages.
+		await page.getByText(seed.olderThreadAssistantText).waitFor();
+		expect(await bottomGap(page)).toBeLessThanOrEqual(1);
+		await expect(page.getByText(seed.threadAssistantText)).toHaveCount(0);
 
 		// New chat starts fresh: transcript gone, edit-mode empty state shown.
 		await page.getByRole("button", { name: "New chat" }).click();
-		await expect(page.getByText(seed.threadAssistantText)).toHaveCount(0);
+		await expect(page.getByText(seed.olderThreadAssistantText)).toHaveCount(0);
 		await expect(
 			page.getByText("What changes would you like to make?"),
 		).toBeVisible();
 
 		// The old conversation is one list-click away — nothing was lost.
-		await page.getByRole("button", { name: "Conversations" }).click();
+		await page.getByRole("button", { name: "History" }).click();
 		await page.getByText(seed.threadUserText).click();
 		await expect(page.getByText(seed.threadAssistantText)).toBeVisible({
 			timeout: 10_000,

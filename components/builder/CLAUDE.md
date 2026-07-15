@@ -84,6 +84,8 @@ The media picker (`media/MediaPickerDialog.tsx`) grows an **Icon Library** tab �
 
 The right rail is the chat sidebar; the inspector borrows it via a claim model in `lib/ui/inspector.tsx`. **The rail is ONE width in both modes** — `CHAT_SIDEBAR_WIDTH` aliases `INSPECTOR_RAIL_WIDTH`, so selecting something never reflows the canvas. Widen the shared constant if cramped; never re-introduce a per-mode width.
 
+The chat sidebar's thread picker is a row list, not a stack of cards. Its header contains only the surface title and the standard right-sidebar collapse glyph; New chat / History are labeled actions in their own row. Thread selection keeps the list mounted while the transcript fetch is in flight, then swaps the keyed conversation root only after the requested thread is active. Every conversation mounts with an instant initial bottom position — never smooth-scroll historical messages into view or expose the prior thread during a switch.
+
 - Panel content portals from the OWNING surface's React tree — the rail never holds content state.
 - Claims are established in effects so React 19 `<Activity>` self-releases them (hiding a screen destroys effects → releases the claim). Claims stack last-wins because an incoming surface can claim before the outgoing one cleans up.
 - Escape closes only from outside the rail (`[data-inspector-rail]` check) — inside it, CodeMirror/menus own Escape.

@@ -10,7 +10,7 @@
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
-import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
+import tablerLayoutSidebarLeftCollapse from "@iconify-icons/tabler/layout-sidebar-left-collapse";
 import { AnimatePresence, motion } from "motion/react";
 import { AppTree } from "@/components/builder/appTree/AppTree";
 import { AppSettingsButton } from "@/components/builder/detail/appSettings/AppSettingsButton";
@@ -33,7 +33,7 @@ export function StructureSidebar() {
 					aria-label="Collapse structure sidebar"
 					className="px-1 h-11 text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
 				>
-					<Icon icon={tablerChevronLeft} width="14" height="14" />
+					<Icon icon={tablerLayoutSidebarLeftCollapse} width="17" height="17" />
 				</button>
 				<span className="flex-1 min-w-0 text-sm font-medium text-nova-text truncate">
 					{appName || "Structure"}
