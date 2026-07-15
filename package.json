@@ -35,7 +35,7 @@
 		"start": "next start",
 		"lint": "biome check --error-on-warnings",
 		"format": "biome check --write",
-		"typecheck": "fumadocs-mdx && tsc --noEmit",
+		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:leaks": "vitest run --detect-async-leaks --pool=forks --testTimeout=30000",
