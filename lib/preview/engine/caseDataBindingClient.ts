@@ -102,11 +102,12 @@ export function pickBlueprintDoc<T extends BlueprintDoc>(
 }
 
 /**
- * Flatten a `CaseRow`'s JSONB document + `case_name` into the
- * `Map<string, string>` shape `useFormEngine` consumes as preload.
- * `case_name` folds into the map under its own key so the form
- * engine sees one source — mirrors the runtime path where the
- * term compiler reads it via `RESERVED_SCALAR_COLUMN_BY_PROPERTY`.
+ * Flatten a `CaseRow`'s JSONB document + reserved scalar columns into
+ * the `Map<string, string>` shape `useFormEngine` consumes as preload.
+ * The scalar columns fold in under their standard names (both spellings
+ * where CCHQ admits two) so the form engine sees one source — mirrors
+ * the runtime path where the term compiler reads them via
+ * `RESERVED_SCALAR_COLUMN_BY_PROPERTY`.
  *
  * `null` values become `""` — the form engine treats missing
  * case-data the same as empty, and JSONB `null` is the same
@@ -114,10 +115,27 @@ export function pickBlueprintDoc<T extends BlueprintDoc>(
  */
 export function caseRowToFormPreload(row: CaseRow): Map<string, string> {
 	const preload = new Map<string, string>();
-	preload.set("case_name", row.case_name);
+	// The standard-name aliases every case carries implicitly, mirroring
+	// what the device's casedb exposes on a loaded `<case>` — so a form
+	// expression reading `#<type>/date_opened` or `#<type>/last_modified`
+	// resolves in preview exactly as it would on-device. Same name→column
+	// aliasing as `caseRowDisplayValue`; declared properties (below) can't
+	// collide because the scalar columns shadow same-named JSONB keys,
+	// so these entries are written LAST.
 	for (const [key, value] of Object.entries(row.properties)) {
 		preload.set(key, jsonValueToString(value));
 	}
+	preload.set("case_id", row.case_id);
+	preload.set("case_type", row.case_type);
+	preload.set("case_name", row.case_name);
+	preload.set("name", row.case_name);
+	preload.set("owner_id", row.owner_id ?? "");
+	preload.set("status", row.status ?? "");
+	preload.set("external_id", row.external_id ?? "");
+	preload.set("external-id", row.external_id ?? "");
+	preload.set("date_opened", timestampDisplayValue(row.opened_on));
+	preload.set("date-opened", timestampDisplayValue(row.opened_on));
+	preload.set("last_modified", timestampDisplayValue(row.modified_on));
 	return preload;
 }
 

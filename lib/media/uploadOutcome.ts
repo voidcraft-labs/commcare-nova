@@ -196,7 +196,7 @@ export function reportMediaAttach(args: {
 	const warnings = mediaAttachWarnings(outcome);
 
 	if (outcome.failures.length > 0) {
-		log.error(`${logPrefix} some media files did not attach`, {
+		log.error(`${logPrefix} some media files did not attach`, undefined, {
 			...logContext,
 			matched: result.matched,
 			unmatched: result.unmatched,
@@ -212,12 +212,16 @@ export function reportMediaAttach(args: {
 		warnings.push(
 			"Some media files may not have attached. The app was created — check its media in CommCare HQ.",
 		);
-		log.error(`${logPrefix} unmatched media reported without per-file detail`, {
-			...logContext,
-			matched: result.matched,
-			unmatched: result.unmatched,
-			errorCount: result.errors.length,
-		});
+		log.error(
+			`${logPrefix} unmatched media reported without per-file detail`,
+			undefined,
+			{
+				...logContext,
+				matched: result.matched,
+				unmatched: result.unmatched,
+				errorCount: result.errors.length,
+			},
+		);
 	}
 	return warnings;
 }

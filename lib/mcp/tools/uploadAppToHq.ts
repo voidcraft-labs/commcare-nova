@@ -353,12 +353,16 @@ export function registerUploadAppToHq(
 							warnings.push(
 								"Media upload could not be completed; the app was created but its media may not display.",
 							);
-							log.error("[mcp/upload_app_to_hq] media bundle upload failed", {
-								domain: targetDomain,
-								appId,
-								hqAppId: result.appId,
-								status: mediaResult.status,
-							});
+							log.error(
+								"[mcp/upload_app_to_hq] media bundle upload failed",
+								undefined,
+								{
+									domain: targetDomain,
+									appId,
+									hqAppId: result.appId,
+									status: mediaResult.status,
+								},
+							);
 						} else if (mediaResult.timedOut) {
 							warnings.push(
 								"The app was created and its media uploaded — CommCare is still processing it, so it may take a few minutes to appear.",

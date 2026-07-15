@@ -280,6 +280,160 @@ describe("FormEngine", () => {
 		});
 	});
 
+	describe("per-case-type references (#<case_type>/<prop>)", () => {
+		it("resolves the module case type's refs against the loaded case", () => {
+			const input = dTree(
+				[
+					{
+						id: "summary",
+						kind: "label",
+						label: "Patient: #patient/case_name (#patient/hiv_status)",
+					},
+				],
+				"followup",
+			);
+			const caseData = new Map([
+				["case_name", "Mary Smith"],
+				["hiv_status", "negative"],
+			]);
+			const engine = new FormEngine(input, "patient", caseData);
+
+			expect(engine.getState("/data/summary").resolvedLabel).toBe(
+				"Patient: Mary Smith (negative)",
+			);
+		});
+
+		it("copies loaded-case values onto child-case fields via case-ref defaults", () => {
+			// The child-case copy pattern: a hidden field bound to a DIFFERENT
+			// case type (a to-be-created child) whose default_value reads the
+			// loaded case. The value must land in the child bucket at submit.
+			const input = dTree(
+				[
+					{
+						id: "patient_name",
+						kind: "hidden",
+						case_property_on: "medication_order",
+						default_value: "#patient/case_name",
+					},
+					{
+						id: "case_name",
+						kind: "text",
+						label: "Medication",
+						case_property_on: "medication_order",
+					},
+				],
+				"followup",
+			);
+			const caseData = new Map([["case_name", "Mary Smith"]]);
+			const engine = new FormEngine(input, "patient", caseData);
+
+			expect(engine.getState("/data/patient_name").value).toBe("Mary Smith");
+
+			engine.setValue("/data/case_name", "Rifampin");
+			const mutation = engine.computeSubmissionMutation({
+				caseId: "case-1",
+				caseTypes: [],
+			});
+			expect(mutation).toMatchObject({
+				kind: "followup",
+				children: [
+					{
+						caseType: "medication_order",
+						caseName: "Rifampin",
+						properties: { patient_name: "Mary Smith" },
+					},
+				],
+			});
+		});
+
+		it("drives relevance from a loaded-case property", () => {
+			const input = dTree(
+				[
+					{
+						id: "not_delivered_warning",
+						kind: "label",
+						label: "Not yet delivered",
+						relevant: "#medication_order/order_status != 'delivered'",
+					},
+				],
+				"followup",
+			);
+			const engine = new FormEngine(
+				input,
+				"medication_order",
+				new Map([["order_status", "delivered"]]),
+			);
+
+			expect(engine.getState("/data/not_delivered_warning").visible).toBe(
+				false,
+			);
+		});
+
+		it("resolves an ancestor case type's refs blank (no ancestor data is threaded)", () => {
+			const input = dTree(
+				[
+					{
+						id: "copy",
+						kind: "hidden",
+						default_value: "#household/head_name",
+					},
+				],
+				"followup",
+			);
+			const engine = new FormEngine(
+				input,
+				"patient",
+				new Map([["case_name", "Mary Smith"]]),
+			);
+
+			expect(engine.getState("/data/copy").value).toBe("");
+		});
+
+		it("accepts a past date under the natural `. <= today()` validation", () => {
+			// The instance stores the date field's value as its ISO string;
+			// the comparison must date-coerce it (JavaRosa's toNumeric
+			// fallback), not read it as NaN and fail every entry.
+			const input = dTree([
+				{
+					id: "dob",
+					kind: "date",
+					label: "Date of birth",
+					validate: ". <= today()",
+					validate_msg: "DOB cannot be in the future",
+				},
+			]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/dob", "2000-05-01");
+			engine.touch("/data/dob");
+			expect(engine.getState("/data/dob").valid).toBe(true);
+
+			engine.setValue("/data/dob", "2099-01-01");
+			expect(engine.getState("/data/dob").valid).toBe(false);
+		});
+
+		it("preloads case data on close forms too", () => {
+			const input = dTree(
+				[
+					{
+						id: "case_name",
+						kind: "text",
+						label: "Name",
+						case_property_on: "patient",
+					},
+				],
+				"close",
+			);
+			const engine = new FormEngine(
+				input,
+				"patient",
+				new Map([["case_name", "Mary Smith"]]),
+			);
+
+			expect(engine.getState("/data/case_name").value).toBe("Mary Smith");
+		});
+	});
+
 	describe("restoreValues", () => {
 		it("restores only user-touched values, preserving new defaults", () => {
 			// Simulate engine recreation: old engine had a default, user touched a different field

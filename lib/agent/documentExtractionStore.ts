@@ -262,7 +262,7 @@ async function runExtraction(opts: {
 			charCount: 0,
 			failureReason: reason,
 		}).catch((statusErr: unknown) =>
-			log.error("[extract-store] failed-status write failed", {
+			log.error("[extract-store] failed-status write failed", undefined, {
 				assetId: asset.id,
 				statusErr,
 			}),

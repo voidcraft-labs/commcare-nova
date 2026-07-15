@@ -116,6 +116,18 @@ function baseUrl(creds: CommCareCredentials): string {
 }
 
 /**
+ * Padding value for the throwaway multipart field that pushes a request's
+ * real payload past AWS WAF's body-inspection window (the WAF in front of
+ * CommCare HQ inspects only the leading bytes of a request body). Shared by
+ * `importApp` (XForms JSON reads as HTML XSS to the WAF) and
+ * `uploadAppMediaBundle` (compressed image bytes can match a WAF signature
+ * by coincidence — two of Nova's built-in icon PNGs deterministically 403
+ * without it). The field must be appended BEFORE the payload field, and its
+ * name must not start with `_` (CouchDB-reserved on the import path).
+ */
+const WAF_PADDING = "x".repeat(16 * 1024);
+
+/**
  * Build the Authorization header for CommCare HQ API key auth.
  *
  * Format: `ApiKey {username}:{api_key}` — this is CommCare HQ's custom
@@ -137,7 +149,7 @@ async function logAndReturnError(
 	try {
 		body = await res.text();
 	} catch {}
-	log.error(`[commcare] ${context}`, {
+	log.error(`[commcare] ${context}`, undefined, {
 		status: res.status,
 		body: body.substring(0, 200),
 	});
@@ -348,11 +360,10 @@ export async function importApp(
 	 *
 	 * WAF bypass: HQ's import_app is missing waf_allow('XSS_BODY'), so AWS
 	 * WAF blocks requests containing XForms XML that looks like HTML XSS
-	 * (<input>, <select1>, <label>). A 16KB padding field before app_file
+	 * (<input>, <select1>, <label>). The padding field before app_file
 	 * pushes the JSON past the WAF inspection window. Django ignores unknown
 	 * form fields. Do not remove — must appear before app_file.
 	 */
-	const WAF_PADDING = "x".repeat(16 * 1024);
 	const formData = new FormData();
 	formData.append("app_name", appName);
 	formData.append("waf_padding", WAF_PADDING);
@@ -391,7 +402,7 @@ export async function importApp(
 	 * import failures (malformed JSON, schema violations). The response
 	 * body is already consumed so we log the parsed result directly. */
 	if (!data.success) {
-		log.error("[commcare] import rejected by HQ", { domain, data });
+		log.error("[commcare] import rejected by HQ", undefined, { domain, data });
 		return { success: false, status: 422 };
 	}
 
@@ -464,8 +475,12 @@ const MEDIA_BUNDLE_POLL_TIMEOUT_MS = 45_000;
  * bounded deadline.
  *
  * Auth mirrors `importApp`: `ApiKey` header + a CSRF token (these endpoints
- * are not `@csrf_exempt`). No 16KB WAF padding — the body is a binary ZIP,
- * not the XForms-tag-bearing JSON the WAF rule trips on.
+ * are not `@csrf_exempt`) + the `waf_padding` field. The padding is
+ * load-bearing here too: AWS WAF signature rules match raw compressed image
+ * bytes by coincidence — two of Nova's built-in icon PNGs (`appointments`,
+ * `referrals`) deterministically draw a bare `awselb` 403 when their bytes
+ * sit inside the WAF's body-inspection window, killing the whole bundle.
+ * Padding first pushes the ZIP past the window; HQ ignores the extra field.
  */
 export async function uploadAppMediaBundle(
 	creds: CommCareCredentials,
@@ -483,6 +498,7 @@ export async function uploadAppMediaBundle(
 	/* Obtain a CSRF token before the POST — see fetchCsrfToken(). */
 	const csrfToken = await fetchCsrfToken(hqBase);
 	const formData = new FormData();
+	formData.append("waf_padding", WAF_PADDING);
 	formData.append(
 		"bulk_upload_file",
 		new Blob([new Uint8Array(zipBytes)], { type: "application/zip" }),
@@ -510,7 +526,7 @@ export async function uploadAppMediaBundle(
 		error?: string;
 	};
 	if (!started.success || !started.processing_id) {
-		log.error("[commcare] media bundle upload rejected by HQ", {
+		log.error("[commcare] media bundle upload rejected by HQ", undefined, {
 			domain,
 			appId,
 			error: started.error,

@@ -2279,7 +2279,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				// Row's scalar column survives unaltered. Per-slot
 				// expected values mirror the inserted row above; the
 				// `properties` slot reads the JSONB document; the
-				// nullable timestamps stay null.
+				// creation-stamped timestamps read as real dates and
+				// `closed_on` stays null.
 				switch (collisionName) {
 					case "case_name":
 						expect(row.case_name).toBe(DEFAULT_CASE_NAME);
@@ -2300,19 +2301,21 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 						expect(row.app_id).toBe(APP_ID);
 						break;
 					case "opened_on":
-						expect(row.opened_on).toBeNull();
+						// Creation-stamped at insert (CommCare's own
+						// case lifecycle: `date_opened` is set the
+						// moment a case is created). The collision-
+						// protection contract is the load-bearing
+						// check: the row's column survives unaltered
+						// regardless of the value at insert time.
+						expect(row.opened_on).toBeInstanceOf(Date);
 						break;
 					case "closed_on":
 						expect(row.closed_on).toBeNull();
 						break;
 					case "modified_on":
-						// `modified_on` stamps only on UPDATE, not on
-						// initial insert — the freshly-inserted row's
-						// `modified_on` column is null. The collision-
-						// protection contract is the load-bearing
-						// check: the row's column survives unaltered
-						// regardless of the value at insert time.
-						expect(row.modified_on).toBeNull();
+						// Creation-stamped at insert alongside
+						// `opened_on`, then re-stamped on every UPDATE.
+						expect(row.modified_on).toBeInstanceOf(Date);
 						break;
 					case "parent_case_id":
 						expect(row.parent_case_id).toBeNull();

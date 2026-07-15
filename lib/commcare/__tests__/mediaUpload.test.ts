@@ -178,6 +178,20 @@ describe("uploadAppMediaBundle", () => {
 		expect((postInit.body as FormData).get("bulk_upload_file")).toBeInstanceOf(
 			Blob,
 		);
+
+		// The WAF padding field precedes the ZIP so the compressed image
+		// bytes sit past AWS WAF's body-inspection window — without it two
+		// of the built-in icon PNGs deterministically draw a bare 403 from
+		// the load balancer and the whole bundle is lost. Order is the
+		// load-bearing property: padding first, file second.
+		const fieldOrder = [...(postInit.body as FormData).keys()];
+		expect(fieldOrder.indexOf("waf_padding")).toBeGreaterThanOrEqual(0);
+		expect(fieldOrder.indexOf("waf_padding")).toBeLessThan(
+			fieldOrder.indexOf("bulk_upload_file"),
+		);
+		expect(
+			((postInit.body as FormData).get("waf_padding") as string).length,
+		).toBeGreaterThanOrEqual(16 * 1024);
 	});
 
 	it("surfaces unmatched files (path + reason) + errors from the status result", async () => {

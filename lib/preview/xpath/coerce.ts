@@ -7,6 +7,15 @@ import { isXPathDate, XPathDate } from "./types";
  * CommCare extension: XPathDate coerces to integer days since epoch,
  * matching `DateUtils.daysSinceEpoch()` in commcare-core. This is what
  * makes `today() + 1` return tomorrow's day-number.
+ *
+ * String coercion mirrors JavaRosa's `FunctionUtils.toNumeric` exactly
+ * (`commcare-core .../xpath/expr/FunctionUtils.java`): a character gate
+ * admits only `[0-9.-]` (rejecting scientific notation and `Infinity`
+ * per the XPath spec), then numeric parse, then — the load-bearing
+ * fallback — DATE parse to days-since-epoch. The date fallback is what
+ * makes `. <= today()` hold on a date field, whose instance value is
+ * the ISO string: without it the comparison reads `NaN <= <days>` and
+ * every authored date validation fails on every value the user enters.
  */
 export function toNumber(v: XPathValue): number {
 	if (typeof v === "number") return v;
@@ -14,7 +23,11 @@ export function toNumber(v: XPathValue): number {
 	if (isXPathDate(v)) return v.days;
 	const trimmed = (v as string).trim();
 	if (trimmed === "") return NaN;
-	return Number(trimmed);
+	if (/[^0-9.-]/.test(trimmed)) return NaN;
+	const parsed = Number(trimmed);
+	if (!Number.isNaN(parsed)) return parsed;
+	const date = XPathDate.parse(trimmed);
+	return date !== null ? date.days : NaN;
 }
 
 /**

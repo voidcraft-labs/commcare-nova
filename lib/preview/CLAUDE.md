@@ -57,6 +57,8 @@ Blueprint mutations in edit mode recreate the engine. The engine hook snapshots 
 
 The nav stack carries only `caseId`. Case data is looked up by id at the point of use, not stored in navigation state. Swapping the data source (dummy → real API) only requires changing the lookup functions.
 
+**Per-case-type refs resolve at depth 0 only.** The engine's hashtag resolver (`formEngine.ts::createEvalContext`) resolves `#<case_type>/<prop>` against the loaded case's `caseData` map when the namespace is the form's OWN module case type (plus the transitional `#case/`), on both case-loading form types (`followup` AND `close` — both preload). ANCESTOR namespaces (`#<parent_type>/<prop>`, wire depth ≥ 1 per `reachableCaseTypes`) resolve blank: only the bound case's row is threaded into the engine, so there is no ancestor data to read — the one divergence from the wire's semantics until the parent chain is threaded through `caseDataBinding`. The preload map (`caseRowToFormPreload`) carries the JSONB document PLUS the reserved scalar columns under their standard names (`date_opened`, `last_modified`, `case_id`, …), mirroring what the device's casedb exposes.
+
 ## Case-data Server Action wire shape (edge-WAF constraint)
 
 Two rules govern the args these `caseDataBinding` Server Actions take. The edge Cloud Armor CRS rules that punish breaking them run in **log-only / preview** mode today (`scripts/infra/setup-cloud-armor-lb.sh` — they record would-be blocks, they don't 403), so this is wire hygiene that keeps the previewed-match logs clean enough to eventually enforce, not a hard gate:

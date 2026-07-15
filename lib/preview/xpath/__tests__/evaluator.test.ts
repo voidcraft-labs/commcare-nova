@@ -94,6 +94,20 @@ describe("XPath evaluator", () => {
 			expect(evaluate("3 >= 3", makeCtx())).toBe(true);
 			expect(evaluate("2 <= 3", makeCtx())).toBe(true);
 		});
+
+		it("date strings compare against today() (JavaRosa's toNumeric date fallback)", () => {
+			// A date field's instance value is the ISO string — the natural
+			// authored rule `. <= today()` must accept a past date, exactly
+			// as it does on-device.
+			expect(evaluate('"2000-05-01" <= today()', makeCtx())).toBe(true);
+			expect(evaluate('"2099-01-01" <= today()', makeCtx())).toBe(false);
+			expect(evaluate('today() >= "2000-05-01"', makeCtx())).toBe(true);
+		});
+
+		it("non-numeric non-date strings compare as NaN (always false)", () => {
+			expect(evaluate('"banana" <= today()', makeCtx())).toBe(false);
+			expect(evaluate('"banana" > today()', makeCtx())).toBe(false);
+		});
 	});
 
 	describe("logical", () => {

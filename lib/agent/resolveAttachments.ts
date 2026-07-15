@@ -219,7 +219,7 @@ export async function resolveAttachments(
 	try {
 		records = await loadAssetsByIds([...ids], projectId);
 	} catch (err) {
-		log.error("[resolveAttachments] batch asset load failed", {
+		log.error("[resolveAttachments] batch asset load failed", undefined, {
 			projectId,
 			count: ids.size,
 			err,

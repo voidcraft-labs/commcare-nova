@@ -145,7 +145,7 @@ export async function purgeAssetStorage(
 		asset.gcsObjectKey,
 		asset.id,
 	).catch((err: unknown) => {
-		log.error("[asset-deletion] shared-object check failed", {
+		log.error("[asset-deletion] shared-object check failed", undefined, {
 			assetId: asset.id,
 			gcsObjectKey: asset.gcsObjectKey,
 			err,
