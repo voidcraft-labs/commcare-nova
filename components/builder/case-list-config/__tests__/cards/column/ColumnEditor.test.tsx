@@ -59,7 +59,7 @@ const PATIENT: CaseType = {
 const TEST_UUID = asUuid("00000000-0000-0000-0000-000000000001");
 
 describe("ColumnEditor — applicability errors", () => {
-	it("names the selected information in human language", () => {
+	it("names a legacy case-name reference with Nova's canonical label", () => {
 		render(
 			<ColumnEditor
 				value={plainColumn(TEST_UUID, "name", "Patient")}
@@ -70,7 +70,7 @@ describe("ColumnEditor — applicability errors", () => {
 		);
 
 		expect(
-			screen.getByRole("button", { name: "Information from: Name" }),
+			screen.getByRole("button", { name: "Information from: Case name" }),
 		).toBeDefined();
 		expect(screen.queryByText("name")).toBeNull();
 	});
