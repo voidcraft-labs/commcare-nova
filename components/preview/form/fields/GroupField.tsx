@@ -32,7 +32,7 @@ import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import type { GroupField as GroupFieldEntity } from "@/lib/domain";
-import { useEngineState } from "@/lib/preview/hooks/useEngineState";
+import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useFormLayout } from "../FormLayoutContext";
 import { FIELD_STYLES } from "../fieldStyles";
@@ -67,8 +67,9 @@ interface GroupFieldProps {
 export function GroupField({ field, path, fieldPath, depth }: GroupFieldProps) {
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// reach this component only when the group is visible. We still need
-	// the engine state for resolved label/hint rendering.
-	const state = useEngineState(field.uuid);
+	// the engine state for resolved label/hint rendering — path-keyed so
+	// a group inside a repeat instance shows that instance's resolution.
+	const state = useEngineStateAt(field.uuid, path);
 	const { toggleCollapse, isCollapsed } = useFormLayout();
 	const collapsed = isCollapsed(field.uuid);
 

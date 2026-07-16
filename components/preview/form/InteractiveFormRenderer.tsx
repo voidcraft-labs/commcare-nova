@@ -43,7 +43,7 @@ import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import { asUuid, type Uuid } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
-import { useEngineState } from "@/lib/preview/hooks/useEngineState";
+import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { FieldHelp } from "./FieldHelp";
 import { FieldRenderer } from "./FieldRenderer";
@@ -142,7 +142,11 @@ const InteractiveField = memo(function InteractiveField({
 	depth,
 }: InteractiveFieldProps) {
 	const field = useField(uuid);
-	const state = useEngineState(uuid);
+	// Engine state is keyed by the CONCRETE path so each repeat instance
+	// carries its own value / visibility / validity; the uuid covers the
+	// render before the doc row resolves.
+	const enginePath = field ? `${prefix}/${field.id}` : undefined;
+	const state = useEngineStateAt(uuid, enginePath);
 	const controller = useEngineController();
 
 	// Visibility gating lives here so the subscription cost of reading
@@ -301,8 +305,8 @@ const InteractiveField = memo(function InteractiveField({
 				<FieldRenderer
 					field={field}
 					state={state}
-					onChange={(value) => controller.onValueChange(uuid, value)}
-					onBlur={() => controller.onTouch(uuid)}
+					onChange={(value) => controller.setValueAt(path, value)}
+					onBlur={() => controller.touchAt(path)}
 				/>
 			</div>
 		);
