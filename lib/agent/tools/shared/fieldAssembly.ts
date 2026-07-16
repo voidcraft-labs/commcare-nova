@@ -193,7 +193,13 @@ export function assembleFieldMutations(
 	// so a later item's `parentId` can resolve to them; `pendingByParent`
 	// carries the ids earlier items claimed per parent (they aren't in
 	// `doc` yet), so two new siblings can't land with the same id.
+	// `dupMintedIds` tracks a container id minted TWICE in this batch
+	// (legal — sibling uniqueness is per parent level, so two same-id
+	// groups under different parents both pass the verdict): a later
+	// `parentId` naming it is refused rather than silently resolved to
+	// whichever container the map happened to keep.
 	const mintedByBareId = new Map<string, Uuid>();
+	const dupMintedIds = new Set<string>();
 	const mutations: Mutation[] = [];
 	const skipped: Array<{ id: string; reason: string }> = [];
 	const rejected: Array<{ id: string; reason: string }> = [];
@@ -219,6 +225,31 @@ export function assembleFieldMutations(
 		if (parentId && typeof parentId === "string") {
 			const minted = mintedByBareId.get(parentId);
 			if (minted) {
+				// A same-call parent ref must have exactly ONE viable
+				// referent. Two same-id containers minted in this batch, or
+				// a minted container shadowing an EXISTING container with
+				// the same id, are both silent-wrong-parent hazards — refuse
+				// them like every other ambiguous field ref. An existing
+				// LEAF with the id doesn't refuse: a leaf can't be a parent,
+				// so the minted container is the only viable referent.
+				if (dupMintedIds.has(parentId)) {
+					rejected.push({
+						id: raw.id,
+						reason: `parentId "${parentId}": this call adds more than one container with that id — give the new containers distinct ids so the reference is unambiguous.`,
+					});
+					continue;
+				}
+				const shadowed = resolveFieldInForm(doc, formUuid, parentId);
+				if (
+					(shadowed.ok && isContainer(shadowed.field)) ||
+					(!shadowed.ok && shadowed.reason === "ambiguous")
+				) {
+					rejected.push({
+						id: raw.id,
+						reason: `parentId "${parentId}": a container added in this call and an existing field in the form share that id — rename the container this call adds, or pass the existing container's uuid.`,
+					});
+					continue;
+				}
 				parentUuid = minted;
 			} else {
 				const existing = resolveFieldInForm(doc, formUuid, parentId);
@@ -276,7 +307,13 @@ export function assembleFieldMutations(
 		if (pending) pending.add(field.id);
 		else pendingByParent.set(parentUuid, new Set([field.id]));
 
-		if (isContainer(field)) mintedByBareId.set(field.id, fieldUuid);
+		if (isContainer(field)) {
+			// Keep the FIRST minted uuid per id — once the id is marked
+			// duplicated, any later ref to it is refused, so which uuid the
+			// map holds no longer matters.
+			if (mintedByBareId.has(field.id)) dupMintedIds.add(field.id);
+			else mintedByBareId.set(field.id, fieldUuid);
+		}
 		// Top-level batch fields honor the anchor (a contiguous block at
 		// the resolved index, walking forward per field); everything else
 		// — fields nested under their own parentId, or any field when no

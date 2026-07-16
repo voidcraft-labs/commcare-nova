@@ -325,6 +325,150 @@ describe("addFields parent targeting", () => {
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
+	it("refuses a parentId naming two containers minted in the SAME call", async () => {
+		// Two same-id groups under different parents pass the per-level
+		// sibling verdict, so the ref would otherwise silently resolve to
+		// whichever one the minted map kept.
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Clinic",
+					forms: [{ name: "Encounter", type: "survey", fields: [] }],
+				},
+			],
+		});
+		backfillOrderKeys(doc);
+		const { ctx, recordMutations } = makeStubToolContext();
+		const result = await addFieldsTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [
+					{ kind: "group", id: "section_a", label: "A" },
+					{ kind: "group", id: "section_b", label: "B" },
+					{
+						kind: "group",
+						id: "details",
+						label: "Details A",
+						parentId: "section_a",
+					},
+					{
+						kind: "group",
+						id: "details",
+						label: "Details B",
+						parentId: "section_b",
+					},
+					{ kind: "text", id: "note", label: "Note", parentId: "details" },
+				],
+			},
+			ctx,
+			doc,
+		);
+		if (!("error" in result.result)) throw new Error("expected error");
+		expect(result.result.error).toContain("distinct ids");
+		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("refuses a parentId where a minted container shadows an existing container", async () => {
+		// The existing `details` container is NESTED (inside `wrapper`), so
+		// the new top-level `details` group passes the per-level sibling
+		// verdict — the ref then has two viable referents and must refuse.
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Clinic",
+					forms: [
+						{
+							name: "Encounter",
+							type: "survey",
+							fields: [
+								f({
+									id: "wrapper",
+									kind: "group",
+									label: "Wrapper",
+									children: [
+										f({
+											id: "details",
+											kind: "group",
+											label: "Existing details",
+											children: [f({ id: "alpha", kind: "text" })],
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		backfillOrderKeys(doc);
+		const { ctx, recordMutations } = makeStubToolContext();
+		const result = await addFieldsTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [
+					{ kind: "group", id: "details", label: "New details" },
+					{ kind: "text", id: "note", label: "Note", parentId: "details" },
+				],
+			},
+			ctx,
+			doc,
+		);
+		if (!("error" in result.result)) throw new Error("expected error");
+		expect(result.result.error).toContain("share that id");
+		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("nests under a minted container whose id matches only an existing LEAF", async () => {
+		// A leaf can't be a parent, so the minted group is the only viable
+		// referent — no refusal.
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Clinic",
+					forms: [
+						{
+							name: "Encounter",
+							type: "survey",
+							fields: [
+								f({
+									id: "grp",
+									kind: "group",
+									label: "Group",
+									children: [f({ id: "details", kind: "text", label: "Leaf" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		backfillOrderKeys(doc);
+		const { ctx } = makeStubToolContext();
+		const result = await addFieldsTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [
+					{ kind: "group", id: "details", label: "New details" },
+					{ kind: "text", id: "note", label: "Note", parentId: "details" },
+				],
+			},
+			ctx,
+			doc,
+		);
+		if ("error" in result.result) throw new Error(result.result.error);
+		const mintedGroup = Object.values(result.newDoc.fields).find(
+			(fld) => "label" in fld && fld.label === "New details",
+		);
+		const note = Object.values(result.newDoc.fields).find(
+			(fld) => fld.id === "note",
+		);
+		if (!mintedGroup || !note) throw new Error("added fields missing");
+		expect(result.newDoc.fieldOrder[mintedGroup.uuid]).toContain(note.uuid);
+	});
+
 	it("nests under the uuid-addressed duplicate container", async () => {
 		const doc = twoDetailsDoc();
 		const { ctx } = makeStubToolContext();
