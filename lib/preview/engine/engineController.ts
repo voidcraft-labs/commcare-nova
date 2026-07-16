@@ -664,13 +664,15 @@ export class EngineController {
 				)
 			: undefined;
 
-		/* A leaf retype drops its own stale value up front — `addFieldState`
-		 * only seeds `""` when the path is absent, so deleting is what makes the
-		 * re-init start empty. A container has no value of its own to drop. */
+		/* A leaf retype drops its own stale value up front — at every live
+		 * instance; `addFieldState` only seeds `""` when the path is absent,
+		 * so deleting is what makes the re-init start empty. A container has
+		 * no value of its own to drop. */
 		if (!isContainerConversion && oldPath) this.engine.deleteValue(oldPath);
 
-		/* Rebuild path maps + DAG — the conversion (and any co-incident rename)
-		 * moves paths and may rewire dependent references. */
+		/* Rebuild path MAPS — the conversion (and any co-incident rename)
+		 * moves paths. The engine's DAG rebuild waits until AFTER the value
+		 * moves below: old paths materialize against the pre-change topology. */
 		const newTree = buildFieldTree(
 			input.formUuid,
 			input.fields,
@@ -679,9 +681,35 @@ export class EngineController {
 		const maps = buildPathMaps(newTree);
 		this.uuidToPath = maps.uuidToPath;
 		this.pathToUuid = maps.pathToUuid;
-		this.engine.rebuildDag(input);
 
 		const newPath = this.uuidToPath.get(uuid);
+
+		/* Re-path descendant values for a container conversion: move each
+		 * descendant's value + runtime state — every live instance — from its
+		 * old path to its new (reindexed) path so answered children survive.
+		 * One batch call, so materialization happens before any move. */
+		const newDescendantPaths: string[] = [];
+		if (oldDescendantPaths && field) {
+			const pairs: Array<{ oldPath: string; newPath: string }> = [];
+			for (const [descendantUuid, oldDescendantPath] of oldDescendantPaths) {
+				const newDescendantPath = this.uuidToPath.get(descendantUuid);
+				if (!newDescendantPath) continue;
+				newDescendantPaths.push(newDescendantPath);
+				if (oldDescendantPath && oldDescendantPath !== newDescendantPath) {
+					pairs.push({
+						oldPath: oldDescendantPath,
+						newPath: newDescendantPath,
+					});
+				}
+			}
+			this.engine.renamePaths(pairs);
+			/* A repeat→group conversion retires the container's instance
+			 * count (instances ≥ 1 were dropped by the re-path above) —
+			 * `deleteValue` clears it; containers own no value key. */
+			if (field.kind === "group" && oldPath) this.engine.deleteValue(oldPath);
+		}
+
+		this.engine.rebuildDag(input);
 
 		/* No path in the rebuilt tree → the field was also removed in this
 		 * batch. Clean it up like a removal so it isn't left stale-but-blank
@@ -691,42 +719,33 @@ export class EngineController {
 			return;
 		}
 
-		/* Re-path descendant values for a container conversion: move each
-		 * descendant's value + runtime state from its old path to its new
-		 * (reindexed) path so answered children survive. */
-		const affectedPaths = new Set<string>();
-		if (oldDescendantPaths && field) {
-			for (const [descendantUuid, oldDescendantPath] of oldDescendantPaths) {
-				const newDescendantPath = this.uuidToPath.get(descendantUuid);
-				if (!newDescendantPath) continue;
-				if (oldDescendantPath && oldDescendantPath !== newDescendantPath) {
-					this.engine.renamePath(oldDescendantPath, newDescendantPath);
-				}
-				affectedPaths.add(newDescendantPath);
-			}
-			/* Re-seed only the container's own shell state so its kind-specific
-			 * shape is right (a repeat carries `repeatCount`, a group doesn't);
-			 * `addFieldState` skips the value write for containers, leaving the
-			 * re-pathed descendant values intact. */
-			this.engine.addFieldState(newPath, field);
-		} else if (field) {
-			/* Leaf retype: re-seed the field's runtime state at the new path
-			 * under the new kind (empty value, new required flag, new default). */
+		if (field) {
+			/* Re-seed the field's runtime state under the new kind. For a
+			 * container conversion this is only the shell (a repeat carries
+			 * `repeatCount`, a group doesn't) — `addFieldState` skips the value
+			 * write for containers, leaving the re-pathed descendant values
+			 * intact. For a leaf retype it re-seeds empty with the new kind's
+			 * required flag and default. */
 			this.engine.addFieldState(newPath, field);
 		}
 
 		/* Re-evaluate the converted field + its descendants + downstream
-		 * dependents, then sync the changed paths to the runtime store. */
-		affectedPaths.add(newPath);
-		for (const p of [...affectedPaths]) {
+		 * dependents at every live instance, then sync. The selective sweep
+		 * also propagates the unplugged old-path entries. */
+		const affectedPaths = new Set<string>();
+		for (const p of [newPath, ...newDescendantPaths]) {
+			for (const concrete of this.engine.materializePaths(p)) {
+				affectedPaths.add(concrete);
+			}
 			for (const dep of this.engine.getAffectedPaths(p)) affectedPaths.add(dep);
 		}
 		this.engine.evaluatePathsInto([...affectedPaths]);
-		this.syncPathsToStore([...affectedPaths]);
+		this.syncAllPathsSelectively();
 	}
 
 	/** A field's expression changed. Rebuild DAG (sub-ms), then
-	 *  re-evaluate only that field + its downstream dependents. */
+	 *  re-evaluate that field — every live instance — plus its
+	 *  downstream dependents. */
 	private onExpressionChanged(uuid: string): void {
 		if (!this.engine) return;
 		const input = this.currentEngineInput();
@@ -736,30 +755,47 @@ export class EngineController {
 
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return;
-		const affectedPaths = [path, ...this.engine.getAffectedPaths(path)];
+		const affectedPaths = [
+			...this.engine.materializePaths(path),
+			...this.engine.getAffectedPaths(path),
+		];
 		this.engine.evaluatePathsInto(affectedPaths);
 		this.syncPathsToStore(affectedPaths);
 	}
 
-	/** A field's label/hint with hashtag references changed.
-	 *  Re-evaluate resolved labels for just this one field. */
+	/** A field's label/hint with hashtag references changed. Rebuild the
+	 *  DAG (it carries the printDoc the output resolution reads the new
+	 *  label text through), then re-resolve at every live instance. */
 	private onLabelRefsChanged(uuid: string): void {
 		if (!this.engine) return;
+		const input = this.currentEngineInput();
+		if (input) this.engine.rebuildDag(input);
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return;
-		this.engine.evaluatePathsInto([path]);
-		this.syncPathsToStore([path]);
+		const targets = this.engine.materializePaths(path);
+		this.engine.evaluatePathsInto(targets);
+		this.syncPathsToStore(targets);
 	}
 
 	/** A field's ID was renamed. Update path mappings, move DataInstance
-	 *  values, rebuild DAG, and re-evaluate dependents. */
+	 *  values — every live instance, descendants included when a container
+	 *  was renamed — rebuild DAG, and re-evaluate dependents. */
 	private onIdRenamed(uuid: string, _oldId: string, _newId: string): void {
 		if (!this.engine) return;
 		const input = this.currentEngineInput();
 		if (!input) return;
 
-		/* Rebuild path maps — the renamed field has a new path */
+		/* Snapshot old paths (the field + every descendant — renaming a
+		 * container moves the whole subtree) against the PRE-rebuild maps. */
 		const oldPath = this.uuidToPath.get(uuid);
+		const descendantUuids = collectFormUuids(
+			uuid,
+			input.fieldOrder as unknown as Record<string, string[]>,
+		);
+		const oldDescendantPaths = new Map(
+			descendantUuids.map((d) => [d, this.uuidToPath.get(d)] as const),
+		);
+
 		const newTree = buildFieldTree(
 			input.formUuid,
 			input.fields,
@@ -770,24 +806,53 @@ export class EngineController {
 		this.pathToUuid = maps.pathToUuid;
 		const newPath = this.uuidToPath.get(uuid);
 
-		/* Move the DataInstance value to the new path */
+		/* Move values + states — one batch, BEFORE the DAG rebuild so the
+		 * old paths materialize against the pre-rename topology. */
+		const pairs: Array<{ oldPath: string; newPath: string }> = [];
 		if (oldPath && newPath && oldPath !== newPath) {
-			this.engine.renamePath(oldPath, newPath);
+			pairs.push({ oldPath, newPath });
 		}
+		for (const [descendantUuid, oldDescendantPath] of oldDescendantPaths) {
+			const newDescendantPath = this.uuidToPath.get(descendantUuid);
+			if (
+				oldDescendantPath &&
+				newDescendantPath &&
+				oldDescendantPath !== newDescendantPath
+			) {
+				pairs.push({ oldPath: oldDescendantPath, newPath: newDescendantPath });
+			}
+		}
+		this.engine.renamePaths(pairs);
 
 		/* Rebuild DAG (references may point to the new ID now) */
 		this.engine.rebuildDag(input);
 
-		/* Re-evaluate the renamed field + dependents */
+		/* Re-evaluate the renamed field + descendants + dependents at every
+		 * live instance. The selective sweep also propagates the unplugged
+		 * old-path entries. */
 		if (newPath) {
-			const affectedPaths = [newPath, ...this.engine.getAffectedPaths(newPath)];
-			this.engine.evaluatePathsInto(affectedPaths);
-			this.syncPathsToStore(affectedPaths);
+			const affectedPaths = new Set<string>();
+			const renamedRoots = [
+				newPath,
+				...descendantUuids
+					.map((d) => this.uuidToPath.get(d))
+					.filter((p): p is string => !!p),
+			];
+			for (const p of renamedRoots) {
+				for (const concrete of this.engine.materializePaths(p)) {
+					affectedPaths.add(concrete);
+				}
+				for (const dep of this.engine.getAffectedPaths(p)) {
+					affectedPaths.add(dep);
+				}
+			}
+			this.engine.evaluatePathsInto([...affectedPaths]);
+			this.syncAllPathsSelectively();
 		}
 	}
 
 	/** A field's default_value expression changed. Re-evaluate the
-	 *  default and cascade through dependents. */
+	 *  default (every live instance) and cascade through dependents. */
 	private onDefaultValueChanged(uuid: string, field: Field): void {
 		if (!this.engine) return;
 		const input = this.currentEngineInput();
@@ -799,7 +864,10 @@ export class EngineController {
 		/* Re-evaluate the default value — engine handles the cascade */
 		this.engine.reevaluateDefault(path, field);
 
-		const affectedPaths = [path, ...this.engine.getAffectedPaths(path)];
+		const affectedPaths = [
+			...this.engine.materializePaths(path),
+			...this.engine.getAffectedPaths(path),
+		];
 		this.syncPathsToStore(affectedPaths);
 	}
 
@@ -817,19 +885,22 @@ export class EngineController {
 		this.pathToUuid = maps.pathToUuid;
 		this.engine.rebuildDag(input);
 
-		/* Initialize state for each new field — existing fields untouched */
+		/* Initialize state for each new field — every live instance when the
+		 * field sits inside a repeat; existing fields untouched */
+		const engine = this.engine;
 		for (const uuid of uuids) {
 			const path = this.uuidToPath.get(uuid);
 			const field = input.fields[uuid];
 			if (path && field) {
-				this.engine.addFieldState(path, field);
+				engine.addFieldState(path, field);
 			}
 		}
 
-		/* Sync only the new fields to the runtime store */
+		/* Sync only the new fields' concrete paths to the runtime store */
 		const newPaths = uuids
 			.map((u) => this.uuidToPath.get(u))
-			.filter((p): p is string => !!p);
+			.filter((p): p is string => !!p)
+			.flatMap((p) => engine.materializePaths(p));
 		this.syncPathsToStore(newPaths);
 
 		/* Set up per-field subscriptions for the new fields */
@@ -841,16 +912,18 @@ export class EngineController {
 	private onFieldsRemoved(uuids: string[]): void {
 		if (!this.engine) return;
 
-		/* Remove states from the engine and runtime store. `removeFieldState`
-		 * also drops the field's `DataInstance` value so the path-keyed engine
-		 * store and the value map stay consistent — a field re-added at the same
-		 * path seeds empty rather than resurrecting the removed answer. */
+		/* Remove states from the engine and runtime store — every live
+		 * instance in one batch (`removeFieldStates` materializes all paths
+		 * before deleting, so removing a repeat container can't blind its
+		 * children's instance expansion). It also drops the fields'
+		 * `DataInstance` values so the path-keyed engine store and the value
+		 * map stay consistent — a field re-added at the same path seeds empty
+		 * rather than resurrecting the removed answer. */
+		this.engine.removeFieldStates(
+			uuids.map((u) => this.uuidToPath.get(u)).filter((p): p is string => !!p),
+		);
 		const runtimeUpdates: RuntimeStoreState = {};
 		for (const uuid of uuids) {
-			const path = this.uuidToPath.get(uuid);
-			if (path) {
-				this.engine.removeFieldState(path);
-			}
 			runtimeUpdates[uuid] = DEFAULT_RUNTIME_STATE;
 			this.trackedUuids.delete(uuid);
 		}
@@ -871,12 +944,14 @@ export class EngineController {
 
 			/* Re-evaluate fields that depended on the removed ones.
 			 * Their expressions now reference missing paths — the evaluator
-			 * returns empty/default values for missing references. */
+			 * returns empty/default values for missing references. The
+			 * selective sweep also propagates the unplugged removed-instance
+			 * entries to the runtime store. */
 			const allPaths = this.engine.getAllPaths();
 			if (allPaths.length > 0) {
 				this.engine.evaluatePathsInto(allPaths);
-				this.syncPathsToStore(allPaths);
 			}
+			this.syncAllPathsSelectively();
 		}
 	}
 

@@ -617,6 +617,146 @@ describe("EngineController", () => {
 			expect(afterRemove["/data/orders[1]/name"].value).toBe("");
 		});
 
+		it("a field added inside a repeat reaches every live instance", async () => {
+			const store = createLoadedStore(repeatDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
+
+			const doseUuid = asUuid("eeeeeeee-0002-0002-0002-000000000001");
+			store.getState().applyMany([
+				{
+					kind: "addField",
+					parentUuid: repeatUuid,
+					field: { uuid: doseUuid, id: "dose", kind: "text", label: "Dose" },
+				},
+			]);
+			await new Promise((r) => setTimeout(r, 10));
+
+			expect(ctrl.store.getState()["/data/orders[1]/dose"]).toBeDefined();
+			ctrl.setValueAt("/data/orders[1]/dose", "5mg");
+			expect(ctrl.store.getState()["/data/orders[1]/dose"].value).toBe("5mg");
+		});
+
+		it("renaming a repeat-child field carries every instance's value", async () => {
+			const store = createLoadedStore(repeatDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
+			ctrl.setValueAt("/data/orders[0]/name", "Hydrangea");
+			ctrl.setValueAt("/data/orders[1]/name", "Aspirin");
+
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: nameUuid,
+					targetKind: "text",
+					patch: { id: "medication" },
+				},
+			]);
+			await new Promise((r) => setTimeout(r, 10));
+
+			const runtime = ctrl.store.getState();
+			expect(runtime["/data/orders[0]/medication"].value).toBe("Hydrangea");
+			expect(runtime["/data/orders[1]/medication"].value).toBe("Aspirin");
+			expect(runtime["/data/orders[1]/name"].path).toBe("");
+		});
+
+		it("renaming the repeat container keeps its instances and values", async () => {
+			const store = createLoadedStore(repeatDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
+			ctrl.setValueAt("/data/orders[1]/name", "Aspirin");
+
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: repeatUuid,
+					targetKind: "repeat",
+					patch: { id: "meds" },
+				},
+			]);
+			await new Promise((r) => setTimeout(r, 10));
+
+			expect(ctrl.getRepeatCount(repeatUuid)).toBe(2);
+			expect(ctrl.store.getState()["/data/meds[1]/name"].value).toBe("Aspirin");
+		});
+
+		it("a retype clears every instance's stale value", async () => {
+			const store = createLoadedStore(repeatDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
+			ctrl.setValueAt("/data/orders[1]/name", "abc");
+
+			store
+				.getState()
+				.applyMany([
+					{ kind: "convertField", uuid: nameUuid, toKind: "secret" },
+				]);
+			await new Promise((r) => setTimeout(r, 10));
+
+			expect(ctrl.store.getState()["/data/orders[1]/name"].value).toBe("");
+		});
+
+		it("removing a repeat-child field leaves no phantom state blocking submit", async () => {
+			const doc = repeatDoc();
+			doc.fields[nameUuid] = {
+				...doc.fields[nameUuid],
+				required: xp("true()"),
+			} as Field;
+			const store = createLoadedStore(doc);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
+
+			// Both instances empty + required — submit blocked.
+			expect(ctrl.validateAll()).toBe(false);
+
+			store.getState().applyMany([{ kind: "removeField", uuid: nameUuid }]);
+			await new Promise((r) => setTimeout(r, 10));
+
+			// The field is gone from every instance — nothing left to fail.
+			expect(ctrl.validateAll()).toBe(true);
+		});
+
+		it("an expression edit recomputes every live instance", async () => {
+			const tagUuid = asUuid("eeeeeeee-0003-0003-0003-000000000001");
+			const doc = repeatDoc();
+			doc.fields[tagUuid] = {
+				uuid: tagUuid,
+				id: "tag",
+				kind: "hidden",
+				calculate: xp("'A'"),
+			} as Field;
+			doc.fieldOrder[repeatUuid] = [nameUuid, tagUuid];
+			const store = createLoadedStore(doc);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
+			expect(ctrl.store.getState()["/data/orders[1]/tag"].value).toBe("A");
+
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: tagUuid,
+					targetKind: "hidden",
+					patch: { calculate: xp("'B'") },
+				},
+			]);
+			await new Promise((r) => setTimeout(r, 10));
+
+			expect(ctrl.store.getState()["/data/orders[0]/tag"].value).toBe("B");
+			expect(ctrl.store.getState()["/data/orders[1]/tag"].value).toBe("B");
+		});
+
 		it("per-instance values reach the submission walk", () => {
 			const patientCaseType: CaseType = {
 				name: "patient",

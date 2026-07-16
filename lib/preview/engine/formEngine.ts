@@ -48,7 +48,11 @@ import type { EvalContext } from "../xpath/types";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import { DataInstance } from "./dataInstance";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
-import { rebaseOntoContext, stripIndices } from "./instancePaths";
+import {
+	rebaseOntoContext,
+	remapInstancePath,
+	stripIndices,
+} from "./instancePaths";
 import { resolveLabel } from "./labelRefs";
 import { TriggerDag } from "./triggerDag";
 import { type FieldState, fieldStatesEqual } from "./types";
@@ -233,10 +237,12 @@ export class FormEngine {
 		}
 
 		/* One-time defaults for the new instance's leaves, then evaluate
-		 * the instance's expressions plus every outside dependent — the
-		 * same defaults-then-evaluate order form load runs for `[0]`. */
+		 * EVERY instance's expressions plus every outside dependent — the
+		 * same defaults-then-evaluate order form load runs for `[0]`.
+		 * Existing instances re-evaluate too: `position()` / `last()`
+		 * expressions shift when cardinality grows, same as on remove. */
 		this.applyInstanceDefaults(newLeafPaths);
-		this.evaluateRepeatCascade(`${instancePrefix}/`, newLeafPaths);
+		this.evaluateRepeatCascade(`${repeatPath}[`, newLeafPaths);
 
 		return newIndex;
 	}
@@ -295,9 +301,10 @@ export class FormEngine {
 	/**
 	 * Evaluate every DAG node inside a repeat's subtree (all paths under
 	 * `subtreePrefix`) plus everything outside it that depends on the given
-	 * leaf paths. Runs after instance cardinality changes, where the
-	 * instance's own expressions AND cross-repeat dependents both need a
-	 * fresh pass.
+	 * leaf paths — one multi-seed BFS, since per-leaf walks re-derive the
+	 * same generic dependents. Runs after instance cardinality changes,
+	 * where the instances' own expressions AND cross-repeat dependents
+	 * both need a fresh pass.
 	 */
 	private evaluateRepeatCascade(
 		subtreePrefix: string,
@@ -307,36 +314,44 @@ export class FormEngine {
 		for (const path of this.dag.getAllPaths(this.repeatCounts)) {
 			if (path.startsWith(subtreePrefix)) toEvaluate.add(path);
 		}
-		for (const leaf of leafPaths) {
-			for (const dep of this.dag.getAffected(leaf, this.repeatCounts)) {
-				toEvaluate.add(dep);
-			}
+		for (const dep of this.dag.getAffectedMany(leafPaths, this.repeatCounts)) {
+			toEvaluate.add(dep);
 		}
 		if (toEvaluate.size > 0) {
 			this.evaluatePathsInto([...toEvaluate]);
 		}
 	}
 
+	/** Evaluate a field's `default_value` for one concrete path. Returns
+	 *  the value to apply, or undefined when the slot is absent or the
+	 *  result is empty/`"false"` — the one gate every default-applying
+	 *  flow (form load, new repeat instance, incremental add, default
+	 *  edit) shares. */
+	private computeDefault(field: Field, path: string): string | undefined {
+		const defaultValue = expressionSource(
+			field,
+			"default_value",
+			this.printDoc,
+		);
+		if (!defaultValue) return undefined;
+		const result = evaluate(defaultValue, this.createEvalContext(path));
+		const value = xpathToString(result);
+		return value && value !== "false" ? value : undefined;
+	}
+
 	/**
 	 * Apply `default_value` one-time to freshly created repeat-instance
-	 * leaves — mirrors `applyDefaultsInto`, but against the live store.
-	 * The eval context binds to each leaf's own instance, so a default
-	 * reading a repeat sibling reads the new instance, not `[0]`.
+	 * leaves — the live-store counterpart of `applyDefaultsInto`. The eval
+	 * context binds to each leaf's own instance, so a default reading a
+	 * repeat sibling reads the new instance, not `[0]`.
 	 */
 	private applyInstanceDefaults(paths: string[]): void {
 		const updates: EngineStoreState = {};
 		for (const path of paths) {
 			const field = this.findField(path);
 			if (!field) continue;
-			const defaultValue = expressionSource(
-				field,
-				"default_value",
-				this.printDoc,
-			);
-			if (!defaultValue) continue;
-			const ctx = this.createEvalContext(path);
-			const value = xpathToString(evaluate(defaultValue, ctx));
-			if (value && value !== "false") {
+			const value = this.computeDefault(field, path);
+			if (value !== undefined) {
 				this.instance.set(path, value);
 				const state = this.store.getState()[path];
 				if (state) updates[path] = { ...state, value };
@@ -351,7 +366,8 @@ export class FormEngine {
 	 * Create container FieldStates for a freshly added repeat instance —
 	 * groups carry per-instance visibility, nested repeats per-instance
 	 * cardinality. Nested-repeat counts read from the DataInstance, whose
-	 * instance walk seeded the new subtree's value slots first.
+	 * instance walk seeded the new subtree first; recursion covers every
+	 * live nested instance, not just `[0]`.
 	 */
 	private seedContainerStates(
 		updates: EngineStoreState,
@@ -363,16 +379,22 @@ export class FormEngine {
 			if (f.kind !== "group" && f.kind !== "repeat") continue;
 			const path = `${prefix}/${f.id}`;
 			const base = this.initialContainerState(path, f.kind);
-			updates[path] =
-				f.kind === "repeat"
-					? {
-							...base,
-							repeatCount: Math.max(1, this.instance.getRepeatCount(path)),
-						}
-					: base;
-			if (node.children) {
-				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
-				this.seedContainerStates(updates, node.children, childPrefix);
+			if (f.kind === "repeat") {
+				updates[path] = {
+					...base,
+					repeatCount: this.instance.getRepeatCount(path),
+				};
+				if (node.children) {
+					const count = this.instance.getRepeatCount(path);
+					for (let i = 0; i < count; i++) {
+						this.seedContainerStates(updates, node.children, `${path}[${i}]`);
+					}
+				}
+			} else {
+				updates[path] = base;
+				if (node.children) {
+					this.seedContainerStates(updates, node.children, path);
+				}
 			}
 		}
 	}
@@ -718,69 +740,91 @@ export class FormEngine {
 		return this.dag.getAllPaths(this.repeatCounts);
 	}
 
+	/** Expand a template/generic path to every live concrete instance
+	 *  path. Every incremental operation below routes through this so a
+	 *  doc mutation touching a repeat child lands on ALL instances, not
+	 *  just the `[0]` template the uuid maps know about. */
+	materializePaths(path: string): string[] {
+		return this.dag.materializePath(path, this.repeatCounts);
+	}
+
 	// ── Incremental operations ───────────────────────────────────────
 
 	/**
 	 * Add a single field's runtime state to the engine without rebuilding
-	 * existing state.
+	 * existing state — at every live instance when the field sits inside
+	 * a repeat.
 	 *
-	 * Initializes the DataInstance path, creates the field's FieldState,
+	 * Initializes the DataInstance paths, creates the field's FieldStates,
 	 * and evaluates its expressions. Existing fields are untouched — their
 	 * state objects keep the same reference in the store.
 	 *
 	 * The DAG must be rebuilt externally (via rebuildDag) BEFORE calling this
-	 * so the new field's dependency edges are present for evaluation.
+	 * so the new field's dependency edges — and, for a field inside a
+	 * repeat, the repeat expansion points — are present.
 	 */
 	addFieldState(path: string, field: Field): void {
 		// Containers are structural — no value, no `default_value`, no
 		// `required` expression. They only carry `relevant`, which the
 		// `evaluatePathsInto` call below resolves into the visibility
-		// flag. Skipping the DataInstance write keeps the value Map
-		// pristine: only leaf fields own value paths.
+		// flag. Skipping the DataInstance value write keeps the value Map
+		// pristine: only leaf fields own value paths. A repeat container
+		// does register its instance count so its children materialize.
 		if (field.kind === "group" || field.kind === "repeat") {
-			this.store.setState({
-				[path]: this.initialContainerState(path, field.kind),
-			});
-			this.evaluatePathsInto([path]);
+			const updates: EngineStoreState = {};
+			for (const concrete of this.materializePaths(path)) {
+				if (field.kind === "repeat") {
+					this.instance.ensureRepeat(concrete);
+					updates[concrete] = {
+						...this.initialContainerState(concrete, "repeat"),
+						repeatCount: this.instance.getRepeatCount(concrete),
+					};
+				} else {
+					updates[concrete] = this.initialContainerState(concrete, "group");
+				}
+			}
+			this.store.setState(updates);
+			this.evaluatePathsInto(Object.keys(updates));
 			return;
 		}
 
-		/* Add path to DataInstance with empty value */
-		if (!this.instance.has(path)) {
-			this.instance.set(path, "");
-		}
+		const concretes = this.materializePaths(path);
 
-		/* Initialize runtime state */
+		/* Seed DataInstance values + runtime states */
 		const isRequired =
 			expressionSource(field, "required", this.printDoc) === "true()";
-		const state: FieldState = {
-			path,
-			value: this.instance.get(path) ?? "",
-			visible: true,
-			required: isRequired,
-			valid: true,
-			touched: false,
-		};
-		this.store.setState({ [path]: state });
-
-		/* Apply default value if present */
-		const defaultValue = expressionSource(
-			field,
-			"default_value",
-			this.printDoc,
-		);
-		if (defaultValue) {
-			const ctx = this.createEvalContext(path);
-			const result = evaluate(defaultValue, ctx);
-			const value = xpathToString(result);
-			if (value && value !== "false") {
-				this.instance.set(path, value);
-				this.store.setState({ [path]: { ...state, value } });
+		const states: EngineStoreState = {};
+		for (const concrete of concretes) {
+			if (!this.instance.has(concrete)) {
+				this.instance.set(concrete, "");
 			}
+			states[concrete] = {
+				path: concrete,
+				value: this.instance.get(concrete) ?? "",
+				visible: true,
+				required: isRequired,
+				valid: true,
+				touched: false,
+			};
+		}
+		this.store.setState(states);
+
+		/* Apply default value per instance if present */
+		const defaults: EngineStoreState = {};
+		for (const concrete of concretes) {
+			const value = this.computeDefault(field, concrete);
+			if (value !== undefined) {
+				this.instance.set(concrete, value);
+				const state = this.store.getState()[concrete];
+				if (state) defaults[concrete] = { ...state, value };
+			}
+		}
+		if (Object.keys(defaults).length > 0) {
+			this.store.setState(defaults);
 		}
 
 		/* Evaluate expressions (calculate, relevant, required, validation) */
-		this.evaluatePathsInto([path]);
+		this.evaluatePathsInto(concretes);
 	}
 
 	/**
@@ -811,79 +855,124 @@ export class FormEngine {
 	}
 
 	/**
-	 * Remove a single field's runtime state from the engine without rebuilding
-	 * existing state.
+	 * Remove fields' runtime state from the engine without rebuilding
+	 * existing state — at every live instance when a field sits inside a
+	 * repeat.
 	 *
-	 * Clears the field's runtime state from the store AND drops its
-	 * `DataInstance` value, so the path-keyed engine store and the value map
+	 * Clears each field's runtime states from the store AND drops its
+	 * `DataInstance` values, so the path-keyed engine store and the value map
 	 * stay consistent — a field re-added at the same path later seeds empty
 	 * (`addFieldState` only writes `""` when `!instance.has(path)`) rather than
-	 * resurrecting the removed answer. The DAG should be rebuilt externally
-	 * (via rebuildDag) AFTER removal so dependents can re-evaluate against the
-	 * missing reference.
+	 * resurrecting the removed answer. All paths materialize BEFORE anything
+	 * is deleted: removing a repeat container drops its instance count, which
+	 * would blind its children's materialization. The DAG should be rebuilt
+	 * externally (via rebuildDag) AFTER removal so dependents can re-evaluate
+	 * against the missing reference.
 	 */
-	removeFieldState(path: string): void {
-		this.instance.delete(path);
-		this.store.setState({ [path]: DEFAULT_ENGINE_STATE });
+	removeFieldStates(paths: readonly string[]): void {
+		const concretes = new Set<string>();
+		for (const path of paths) {
+			for (const concrete of this.materializePaths(path)) {
+				concretes.add(concrete);
+			}
+		}
+		const updates: EngineStoreState = {};
+		for (const concrete of concretes) {
+			this.instance.delete(concrete);
+			updates[concrete] = DEFAULT_ENGINE_STATE;
+		}
+		if (Object.keys(updates).length > 0) {
+			this.store.setState(updates);
+		}
 	}
 
 	/**
-	 * Drop a path's `DataInstance` value AND reset its runtime state to the
-	 * frozen default. Used when a field is retyped (`onKindChanged`): the old
-	 * value is stale under the new kind, so it's cleared before `addFieldState`
-	 * re-seeds the field, which only writes `""` when `!instance.has(path)`.
+	 * Drop a path's `DataInstance` values AND reset its runtime states to the
+	 * frozen default — at every live instance. Used when a field is retyped
+	 * (`onKindChanged`): the old value is stale under the new kind, so it's
+	 * cleared before `addFieldState` re-seeds the field, which only writes
+	 * `""` when `!instance.has(path)`.
 	 */
 	deleteValue(path: string): void {
-		this.instance.delete(path);
-		if (this.store.getState()[path]) {
-			this.store.setState({ [path]: DEFAULT_ENGINE_STATE });
+		const updates: EngineStoreState = {};
+		for (const concrete of this.materializePaths(path)) {
+			this.instance.delete(concrete);
+			if (this.store.getState()[concrete]) {
+				updates[concrete] = DEFAULT_ENGINE_STATE;
+			}
+		}
+		if (Object.keys(updates).length > 0) {
+			this.store.setState(updates);
 		}
 	}
 
 	/**
-	 * Move a field's DataInstance value from one path to another.
-	 * Used after ID renames where the XForm path changes.
+	 * Move fields' DataInstance values and runtime states from old template
+	 * paths to new ones — every live instance, in one batch. Used after ID
+	 * renames and group⇄repeat conversions, where the XForm paths change.
+	 *
+	 * MUST run before `rebuildDag`: the old paths materialize against the
+	 * pre-change topology and counts. All pairs materialize before anything
+	 * moves — renaming a repeat container relocates its instance count, which
+	 * would blind its descendants' materialization mid-batch. An instance the
+	 * new shape has no home for (repeat→group keeps only instance 0) drops
+	 * its value and unplugs its state.
 	 */
-	renamePath(oldPath: string, newPath: string): void {
-		const value = this.instance.get(oldPath) ?? "";
-		this.instance.set(newPath, value);
-
-		/* Move runtime state to the new path */
-		const oldState = this.store.getState()[oldPath];
-		if (oldState) {
-			this.store.setState({
-				[oldPath]: DEFAULT_ENGINE_STATE,
-				[newPath]: { ...oldState, path: newPath },
-			});
-		}
-	}
-
-	/**
-	 * Re-evaluate a field's default_value expression and cascade.
-	 * Used when a field's default_value changes in the blueprint.
-	 */
-	reevaluateDefault(path: string, field: Field): void {
-		const defaultValue = expressionSource(
-			field,
-			"default_value",
-			this.printDoc,
-		);
-		if (defaultValue) {
-			const ctx = this.createEvalContext(path);
-			const result = evaluate(defaultValue, ctx);
-			const value = xpathToString(result);
-			if (value && value !== "false") {
-				this.instance.set(path, value);
-				const current = this.store.getState()[path];
-				if (current && !current.touched) {
-					/* Only apply default if the user hasn't touched this field */
-					this.store.setState({ [path]: { ...current, value } });
-				}
+	renamePaths(
+		pairs: ReadonlyArray<{ oldPath: string; newPath: string }>,
+	): void {
+		const moves: Array<{ from: string; to: string | null }> = [];
+		for (const { oldPath, newPath } of pairs) {
+			for (const from of this.materializePaths(oldPath)) {
+				moves.push({ from, to: remapInstancePath(from, oldPath, newPath) });
 			}
 		}
 
-		/* Cascade — the value change may affect dependent fields */
-		const affected = this.dag.getAffected(path, this.repeatCounts);
+		const updates: EngineStoreState = {};
+		const current = this.store.getState();
+		for (const { from, to } of moves) {
+			if (to === null) {
+				this.instance.delete(from);
+				if (current[from]) updates[from] = DEFAULT_ENGINE_STATE;
+				continue;
+			}
+			this.instance.rename(from, to);
+			const oldState = current[from];
+			if (oldState) {
+				updates[from] = DEFAULT_ENGINE_STATE;
+				updates[to] = { ...oldState, path: to };
+			}
+		}
+		if (Object.keys(updates).length > 0) {
+			this.store.setState(updates);
+		}
+	}
+
+	/**
+	 * Re-evaluate a field's default_value expression and cascade — at every
+	 * live instance. Used when a field's default_value changes in the
+	 * blueprint. A touched field keeps the user's answer in BOTH the store
+	 * and the DataInstance — writing the instance while skipping the store
+	 * made the screen and the submission disagree.
+	 */
+	reevaluateDefault(path: string, field: Field): void {
+		const concretes = this.materializePaths(path);
+		const updates: EngineStoreState = {};
+		for (const concrete of concretes) {
+			const current = this.store.getState()[concrete];
+			if (current?.touched) continue;
+			const value = this.computeDefault(field, concrete);
+			if (value !== undefined) {
+				this.instance.set(concrete, value);
+				if (current) updates[concrete] = { ...current, value };
+			}
+		}
+		if (Object.keys(updates).length > 0) {
+			this.store.setState(updates);
+		}
+
+		/* Cascade — the value changes may affect dependent fields */
+		const affected = this.dag.getAffectedMany(concretes, this.repeatCounts);
 		if (affected.length > 0) {
 			this.evaluatePathsInto(affected);
 		}
@@ -1324,17 +1413,12 @@ export class FormEngine {
 		for (const node of tree) {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
-			const defaultValue = expressionSource(f, "default_value", this.printDoc);
-			if (defaultValue) {
-				const ctx = this.createEvalContext(path);
-				const result = evaluate(defaultValue, ctx);
-				const value = xpathToString(result);
-				if (value && value !== "false") {
-					this.instance.set(path, value);
-					const state = states[path];
-					if (state) {
-						states[path] = { ...state, value };
-					}
+			const value = this.computeDefault(f, path);
+			if (value !== undefined) {
+				this.instance.set(path, value);
+				const state = states[path];
+				if (state) {
+					states[path] = { ...state, value };
 				}
 			}
 			if (node.children) {

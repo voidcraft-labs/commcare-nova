@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { rebaseOntoContext, stripIndices } from "../instancePaths";
+import {
+	rebaseOntoContext,
+	remapInstancePath,
+	stripIndices,
+} from "../instancePaths";
 
 describe("stripIndices", () => {
 	it("removes every instance segment", () => {
@@ -53,5 +57,57 @@ describe("rebaseOntoContext", () => {
 		expect(
 			rebaseOntoContext("/data/orders[0]/name", "/data/orders[1]/other"),
 		).toBe("/data/orders[0]/name");
+	});
+});
+
+describe("remapInstancePath", () => {
+	it("renames a leaf across instances, carrying the index", () => {
+		expect(
+			remapInstancePath(
+				"/data/orders[2]/name",
+				"/data/orders[0]/name",
+				"/data/orders[0]/med",
+			),
+		).toBe("/data/orders[2]/med");
+	});
+
+	it("renames a container, carrying descendant indices", () => {
+		expect(
+			remapInstancePath(
+				"/data/orders[1]/name",
+				"/data/orders[0]/name",
+				"/data/meds[0]/name",
+			),
+		).toBe("/data/meds[1]/name");
+		expect(
+			remapInstancePath("/data/orders", "/data/orders", "/data/meds"),
+		).toBe("/data/meds");
+	});
+
+	it("group→repeat gains the new template's index", () => {
+		expect(
+			remapInstancePath("/data/c/child", "/data/c/child", "/data/c[0]/child"),
+		).toBe("/data/c[0]/child");
+	});
+
+	it("repeat→group keeps instance 0 and drops the rest", () => {
+		expect(
+			remapInstancePath(
+				"/data/c[0]/child",
+				"/data/c[0]/child",
+				"/data/c/child",
+			),
+		).toBe("/data/c/child");
+		expect(
+			remapInstancePath(
+				"/data/c[1]/child",
+				"/data/c[0]/child",
+				"/data/c/child",
+			),
+		).toBeNull();
+	});
+
+	it("returns null on segment-count mismatch", () => {
+		expect(remapInstancePath("/data/a/b", "/data/a", "/data/z")).toBeNull();
 	});
 });

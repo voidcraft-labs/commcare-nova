@@ -89,8 +89,21 @@ export class TriggerDag {
 	 * evaluations are no-ops that skip the store write.
 	 */
 	getAffected(changedPath: string, repeatCount: RepeatCountResolver): string[] {
+		return this.getAffectedMany([changedPath], repeatCount);
+	}
+
+	/**
+	 * Multi-seed variant of `getAffected` — one BFS over the index-free
+	 * edges from every seed, one materialization pass. Callers with many
+	 * seeds (repeat cardinality changes touch every leaf in the repeat)
+	 * use this instead of unioning per-seed walks.
+	 */
+	getAffectedMany(
+		changedPaths: readonly string[],
+		repeatCount: RepeatCountResolver,
+	): string[] {
 		const visited = new Set<string>();
-		const queue = [stripIndices(changedPath)];
+		const queue = [...new Set(changedPaths.map(stripIndices))];
 
 		while (queue.length > 0) {
 			const current = queue.shift();
@@ -113,6 +126,13 @@ export class TriggerDag {
 			}
 		}
 		return result;
+	}
+
+	/** Expand a path (concrete or generic) to every live concrete instance
+	 *  path — the public face of `materialize` for the engine's
+	 *  instance-aware incremental operations. */
+	materializePath(path: string, repeatCount: RepeatCountResolver): string[] {
+		return this.materialize(stripIndices(path), repeatCount);
 	}
 
 	/** Get all expressions registered for a path (concrete or generic —
