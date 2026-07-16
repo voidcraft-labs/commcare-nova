@@ -130,6 +130,15 @@ describe("filter-only automatic search", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Condition: is" }));
 		fireEvent.click(screen.getByRole("menuitem", { name: /Always true/i }));
+		// Let FloatingFocusManager finish the newly-opened dialog's initial-focus
+		// microtask before accepting it. Closing the dialog in the same turn that
+		// mounted it would strand that task under async-leak detection.
+		await waitFor(() =>
+			expect(
+				screen.getByRole("heading", { name: "Show all cases instead?" }),
+			).toBeDefined(),
+		);
+		await Promise.resolve();
 		const actions = screen.getAllByRole("button", { name: "Show all cases" });
 		fireEvent.click(actions[actions.length - 1]);
 
