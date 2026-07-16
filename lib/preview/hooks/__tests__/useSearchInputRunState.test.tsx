@@ -135,4 +135,25 @@ describe("useSearchInputRunState", () => {
 		});
 		expect(Object.fromEntries(result.current.submitted)).toEqual({});
 	});
+
+	it("ends the submitted phase when the final search prompt is removed", () => {
+		const { result, rerender } = renderHook(
+			({ searchInputs }: { searchInputs: readonly SearchInputDef[] }) =>
+				useSearchInputRunState({
+					scopeKey: "module-a",
+					searchInputs,
+					session: SESSION,
+				}),
+			{ initialProps: { searchInputs: [inputWithDefault("Alice")] } },
+		);
+
+		act(() => result.current.submit(new Map([["name", "Alice"]])));
+		expect(result.current.hasSubmitted).toBe(true);
+		expect(result.current.queryActive).toBe(true);
+
+		rerender({ searchInputs: [] });
+		expect(result.current.hasSubmitted).toBe(false);
+		expect(Object.fromEntries(result.current.draft)).toEqual({});
+		expect(Object.fromEntries(result.current.submitted)).toEqual({});
+	});
 });

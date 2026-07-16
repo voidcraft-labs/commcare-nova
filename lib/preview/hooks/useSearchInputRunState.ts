@@ -148,7 +148,13 @@ function reconcileSearchRunState(
 	desired: SearchRunState,
 ): SearchRunState {
 	if (previous.scopeKey !== desired.scopeKey) return desired;
+	// Removing the final prompt removes the Search surface itself. A prior
+	// submission belongs to that surface and must not survive as a phase-only
+	// flag: CaseListScreen uses it to activate advanced search settings such as
+	// owner exclusions. Genuine filter-only launch is derived independently
+	// from the effective filter and needs no synthetic submission.
 	if (previous.revision === desired.revision) return previous;
+	if (desired.allowedKeys.size === 0) return desired;
 
 	const keyIsCompatible = (key: string) =>
 		previous.keyShapes.get(key) === desired.keyShapes.get(key);

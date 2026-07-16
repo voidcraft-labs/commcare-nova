@@ -29,6 +29,7 @@
 //      case-select → confirm → form flow the shipped app runs.
 
 import {
+	act,
 	fireEvent,
 	render,
 	screen,
@@ -36,7 +37,11 @@ import {
 	within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { BlueprintDocProvider } from "@/lib/doc/provider";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
+import {
+	BlueprintDocProvider,
+	type BlueprintDocStore,
+} from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import {
 	asUuid as asDomainUuid,
@@ -195,6 +200,13 @@ function makeRow(
  *  needs the multi-form (form-menu) path. */
 const CLOSE_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000a04");
 
+let capturedDocStore: BlueprintDocStore | undefined;
+
+function CaptureDocStore() {
+	capturedDocStore = useBlueprintDocApi();
+	return null;
+}
+
 function renderCaseListScreen(opts: {
 	columns: NonNullable<
 		Parameters<typeof BlueprintDocProvider>[0]["initialDoc"]
@@ -299,6 +311,7 @@ function renderCaseListScreen(opts: {
 				fieldOrder: {},
 			}}
 		>
+			<CaptureDocStore />
 			<CaseListScreen
 				screen={{ type: "caseList", moduleIndex: 0, formIndex: 0 }}
 			/>
@@ -307,6 +320,7 @@ function renderCaseListScreen(opts: {
 }
 
 beforeEach(() => {
+	capturedDocStore = undefined;
 	vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
 });
 
@@ -834,6 +848,48 @@ describe("CaseListScreen — search-input form", () => {
 		for (const [args] of vi.mocked(loadCasesAction).mock.calls) {
 			expect(args.excludedOwnerIdsExpression).toBeUndefined();
 		}
+	});
+
+	it("stops applying submitted ownership exclusions when the final search field is removed", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [ALICE_ROW],
+		});
+		const excludedOwnerIds = term(sessionContext("userid"));
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [searchInput],
+			excludedOwnerIds,
+		});
+
+		await waitFor(() => expect(screen.getByText("Alice")).toBeDefined());
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		await waitFor(() =>
+			expect(vi.mocked(loadCasesAction)).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					excludedOwnerIdsExpression: excludedOwnerIds,
+				}),
+			),
+		);
+
+		const store = capturedDocStore;
+		if (store === undefined) throw new Error("doc store was not captured");
+		act(() => {
+			store.getState().applyMany([
+				{
+					kind: "removeSearchInput",
+					moduleUuid: MODULE_UUID,
+					uuid: searchInput.uuid,
+				},
+			]);
+		});
+
+		await waitFor(() =>
+			expect(vi.mocked(loadCasesAction)).toHaveBeenLastCalledWith(
+				expect.objectContaining({ excludedOwnerIdsExpression: undefined }),
+			),
+		);
+		expect(screen.queryByRole("search")).toBeNull();
 	});
 
 	it("re-fires the action with the typed value bag and renders the filtered rows", async () => {
