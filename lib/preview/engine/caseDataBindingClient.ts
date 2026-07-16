@@ -149,6 +149,35 @@ export function caseRowToFormPreload(row: CaseRow): Map<string, string> {
 }
 
 /**
+ * Build the per-case-type preload the form engine consumes: the
+ * bound case plus its ancestor chain, each flattened through
+ * `caseRowToFormPreload` and keyed by case-type NAME. The engine's
+ * hashtag resolver looks a `#<case_type>/<prop>` reference's
+ * namespace up by that key, so depth never travels — it's implicit
+ * in which row claimed the type name.
+ *
+ * The bound case writes first and each ancestor only lands if its
+ * type is unclaimed — the SHALLOWEST row of a type owns the
+ * namespace, mirroring `reachableCaseTypes`' cycle guard (a
+ * self-parented chain like `person → person` addresses the loaded
+ * case at depth 0; the deeper same-type row is unreachable on the
+ * wire too).
+ */
+export function caseRowsToFormPreloads(
+	primary: CaseRow,
+	ancestors: ReadonlyArray<CaseRow>,
+): Map<string, Map<string, string>> {
+	const byType = new Map<string, Map<string, string>>();
+	byType.set(primary.case_type, caseRowToFormPreload(primary));
+	for (const row of ancestors) {
+		if (!byType.has(row.case_type)) {
+			byType.set(row.case_type, caseRowToFormPreload(row));
+		}
+	}
+	return byType;
+}
+
+/**
  * Coerce a JSONB value to its row-cell display string. Strings pass
  * through verbatim; numbers / booleans round-trip via `String(...)`;
  * arrays + objects emit `JSON.stringify(...)` so the agent / debug

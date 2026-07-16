@@ -27,6 +27,7 @@ import "server-only";
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import type {
 	CaseInsert,
+	CaseRow,
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	CaseUpdate,
@@ -42,7 +43,15 @@ import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchema
 import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
-import { and, eq, literal, prop, term } from "@/lib/domain/predicate/builders";
+import {
+	ancestorPath,
+	and,
+	eq,
+	literal,
+	prop,
+	relationStep,
+	term,
+} from "@/lib/domain/predicate/builders";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate/simplify";
 import { log } from "@/lib/logger";
@@ -423,6 +432,15 @@ const UUID_PATTERN =
  * inherits a stale link from a deleted case, and surfacing
  * malformed ids as missing keeps the upstream flow structural.
  *
+ * The `row` arm also carries the case's ANCESTOR chain
+ * (nearest-first: parent, grandparent, …) so the form engine can
+ * resolve `#<ancestor_type>/<prop>` references the same way the
+ * wire's `…/index/parent × depth …` casedb walk does. The walk is
+ * data-driven — one `traverse` per hop off the live `parent_case_id`
+ * links — so no blueprint needs threading; which namespaces a form
+ * may READ is the validator's `caseRefAcceptMap` concern, decided at
+ * authoring time.
+ *
  * No `blueprint` is threaded — `case_id` is a reserved scalar
  * column, so the term compiler never resolves a property
  * `data_type`. `limit: 1` is belt-and-suspenders; the PK
@@ -444,7 +462,57 @@ export async function readCaseData(
 	});
 	const found = rows[0];
 	if (found === undefined) return { kind: "missing" };
-	return { kind: "row", row: found };
+	return {
+		kind: "row",
+		row: found,
+		ancestors: await walkAncestors(store, args.appId, found),
+	};
+}
+
+/**
+ * Ceiling on the ancestor walk's hop count. The form engine keys
+ * ancestor data by case-type NAME and the first row of a type wins
+ * (mirroring `reachableCaseTypes`' cycle guard), so rows past the
+ * distinct-type count are unreadable anyway — the cap just bounds
+ * the per-hop SELECTs against a degenerate data chain. Real
+ * CommCare hierarchies run 2–3 levels.
+ */
+const ANCESTOR_WALK_MAX_DEPTH = 10;
+
+/**
+ * Walk the anchor's parent chain through the case-store's `parent`
+ * index edges, nearest-first. Each hop is one `traverse` call (the
+ * tenant-scoped way to fetch a row whose case TYPE isn't known up
+ * front — `query` requires a case-type partition). The seen-set
+ * terminates data-level cycles; a missing parent row (dangling
+ * `parent_case_id`, cross-tenant parent) ends the walk without
+ * erroring — the form simply reads blank for that namespace, the
+ * same shape as an unset property.
+ */
+async function walkAncestors(
+	store: CaseStore,
+	appId: string,
+	anchor: CaseRow,
+): Promise<CaseRow[]> {
+	const ancestors: CaseRow[] = [];
+	const seen = new Set<string>([anchor.case_id]);
+	let current = anchor;
+	while (
+		current.parent_case_id !== null &&
+		ancestors.length < ANCESTOR_WALK_MAX_DEPTH
+	) {
+		const parents = await store.traverse({
+			appId,
+			caseId: current.case_id,
+			via: ancestorPath(relationStep("parent")),
+		});
+		const parent = parents[0];
+		if (parent === undefined || seen.has(parent.case_id)) break;
+		seen.add(parent.case_id);
+		ancestors.push(parent);
+		current = parent;
+	}
+	return ancestors;
 }
 
 /**

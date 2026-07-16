@@ -72,6 +72,16 @@ export const DEFAULT_ENGINE_STATE: FieldState = Object.freeze({
 export type EngineStoreState = Record<string, FieldState>;
 
 /**
+ * Case data threaded into the engine, keyed by case-type NAME: the
+ * loaded case under the module's own type plus one entry per ancestor
+ * type in its parent chain (the shallowest row of a type owns the
+ * namespace — `caseRowsToFormPreloads` builds the shape). Each inner
+ * map is a flattened property bag: JSONB keys plus the reserved
+ * scalar aliases (`case_id`, `date_opened`, …).
+ */
+export type CaseDataByType = Map<string, Map<string, string>>;
+
+/**
  * Convenience view passed to the engine. The engine builds the `FieldTreeNode`
  * rose tree internally from these flat maps; consumers only have to supply the
  * normalized doc slice, not pre-walked trees.
@@ -112,7 +122,7 @@ export class FormEngine {
 	/** Rose-tree of the active form's fields. Rebuilt on schema refresh so
 	 *  every walker inside the engine agrees on the same snapshot. */
 	private tree: FieldTreeNode[];
-	private caseData: Map<string, string>;
+	private caseData: CaseDataByType;
 	private moduleCaseType: string | undefined;
 	private formType: string;
 	/** Live repeat-instance counts for the DAG's generic→concrete
@@ -123,7 +133,7 @@ export class FormEngine {
 	constructor(
 		input: FormEngineInput,
 		moduleCaseType?: string,
-		caseData?: Map<string, string>,
+		caseData?: CaseDataByType,
 	) {
 		this.store = createStore<EngineStoreState>(() => ({}));
 		this.moduleCaseType = moduleCaseType;
@@ -985,7 +995,7 @@ export class FormEngine {
 	 */
 	refreshCaseContext(
 		input: FormEngineInput,
-		caseData: Map<string, string>,
+		caseData: CaseDataByType,
 		moduleCaseType?: string,
 	): void {
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
@@ -1017,6 +1027,8 @@ export class FormEngine {
 		changedPaths: string[],
 		prefix = "/data",
 	): void {
+		const own = this.ownCaseData();
+		if (own === undefined) return;
 		for (const node of tree) {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
@@ -1024,9 +1036,9 @@ export class FormEngine {
 			if (
 				withCP.case_property_on &&
 				withCP.case_property_on === this.moduleCaseType &&
-				this.caseData.has(f.id)
+				own.has(f.id)
 			) {
-				const newValue = this.caseData.get(f.id) ?? "";
+				const newValue = own.get(f.id) ?? "";
 				const oldValue = this.instance.get(path) ?? "";
 				if (newValue !== oldValue) {
 					this.instance.set(path, newValue);
@@ -1048,7 +1060,7 @@ export class FormEngine {
 	updateSchema(
 		input: FormEngineInput,
 		moduleCaseType?: string,
-		caseData?: Map<string, string>,
+		caseData?: CaseDataByType,
 	): void {
 		const snapshot = this.getValueSnapshot();
 
@@ -1356,7 +1368,19 @@ export class FormEngine {
 
 	// ── Private: state initialization ────────────────────────────────
 
+	/** The loaded case's own property map — the entry under the module's
+	 *  case type. Preload reads ONLY this map: ancestor namespaces are
+	 *  read-only reference data (a form never writes an ancestor's
+	 *  properties), so they seed no field values. */
+	private ownCaseData(): Map<string, string> | undefined {
+		return this.moduleCaseType !== undefined
+			? this.caseData.get(this.moduleCaseType)
+			: undefined;
+	}
+
 	private preloadCaseData(tree: FieldTreeNode[], prefix = "/data"): void {
+		const own = this.ownCaseData();
+		if (own === undefined) return;
 		for (const node of tree) {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
@@ -1364,9 +1388,9 @@ export class FormEngine {
 			if (
 				withCP.case_property_on &&
 				withCP.case_property_on === this.moduleCaseType &&
-				this.caseData.has(f.id)
+				own.has(f.id)
 			) {
-				this.instance.set(path, this.caseData.get(f.id) ?? "");
+				this.instance.set(path, own.get(f.id) ?? "");
 			}
 			if (node.children) {
 				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
@@ -1467,26 +1491,24 @@ export class FormEngine {
 					return userDefaults[prop] ?? `[user:${prop}]`;
 				}
 				// Case references. The authoring vocabulary is per-case-type —
-				// `#<case_type>/<prop>` (printXPath's `case-ref` spelling) — where
-				// the form's OWN module case type addresses the loaded case
-				// (wire depth 0). The transitional `#case/<prop>` spelling reads
-				// the same loaded case. Both resolve against `caseData`, the
-				// loaded case's property map; on a registration form the map is
-				// empty and every case ref reads blank, matching the wire's
+				// `#<case_type>/<prop>` (printXPath's `case-ref` spelling) —
+				// resolved by looking the namespace up in the per-type case
+				// data: the form's OWN module case type addresses the loaded
+				// case (wire depth 0), an ANCESTOR type addresses the matching
+				// row of the parent chain (the preview counterpart of the
+				// wire's `…/index/parent × depth …` casedb walk — depth is
+				// implicit in which row claimed the type name). The
+				// transitional `#case/<prop>` spelling aliases the own type.
+				// On a registration form no case is loaded, the map is empty,
+				// and every case ref reads blank, matching the wire's
 				// narrowing (the new case isn't in casedb at form init).
-				//
-				// ANCESTOR refs (`#<parent_type>/<prop>`, wire depth ≥ 1) resolve
-				// blank here: the running-app view threads only the bound case's
-				// row into the engine today, so there is no ancestor data to read.
-				// Threading the parent chain through `caseDataBinding` is the
-				// missing piece — until then this is the one divergence from the
-				// wire's `reachableCaseTypes` semantics.
 				const match = /^#([^/]+)\/(.+)$/.exec(ref);
-				if (
-					match &&
-					(match[1] === "case" || match[1] === this.moduleCaseType)
-				) {
-					return this.caseData.get(match[2] ?? "") ?? "";
+				if (match) {
+					const namespace =
+						match[1] === "case" ? this.moduleCaseType : match[1];
+					const data =
+						namespace !== undefined ? this.caseData.get(namespace) : undefined;
+					return data?.get(match[2] ?? "") ?? "";
 				}
 				return "";
 			},

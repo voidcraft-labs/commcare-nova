@@ -355,6 +355,7 @@ describe("FormScreen — followup submit", () => {
 				parent_case_id: null,
 				properties: {},
 			},
+			ancestors: [],
 		});
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "followup",
@@ -405,6 +406,7 @@ describe("FormScreen — close submit", () => {
 				parent_case_id: null,
 				properties: {},
 			},
+			ancestors: [],
 		});
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "close",
@@ -499,6 +501,7 @@ describe("FormScreen — error arms render inline", () => {
 				parent_case_id: null,
 				properties: {},
 			},
+			ancestors: [],
 		});
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "case-not-found",

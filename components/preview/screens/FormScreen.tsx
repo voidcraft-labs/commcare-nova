@@ -26,7 +26,7 @@ import {
 } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
-import { caseRowToFormPreload } from "@/lib/preview/engine/caseDataBindingClient";
+import { caseRowsToFormPreloads } from "@/lib/preview/engine/caseDataBindingClient";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
@@ -113,8 +113,8 @@ interface FormScreenProps {
 /**
  * Form screen. Activates the EngineController by URL-derived form
  * UUID. Case-data preload routes through `useCaseData`;
- * `caseRowToFormPreload` flattens the JSONB document into the
- * `Map<string, string>` the form engine consumes.
+ * `caseRowsToFormPreloads` flattens the bound case + its ancestor
+ * chain into the per-case-type map the form engine consumes.
  */
 export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const caseId = screen.caseId;
@@ -177,19 +177,24 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 *  through the case list. */
 	const effectiveCaseId = caseId ?? autoRow?.case_id;
 
+	/* Keyed on `effectiveCaseId` (not just the nav-provided `caseId`) so an
+	 * auto-selected case also gets its full row + ancestor chain loaded —
+	 * ancestor refs (`#<parent_type>/<prop>`) need the parent rows, which
+	 * the auto-select list query doesn't carry. */
 	const { state: caseDataState } = useCaseData({
 		appId,
 		caseType: mod?.caseType,
-		caseId,
+		caseId: effectiveCaseId,
 	});
 
-	/** Preload from the explicitly-loaded case (nav path) or the
-	 *  auto-selected row; every other arm leaves the form rendering against
-	 *  defaults. */
+	/** Preload from the loaded case + its ancestors; the bare auto-selected
+	 *  row bridges the load window (own-type data only, ancestors follow
+	 *  when the load settles). Every other arm leaves the form rendering
+	 *  against defaults. */
 	const caseData = useMemo(() => {
 		if (caseDataState.kind === "row")
-			return caseRowToFormPreload(caseDataState.row);
-		if (autoRow) return caseRowToFormPreload(autoRow);
+			return caseRowsToFormPreloads(caseDataState.row, caseDataState.ancestors);
+		if (autoRow) return caseRowsToFormPreloads(autoRow, []);
 		return undefined;
 	}, [caseDataState, autoRow]);
 

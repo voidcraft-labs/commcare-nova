@@ -128,9 +128,10 @@ export function useCases(args: {
 }
 
 /**
- * Subscribe to a single case row for case-loading forms. `idle`
- * for any undefined id (URL not yet parsed; registration / survey
- * / followup-without-case) — `idle` reads cleaner than `loading`
+ * Subscribe to a single case row — plus its ancestor chain, walked
+ * server-side — for case-loading forms. `idle` for any undefined id
+ * (URL not yet parsed; registration / survey /
+ * followup-without-case) — `idle` reads cleaner than `loading`
  * because the action is simply not applicable.
  */
 export function useCaseData(args: {

@@ -17,11 +17,12 @@
 import { useEffect } from "react";
 import type { Uuid } from "@/lib/doc/types";
 import type { EngineController } from "@/lib/preview/engine/engineController";
+import type { CaseDataByType } from "@/lib/preview/engine/formEngine";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 
 export function useFormEngine(
 	formUuid: Uuid | undefined,
-	caseData?: Map<string, string>,
+	caseData?: CaseDataByType,
 ): EngineController {
 	const controller = useBuilderFormEngine();
 
