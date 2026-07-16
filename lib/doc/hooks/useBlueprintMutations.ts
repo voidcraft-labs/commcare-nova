@@ -89,6 +89,8 @@ import {
 	type FieldPatchFor,
 	type Form,
 	type FormType,
+	fieldRegistry,
+	HIDDEN_INERT_DEFAULT_VALUE,
 	type Module,
 	type SelectOption,
 } from "@/lib/domain";
@@ -826,14 +828,12 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 							kind: "updateField",
 							uuid,
 							targetKind: field.kind,
-							patch: {
-								default_value: { parts: [{ kind: "text", text: "''" }] },
-							},
+							patch: { default_value: HIDDEN_INERT_DEFAULT_VALUE },
 						} as Mutation);
 					}
 					// The property-centric plan (shared with the SA's editField):
-					// a case-bound conversion carries every same-kind peer writer
-					// of the (caseType, property) across in the same batch and
+					// a case-bound string-scalar conversion carries the
+					// property's other writers across in the same batch and
 					// re-declares a stale declared data_type — one field at a
 					// time can never cross the agreement gate. Select targets
 					// whose source has no options get the same starter pair a
@@ -845,6 +845,14 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						toKind,
 						mintOptions: () => keyedOptions([...DEFAULT_SELECT_OPTIONS]) ?? [],
 					});
+					if (!plan.ok) {
+						return {
+							ok: false,
+							messages: [
+								`This field's case property is also captured by a ${fieldRegistry[plan.blocker.kind].label} field in another form, which can't become a ${fieldRegistry[toKind].label}. Convert that field to Text first, then convert this one.`,
+							],
+						};
+					}
 					batch.push(...plan.mutations);
 					return toOutcome(guardedApply(batch));
 				},

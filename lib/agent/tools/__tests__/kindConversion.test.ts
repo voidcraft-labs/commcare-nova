@@ -342,7 +342,7 @@ describe("editField — demotions", () => {
 			doc,
 		);
 		if ("error" in result.result) throw new Error(result.result.error);
-		expect(result.result.message).toContain("data_type now matches");
+		expect(result.result.message).toContain('data_type is now "single_select"');
 
 		const after = result.newDoc.fields[soleField(doc, "facility").uuid];
 		expect(after?.kind).toBe("single_select");
@@ -449,6 +449,244 @@ describe("editField — demotions", () => {
 		expect(optionUuids.size).toBe(4);
 	});
 
+	it("refuses the conversion when a same-type peer can't reach the target, naming its form", async () => {
+		// A barcode writer derives "text" — the property agrees today, so
+		// converting only the text writer would bounce off the gate with a
+		// disagreement message misreading a healthy property as broken.
+		// The plan refuses up front with the expressible two-step fix.
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "sample_id", label: "Sample" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									id: "case_name",
+									kind: "text",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									id: "sample_id",
+									kind: "text",
+									label: "Sample",
+									case_property_on: "patient",
+								}),
+							],
+						},
+						{
+							name: "Lab intake",
+							type: "followup",
+							fields: [
+								f({
+									id: "sample_id",
+									kind: "barcode",
+									label: "Sample scan",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		backfillOrderKeys(doc);
+		const { ctx, recordMutationStages } = makeStubToolContext();
+		const result = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "sample_id",
+				updates: {
+					kind: "single_select",
+					options: [
+						{ value: "a", label: "A" },
+						{ value: "b", label: "B" },
+					],
+				},
+			},
+			ctx,
+			doc,
+		);
+		if (!("error" in result.result)) throw new Error("expected error");
+		expect(result.result.error).toContain("barcode");
+		expect(result.result.error).toContain('"Lab intake"');
+		expect(result.result.error).toContain('kind="text"');
+		expect(recordMutationStages).not.toHaveBeenCalled();
+	});
+
+	it("a same-call case_property_on clear converts only the addressed field — no cascade for a binding it leaves", async () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "status", label: "Status" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									id: "case_name",
+									kind: "text",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									id: "status",
+									kind: "text",
+									label: "Status",
+									case_property_on: "patient",
+								}),
+							],
+						},
+						{
+							name: "Follow up",
+							type: "followup",
+							fields: [
+								f({
+									id: "status",
+									kind: "text",
+									label: "Status",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		backfillOrderKeys(doc);
+		const registerStatus = Object.values(doc.fields).find(
+			(fld) => fld.id === "status" && "label" in fld && fld.label === "Status",
+		);
+		const { ctx } = makeStubToolContext();
+		const result = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "status",
+				updates: {
+					kind: "single_select",
+					options: [
+						{ value: "open", label: "Open" },
+						{ value: "closed", label: "Closed" },
+					],
+					case_property_on: null,
+				},
+			},
+			ctx,
+			doc,
+		);
+		if ("error" in result.result) throw new Error(result.result.error);
+
+		// The addressed field converted and unbound; the follow-up form's
+		// writer is untouched — the call decoupled the field from the
+		// property, so there was nothing to keep in agreement.
+		const addressed =
+			result.newDoc.fields[registerStatus?.uuid ?? ("" as never)];
+		expect(addressed?.kind).toBe("single_select");
+		expect(
+			(addressed as { case_property_on?: string }).case_property_on,
+		).toBeUndefined();
+		const peer = Object.values(result.newDoc.fields).find(
+			(fld) => fld.id === "status" && fld.uuid !== registerStatus?.uuid,
+		);
+		expect(peer?.kind).toBe("text");
+	});
+
+	it("does NOT escort the value-reshaping single→multi flip past a declared type", async () => {
+		// multi_select stores JSONB arrays; no conversion surface migrates
+		// rows, so the plan must not re-declare the property — the gate
+		// keeps blocking the flip exactly as it always did.
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{
+							name: "language",
+							label: "Language",
+							data_type: "single_select",
+							options: [
+								{ value: "en", label: "English" },
+								{ value: "fr", label: "French" },
+							],
+						},
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									id: "case_name",
+									kind: "text",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									id: "language",
+									kind: "single_select",
+									label: "Language",
+									case_property_on: "patient",
+									options: [
+										{ value: "en", label: "English" },
+										{ value: "fr", label: "French" },
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		backfillOrderKeys(doc);
+		const { ctx, recordMutationStages } = makeStubToolContext();
+		const result = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "language",
+				updates: { kind: "multi_select" },
+			},
+			ctx,
+			doc,
+		);
+		if (!("error" in result.result)) throw new Error("expected error");
+		expect(recordMutationStages).not.toHaveBeenCalled();
+		expect(result.newDoc).toBe(doc);
+	});
+
 	it("text → hidden as the last typed writer pins the undeclared property to text", async () => {
 		// Hidden writers are exempt from the agreement rules, so a later
 		// calculate edit could silently retype the property via expression
@@ -511,6 +749,10 @@ describe("editField — demotions", () => {
 			?.find((ct) => ct.name === "patient")
 			?.properties.find((p) => p.name === "visit_note");
 		expect(entry?.data_type).toBe("text");
+		// The message reports the PINNED type, never "hidden" (not a data
+		// type) — the SA trusts mutation-tool prose verbatim.
+		expect(result.result.message).toContain('data_type is now "text"');
+		expect(result.result.message).not.toContain("matches hidden");
 	});
 
 	it("single ↔ multi conversions keep the existing verbatim-options path (no seed consumed)", async () => {

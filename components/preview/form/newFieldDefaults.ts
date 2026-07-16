@@ -17,6 +17,7 @@ import {
 	DEFAULT_SELECT_OPTIONS,
 	type Field,
 	type FieldKind,
+	HIDDEN_INERT_DEFAULT_VALUE,
 } from "@/lib/domain";
 
 /**
@@ -75,6 +76,6 @@ export const NEW_FIELD_BUILDERS: {
 	hidden: (id) => ({
 		kind: "hidden",
 		id,
-		default_value: { parts: [{ kind: "text", text: "''" }] },
+		default_value: HIDDEN_INERT_DEFAULT_VALUE,
 	}),
 };

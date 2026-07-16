@@ -197,3 +197,16 @@ export const DEFAULT_SELECT_OPTIONS: readonly Pick<
 	{ value: "option_1", label: "Option 1" },
 	{ value: "option_2", label: "Option 2" },
 ];
+
+/**
+ * The inert value a builder-born hidden field starts with — the XPath
+ * empty-string literal, satisfying the `HIDDEN_NO_VALUE` rule until the
+ * user authors the real calculate in the inspector. Shared by the two
+ * surfaces that mint a hidden field with no authored value: the
+ * builder's insert picker and the builder's convert-to-hidden gesture
+ * (the SA passes a real `calculate` instead). One constant so the two
+ * born shapes can't drift.
+ */
+export const HIDDEN_INERT_DEFAULT_VALUE: XPathExpression = {
+	parts: [{ kind: "text", text: "''" }],
+};

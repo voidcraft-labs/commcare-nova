@@ -10,28 +10,40 @@
  * changes the property's data type can never land one field at a time —
  * the first converted writer disagrees with its unconverted peers, and
  * a declared type can't be corrected by any field edit. The subject of
- * such a conversion is the PROPERTY, and the plan makes that literal:
+ * such a conversion is the PROPERTY, and the plan makes that literal —
+ * but ONLY for the flips whose stored case values are already valid in
+ * the target type:
  *
- *   - every peer writer of the same `(caseType, property)` with the
- *     SAME source kind converts in the same gated batch (a peer already
- *     at the target kind needs nothing; a peer of a DIFFERENT typed
- *     kind is deliberately left alone — the gate then rejects the batch
- *     with the honest disagreement finding, because that property
- *     genuinely holds two shapes and a human has to pick);
- *   - a stale declared `data_type` is re-declared to the target kind's
- *     type via `setCaseProperty` in the same batch (the catalog entry
- *     describes the property; when the property's writers change type,
- *     the description follows), carrying the select options forward as
- *     the declaration's `{value, label}` pairs;
- *   - a conversion to `hidden` — whose writers the agreement rules
+ *   - The cascade escorts STRING-SCALAR flips (`text` ↔
+ *     `single_select`) through the gate: every peer writer whose kind
+ *     derives the same data type converts in the same gated batch, and
+ *     a stale declared `data_type` is re-declared to the target type
+ *     via `setCaseProperty` (the catalog entry describes the property;
+ *     when the property's writers change type, the description
+ *     follows), carrying the converted select's options onto the
+ *     declaration as `{value, label}` pairs. Both sides of these flips
+ *     store plain strings, so every existing row stays valid.
+ *   - A same-type peer whose kind CANNOT convert to the target (a
+ *     barcode or secret writer on a text property being made a select)
+ *     BLOCKS the plan with the peer named — the batch would otherwise
+ *     bounce off the gate with a disagreement message that misreads a
+ *     healthy property as broken. The expressible fix is to convert
+ *     that peer to text first, then convert the property.
+ *   - Value-RESHAPING flips (`single_select` ↔ `multi_select`, whose
+ *     stored values change between scalar string and JSONB array) get
+ *     NO cascade — no peer carry, no re-declare. The agreement gate
+ *     keeps blocking them on declared or multi-writer properties
+ *     exactly as before, because escorting them through would strand
+ *     every existing row against the regenerated write schema with no
+ *     per-row migration running on any conversion surface.
+ *   - A conversion to `hidden` — whose writers the agreement rules
  *     exempt (`caseDataTypeForFieldKind` returns undefined) — converts
  *     ONLY the addressed field, and when it was the property's LAST
  *     typed writer on an undeclared entry, PINS the entry's `data_type`
  *     to the source kind's type. Without the pin, the hidden writer's
  *     structural expression inference (a later `today()` calculate)
  *     could silently retype the property under rows whose values are
- *     the old type — the row-poisoning class the string-compatible
- *     conversion tier exists to avoid.
+ *     the old type.
  *
  * Same-batch cascade, computed at the batch-building layer, never a
  * reducer side effect — the `caseTypeRetirement` pattern, and for the
@@ -44,11 +56,13 @@
 
 import {
 	type CaseProperty,
+	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
 	convertNeedsOptionSeed,
 	type Field,
 	type FieldKind,
 	fieldCasePropertyOn,
+	getConvertibleTypes,
 	type SelectOption,
 } from "@/lib/domain";
 import { declarersOf } from "./referenceIndex";
@@ -61,19 +75,53 @@ export interface KindConversionPeer {
 }
 
 export interface KindConversionPlan {
+	readonly ok: true;
 	/** The whole conversion as one batch: the addressed field's convert,
-	 *  every same-kind peer's convert, then the declaration update when
-	 *  one is needed. */
+	 *  every carried peer's convert, then the declaration update when one
+	 *  is needed. */
 	readonly mutations: Mutation[];
 	/** Peer writers converted alongside the addressed field (excludes
 	 *  it) — consumers name these in their success message. */
 	readonly peers: readonly KindConversionPeer[];
-	/** True when the plan re-declares the property's `data_type`. */
-	readonly redeclared: boolean;
+	/** The data type the plan declared (or pinned) on the property's
+	 *  catalog entry, when it did — the target type on a string-scalar
+	 *  flip, the SOURCE type on a hidden pin. Consumers word their
+	 *  message from this, never from `toKind`. */
+	readonly redeclaredTo?: CasePropertyDataType;
 }
+
+/** A same-type peer writer whose kind can't convert to the target —
+ *  the batch would bounce off the agreement gate with a message that
+ *  misreads a healthy property as broken, so the plan refuses up front
+ *  with the peer named. */
+export interface KindConversionBlocked {
+	readonly ok: false;
+	readonly blocker: {
+		readonly uuid: Uuid;
+		readonly id: string;
+		readonly kind: FieldKind;
+	};
+}
+
+export type KindConversionPlanResult =
+	| KindConversionPlan
+	| KindConversionBlocked;
+
+/** The flips whose stored case values are identical in both types —
+ *  plain scalar strings. `multi_select` is deliberately absent: its
+ *  values are JSONB arrays, a reshape no conversion surface migrates. */
+const STRING_SCALAR_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
+	"text",
+	"single_select",
+]);
 
 /**
  * Build the conversion batch for `field` → `toKind`.
+ *
+ * `field` is the shape the CALL leaves in place for planning purposes —
+ * a caller whose same call retargets or clears `case_property_on` must
+ * pass the field with that override applied, or the plan cascades a
+ * binding the field is about to leave.
  *
  * `mintOptions` supplies born options for a converted field whose
  * source kind has none (`convertNeedsOptionSeed`) — called once PER
@@ -85,7 +133,7 @@ export function planKindConversion(args: {
 	field: Field;
 	toKind: FieldKind;
 	mintOptions?: () => SelectOption[];
-}): KindConversionPlan {
+}): KindConversionPlanResult {
 	const { doc, field, toKind, mintOptions } = args;
 
 	const convertMutation = (target: Field): Mutation => ({
@@ -101,7 +149,7 @@ export function planKindConversion(args: {
 	const caseType = fieldCasePropertyOn(field);
 	if (caseType === undefined || field.id.length === 0) {
 		// Not case-bound — a plain single-field conversion.
-		return { mutations: [addressedConvert], peers: [], redeclared: false };
+		return { ok: true, mutations: [addressedConvert], peers: [] };
 	}
 
 	const fromType = caseDataTypeForFieldKind(field.kind);
@@ -110,8 +158,7 @@ export function planKindConversion(args: {
 	const entry = record?.properties.find((p) => p.name === field.id);
 
 	// Peer writers of the same (caseType, property) — via the reference
-	// index, never a doc walk. Only fields still at the SOURCE kind
-	// convert; the addressed field itself is excluded here.
+	// index, never a doc walk. The addressed field itself is excluded.
 	const declarers = declarersOf(doc, caseType, field.id)
 		.filter((uuid) => uuid !== field.uuid)
 		.map((uuid) => doc.fields[uuid as Uuid])
@@ -119,13 +166,29 @@ export function planKindConversion(args: {
 
 	const mutations: Mutation[] = [addressedConvert];
 	const peers: KindConversionPeer[] = [];
-	let redeclared = false;
+	let redeclaredTo: CasePropertyDataType | undefined;
 
-	if (toType !== undefined && toType !== fromType) {
-		// Typed→typed flip (a select target, or a select→text demotion):
-		// carry every same-kind peer writer across in the same batch.
+	const isStringScalarFlip =
+		fromType !== undefined &&
+		toType !== undefined &&
+		toType !== fromType &&
+		STRING_SCALAR_TYPES.has(fromType) &&
+		STRING_SCALAR_TYPES.has(toType);
+
+	if (isStringScalarFlip) {
+		// Carry every peer writer of the property's CURRENT type across —
+		// selection is by derived data type, not kind identity, so a
+		// barcode/secret writer on a text property counts (it agrees
+		// today and would disagree after). A peer already deriving the
+		// TARGET type needs nothing.
 		for (const peer of declarers) {
-			if (peer.kind !== field.kind) continue;
+			if (caseDataTypeForFieldKind(peer.kind) !== fromType) continue;
+			if (!getConvertibleTypes(peer.kind).includes(toKind)) {
+				return {
+					ok: false,
+					blocker: { uuid: peer.uuid, id: peer.id, kind: peer.kind },
+				};
+			}
 			mutations.push(convertMutation(peer));
 			peers.push({ uuid: peer.uuid, id: peer.id });
 		}
@@ -139,7 +202,7 @@ export function planKindConversion(args: {
 					declarationOptions(field, toKind, addressedConvert),
 				),
 			);
-			redeclared = true;
+			redeclaredTo = toType;
 		}
 	} else if (toKind === "hidden" && entry !== undefined) {
 		// Hidden writers are exempt from the agreement rules, so no peer
@@ -156,11 +219,16 @@ export function planKindConversion(args: {
 			!anotherTypedWriterRemains
 		) {
 			mutations.push(redeclareMutation(caseType, entry, fromType, undefined));
-			redeclared = true;
+			redeclaredTo = fromType;
 		}
 	}
 
-	return { mutations, peers, redeclared };
+	return {
+		ok: true,
+		mutations,
+		peers,
+		...(redeclaredTo !== undefined && { redeclaredTo }),
+	};
 }
 
 /** The `setCaseProperty` replace carrying the entry forward with its new
@@ -185,9 +253,9 @@ function redeclareMutation(
 
 /** The declaration's option pairs for a select target — the addressed
  *  field's converted options (the seed already minted onto its
- *  `convertField` mutation, or the existing list for single ↔ multi),
- *  stripped to the catalog's `{value, label}` shape. A non-select
- *  target declares none. */
+ *  `convertField` mutation, or the existing list where the source
+ *  carries one), stripped to the catalog's `{value, label}` shape. A
+ *  non-select target declares none. */
 function declarationOptions(
 	field: Field,
 	toKind: FieldKind,

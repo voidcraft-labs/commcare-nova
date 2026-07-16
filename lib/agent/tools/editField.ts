@@ -51,6 +51,7 @@ import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
+	Field,
 	FieldKind,
 	FieldPatchFor,
 	SelectOption,
@@ -337,18 +338,45 @@ export const editFieldTool = {
 					delete fieldUpdates.options;
 				}
 
-				// The property-centric plan: a case-bound conversion carries
-				// every same-kind peer writer of the (caseType, property)
-				// across in the same batch and re-declares a stale declared
-				// data_type — one field at a time can never cross the
-				// agreement gate. `mintOptions` runs per converted field so
-				// each gets its own option identities.
+				// The property-centric plan: a case-bound string-scalar
+				// conversion carries the property's other writers across in
+				// the same batch and re-declares a stale declared data_type —
+				// one field at a time can never cross the agreement gate. The
+				// plan must see the binding as THIS CALL leaves it: a
+				// same-call `case_property_on` change (retarget or null-clear)
+				// must not cascade a binding the field is leaving.
+				const nextBinding = fieldUpdates.case_property_on;
+				const planField =
+					nextBinding === undefined
+						? resolved.field
+						: ({
+								...resolved.field,
+								case_property_on: nextBinding ?? undefined,
+							} as Field);
 				const plan = planKindConversion({
 					doc: workingDoc,
-					field: resolved.field,
+					field: planField,
 					toKind: newKind,
 					...(mintOptions && { mintOptions }),
 				});
+				if (!plan.ok) {
+					const blockerFormUuid = findContainingForm(
+						workingDoc,
+						plan.blocker.uuid,
+					);
+					const blockerForm =
+						(blockerFormUuid
+							? workingDoc.forms[blockerFormUuid]?.name
+							: undefined) ?? "another form";
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error: `Converting "${currentId}" to ${newKind} is blocked: the same case property is also captured by a ${plan.blocker.kind} field in "${blockerForm}", and a ${plan.blocker.kind} field can't convert to ${newKind}. Convert that field to text first (editField with kind="text"), then convert this property.`,
+						},
+					};
+				}
 				const convertMuts: Mutation[] = plan.mutations;
 
 				// Apply the candidate first so we can verify the reducer
@@ -395,8 +423,11 @@ export const editFieldTool = {
 					});
 					conversionNote += ` Also converted the property's other writer${plan.peers.length === 1 ? "" : "s"} of the same kind (in ${peerForms.join(", ")}) so every form stays in agreement.`;
 				}
-				if (plan.redeclared) {
-					conversionNote += ` The case property's declared data_type now matches ${newKind}.`;
+				if (plan.redeclaredTo !== undefined) {
+					// Worded from the plan's actual declaration — a hidden
+					// conversion PINS the source type ("text"), it doesn't
+					// declare "hidden" (not a data type).
+					conversionNote += ` The case property's declared data_type is now "${plan.redeclaredTo}".`;
 				}
 			}
 

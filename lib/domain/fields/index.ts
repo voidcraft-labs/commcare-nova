@@ -359,6 +359,21 @@ export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
 }
 
 /**
+ * Whether converting `source` into `toKind` must carry a born option
+ * seed on the `convertField` mutation: the destination declares an
+ * `options` slot (`.min(2)` in the select schemas) and the source kind
+ * has none to transfer. The ONE predicate every batch-building surface
+ * (the SA's `editField`, the builder's convert gesture) consults, so
+ * the two editors can't drift on when a conversion needs options.
+ */
+export function convertNeedsOptionSeed(
+	source: Field,
+	toKind: FieldKind,
+): boolean {
+	return fieldKindDeclaresKey(toKind, "options") && !("options" in source);
+}
+
+/**
  * Produce a normalized `Field` of `toKind` seeded from `source`.
  *
  * Reconciliation rules — applied in this order:
@@ -419,21 +434,6 @@ export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
  *     under the same parent uuid, which is still a valid container after
  *     the kind swap.
  */
-/**
- * Whether converting `source` into `toKind` must carry a born option
- * seed on the `convertField` mutation: the destination declares an
- * `options` slot (`.min(2)` in the select schemas) and the source kind
- * has none to transfer. The ONE predicate every batch-building surface
- * (the SA's `editField`, the builder's convert gesture) consults, so
- * the two editors can't drift on when a conversion needs options.
- */
-export function convertNeedsOptionSeed(
-	source: Field,
-	toKind: FieldKind,
-): boolean {
-	return fieldKindDeclaresKey(toKind, "options") && !("options" in source);
-}
-
 export function reconcileFieldForKind(
 	source: Field,
 	toKind: FieldKind,
@@ -596,7 +596,11 @@ export type FieldPatchFor<K extends FieldKind> = {
 export type { SelectOption } from "./base";
 // Re-export the shared option shape (used by single_select + multi_select,
 // and by the SA tool schema generator for the `options` field on select tools).
-export { DEFAULT_SELECT_OPTIONS, selectOptionSchema } from "./base";
+export {
+	DEFAULT_SELECT_OPTIONS,
+	HIDDEN_INERT_DEFAULT_VALUE,
+	selectOptionSchema,
+} from "./base";
 
 // Re-export individual kind types for downstream switch blocks.
 export type {
