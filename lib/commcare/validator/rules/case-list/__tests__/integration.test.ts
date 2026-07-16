@@ -11,10 +11,15 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
+	calculatedColumn,
+	dateColumn,
+	idMappingEntry,
+	imageMapEntry,
 	plainColumn,
 	rangeMode,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { arith, input, prop, term } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
 describe("case-list validator — cross-rule integration", () => {
@@ -239,5 +244,108 @@ describe("case-list validator — cross-rule integration", () => {
 			"FIELD_KIND_WRITERS_DISAGREE",
 		]);
 		expect(errors.filter((e) => newCodes.has(e.code))).toEqual([]);
+	});
+
+	it("ignores malformed legacy columns that have no running-app role", () => {
+		const dormant = {
+			visibleInList: false,
+			visibleInDetail: false,
+		} as const;
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(
+								asUuid("col-unknown"),
+								"missing_property",
+								"Old field",
+								dormant,
+							),
+							dateColumn(
+								asUuid("col-wrong-kind"),
+								"case_name",
+								"Old date",
+								"%Y-%m-%d",
+								dormant,
+							),
+							calculatedColumn(
+								asUuid("col-bad-calc"),
+								"Old calculation",
+								arith(
+									"+",
+									term(prop("patient", "case_name")),
+									term(prop("patient", "case_name")),
+								),
+								dormant,
+							),
+							calculatedColumn(
+								asUuid("col-bare-input"),
+								"Old input calculation",
+								term(input("missing_search_input")),
+								dormant,
+							),
+							{
+								kind: "id-mapping",
+								uuid: asUuid("col-bad-map"),
+								field: "case_name",
+								header: "Old labels",
+								mapping: [idMappingEntry("", "Blank")],
+								...dormant,
+							},
+							{
+								kind: "image-map",
+								uuid: asUuid("col-bad-images"),
+								field: "case_name",
+								header: "Old images",
+								mapping: [
+									imageMapEntry("same", "missing-image-a"),
+									imageMapEntry("same", "missing-image-b"),
+								],
+								...dormant,
+							},
+						],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Registration",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+				},
+			],
+		});
+
+		const dormantColumnCodes = new Set([
+			"CASE_LIST_COLUMN_UNKNOWN_FIELD",
+			"CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH",
+			"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+			"CASE_LIST_BARE_SEARCH_INPUT_REF",
+			"CASE_LIST_ID_MAPPING_EMPTY_VALUE",
+			"CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE",
+			"MEDIA_ASSET_NOT_FOUND",
+		]);
+		expect(
+			runValidation(doc).filter((error) => dormantColumnCodes.has(error.code)),
+		).toEqual([]);
 	});
 });

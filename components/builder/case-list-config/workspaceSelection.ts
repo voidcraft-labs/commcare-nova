@@ -6,15 +6,20 @@
 // have no standalone screens the way fields do).
 
 export type WorkspaceSelection =
-	/** A column — selectable from the case-list table (headers/cells)
-	 *  AND the case-detail rows; one entity, two canvases. */
+	/** A shared field definition selected from a Results or Details row. Each
+	 *  canvas owns its membership + order; selection opens only this field's
+	 *  source and formatting properties in the rail. */
 	| { readonly type: "column"; readonly uuid: string }
-	/** A search input on the search canvas. */
+	/** A directly arranged search input; selection opens its property/matching
+	 *  options without moving arrangement out of the canvas. */
 	| { readonly type: "input"; readonly uuid: string }
-	/** The case-list filter (the canvas's human-phrase affordance). */
+	/** The filter editor reached from Results' human-readable Cases included
+	 *  sentence — the summary is not a duplicate editing surface. */
 	| { readonly type: "filter" }
-	/** The search panel itself — screen labels, button visibility,
-	 *  owner exclusions. */
+	/** Search-screen options with no draggable row: screen copy, button
+	 *  visibility, and owner exclusions. */
 	| { readonly type: "search-panel" }
-	/** The case list itself — sort order, menu-link appearance. */
+	/** Secondary Results options only (sample data and standalone menu-link
+	 *  appearance). Membership, screen arrangement, and Default order stay in the
+	 *  center canvas. */
 	| { readonly type: "list-panel" };

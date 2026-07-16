@@ -751,13 +751,10 @@ describe("layout", () => {
 		// regions — assistive tech maps it to the search landmark via
 		// implicit role. happy-dom + aria-query don't expose that
 		// implicit role through `getByRole("search")` yet, so the test
-		// queries the element directly. The semantic guarantee (one
-		// `<search>` wrapping every input) holds regardless of the
-		// runtime's role-mapping lag; real screen readers honor the
-		// element.
+		// queries the element directly.
 		const region = container.querySelector("search");
 		expect(region).not.toBeNull();
 		if (region === null) return;
-		expect(within(region as HTMLElement).getByLabelText("Name")).toBeDefined();
+		expect(within(region).getByLabelText("Name")).toBeDefined();
 	});
 });

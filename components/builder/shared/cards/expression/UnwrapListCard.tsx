@@ -29,7 +29,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerForklift from "@iconify-icons/tabler/forklift";
-import { isTextShaped } from "@/lib/domain";
+import { canonicalCasePropertyName, isTextShaped } from "@/lib/domain";
 import {
 	prop,
 	term,
@@ -57,7 +57,7 @@ export function unwrapListDefault(
 ): Extract<ValueExpression, { kind: "unwrap-list" }> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find(isTextShaped);
-	const propName = property?.name ?? "";
+	const propName = canonicalCasePropertyName(property?.name ?? "");
 	return unwrapList(term(prop(ctx.currentCaseType, propName)));
 }
 

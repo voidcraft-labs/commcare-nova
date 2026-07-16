@@ -166,6 +166,7 @@ export function SwitchCard({
 		containerKey,
 		containerKind: "switch",
 		items: value.cases,
+		getItemKey: nodeId,
 		onReorder: (next) => onChange(apply(next)),
 	});
 
@@ -191,6 +192,7 @@ export function SwitchCard({
 					<ReorderableRow
 						key={nodeId(c)}
 						index={i}
+						itemKey={nodeId(c)}
 						containerKey={containerKey}
 						containerKind="switch"
 						pendingDrop={pendingDrop}

@@ -65,6 +65,7 @@
 
 import {
 	type BlueprintDoc,
+	canonicalCasePropertyName,
 	DEFAULT_SEARCH_MODE_KIND,
 	type Module,
 	type SimpleSearchInputDef,
@@ -120,7 +121,8 @@ export function searchInputViaModeCompatibility(
 		// only `range` shape the bare prompt slot carries faithfully.
 		const via = input.via;
 		const viaIsCrossWalk = via !== undefined && via.kind !== "self";
-		const nameDiverges = input.name !== input.property;
+		const nameDiverges =
+			input.name !== canonicalCasePropertyName(input.property);
 		if (modeKind === "range" && (viaIsCrossWalk || nameDiverges)) {
 			errors.push(
 				validationError(

@@ -16,9 +16,8 @@
 //   3. The `interval` kind preserves `display: "always"` AND
 //      `display: "flag"` arms.
 //   4. `Column.sort` round-trips with direction + priority.
-//   5. Visibility flags (`visibleInList`, `visibleInDetail`) round-
-//      trip both true and false (and absent — the schema preserves
-//      slot presence; defaulting is a wire-emitter concern).
+//   5. Visibility flags and independent Results / Details order keys
+//      round-trip (and absent slots stay absent).
 //   6. The `SearchInputDef` discriminated union round-trips both
 //      arms; the simple arm requires `property`; the advanced arm
 //      requires `predicate`.
@@ -34,9 +33,11 @@ import {
 	type Column,
 	calculatedColumn,
 	caseListConfigSchema,
+	caseSearchConfigHasAuthoredSettings,
 	caseSearchConfigSchema,
 	columnSchema,
 	dateColumn,
+	effectiveCaseSearchConfig,
 	idMappingColumn,
 	idMappingEntry,
 	intervalColumn,
@@ -47,6 +48,7 @@ import {
 	searchInputDefSchema,
 	simpleSearchInputDef,
 } from "../modules";
+import { literal, term } from "../predicate";
 import { asUuid, type Uuid } from "../uuid";
 
 // Sample uuids — sequential nibbles so test failure diffs are easy
@@ -483,6 +485,37 @@ describe("Column.visibleInList / visibleInDetail — visibility flags", () => {
 	});
 });
 
+describe("Column.listOrder / detailOrder — surface order keys", () => {
+	it("round-trips both independent order keys through the shared schema", () => {
+		const input = plainColumn(u(1), "name", "Name", {
+			listOrder: "list-a",
+			detailOrder: "detail-z",
+		});
+		const parsed = columnSchema.safeParse(input);
+		expect(parsed.success).toBe(true);
+		if (parsed.success) {
+			expect(parsed.data.listOrder).toBe("list-a");
+			expect(parsed.data.detailOrder).toBe("detail-z");
+			expect(parsed.data).toEqual(input);
+		}
+	});
+
+	it("preserves absence so consumers can fall back to legacy order", () => {
+		const parsed = columnSchema.safeParse({
+			uuid: u(1),
+			kind: "plain",
+			field: "name",
+			header: "Name",
+			order: "legacy",
+		});
+		expect(parsed.success).toBe(true);
+		if (parsed.success) {
+			expect(parsed.data.listOrder).toBeUndefined();
+			expect(parsed.data.detailOrder).toBeUndefined();
+		}
+	});
+});
+
 describe("Column builders — helper construction", () => {
 	it("plainColumn → schema round-trip", () => {
 		const built = plainColumn(u(1), "name", "Name");
@@ -563,12 +596,16 @@ describe("Column builders — helper construction", () => {
 			sort: undefined,
 			visibleInList: undefined,
 			visibleInDetail: undefined,
+			listOrder: undefined,
+			detailOrder: undefined,
 		});
 		const data = built as Record<string, unknown>;
 		expect(data.sort).toBeUndefined();
 		expect(Object.hasOwn(data, "sort")).toBe(false);
 		expect(Object.hasOwn(data, "visibleInList")).toBe(false);
 		expect(Object.hasOwn(data, "visibleInDetail")).toBe(false);
+		expect(Object.hasOwn(data, "listOrder")).toBe(false);
+		expect(Object.hasOwn(data, "detailOrder")).toBe(false);
 	});
 });
 
@@ -910,5 +947,64 @@ describe("moduleSchema — caseSearchConfig presence", () => {
 				searchScreenTitle: "Search for a patient",
 			});
 		}
+	});
+});
+
+describe("effectiveCaseSearchConfig", () => {
+	it("keeps an ordinary always-on case-list filter from inventing search", () => {
+		expect(
+			effectiveCaseSearchConfig({
+				caseListConfig: {
+					columns: [],
+					searchInputs: [],
+					filter: { kind: "match-all" },
+				},
+			}),
+		).toBeUndefined();
+	});
+
+	it("gives legacy search inputs the friendly default search config", () => {
+		expect(
+			effectiveCaseSearchConfig({
+				caseListConfig: {
+					columns: [],
+					searchInputs: [
+						simpleSearchInputDef(u(40), "name", "Name", "text", "case_name"),
+					],
+				},
+			}),
+		).toEqual({});
+	});
+
+	it("preserves explicitly authored filter-only search settings", () => {
+		const config = { searchScreenTitle: "Find a patient" };
+		expect(
+			effectiveCaseSearchConfig({
+				caseListConfig: { columns: [], searchInputs: [] },
+				caseSearchConfig: config,
+			}),
+		).toBe(config);
+	});
+});
+
+describe("caseSearchConfigHasAuthoredSettings", () => {
+	it("treats legacy own keys with undefined values as empty", () => {
+		expect(
+			caseSearchConfigHasAuthoredSettings({
+				searchScreenTitle: undefined,
+				excludedOwnerIds: undefined,
+			}),
+		).toBe(false);
+	});
+
+	it("recognizes display and advanced overrides", () => {
+		expect(
+			caseSearchConfigHasAuthoredSettings({ searchButtonLabel: "Find" }),
+		).toBe(true);
+		expect(
+			caseSearchConfigHasAuthoredSettings({
+				excludedOwnerIds: term(literal("x")),
+			}),
+		).toBe(true);
 	});
 });

@@ -69,7 +69,7 @@ describe("CustomDatePatternInput — preset selection", () => {
 			/>,
 		);
 		const customInput = container.querySelector(
-			'input[aria-label="Custom date pattern"]',
+			'input[aria-label="Custom date format"]',
 		);
 		expect(customInput).not.toBeNull();
 	});
@@ -83,7 +83,7 @@ describe("CustomDatePatternInput — preset selection", () => {
 			/>,
 		);
 		const customInput = container.querySelector(
-			'input[aria-label="Custom date pattern"]',
+			'input[aria-label="Custom date format"]',
 		);
 		expect(customInput).toBeNull();
 	});
@@ -100,7 +100,7 @@ describe("CustomDatePatternInput — empty-pattern signal", () => {
 			/>,
 		);
 		const input = screen.getByLabelText(
-			"Custom date pattern",
+			"Custom date format",
 		) as HTMLInputElement;
 		input.focus();
 		fireEvent.change(input, { target: { value: "" } });
@@ -120,7 +120,7 @@ describe("CustomDatePatternInput — empty-pattern signal", () => {
 			/>,
 		);
 		const input = screen.getByLabelText(
-			"Custom date pattern",
+			"Custom date format",
 		) as HTMLInputElement;
 		input.focus();
 		fireEvent.change(input, { target: { value: "" } });
@@ -144,7 +144,7 @@ describe("CustomDatePatternInput — empty-pattern signal", () => {
 			/>,
 		);
 		const input = screen.getByLabelText(
-			"Custom date pattern",
+			"Custom date format",
 		) as HTMLInputElement;
 		input.focus();
 		fireEvent.change(input, { target: { value: "%Y-%m" } });
@@ -162,7 +162,7 @@ describe("CustomDatePatternInput — empty-pattern signal", () => {
 			/>,
 		);
 		const input = screen.getByLabelText(
-			"Custom date pattern",
+			"Custom date format",
 		) as HTMLInputElement;
 		input.focus();
 		fireEvent.change(input, { target: { value: "   " } });

@@ -254,6 +254,18 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				order: "a1",
 			} as Mutation,
 			{
+				kind: "moveColumnInList",
+				moduleUuid,
+				uuid: columnUuid,
+				order: "a2",
+			} as Mutation,
+			{
+				kind: "moveColumnInDetail",
+				moduleUuid,
+				uuid: columnUuid,
+				order: "a3",
+			} as Mutation,
+			{
 				kind: "removeSearchInput",
 				moduleUuid,
 				uuid: searchInputUuid,
@@ -274,6 +286,26 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 		expect(
 			batchTargetsMissing(doc, [
 				{ kind: "removeColumn", moduleUuid, uuid: MISSING } as Mutation,
+			]),
+		).toBe(true);
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "moveColumnInList",
+					moduleUuid,
+					uuid: MISSING,
+					order: "a1",
+				} as Mutation,
+			]),
+		).toBe(true);
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "moveColumnInDetail",
+					moduleUuid,
+					uuid: MISSING,
+					order: "a1",
+				} as Mutation,
 			]),
 		).toBe(true);
 		expect(

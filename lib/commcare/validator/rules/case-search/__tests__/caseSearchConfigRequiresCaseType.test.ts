@@ -52,7 +52,7 @@ describe("caseSearchConfigRequiresCaseType", () => {
 		});
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain("caseSearchConfig");
+		expect(hits[0].message).toContain("case search");
 		expect(hits[0].message).toContain("caseType");
 	});
 
@@ -102,5 +102,34 @@ describe("caseSearchConfigRequiresCaseType", () => {
 		});
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(0);
+	});
+
+	it("covers legacy markerless search inputs because they still emit a remote request", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Legacy search",
+					caseListOnly: true,
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-legacy"),
+								"name_q",
+								"Name",
+								"text",
+								"case_name",
+							),
+						],
+					},
+					// caseSearchConfig + caseType intentionally omitted: the
+					// effective legacy projection supplies the former, not the latter.
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(1);
 	});
 });

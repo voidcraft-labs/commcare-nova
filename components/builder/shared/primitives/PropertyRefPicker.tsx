@@ -41,7 +41,7 @@
 // the runtime guarantee the guard provides.
 
 "use client";
-import type { CaseProperty } from "@/lib/domain";
+import { type CaseProperty, canonicalCasePropertyName } from "@/lib/domain";
 import {
 	type PropertyRef,
 	prop,
@@ -165,6 +165,7 @@ export function PropertyRefPicker(props: PropertyRefPickerProps) {
 				filter={filter}
 				invalid={invalid}
 				ariaLabel={ariaLabel}
+				displayLabels
 			/>
 		);
 	}
@@ -208,6 +209,7 @@ export function PropertyRefPicker(props: PropertyRefPickerProps) {
 			filter={filter}
 			invalid={invalid}
 			ariaLabel={ariaLabel}
+			displayLabels
 		/>
 	);
 }
@@ -238,6 +240,6 @@ function replacementPropRef(
 ): PropertyRef {
 	const ct = caseTypes.find((c) => c.name === currentCaseType);
 	const property = ct?.properties.find((p) => (filter ? filter(p) : true));
-	const propName = property?.name ?? "";
+	const propName = canonicalCasePropertyName(property?.name ?? "");
 	return prop(currentCaseType, propName);
 }

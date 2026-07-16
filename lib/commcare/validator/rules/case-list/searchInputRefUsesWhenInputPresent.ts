@@ -56,7 +56,12 @@
  * no in-scope slots.
  */
 
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	caseListColumnHasRuntimeRole,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import type {
 	Predicate,
 	SearchInputRef,
@@ -143,7 +148,13 @@ export function searchInputRefUsesWhenInputPresent(
 	// no search-input context.
 	for (let i = 0; i < (listConfig?.columns.length ?? 0); i++) {
 		const column = listConfig?.columns[i];
-		if (column === undefined || column.kind !== "calculated") continue;
+		if (
+			column === undefined ||
+			!caseListColumnHasRuntimeRole(column) ||
+			column.kind !== "calculated"
+		) {
+			continue;
+		}
 		const refs = findExpressionInputRefs(
 			column.expression,
 			"forbids-input-ref",

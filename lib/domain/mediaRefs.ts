@@ -36,6 +36,7 @@ import { produce } from "immer";
 import type { BlueprintDoc, PersistableDoc } from "./blueprint";
 import { isBuiltinIconRef } from "./builtinIcons";
 import { type Field, isContainer } from "./fields";
+import { caseListColumnHasRuntimeRole } from "./modules";
 import type { Media } from "./multimedia";
 import type { Uuid } from "./uuid";
 
@@ -232,6 +233,7 @@ export function* walkAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 		}
 		const columns = mod.caseListConfig?.columns ?? [];
 		for (const column of columns) {
+			if (!caseListColumnHasRuntimeRole(column)) continue;
 			if (column.kind !== "image-map") continue;
 			for (let rowIndex = 0; rowIndex < column.mapping.length; rowIndex++) {
 				const row = column.mapping[rowIndex];
@@ -488,20 +490,27 @@ export function collectAssetRefs(doc: BlueprintDoc): Set<string> {
 /**
  * Every asset id PRESENT in the doc — the superset {@link collectAssetRefs} would
  * yield if nothing were render-gated. It adds the one gated slot the gated walk
- * omits: `caseListConfig.icon` / `audioLabel` on NON-`caseListOnly` modules. Those
- * don't render today (so the validator/manifest rightly ignore them), but they
- * PERSIST in the doc and {@link remapAssetRefs} rewrites them un-gated — so a move
- * must copy + repoint them too, or toggling the module back to `caseListOnly`
- * later surfaces a dangling cross-Project ref. This is the move's (and the
- * reverse-index's) collection basis; the gated `collectAssetRefs` stays the
- * emit/validate basis.
+ * omits: `caseListConfig.icon` / `audioLabel` on NON-`caseListOnly` modules and
+ * image-map rows on fully off-screen, unsorted legacy columns. Those don't
+ * render today (so the validator/manifest rightly ignore them), but they
+ * PERSIST in the doc and {@link remapAssetRefs} rewrites them un-gated — so a
+ * move must copy + repoint them too, or making the carrier active later would
+ * surface a dangling cross-Project ref. This is the move's (and the reverse-
+ * index's) collection basis; the gated `collectAssetRefs` stays the emit/
+ * validate basis.
  */
 export function collectMovableAssetRefs(doc: BlueprintDoc): Set<string> {
 	const ids = collectAssetRefs(doc);
 	for (const mod of Object.values(doc.modules)) {
-		if (mod.caseListOnly) continue; // already covered by collectAssetRefs
-		if (mod.caseListConfig?.icon) ids.add(mod.caseListConfig.icon);
-		if (mod.caseListConfig?.audioLabel) ids.add(mod.caseListConfig.audioLabel);
+		if (!mod.caseListOnly) {
+			if (mod.caseListConfig?.icon) ids.add(mod.caseListConfig.icon);
+			if (mod.caseListConfig?.audioLabel)
+				ids.add(mod.caseListConfig.audioLabel);
+		}
+		for (const column of mod.caseListConfig?.columns ?? []) {
+			if (column.kind !== "image-map") continue;
+			for (const row of column.mapping) ids.add(row.assetId);
+		}
 	}
 	return ids;
 }

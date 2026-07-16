@@ -20,7 +20,7 @@ import {
 	caseSearchConfigSchema,
 	type Module,
 } from "@/lib/domain";
-import { matchAll, term } from "@/lib/domain/predicate";
+import { matchAll, prop, term } from "@/lib/domain/predicate";
 import { setCaseSearchAdvancedTool } from "../setCaseSearchAdvanced";
 import {
 	MOD_A,
@@ -41,6 +41,22 @@ beforeEach(() => {
 });
 
 describe("setCaseSearchAdvanced", () => {
+	it("canonicalizes standard-property aliases in advanced expressions", async () => {
+		const { doc, ctx } = makeCaseSearchFixture();
+		const result = await setCaseSearchAdvancedTool.execute(
+			{
+				moduleIndex: 0,
+				excludedOwnerIds: term(prop("patient", "name")),
+			},
+			ctx,
+			doc,
+		);
+
+		expect(
+			result.newDoc.modules[MOD_A]?.caseSearchConfig?.excludedOwnerIds,
+		).toEqual(term(prop("patient", "case_name")));
+	});
+
 	it("sets the advanced cluster to the supplied values", async () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const excluded = term({ kind: "literal", value: "owner-a owner-b" });

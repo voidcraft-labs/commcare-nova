@@ -6,8 +6,8 @@
 //
 //   1. Walks the columns once, drops the ones without `sort`, and
 //      sorts the survivors by `priority` ascending. Tie-break is
-//      column display order in `caseListConfig.columns`: the column
-//      appearing earlier wins on equal priority. The rule binds
+//      independent Results order (`listOrder ?? order`, then uuid): the
+//      column appearing earlier on Results wins on equal priority. The rule binds
 //      uniformly at the saga, preview, and wire layers; no layer
 //      assumes priority uniqueness.
 //
@@ -53,7 +53,7 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
-import { bySortKey } from "@/lib/doc/order/compare";
+import { byListColumnOrder } from "@/lib/doc/order/compare";
 import type {
 	BlueprintDoc,
 	CasePropertyDataType,
@@ -69,6 +69,7 @@ import {
 	type ResolvedType,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { emitCasePropertyWirePath } from "../../casePropertyWire";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import {
 	moduleTypeContext,
@@ -361,7 +362,7 @@ export type ResolvedSortDirective =
 function propertySortXpath(
 	column: Exclude<Column, { kind: "calculated" }>,
 ): string {
-	return column.field;
+	return emitCasePropertyWirePath(column.field);
 }
 
 /**
@@ -371,11 +372,11 @@ function propertySortXpath(
  *
  * Pipeline:
  *
- *   1. Walk the columns once, keep the entries with `column.sort`
- *      defined, and remember their original array indices.
+ *   1. Walk the columns in Results order, keep the entries with `column.sort`
+ *      defined, and remember their surface indices.
  *   2. Sort the survivors by `priority` ascending. Tie-break to
- *      original array index so the column appearing earlier in
- *      `caseListConfig.columns` wins on equal priority. The
+ *      Results index so the column appearing earlier in the running list
+ *      wins on equal priority. The
  *      tie-break rule binds at every layer (saga / preview / wire);
  *      no layer assumes priority uniqueness.
  *   3. Assign `order = i + 1` to the i-th survivor in the sorted
@@ -400,15 +401,16 @@ export function buildSortDirectives(
 	const config = mod.caseListConfig;
 	if (!config) return new Map();
 
-	// Phase 1 — collect sortable columns with their DISPLAY index
-	// (`sort-by-(order, uuid)`, not array position — the same sequence the
-	// detail emitters walk), used only as the equal-priority tie-break below.
+	// Phase 1 — collect sortable columns with their Results index
+	// (`listOrder ?? order`, then uuid — the same sequence the short-detail
+	// emitter walks), used only as the equal-priority tie-break below. Details
+	// order is intentionally irrelevant to list sorting.
 	type Survivor = {
 		readonly column: Column;
 		readonly index: number;
 	};
 	const survivors: Survivor[] = [];
-	const sortedColumns = [...config.columns].sort(bySortKey);
+	const sortedColumns = [...config.columns].sort(byListColumnOrder);
 	for (let i = 0; i < sortedColumns.length; i++) {
 		const column = sortedColumns[i];
 		if (column.sort === undefined) continue;

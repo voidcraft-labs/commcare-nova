@@ -184,14 +184,176 @@ function pickValueForProperty(args: {
 	}
 }
 
-/** Property-name heuristic: name / address / phone / email / fallback token. */
+const MEDICATION_EXAMPLES = [
+	"Amoxicillin",
+	"Paracetamol",
+	"Metformin",
+	"Oral rehydration salts",
+	"Iron and folic acid",
+	"Artemether-lumefantrine",
+] as const;
+
+const MEDICATION_PROPERTY_TERMS: ReadonlySet<string> = new Set([
+	"medication",
+	"medications",
+	"medicine",
+	"medicines",
+	"drug",
+	"drugs",
+	"treatment",
+	"treatments",
+]);
+
+const MEDICATION_DOSE_EXAMPLES = [
+	"500 mg",
+	"250 mg",
+	"10 mL",
+	"1 tablet",
+	"2 tablets",
+	"5 mg once daily",
+] as const;
+
+const MEDICATION_STATUS_EXAMPLES = [
+	"Active",
+	"Completed",
+	"Paused",
+	"Stopped",
+	"Awaiting refill",
+] as const;
+
+const MEDICATION_NOTE_EXAMPLES = [
+	"Take with food",
+	"Morning dose confirmed",
+	"No side effects reported",
+	"Review at next visit",
+	"Refill requested",
+] as const;
+
+const FACILITY_EXAMPLES = [
+	"Riverside Health Centre",
+	"Central Community Clinic",
+	"North District Hospital",
+	"Hillview Medical Centre",
+	"Lakeside Health Post",
+	"Green Valley Clinic",
+] as const;
+
+const FACILITY_PROPERTY_TERMS: ReadonlySet<string> = new Set([
+	"clinic",
+	"clinics",
+	"facility",
+	"facilities",
+	"hospital",
+	"hospitals",
+	"site",
+	"sites",
+]);
+
+const GENERIC_TEXT_EXAMPLES = [
+	"Follow-up needed",
+	"Ready for review",
+	"Information confirmed",
+	"No concerns reported",
+	"Details updated",
+	"Awaiting confirmation",
+] as const;
+
+const STATUS_TEXT_EXAMPLES = [
+	"Active",
+	"Pending",
+	"Complete",
+	"Needs follow-up",
+	"On hold",
+] as const;
+
+const IDENTIFIER_TERMS: ReadonlySet<string> = new Set([
+	"id",
+	"identifier",
+	"code",
+	"number",
+	"reference",
+	"ref",
+	"record",
+	"serial",
+]);
+
+type NonEmptyTextExamples = readonly [string, ...string[]];
+
+function pickTextExample(
+	examples: NonEmptyTextExamples,
+	prng: SeededPrng,
+): string {
+	return examples[prng.pickIndex(examples.length)] ?? examples[0];
+}
+
+function includesAny(
+	terms: readonly string[],
+	candidates: ReadonlySet<string>,
+): boolean {
+	return terms.some((term) => candidates.has(term));
+}
+
+function identifierPrefix(terms: readonly string[]): string {
+	if (terms.includes("patient") || terms.includes("client")) return "PAT";
+	if (terms.includes("household") || terms.includes("family")) return "HH";
+	if (terms.includes("visit") || terms.includes("appointment")) return "VIS";
+	if (terms.includes("external")) return "EXT";
+	if (terms.includes("record")) return "REC";
+	if (
+		terms.includes("clinic") ||
+		terms.includes("facility") ||
+		terms.includes("hospital")
+	) {
+		return "FAC";
+	}
+	const semantic = terms.find(
+		(term) => term.length > 1 && !IDENTIFIER_TERMS.has(term),
+	);
+	return (semantic ?? "REF").slice(0, 3).toUpperCase();
+}
+
+function pickIdentifierValue(
+	terms: readonly string[],
+	prng: SeededPrng,
+): string {
+	const number = String(1000 + prng.pickIndex(9000));
+	return `${identifierPrefix(terms)}-${number}`;
+}
+
+/**
+ * Property-name heuristic for text values. Domain-specific matches
+ * precede the broad `name` rule so `medication_name` and
+ * `clinic_name` remain useful examples instead of becoming people.
+ */
 function pickTextValue(property: CaseProperty, prng: SeededPrng): string {
 	const normalized = property.name.toLowerCase();
-	if (normalized.includes("first_name") || normalized.includes("given")) {
-		return pickGivenName(prng);
+	const terms = normalized.split(/[^a-z0-9]+/).filter(Boolean);
+	const medicationRelated = includesAny(terms, MEDICATION_PROPERTY_TERMS);
+	if (
+		medicationRelated &&
+		(terms.includes("dose") ||
+			terms.includes("dosage") ||
+			terms.includes("strength"))
+	) {
+		return pickTextExample(MEDICATION_DOSE_EXAMPLES, prng);
 	}
-	if (normalized.includes("name")) {
-		return pickFullName(prng);
+	if (medicationRelated && terms.includes("status")) {
+		return pickTextExample(MEDICATION_STATUS_EXAMPLES, prng);
+	}
+	if (
+		medicationRelated &&
+		(terms.includes("notes") ||
+			terms.includes("note") ||
+			terms.includes("comment") ||
+			terms.includes("instructions"))
+	) {
+		return pickTextExample(MEDICATION_NOTE_EXAMPLES, prng);
+	}
+	if (normalized.includes("phone")) {
+		return pickPhoneNumber(prng);
+	}
+	if (normalized.includes("email")) {
+		return pickEmail(prng);
 	}
 	if (
 		normalized.includes("address") ||
@@ -201,15 +363,39 @@ function pickTextValue(property: CaseProperty, prng: SeededPrng): string {
 	) {
 		return pickAddressLine(prng);
 	}
-	if (normalized.includes("phone")) {
-		return pickPhoneNumber(prng);
+	if (includesAny(terms, IDENTIFIER_TERMS)) {
+		return pickIdentifierValue(terms, prng);
 	}
-	if (normalized.includes("email")) {
-		return pickEmail(prng);
+	if (
+		medicationRelated &&
+		(terms.length === 1 ||
+			terms.includes("name") ||
+			terms.includes("given") ||
+			terms.includes("current") ||
+			terms.includes("prescribed"))
+	) {
+		return pickTextExample(MEDICATION_EXAMPLES, prng);
 	}
-	// Fallback: stable but distinguishable token —
-	// `<property-name>_NNNN`.
-	return `${property.name}_${String(prng.pickIndex(10000)).padStart(4, "0")}`;
+	const facilityRelated = includesAny(terms, FACILITY_PROPERTY_TERMS);
+	if (
+		facilityRelated &&
+		(terms.length === 1 ||
+			terms.includes("name") ||
+			terms.includes("assigned") ||
+			terms.includes("current"))
+	) {
+		return pickTextExample(FACILITY_EXAMPLES, prng);
+	}
+	if (normalized.includes("first_name") || normalized.includes("given")) {
+		return pickGivenName(prng);
+	}
+	if (normalized.includes("name")) {
+		return pickFullName(prng);
+	}
+	if (terms.includes("status") || terms.includes("state")) {
+		return pickTextExample(STATUS_TEXT_EXAMPLES, prng);
+	}
+	return pickTextExample(GENERIC_TEXT_EXAMPLES, prng);
 }
 
 function pickPhoneNumber(prng: SeededPrng): string {

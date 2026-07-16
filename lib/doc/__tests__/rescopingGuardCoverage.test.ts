@@ -779,6 +779,44 @@ const GUARD_COVERAGE = {
 			};
 		},
 	},
+	moveColumnInList: {
+		neverGates:
+			"reorders a case-list column on the Results surface only — no rule reads column position",
+		build: () => {
+			const doc = richDoc();
+			const col = patientsColumn(doc);
+			return {
+				doc,
+				batch: [
+					{
+						kind: "moveColumnInList",
+						moduleUuid: asUuid("mod-patients"),
+						uuid: col.uuid,
+						order: "V",
+					},
+				],
+			};
+		},
+	},
+	moveColumnInDetail: {
+		neverGates:
+			"reorders a case-list column on the Details surface only — no rule reads column position",
+		build: () => {
+			const doc = richDoc();
+			const col = patientsColumn(doc);
+			return {
+				doc,
+				batch: [
+					{
+						kind: "moveColumnInDetail",
+						moduleUuid: asUuid("mod-patients"),
+						uuid: col.uuid,
+						order: "V",
+					},
+				],
+			};
+		},
+	},
 	addSearchInput: {
 		neverGates:
 			"adds a bare simple search input on a known property — introduces no finding; module-scoped",
@@ -815,6 +853,22 @@ const GUARD_COVERAGE = {
 	moveSearchInput: {
 		neverGates:
 			"reorders a search input (order-key only) — no rule reads search-input position",
+	},
+	setCaseSearchMarker: {
+		build: () => {
+			const doc = richDoc();
+			return {
+				doc,
+				batch: [
+					{
+						kind: "setCaseSearchMarker",
+						uuid: asUuid("mod-patients"),
+						enabled: true,
+					},
+				],
+			};
+		},
+		expectCodes: ["CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE"],
 	},
 	setCaseListMeta: {
 		neverGates:

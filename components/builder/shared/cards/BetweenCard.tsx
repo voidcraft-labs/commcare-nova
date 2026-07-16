@@ -10,7 +10,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerSquare from "@iconify-icons/tabler/square";
 import tablerSquareCheck from "@iconify-icons/tabler/square-check-filled";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import { isOrdered } from "@/lib/domain";
+import { canonicalCasePropertyName, isOrdered } from "@/lib/domain";
 import {
 	between,
 	betweenBoundConstraint,
@@ -53,7 +53,7 @@ export function betweenDefault(
 ): Extract<Predicate, { kind: "between" }> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find(isOrdered);
-	const propName = property?.name ?? "";
+	const propName = canonicalCasePropertyName(property?.name ?? "");
 	// Seed bounds of the ordered property's OWN type — text `literal("")`
 	// bounds opposite a numeric / temporal property would be a soundness
 	// error (an ordered subject is never text-compatible).

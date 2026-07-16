@@ -43,7 +43,11 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { type CaseProperty, effectiveDataType } from "@/lib/domain";
+import {
+	type CaseProperty,
+	canonicalCasePropertyName,
+	effectiveDataType,
+} from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
 	acceptsType,
@@ -296,7 +300,10 @@ function buildTermDefault(
 			// Default to a placeholder property name — the picker surfaces
 			// "Pick a property" until the author picks one, and the type
 			// checker surfaces "Unknown property ''" inline.
-			return prop(ctx.currentCaseType, property?.name ?? "");
+			return prop(
+				ctx.currentCaseType,
+				canonicalCasePropertyName(property?.name ?? ""),
+			);
 		}
 		case "input": {
 			const matching = ctx.knownInputs.find((i) =>

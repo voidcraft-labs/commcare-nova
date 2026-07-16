@@ -105,6 +105,7 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { Column } from "@/lib/domain";
+import { emitCasePropertyWirePath } from "../../casePropertyWire";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import {
 	type AssetManifest,
@@ -287,8 +288,10 @@ function detailCalculatedHeaderLocaleId(
  * + `-`) by construction at the composer site, so the serializer's
  * one-pass escape is a no-op here.
  */
-function buildHeaderBlock(localeId: string): Element {
-	return el("header", {}, [el("text", {}, [el("locale", { id: localeId })])]);
+function buildHeaderBlock(localeId: string, hidden = false): Element {
+	return el("header", hidden ? { width: "0" } : {}, [
+		el("text", {}, [el("locale", { id: localeId })]),
+	]);
 }
 
 /**
@@ -312,8 +315,9 @@ function buildHeaderBlock(localeId: string): Element {
 function buildTemplateBlock(
 	xpathFunction: string,
 	form: string | undefined = undefined,
+	hidden = false,
 ): Element {
-	const templateAttribs: Record<string, string> = {};
+	const templateAttribs: Record<string, string> = hidden ? { width: "0" } : {};
 	if (form !== undefined) templateAttribs.form = form;
 	return el("template", templateAttribs, [
 		el("text", {}, [el("xpath", { function: xpathFunction })]),
@@ -341,8 +345,11 @@ function buildTemplateBlock(
  * need escaping. `calcXpath` flows raw into the inner attribute;
  * the serializer escapes the attribute value once at render time.
  */
-function buildCalculatedTemplateBlock(calcXpath: string): Element {
-	return el("template", {}, [
+function buildCalculatedTemplateBlock(
+	calcXpath: string,
+	hidden = false,
+): Element {
+	return el("template", hidden ? { width: "0" } : {}, [
 		el("text", {}, [
 			el("xpath", { function: "$calculated_property" }, [
 				el("variable", { name: "calculated_property" }, [
@@ -574,33 +581,34 @@ function propertyDisplayXpath(
 	column: Exclude<Column, { kind: "calculated" }>,
 	assets: AssetManifest | undefined,
 ): string {
+	const field = emitCasePropertyWirePath(column.field);
 	switch (column.kind) {
 		case "plain":
-			return plainDisplayXpath(column.field);
+			return plainDisplayXpath(field);
 		case "date":
-			return dateDisplayXpath(column.field, column.pattern);
+			return dateDisplayXpath(field, column.pattern);
 		case "phone":
-			return phoneDisplayXpath(column.field);
+			return phoneDisplayXpath(field);
 		case "id-mapping":
-			return idMappingDisplayXpath(column.field, column.mapping);
+			return idMappingDisplayXpath(field, column.mapping);
 		case "image-map":
 			// Media-ON → the per-value image-path chain (rendered via
 			// `<template form="image">`). Media-OFF (no manifest) → degrade
 			// to the raw property value as a plain column; `templateFormFor`
 			// drops the `form="image"` in lockstep so the two never disagree.
 			return assets
-				? imageMapDisplayXpath(column.field, column.mapping, assets)
-				: plainDisplayXpath(column.field);
+				? imageMapDisplayXpath(field, column.mapping, assets)
+				: plainDisplayXpath(field);
 		case "interval":
 			return column.display === "always"
 				? intervalAlwaysXpath({
-						field: column.field,
+						field,
 						threshold: column.threshold,
 						unit: column.unit,
 						text: column.text,
 					})
 				: intervalFlagXpath({
-						field: column.field,
+						field,
 						threshold: column.threshold,
 						unit: column.unit,
 						text: column.text,
@@ -703,12 +711,11 @@ function retargetSortDirective(
 
 /**
  * Build one `<field>` Element for a column. The `position` is 1-based
- * — the surrounding orchestrator passes the column's source-array
- * index plus 1 so the locale-id suffix matches CCHQ's
- * `detail_column_header_locale` convention. Position is keyed off the
- * source-array index (config-time), NOT a render-time visible-column
- * counter — toggling `visibleInList` / `visibleInDetail` doesn't churn
- * locale ids.
+ * — the surrounding orchestrator passes the column's position in the
+ * selected Results or Details wire sequence plus 1 so the locale-id suffix
+ * matches CCHQ's `detail_column_header_locale` convention. Off-screen sort
+ * carriers keep their Results position, so their sort references remain
+ * stable while Details uses its independent order.
  *
  * The dispatch routes calculated columns through the inline-variable
  * template path (CCHQ's `useXpathExpression` branch); every other kind
@@ -722,11 +729,15 @@ export function buildColumnField(args: {
 	readonly column: Column;
 	readonly position: number;
 	readonly ctx: CaseListEmitContext;
+	/** Zero-width carrier used only when an off-screen Results field still
+	 * owns a Default-order rule. The field remains on the wire for its sort
+	 * block without becoming visible in the running app. */
+	readonly hidden?: boolean;
 }): CaseListFieldEmission {
-	const { column, position, ctx } = args;
+	const { column, position, ctx, hidden = false } = args;
 
 	if (column.kind === "calculated") {
-		return buildCalculatedField({ column, position, ctx });
+		return buildCalculatedField({ column, position, ctx, hidden });
 	}
 
 	const displayXpath = propertyDisplayXpath(column, ctx.assets);
@@ -738,10 +749,11 @@ export function buildColumnField(args: {
 		position,
 	);
 	const fieldChildren: Element[] = [
-		buildHeaderBlock(headerLocaleId),
+		buildHeaderBlock(headerLocaleId, hidden),
 		buildTemplateBlock(
 			displayXpath,
 			templateFormFor(column, ctx.detailKind, ctx.assets),
+			hidden,
 		),
 	];
 	const sortEl = resolveSortElement(column, ctx);
@@ -776,8 +788,9 @@ function buildCalculatedField(args: {
 	readonly column: Extract<Column, { kind: "calculated" }>;
 	readonly position: number;
 	readonly ctx: CaseListEmitContext;
+	readonly hidden?: boolean;
 }): CaseListFieldEmission {
-	const { column, position, ctx } = args;
+	const { column, position, ctx, hidden = false } = args;
 	// `emitOnDeviceExpression` lowers the AST against the surrounding
 	// detail's storage-instance root — `instance('casedb')` for the
 	// case-target detail (default), `instance('results')` for the
@@ -797,8 +810,8 @@ function buildCalculatedField(args: {
 		position,
 	);
 	const fieldChildren: Element[] = [
-		buildHeaderBlock(headerLocaleId),
-		buildCalculatedTemplateBlock(calcXpath),
+		buildHeaderBlock(headerLocaleId, hidden),
+		buildCalculatedTemplateBlock(calcXpath, hidden),
 	];
 	const sortEl = resolveSortElement(column, ctx);
 	if (sortEl !== undefined) fieldChildren.push(sortEl);

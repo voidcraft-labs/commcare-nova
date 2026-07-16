@@ -23,6 +23,7 @@ import {
 	type Predicate,
 	predicateSchema,
 	type SearchInputDecl,
+	walkTerms,
 } from "@/lib/domain/predicate";
 import {
 	type PredicateEditContext,
@@ -119,6 +120,18 @@ describe("predicateCardSchemas — defaultValue parses through the schema", () =
 			expect(value.kind).toBe(kind);
 		});
 	}
+
+	it("never seeds CCHQ's legacy property alias from an alias-first catalog", () => {
+		for (const kind of Object.keys(
+			predicateCardSchemas,
+		) as Predicate["kind"][]) {
+			const refs: string[] = [];
+			walkTerms(predicateCardSchemas[kind].defaultValue(ctx), (term) => {
+				if (term.kind === "prop") refs.push(term.property);
+			});
+			expect(refs, `${kind} property refs`).not.toContain("name");
+		}
+	});
 });
 
 describe("predicateCardSchemas — applicable predicates", () => {

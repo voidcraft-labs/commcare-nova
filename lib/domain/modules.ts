@@ -11,7 +11,9 @@
 //     here. Each column carries its own `uuid` (UI identity, drag /
 //     reorder handle, AST references), an optional `sort` (per-
 //     column direction + priority on the column itself), and optional
-//     `visibleInList` / `visibleInDetail` flags (absent ≡ visible).
+//     `visibleInList` / `visibleInDetail` flags (absent ≡ visible),
+//     plus independent `listOrder` / `detailOrder` fractional keys for
+//     the two display surfaces (each falls back to the legacy `order`).
 //   - `filter?: Predicate` — single optional always-on predicate
 //     applied to every row before display.
 //   - `searchInputs: SearchInputDef[]` — discriminated union of
@@ -52,7 +54,7 @@ import { type Uuid, uuidSchema } from "./uuid";
 //
 // `priority` is a non-negative integer (the schema's `int().min(0)`
 // rejects negatives at parse). Two columns at the same priority
-// tie-break to display order in `caseListConfig.columns` — that
+// tie-break to Results display order (`listOrder ?? order`) — that
 // rule binds at the saga, preview, and wire-emission layers; the
 // editor maintains uniqueness on save, but the tie-break exists for
 // transient (undo / partial-save) editor states. No layer assumes
@@ -79,7 +81,7 @@ export type SortType = (typeof SORT_TYPES)[number];
  * Per-column sort directive. Carries direction + priority only —
  * the comparator type is derived at wire emission, not authored.
  *
- * `priority` is a non-negative integer; tie-break to column display
+ * `priority` is a non-negative integer; tie-break to Results display
  * order is uniform across saga / preview / wire layers (no layer
  * assumes uniqueness).
  */
@@ -124,21 +126,24 @@ export type IntervalDisplay = (typeof INTERVAL_DISPLAYS)[number];
 // Every column kind carries the same base slots: `uuid` for UI
 // identity, optional `sort` for column-level sort directive,
 // optional `visibleInList` / `visibleInDetail` for surface
-// filtering. Centralized here so every per-kind schema below
-// extends the same base.
+// filtering, and optional `listOrder` / `detailOrder` fractional keys for
+// independent Results / Details sequencing. Centralized here so every
+// per-kind schema below extends the same base.
 
 /**
- * Optional surface-visibility + sort slots shared by every column
- * kind. Absent slots default to "visible" at the wire layer; the
- * schema preserves the slot's presence so the editor can
- * distinguish "user explicitly toggled off" from "user never
- * toggled".
+ * Optional surface-visibility, sort, and surface-order slots shared by every
+ * column kind. Absent visibility defaults to "visible" at the wire layer;
+ * absent surface order falls back to the generic `order`. The schema preserves
+ * slot presence so the editor can distinguish an explicit override from an
+ * inherited default.
  */
 const columnCommonSlots = z
 	.object({
 		sort: columnSortSchema.optional(),
 		visibleInList: z.boolean().optional(),
 		visibleInDetail: z.boolean().optional(),
+		listOrder: z.string().optional(),
+		detailOrder: z.string().optional(),
 	})
 	.strict();
 
@@ -149,10 +154,11 @@ const columnCommonSlots = z
  *  so per-kind schemas reject unknown keys without restating
  *  `.strict()` on each arm.
  *
- *  `order` is the column's absolute fractional sort key
- *  (`lib/doc/order`): column sequence is `sort-by-(order, uuid)`, not
- *  `columns` array position. Optional (legacy columns predate it,
- *  backfilled at hydration); never reaches CommCare. */
+ *  `order` is the column's legacy/generic absolute fractional sort key
+ *  (`lib/doc/order`). `listOrder` and `detailOrder` independently sequence
+ *  the Results and Details surfaces, each falling back to `order` when its
+ *  surface key is absent. All three are optional (legacy columns predate
+ *  them; `order` is backfilled at hydration) and never reach CommCare. */
 const columnBase = z
 	.object({ uuid: uuidSchema, order: z.string().optional() })
 	.extend(columnCommonSlots.shape)
@@ -353,6 +359,17 @@ export const columnSchema = z.discriminatedUnion("kind", [
 export type Column = z.infer<typeof columnSchema>;
 export type ColumnKind = Column["kind"];
 
+/** Whether a column contributes to any running-app behavior. Fully off-screen,
+ * unsorted legacy definitions are tolerated for recovery but ignored by
+ * preview/wire work until an author adds them back to a screen. */
+export function caseListColumnHasRuntimeRole(column: Column): boolean {
+	return (
+		column.visibleInList !== false ||
+		column.visibleInDetail !== false ||
+		column.sort !== undefined
+	);
+}
+
 /** Single id-mapping entry — value-to-label pair surfaced by the
  *  id-mapping column's lookup table. Constructing through the
  *  matching builder pins the key order and keeps ad-hoc literals
@@ -366,7 +383,7 @@ export type IdMappingEntry = z.infer<typeof idMappingEntrySchema>;
 // per-kind config — mirrors the explicit-uuid stance the field
 // schemas take (`{ uuid, id, ... }` on every Field arm).
 //
-// Common optional slots (`sort`, `visibleInList`, `visibleInDetail`)
+// Common optional slots (`sort`, visibility, and per-surface order keys)
 // are passed via a `slots` object. Builders OMIT keys whose values
 // are undefined so the constructed shape round-trips through the
 // schema's strip-mode parse — equality assertions like
@@ -383,6 +400,8 @@ export interface ColumnCommonSlots {
 	readonly sort?: ColumnSort;
 	readonly visibleInList?: boolean;
 	readonly visibleInDetail?: boolean;
+	readonly listOrder?: string;
+	readonly detailOrder?: string;
 }
 
 /**
@@ -398,12 +417,16 @@ function withCommonSlots<T extends Record<string, unknown>>(
 		sort?: ColumnSort;
 		visibleInList?: boolean;
 		visibleInDetail?: boolean;
+		listOrder?: string;
+		detailOrder?: string;
 	} = { ...base };
 	if (slots.sort !== undefined) out.sort = slots.sort;
 	if (slots.visibleInList !== undefined)
 		out.visibleInList = slots.visibleInList;
 	if (slots.visibleInDetail !== undefined)
 		out.visibleInDetail = slots.visibleInDetail;
+	if (slots.listOrder !== undefined) out.listOrder = slots.listOrder;
+	if (slots.detailOrder !== undefined) out.detailOrder = slots.detailOrder;
 	return out;
 }
 
@@ -1145,6 +1168,10 @@ export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 //     from the search-results scope. Framed abstractly so the cluster
 //     name describes its role (niche filters), not its contents.
 //
+/** Friendly Nova defaults shared by authoring, flipbook, and both wire paths. */
+export const DEFAULT_CASE_SEARCH_TITLE = "Search";
+export const DEFAULT_CASE_SEARCH_BUTTON_LABEL = "Search";
+
 // The runtime case-claim step (which fires when an author picks a
 // case from search results) runs unconditionally on the CCHQ
 // runtime — there is no authoring affordance for it. Display sort,
@@ -1179,12 +1206,9 @@ export const caseSearchConfigSchema = z
 		// Empty strings are rejected — every text input on the editor
 		// drops the slot to `undefined` when the user clears it, so
 		// "presence with empty body" is a structurally invalid state.
-		// The two wire emitters (local suite-XML, HQ JSON) diverge on
-		// empty: the suite-XML emitter falls back to a case-type /
-		// CCHQ-default; the HQ JSON projection writes `{ en: "" }` and
-		// the runtime renders blank text. Rejecting empty at the
-		// schema collapses both surfaces onto the same shape — present
-		// means non-empty.
+		// Both wire emitters and preview share Nova's friendly defaults.
+		// Rejecting empty keeps the contract simple: present means useful
+		// authored copy; clearing a control removes the override.
 		searchScreenTitle: z.string().min(1).optional(),
 		searchScreenSubtitle: z.string().min(1).optional(),
 		searchButtonLabel: z.string().min(1).optional(),
@@ -1192,6 +1216,21 @@ export const caseSearchConfigSchema = z
 	})
 	.strict();
 export type CaseSearchConfig = z.infer<typeof caseSearchConfigSchema>;
+
+/** Whether the optional search-settings bag contains a real authored
+ * override. Explicit `undefined` keys can survive legacy/editor objects, so
+ * `Object.keys(config).length` is not a semantic emptiness check. */
+export function caseSearchConfigHasAuthoredSettings(
+	config: CaseSearchConfig | undefined,
+): boolean {
+	return (
+		config?.excludedOwnerIds !== undefined ||
+		config?.searchScreenTitle !== undefined ||
+		config?.searchScreenSubtitle !== undefined ||
+		config?.searchButtonLabel !== undefined ||
+		config?.searchButtonDisplayCondition !== undefined
+	);
+}
 
 // ── Module ───────────────────────────────────────────────────────
 
@@ -1222,6 +1261,23 @@ export const moduleSchema = z
 	})
 	.strict();
 export type Module = z.infer<typeof moduleSchema>;
+
+/**
+ * The search configuration that governs the running app and both wire paths.
+ *
+ * A stored `caseSearchConfig` explicitly enables search (including the rare
+ * filter-only search screen). Search inputs also make search unambiguous, so
+ * legacy documents that predate the explicit config marker receive Nova's
+ * friendly defaults instead of showing search in the builder while silently
+ * omitting it from preview/export. A case-list filter by itself does NOT turn
+ * on search; it remains the always-on "Cases included" rule.
+ */
+export function effectiveCaseSearchConfig(
+	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
+): CaseSearchConfig | undefined {
+	if (module.caseSearchConfig !== undefined) return module.caseSearchConfig;
+	return (module.caseListConfig?.searchInputs.length ?? 0) > 0 ? {} : undefined;
+}
 
 export type ModuleKindMetadata = {
 	icon: string;

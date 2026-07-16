@@ -65,11 +65,9 @@ describe("IdMappingCard — table mutations", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 			/>,
 		);
-		fireEvent.click(screen.getByRole("button", { name: /add mapping/i }));
+		fireEvent.click(screen.getByRole("button", { name: /add value rule/i }));
 		const next = lastEmittedColumn(onChange);
 		expect(next.kind).toBe("id-mapping");
 		if (next.kind !== "id-mapping") throw new Error("expected id-mapping");
@@ -90,14 +88,12 @@ describe("IdMappingCard — table mutations", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 			/>,
 		);
 		// Two move-down buttons rendered (one per entry); the last
 		// row's button is disabled. Pick the first.
 		const moveDownButtons = screen.getAllByRole("button", {
-			name: /move entry down/i,
+			name: /move rule .* later/i,
 		});
 		expect((moveDownButtons[1] as HTMLButtonElement).disabled).toBe(true);
 		fireEvent.click(moveDownButtons[0]);
@@ -121,12 +117,10 @@ describe("IdMappingCard — table mutations", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 			/>,
 		);
 		const moveUpButtons = screen.getAllByRole("button", {
-			name: /move entry up/i,
+			name: /move rule .* earlier/i,
 		});
 		// First entry's up-button disabled; second entry's enabled.
 		expect((moveUpButtons[0] as HTMLButtonElement).disabled).toBe(true);
@@ -151,12 +145,10 @@ describe("IdMappingCard — table mutations", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 			/>,
 		);
 		const removeButtons = screen.getAllByRole("button", {
-			name: /remove entry/i,
+			name: /remove rule/i,
 		});
 		fireEvent.click(removeButtons[0]);
 		const next = lastEmittedColumn(onChange);
@@ -172,8 +164,6 @@ describe("IdMappingCard — table mutations", () => {
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 			/>,
 		);
 		expect(container.textContent).toMatch(/no entries/i);
@@ -190,12 +180,10 @@ describe("IdMappingCard — table mutations", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 			/>,
 		);
 		const valueInput = screen.getByLabelText(
-			"Mapping 1 value",
+			"Value rule 1 saved value",
 		) as HTMLInputElement;
 		// Focus the input first — the commit re-sync effect inside
 		// the input checks `document.activeElement === inputRef.current`
@@ -221,12 +209,10 @@ describe("IdMappingCard — table mutations", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 			/>,
 		);
 		const labelInput = screen.getByLabelText(
-			"Mapping 1 label",
+			"Value rule 1 display label",
 		) as HTMLInputElement;
 		labelInput.focus();
 		fireEvent.change(labelInput, { target: { value: "New label" } });

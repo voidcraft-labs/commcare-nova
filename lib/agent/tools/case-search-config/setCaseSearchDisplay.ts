@@ -25,6 +25,7 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
+import { canonicalizePredicateCaseProperties } from "../shared/canonicalCaseProperties";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
@@ -99,9 +100,16 @@ export const setCaseSearchDisplayTool = {
 			// assertions in `shared.ts` catch cluster-home omissions at
 			// compile time.
 			const existing = snapshotCaseSearchConfig(mod);
+			const displayPatch = applyClusterPatch(input, DISPLAY_SLOT_NAMES);
+			if (displayPatch.searchButtonDisplayCondition !== undefined) {
+				displayPatch.searchButtonDisplayCondition =
+					canonicalizePredicateCaseProperties(
+						displayPatch.searchButtonDisplayCondition,
+					);
+			}
 			const nextConfig: CaseSearchConfig = {
 				...pickAdvancedCluster(existing),
-				...applyClusterPatch(input, DISPLAY_SLOT_NAMES),
+				...displayPatch,
 			};
 
 			const mutations = updateModuleMutations(mod, {

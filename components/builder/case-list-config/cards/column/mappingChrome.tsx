@@ -17,11 +17,11 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import type { ReactNode } from "react";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 
-/** Etched console label above the mapping list. */
+/** Friendly section label above the value-rule list. */
 export function MappingSectionLabel() {
 	return (
-		<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted">
-			Mapping
+		<div className="text-[11px] font-medium text-nova-text-muted">
+			Value rules
 		</div>
 	);
 }
@@ -47,7 +47,7 @@ export function AddMappingButton({ onClick }: { onClick: () => void }) {
 			className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 		>
 			<Icon icon={tablerPlus} width="14" height="14" />
-			<span>Add Mapping</span>
+			<span>Add value rule</span>
 		</button>
 	);
 }
@@ -81,14 +81,14 @@ export function MappingRowShell({
 	return (
 		<div className="rounded-md border border-white/[0.05] bg-nova-surface/30 px-2 py-2 space-y-1.5">
 			<div className="flex items-center gap-1">
-				<span className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted">
-					Entry {index + 1}
+				<span className="text-[11px] font-medium text-nova-text-muted">
+					Rule {index + 1}
 				</span>
 				<div className="flex-1" />
-				<SimpleTooltip content="Move up — earlier entries match first">
+				<SimpleTooltip content="Check this rule earlier">
 					<button
 						type="button"
-						aria-label="Move entry up"
+						aria-label={`Move rule ${index + 1} earlier`}
 						onClick={onMoveUp}
 						disabled={isFirst}
 						className="size-11 grid place-items-center rounded-md text-nova-text-muted not-disabled:hover:text-nova-violet-bright not-disabled:hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
@@ -96,10 +96,10 @@ export function MappingRowShell({
 						<Icon icon={tablerArrowUp} width="13" height="13" />
 					</button>
 				</SimpleTooltip>
-				<SimpleTooltip content="Move down">
+				<SimpleTooltip content="Check this rule later">
 					<button
 						type="button"
-						aria-label="Move entry down"
+						aria-label={`Move rule ${index + 1} later`}
 						onClick={onMoveDown}
 						disabled={isLast}
 						className="size-11 grid place-items-center rounded-md text-nova-text-muted not-disabled:hover:text-nova-violet-bright not-disabled:hover:bg-white/[0.05] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
@@ -107,10 +107,10 @@ export function MappingRowShell({
 						<Icon icon={tablerArrowDown} width="13" height="13" />
 					</button>
 				</SimpleTooltip>
-				<SimpleTooltip content="Remove this entry">
+				<SimpleTooltip content="Remove this rule">
 					<button
 						type="button"
-						aria-label="Remove entry"
+						aria-label={`Remove rule ${index + 1}`}
 						onClick={onRemove}
 						className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-rose hover:bg-white/[0.05] transition-colors cursor-pointer"
 					>

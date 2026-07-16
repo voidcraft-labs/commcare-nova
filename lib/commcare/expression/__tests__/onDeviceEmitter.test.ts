@@ -151,10 +151,12 @@ describe("emitOnDeviceExpression — concat / coalesce", () => {
 	it("emits concat with comma-joined args", () => {
 		const expr = concat(
 			term(literal("Hello, ")),
-			term(prop("p", "name")),
+			term(prop("p", "full_name")),
 			term(literal("!")),
 		);
-		expect(emitOnDeviceExpression(expr)).toBe(`concat('Hello, ', name, '!')`);
+		expect(emitOnDeviceExpression(expr)).toBe(
+			`concat('Hello, ', full_name, '!')`,
+		);
 	});
 
 	it("emits a single-arg concat as concat('X')", () => {
@@ -213,7 +215,7 @@ describe("emitOnDeviceExpression — if / switch (cross-family)", () => {
 });
 
 describe("emitOnDeviceExpression — format-date", () => {
-	it("emits format-date(<value>, '<preset>') with the preset name quoted", () => {
+	it("emits format-date(<value>, '<preset>') with the preset full_name quoted", () => {
 		const expr = formatDate(term(prop("p", "dob")), "iso");
 		expect(emitOnDeviceExpression(expr)).toBe(`format-date(dob, 'iso')`);
 	});
@@ -336,7 +338,9 @@ describe("emitOnDeviceExpression — count", () => {
 
 describe("emitOnDeviceExpression — term arm structural lifter", () => {
 	it("emits a property reference via the term arm", () => {
-		expect(emitOnDeviceExpression(term(prop("patient", "name")))).toBe("name");
+		expect(emitOnDeviceExpression(term(prop("patient", "full_name")))).toBe(
+			"full_name",
+		);
 	});
 
 	it("emits a literal via the term arm", () => {
@@ -370,11 +374,11 @@ describe("emitOnDeviceExpression — recursive composition", () => {
 	it("composes if + arith + concat in a single tree", () => {
 		const expr = ifExpr(
 			gt(term(prop("p", "age")), term(literal(18))),
-			concat(term(literal("adult: ")), term(prop("p", "name"))),
+			concat(term(literal("adult: ")), term(prop("p", "full_name"))),
 			arith("+", term(prop("p", "age")), term(literal(1))),
 		);
 		expect(emitOnDeviceExpression(expr)).toBe(
-			`if(age > 18, concat('adult: ', name), (age + 1))`,
+			`if(age > 18, concat('adult: ', full_name), (age + 1))`,
 		);
 	});
 

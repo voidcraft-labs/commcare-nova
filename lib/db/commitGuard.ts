@@ -255,6 +255,8 @@ export function batchTargetsMissing(
 				break;
 			case "updateColumn":
 			case "moveColumn":
+			case "moveColumnInList":
+			case "moveColumnInDetail":
 				if (!columns.has(m.uuid)) return true;
 				break;
 			case "addSearchInput":
@@ -281,6 +283,11 @@ export function batchTargetsMissing(
 				if (!modules.has(m.uuid) || !modulesWithConfig.has(m.uuid)) {
 					return true;
 				}
+				break;
+			case "setCaseSearchMarker":
+				// The semantic reducer may intentionally no-op on fresh peer state,
+				// but a removed owning module is still a real missing target.
+				if (!modules.has(m.uuid)) return true;
 				break;
 			// ── Granular select options (field-owned) ──────────────────
 			case "addOption":

@@ -24,6 +24,7 @@ import {
 	type SearchInputDecl,
 	type ValueExpression,
 	valueExpressionSchema,
+	walkExpressionTerms,
 } from "@/lib/domain/predicate";
 import {
 	type ExpressionEditContext,
@@ -105,6 +106,21 @@ describe("expressionCardSchemas — defaultValue parses through the schema", () 
 			expect(value.kind).toBe(kind);
 		});
 	}
+
+	it("never seeds CCHQ's legacy property alias from an alias-first catalog", () => {
+		for (const kind of Object.keys(
+			expressionCardSchemas,
+		) as ValueExpression["kind"][]) {
+			const refs: string[] = [];
+			walkExpressionTerms(
+				expressionCardSchemas[kind].defaultValue(ctx),
+				(term) => {
+					if (term.kind === "prop") refs.push(term.property);
+				},
+			);
+			expect(refs, `${kind} property refs`).not.toContain("name");
+		}
+	});
 });
 
 describe("expressionCardSchemas — applicable predicates", () => {

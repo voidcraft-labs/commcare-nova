@@ -7,8 +7,12 @@
 
 "use client";
 import { useMemo } from "react";
-import type { CaseProperty } from "@/lib/domain";
-import { isDateTyped, isTextShaped } from "@/lib/domain";
+import {
+	type CaseProperty,
+	canonicalCasePropertyName,
+	isDateTyped,
+	isTextShaped,
+} from "@/lib/domain";
 import {
 	literal,
 	type MatchMode,
@@ -56,7 +60,7 @@ export function matchDefault(
 ): Extract<Predicate, { kind: "match" }> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find(isTextShaped);
-	const propName = property?.name ?? "";
+	const propName = canonicalCasePropertyName(property?.name ?? "");
 	return match(prop(ctx.currentCaseType, propName), literal(""), "fuzzy");
 }
 

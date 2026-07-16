@@ -40,14 +40,20 @@ import {
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
-import { bySortKey } from "@/lib/doc/order/compare";
-import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
+import { byListColumnOrder } from "@/lib/doc/order/compare";
+import {
+	type CaseListConfig,
+	type CaseType,
+	type Column,
+	caseListColumnHasRuntimeRole,
+} from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import {
 	ancestorPath,
-	and,
 	eq,
+	isIn,
 	literal,
+	not,
 	prop,
 	relationStep,
 	term,
@@ -77,6 +83,15 @@ import {
  * `seedSampleCases` directly match production.
  */
 export const SAMPLE_CASE_DEFAULT_COUNT = 30;
+
+/** Narrow and discard legacy calculated definitions that are neither shown
+ * nor used for ordering. Keeping this as a real type predicate lets the
+ * case-store receive the calculated-column arm rather than the broad union. */
+function isRuntimeCalculatedColumn(
+	column: Column,
+): column is Extract<Column, { kind: "calculated" }> {
+	return column.kind === "calculated" && caseListColumnHasRuntimeRole(column);
+}
 
 /**
  * Read every row of a case type for the bound tenant, projecting
@@ -110,6 +125,9 @@ export const SAMPLE_CASE_DEFAULT_COUNT = 30;
  * that flows to `store.query(...)`. The per-arm dispatch (simple-arm
  * modes, advanced-arm substitution, range, multi-select-contains)
  * lives in `composeRuntimeFilter` in `./runtimeBindings.ts`.
+ * `excludedOwnerIds` is the already-evaluated advanced search value. It joins
+ * that same predicate rather than being post-filtered in JavaScript, so limits,
+ * sort order, and empty-state semantics all see the truthful population.
  */
 export async function readCases(
 	store: CaseStore,
@@ -119,6 +137,7 @@ export async function readCases(
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		caseListConfig?: CaseListConfig;
 		inputValues?: SearchInputValues;
+		excludedOwnerIds?: readonly string[];
 	},
 ): Promise<LoadCasesResult> {
 	const rows = await store.query({
@@ -129,11 +148,10 @@ export async function readCases(
 			args.caseListConfig,
 			args.inputValues,
 			args.caseType,
+			args.excludedOwnerIds,
 		),
 		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
-		calculated: args.caseListConfig?.columns.filter(
-			(col) => col.kind === "calculated",
-		),
+		calculated: args.caseListConfig?.columns.filter(isRuntimeCalculatedColumn),
 	});
 	if (rows.length === 0) return { kind: "empty" };
 	return { kind: "rows", rows };
@@ -141,22 +159,19 @@ export async function readCases(
 
 /**
  * Compose the predicate that flows to `store.query(...)` from the
- * always-on `caseListConfig.filter` slot and the per-input runtime
- * contributions. The two sources collapse into one predicate so the
- * case-store sees a single WHERE clause regardless of how many
- * surfaces contributed.
+ * always-on `caseListConfig.filter` slot, per-input runtime contributions, and
+ * the optional excluded-owner set. The sources collapse into one predicate so
+ * the case-store sees a single WHERE clause regardless of how many surfaces
+ * contributed.
  *
  * Short-circuit policy:
  *
- *   - `caseListConfig === undefined` — the raw-row read path. No
- *     filter, no inputs; return `undefined` and the case-store falls
- *     through to the unfiltered scan.
+ *   - No config and no excluded owners — the raw-row read path; return
+ *     `undefined` and the case-store falls through to the unfiltered scan.
  *   - `caseListConfig.searchInputs.length === 0` OR `inputValues`
- *     absent — no runtime contribution. Just the base filter (the
- *     Filters / Display previews and the calc surface call `readCases`
- *     without `inputValues`, so this is the branch they take).
- *   - Both slots populated — AND the base filter with the runtime
- *     filter.
+ *     absent — no prompt contribution. The base filter and owner exclusion
+ *     still apply.
+ *   - Multiple populated sources — AND every effective predicate together.
  *
  * Either way the result runs through `effectiveFilterForEmission`, so a
  * `match-all` — top-level OR nested inside an authored `and` — folds to
@@ -169,24 +184,47 @@ function composeQueryPredicate(
 	caseListConfig: CaseListConfig | undefined,
 	inputValues: SearchInputValues | undefined,
 	caseType: string,
+	excludedOwnerIds: readonly string[] | undefined,
 ): Predicate | undefined {
-	if (caseListConfig === undefined) return undefined;
-	const baseFilter = caseListConfig.filter;
-	if (inputValues === undefined || caseListConfig.searchInputs.length === 0) {
-		return effectiveFilterForEmission(baseFilter);
+	const clauses: Predicate[] = [];
+	const baseFilter = effectiveFilterForEmission(caseListConfig?.filter);
+	if (baseFilter !== undefined) clauses.push(baseFilter);
+
+	if (
+		caseListConfig !== undefined &&
+		inputValues !== undefined &&
+		caseListConfig.searchInputs.length > 0
+	) {
+		const runtimeFilter = effectiveFilterForEmission(
+			composeRuntimeFilter(caseListConfig.searchInputs, inputValues, caseType),
+		);
+		if (runtimeFilter !== undefined) clauses.push(runtimeFilter);
 	}
 
-	const runtimeFilter = composeRuntimeFilter(
-		caseListConfig.searchInputs,
-		inputValues,
-		caseType,
-	);
+	const ownerIds = [
+		...new Set(
+			(excludedOwnerIds ?? []).map((ownerId) => ownerId.trim()).filter(Boolean),
+		),
+	];
+	if (ownerIds.length > 0) {
+		const [firstOwnerId, ...otherOwnerIds] = ownerIds;
+		clauses.push(
+			not(
+				isIn(
+					prop(caseType, "owner_id"),
+					literal(firstOwnerId),
+					...otherOwnerIds.map((ownerId) => literal(ownerId)),
+				),
+			),
+		);
+	}
 
-	// At most two contributing predicates (base + runtime); AND them
-	// when both are present, then normalize.
-	const composed =
-		baseFilter === undefined ? runtimeFilter : and(baseFilter, runtimeFilter);
-	return effectiveFilterForEmission(composed);
+	if (clauses.length === 0) return undefined;
+	if (clauses.length === 1) return clauses[0];
+	return effectiveFilterForEmission({
+		kind: "and",
+		clauses: clauses as [Predicate, ...Predicate[]],
+	});
 }
 
 /**
@@ -243,9 +281,7 @@ export async function readCaseListPreview(
 		appId: args.appId,
 		caseType: args.caseType,
 		caseTypeSchemas: args.caseTypeSchemas,
-		calculated: args.caseListConfig.columns.filter(
-			(col) => col.kind === "calculated",
-		),
+		calculated: args.caseListConfig.columns.filter(isRuntimeCalculatedColumn),
 		// Normalize so a `match-all`-reducing filter falls through to the
 		// unfiltered scan instead of a redundant `TRUE` operand — same
 		// "no effective filter" decision the wire emitters + `readCases`
@@ -329,9 +365,7 @@ export async function readFilterPreview(
 		appId: args.appId,
 		caseType: args.caseType,
 		caseTypeSchemas: args.caseTypeSchemas,
-		calculated: args.caseListConfig.columns.filter(
-			(col) => col.kind === "calculated",
-		),
+		calculated: args.caseListConfig.columns.filter(isRuntimeCalculatedColumn),
 		predicate,
 		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 		limit,
@@ -355,10 +389,10 @@ export async function readFilterPreview(
  * `column.sort: { direction, priority }` slot — there is no
  * top-level `sort` array. Columns with `sort` set become
  * directives; the array sorts by `priority` ascending with
- * explicit tie-break to source-array index so the column
- * appearing earlier in `caseListConfig.columns` wins on equal
- * priority. The tie-break rule binds at every layer (saga /
- * preview / wire) — see
+ * explicit tie-break to independent Results order so the column
+ * appearing earlier in the running list wins on equal priority.
+ * Details order cannot affect query ordering. The tie-break rule binds at
+ * every layer (saga / preview / wire) — see
  * `lib/commcare/suite/case-list/sortKeys.ts::buildSortDirectives`,
  * which the wire emitter binds to the same shape.
  *
@@ -385,9 +419,10 @@ function buildCaseStoreSortKeys(
 
 	type Survivor = { readonly column: Column; readonly index: number };
 	const survivors: Survivor[] = [];
-	// DISPLAY order (`sort-by-(order, uuid)`, not array position) — the same
-	// sequence the wire emitter walks, so the equal-priority tie-break matches.
-	const sortedColumns = [...caseListConfig.columns].sort(bySortKey);
+	// Results order — the same independent surface sequence the short-detail
+	// wire emitter walks, so equal-priority sort rules break ties identically
+	// without coupling the running list to Details rearrangement.
+	const sortedColumns = [...caseListConfig.columns].sort(byListColumnOrder);
 	for (let i = 0; i < sortedColumns.length; i++) {
 		const column = sortedColumns[i];
 		if (column.sort === undefined) continue;

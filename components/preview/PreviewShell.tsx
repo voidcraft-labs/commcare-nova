@@ -288,7 +288,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				 * workspace URLs (`cases` / `search-config` / `detail-config`).
 				 *
 				 *   - Edit mode: the unified CaseListConfigWorkspace —
-				 *     focused Search / List / Detail canvases whose selected
+				 *     focused Search / Results / Details canvases whose selected
 				 *     entity opens in the right-rail inspector. The tab IS the
 				 *     URL kind. The
 				 *     workspace is a builder surface, not a preview-pipeline

@@ -102,8 +102,8 @@ export function DateColumnCard({
 				errors={errors}
 			/>
 			<div className="space-y-1.5">
-				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-					Pattern
+				<div className="text-[11px] font-medium text-nova-text-muted">
+					Date style
 				</div>
 				<CustomDatePatternInput
 					value={value.pattern}
@@ -121,10 +121,14 @@ function slotsFrom(value: Extract<Column, { kind: "date" }>): {
 	sort?: typeof value.sort;
 	visibleInList?: typeof value.visibleInList;
 	visibleInDetail?: typeof value.visibleInDetail;
+	listOrder?: typeof value.listOrder;
+	detailOrder?: typeof value.detailOrder;
 } {
 	return {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		listOrder: value.listOrder,
+		detailOrder: value.detailOrder,
 	};
 }

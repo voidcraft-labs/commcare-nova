@@ -4,12 +4,13 @@
 // sort chips), the column inspector (priority position badge), and
 // the sort-priority pill stack.
 
+import { byListColumnOrder } from "@/lib/doc/order/compare";
 import type { Column } from "@/lib/domain";
 
 /**
  * Resolve the sorted columns ordered by `sort.priority` ascending.
- * Tie-break to source-array index — the column appearing earlier
- * in `columns` wins on a priority collision. Same rule the
+ * Tie-break to Results order — the column appearing earlier on the running
+ * list wins on a priority collision. Same rule the
  * saga / preview / wire layers use; the editor maintains
  * uniqueness on save but the tie-break exists for transient
  * (undo / partial-save) states.
@@ -25,8 +26,9 @@ export function resolveSortedColumns(
 	columns: readonly Column[],
 ): readonly Column[] {
 	const sorted: { column: Column; priority: number; index: number }[] = [];
-	for (let i = 0; i < columns.length; i++) {
-		const col = columns[i];
+	const resultsOrdered = [...columns].sort(byListColumnOrder);
+	for (let i = 0; i < resultsOrdered.length; i++) {
+		const col = resultsOrdered[i];
 		if (col === undefined) continue;
 		if (col.sort === undefined) continue;
 		sorted.push({ column: col, priority: col.sort.priority, index: i });

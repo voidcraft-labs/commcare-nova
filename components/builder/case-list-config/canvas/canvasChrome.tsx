@@ -7,6 +7,7 @@
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
+import { useId } from "react";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { CaseListPreviewState } from "../useCaseListPreview";
 
@@ -58,7 +59,7 @@ export function previewNotice(
 		case "empty":
 			return {
 				tone: "muted",
-				text: "No cases yet — generate sample data from the Case list tab.",
+				text: "No cases yet — add realistic examples from Results.",
 			};
 		case "unauthenticated":
 			return { tone: "warning", text: "Sign in to view case data." };
@@ -77,26 +78,6 @@ export function previewNotice(
 		case "error":
 			return { tone: "error", text: preview.message };
 	}
-}
-
-// ── Keyboard activation ───────────────────────────────────────────
-
-/**
- * Enter/Space activation for `div[role="button"]` canvas surfaces —
- * the same contract `EditableFieldWrapper` applies in the form
- * editor. Canvas click-capture wrappers can't be `<button>`s because
- * their children contain nested interactive elements (grips, add
- * buttons, inputs), which HTML forbids inside a button.
- */
-export function activateOnKeyDown(
-	activate: () => void,
-): (e: React.KeyboardEvent) => void {
-	return (e) => {
-		if (e.key !== "Enter" && e.key !== " ") return;
-		if (e.target !== e.currentTarget) return;
-		e.preventDefault();
-		activate();
-	};
 }
 
 // ── Add affordance ────────────────────────────────────────────────
@@ -119,17 +100,29 @@ export function AddGhostButton({
 	readonly icon?: IconifyIcon;
 	readonly className?: string;
 }) {
+	const reasonId = useId();
 	return (
-		<SimpleTooltip content={disabledReason}>
-			<button
-				type="button"
-				onClick={onClick}
-				disabled={disabledReason !== undefined}
-				className={`inline-flex items-center justify-center gap-2 px-4 min-h-11 text-[13px] rounded-lg border border-dashed border-nova-border-bright text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
-			>
-				<Icon icon={icon} width="14" height="14" />
-				<span>{label}</span>
-			</button>
-		</SimpleTooltip>
+		<div>
+			<SimpleTooltip content={disabledReason}>
+				<button
+					type="button"
+					onClick={onClick}
+					disabled={disabledReason !== undefined}
+					aria-describedby={disabledReason === undefined ? undefined : reasonId}
+					className={`inline-flex items-center justify-center gap-2 px-4 min-h-11 text-[13px] rounded-lg border border-dashed border-nova-border-bright text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
+				>
+					<Icon icon={icon} width="14" height="14" />
+					<span>{label}</span>
+				</button>
+			</SimpleTooltip>
+			{disabledReason !== undefined && (
+				<p
+					id={reasonId}
+					className="mt-2 text-center text-[11px] leading-relaxed text-nova-text-muted"
+				>
+					{disabledReason}
+				</p>
+			)}
+		</div>
 	);
 }

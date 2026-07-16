@@ -53,8 +53,13 @@ import type { FieldPath } from "@/lib/doc/fieldPath";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
+import {
+	type ColumnSurface,
+	columnSurfaceMoveMutation,
+} from "@/lib/doc/order/columnSurface";
 import { orderKeyForFieldSlot } from "@/lib/doc/order/fieldSlot";
 import { keyedOptions } from "@/lib/doc/order/options";
+import { searchInputMoveMutation } from "@/lib/doc/order/searchInput";
 import {
 	BlueprintDocContext,
 	BlueprintEditableContext,
@@ -177,6 +182,14 @@ export interface DuplicateFieldResult {
 	newUuid: string;
 }
 
+type ModuleUpdatePatch = Omit<
+	Partial<Omit<Module, "uuid">>,
+	"caseSearchConfig"
+> & {
+	/** Explicit null survives JSON and clears the optional search config. */
+	caseSearchConfig?: Module["caseSearchConfig"] | null;
+};
+
 /**
  * The full mutation surface returned by `useBlueprintMutations()`.
  *
@@ -285,9 +298,28 @@ export interface BlueprintMutations {
 	removeForm: (uuid: Uuid) => CommitOutcome;
 
 	// ── Module mutations ──────────────────────────────────────────────────
-	updateModule: (
+	updateModule: (uuid: Uuid, patch: ModuleUpdatePatch) => CommitOutcome;
+	/**
+	 * Move one visible case-list column to its final index on Results or
+	 * Details. Computes a fractional key from the freshest store snapshot and
+	 * dispatches exactly one surface-specific move mutation; neighboring rows
+	 * are never resequenced.
+	 */
+	moveColumnOnSurface: (
+		moduleUuid: Uuid,
 		uuid: Uuid,
-		patch: Partial<Omit<Module, "uuid">>,
+		surface: ColumnSurface,
+		toIndex: number,
+	) => CommitOutcome;
+	/**
+	 * Move one search field to its final index using the freshest store
+	 * snapshot. Writes only the moved input's fractional key so a concurrent
+	 * gesture on another input survives guarded replay.
+	 */
+	moveSearchInputToIndex: (
+		moduleUuid: Uuid,
+		uuid: Uuid,
+		toIndex: number,
 	) => CommitOutcome;
 	/**
 	 * Set or clear the module menu-tile media (home-screen `icon` +
@@ -390,6 +422,12 @@ export interface BlueprintMutations {
 	 * `as MoveFieldResult | undefined`.
 	 */
 	applyMany: (mutations: Mutation[]) => MutationResult[];
+	/**
+	 * Commit an atomic batch when the caller needs an honest success outcome
+	 * before changing local UI state (for example, selecting a newly-added
+	 * search row). Unlike `applyMany`, this does not expose reducer metadata.
+	 */
+	commitMany: (mutations: Mutation[]) => CommitOutcome;
 }
 
 /**
@@ -980,6 +1018,47 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					);
 				},
 
+				moveColumnOnSurface(moduleUuid, uuid, surface, toIndex) {
+					const doc = get();
+					const config = doc.modules[moduleUuid]?.caseListConfig;
+					if (!config?.columns.some((column) => column.uuid === uuid)) {
+						warnUnresolved("moveColumnOnSurface", {
+							moduleUuid,
+							uuid,
+							surface,
+						});
+						return NOOP_REJECTION;
+					}
+					const mutation = columnSurfaceMoveMutation({
+						moduleUuid,
+						columns: config.columns,
+						surface,
+						uuid,
+						toIndex,
+					});
+					// The row is already at the requested slot (or is omitted from this
+					// surface). No mutation means no undo/autosave entry.
+					if (mutation === undefined) return COMMITTED;
+					return toOutcome(guardedApply([mutation]));
+				},
+
+				moveSearchInputToIndex(moduleUuid, uuid, toIndex) {
+					const doc = get();
+					const inputs = doc.modules[moduleUuid]?.caseListConfig?.searchInputs;
+					if (!inputs?.some((input) => input.uuid === uuid)) {
+						warnUnresolved("moveSearchInputToIndex", { moduleUuid, uuid });
+						return NOOP_REJECTION;
+					}
+					const mutation = searchInputMoveMutation({
+						moduleUuid,
+						inputs,
+						uuid,
+						toIndex,
+					});
+					if (mutation === undefined) return COMMITTED;
+					return toOutcome(guardedApply([mutation]));
+				},
+
 				setModuleMedia(uuid, media) {
 					const doc = get();
 					if (!doc.modules[uuid]) {
@@ -1147,6 +1226,10 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					// `undefined`, the same shape a no-op reducer produces).
 					const applied = guardedApply(mutations);
 					return applied.ok ? applied.results : [];
+				},
+
+				commitMany(mutations) {
+					return toOutcome(guardedApply(mutations));
 				},
 			};
 		};

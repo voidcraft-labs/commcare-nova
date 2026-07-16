@@ -214,8 +214,8 @@ function caseLoadingNodeset(
  *   - the `searchButtonDisplayCondition` predicate (lowers to the
  *     `<action relevant>` on the case-list detail's search-action
  *     element, evaluated in this entry's context);
- *   - every calc-column expression on `m{N}_case_short` /
- *     `m{N}_case_long`.
+ *   - each calculated expression actually emitted on Results/Details (or
+ *     retained as an off-screen Results sort carrier).
  *
  * Accumulation ORDER is observable on the wire — predicate instances
  * (filter, then display condition) before calc-column instances. The
@@ -549,8 +549,8 @@ export function deriveFormLinkStack(
  * needs an `<instance>` declaration here alongside the filter's
  * instances.
  *
- * `caseListColumnExpressions` carries every calc-column expression
- * the module's case-list short / long detail emits. CCHQ's runtime
+ * `caseListColumnExpressions` carries each calculated expression
+ * the module's case-list short / long detail actually emits. CCHQ's runtime
  * resolves a detail's `instance(...)` references against the
  * enclosing entry's declarations (the entry's `<datum
  * detail-select="m{N}_case_short" ... >` ties the two together);
@@ -599,8 +599,8 @@ export function deriveEntryDefinition(
 	}
 
 	// Accumulate the `<instance>` declarations the entry's body reaches —
-	// the case-list filter, the search-button display condition, and every
-	// calc-column expression. Shared with the `caseListOnly` browse entry
+	// the case-list filter, the search-button display condition, and each
+	// runtime-relevant calc-column expression. Shared with the `caseListOnly` browse entry
 	// so the two case-loading shapes can't drift on which instances they
 	// declare. Runs after the datum's `casedb` seed above so the final
 	// order is casedb → predicate instances → calc-column instances.
@@ -665,12 +665,10 @@ export function deriveEntryDefinition(
  * `id_strings.case_list_command` (`m{N}-case-list`) /
  * `id_strings.case_list_locale` (`case_lists.m{N}`).
  *
- * The datum carries BOTH `detail-select` (`m{N}_case_short`, the list
- * screen) AND `detail-confirm` (`m{N}_case_long`, the detail screen) —
- * unlike the form entry's case-loading datum, which only selects. A
- * pure browse entry has no follow-on form, so the confirm screen IS the
- * destination; without `detail-confirm` the user could pick a case but
- * never see its detail.
+ * The datum always carries `detail-select` (`m{N}_case_short`, Results).
+ * `detail-confirm` (`m{N}_case_long`, Details) is conditional: it appears
+ * only when the author put information on Details, so a pure browse entry
+ * never sends the worker to an empty confirmation screen.
  *
  * `formXmlns` is omitted so `buildEntryElement` skips the `<form>`
  * child. The instance accumulation mirrors `deriveEntryDefinition`
@@ -694,6 +692,7 @@ export function deriveCaseListEntryDefinition(
 	caseListFilter?: Predicate,
 	searchButtonDisplayCondition?: Predicate,
 	caseListColumnExpressions?: readonly ValueExpression[],
+	hasDetailScreen = true,
 ): EntryDefinition {
 	// The browse datum: loads a case from the list into both the list
 	// (detail-select) and detail (detail-confirm) screens. Shares the
@@ -706,7 +705,9 @@ export function deriveCaseListEntryDefinition(
 		nodeset: caseLoadingNodeset(caseType, caseListFilter),
 		value: "./@case_id",
 		detailSelect: `m${moduleIndex}_case_short`,
-		detailConfirm: `m${moduleIndex}_case_long`,
+		...(hasDetailScreen && {
+			detailConfirm: `m${moduleIndex}_case_long`,
+		}),
 	};
 
 	// Seed `casedb` from the datum, then accumulate every body-reachable

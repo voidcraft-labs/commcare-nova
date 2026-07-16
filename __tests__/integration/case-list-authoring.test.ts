@@ -52,7 +52,7 @@ import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { buildSortDirectives } from "@/lib/commcare/suite/case-list/sortKeys";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { bySortKey } from "@/lib/doc/order/compare";
+import { byListColumnOrder, bySortKey } from "@/lib/doc/order/compare";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -466,14 +466,20 @@ describe("SA tool path — column atomic ops", () => {
 
 		// 4. Reorder — supply both uuids in age-first order.
 		const reorderResult = await reorderCaseListColumnsTool.execute(
-			{ moduleIndex: 0, columnUuids: [ageUuid, nameUuid] },
+			{
+				moduleIndex: 0,
+				surface: "results",
+				columnUuids: [ageUuid, nameUuid],
+			},
 			ctx,
 			updateResult.newDoc,
 		);
 		if ("error" in reorderResult.result) {
 			throw new Error(`reorder failed: ${reorderResult.result.error}`);
 		}
-		const reorderedColumns = collectColumns(reorderResult.newDoc);
+		const reorderedColumns = collectColumns(reorderResult.newDoc).sort(
+			byListColumnOrder,
+		);
 		expect(reorderedColumns.map((c) => c.uuid)).toEqual([ageUuid, nameUuid]);
 
 		// 5. Remove the original first column — still keyed by uuid
@@ -879,7 +885,7 @@ describe("SearchInputDef discriminated round-trip", () => {
 		expect(simple.type).toBe("text");
 		expect(simple.default).toEqual(term(literal("Alice")));
 		if (simple.kind === "simple") {
-			expect(simple.property).toBe("name");
+			expect(simple.property).toBe("case_name");
 		}
 	});
 });

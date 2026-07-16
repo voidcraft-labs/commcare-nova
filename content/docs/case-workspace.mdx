@@ -1,5 +1,5 @@
 ---
-title: Case search, list & detail
+title: Case search, results & details
 description: Configure how people find, compare, and open cases in the Nova builder.
 ---
 
@@ -7,46 +7,71 @@ The case workspace controls how people find a case, compare the results, and
 understand the case they open. It is split into three focused tabs so you can
 work on one part of that experience at a time.
 
-## Three focused tabs
+## Design the journey directly
 
 | Tab | What you configure |
 | --- | --- |
-| **Search** | The questions people use to narrow the case list, including their labels and input types. |
-| **List** | The information people scan while choosing a case. |
-| **Detail** | The information people see after opening a case. |
+| **Search** | The questions people use to narrow the results. |
+| **Results** | The information people scan while choosing a case. |
+| **Details** | The information people see after opening a case. |
 
-The count on each tab includes only the fields visible on that screen. A field
-that is useful behind the scenes does not inflate the visible field count.
+Each tab is a picture of that part of the app, not a list of technical
+settings. Add information in the canvas, drag it into place, and select a row
+when you want to change its properties.
 
-## Visible and supporting fields
+## Arrange information in the canvas
 
-The List and Detail canvases show only what the person using the app will see.
-Fields that are not shown on the current screen are collected under
-**Supporting fields** instead of being mixed into the visible layout. A
-supporting field may still appear on the other screen, sort the case list, or
-support app logic.
+Search fields can be dragged into the order people should answer them. Results
+and Details use the same direct arrangement: the row you move is the row the
+person using the app will see in that position. You can also focus a drag
+handle and use the arrow, Home, or End keys.
 
-Select any field to edit it in the right sidebar. The **Shown on** settings are
-the one place to choose whether it appears in the case list, the case detail,
-both, or neither. When neither is selected, the field stays available as a
-supporting field without becoming a visible row or column.
+Results and Details have separate arrangements. Moving an item in Results does
+not move it in Details, so each screen can follow the reading order that makes
+sense there.
 
-## One field order, shared by both screens
+The normal canvas stays focused on what people will see. Open a row's **More**
+menu to remove it from Search, Results, or Details. Information removed from
+one screen does not become a permanent shelf in the workspace. If you later
+choose **Add information**, Nova quietly offers that existing setup alongside
+the option to create something new.
 
-The case list and case detail share one field order. Choose **Arrange fields**
-from either tab to open **Field order** in the right sidebar, then drag the full
-stack into place. Supporting fields keep their position in the stack, so a
-field appears in the expected place if you show it later.
+## Choose which cases appear first
 
-Field order controls where information appears. **Sort order** is separate: it
-controls which cases appear first in the list.
+The Results canvas includes **Default order**. Add the information to sort by,
+choose a friendly direction such as A to Z or newest first, and drag the rules
+into priority order. The first rule decides first; when two cases match, the
+next rule breaks the tie.
+
+This is separate from arranging information inside a result. One controls the
+order of cases; the other controls how each case is presented.
+
+## Use the sidebar for properties
+
+Select a search field, result item, or detail item to edit its data source,
+label, matching behavior, or formatting in the right sidebar. Screen options
+that do not have a visible row also live there. Rare internal settings stay
+behind **Advanced**. Arrangement does not: screen membership, row order, and
+Default order each have one home in the center canvas.
+
+The **Cases included** sentence on Results summarizes the current filter.
+Choose **Change** to open the filter editor without duplicating the filter
+controls on the canvas.
+
+Property menus use the labels people recognize and offer each built-in value
+once. For example, Case name and External ID appear as single choices even
+though older CommCare wire formats have alternate spellings for them.
+**Case status** is the built-in open-or-closed lifecycle value. A separate
+`current_status` property appears only when the app has intentionally created
+one; Nova does not treat it as a second spelling of Case status.
 
 ## Preview without starting over
 
 The edit canvases can show values from your real case data while you configure
 the layout. To try the complete experience, use **Preview** in the builder
-header. Preview runs the actual search, list, and detail screens against the
-same case data.
+header. Preview runs the actual Search → Results → Details flow against the
+same case data. Entering a search leaves the current results in place until you
+choose the screen's Search button, matching the app people will ultimately use.
 
 Nova keeps the running preview in its flipbook. Switch back to edit a setting,
 then return to Preview and continue where you left off instead of restarting

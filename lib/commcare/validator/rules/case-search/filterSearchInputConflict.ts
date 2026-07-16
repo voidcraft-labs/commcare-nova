@@ -1,6 +1,6 @@
 /**
  * Rule: Nova rejects an ambiguous double-binding when
- * `caseSearchConfig` is present (so the module emits a
+ * case search is effective (so the module emits a
  * `<remote-request>` carrying `<data key="_xpath_query">`) and the
  * SAME `(destinationCaseType, property)` pair appears in BOTH:
  *
@@ -43,16 +43,24 @@
  *
  * Two short-circuit paths:
  *
- *   - `caseSearchConfig` absent — no `<remote-request>` is
- *     emitted; filter and search inputs may legitimately share
- *     property names without the AND-composition ambiguity.
+ *   - no effective case search — no `<remote-request>` is emitted.
+ *     This includes a markerless module only when it has no legacy
+ *     `searchInputs`; markerless inputs still enable search through
+ *     `effectiveCaseSearchConfig` and must receive the same validation
+ *     as newly-authored state.
  *   - `mod.caseType` absent — the originating scope is unknowable,
  *     so destination resolution is impossible. The structural
  *     module rules (`NO_CASE_TYPE`) surface that elsewhere; this
  *     rule passes silently.
  */
 
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	canonicalCasePropertyName,
+	effectiveCaseSearchConfig,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	type CheckError,
 	checkRelationPath,
@@ -68,7 +76,7 @@ export function filterSearchInputConflict(
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	if (!mod.caseSearchConfig) return [];
+	if (effectiveCaseSearchConfig(mod) === undefined) return [];
 	const filter = mod.caseListConfig?.filter;
 	if (!filter) return [];
 	if (!mod.caseType) return [];
@@ -126,7 +134,7 @@ export function filterSearchInputConflict(
  * is private to this module — callers never decompose it.
  */
 function conflictKey(destinationCaseType: string, property: string): string {
-	return `${destinationCaseType}.${property}`;
+	return `${destinationCaseType}.${canonicalCasePropertyName(property)}`;
 }
 
 /**

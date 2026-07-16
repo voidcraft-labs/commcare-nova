@@ -8,7 +8,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { asUuid } from "@/lib/domain";
+import { asUuid, simpleSearchInputDef } from "@/lib/domain";
 
 // The compiler consumes the domain doc directly — we build the fixture
 // via the shared DSL, expand it to HQ JSON with `expandDoc`, and feed
@@ -69,6 +69,52 @@ const doc = buildDoc({
 });
 
 describe("compileCcz", () => {
+	it("keeps legacy input-authored search consistent across HQ JSON and local CCZ", () => {
+		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+		config.searchInputs = [
+			simpleSearchInputDef(
+				asUuid("00000000-0000-4000-8000-00000000a001"),
+				"case_name",
+				"Name",
+				"text",
+				"case_name",
+			),
+		];
+		const legacy = buildDoc({
+			appName: "Legacy Search",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: config,
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+			],
+		});
+		const hq = expandDoc(legacy);
+		expect(hq.modules[0].search_config.title_label).toEqual({ en: "Search" });
+		expect(hq.modules[0].search_config.properties).toHaveLength(1);
+
+		const suite = new AdmZip(
+			compileCcz(hq, "Legacy Search", legacy),
+		).readAsText("suite.xml");
+		expect(suite).toContain("<remote-request>");
+		expect(suite).toContain('id="m0_search_short"');
+		expect(suite).toContain('id="m0_search_long"');
+	});
+
 	it("produces a valid zip with expected files", () => {
 		const hq = expandDoc(doc);
 		const buf = compileCcz(hq, "CHW App", doc);

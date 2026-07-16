@@ -32,6 +32,7 @@ import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useModule as useModuleDoc } from "@/lib/doc/hooks/useEntity";
 import { useFormIds } from "@/lib/doc/hooks/useModuleIds";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
+import { byListColumnOrder } from "@/lib/doc/order/compare";
 import type { CaseListConfig, Uuid } from "@/lib/domain";
 import {
 	useIsCaseListSelected,
@@ -244,7 +245,9 @@ function CaseListNode({
 	onClick: () => void;
 }) {
 	const visibleColumns =
-		caseListConfig?.columns.filter((col) => col.visibleInList ?? true) ?? [];
+		caseListConfig?.columns
+			.filter((col) => col.visibleInList ?? true)
+			.sort(byListColumnOrder) ?? [];
 	return (
 		<button
 			type="button"

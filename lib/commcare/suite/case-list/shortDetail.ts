@@ -36,7 +36,7 @@
 //     fallback.
 //
 //   - One `<field>` per column where `visibleInList ?? true`, in
-//     `caseListConfig.columns` order.
+//     independent Results order (`listOrder ?? order`, then uuid).
 //
 // Per-column sort directives are resolved once by
 // `sortKeys.ts::buildSortDirectives(mod, doc)` and threaded through
@@ -45,10 +45,10 @@
 // emits the matching `<sort>` block on short detail.
 //
 // Position counter convention: the 1-based position passed to the
-// per-column header-locale composer is the column's source-array
-// index plus one. The visibility filter affects which fields render,
-// not their position numbers — toggling `visibleInList` doesn't
-// churn locale ids. Mirrors CCHQ's
+// per-column header-locale composer is the column's index in the complete
+// Results-ordered source sequence plus one. The visibility filter affects
+// which fields render, not their position numbers — toggling
+// `visibleInList` doesn't churn locale ids. Mirrors CCHQ's
 // `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`'s
 // `column.id`-keyed numbering convention.
 //
@@ -78,7 +78,7 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
-import { bySortKey } from "@/lib/doc/order/compare";
+import { byListColumnOrder } from "@/lib/doc/order/compare";
 import type { BlueprintDoc, Module } from "@/lib/domain";
 import { simplifyForEmission } from "@/lib/domain/predicate";
 import type { Predicate } from "@/lib/domain/predicate/types";
@@ -200,24 +200,26 @@ export function buildShortDetail(args: {
 	const fields: Element[] = [];
 	const strings: Record<string, string> = {};
 
-	// Walk every column in DISPLAY order (`sort-by-(order, uuid)`, not array
-	// position — the array is a membership set). Position is 1-based against
-	// that sequence — the counter advances for every slot, including columns
-	// hidden from this surface, so the header-locale suffix matches CCHQ's
-	// `id_strings.py::detail_column_header_locale` convention which keys off
-	// the column's position. The SAME sort runs in `longDetail` + `sortKeys`,
-	// so the per-column index is consistent across the three emitters.
-	const sortedColumns = [...config.columns].sort(bySortKey);
+	// Walk every column in Results order (`listOrder ?? order`, then uuid), not
+	// array position. Position is 1-based against the complete short-detail
+	// sequence — the counter advances for fields hidden from Results because
+	// CCHQ's header-locale suffix keys off the column's position in that array.
+	// `sortKeys` consumes this same list order; long detail deliberately uses
+	// its independent Details order instead.
+	const sortedColumns = [...config.columns].sort(byListColumnOrder);
 	for (let i = 0; i < sortedColumns.length; i++) {
 		const column = sortedColumns[i];
-		// Visibility filter: absent slot ≡ visible. The schema
-		// preserves the slot's presence so the editor can distinguish
-		// "user explicitly toggled off" from "user never toggled".
-		if (column.visibleInList === false) continue;
+		// An off-screen definition normally emits nothing. If it still owns a
+		// Default-order rule, however, the device needs a field to carry the
+		// `<sort>` block. Emit that rare case at zero width: ordering survives
+		// without resurrecting the information in Results.
+		const hidden = column.visibleInList === false;
+		if (hidden && !ctx.sortByUuid.has(column.uuid)) continue;
 		const emission = buildColumnField({
 			column,
 			position: i + 1,
 			ctx,
+			hidden,
 		});
 		fields.push(emission.element);
 		Object.assign(strings, emission.strings);

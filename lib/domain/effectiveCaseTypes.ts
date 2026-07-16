@@ -72,6 +72,7 @@ import type { Field, HiddenField } from "./fields";
 import {
 	isStandardCaseListProperty,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
+	standardCasePropertyDisplayLabel,
 } from "./standardCaseProperties";
 import type { XPathExpression } from "./xpath";
 
@@ -235,7 +236,7 @@ function buildEffectiveCaseTypes(doc: PersistableDoc): readonly CaseType[] {
 			if (!isStandardCaseListProperty(name)) continue;
 			properties.push({
 				name,
-				label: name,
+				label: standardCasePropertyDisplayLabel(name),
 				data_type: STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[name],
 			});
 		}

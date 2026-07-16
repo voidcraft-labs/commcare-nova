@@ -11,7 +11,11 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import { bySortKey } from "@/lib/doc/order/compare";
-import type { CaseListConfig, CaseSearchConfig } from "@/lib/domain";
+import {
+	type CaseListConfig,
+	type CaseSearchConfig,
+	DEFAULT_CASE_SEARCH_TITLE,
+} from "@/lib/domain";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import { validateCaseType } from "../../identifierValidation";
 import {
@@ -81,6 +85,7 @@ export function buildSearchSession(args: {
 	readonly wire: WireShape;
 	readonly caseType: string;
 	readonly moduleIndex: number;
+	readonly hasDetailScreen?: boolean;
 }): SearchSessionEmission {
 	const { caseListConfig, caseSearchConfig, wire, moduleIndex } = args;
 	// Route `caseType` through the identifier-validation gate before
@@ -168,19 +173,19 @@ export function buildSearchSession(args: {
 	);
 
 	// Title locale id pattern is CCHQ's `case_search.{m}.inputs`. The
-	// fallback case-type display reads cleanly at runtime — when no
-	// override is registered, the runtime renders the locale value
-	// rather than the raw locale id.
+	// default is shared with preview and HQ JSON, so every runtime renders the
+	// same friendly screen copy.
 	const titleLocaleId = `case_search.${moduleId}.inputs`;
 	// The schema's `searchScreenTitle: z.string().min(1).optional()`
 	// guarantees the slot is either `undefined` or a non-empty string,
-	// so `undefined` is the sole "no override" sentinel. The case-type
-	// fallback mirrors the HQ-JSON projection's symmetric fallback at
+	// so `undefined` is the sole "no override" sentinel. The Nova default
+	// mirrors the HQ-JSON projection's symmetric fallback at
 	// `lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument` so
 	// the same authored input lands the same locale string regardless
 	// of which path (local suite XML vs CCHQ-regenerated suite) the
 	// runtime sees.
-	const titleDisplay = caseSearchConfig.searchScreenTitle ?? caseType;
+	const titleDisplay =
+		caseSearchConfig.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
 
 	// Description (subtitle) is conditional — CCHQ's `<query>` carries
 	// `<description>` only when the author supplied copy. The locale id
@@ -231,7 +236,9 @@ export function buildSearchSession(args: {
 		id: "search_case_id",
 		nodeset: datumNodeset,
 		value: "./@case_id",
-		"detail-confirm": `${moduleId}_search_long`,
+		...((args.hasDetailScreen ?? true) && {
+			"detail-confirm": `${moduleId}_search_long`,
+		}),
 		"detail-select": `${moduleId}_search_short`,
 	});
 
@@ -340,6 +347,7 @@ export function emitSearchSession(args: {
 	readonly wire: WireShape;
 	readonly caseType: string;
 	readonly moduleIndex: number;
+	readonly hasDetailScreen?: boolean;
 }): {
 	readonly xml: string;
 	readonly strings: Record<string, string>;

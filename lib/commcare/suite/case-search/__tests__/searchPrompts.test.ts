@@ -36,7 +36,7 @@
 //      `commcare-hq/corehq/apps/app_manager/suite_xml/xml_models.py`.
 //
 // Plus a golden-file comparison against the canonical fixture's
-// `<prompt>` block (`name` plain, `dob` date, `consent` checkbox)
+// `<prompt>` block (plain text, `dob` date, `consent` checkbox)
 // to pin the wire shape end-to-end. The `consent` row exercises a
 // `select`-typed input mapping to `select1` rather than the
 // fixture's `checkbox` value, since Nova's `SEARCH_INPUT_TYPES`
@@ -87,7 +87,13 @@ const MODULE_ID = "m0";
 describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 	it("text type omits both @input and @appearance (CCHQ default)", () => {
 		const inputs: SearchInputDef[] = [
-			simpleSearchInputDef(INPUT_UUIDS.a, "name", "Name", "text", "name"),
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"full_name",
+				"Name",
+				"text",
+				"full_name",
+			),
 		];
 
 		const { xml, strings } = emitSearchPrompts(inputs, MODULE_ID);
@@ -95,11 +101,11 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 		// No `input` attr, no `appearance` attr — bare `key`. Compact
 		// serializer output, no per-element whitespace.
 		expect(xml).toBe(
-			`<prompt key="name">` +
-				`<display><text><locale id="search_property.m0.name"/></text></display>` +
+			`<prompt key="full_name">` +
+				`<display><text><locale id="search_property.m0.full_name"/></text></display>` +
 				`</prompt>`,
 		);
-		expect(strings).toEqual({ "search_property.m0.name": "Name" });
+		expect(strings).toEqual({ "search_property.m0.full_name": "Name" });
 	});
 
 	it("select type emits input='select1'", () => {
@@ -153,6 +159,24 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 		expect(xml).toContain(`<prompt key="visit_date" input="daterange">`);
 	});
 
+	it("keeps a legacy date-opened target on the canonical daterange prompt", () => {
+		const { xml } = emitSearchPrompts(
+			[
+				simpleSearchInputDef(
+					INPUT_UUIDS.a,
+					"date_opened",
+					"Date opened",
+					"date-range",
+					"date-opened",
+				),
+			],
+			MODULE_ID,
+		);
+
+		expect(xml).toContain(`<prompt key="date_opened" input="daterange">`);
+		expect(xml).not.toContain(`exclude="true()"`);
+	});
+
 	it("barcode type emits appearance='barcode_scan' (NOT @input)", () => {
 		const inputs: SearchInputDef[] = [
 			simpleSearchInputDef(
@@ -181,30 +205,36 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 describe("emitSearchPrompts — <display> element + locale registration", () => {
 	it("registers the input.label string at the search_property locale id", () => {
 		const inputs: SearchInputDef[] = [
-			simpleSearchInputDef(INPUT_UUIDS.a, "name", "Name", "text", "name"),
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"full_name",
+				"Name",
+				"text",
+				"full_name",
+			),
 		];
 
 		const { xml, strings } = emitSearchPrompts(inputs, MODULE_ID);
 
 		expect(xml).toContain(`<display>`);
-		expect(xml).toContain(`<locale id="search_property.m0.name"/>`);
-		expect(strings).toEqual({ "search_property.m0.name": "Name" });
+		expect(xml).toContain(`<locale id="search_property.m0.full_name"/>`);
+		expect(strings).toEqual({ "search_property.m0.full_name": "Name" });
 	});
 
 	it("falls back to input.name when input.label is empty (still emits <display>)", () => {
 		// CCHQ canonical shape always emits `<display>` — the wire
 		// emitter matches that and registers a sensible UX fallback
-		// (`name`) at the locale id rather than registering an empty
+		// (`full_name`) at the locale id rather than registering an empty
 		// string (which would leave the runtime rendering nothing).
 		const inputs: SearchInputDef[] = [
-			simpleSearchInputDef(INPUT_UUIDS.a, "name", "", "text", "name"),
+			simpleSearchInputDef(INPUT_UUIDS.a, "full_name", "", "text", "full_name"),
 		];
 
 		const { xml, strings } = emitSearchPrompts(inputs, MODULE_ID);
 
 		expect(xml).toContain(`<display>`);
-		expect(xml).toContain(`<locale id="search_property.m0.name"/>`);
-		expect(strings).toEqual({ "search_property.m0.name": "name" });
+		expect(xml).toContain(`<locale id="search_property.m0.full_name"/>`);
+		expect(strings).toEqual({ "search_property.m0.full_name": "full_name" });
 	});
 });
 
@@ -240,7 +270,13 @@ describe("emitSearchPrompts — @default attribute conditional on input.default"
 
 	it("omits @default attribute when input.default is absent", () => {
 		const inputs: SearchInputDef[] = [
-			simpleSearchInputDef(INPUT_UUIDS.a, "name", "Name", "text", "name"),
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"full_name",
+				"Name",
+				"text",
+				"full_name",
+			),
 		];
 
 		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
@@ -369,7 +405,25 @@ describe("emitSearchPrompts — exclude attribute (simple-arm bogus-auto-match s
 		expect(xml).toContain(`exclude="true()"`);
 	});
 
-	it("does NOT emit exclude attribute when `name === property` AND self-walk AND default exact mode (the bare-prompt-correct case)", () => {
+	it("emits exclude='true()' for canonical lifecycle status so CCHQ does not query the nonexistent bare status key", () => {
+		const inputs: SearchInputDef[] = [
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"status",
+				"Case status",
+				"text",
+				"status",
+			),
+		];
+
+		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
+
+		// CCHQ indexes lifecycle status as `@status`; its bare-prompt path
+		// would query a dynamic property named `status` and match nothing.
+		expect(xml).toContain(`<prompt key="status" exclude="true()">`);
+	});
+
+	it("does NOT emit exclude when input name and property equal the canonical searchable wire key", () => {
 		// CCHQ's auto-match against the prompt key IS the authored
 		// comparison here — emitting `exclude="true()"` would suppress
 		// the very behaviour the user wants. Pin the negative so a
@@ -398,10 +452,10 @@ describe("emitSearchPrompts — exclude attribute (simple-arm bogus-auto-match s
 		const inputs: SearchInputDef[] = [
 			advancedSearchInputDef(
 				INPUT_UUIDS.a,
-				"name",
+				"full_name",
 				"Name",
 				"text",
-				eq(prop("patient", "name"), literal("Alice")),
+				eq(prop("patient", "full_name"), literal("Alice")),
 			),
 		];
 
@@ -448,17 +502,17 @@ describe("emitSearchPrompts — per-arm dispatch", () => {
 		// derivation gate keeps both arms in the no-exclude branch.
 		const simple: SearchInputDef = simpleSearchInputDef(
 			INPUT_UUIDS.a,
-			"name",
+			"full_name",
 			"Name",
 			"text",
-			"name",
+			"full_name",
 		);
 		const advanced: SearchInputDef = advancedSearchInputDef(
 			INPUT_UUIDS.b,
-			"name",
+			"full_name",
 			"Name",
 			"text",
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "full_name"), literal("Alice")),
 		);
 
 		const simpleEmission = emitSearchPrompts([simple], MODULE_ID);
@@ -469,13 +523,19 @@ describe("emitSearchPrompts — per-arm dispatch", () => {
 
 	it("advanced-arm predicates surface via getAdvancedArmPredicates", () => {
 		const predicate = whenInput(
-			input("name"),
-			eq(prop("patient", "name"), literal("Alice")),
+			input("full_name"),
+			eq(prop("patient", "full_name"), literal("Alice")),
 		);
 
 		const inputs: SearchInputDef[] = [
 			simpleSearchInputDef(INPUT_UUIDS.a, "first", "First", "text", "first"),
-			advancedSearchInputDef(INPUT_UUIDS.b, "name", "Name", "text", predicate),
+			advancedSearchInputDef(
+				INPUT_UUIDS.b,
+				"full_name",
+				"Name",
+				"text",
+				predicate,
+			),
 		];
 
 		const advancedPredicates = getAdvancedArmPredicates(inputs);
@@ -483,7 +543,7 @@ describe("emitSearchPrompts — per-arm dispatch", () => {
 		// Simple-arm row contributes nothing; only the advanced-arm
 		// row surfaces in the helper's output. The orchestrator
 		// AND-composes these into `<data key="_xpath_query">`.
-		expect(advancedPredicates).toEqual([{ name: "name", predicate }]);
+		expect(advancedPredicates).toEqual([{ name: "full_name", predicate }]);
 	});
 
 	it("getAdvancedArmPredicates returns empty for all-simple inputs", () => {
@@ -500,17 +560,17 @@ describe("emitSearchPrompts — per-arm dispatch", () => {
 		// clause; the relative order is observable in the wire string.
 		// The helper preserves source-array order so the orchestrator
 		// can reproduce author intent verbatim.
-		const p1 = eq(prop("patient", "name"), literal("A"));
+		const p1 = eq(prop("patient", "full_name"), literal("A"));
 		const p2 = eq(prop("patient", "age"), literal(10));
 
 		const inputs: SearchInputDef[] = [
-			advancedSearchInputDef(INPUT_UUIDS.a, "name", "Name", "text", p1),
+			advancedSearchInputDef(INPUT_UUIDS.a, "full_name", "Name", "text", p1),
 			simpleSearchInputDef(INPUT_UUIDS.b, "first", "First", "text", "first"),
 			advancedSearchInputDef(INPUT_UUIDS.c, "age", "Age", "text", p2),
 		];
 
 		expect(getAdvancedArmPredicates(inputs)).toEqual([
-			{ name: "name", predicate: p1 },
+			{ name: "full_name", predicate: p1 },
 			{ name: "age", predicate: p2 },
 		]);
 	});
@@ -530,14 +590,20 @@ describe("emitSearchPrompts — empty + ordering invariants", () => {
 
 	it("preserves source-array order across multi-input emission", () => {
 		const inputs: SearchInputDef[] = [
-			simpleSearchInputDef(INPUT_UUIDS.a, "name", "Name", "text", "name"),
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"full_name",
+				"Name",
+				"text",
+				"full_name",
+			),
 			simpleSearchInputDef(INPUT_UUIDS.b, "dob", "DOB", "date", "dob"),
 		];
 
 		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
 
-		// Simple ordering check: `name` prompt opens before `dob` prompt.
-		const nameIdx = xml.indexOf(`key="name"`);
+		// Simple ordering check: `full_name` prompt opens before `dob` prompt.
+		const nameIdx = xml.indexOf(`key="full_name"`);
 		const dobIdx = xml.indexOf(`key="dob"`);
 		expect(nameIdx).toBeGreaterThanOrEqual(0);
 		expect(dobIdx).toBeGreaterThanOrEqual(0);
@@ -546,16 +612,22 @@ describe("emitSearchPrompts — empty + ordering invariants", () => {
 
 	it("threads moduleId through every locale id", () => {
 		const inputs: SearchInputDef[] = [
-			simpleSearchInputDef(INPUT_UUIDS.a, "name", "Name", "text", "name"),
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"full_name",
+				"Name",
+				"text",
+				"full_name",
+			),
 		];
 
 		const m0 = emitSearchPrompts(inputs, "m0");
 		const m3 = emitSearchPrompts(inputs, "m3");
 
-		expect(m0.xml).toContain(`search_property.m0.name`);
-		expect(m3.xml).toContain(`search_property.m3.name`);
-		expect(m0.strings).toEqual({ "search_property.m0.name": "Name" });
-		expect(m3.strings).toEqual({ "search_property.m3.name": "Name" });
+		expect(m0.xml).toContain(`search_property.m0.full_name`);
+		expect(m3.xml).toContain(`search_property.m3.full_name`);
+		expect(m0.strings).toEqual({ "search_property.m0.full_name": "Name" });
+		expect(m3.strings).toEqual({ "search_property.m3.full_name": "Name" });
 	});
 });
 
@@ -564,11 +636,12 @@ describe("emitSearchPrompts — empty + ordering invariants", () => {
 // ============================================================
 
 describe("emitSearchPrompts — golden-file vs CCHQ remote_request.xml", () => {
-	it("matches the fixture's <prompt> block shape (name + dob + select)", () => {
+	it("matches the fixture's <prompt> block shape (text + dob + select)", () => {
 		// The fixture at
 		// `commcare-hq/corehq/apps/app_manager/tests/data/suite/remote_request.xml`
 		// carries three prompts:
-		//   - `name` (text, no `@input`)
+		//   - `name` (text, no `@input`); this test uses the nonreserved
+		//     `full_name` fixture while preserving the same prompt structure
 		//   - `dob` (date, `@input="date"`)
 		//   - `consent` (checkbox, `@input="checkbox"`)
 		//
@@ -579,7 +652,13 @@ describe("emitSearchPrompts — golden-file vs CCHQ remote_request.xml", () => {
 		// attribute, input-attr presence, display block, locale id
 		// pattern) matches the fixture row-for-row.
 		const inputs: SearchInputDef[] = [
-			simpleSearchInputDef(INPUT_UUIDS.a, "name", "Name", "text", "name"),
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"full_name",
+				"Name",
+				"text",
+				"full_name",
+			),
 			simpleSearchInputDef(
 				INPUT_UUIDS.b,
 				"dob",
@@ -604,8 +683,8 @@ describe("emitSearchPrompts — golden-file vs CCHQ remote_request.xml", () => {
 		// surrounding orchestrator joins the three `<prompt>` elements
 		// with a newline as it composes the `<query>` body.
 		const expected = [
-			`<prompt key="name">` +
-				`<display><text><locale id="search_property.m0.name"/></text></display>` +
+			`<prompt key="full_name">` +
+				`<display><text><locale id="search_property.m0.full_name"/></text></display>` +
 				`</prompt>`,
 			`<prompt key="dob" input="date">` +
 				`<display><text><locale id="search_property.m0.dob"/></text></display>` +
@@ -617,7 +696,7 @@ describe("emitSearchPrompts — golden-file vs CCHQ remote_request.xml", () => {
 
 		expect(xml).toBe(expected);
 		expect(strings).toEqual({
-			"search_property.m0.name": "Name",
+			"search_property.m0.full_name": "Name",
 			"search_property.m0.dob": "Date of birth",
 			"search_property.m0.consent": "Consent",
 		});

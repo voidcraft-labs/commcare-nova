@@ -449,6 +449,8 @@ export function scopeOfMutations(
 				break;
 			case "removeColumn":
 			case "moveColumn":
+			case "moveColumnInList":
+			case "moveColumnInDetail":
 				// Removing a read-only reference or reordering can only flip
 				// the owning module's own findings.
 				acc.moduleUuids.add(mut.moduleUuid);
@@ -468,6 +470,11 @@ export function scopeOfMutations(
 			case "removeSearchInput":
 			case "moveSearchInput":
 				acc.moduleUuids.add(mut.moduleUuid);
+				break;
+			case "setCaseSearchMarker":
+				// Presence-only search state can flip the module's structural
+				// case-search findings; it never reaches another module.
+				acc.moduleUuids.add(mut.uuid);
 				break;
 			case "setCaseListMeta":
 				// The always-on `filter` is a predicate that can walk to another

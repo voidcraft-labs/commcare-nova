@@ -38,7 +38,11 @@
 //     stay consistent with the suite-XML side via the shared
 //     `PROMPT_ATTRIBUTE_MAPPINGS` table.
 
-import { bySortKey } from "@/lib/doc/order/compare";
+import {
+	byDetailColumnOrder,
+	byListColumnOrder,
+	bySortKey,
+} from "@/lib/doc/order/compare";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
@@ -47,6 +51,12 @@ import type {
 	Module,
 	SearchInputDef,
 	SimpleSearchInputDef,
+} from "@/lib/domain";
+import {
+	canonicalCasePropertyName,
+	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
+	DEFAULT_CASE_SEARCH_TITLE,
+	effectiveCaseSearchConfig,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
@@ -125,7 +135,10 @@ function projectColumnToDetail(
 		};
 	}
 
-	const base: WireDetailColumn = detailColumn(column.field, headerRecord);
+	const base: WireDetailColumn = detailColumn(
+		canonicalCasePropertyName(column.field),
+		headerRecord,
+	);
 
 	switch (column.kind) {
 		case "plain":
@@ -212,23 +225,18 @@ function projectColumnToDetail(
 }
 
 /**
- * Visibility-respecting projection of a `Column` for one detail
- * surface. Returns the projected column with `format: "invisible"`
- * substituted when the surface-visibility flag is false. CCHQ's
- * `"invisible"` format renders the column at zero width but keeps
- * it present for sort + index purposes — matching CCHQ's
- * `detail_screen.py::Invisible.HideShortColumn` template behavior.
+ * Results-only visibility projection. CCHQ's `"invisible"` format is a
+ * zero-width column on a short detail, so it safely keeps off-screen sort
+ * carriers at their positional indices. The same format does NOT hide a
+ * normal long-detail column; Details removal is therefore represented by
+ * omitting that column from the long array altogether.
  */
-function projectColumnForDetail(
+function projectColumnForShortDetail(
 	column: Column,
-	surface: "short" | "long",
 	assets?: AssetManifest,
 ): WireDetailColumn {
 	const projected = projectColumnToDetail(column, assets);
-	const visible =
-		surface === "short"
-			? (column.visibleInList ?? true)
-			: (column.visibleInDetail ?? true);
+	const visible = column.visibleInList ?? true;
 	if (visible) return projected;
 	// Search-only / detail-only columns: keep the column shape (so
 	// sort + index keep working) but mark `format: "invisible"`. The
@@ -261,7 +269,7 @@ function projectColumnForDetail(
  * `sort_calculation`. CCHQ's `get_sort_and_sort_only_columns` at
  * `commcare-hq/.../app_manager/util.py` parses the index out of the
  * field name and attaches the sort directive to the calc column at
- * that source-array position, so each calc directive lands on its
+ * that short-column-array position, so each calc directive lands on its
  * own column instead of colliding with sibling calc sorts in the
  * sort-key dict.
  */
@@ -269,17 +277,17 @@ function projectSortElements(mod: Module, doc: BlueprintDoc): SortElement[] {
 	const directives = buildSortDirectives(mod, doc);
 	if (directives.size === 0) return [];
 
-	// Build a uuid → column-index map across the full `columns` array
-	// so each calc directive can resolve to its source-array position.
+	// Build a uuid → column-index map across the full short-column source
+	// sequence so each calc directive can resolve to its CCHQ array position.
 	// CCHQ's `CALCULATED_SORT_FIELD_RX` uses `int(match.group(1))` as
 	// a positional lookup into `detail_columns[column_index]`; the
 	// index must reference the calc column's position in the full
 	// column list, not a calc-only subsequence.
-	// DISPLAY order (`sort-by-(order, uuid)`) — the same sequence
-	// `projectCaseListForHq` emits the detail columns in, so the positional
-	// `detail_columns[column_index]` lookup the calc-sort field encodes resolves
-	// to the right column.
-	const columns = [...(mod.caseListConfig?.columns ?? [])].sort(bySortKey);
+	// Results order — the same sequence `projectCaseListForHq` emits into
+	// `case_details.short.columns`, so CCHQ's positional
+	// `detail_columns[column_index]` lookup resolves the calculated sort field
+	// correctly even when Details has a different arrangement.
+	const columns = hqShortSourceColumns(mod.caseListConfig?.columns ?? []);
 	const columnIndexByUuid = new Map<string, number>();
 	for (let i = 0; i < columns.length; i++) {
 		columnIndexByUuid.set(columns[i].uuid, i);
@@ -295,8 +303,17 @@ function projectSortElements(mod: Module, doc: BlueprintDoc): SortElement[] {
 		const type = SORT_TYPE_WIRE_MAP[directive.type];
 		const direction = SORT_DIRECTION_WIRE_MAP[directive.direction];
 		if (directive.kind === "property") {
+			const sourceColumn = columns.find((column) => column.uuid === uuid);
+			if (sourceColumn === undefined || sourceColumn.kind === "calculated") {
+				throw new Error(
+					"projectSortElements: property sort directive has no matching property column in the HQ short-detail source.",
+				);
+			}
 			return {
-				field: directive.xpath,
+				// CCHQ joins SortElement.field to DetailColumn.field by exact
+				// string. HQ JSON stores the domain/CCHQ field token here (not the
+				// direct-suite XPath's `@status` attribute spelling).
+				field: canonicalCasePropertyName(sourceColumn.field),
 				type,
 				direction,
 				blanks: "",
@@ -520,7 +537,7 @@ function projectDefaultProperties(
 function buildSearchConfigDocument(
 	caseSearchConfig: DomainCaseSearchConfig | undefined,
 	caseListConfig: CaseListConfig | undefined,
-	caseType: string | undefined,
+	_caseType: string | undefined,
 ): WireCaseSearchConfig {
 	// One CCHQ-defaults seed point — `caseSearchConfigShell` in
 	// `hqShells.ts`. Mutate the shell with authored overrides so the
@@ -529,28 +546,21 @@ function buildSearchConfigDocument(
 	const config = caseSearchConfigShell();
 
 	if (caseSearchConfig !== undefined) {
-		// `searchScreenTitle` falls back to the case type when absent —
-		// mirrors the suite-XML emitter's same fallback at
-		// `searchSession.ts::emitSearchSession`. Without the symmetric
-		// projection, CCHQ's `get_search_title_label` would return `''`
-		// from the persisted `{}` and render a blank title on the
-		// regenerated suite while Nova's local emitter renders the case
-		// type — the same authored input would produce different
-		// runtime UX on the two paths.
-		if (caseSearchConfig.searchScreenTitle !== undefined) {
-			config.title_label = { en: caseSearchConfig.searchScreenTitle };
-		} else if (caseType !== undefined) {
-			config.title_label = { en: caseType };
-		}
+		// Use Nova's shared friendly default so a fresh search never inherits
+		// CCHQ's blank or case-type-derived chrome on either wire path.
+		config.title_label = {
+			en: caseSearchConfig.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE,
+		};
 		if (
 			caseSearchConfig.searchScreenSubtitle !== undefined &&
 			caseSearchConfig.searchScreenSubtitle !== ""
 		) {
 			config.description = { en: caseSearchConfig.searchScreenSubtitle };
 		}
-		if (caseSearchConfig.searchButtonLabel !== undefined) {
-			config.search_button_label = { en: caseSearchConfig.searchButtonLabel };
-		}
+		config.search_button_label = {
+			en:
+				caseSearchConfig.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL,
+		};
 		if (caseSearchConfig.searchButtonDisplayCondition !== undefined) {
 			// CCHQ stores the gating predicate as a bare on-device XPath
 			// string; the runtime evaluates it before rendering the
@@ -573,7 +583,7 @@ function buildSearchConfigDocument(
 		config.properties = projectSearchProperties(caseListConfig.searchInputs);
 		config.default_properties = projectDefaultProperties(
 			caseListConfig,
-			caseType,
+			_caseType,
 		);
 	}
 
@@ -636,16 +646,22 @@ export function projectCaseListForHq(
 	assets?: AssetManifest,
 ): CaseListHqProjection {
 	const caseListConfig = mod.caseListConfig;
-	const caseSearchConfig = mod.caseSearchConfig;
-	// DISPLAY order (`sort-by-(order, uuid)`), shared with `projectSortElements`
-	// so the calc-sort positional index lines up.
-	const allColumns = [...(caseListConfig?.columns ?? [])].sort(bySortKey);
-
-	const shortColumns = allColumns.map((c) =>
-		projectColumnForDetail(c, "short", assets),
+	const caseSearchConfig = effectiveCaseSearchConfig(mod);
+	// CCHQ models short (Results) and long (Details) as independent ordered
+	// arrays. Preserve that distinction here; calculated-sort positional
+	// indices bind only to the short array and therefore use Results order.
+	const shortSourceColumns = hqShortSourceColumns(
+		caseListConfig?.columns ?? [],
 	);
-	const longColumns = allColumns.map((c) =>
-		projectColumnForDetail(c, "long", assets),
+	const longSourceColumns = [...(caseListConfig?.columns ?? [])]
+		.filter((column) => column.visibleInDetail !== false)
+		.sort(byDetailColumnOrder);
+
+	const shortColumns = shortSourceColumns.map((c) =>
+		projectColumnForShortDetail(c, assets),
+	);
+	const longColumns = longSourceColumns.map((c) =>
+		projectColumnToDetail(c, assets),
 	);
 	const sortElements = projectSortElements(mod, doc);
 	const filter = projectCaseListFilter(caseListConfig?.filter);
@@ -669,6 +685,17 @@ export function projectCaseListForHq(
 	return { caseDetails: pair, searchConfig };
 }
 
+/** Results columns CCHQ must persist: visible fields plus the rare off-screen
+ * sort carriers required to retain Default order. Useless hidden definitions
+ * stay out of HQ JSON just as they stay out of the direct suite. */
+function hqShortSourceColumns(columns: readonly Column[]): Column[] {
+	return columns
+		.filter(
+			(column) => column.visibleInList !== false || column.sort !== undefined,
+		)
+		.sort(byListColumnOrder);
+}
+
 // Re-export the per-column projection so tests can pin per-kind
 // shapes without re-deriving a module-level fixture.
-export { projectColumnForDetail, projectColumnToDetail };
+export { projectColumnToDetail };

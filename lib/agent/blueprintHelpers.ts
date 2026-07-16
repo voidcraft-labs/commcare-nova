@@ -33,6 +33,14 @@ import {
 	findContainingForm,
 } from "@/lib/doc/mutations/helpers";
 import { sequenceOrderKeys, sortedOrderKeys } from "@/lib/doc/order/append";
+import {
+	type ColumnSurface,
+	resolvedColumnSurfaceOrder,
+} from "@/lib/doc/order/columnSurface";
+import {
+	byDetailColumnOrder,
+	byListColumnOrder,
+} from "@/lib/doc/order/compare";
 import { keysBetween } from "@/lib/doc/order/keys";
 import {
 	formOrderKeyAtIndex,
@@ -55,7 +63,14 @@ import type {
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
-import { asUuid, fieldKinds, isContainer, slugifyId } from "@/lib/domain";
+import {
+	asUuid,
+	caseSearchConfigHasAuthoredSettings,
+	fieldKinds,
+	isContainer,
+	slugifyId,
+} from "@/lib/domain";
+import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import {
 	removeByUuid,
 	reorderByUuid,
@@ -584,15 +599,35 @@ export function addColumnsMutation(
 	mod: Module,
 	columns: readonly Column[],
 ): CaseListMutationOk {
-	const keys = sortedOrderKeys(mod.caseListConfig?.columns ?? []);
+	const existing = mod.caseListConfig?.columns ?? [];
+	const keys = sortedOrderKeys(existing);
+	const listKeys = [...existing]
+		.sort(byListColumnOrder)
+		.map((column) => resolvedColumnSurfaceOrder(column, "list"))
+		.filter((order): order is string => order !== undefined);
+	const detailKeys = [...existing]
+		.sort(byDetailColumnOrder)
+		.map((column) => resolvedColumnSurfaceOrder(column, "detail"))
+		.filter((order): order is string => order !== undefined);
 	// One ascending run of fractional keys after the last existing column
 	// (`hi = null` ≡ a clean append), minted in one call by the shared
 	// `keysBetween` primitive rather than a hand-rolled place-after chain.
 	const orders = keysBetween(keys.at(-1) ?? null, null, columns.length);
+	const listOrders = keysBetween(listKeys.at(-1) ?? null, null, columns.length);
+	const detailOrders = keysBetween(
+		detailKeys.at(-1) ?? null,
+		null,
+		columns.length,
+	);
 	const mutations: Mutation[] = columns.map((column, i) => ({
 		kind: "addColumn",
 		moduleUuid: mod.uuid,
-		column: { ...column, order: orders[i] },
+		column: {
+			...column,
+			order: orders[i],
+			listOrder: listOrders[i],
+			detailOrder: detailOrders[i],
+		},
 	}));
 	return { ok: true, mutations };
 }
@@ -654,31 +689,48 @@ export function removeColumnMutation(
 }
 
 /**
- * Reorder a module's case-list columns to match the supplied uuid sequence —
- * one `moveColumn` per column, each assigned a fresh ascending fractional
- * `order` (a wholesale reorder).
+ * Reorder the visible fields on ONE user-facing case screen. Results and
+ * Details are independent compositions, so this changes only the selected
+ * surface key and leaves generic/legacy order plus the other screen untouched.
  *
  * Failure arms: length mismatch, duplicate uuid, unknown uuid in the request.
  */
 export function reorderColumnsMutation(
 	mod: Module,
 	order: readonly Uuid[],
+	surface: ColumnSurface,
 ): CaseListMutationResult {
+	const columns = mod.caseListConfig?.columns ?? [];
+	const visible = columns.filter((column) =>
+		surface === "list"
+			? column.visibleInList !== false
+			: column.visibleInDetail !== false,
+	);
 	const op = reorderByUuid(
-		mod.caseListConfig?.columns ?? [],
+		visible,
 		order,
-		"case list column",
+		`${surface === "list" ? "Results" : "Details"} field`,
 	);
 	if ("error" in op) return { error: op.error };
 	const keys = sequenceOrderKeys(order.length);
+	const mutations: Mutation[] = order.map((uuid, i) =>
+		surface === "list"
+			? {
+					kind: "moveColumnInList" as const,
+					moduleUuid: mod.uuid,
+					uuid,
+					order: keys[i],
+				}
+			: {
+					kind: "moveColumnInDetail" as const,
+					moduleUuid: mod.uuid,
+					uuid,
+					order: keys[i],
+				},
+	);
 	return {
 		ok: true,
-		mutations: order.map((uuid, i) => ({
-			kind: "moveColumn",
-			moduleUuid: mod.uuid,
-			uuid,
-			order: keys[i],
-		})),
+		mutations,
 	};
 }
 
@@ -697,6 +749,13 @@ export function addSearchInputsMutation(
 		moduleUuid: mod.uuid,
 		searchInput: { ...searchInput, order: orders[i] },
 	}));
+	if (mod.caseSearchConfig === undefined) {
+		mutations.unshift({
+			kind: "setCaseSearchMarker",
+			uuid: mod.uuid,
+			enabled: true,
+		});
+	}
 	return { ok: true, mutations };
 }
 
@@ -737,6 +796,11 @@ export function removeSearchInputMutation(
 		"search input",
 	);
 	if ("error" in op) return { error: op.error };
+	const removesLastSearchableInput =
+		op.items.length === 0 &&
+		mod.caseSearchConfig !== undefined &&
+		!caseSearchConfigHasAuthoredSettings(mod.caseSearchConfig) &&
+		effectiveFilterForEmission(mod.caseListConfig?.filter) === undefined;
 	return {
 		ok: true,
 		mutations: [
@@ -745,6 +809,15 @@ export function removeSearchInputMutation(
 				moduleUuid: mod.uuid,
 				uuid: searchInputUuid,
 			},
+			...(removesLastSearchableInput
+				? ([
+						{
+							kind: "setCaseSearchMarker",
+							uuid: mod.uuid,
+							enabled: false,
+						},
+					] satisfies Mutation[])
+				: []),
 		],
 	};
 }

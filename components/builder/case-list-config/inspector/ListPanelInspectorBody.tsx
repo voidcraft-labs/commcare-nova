@@ -1,16 +1,10 @@
 // components/builder/case-list-config/inspector/ListPanelInspectorBody.tsx
 //
-// Properties for the case list as a whole — what clicking the list's
-// title chrome or either canvas's Arrange fields action selects. Three
-// clusters:
+// Secondary options for the results screen. Field membership, visible order,
+// and the default case ordering are composed directly in the center canvas;
+// this rail intentionally contains only settings that have no visible row to
+// manipulate there:
 //
-//   - **Field order** — the one complete shared list/detail sequence.
-//     Every field is present, including supporting fields, because Nova's
-//     domain has one canonical column order rather than per-screen orders.
-//   - **Sorting** — the sort-priority pill stack. Per-column sort
-//     direction lives on each column's inspector; the priority ORDER
-//     across sorted columns is a list-level concern, so it lives
-//     here.
 //   - **Appearance** — the image + audio for the "Open case list"
 //     menu link. Only `caseListOnly` modules expose a standalone
 //     case-list command to host the media (the local `.ccz` command
@@ -31,10 +25,8 @@ import {
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
 import type { Uuid } from "@/lib/doc/types";
-import { asAssetId, type CaseListConfig, type Column } from "@/lib/domain";
+import { asAssetId, type CaseListConfig } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
-import { DisplayOrderStack } from "../DisplayOrderStack";
-import { SortPriorityStack } from "../SortPriorityStack";
 import type { SampleDataAction } from "../useSampleData";
 
 export interface ListPanelInspectorBodyProps {
@@ -44,9 +36,6 @@ export interface ListPanelInspectorBodyProps {
 	readonly moduleUuid: Uuid;
 	readonly config: CaseListConfig;
 	readonly onChange: (next: CaseListConfig) => void;
-	/** Re-sequence the complete column list. This is separate from `onChange`
-	 *  because the document persists order keys, not array positions. */
-	readonly onReorderColumns: (next: readonly Column[]) => void;
 	/** Whether the module is a `caseListOnly` shape — gates the
 	 *  appearance cluster (see file header). */
 	readonly caseListOnly: boolean;
@@ -62,7 +51,6 @@ export function ListPanelInspectorBody({
 	moduleUuid,
 	config,
 	onChange,
-	onReorderColumns,
 	caseListOnly,
 	sampleData,
 }: ListPanelInspectorBodyProps) {
@@ -71,10 +59,6 @@ export function ListPanelInspectorBody({
 	 * the whole `InspectorSection` here, not just its controls, or the section's
 	 * header + divider would paint empty above a null body. */
 	const canEdit = useCanEdit();
-
-	const setColumns = (next: readonly Column[]) => {
-		onChange({ ...config, columns: [...next] });
-	};
 
 	/** Rebuild the whole `caseListConfig` with one media slot set or
 	 *  dropped. `setOptionalSlot` omits the key on a clear so presence
@@ -88,18 +72,6 @@ export function ListPanelInspectorBody({
 
 	return (
 		<>
-			<InspectorSection label="Field order">
-				<InspectorHint>
-					Shared by the list and case detail. Drag any field, or focus its
-					handle and press ↑ or ↓.
-				</InspectorHint>
-				<DisplayOrderStack value={config.columns} onChange={onReorderColumns} />
-			</InspectorSection>
-
-			<InspectorSection label="Sort order">
-				<SortPriorityStack value={config.columns} onChange={setColumns} />
-			</InspectorSection>
-
 			{canEdit && (
 				<InspectorSection label="Sample data">
 					<SampleDataControls sampleData={sampleData} />

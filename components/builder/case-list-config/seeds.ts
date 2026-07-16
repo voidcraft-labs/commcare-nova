@@ -17,10 +17,12 @@
 // Exact one click away in the Match picker.
 
 import {
+	authorableCaseProperties,
 	type CaseListConfig,
 	type CaseProperty,
 	type CaseType,
 	type Column,
+	canonicalCasePropertyName,
 	dateColumn,
 	effectiveDataType,
 	fuzzyMode,
@@ -30,6 +32,8 @@ import {
 	type SearchInputType,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { walkPropertyRefs } from "@/lib/domain/predicate";
+import { propertyDisplayLabel } from "../shared/primitives/propertyDisplay";
 import { humanizeName } from "./predicateSummary";
 import { newUuid } from "./uuid";
 
@@ -79,7 +83,7 @@ export function pickSeedProperty(
 	caseType: CaseType | undefined,
 	used: ReadonlySet<string>,
 ): CaseProperty | undefined {
-	const props = caseType?.properties ?? [];
+	const props = authorableCaseProperties(caseType?.properties ?? []);
 	if (props.length === 0) return undefined;
 	const unused = props.filter((p) => !used.has(p.name));
 	const textUnused = unused.filter((p) => effectiveDataType(p) === "text");
@@ -120,9 +124,25 @@ export function seedSearchInput(
 ): SearchInputDef | undefined {
 	const used = new Set(
 		config.searchInputs.flatMap((s) =>
-			s.kind === "simple" && s.property !== "" ? [s.property] : [],
+			s.kind === "simple" && s.property !== ""
+				? [canonicalCasePropertyName(s.property)]
+				: [],
 		),
 	);
+	// A direct always-on filter and a simple self-search on the same property
+	// AND-compose to an empty-looking result whenever their values disagree.
+	// Treat those directly-filtered properties as occupied for seed choice, so
+	// the first Add gesture lands valid whenever any alternative exists. The
+	// validator remains the backstop when the case type exposes only the one
+	// filtered property.
+	if (config.filter !== undefined && caseType !== undefined) {
+		walkPropertyRefs(config.filter, (ref) => {
+			const selfWalk = ref.via === undefined || ref.via.kind === "self";
+			if (selfWalk && ref.caseType === caseType.name) {
+				used.add(canonicalCasePropertyName(ref.property));
+			}
+		});
+	}
 	const property = pickSeedProperty(caseType, used);
 	if (property === undefined) return undefined;
 
@@ -137,7 +157,7 @@ export function seedSearchInput(
 	return simpleSearchInputDef(
 		newUuid(),
 		uniqueInputName(xmlNameFromProperty(property.name), config.searchInputs),
-		labelFromProperty(property.name),
+		propertyDisplayLabel(property),
 		type,
 		property.name,
 		type === "text" && fuzzyAdmitted ? { mode: fuzzyMode() } : {},
@@ -152,17 +172,19 @@ export function seedSearchInput(
 export function seedColumn(
 	config: CaseListConfig,
 	caseType: CaseType | undefined,
-	slots?: { visibleInList?: boolean },
+	slots?: { visibleInList?: boolean; visibleInDetail?: boolean },
 ): Column | undefined {
 	const used = new Set(
 		config.columns.flatMap((c) =>
-			c.kind !== "calculated" && c.field !== "" ? [c.field] : [],
+			c.kind !== "calculated" && c.field !== ""
+				? [canonicalCasePropertyName(c.field)]
+				: [],
 		),
 	);
 	const property = pickSeedProperty(caseType, used);
 	if (property === undefined) return undefined;
 
-	const header = labelFromProperty(property.name);
+	const header = propertyDisplayLabel(property);
 	const dataType = effectiveDataType(property);
 	if (dataType === "date" || dataType === "datetime") {
 		return dateColumn(newUuid(), property.name, header, "%Y-%m-%d", slots);

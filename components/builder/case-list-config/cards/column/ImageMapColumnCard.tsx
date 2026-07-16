@@ -53,6 +53,8 @@ export function ImageMapColumnCard({
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		listOrder: value.listOrder,
+		detailOrder: value.detailOrder,
 	};
 	const setField = (next: string) =>
 		onChange(
@@ -179,20 +181,20 @@ function MappingRow({
 		>
 			<div className="grid grid-cols-2 gap-2">
 				<div>
-					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-						Value
+					<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
+						Saved value
 					</div>
 					<BlurCommitTextInput
 						value={entry.value}
 						onCommit={(next) => onUpdate({ value: next })}
 						placeholder="Property value"
-						ariaLabel={`Mapping ${index + 1} value`}
+						ariaLabel={`Value rule ${index + 1} saved value`}
 						monospace
 					/>
 				</div>
 				<div>
-					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-						Image
+					<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
+						Show image
 					</div>
 					{/* `assetId` is stored as a string; an empty string is the
 					 *  unfilled state (slot shows the "+ Image" pill). Clearing
@@ -202,7 +204,7 @@ function MappingRow({
 						onChange={(next) => onUpdate({ assetId: next ?? "" })}
 						kind="image"
 						slotKey={slotKey}
-						ariaLabel={`Mapping ${index + 1} image`}
+						ariaLabel={`Value rule ${index + 1} image`}
 					/>
 				</div>
 			</div>

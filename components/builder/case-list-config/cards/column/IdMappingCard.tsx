@@ -51,6 +51,8 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		listOrder: value.listOrder,
+		detailOrder: value.detailOrder,
 	};
 	const setField = (next: string) =>
 		onChange(
@@ -172,20 +174,20 @@ function MappingRow({
 		>
 			<div className="grid grid-cols-2 gap-2">
 				<div>
-					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-						Value
+					<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
+						Saved value
 					</div>
 					<BlurCommitTextInput
 						value={entry.value}
 						onCommit={(next) => onUpdate({ value: next })}
 						placeholder="Property value"
-						ariaLabel={`Mapping ${index + 1} value`}
+						ariaLabel={`Value rule ${index + 1} saved value`}
 						monospace
 					/>
 				</div>
 				<div>
-					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-						Label
+					<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
+						Show as
 					</div>
 					{/* The `value` cell holds the wire-form code (monospace
 					 *  matches the case-list-runtime's per-row value rendering);
@@ -197,7 +199,7 @@ function MappingRow({
 						value={entry.label}
 						onCommit={(next) => onUpdate({ label: next })}
 						placeholder="Display label"
-						ariaLabel={`Mapping ${index + 1} label`}
+						ariaLabel={`Value rule ${index + 1} display label`}
 					/>
 				</div>
 			</div>

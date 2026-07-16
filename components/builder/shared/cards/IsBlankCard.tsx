@@ -5,6 +5,7 @@
 // dialect.
 
 "use client";
+import { canonicalCasePropertyName } from "@/lib/domain";
 import { isBlank, type Predicate, prop } from "@/lib/domain/predicate";
 import { useEditorErrorsAt } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
@@ -18,7 +19,7 @@ export function isBlankDefault(
 ): Extract<Predicate, { kind: "is-blank" }> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties[0];
-	const propName = property?.name ?? "";
+	const propName = canonicalCasePropertyName(property?.name ?? "");
 	return isBlank(prop(ctx.currentCaseType, propName));
 }
 

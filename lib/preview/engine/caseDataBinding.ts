@@ -23,6 +23,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, CaseListConfig, CaseType } from "@/lib/domain";
 import { caseListConfigSchema } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
+import type { ValueExpression } from "@/lib/domain/predicate";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import {
 	mapCaseListPreviewError,
@@ -57,6 +58,11 @@ import {
 	type SearchInputValuesWire,
 	searchInputValuesFromWire,
 } from "./runtimeBindings";
+import {
+	evaluatePreviewSearchExpression,
+	parseExcludedOwnerIds,
+	previewSearchSessionValues,
+} from "./searchExpressionEvaluation";
 
 // Errors thrown by the case-store layer are caught and mapped to
 // the `{ kind: "error" }` arm so an unhandled throw never tears
@@ -104,6 +110,11 @@ function stripDerivedFieldParent(blueprint: unknown): unknown {
  * mounting a search form leave it undefined; the helper then skips
  * the runtime-bindings composition entirely.
  *
+ * `excludedOwnerIdsExpression` stays authored until this authenticated
+ * boundary. Evaluating it here gives `session-context(userid)` the real
+ * current worker id, then `readCases` composes the resolved ids into the same
+ * Postgres predicate as the always-on filter and submitted prompts.
+ *
  * `caseTypes` is the LIVE case-type catalog — the only blueprint slice
  * the SQL compiler reads (property data types for casts, relation
  * paths to other types). The client sends just this catalog, not the
@@ -123,6 +134,7 @@ export async function loadCasesAction(args: {
 	caseType: string;
 	caseListConfig?: CaseListConfig;
 	inputValues?: SearchInputValuesWire;
+	excludedOwnerIdsExpression?: ValueExpression;
 	caseTypes?: readonly CaseType[];
 }): Promise<LoadCasesResult> {
 	try {
@@ -132,15 +144,27 @@ export async function loadCasesAction(args: {
 			args.caseTypes && args.caseTypes.length > 0
 				? new Map(args.caseTypes.map((ct) => [ct.name, ct]))
 				: undefined;
+		const inputValues = args.inputValues
+			? searchInputValuesFromWire(args.inputValues)
+			: undefined;
+		const excludedOwnerIds =
+			args.excludedOwnerIdsExpression === undefined
+				? undefined
+				: parseExcludedOwnerIds(
+						evaluatePreviewSearchExpression(
+							args.excludedOwnerIdsExpression,
+							previewSearchSessionValues(session.user),
+							inputValues,
+						),
+					);
 		const store = await gatedCaseStore(args.appId, session.user.id, "view");
 		return await readCases(store, {
 			appId: args.appId,
 			caseType: args.caseType,
 			caseTypeSchemas,
 			caseListConfig: args.caseListConfig,
-			inputValues: args.inputValues
-				? searchInputValuesFromWire(args.inputValues)
-				: undefined,
+			inputValues,
+			excludedOwnerIds,
 		});
 	} catch (err) {
 		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)

@@ -39,6 +39,7 @@ import {
 	reduceAnd,
 	unhandledKindMessage,
 } from "@/lib/domain/predicate";
+import { walkExpressionTerms } from "@/lib/domain/predicate/walk";
 
 /**
  * Wire-form date shape — the ISO `YYYY-MM-DD` pattern this module
@@ -83,6 +84,34 @@ export function searchInputValuesFromWire(
 	values: SearchInputValuesWire,
 ): SearchInputValues {
 	return new Map(Object.entries(values));
+}
+
+/**
+ * Bind every `input(name)` leaf in a ValueExpression to the current running
+ * search value. The preview XPath evaluator is scalar and intentionally does
+ * not model the search-input XML nodeset, so substitution happens while the
+ * expression is still a typed AST. Missing inputs become the empty string —
+ * the same value CommCare's virtual search-input instance exposes for an
+ * unanswered prompt.
+ */
+export function bindSearchInputValuesInExpression(
+	expression: ValueExpression,
+	inputValues: SearchInputValues,
+): ValueExpression {
+	const names = new Set<string>();
+	walkExpressionTerms(expression, (term) => {
+		if (term.kind === "input") names.add(term.name);
+	});
+
+	let bound = expression;
+	for (const name of names) {
+		bound = substituteInputInExpression(
+			bound,
+			name,
+			inputValues.get(name) ?? "",
+		);
+	}
+	return bound;
 }
 
 /**

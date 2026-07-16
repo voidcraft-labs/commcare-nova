@@ -35,7 +35,10 @@
 
 import { z } from "zod";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	caseSearchConfigHasAuthoredSettings,
+} from "@/lib/domain";
 import { type Predicate, predicateSchema } from "@/lib/domain/predicate";
 import { resolveModuleUuid } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -44,6 +47,7 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
+import { canonicalizePredicateCaseProperties } from "../shared/canonicalCaseProperties";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import { moduleNotFoundResult } from "./shared";
 
@@ -121,9 +125,32 @@ export const setCaseListFilterTool = {
 			// concurrent column edit on the guarded re-apply): `null` clears the
 			// slot, a Predicate sets it. The reducer maps `null → delete`, so a
 			// clear crosses the JSON wire intact.
+			const canonicalFilter =
+				filter === null ? null : canonicalizePredicateCaseProperties(filter);
 			const mutations: Mutation[] = [
-				{ kind: "setCaseListMeta", uuid: mod.uuid, patch: { filter } },
+				{
+					kind: "setCaseListMeta",
+					uuid: mod.uuid,
+					patch: { filter: canonicalFilter },
+				},
 			];
+			// A filter-only search uses the empty search marker to auto-launch its
+			// request. Clearing its final rule must remove both pieces in ONE valid
+			// batch; otherwise the marker is left with nothing searchable and the
+			// commit gate correctly rejects it. The semantic disable only clears a
+			// still-empty marker on fresh state, so peer-authored settings survive.
+			if (
+				canonicalFilter === null &&
+				(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
+				mod.caseSearchConfig !== undefined &&
+				!caseSearchConfigHasAuthoredSettings(mod.caseSearchConfig)
+			) {
+				mutations.push({
+					kind: "setCaseSearchMarker",
+					uuid: mod.uuid,
+					enabled: false,
+				});
+			}
 			const commit = await guardedMutate(
 				ctx,
 				doc,

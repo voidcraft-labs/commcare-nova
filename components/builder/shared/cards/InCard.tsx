@@ -10,6 +10,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { canonicalCasePropertyName } from "@/lib/domain";
 import {
 	compatibleTypesFor,
 	inValueConstraint,
@@ -45,7 +46,7 @@ export function inDefault(
 ): Extract<Predicate, { kind: "in" }> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties[0];
-	const propName = property?.name ?? "";
+	const propName = canonicalCasePropertyName(property?.name ?? "");
 	// Seed the value of the property's OWN type — a text `literal("")`
 	// opposite a non-text first property would be a soundness error.
 	return isIn(

@@ -137,7 +137,7 @@ function PresetRow({
 	return (
 		<fieldset
 			className="flex gap-1 px-1 py-1 rounded-md border border-white/[0.06] bg-nova-deep/50"
-			aria-label="Date pattern preset"
+			aria-label="Date format"
 		>
 			{presets.map((preset) => {
 				const isActive = isPreset && value === preset.pattern;
@@ -239,14 +239,14 @@ function CustomInput({ value, onChange }: CustomInputProps) {
 				onBlur={commit}
 				autoComplete="off"
 				data-1p-ignore
-				placeholder="CCHQ format-date pattern (e.g. %d-%b-%Y)"
-				aria-label="Custom date pattern"
+				placeholder="For example, %d-%b-%Y"
+				aria-label="Custom date format"
 				aria-invalid={isInvalid || undefined}
 				className={cls}
 			/>
 			{isInvalid && (
 				<div className="text-[11px] leading-snug text-nova-rose">
-					Custom pattern cannot be empty.
+					Custom date format cannot be empty.
 				</div>
 			)}
 		</div>

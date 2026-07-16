@@ -22,10 +22,13 @@ import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerExclamationCircle from "@iconify-icons/tabler/exclamation-circle";
 import { useCallback, useId, useMemo, useRef } from "react";
 import {
+	authorableCaseProperties,
 	type CaseProperty,
 	type CaseType,
+	canonicalCasePropertyName,
 	effectiveDataType,
 } from "@/lib/domain";
+import { humanizeId } from "@/lib/domain/idSlug";
 import {
 	MENU_ITEM_BASE,
 	MENU_ITEM_CLS,
@@ -33,6 +36,11 @@ import {
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
 import { usePredicateEditContext } from "../editorContext";
+import {
+	friendlyPropertyDisambiguator,
+	propertyDisplayLabel,
+	propertyTypeLabel,
+} from "./propertyDisplay";
 
 interface PropertyPickerProps {
 	/** Currently selected property name, or undefined when unset. */
@@ -62,6 +70,10 @@ interface PropertyPickerProps {
 	readonly ariaLabel?: string;
 	/** Whether the surrounding card is reporting an error on this slot. */
 	readonly invalid?: boolean;
+	/** Use the authored human label instead of exposing the stored property
+	 * name. Low-code authoring surfaces set this even when the persisted value is
+	 * an expression reference; the stored name remains an implementation detail. */
+	readonly displayLabels?: boolean;
 }
 
 /**
@@ -83,6 +95,7 @@ export function PropertyPicker({
 	filter,
 	ariaLabel = "Property",
 	invalid = false,
+	displayLabels = false,
 }: PropertyPickerProps) {
 	const ctx = usePredicateEditContext();
 	const triggerId = useId();
@@ -96,15 +109,26 @@ export function PropertyPicker({
 
 	const properties = useMemo<readonly CaseProperty[]>(() => {
 		if (targetCaseType === undefined) return [];
-		return filter !== undefined
-			? targetCaseType.properties.filter(filter)
-			: targetCaseType.properties;
+		const authorable = authorableCaseProperties(targetCaseType.properties);
+		return filter !== undefined ? authorable.filter(filter) : authorable;
 	}, [targetCaseType, filter]);
+	const selectedName =
+		value === undefined ? undefined : canonicalCasePropertyName(value);
 
 	const selectedKnown = useMemo(
-		() => value !== undefined && properties.some((p) => p.name === value),
-		[value, properties],
+		() =>
+			selectedName !== undefined &&
+			properties.some((p) => p.name === selectedName),
+		[selectedName, properties],
 	);
+	const selectedProperty = useMemo(
+		() => properties.find((property) => property.name === selectedName),
+		[properties, selectedName],
+	);
+	const selectedDisambiguator =
+		displayLabels && selectedProperty !== undefined
+			? friendlyPropertyDisambiguator(selectedProperty, properties)
+			: undefined;
 
 	const handleSelect = useCallback(
 		(name: string) => {
@@ -120,14 +144,27 @@ export function PropertyPicker({
 			: "border-white/[0.06] hover:border-nova-violet/30",
 	].join(" ");
 
-	const displayLabel = value ?? "Pick a property";
+	const displayLabel =
+		value === undefined
+			? displayLabels
+				? "Choose information"
+				: "Pick a property"
+			: displayLabels
+				? selectedProperty === undefined
+					? humanizeId(value) || "Unavailable information"
+					: propertyDisplayLabel(selectedProperty)
+				: value;
+	const accessibleDisplayLabel =
+		selectedDisambiguator === undefined
+			? displayLabel
+			: `${displayLabel}, ${selectedDisambiguator}`;
 
 	return (
 		<Menu.Root>
 			<Menu.Trigger
 				ref={triggerRef}
 				id={triggerId}
-				aria-label={`${ariaLabel}: ${displayLabel}`}
+				aria-label={`${ariaLabel}: ${accessibleDisplayLabel}`}
 				className={triggerClass}
 			>
 				<span className="flex items-center gap-1.5 min-w-0">
@@ -141,14 +178,23 @@ export function PropertyPicker({
 								: "text-nova-text-muted"
 						}
 					/>
-					<span
-						className={`truncate font-mono ${
-							value && selectedKnown
-								? "text-nova-violet-bright"
-								: "text-nova-text-muted"
-						}`}
-					>
-						{displayLabel}
+					<span className="min-w-0 text-left">
+						<span
+							className={`block truncate ${
+								!displayLabels ? "font-mono" : "font-medium"
+							} ${
+								value && selectedKnown
+									? "text-nova-violet-bright"
+									: "text-nova-text-muted"
+							}`}
+						>
+							{displayLabel}
+						</span>
+						{selectedDisambiguator !== undefined ? (
+							<span className="block truncate text-[10px] font-normal text-nova-text-secondary">
+								{selectedDisambiguator}
+							</span>
+						) : null}
 					</span>
 					{value && !selectedKnown && (
 						<Icon
@@ -178,7 +224,10 @@ export function PropertyPicker({
 							</div>
 						) : (
 							properties.map((p, i) => {
-								const isActive = p.name === value;
+								const isActive = p.name === selectedName;
+								const disambiguator = displayLabels
+									? friendlyPropertyDisambiguator(p, properties)
+									: undefined;
 								const last = properties.length - 1;
 								const corners =
 									i === 0 && i === last
@@ -209,15 +258,25 @@ export function PropertyPicker({
 											}
 										/>
 										<span className="flex-1 text-left min-w-0">
-											<div className="font-mono truncate">{p.name}</div>
 											<div
-												className={`text-[10px] uppercase tracking-wider ${
+												className={
+													displayLabels ? "truncate" : "font-mono truncate"
+												}
+											>
+												{displayLabels ? propertyDisplayLabel(p) : p.name}
+											</div>
+											<div
+												className={`text-[10px] ${
 													isActive
 														? "text-nova-violet-bright"
 														: "text-nova-text-muted"
 												}`}
 											>
-												{effectiveDataType(p)}
+												{displayLabels
+													? [disambiguator, propertyTypeLabel(p)]
+															.filter(Boolean)
+															.join(" · ")
+													: effectiveDataType(p)}
 											</div>
 										</span>
 									</Menu.Item>

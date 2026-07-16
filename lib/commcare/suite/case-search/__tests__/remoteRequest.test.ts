@@ -22,6 +22,7 @@ import {
 	type CaseListConfig,
 	type CaseSearchConfig,
 	type Module,
+	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
@@ -97,7 +98,7 @@ const MINIMAL_REMOTE_REQUEST_XML =
 	`</query>` +
 	`<datum id="search_case_id"` +
 	` nodeset="instance(&apos;results&apos;)/results/case[@case_type=&apos;patient&apos;][not(commcare_is_related_case=true())]"` +
-	` value="./@case_id" detail-confirm="m0_search_long" detail-select="m0_search_short"/>` +
+	` value="./@case_id" detail-select="m0_search_short"/>` +
 	`</session>` +
 	`<stack>` +
 	`<push><rewind value="instance(&apos;commcaresession&apos;)/session/data/search_case_id"/></push>` +
@@ -210,7 +211,7 @@ describe("emitRemoteRequest — <command> element", () => {
 			module: makeModule({ caseType: "patient", caseSearchConfig: {} }),
 			moduleIndex: 0,
 		});
-		expect(strings["case_search.m0"]).toBe("Search All Cases");
+		expect(strings["case_search.m0"]).toBe("Search");
 	});
 });
 
@@ -458,6 +459,13 @@ describe("emitRemoteRequest — Nova-shaped end-to-end composition", () => {
 			module: makeModule({
 				caseType: "patient",
 				caseListConfig: makeListConfig({
+					columns: [
+						plainColumn(
+							asUuid("00000000-0000-4000-8000-aaaa00000000"),
+							"case_name",
+							"Name",
+						),
+					],
 					filter,
 					searchInputs: [
 						simpleSearchInputDef(

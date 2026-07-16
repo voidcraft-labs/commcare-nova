@@ -2,10 +2,11 @@
 //
 // Inspector body for one search field. ONE view serves every author:
 // Label → what it searches → how the field looks → how it matches →
-// what it starts with → its reference name. There is no separate
-// "advanced mode" — writing custom matching logic is just the last
-// choice in the Match picker, and picking any standard match brings
-// the standard controls back.
+// what it starts with. The internal reference name is still available
+// behind one quiet Advanced disclosure; storage vocabulary should not
+// compete with the worker-facing choices in the normal flow. Writing a
+// custom matching rule remains the last choice in the Match picker, and
+// picking any standard match brings the standard controls back.
 //
 // Under the hood the schema still splits into two arms (`simple`
 // carries `(property, mode, via)`; `advanced` carries a predicate
@@ -29,15 +30,15 @@
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
+import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerExclamationCircle from "@iconify-icons/tabler/exclamation-circle";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerWand from "@iconify-icons/tabler/wand";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
 	CONSOLE_MENU_ITEM_MIN,
 	CONSOLE_TRIGGER_CLS,
-	RemoveRow,
 	SegmentedRow,
 } from "@/components/builder/inspector/inspectorChrome";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
@@ -49,11 +50,18 @@ import { PredicateCardEditor } from "@/components/builder/shared/PredicateCardEd
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
 import {
+	friendlyPropertyDisambiguator,
+	propertyDisplayLabel,
+	propertyTypeLabel,
+} from "@/components/builder/shared/primitives/propertyDisplay";
+import {
 	advancedSearchInputDef,
 	applicableSearchModes,
+	authorableCaseProperties,
 	type CaseProperty,
 	type CasePropertyDataType,
 	type CaseType,
+	canonicalCasePropertyName,
 	DEFAULT_SEARCH_MODE_KIND,
 	effectiveDataType,
 	type MultiSelectQuantifier,
@@ -66,6 +74,7 @@ import {
 	type SimpleSearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { humanizeId } from "@/lib/domain/idSlug";
 import {
 	ancestorPath,
 	type Predicate,
@@ -121,7 +130,6 @@ export interface SearchInputEditorProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly onChange: (next: SearchInputDef) => void;
-	readonly onRemove: () => void;
 }
 
 /** Where a simple row's property lives — this case, the parent case,
@@ -151,7 +159,6 @@ export function SearchInputEditor({
 	caseTypes,
 	currentCaseType,
 	onChange,
-	onRemove,
 }: SearchInputEditorProps) {
 	const resolved: ResolvedRow = useMemo(() => {
 		const rows = resolveRows(siblings, caseTypes, currentCaseType);
@@ -214,6 +221,7 @@ export function SearchInputEditor({
 	 */
 	const setBinding = (property: string, scope: "self" | "parent") => {
 		if (value.kind !== "simple") return;
+		const canonicalProperty = canonicalCasePropertyName(property);
 		const via: RelationPath | undefined =
 			scope === "self"
 				? undefined
@@ -228,16 +236,16 @@ export function SearchInputEditor({
 			mode?: SearchInputMode | undefined;
 			label?: string;
 			name?: string;
-		} = { property, via };
+		} = { property: canonicalProperty, via };
 
 		const destination = resolveDestinationCaseType(
 			caseTypes,
 			via,
 			currentCaseType,
 		);
-		const propertyDef = caseTypes
-			.find((c) => c.name === destination)
-			?.properties.find((p) => p.name === property);
+		const propertyDef = authorableCaseProperties(
+			caseTypes.find((c) => c.name === destination)?.properties ?? [],
+		).find((p) => p.name === canonicalProperty);
 		if (propertyDef !== undefined) {
 			const dataType = effectiveDataType(propertyDef);
 			const typeAllowed =
@@ -264,7 +272,10 @@ export function SearchInputEditor({
 			value.label === "" ||
 			value.label === labelFromProperty(value.property)
 		) {
-			patch.label = labelFromProperty(property);
+			patch.label =
+				propertyDef !== undefined
+					? propertyDisplayLabel(propertyDef)
+					: labelFromProperty(canonicalProperty);
 		}
 		const oldBase =
 			value.property === "" ? "" : xmlNameFromProperty(value.property);
@@ -275,7 +286,7 @@ export function SearchInputEditor({
 					new RegExp(`^${oldBase}_\\d+$`).test(value.name)));
 		if (nameDerived) {
 			patch.name = uniqueInputName(
-				xmlNameFromProperty(property),
+				xmlNameFromProperty(canonicalProperty),
 				siblings.filter((s) => s.uuid !== value.uuid),
 			);
 		}
@@ -353,17 +364,22 @@ export function SearchInputEditor({
 		// anchor property when it has the round-trip shape; otherwise
 		// seed the way a fresh field would.
 		const ct = caseTypes.find((c) => c.name === currentCaseType);
+		const authorableProperties = authorableCaseProperties(ct?.properties ?? []);
 		const used = new Set(
 			siblings.flatMap((s) =>
 				s.kind === "simple" && s.uuid !== value.uuid && s.property !== ""
-					? [s.property]
+					? [canonicalCasePropertyName(s.property)]
 					: [],
 			),
 		);
-		const recovered = recoverAnchoredProperty(value.predicate);
+		const recoveredRaw = recoverAnchoredProperty(value.predicate);
+		const recovered =
+			recoveredRaw === undefined
+				? undefined
+				: canonicalCasePropertyName(recoveredRaw);
 		const propertyDef =
 			(recovered !== undefined
-				? ct?.properties.find((p) => p.name === recovered)
+				? authorableProperties.find((p) => p.name === recovered)
 				: undefined) ?? pickSeedProperty(ct, used);
 		const type =
 			propertyDef !== undefined
@@ -387,7 +403,7 @@ export function SearchInputEditor({
 				value.name,
 				value.label,
 				type,
-				propertyDef?.name ?? recovered ?? "",
+				canonicalCasePropertyName(propertyDef?.name ?? recovered ?? ""),
 				{ default: value.default, ...(mode !== undefined ? { mode } : {}) },
 			),
 		);
@@ -446,9 +462,7 @@ export function SearchInputEditor({
 							onPick={setBinding}
 							rowIndex={index}
 						/>
-						<InlineError
-							errors={propertyErrors(resolved.propertyState, value.property)}
-						/>
+						<InlineError errors={propertyErrors(resolved.propertyState)} />
 					</FieldRow>
 				)}
 
@@ -519,32 +533,69 @@ export function SearchInputEditor({
 					onChange={setDefault}
 				/>
 
-				<FieldRow
-					label="Reference name"
-					hint="How conditions and other fields refer to this one."
-				>
-					<BlurCommitTextInput
-						value={value.name}
-						onCommit={setName}
-						placeholder="client_name"
-						ariaLabel={`Search field ${index + 1} reference name`}
-						monospace
-					/>
-					{resolved.nameState.kind === "empty" && (
-						<InlineError errors={["Give the field a reference name."]} />
-					)}
-					{duplicateOf !== undefined && (
-						<InlineError
-							errors={[
-								`Already used by “${duplicateOf.label || duplicateOf.name}” — names must be unique.`,
-							]}
+				<AdvancedInputSettings active={resolved.nameState.kind !== "ok"}>
+					<FieldRow
+						label="Reference name"
+						hint="Used when conditions or other search fields refer to this one."
+					>
+						<BlurCommitTextInput
+							value={value.name}
+							onCommit={setName}
+							placeholder="client_name"
+							ariaLabel={`Search field ${index + 1} reference name`}
+							monospace
 						/>
-					)}
-				</FieldRow>
-
-				<RemoveRow label="Remove Search Field" onClick={onRemove} />
+						{resolved.nameState.kind === "empty" && (
+							<InlineError errors={["Give the field a reference name."]} />
+						)}
+						{duplicateOf !== undefined && (
+							<InlineError
+								errors={[
+									`Already used by “${duplicateOf.label || duplicateOf.name}” — names must be unique.`,
+								]}
+							/>
+						)}
+					</FieldRow>
+				</AdvancedInputSettings>
 			</div>
 		</PredicateEditProvider>
+	);
+}
+
+function AdvancedInputSettings({
+	active,
+	children,
+}: {
+	readonly active: boolean;
+	readonly children: React.ReactNode;
+}) {
+	const [opened, setOpened] = useState(false);
+	const open = opened || active;
+	return (
+		<section className="border-t border-white/[0.06] pt-1">
+			<button
+				type="button"
+				onClick={() => setOpened((current) => !current)}
+				aria-expanded={open}
+				className="group flex min-h-11 w-full cursor-pointer items-center gap-2 text-left"
+			>
+				<Icon
+					icon={tablerChevronRight}
+					width="13"
+					height="13"
+					className={`shrink-0 text-nova-text-muted transition-transform ${open ? "rotate-90" : ""}`}
+				/>
+				<span className="text-[12px] font-medium text-nova-text-secondary transition-colors group-hover:text-nova-text">
+					Advanced
+				</span>
+				{active && (
+					<span className="ml-auto text-[11px] text-nova-rose">
+						Needs attention
+					</span>
+				)}
+			</button>
+			{open && <div className="pb-1 pt-2">{children}</div>}
+		</section>
 	);
 }
 
@@ -577,19 +628,14 @@ function FieldRow({
 
 /** The person-to-person line under an unbound / dangling property —
  *  names what's wrong AND what it costs at runtime. */
-function propertyErrors(
-	state: PropertyState,
-	property: string,
-): readonly string[] {
+function propertyErrors(state: PropertyState): readonly string[] {
 	switch (state.kind) {
 		case "ok":
 			return [];
 		case "empty":
 			return ["Pick a property — until then, this field matches nothing."];
 		case "dangling":
-			return [
-				`"${property}" is not a property of the ${state.destination} case type — pick one from the list.`,
-			];
+			return ["That information is no longer available — choose another item."];
 	}
 }
 
@@ -629,11 +675,13 @@ function BindingPicker({
 			: undefined;
 
 	if (scope === "custom") {
+		const readableProperty =
+			humanizeId(row.property) || "Unavailable information";
 		return (
 			<div className="flex items-center gap-3 w-full min-h-11 px-3 py-2 rounded-lg border border-white/[0.06] bg-nova-deep/30">
 				<span className="flex-1 min-w-0">
-					<span className="block text-[13px] text-nova-text font-mono truncate">
-						{row.property || "—"}
+					<span className="block truncate text-[13px] text-nova-text">
+						{readableProperty}
 					</span>
 					<span className="block text-[11px] text-nova-text-muted">
 						On a linked case, through a custom connection.
@@ -644,17 +692,31 @@ function BindingPicker({
 					onClick={() => onPick(row.property, "self")}
 					className="shrink-0 px-3 min-h-11 text-xs rounded-lg border border-white/[0.08] text-nova-text-secondary hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 				>
-					Search This Case Instead
+					Search this case instead
 				</button>
 			</div>
 		);
 	}
 
-	const destination = scope === "parent" ? parentCt : ct;
-	const selectedDef = destination?.properties.find(
-		(p) => p.name === row.property,
+	const thisCaseProperties = authorableCaseProperties(ct?.properties ?? []);
+	const parentCaseProperties = authorableCaseProperties(
+		parentCt?.properties ?? [],
 	);
-	const scopeLabel = scope === "parent" ? "On the parent case" : "On this case";
+	const destinationProperties =
+		scope === "parent" ? parentCaseProperties : thisCaseProperties;
+	const selectedDef = destinationProperties.find(
+		(p) => p.name === canonicalCasePropertyName(row.property),
+	);
+	const selectedPropertyName = canonicalCasePropertyName(row.property);
+	const scopeLabel = scope === "parent" ? "Parent case" : "This case";
+	const selectedLabel =
+		selectedDef === undefined
+			? humanizeId(row.property) || "Unavailable information"
+			: propertyDisplayLabel(selectedDef);
+	const selectedQualifier =
+		selectedDef === undefined
+			? undefined
+			: friendlyPropertyDisambiguator(selectedDef, destinationProperties);
 
 	return (
 		<Menu.Root>
@@ -674,14 +736,19 @@ function BindingPicker({
 						<span className="block text-nova-text-muted">Pick a property</span>
 					) : (
 						<>
-							<span className="block font-mono text-nova-text truncate">
-								{row.property}
+							<span className="block truncate font-medium text-nova-text">
+								{selectedLabel}
 							</span>
 							<span className="block text-[11px] text-nova-text-muted truncate">
-								{scopeLabel}
-								{selectedDef !== undefined
-									? ` · ${effectiveDataType(selectedDef)}`
-									: ""}
+								{[
+									scopeLabel,
+									selectedQualifier,
+									selectedDef === undefined
+										? undefined
+										: propertyTypeLabel(selectedDef),
+								]
+									.filter(Boolean)
+									.join(" · ")}
 							</span>
 						</>
 					)}
@@ -701,19 +768,21 @@ function BindingPicker({
 						className={`${MENU_POPUP_CLS} max-h-80 overflow-y-auto min-w-[16rem]`}
 					>
 						<PropertyGroup
-							heading={`This Case — ${ct?.name ?? currentCaseType}`}
-							properties={ct?.properties ?? []}
-							isSelected={(p) => scope === "self" && p.name === row.property}
+							heading="This case"
+							properties={thisCaseProperties}
+							isSelected={(p) =>
+								scope === "self" && p.name === selectedPropertyName
+							}
 							onPick={(p) => onPick(p.name, "self")}
 							roundTop
 							roundBottom={parentCt === undefined}
 						/>
 						{parentCt !== undefined && (
 							<PropertyGroup
-								heading={`Parent Case — ${parentCt.name}`}
-								properties={parentCt.properties}
+								heading="Parent case"
+								properties={parentCaseProperties}
 								isSelected={(p) =>
-									scope === "parent" && p.name === row.property
+									scope === "parent" && p.name === selectedPropertyName
 								}
 								onPick={(p) => onPick(p.name, "parent")}
 								roundTop={false}
@@ -757,6 +826,7 @@ function PropertyGroup({
 			{properties.map((p, i) => {
 				const active = isSelected(p);
 				const isLast = roundBottom && i === properties.length - 1;
+				const disambiguator = friendlyPropertyDisambiguator(p, properties);
 				return (
 					<Menu.Item
 						key={p.name}
@@ -765,15 +835,17 @@ function PropertyGroup({
 							active ? "text-nova-violet-bright bg-nova-violet/10" : ""
 						}`}
 					>
-						<span className="flex-1 text-left min-w-0 font-mono truncate">
-							{p.name}
-						</span>
-						<span
-							className={`text-[10px] uppercase tracking-wider ${
-								active ? "text-nova-violet-bright" : "text-nova-text-muted"
-							}`}
-						>
-							{effectiveDataType(p)}
+						<span className="min-w-0 flex-1 text-left">
+							<span className="block truncate">{propertyDisplayLabel(p)}</span>
+							<span
+								className={`block truncate text-[10px] ${
+									active ? "text-nova-violet-bright" : "text-nova-text-muted"
+								}`}
+							>
+								{[disambiguator, propertyTypeLabel(p)]
+									.filter(Boolean)
+									.join(" · ")}
+							</span>
 						</span>
 						{active && (
 							<Icon

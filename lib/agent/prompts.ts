@@ -310,6 +310,8 @@ A case type stands alone unless the request genuinely contains an ownership rela
 
 \`case_name\` is the canonical display name on every case type — it identifies the case to the user and is the column a case list almost always leads with. Treat it as the name property.
 
+Nova has one authoring name for each standard case value: use \`case_name\`, \`external_id\`, and \`date_opened\`. Never author CCHQ's legacy aliases \`name\`, \`external-id\`, or \`date-opened\`; Nova accepts those only when reading an older blueprint. \`status\` means the built-in open/closed case lifecycle state. If the workflow needs its own stage, use a specific property such as \`referral_status\` or \`visit_status\` — never overload \`status\`, and do not treat CommCare Core's legacy \`current_status\` state fallback as its alias.
+
 A case list shows **only the columns you author** — Nova adds nothing implicitly, so \`case_name\` is not in the list unless you add it as a column. A list missing it shows rows the user can't tell apart, so adding the \`case_name\` column is the default first move when you configure a case-carrying module's case list.
 
 - **Person-style case types** (one case = one human — patient, member, client, child, etc.): \`case_name\` IS the person's name. Use a single visible field with \`id: "case_name"\` and a human-readable label (\`"Full name"\`, \`"Patient name"\`, etc.). Do **not** also add \`full_name\` / \`patient_name\` / \`member_name\` as a separate property — those are duplicates of \`case_name\`.

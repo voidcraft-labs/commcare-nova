@@ -72,8 +72,8 @@ import { emitCaseListFilter } from "../caseListFilterEmitter";
 
 describe("emitCaseListFilter — comparison operators", () => {
 	it("emits eq with a string literal", () => {
-		const p = eq(prop("patient", "name"), literal("Alice"));
-		expect(emitCaseListFilter(p)).toBe("name = 'Alice'");
+		const p = eq(prop("patient", "full_name"), literal("Alice"));
+		expect(emitCaseListFilter(p)).toBe("full_name = 'Alice'");
 	});
 
 	it("emits eq with a numeric literal", () => {
@@ -106,8 +106,8 @@ describe("emitCaseListFilter — comparison operators", () => {
 	});
 
 	it("emits neq", () => {
-		const p = neq(prop("patient", "name"), literal("Bob"));
-		expect(emitCaseListFilter(p)).toBe("name != 'Bob'");
+		const p = neq(prop("patient", "full_name"), literal("Bob"));
+		expect(emitCaseListFilter(p)).toBe("full_name != 'Bob'");
 	});
 
 	it("emits gt / gte / lt / lte", () => {
@@ -135,8 +135,8 @@ describe("emitCaseListFilter — comparison operators", () => {
 	});
 
 	it("emits null literals as the empty string", () => {
-		const p = eq(prop("patient", "name"), literal(null));
-		expect(emitCaseListFilter(p)).toBe("name = ''");
+		const p = eq(prop("patient", "full_name"), literal(null));
+		expect(emitCaseListFilter(p)).toBe("full_name = ''");
 	});
 });
 
@@ -152,16 +152,16 @@ describe("emitCaseListFilter — term emission", () => {
 	});
 
 	it("emits session-context refs against /session/context/<field>", () => {
-		const p = eq(prop("patient", "name"), sessionContext("username"));
+		const p = eq(prop("patient", "full_name"), sessionContext("username"));
 		expect(emitCaseListFilter(p)).toBe(
-			"name = instance('commcaresession')/session/context/username",
+			"full_name = instance('commcaresession')/session/context/username",
 		);
 	});
 
 	it("emits search-input refs against the search-input results instance", () => {
-		const p = eq(prop("patient", "name"), input("name_query"));
+		const p = eq(prop("patient", "full_name"), input("name_query"));
 		expect(emitCaseListFilter(p)).toBe(
-			"name = instance('search-input:results')/input/field[@name='name_query']",
+			"full_name = instance('search-input:results')/input/field[@name='name_query']",
 		);
 	});
 });
@@ -178,26 +178,28 @@ describe("emitCaseListFilter — reserved case attributes", () => {
 	});
 
 	it("leaves user-defined properties bare", () => {
-		const p = eq(prop("patient", "name"), literal("Alice"));
-		expect(emitCaseListFilter(p)).toBe("name = 'Alice'");
+		const p = eq(prop("patient", "full_name"), literal("Alice"));
+		expect(emitCaseListFilter(p)).toBe("full_name = 'Alice'");
 	});
 });
 
 describe("emitCaseListFilter — logical operators", () => {
 	it("emits and(...) joining clauses with ' and '", () => {
 		const p = and(
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "full_name"), literal("Alice")),
 			gt(prop("patient", "age"), literal(18)),
 		);
-		expect(emitCaseListFilter(p)).toBe("name = 'Alice' and age > 18");
+		expect(emitCaseListFilter(p)).toBe("full_name = 'Alice' and age > 18");
 	});
 
 	it("emits or(...) joining clauses with ' or '", () => {
 		const p = or(
-			eq(prop("patient", "name"), literal("Alice")),
-			eq(prop("patient", "name"), literal("Bob")),
+			eq(prop("patient", "full_name"), literal("Alice")),
+			eq(prop("patient", "full_name"), literal("Bob")),
 		);
-		expect(emitCaseListFilter(p)).toBe("name = 'Alice' or name = 'Bob'");
+		expect(emitCaseListFilter(p)).toBe(
+			"full_name = 'Alice' or full_name = 'Bob'",
+		);
 	});
 
 	it("parenthesizes or-clauses inside an and (precedence)", () => {
@@ -206,50 +208,50 @@ describe("emitCaseListFilter — logical operators", () => {
 		// C)`. The visitor's parent-precedence threading is the lock.
 		const p = and(
 			or(
-				eq(prop("patient", "name"), literal("Alice")),
-				eq(prop("patient", "name"), literal("Bob")),
+				eq(prop("patient", "full_name"), literal("Alice")),
+				eq(prop("patient", "full_name"), literal("Bob")),
 			),
 			gt(prop("patient", "age"), literal(18)),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"(name = 'Alice' or name = 'Bob') and age > 18",
+			"(full_name = 'Alice' or full_name = 'Bob') and age > 18",
 		);
 	});
 
 	it("emits not(...) wrapping its inner with not(...)", () => {
-		const p = not(eq(prop("patient", "name"), literal("Bob")));
-		expect(emitCaseListFilter(p)).toBe("not(name = 'Bob')");
+		const p = not(eq(prop("patient", "full_name"), literal("Bob")));
+		expect(emitCaseListFilter(p)).toBe("not(full_name = 'Bob')");
 	});
 });
 
 describe("emitCaseListFilter — string-literal escape", () => {
 	it("emits a quote-free string in single quotes", () => {
-		const p = eq(prop("patient", "name"), literal("Alice"));
-		expect(emitCaseListFilter(p)).toBe("name = 'Alice'");
+		const p = eq(prop("patient", "full_name"), literal("Alice"));
+		expect(emitCaseListFilter(p)).toBe("full_name = 'Alice'");
 	});
 
 	it("emits embedded single quote with concat()", () => {
 		// XPath 1.0's `concat()` is the portable embedded-quote escape:
 		// alternating single-quoted and double-quoted segments produce a
 		// well-formed string literal with the original quote preserved.
-		const p = eq(prop("patient", "name"), literal("O'Brien"));
-		expect(emitCaseListFilter(p)).toBe(`name = concat('O', "'", 'Brien')`);
+		const p = eq(prop("patient", "full_name"), literal("O'Brien"));
+		expect(emitCaseListFilter(p)).toBe(`full_name = concat('O', "'", 'Brien')`);
 	});
 
 	it("emits a quote-only string with concat() boundary segments", () => {
-		const p = eq(prop("patient", "name"), literal("'"));
-		expect(emitCaseListFilter(p)).toBe(`name = concat('', "'", '')`);
+		const p = eq(prop("patient", "full_name"), literal("'"));
+		expect(emitCaseListFilter(p)).toBe(`full_name = concat('', "'", '')`);
 	});
 
 	it("emits embedded double quote with single-quoted wrap", () => {
-		const p = eq(prop("patient", "name"), literal('say "hello"'));
-		expect(emitCaseListFilter(p)).toBe(`name = 'say "hello"'`);
+		const p = eq(prop("patient", "full_name"), literal('say "hello"'));
+		expect(emitCaseListFilter(p)).toBe(`full_name = 'say "hello"'`);
 	});
 
 	it("emits both-quote-styles via concat()", () => {
-		const p = eq(prop("patient", "name"), literal(`it's "quoted"`));
+		const p = eq(prop("patient", "full_name"), literal(`it's "quoted"`));
 		expect(emitCaseListFilter(p)).toBe(
-			`name = concat('it', "'", 's "quoted"')`,
+			`full_name = concat('it', "'", 's "quoted"')`,
 		);
 	});
 });
@@ -285,18 +287,24 @@ describe("emitCaseListFilter — in (set membership)", () => {
 		// Or-of-equalities preserves each value as a single equality
 		// RHS, so spaces inside a value are wire-side opaque.
 		const p = isIn(
-			prop("patient", "name"),
+			prop("patient", "full_name"),
 			literal("Alice Smith"),
 			literal("Bob Jones"),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"(name = 'Alice Smith' or name = 'Bob Jones')",
+			"(full_name = 'Alice Smith' or full_name = 'Bob Jones')",
 		);
 	});
 
 	it("emits multi-value in with mixed null + string values", () => {
-		const p = isIn(prop("patient", "name"), literal(null), literal("Alice"));
-		expect(emitCaseListFilter(p)).toBe("(name = '' or name = 'Alice')");
+		const p = isIn(
+			prop("patient", "full_name"),
+			literal(null),
+			literal("Alice"),
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"(full_name = '' or full_name = 'Alice')",
+		);
 	});
 
 	it("emits multi-value in with numeric literals as bare XPath numbers", () => {
@@ -312,10 +320,10 @@ describe("emitCaseListFilter — when-input-present", () => {
 		// exclude every case on input-unset.
 		const p = whenInput(
 			input("name_query"),
-			eq(prop("patient", "name"), input("name_query")),
+			eq(prop("patient", "full_name"), input("name_query")),
 		);
 		expect(emitCaseListFilter(p)).toBe(
-			"if(count(instance('search-input:results')/input/field[@name='name_query']), name = instance('search-input:results')/input/field[@name='name_query'], true())",
+			"if(count(instance('search-input:results')/input/field[@name='name_query']), full_name = instance('search-input:results')/input/field[@name='name_query'], true())",
 		);
 	});
 
@@ -335,8 +343,8 @@ describe("emitCaseListFilter — when-input-present", () => {
 
 describe("emitCaseListFilter — is-blank", () => {
 	it("emits is-blank against a property reference as prop = ''", () => {
-		const p = isBlank(prop("patient", "name"));
-		expect(emitCaseListFilter(p)).toBe("name = ''");
+		const p = isBlank(prop("patient", "full_name"));
+		expect(emitCaseListFilter(p)).toBe("full_name = ''");
 	});
 
 	it("emits is-blank against a search-input reference as input = ''", () => {
@@ -483,18 +491,18 @@ describe("emitCaseListFilter — multi-select-contains", () => {
 
 describe("emitCaseListFilter — match", () => {
 	it("emits mode=starts-with as starts-with(prop, 'v')", () => {
-		const p = match(prop("patient", "name"), "Ali", "starts-with");
-		expect(emitCaseListFilter(p)).toBe("starts-with(name, 'Ali')");
+		const p = match(prop("patient", "full_name"), "Ali", "starts-with");
+		expect(emitCaseListFilter(p)).toBe("starts-with(full_name, 'Ali')");
 	});
 
 	it("emits mode=fuzzy as fuzzy-match(prop, 'v')", () => {
-		const p = match(prop("patient", "name"), "alice", "fuzzy");
-		expect(emitCaseListFilter(p)).toBe("fuzzy-match(name, 'alice')");
+		const p = match(prop("patient", "full_name"), "alice", "fuzzy");
+		expect(emitCaseListFilter(p)).toBe("fuzzy-match(full_name, 'alice')");
 	});
 
 	it("emits mode=phonetic as phonetic-match(prop, 'v')", () => {
-		const p = match(prop("patient", "name"), "alice", "phonetic");
-		expect(emitCaseListFilter(p)).toBe("phonetic-match(name, 'alice')");
+		const p = match(prop("patient", "full_name"), "alice", "phonetic");
+		expect(emitCaseListFilter(p)).toBe("phonetic-match(full_name, 'alice')");
 	});
 
 	it("emits mode=fuzzy-date as fuzzy-date(prop, 'v')", () => {
@@ -503,9 +511,9 @@ describe("emitCaseListFilter — match", () => {
 	});
 
 	it("routes the match value through quoteLiteral for embedded quote escape", () => {
-		const p = match(prop("patient", "name"), "O'Brien", "starts-with");
+		const p = match(prop("patient", "full_name"), "O'Brien", "starts-with");
 		expect(emitCaseListFilter(p)).toBe(
-			`starts-with(name, concat('O', "'", 'Brien'))`,
+			`starts-with(full_name, concat('O', "'", 'Brien'))`,
 		);
 	});
 });
@@ -572,12 +580,12 @@ describe("emitCaseListFilter — is-null", () => {
 	// CCHQ wire string.
 
 	it("emits is-null against a property reference as prop = ''", () => {
-		const p = isNull(prop("patient", "name"));
-		expect(emitCaseListFilter(p)).toBe("name = ''");
+		const p = isNull(prop("patient", "full_name"));
+		expect(emitCaseListFilter(p)).toBe("full_name = ''");
 	});
 
 	it("emits is-null identically to is-blank for the same operand", () => {
-		const left = prop("patient", "name");
+		const left = prop("patient", "full_name");
 		expect(emitCaseListFilter(isNull(left))).toBe(
 			emitCaseListFilter(isBlank(left)),
 		);
@@ -762,8 +770,11 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 	it("emits exists(self, filter) as the filter alone", () => {
 		// An existence check with no traversal is just the filter
 		// running against the current case.
-		const p = exists(selfPath(), eq(prop("patient", "name"), literal("Alice")));
-		expect(emitCaseListFilter(p)).toBe("name = 'Alice'");
+		const p = exists(
+			selfPath(),
+			eq(prop("patient", "full_name"), literal("Alice")),
+		);
+		expect(emitCaseListFilter(p)).toBe("full_name = 'Alice'");
 	});
 
 	it("emits exists(self) with no filter as true()", () => {
@@ -784,9 +795,9 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 		// of <filter> evaluated on the current case.
 		const p = missing(
 			selfPath(),
-			eq(prop("patient", "name"), literal("Alice")),
+			eq(prop("patient", "full_name"), literal("Alice")),
 		);
-		expect(emitCaseListFilter(p)).toBe("not(name = 'Alice')");
+		expect(emitCaseListFilter(p)).toBe("not(full_name = 'Alice')");
 	});
 
 	// ----------------------------------------------------------
@@ -878,8 +889,8 @@ describe("emitCaseListFilter — defensive throws on structural-bypass shapes", 
 
 describe("emitCaseListFilter — term-arm operand (happy path)", () => {
 	it("emits a property reference in a comparison's left operand", () => {
-		const p = eq(prop("patient", "name"), literal("Alice"));
-		expect(emitCaseListFilter(p)).toMatch(/^name = /);
+		const p = eq(prop("patient", "full_name"), literal("Alice"));
+		expect(emitCaseListFilter(p)).toMatch(/^full_name = /);
 	});
 
 	it("emits a search-input reference in a comparison's right operand", () => {

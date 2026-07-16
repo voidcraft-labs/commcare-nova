@@ -29,9 +29,11 @@ import tablerTextSize from "@iconify-icons/tabler/text-size";
 import type { ComponentType } from "react";
 import type { CaseProperty, CaseType } from "@/lib/domain";
 import {
+	authorableCaseProperties,
 	type Column,
 	type ColumnKind,
 	calculatedColumn,
+	canonicalCasePropertyName,
 	columnKindAcceptsPropertyType,
 	dateColumn,
 	effectiveDataType,
@@ -87,12 +89,9 @@ export interface ColumnEditContext {
  * applies regardless of property — the kind picker stays open
  * across every property choice.
  *
- * `applicabilityRequirement` names the kind's property-type
- * requirement in human-readable form. Surfaces in the inline
- * mismatch hint when `applicableForProperty(...)` returns false
- * — e.g. "Interval columns require a date-typed property; "name"
- * is text." For kinds that accept any property, the field is
- * `null` (no requirement, no hint to render).
+ * `applicabilityRequirement` names the compatible information in plain
+ * language for the display-kind menu. For kinds that accept anything, the
+ * field is `null` (no requirement, no hint to render).
  */
 export interface ColumnCardSchema<K extends ColumnKind> {
 	readonly kind: K;
@@ -161,7 +160,7 @@ function pickFirstProperty(
 ): string {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	if (ct === undefined) return "";
-	const property = ct.properties.find(predicate);
+	const property = authorableCaseProperties(ct.properties).find(predicate);
 	return property?.name ?? "";
 }
 
@@ -212,7 +211,7 @@ export const columnCardSchemas: {
 		defaultValue: (ctx) =>
 			dateColumn(newUuid(), pickFirstDate(ctx), "", "%Y-%m-%d"),
 		applicableForProperty: applicableFor("date"),
-		applicabilityRequirement: "a date-typed property",
+		applicabilityRequirement: "date or date-and-time information",
 	},
 	phone: {
 		kind: "phone",
@@ -222,7 +221,7 @@ export const columnCardSchemas: {
 		component: PhoneColumnCard,
 		defaultValue: (ctx) => phoneColumn(newUuid(), pickFirstText(ctx), ""),
 		applicableForProperty: applicableFor("phone"),
-		applicabilityRequirement: "a text-typed property",
+		applicabilityRequirement: "text or choice information",
 	},
 	"id-mapping": {
 		kind: "id-mapping",
@@ -262,7 +261,7 @@ export const columnCardSchemas: {
 				"",
 			),
 		applicableForProperty: applicableFor("interval"),
-		applicabilityRequirement: "a date-typed property",
+		applicabilityRequirement: "date or date-and-time information",
 	},
 	calculated: {
 		kind: "calculated",
@@ -300,7 +299,9 @@ export function resolveColumnPropertyDataType(
 	if (field === "") return undefined;
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	if (ct === undefined) return undefined;
-	const property = ct.properties.find((p) => p.name === field);
+	const property = authorableCaseProperties(ct.properties).find(
+		(p) => p.name === canonicalCasePropertyName(field),
+	);
 	if (property === undefined) return undefined;
 	return effectiveDataType(property);
 }
@@ -323,5 +324,7 @@ export function resolveColumnProperty(
 	if (field === "") return undefined;
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	if (ct === undefined) return undefined;
-	return ct.properties.find((p) => p.name === field);
+	return authorableCaseProperties(ct.properties).find(
+		(p) => p.name === canonicalCasePropertyName(field),
+	);
 }

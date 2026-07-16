@@ -19,7 +19,7 @@
 //
 //   1. `applicableSortTypes` — per-`data_type` table.
 //   2. `buildSortDirectives` — sortable-column collection, priority
-//      ordering, tie-break to display order, comparator-type
+//      ordering, tie-break to Results order, comparator-type
 //      derivation per kind, calc-column expression typing.
 //   3. The three calc-column fallback shapes — separate tests per
 //      shape, never collapsed.
@@ -97,12 +97,10 @@ function buildDoc(args: {
 }
 
 /**
- * Assemble a `Module` carrying the supplied columns under a fixed
- * uuid + case type. The factory keeps the column array as the
- * source-of-truth for display order, which the sort-directive
- * builder uses for tie-breaks. Each `columns` entry's `uuid` slot
- * is a tag the test reads back through (the column carries its
- * own uuid; the wrapper exists for test-fixture readability).
+ * Assemble a `Module` carrying the supplied column membership under a fixed
+ * uuid + case type. Results order comes from each column's
+ * `listOrder ?? order` key; the wrapper's `uuid` is only a readable test tag
+ * because each column already carries its own uuid.
  */
 function makeModule(args: {
 	readonly caseType?: string;
@@ -257,9 +255,9 @@ describe("buildSortDirectives — priority ordering", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			columns: [
-				{ uuid: "a", column: colA },
 				{ uuid: "b", column: colB },
 				{ uuid: "c", column: colC },
+				{ uuid: "a", column: colA },
 			],
 		});
 		const doc = buildDoc({
@@ -280,28 +278,69 @@ describe("buildSortDirectives — priority ordering", () => {
 	});
 });
 
-describe("buildSortDirectives — tie-break to display order", () => {
-	it("breaks priority ties by source-array index — earlier display wins", () => {
-		// Three columns at the same priority. The sorted order is the
-		// source-array order; orders 1, 2, 3 get assigned in that
-		// sequence.
+describe("buildSortDirectives — tie-break to Results order", () => {
+	it("uses Results order for priority ties and ignores the independent Details order", () => {
+		const colA = plainColumn(
+			asUuid("00000000-0000-4000-8000-aaaa00000033"),
+			"a",
+			"A",
+			{
+				sort: { direction: "asc", priority: 0 },
+				listOrder: "b",
+				detailOrder: "a",
+			},
+		);
+		const colB = plainColumn(
+			asUuid("00000000-0000-4000-8000-aaaa00000034"),
+			"b",
+			"B",
+			{
+				sort: { direction: "asc", priority: 0 },
+				listOrder: "a",
+				detailOrder: "b",
+			},
+		);
+		const mod = makeModule({
+			caseType: "patient",
+			columns: [
+				{ uuid: "a", column: colA },
+				{ uuid: "b", column: colB },
+			],
+		});
+		const doc = buildDoc({
+			module: mod,
+			caseType: "patient",
+			properties: [
+				{ name: "a", data_type: "text" },
+				{ name: "b", data_type: "text" },
+			],
+		});
+
+		const directives = buildSortDirectives(mod, doc);
+		expect(directives.get(colB.uuid)?.order).toBe(1);
+		expect(directives.get(colA.uuid)?.order).toBe(2);
+	});
+
+	it("breaks priority ties by Results order — earlier display wins", () => {
+		// Three columns at the same priority. Explicit Results order A, B, C
+		// determines wire orders 1, 2, 3 regardless of membership position.
 		const colA = plainColumn(
 			asUuid("00000000-0000-4000-8000-aaaa00000030"),
 			"a",
 			"A",
-			{ sort: { direction: "asc", priority: 0 } },
+			{ sort: { direction: "asc", priority: 0 }, listOrder: "a" },
 		);
 		const colB = plainColumn(
 			asUuid("00000000-0000-4000-8000-aaaa00000031"),
 			"b",
 			"B",
-			{ sort: { direction: "asc", priority: 0 } },
+			{ sort: { direction: "asc", priority: 0 }, listOrder: "b" },
 		);
 		const colC = plainColumn(
 			asUuid("00000000-0000-4000-8000-aaaa00000032"),
 			"c",
 			"C",
-			{ sort: { direction: "asc", priority: 0 } },
+			{ sort: { direction: "asc", priority: 0 }, listOrder: "c" },
 		);
 		const mod = makeModule({
 			caseType: "patient",
@@ -327,26 +366,26 @@ describe("buildSortDirectives — tie-break to display order", () => {
 	});
 
 	it("interleaves priority + tie-break: shared-priority pairs respect display order, lower-priority block runs first", () => {
-		// Display order: A (priority 1), B (priority 0), C (priority 1).
+		// Results order: A (priority 1), B (priority 0), C (priority 1).
 		// Sort: B (priority 0, order 1), A (priority 1, display 0,
 		// order 2), C (priority 1, display 2, order 3).
 		const colA = plainColumn(
 			asUuid("00000000-0000-4000-8000-aaaa00000040"),
 			"a",
 			"A",
-			{ sort: { direction: "asc", priority: 1 } },
+			{ sort: { direction: "asc", priority: 1 }, listOrder: "a" },
 		);
 		const colB = plainColumn(
 			asUuid("00000000-0000-4000-8000-aaaa00000041"),
 			"b",
 			"B",
-			{ sort: { direction: "asc", priority: 0 } },
+			{ sort: { direction: "asc", priority: 0 }, listOrder: "b" },
 		);
 		const colC = plainColumn(
 			asUuid("00000000-0000-4000-8000-aaaa00000042"),
 			"c",
 			"C",
-			{ sort: { direction: "asc", priority: 1 } },
+			{ sort: { direction: "asc", priority: 1 }, listOrder: "c" },
 		);
 		const mod = makeModule({
 			caseType: "patient",

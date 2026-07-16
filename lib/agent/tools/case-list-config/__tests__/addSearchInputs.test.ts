@@ -95,14 +95,18 @@ describe("addSearchInputs", () => {
 			doc,
 		);
 
-		// One granular `addSearchInput` per input now, not a single wholesale patch.
-		expect(result.mutations).toHaveLength(2);
-		expect(result.mutations.every((m) => m.kind === "addSearchInput")).toBe(
-			true,
-		);
+		// First search authoring also creates the one empty chrome config that
+		// makes the search surface real on export, followed by one granular add
+		// per input.
+		expect(result.mutations.map((mutation) => mutation.kind)).toEqual([
+			"setCaseSearchMarker",
+			"addSearchInput",
+			"addSearchInput",
+		]);
 		const inputs =
 			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
 		expect(inputs.map((i) => i.kind)).toEqual(["simple", "advanced"]);
+		expect(result.newDoc.modules[MOD_A]?.caseSearchConfig).toEqual({});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expect(result.result.uuids).toEqual(inputs.map((i) => i.uuid));
 	});

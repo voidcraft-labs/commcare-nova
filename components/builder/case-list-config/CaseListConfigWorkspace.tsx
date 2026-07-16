@@ -1,11 +1,11 @@
 // components/builder/case-list-config/CaseListConfigWorkspace.tsx
 //
-// The unified case-list authoring workspace — three focused config
-// tabs (Search / Case List / Case Detail). Search depicts the running
-// search screen; List and Detail use screen-specific vertical outlines
-// that separate visible fields from supporting fields. Clicking a thing
-// configures it in the right-rail inspector; both screen outlines link to
-// the inspector's one complete, shared field-order stack. The tab IS the URL (`/cases`,
+// The unified case-list authoring workspace — three focused config tabs
+// (Search / Results / Details). Each canvas is a direct composition surface:
+// drag the visible rows where workers will see them, add information
+// in place, and compose the default case ordering as a readable sentence.
+// Selecting one item opens its data source and formatting in the right rail.
+// The tab IS the URL (`/cases`,
 // `/search-config`, `/detail-config`), so tab switches are ordinary
 // history navigation and deep links land on the right canvas. The
 // run-through lives behind the chrome's global Preview toggle —
@@ -19,9 +19,9 @@
 // destroys effects) or the selection clears (Esc, the rail's close
 // affordances, tab switches).
 //
-// Edits flow through `updateModule(uuid, { caseListConfig })` /
-// `{ caseSearchConfig }` against the doc store — the same wholesale
-// per-slot contract the magazine-era workspace used.
+// Content edits flow through the doc store's gated mutations. Search-surface
+// birth/death and filter-only shutdown use granular semantic batches so a
+// stale autosave cannot overwrite a peer's newer search settings.
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
@@ -34,7 +34,6 @@ import { ContentFrame } from "@/components/builder/ContentFrame";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
 import { EditableTitle } from "@/components/builder/EditableTitle";
 import { InspectorSurface } from "@/components/builder/inspector/InspectorSurface";
-import { RemoveRow } from "@/components/builder/inspector/inspectorChrome";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
@@ -42,17 +41,25 @@ import {
 	useMaterializableCaseTypes,
 } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule } from "@/lib/doc/hooks/useEntity";
-import { appendOrderKey, sequenceOrderKeys } from "@/lib/doc/order/append";
+import { appendOrderKey } from "@/lib/doc/order/append";
+import type { ColumnSurface } from "@/lib/doc/order/columnSurface";
 import { bySortKey } from "@/lib/doc/order/compare";
-import type { Uuid } from "@/lib/doc/types";
-import type {
-	CaseListConfig,
-	CaseSearchConfig,
-	Column,
-	SearchInputDef,
+import type { Mutation, Uuid } from "@/lib/doc/types";
+import {
+	type CaseListConfig,
+	type CaseSearchConfig,
+	type Column,
+	type CommitOutcome,
+	caseSearchConfigHasAuthoredSettings,
+	DEFAULT_CASE_SEARCH_TITLE,
+	type SearchInputDef,
 } from "@/lib/domain";
+import {
+	effectiveFilterForEmission,
+	type Predicate,
+} from "@/lib/domain/predicate";
 import { useNavigate } from "@/lib/routing/hooks";
-import { useAppId } from "@/lib/session/hooks";
+import { useAppId, useCanEdit } from "@/lib/session/hooks";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
 import { ColumnEditor } from "./ColumnEditor";
 import { CaseListCanvas } from "./canvas/CaseListCanvas";
@@ -67,10 +74,13 @@ import { ListPanelInspectorBody } from "./inspector/ListPanelInspectorBody";
 import { SearchInputEditor } from "./inspector/SearchInputEditor";
 import { SearchPanelInspectorBody } from "./inspector/SearchPanelInspectorBody";
 import { withPreservedIdentity } from "./preserveIdentity";
-import { seedColumn, seedSearchInput } from "./seeds";
-import { resolveSortedColumns, sortPositionByUuid } from "./sortPriority";
+import { labelFromProperty, seedColumn, seedSearchInput } from "./seeds";
 import { useCaseListPreview } from "./useCaseListPreview";
 import { useSampleData } from "./useSampleData";
+import {
+	pruneStoppedSortOrphans,
+	removeColumnFromDisplay,
+} from "./workspaceProjection";
 import type { WorkspaceSelection } from "./workspaceSelection";
 
 // ── Public types ──────────────────────────────────────────────────
@@ -102,11 +112,26 @@ const EMPTY_VERDICTS = {
 	previewObstacle: null,
 } as const;
 
-/** Re-key a reordered sequence so each item's `order` reflects the new order —
- *  the auto-save diff reads the order key, not array position. */
-function resequence<T extends { order?: string }>(items: readonly T[]): T[] {
-	const keys = sequenceOrderKeys(items.length);
-	return items.map((item, i) => ({ ...item, order: keys[i] }));
+/** Append to the active surface's resolved sequence, including legacy columns
+ * that still use the shared `order` fallback. */
+function appendSurfaceOrderKey(
+	columns: readonly Column[],
+	surface: ColumnSurface,
+): string {
+	const visible = columns.filter((column) =>
+		surface === "list"
+			? column.visibleInList !== false
+			: column.visibleInDetail !== false,
+	);
+	return appendOrderKey(
+		visible.map((column) => ({
+			uuid: column.uuid,
+			order:
+				surface === "list"
+					? (column.listOrder ?? column.order)
+					: (column.detailOrder ?? column.order),
+		})),
+	);
 }
 
 // ── Top-level component ───────────────────────────────────────────
@@ -127,8 +152,15 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 	 * commit gate validates against (see the hook doc). */
 	const caseTypes = useEffectiveCaseTypes();
 	const appId = useAppId() ?? "";
+	const canEdit = useCanEdit();
 	const navigate = useNavigate();
-	const { updateModule, inline } = useBlueprintMutations();
+	const {
+		updateModule,
+		moveColumnOnSurface,
+		moveSearchInputToIndex,
+		commitMany,
+		inline,
+	} = useBlueprintMutations();
 
 	const caseType = mod?.caseType;
 	const config = mod?.caseListConfig ?? EMPTY_CONFIG;
@@ -224,7 +256,8 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		(ct?.properties.length ?? 0) === 0 ? PROPERTYLESS_HINT : undefined;
 
 	const replaceColumn = (uuid: string, next: Column) => {
-		// Carry the existing `uuid` + `order` forward — see `withPreservedIdentity`.
+		// Carry identity and all display-order keys forward — see
+		// `withPreservedIdentity`.
 		updateConfig({
 			...config,
 			columns: config.columns.map((c) =>
@@ -232,35 +265,66 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 			),
 		});
 	};
-	const removeColumn = (uuid: string) => {
-		updateConfig({
-			...config,
-			columns: config.columns.filter((c) => c.uuid !== uuid),
-		});
-		deselect();
-	};
-	const addColumn = (slots?: { visibleInList?: boolean }) => {
+	const addColumn = (surface: ColumnSurface) => {
 		// Smart seed — bound to an unused property, human-worded header,
 		// date-formatted when the property is date-shaped. A blank seed
 		// would render "untitled" and demand three edits before the
 		// canvas looks right; this one is presentable as it lands.
-		const seed = seedColumn(config, ct, slots);
+		const seed = seedColumn(
+			config,
+			ct,
+			surface === "list"
+				? { visibleInDetail: false }
+				: { visibleInList: false },
+		);
 		if (seed === undefined) return;
-		// Append after the last column in DISPLAY order — the absolute `order`
-		// key is what the auto-save diff reads, not the array position.
-		const seeded = { ...seed, order: appendOrderKey(config.columns) };
+		const seeded = {
+			...seed,
+			order: appendOrderKey(config.columns),
+			...(surface === "list"
+				? { listOrder: appendSurfaceOrderKey(config.columns, "list") }
+				: { detailOrder: appendSurfaceOrderKey(config.columns, "detail") }),
+		} as Column;
 		updateConfig({ ...config, columns: [...config.columns, seeded] });
 		setSel({ type: "column", uuid: seeded.uuid });
 	};
-	const reorderColumns = (next: readonly Column[]) => {
-		// Re-key the whole sequence so the `order` keys reflect the new order —
-		// the diff detects a reorder by an order-key change, not array position,
-		// so a key-less shuffle would be silently dropped on save.
-		updateConfig({ ...config, columns: resequence(next) });
+	const moveColumn = (
+		surface: ColumnSurface,
+		uuid: Column["uuid"],
+		toIndex: number,
+	) => moveColumnOnSurface(moduleUuid, uuid, surface, toIndex);
+	const updateColumns = (next: readonly Column[]) => {
+		updateConfig({
+			...config,
+			columns: pruneStoppedSortOrphans(config.columns, next),
+		});
+	};
+	const removeColumnFromSurface = (surface: ColumnSurface, column: Column) => {
+		updateConfig({
+			...config,
+			columns: removeColumnFromDisplay(config.columns, column.uuid, surface),
+		});
+		deselect();
+	};
+	const showColumn = (surface: ColumnSurface, column: Column) => {
+		const order = appendSurfaceOrderKey(config.columns, surface);
+		updateConfig({
+			...config,
+			columns: config.columns.map((candidate) => {
+				if (candidate.uuid !== column.uuid) return candidate;
+				if (surface === "list") {
+					const { visibleInList: _visibility, ...rest } = candidate;
+					return { ...rest, listOrder: order } as Column;
+				}
+				const { visibleInDetail: _visibility, ...rest } = candidate;
+				return { ...rest, detailOrder: order } as Column;
+			}),
+		});
+		setSel({ type: "column", uuid: column.uuid });
 	};
 
 	const replaceInput = (uuid: string, next: SearchInputDef) => {
-		// Carry the existing `uuid` + `order` forward — see `withPreservedIdentity`.
+		// Carry the existing identity + display order forward.
 		updateConfig({
 			...config,
 			searchInputs: config.searchInputs.map((s) =>
@@ -268,12 +332,38 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 			),
 		});
 	};
-	const removeInput = (uuid: string) => {
-		updateConfig({
-			...config,
-			searchInputs: config.searchInputs.filter((s) => s.uuid !== uuid),
-		});
-		deselect();
+	const removeInput = (
+		uuid: SearchInputDef["uuid"],
+		options?: { readonly discardSearchSettings?: boolean },
+	) => {
+		const remainingInputs = config.searchInputs.filter((s) => s.uuid !== uuid);
+		const removesSearchSurface =
+			remainingInputs.length === 0 &&
+			searchConfig !== undefined &&
+			(!caseSearchConfigHasAuthoredSettings(searchConfig) ||
+				options?.discardSearchSettings === true) &&
+			effectiveFilterForEmission(config.filter) === undefined;
+		const outcome = commitMany([
+			{ kind: "removeSearchInput", moduleUuid, uuid },
+			...(removesSearchSurface
+				? options?.discardSearchSettings === true
+					? ([
+							{
+								kind: "updateModule",
+								uuid: moduleUuid,
+								patch: { caseSearchConfig: null },
+							},
+						] satisfies Mutation[])
+					: ([
+							{
+								kind: "setCaseSearchMarker",
+								uuid: moduleUuid,
+								enabled: false,
+							},
+						] satisfies Mutation[])
+				: []),
+		]);
+		if (outcome.ok) deselect();
 	};
 	const addInput = () => {
 		// Smart seed — bound property, human label, widget matched to the
@@ -283,12 +373,47 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		const seed = seedSearchInput(config, ct);
 		if (seed === undefined) return;
 		const seeded = { ...seed, order: appendOrderKey(config.searchInputs) };
-		updateConfig({ ...config, searchInputs: [...config.searchInputs, seeded] });
-		setSel({ type: "input", uuid: seeded.uuid });
+		const outcome = commitMany([
+			{ kind: "setCaseSearchMarker", uuid: moduleUuid, enabled: true },
+			{ kind: "addSearchInput", moduleUuid, searchInput: seeded },
+		]);
+		// Never select an identity the gate refused to create. This matters when
+		// a concurrent filter edit makes a formerly-valid seed conflict.
+		if (outcome.ok) setSel({ type: "input", uuid: seeded.uuid });
 	};
-	const reorderInputs = (next: readonly SearchInputDef[]) => {
-		updateConfig({ ...config, searchInputs: resequence(next) });
-	};
+	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) =>
+		moveSearchInputToIndex(moduleUuid, uuid, toIndex);
+	const clearFilter = useCallback(
+		(nextFilter: Predicate | undefined) => {
+			const stopsAutomaticSearch =
+				config.searchInputs.length === 0 && searchConfig !== undefined;
+			return commitMany([
+				{
+					kind: "setCaseListMeta",
+					uuid: moduleUuid,
+					patch: { filter: nextFilter ?? null },
+				},
+				...(stopsAutomaticSearch
+					? caseSearchConfigHasAuthoredSettings(searchConfig)
+						? ([
+								{
+									kind: "updateModule",
+									uuid: moduleUuid,
+									patch: { caseSearchConfig: null },
+								},
+							] satisfies Mutation[])
+						: ([
+								{
+									kind: "setCaseSearchMarker",
+									uuid: moduleUuid,
+									enabled: false,
+								},
+							] satisfies Mutation[])
+					: []),
+			]);
+		},
+		[commitMany, config.searchInputs.length, moduleUuid, searchConfig],
+	);
 
 	// `currentCaseType` is required below. When the module has no case
 	// type this URL shouldn't surface — guard defensively so a
@@ -305,25 +430,14 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		caseTypes,
 		caseType,
 		appId,
-		moduleName: mod.name,
 		caseListOnly: mod.caseListOnly === true,
 		sampleData,
 		onConfigChange: updateConfig,
-		onReorderColumns: reorderColumns,
+		onClearFilter: clearFilter,
 		onSearchConfigChange: updateSearchConfig,
 		replaceColumn,
-		removeColumn,
 		replaceInput,
-		removeInput,
-		onSelectListPanel: () => setSel({ type: "list-panel" }),
 	});
-
-	const listFieldCount = config.columns.filter(
-		(c) => c.visibleInList !== false,
-	).length;
-	const detailFieldCount = config.columns.filter(
-		(c) => c.visibleInDetail !== false,
-	).length;
 
 	/* A `caseListOnly` module has no module screen (it would be an empty form
 	 * menu), so this workspace is its only home — carry the module identity
@@ -342,9 +456,6 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 			<WorkspaceTabs
 				header={moduleHeader}
 				tab={tab}
-				searchMeta={`${config.searchInputs.length} ${config.searchInputs.length === 1 ? "field" : "fields"}`}
-				listMeta={`${listFieldCount} ${listFieldCount === 1 ? "field" : "fields"}`}
-				detailMeta={`${detailFieldCount} ${detailFieldCount === 1 ? "field" : "fields"}`}
 				errorAreas={errorAreas}
 				onSelectTab={(next) => {
 					/* Tabs are no-ops when already active. */
@@ -365,20 +476,36 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					onSelect={setSel}
 					onAddInput={addInput}
 					addInputDisabledReason={addDisabledReason}
-					onReorderInputs={reorderInputs}
+					hasSearchSurface={config.searchInputs.length > 0}
+					hasAutomaticResultsFilter={
+						effectiveFilterForEmission(config.filter) !== undefined
+					}
+					finalInputRemovalNeedsConfirmation={
+						effectiveFilterForEmission(config.filter) === undefined &&
+						caseSearchConfigHasAuthoredSettings(searchConfig)
+					}
+					onMoveInput={moveInput}
+					onRemoveInput={removeInput}
 				/>
 			)}
 			{tab === "list" && (
 				<CaseListCanvas
 					config={config}
+					caseType={ct}
+					caseTypes={caseTypes}
 					brokenColumns={brokenColumns}
-					moduleName={mod.name}
 					preview={preview}
 					refreshing={previewFetching}
 					selection={sel}
 					onSelect={setSel}
-					onAddColumn={() => addColumn()}
+					onAddColumn={() => addColumn("list")}
 					addColumnDisabledReason={addDisabledReason}
+					onMoveColumn={(uuid, toIndex) => moveColumn("list", uuid, toIndex)}
+					onColumnsChange={updateColumns}
+					onRemoveColumn={(column) => removeColumnFromSurface("list", column)}
+					onShowColumn={(column) => showColumn("list", column)}
+					onOpenOptions={() => setSel({ type: "list-panel" })}
+					showOptions={canEdit || mod.caseListOnly === true}
 					generateSampleData={sampleData.generate}
 				/>
 			)}
@@ -389,8 +516,11 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					preview={preview}
 					selection={sel}
 					onSelect={setSel}
-					onAddDetailField={() => addColumn({ visibleInList: false })}
+					onAddDetailField={() => addColumn("detail")}
 					addDisabledReason={addDisabledReason}
+					onMoveColumn={(uuid, toIndex) => moveColumn("detail", uuid, toIndex)}
+					onRemoveColumn={(column) => removeColumnFromSurface("detail", column)}
+					onShowColumn={(column) => showColumn("detail", column)}
 					generate={sampleData.generate}
 				/>
 			)}
@@ -420,19 +550,13 @@ interface ResolveInspectorArgs {
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
 	readonly caseType: string;
 	readonly appId: string;
-	readonly moduleName: string;
 	readonly caseListOnly: boolean;
 	readonly sampleData: ReturnType<typeof useSampleData>;
 	readonly onConfigChange: (next: CaseListConfig) => void;
-	readonly onReorderColumns: (next: readonly Column[]) => void;
+	readonly onClearFilter: (next: Predicate | undefined) => CommitOutcome;
 	readonly onSearchConfigChange: (next: CaseSearchConfig) => void;
 	readonly replaceColumn: (uuid: string, next: Column) => void;
-	readonly removeColumn: (uuid: string) => void;
 	readonly replaceInput: (uuid: string, next: SearchInputDef) => void;
-	readonly removeInput: (uuid: string) => void;
-	/** Select the list panel — the column inspector's "arrange the
-	 *  sort order" affordance lands the user on the sort stack. */
-	readonly onSelectListPanel: () => void;
 }
 
 /**
@@ -451,37 +575,25 @@ function resolveInspector(args: ResolveInspectorArgs): {
 
 	switch (sel.type) {
 		case "column": {
-			// DISPLAY position (`sort-by-(order, uuid)`) for the "Column N of M"
-			// kicker, not array position.
 			const sortedCols = [...config.columns].sort(bySortKey);
-			const index = sortedCols.findIndex((c) => c.uuid === sel.uuid);
-			const column = sortedCols[index];
+			const column = sortedCols.find((c) => c.uuid === sel.uuid);
 			if (column === undefined) return null;
 			const title =
 				column.kind === "calculated"
-					? column.header || "Untitled Column"
-					: column.header || column.field || "Untitled Column";
+					? column.header || "Untitled field"
+					: column.header ||
+						labelFromProperty(column.field) ||
+						"Untitled field";
 			return {
-				kicker: `Column ${index + 1} of ${config.columns.length}`,
+				kicker: "Information",
 				title,
 				body: (
-					<>
-						<ColumnEditor
-							value={column}
-							onChange={(next) => args.replaceColumn(column.uuid, next)}
-							caseTypes={args.caseTypes}
-							currentCaseType={args.caseType}
-							sortedColumnCount={resolveSortedColumns(sortedCols).length}
-							sortPriorityPosition={sortPositionByUuid(sortedCols).get(
-								column.uuid,
-							)}
-							onEditSortOrder={args.onSelectListPanel}
-						/>
-						<RemoveRow
-							label="Remove Column"
-							onClick={() => args.removeColumn(column.uuid)}
-						/>
-					</>
+					<ColumnEditor
+						value={column}
+						onChange={(next) => args.replaceColumn(column.uuid, next)}
+						caseTypes={args.caseTypes}
+						currentCaseType={args.caseType}
+					/>
 				),
 			};
 		}
@@ -493,8 +605,8 @@ function resolveInspector(args: ResolveInspectorArgs): {
 			const input = sortedInputs[index];
 			if (input === undefined) return null;
 			return {
-				kicker: `Search field ${index + 1} of ${config.searchInputs.length}`,
-				title: input.label || input.name || "Untitled Field",
+				kicker: "Search field",
+				title: input.label || labelFromProperty(input.name) || "Untitled field",
 				body: (
 					<SearchInputEditor
 						value={input}
@@ -503,29 +615,39 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						caseTypes={args.caseTypes}
 						currentCaseType={args.caseType}
 						onChange={(next) => args.replaceInput(input.uuid, next)}
-						onRemove={() => args.removeInput(input.uuid)}
 					/>
 				),
 			};
 		}
 		case "filter":
 			return {
-				kicker: "Case list",
-				title: "Filter",
+				kicker: "Results",
+				title: "Cases included",
 				body: (
 					<FilterInspectorBody
 						config={config}
 						onChange={args.onConfigChange}
+						onClearFilter={args.onClearFilter}
+						stopsAutomaticSearch={
+							config.searchInputs.length === 0 &&
+							args.searchConfig !== undefined
+						}
+						discardsAutomaticSearchSettings={caseSearchConfigHasAuthoredSettings(
+							args.searchConfig,
+						)}
 						caseTypes={args.caseTypes}
 						currentCaseType={args.caseType}
 						appId={args.appId}
 					/>
 				),
 			};
-		case "search-panel":
+		case "search-panel": {
+			const hasVisibleSearchScreen = config.searchInputs.length > 0;
 			return {
-				kicker: "Search screen",
-				title: args.searchConfig?.searchScreenTitle ?? "Search",
+				kicker: hasVisibleSearchScreen ? "Search screen" : "Search",
+				title: hasVisibleSearchScreen
+					? (args.searchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE)
+					: "Automatic search rules",
 				body: (
 					<SearchPanelInspectorBody
 						value={args.searchConfig}
@@ -533,19 +655,20 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						caseTypes={args.caseTypes}
 						currentCaseType={args.caseType}
 						knownInputs={config.searchInputs}
+						hasVisibleSearchScreen={hasVisibleSearchScreen}
 					/>
 				),
 			};
+		}
 		case "list-panel":
 			return {
-				kicker: "Case list",
-				title: args.moduleName,
+				kicker: "Results",
+				title: "Options",
 				body: (
 					<ListPanelInspectorBody
 						moduleUuid={args.moduleUuid}
 						config={config}
 						onChange={args.onConfigChange}
-						onReorderColumns={args.onReorderColumns}
 						caseListOnly={args.caseListOnly}
 						sampleData={args.sampleData}
 					/>
@@ -558,9 +681,6 @@ function resolveInspector(args: ResolveInspectorArgs): {
 
 interface WorkspaceTabsProps {
 	readonly tab: CaseListWorkspaceTab;
-	readonly searchMeta: string;
-	readonly listMeta: string;
-	readonly detailMeta: string;
 	readonly errorAreas: CaseListConfigErrorAreas;
 	readonly onSelectTab: (next: CaseListWorkspaceTab) => void;
 	/** Optional module-identity row rendered above the tabs, inside the same
@@ -586,14 +706,14 @@ const TAB_DEFS: ReadonlyArray<{
 	{
 		id: "list",
 		icon: tablerListDetails,
-		label: "List",
-		accessibleLabel: "Case List",
+		label: "Results",
+		accessibleLabel: "Results",
 	},
 	{
 		id: "detail",
 		icon: tablerId,
-		label: "Detail",
-		accessibleLabel: "Case Detail",
+		label: "Details",
+		accessibleLabel: "Details",
 	},
 ];
 
@@ -604,34 +724,25 @@ const TAB_DEFS: ReadonlyArray<{
  */
 function WorkspaceTabs({
 	tab,
-	searchMeta,
-	listMeta,
-	detailMeta,
 	errorAreas,
 	onSelectTab,
 	header,
 }: WorkspaceTabsProps) {
-	const metas: Record<CaseListWorkspaceTab, string> = {
-		search: searchMeta,
-		list: listMeta,
-		detail: detailMeta,
-	};
 	/* The canvas narrows when the inspector docks (and again with both
-	 * sidebars open), so metadata drops by container width while the
-	 * concise Search / List / Detail labels ALWAYS remain visible. The
-	 * bar spans the column (sticky, border); its contents
-	 * sit in the workspace's shared ContentFrame — the same `5xl` frame
-	 * the case-list canvas, the breadcrumb strip, and the preview
-	 * run-through use, so every layer shares one left edge. */
+	 * sidebars open), so the concise Search / Results / Details labels must
+	 * remain visible. The
+	 * bar spans the column (sticky, border); its contents use the same `3xl`
+	 * frame as the composition canvases so navigation and content share a
+	 * calm, consistent width when either sidebar collapses. */
 	return (
 		<div className="sticky top-0 z-raised py-2.5 border-b border-nova-border bg-pv-bg/90 backdrop-blur-md">
-			<ContentFrame width="5xl" className="px-6">
+			<ContentFrame width="3xl" className="px-6">
 				{header}
 				<div className="flex items-center gap-1.5 @2xl:gap-2">
 					{TAB_DEFS.map(({ id, icon, label, accessibleLabel }) => {
 						const active = tab === id;
 						const hasErrors = errorAreas[id];
-						const accessibleName = `${accessibleLabel}, ${metas[id]}${
+						const accessibleName = `${accessibleLabel}${
 							hasErrors ? ", needs attention" : ""
 						}`;
 						return (
@@ -677,7 +788,7 @@ function WorkspaceTabs({
 									 *  label and bottom-weights the whole text block. Flex children
 									 *  size to their own line-height, so label + meta center as a
 									 *  unit against the icon. */}
-									<span className="flex min-w-0 flex-col gap-0.5">
+									<span className="flex min-w-0 flex-col">
 										{/* Grid stacks the visible label over an invisible bold
 										 *  ghost, so the slot is always as wide as the bold form —
 										 *  selecting a tab must never nudge its neighbors. */}
@@ -697,9 +808,6 @@ function WorkspaceTabs({
 											>
 												{label}
 											</span>
-										</span>
-										<span className="hidden @min-[40rem]:block truncate text-[10px] text-nova-text-muted leading-tight">
-											{metas[id]}
 										</span>
 									</span>
 								</button>

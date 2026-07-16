@@ -40,6 +40,8 @@ import {
 import { expandDoc } from "@/lib/commcare/expander";
 import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
 import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
+import { asUuid, calculatedColumn, plainColumn } from "@/lib/domain";
+import { prop, toValueExpression } from "@/lib/domain/predicate";
 
 // ── Fixture builders ───────────────────────────────────────────────
 
@@ -138,6 +140,162 @@ function moduleOf(app: HqApplication): HqModule {
 // ── Clean baseline ─────────────────────────────────────────────────
 
 describe("HQ-JSON oracle — clean baseline", () => {
+	it("accepts independently ordered short and long column arrays with list-indexed calculated sort", () => {
+		const name = plainColumn(
+			asUuid("00000000-0000-4000-8000-000000000091"),
+			"name",
+			"Name",
+			{ listOrder: "a", detailOrder: "b" },
+		);
+		const age = calculatedColumn(
+			asUuid("00000000-0000-4000-8000-000000000092"),
+			"Age",
+			toValueExpression(prop("patient", "age")),
+			{
+				sort: { direction: "asc", priority: 0 },
+				listOrder: "b",
+				detailOrder: "a",
+			},
+		);
+		const app = expandDoc(
+			buildDoc({
+				appName: "Independent details",
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListOnly: true,
+						caseListConfig: {
+							columns: [name, age],
+							searchInputs: [],
+						},
+					},
+				],
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [
+							{ name: "name", label: "Name", data_type: "text" },
+							{ name: "age", label: "Age", data_type: "int" },
+						],
+					},
+				],
+			}),
+		);
+
+		const details = app.modules[0].case_details;
+		expect(details.short.columns.map((column) => column.header.en)).toEqual([
+			"Name",
+			"Age",
+		]);
+		expect(details.long.columns.map((column) => column.header.en)).toEqual([
+			"Age",
+			"Name",
+		]);
+		// The calculated column is index 1 in the short array even though it is
+		// index 0 in long; CCHQ resolves this synthetic key against short only.
+		expect(details.short.sort_elements[0]?.field).toBe("_cc_calculated_1");
+		expect(validateHqJson(app)).toEqual([]);
+	});
+
+	it("keeps a Results sort carrier invisible and omits it from Details", () => {
+		const name = plainColumn(
+			asUuid("00000000-0000-4000-8000-000000000093"),
+			"name",
+			"Name",
+		);
+		const sortOnly = plainColumn(
+			asUuid("00000000-0000-4000-8000-000000000094"),
+			"external_id",
+			"External ID",
+			{
+				visibleInList: false,
+				visibleInDetail: false,
+				sort: { direction: "asc", priority: 0 },
+			},
+		);
+		const app = expandDoc(
+			buildDoc({
+				appName: "Sort-only field",
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListOnly: true,
+						caseListConfig: {
+							columns: [name, sortOnly],
+							searchInputs: [],
+						},
+					},
+				],
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [
+							{ name: "name", label: "Name", data_type: "text" },
+							{
+								name: "external_id",
+								label: "External ID",
+								data_type: "text",
+							},
+						],
+					},
+				],
+			}),
+		);
+
+		const details = app.modules[0].case_details;
+		expect(details.short.columns.map((column) => column.field)).toEqual([
+			"case_name",
+			"external_id",
+		]);
+		expect(details.short.columns[1].format).toBe("invisible");
+		expect(details.long.columns.map((column) => column.field)).toEqual([
+			"case_name",
+		]);
+		expect(details.short.sort_elements[0]?.field).toBe("external_id");
+		expect(validateHqJson(app)).toEqual([]);
+	});
+
+	it("joins attribute-backed sorts to their visible HQ column and drops useless hidden definitions", () => {
+		const status = plainColumn(
+			asUuid("00000000-0000-4000-8000-000000000095"),
+			"status",
+			"Case status",
+			{ sort: { direction: "asc", priority: 0 } },
+		);
+		const hidden = plainColumn(
+			asUuid("00000000-0000-4000-8000-000000000096"),
+			"external-id",
+			"External ID",
+			{ visibleInList: false, visibleInDetail: false },
+		);
+		const app = expandDoc(
+			buildDoc({
+				appName: "Canonical HQ fields",
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListOnly: true,
+						caseListConfig: {
+							columns: [status, hidden],
+							searchInputs: [],
+						},
+					},
+				],
+				caseTypes: [{ name: "patient", properties: [] }],
+			}),
+		);
+		const short = app.modules[0].case_details.short;
+
+		expect(short.columns.map((column) => column.field)).toEqual(["status"]);
+		expect(short.sort_elements.map((element) => element.field)).toEqual([
+			"status",
+		]);
+		expect(validateHqJson(app)).toEqual([]);
+	});
+
 	it("a hand-built minimal app passes clean", () => {
 		expect(validateHqJson(baselineApp())).toEqual([]);
 	});

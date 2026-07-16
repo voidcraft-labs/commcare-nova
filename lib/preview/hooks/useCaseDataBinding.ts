@@ -22,6 +22,7 @@
 
 import { useEffect, useState } from "react";
 import type { CaseListConfig, CaseType } from "@/lib/domain";
+import type { ValueExpression } from "@/lib/domain/predicate";
 import {
 	loadCaseDataAction,
 	loadCasesAction,
@@ -81,12 +82,17 @@ type LoadingState<T extends { kind: string }> =
  * to the existing filter-only path. It is a `Map` here and crosses
  * the wire as a plain object (`searchInputValuesToWire`) so the
  * Server Action call stays a plain-JSON body rather than multipart.
+ *
+ * Optional `excludedOwnerIdsExpression` remains a typed expression until the
+ * authenticated Server Action so session-backed values (notably the current
+ * worker id) resolve authoritatively before the local query is composed.
  */
 export function useCases(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
 	caseListConfig?: CaseListConfig;
 	inputValues?: SearchInputValues;
+	excludedOwnerIdsExpression?: ValueExpression;
 	caseTypes?: readonly CaseType[];
 }): {
 	state: LoadingState<LoadCasesResult>;
@@ -100,7 +106,14 @@ export function useCases(args: {
 	 *  not merely until the write returned. */
 	reload: () => Promise<void>;
 } {
-	const { appId, caseType, caseListConfig, inputValues, caseTypes } = args;
+	const {
+		appId,
+		caseType,
+		caseListConfig,
+		inputValues,
+		excludedOwnerIdsExpression,
+		caseTypes,
+	} = args;
 	return useReloadableResource<LoadingState<LoadCasesResult>>({
 		prepare: () =>
 			!appId || !caseType
@@ -115,6 +128,7 @@ export function useCases(args: {
 								inputValues: inputValues
 									? searchInputValuesToWire(inputValues)
 									: undefined,
+								excludedOwnerIdsExpression,
 							}),
 					},
 		loading: { kind: "loading" },
@@ -123,7 +137,14 @@ export function useCases(args: {
 			message: err instanceof Error ? err.message : "Failed to load cases.",
 		}),
 		keepStale: (prev) => prev.kind === "rows" || prev.kind === "empty",
-		deps: [appId, caseType, caseListConfig, inputValues, caseTypes],
+		deps: [
+			appId,
+			caseType,
+			caseListConfig,
+			inputValues,
+			excludedOwnerIdsExpression,
+			caseTypes,
+		],
 	});
 }
 

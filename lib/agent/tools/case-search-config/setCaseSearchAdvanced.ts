@@ -25,6 +25,7 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
+import { canonicalizeExpressionCaseProperties } from "../shared/canonicalCaseProperties";
 import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
@@ -99,9 +100,15 @@ export const setCaseSearchAdvancedTool = {
 			// assertions in `shared.ts` catch cluster-home omissions at
 			// compile time.
 			const existing = snapshotCaseSearchConfig(mod);
+			const advancedPatch = applyClusterPatch(input, ADVANCED_SLOT_NAMES);
+			if (advancedPatch.excludedOwnerIds !== undefined) {
+				advancedPatch.excludedOwnerIds = canonicalizeExpressionCaseProperties(
+					advancedPatch.excludedOwnerIds,
+				);
+			}
 			const nextConfig: CaseSearchConfig = {
 				...pickDisplayCluster(existing),
-				...applyClusterPatch(input, ADVANCED_SLOT_NAMES),
+				...advancedPatch,
 			};
 
 			const mutations = updateModuleMutations(mod, {

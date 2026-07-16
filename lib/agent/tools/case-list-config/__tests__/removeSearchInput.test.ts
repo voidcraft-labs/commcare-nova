@@ -91,6 +91,81 @@ describe("removeSearchInput", () => {
 		expect(result.result.remaining).toBe(1);
 	});
 
+	it("removes empty search chrome when the final input was the only search surface", async () => {
+		const { ctx } = makeCaseListFixture();
+		const doc = fixtureWithInputs();
+		const onlyInput = doc.modules[MOD_A].caseListConfig?.searchInputs[0];
+		if (onlyInput === undefined) throw new Error("fixture input missing");
+		const withOne = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[MOD_A]: {
+					...doc.modules[MOD_A],
+					caseSearchConfig: {},
+					caseListConfig: {
+						...(doc.modules[MOD_A].caseListConfig ?? {
+							columns: [],
+							searchInputs: [],
+						}),
+						searchInputs: [onlyInput],
+					},
+				},
+			},
+		} satisfies BlueprintDoc;
+		const result = await removeSearchInputTool.execute(
+			{ moduleIndex: 0, searchInputUuid: TARGET_UUID },
+			ctx,
+			withOne,
+		);
+
+		expect(result.newDoc.modules[MOD_A].caseSearchConfig).toBeUndefined();
+		expect(result.mutations.map((mutation) => mutation.kind)).toEqual([
+			"removeSearchInput",
+			"setCaseSearchMarker",
+		]);
+	});
+
+	it("keeps the final input and custom screen settings when removal would orphan them", async () => {
+		const { ctx } = makeCaseListFixture();
+		const doc = fixtureWithInputs();
+		const onlyInput = doc.modules[MOD_A].caseListConfig?.searchInputs[0];
+		if (onlyInput === undefined) throw new Error("fixture input missing");
+		const customized = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[MOD_A]: {
+					...doc.modules[MOD_A],
+					caseSearchConfig: { searchScreenTitle: "Find a patient" },
+					caseListConfig: {
+						...(doc.modules[MOD_A].caseListConfig ?? {
+							columns: [],
+							searchInputs: [],
+						}),
+						searchInputs: [onlyInput],
+					},
+				},
+			},
+		} satisfies BlueprintDoc;
+
+		const result = await removeSearchInputTool.execute(
+			{ moduleIndex: 0, searchInputUuid: TARGET_UUID },
+			ctx,
+			customized,
+		);
+
+		expect(result.mutations).toEqual([]);
+		expect(result.newDoc.modules[MOD_A].caseSearchConfig).toEqual({
+			searchScreenTitle: "Find a patient",
+		});
+		expect(
+			result.newDoc.modules[MOD_A].caseListConfig?.searchInputs,
+		).toHaveLength(1);
+		if (!("error" in result.result)) throw new Error("expected rejection");
+		expect(result.result.error).toMatch(/nothing to search by/i);
+	});
+
 	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithInputs();

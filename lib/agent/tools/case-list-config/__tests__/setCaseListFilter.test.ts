@@ -82,6 +82,23 @@ describe("setCaseListFilter", () => {
 		expect(finalConfig?.filter).toEqual(filter);
 	});
 
+	it("persists Nova's canonical standard-property names", async () => {
+		const { doc, ctx } = docWithConfig();
+		const filter = eq(prop("patient", "name"), literal("Ada"));
+
+		const result = await setCaseListFilterTool.execute(
+			{ moduleIndex: 0, filter },
+			ctx,
+			doc,
+		);
+
+		expect(result.newDoc.modules[MOD_A]?.caseListConfig?.filter).toEqual(
+			eq(prop("patient", "case_name"), literal("Ada")),
+		);
+		// Tool normalization must not rewrite its caller's object in place.
+		expect(filter).toEqual(eq(prop("patient", "name"), literal("Ada")));
+	});
+
 	it("surfaces the predicate kind in the structured result on a set", async () => {
 		// Mirrors the atomic-op family's `{ message, uuid }` contract:
 		// the SA reads the predicate's discriminator off `result.kind`
@@ -134,6 +151,42 @@ describe("setCaseListFilter", () => {
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
+		expect(result.result.kind).toBe("cleared");
+	});
+
+	it("atomically turns off filter-only automatic search when its final rule is cleared", async () => {
+		const { doc: baseDoc, ctx } = docWithConfig();
+		const doc: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				...baseDoc.modules,
+				[MOD_A]: {
+					...baseDoc.modules[MOD_A],
+					caseListConfig: {
+						...(baseDoc.modules[MOD_A].caseListConfig ?? {
+							columns: [],
+							searchInputs: [],
+						}),
+						filter: eq(prop("patient", "status"), literal("active")),
+					},
+					caseSearchConfig: {},
+				},
+			},
+		};
+
+		const result = await setCaseListFilterTool.execute(
+			{ moduleIndex: 0, filter: null },
+			ctx,
+			doc,
+		);
+
+		expect(result.mutations.map((mutation) => mutation.kind)).toEqual([
+			"setCaseListMeta",
+			"setCaseSearchMarker",
+		]);
+		expect(result.newDoc.modules[MOD_A].caseListConfig?.filter).toBeUndefined();
+		expect(result.newDoc.modules[MOD_A].caseSearchConfig).toBeUndefined();
+		if ("error" in result.result) throw new Error(result.result.error);
 		expect(result.result.kind).toBe("cleared");
 	});
 

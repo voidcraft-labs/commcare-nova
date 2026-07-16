@@ -72,6 +72,7 @@ export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 		containerKey,
 		containerKind: "concat",
 		items: value.parts,
+		getItemKey: nodeId,
 		onReorder: (next) => onChange(apply(next)),
 	});
 
@@ -101,6 +102,7 @@ export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 					// React state on the right row across reorders.
 					key={nodeId(part)}
 					index={i}
+					itemKey={nodeId(part)}
 					containerKey={containerKey}
 					containerKind="concat"
 					pendingDrop={pendingDrop}

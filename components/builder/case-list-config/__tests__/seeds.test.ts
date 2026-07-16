@@ -11,6 +11,7 @@ import type {
 	SearchInputDef,
 } from "@/lib/domain";
 import { simpleSearchInputDef } from "@/lib/domain";
+import { eq, literal, prop as propertyTerm } from "@/lib/domain/predicate";
 import {
 	labelFromProperty,
 	seedColumn,
@@ -32,9 +33,7 @@ function prop(
 	return { name, label: name, ...(data_type ? { data_type } : {}) };
 }
 
-function config(
-	overrides: Partial<Pick<CaseListConfig, "columns" | "searchInputs">> = {},
-): CaseListConfig {
+function config(overrides: Partial<CaseListConfig> = {}): CaseListConfig {
 	return { columns: [], searchInputs: [], ...overrides };
 }
 
@@ -116,6 +115,60 @@ describe("seedSearchInput", () => {
 		);
 	});
 
+	it("avoids a property already fixed by the Cases included rule", () => {
+		const seed = seedSearchInput(
+			config({
+				filter: eq(propertyTerm("client", "case_name"), literal("Alice")),
+			}),
+			CLIENT,
+		);
+		expect(seed && seed.kind === "simple" ? seed.property : "").toBe("age");
+	});
+
+	it("never seeds a second row from a CCHQ alias of an already-used value", () => {
+		const withAliases = caseType("client", [
+			prop("case_name"),
+			prop("name"),
+			prop("external_id"),
+			prop("external-id"),
+		]);
+		const first = seedSearchInput(config(), withAliases);
+		const second = seedSearchInput(
+			config({ searchInputs: first ? [first] : [] }),
+			withAliases,
+		);
+		expect(first && first.kind === "simple" ? first.property : "").toBe(
+			"case_name",
+		);
+		expect(second && second.kind === "simple" ? second.property : "").toBe(
+			"external_id",
+		);
+	});
+
+	it.each([
+		["name", "external_id"],
+		["external-id", "case_name"],
+		["date-opened", "case_name"],
+	])("treats legacy search target %s as its canonical property when seeding", (legacy, expected) => {
+		const properties = caseType("client", [
+			prop("case_name"),
+			prop("external_id"),
+			prop("date_opened", "datetime"),
+		]);
+		const existing = simpleSearchInputDef(
+			newUuid(),
+			"legacy",
+			"Legacy",
+			"text",
+			legacy,
+		);
+		const seed = seedSearchInput(
+			config({ searchInputs: [existing] }),
+			properties,
+		);
+		expect(seed && seed.kind === "simple" ? seed.property : "").toBe(expected);
+	});
+
 	it("seeds non-text widgets without a fuzzy mode", () => {
 		const dateOnly = caseType("visit", [prop("visit_date", "date")]);
 		const seed = seedSearchInput(config(), dateOnly);
@@ -187,6 +240,32 @@ describe("seedColumn", () => {
 	it("threads visibility slots through", () => {
 		const seed = seedColumn(config(), CLIENT, { visibleInList: false });
 		expect(seed?.visibleInList).toBe(false);
+	});
+
+	it.each([
+		["name", "external_id"],
+		["external-id", "case_name"],
+		["date-opened", "case_name"],
+	])("treats legacy column field %s as its canonical property when seeding", (legacy, expected) => {
+		const properties = caseType("client", [
+			prop("case_name"),
+			prop("external_id"),
+			prop("date_opened", "datetime"),
+		]);
+		const seed = seedColumn(
+			config({
+				columns: [
+					{
+						uuid: newUuid(),
+						kind: "plain",
+						field: legacy,
+						header: "Legacy",
+					},
+				],
+			}),
+			properties,
+		);
+		expect(seed && seed.kind !== "calculated" ? seed.field : "").toBe(expected);
 	});
 
 	it("returns undefined for a propertyless case type", () => {

@@ -26,10 +26,15 @@ import { asUuid } from "@/lib/doc/types";
 import {
 	type CaseType,
 	type Column,
+	calculatedColumn,
 	dateColumn,
+	idMappingColumn,
+	imageMapColumn,
 	intervalColumn,
 	phoneColumn,
+	plainColumn,
 } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/predicate";
 import { ColumnEditor } from "../../../ColumnEditor";
 
 const PATIENT: CaseType = {
@@ -43,6 +48,33 @@ const PATIENT: CaseType = {
 };
 
 const TEST_UUID = asUuid("00000000-0000-0000-0000-000000000001");
+
+const SURFACE_SLOTS = {
+	sort: { direction: "asc" as const, priority: 0 },
+	visibleInList: true,
+	visibleInDetail: true,
+	listOrder: "results-position",
+	detailOrder: "details-position",
+};
+
+const ORDERED_COLUMN_KINDS: readonly Column[] = [
+	plainColumn(TEST_UUID, "name", "Name", SURFACE_SLOTS),
+	phoneColumn(TEST_UUID, "phone", "Phone", SURFACE_SLOTS),
+	dateColumn(TEST_UUID, "dob", "Birthday", "short", SURFACE_SLOTS),
+	idMappingColumn(TEST_UUID, "name", "Name", [], SURFACE_SLOTS),
+	imageMapColumn(TEST_UUID, "name", "Name", [], SURFACE_SLOTS),
+	intervalColumn(
+		TEST_UUID,
+		"dob",
+		"Age",
+		7,
+		"days",
+		"always",
+		"Old",
+		SURFACE_SLOTS,
+	),
+	calculatedColumn(TEST_UUID, "Summary", term(literal("Ready")), SURFACE_SLOTS),
+];
 
 /** Render the editor and return the most-recent emitted Column.
  *  Trips the input via `focus → change → blur`; the BlurCommit
@@ -60,14 +92,31 @@ function emitFromEdit(
 			onChange={onChange}
 			caseTypes={[PATIENT]}
 			currentCaseType="patient"
-			sortedColumnCount={0}
-			sortPriorityPosition={undefined}
 		/>,
 	);
 	editFn(onChange);
 	expect(onChange).toHaveBeenCalled();
 	return onChange.mock.calls.at(-1)?.[0] as Column;
 }
+
+describe("display-item edits preserve independent screen positions", () => {
+	it.each(
+		ORDERED_COLUMN_KINDS.map((column) => [column.kind, column] as const),
+	)("%s label edits retain Results and Details order", (_kind, value) => {
+		const next = emitFromEdit(value, () => {
+			const input = screen.getByLabelText("Display label") as HTMLInputElement;
+			input.focus();
+			fireEvent.change(input, { target: { value: "Updated label" } });
+			fireEvent.blur(input);
+		});
+
+		expect(next.listOrder).toBe(SURFACE_SLOTS.listOrder);
+		expect(next.detailOrder).toBe(SURFACE_SLOTS.detailOrder);
+		expect(next.sort).toEqual(SURFACE_SLOTS.sort);
+		expect(next.visibleInList).toBe(true);
+		expect(next.visibleInDetail).toBe(true);
+	});
+});
 
 describe("DateColumnCard — pattern edits", () => {
 	it("clicking a preset commits the preset's pattern verbatim", () => {
@@ -86,7 +135,7 @@ describe("DateColumnCard — pattern edits", () => {
 		const value = dateColumn(TEST_UUID, "dob", "Birthday", "%d-%b-%Y");
 		const next = emitFromEdit(value, () => {
 			const input = screen.getByLabelText(
-				"Custom date pattern",
+				"Custom date format",
 			) as HTMLInputElement;
 			input.focus();
 			fireEvent.change(input, { target: { value: "%Y-%m" } });
@@ -210,7 +259,7 @@ describe("PhoneColumnCard — header edit", () => {
 	it("editing the header blur-commits the new value via phoneColumn", () => {
 		const value = phoneColumn(TEST_UUID, "phone", "Phone");
 		const next = emitFromEdit(value, () => {
-			const input = screen.getByLabelText("Column header") as HTMLInputElement;
+			const input = screen.getByLabelText("Display label") as HTMLInputElement;
 			input.focus();
 			fireEvent.change(input, { target: { value: "Contact number" } });
 			fireEvent.blur(input);

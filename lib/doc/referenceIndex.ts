@@ -1015,12 +1015,15 @@ export function planReferenceIndexMaintenance(
 		case "updateColumn":
 		case "removeColumn":
 		case "moveColumn":
+		case "moveColumnInList":
+		case "moveColumnInDetail":
 		case "addSearchInput":
 		case "updateSearchInput":
 		case "removeSearchInput":
 		case "moveSearchInput":
 			carriers.add(mut.moduleUuid);
 			break;
+		case "setCaseSearchMarker":
 		case "setCaseListMeta":
 			carriers.add(mut.uuid);
 			break;

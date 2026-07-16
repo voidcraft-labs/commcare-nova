@@ -18,11 +18,11 @@
 //      `evaluateColumnValue` — no AST evaluation in the preview
 //      layer.
 //   4. Search-input form mounts above the rows when the module's
-//      `caseListConfig.searchInputs` is non-empty; typing in the
-//      form re-fires `loadCasesAction` with the new `inputValues`
-//      bag (debounced 300 ms by the form). Clearing reverts the
-//      filter-only result set. Zero search inputs skips the form
-//      entirely so the `<search>` landmark is absent from the DOM.
+//      `caseListConfig.searchInputs` is non-empty; its authored button
+//      submits the latest input bag and only then re-fires
+//      `loadCasesAction`. Clearing reverts the filter-only result set.
+//      Zero search inputs skips the form entirely so the `<search>`
+//      landmark is absent from the DOM.
 //   5. Row click opens the case detail in place (detail fields
 //      configured → confirm step), and the detail's Continue fires
 //      `navigate.openForm` with the module's first form — the same
@@ -44,7 +44,14 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import {
+	eq,
+	literal,
+	prop,
+	sessionContext,
+	term,
+} from "@/lib/domain/predicate";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { Location } from "@/lib/routing/types";
 
@@ -107,6 +114,16 @@ vi.mock("@/lib/session/hooks", async () => {
 		useSetPreviewSelectedCase: () => vi.fn(),
 	};
 });
+
+vi.mock("@/lib/auth/hooks/useAuth", () => ({
+	useAuth: () => ({
+		user: {
+			id: "owner-test",
+			name: "Preview Worker",
+			email: "preview@example.org",
+		},
+	}),
+}));
 
 // Server Actions live in a `"use server"` module. Mock the action
 // directly so the screen renders synchronously without spinning up
@@ -193,6 +210,10 @@ function renderCaseListScreen(opts: {
 			? X
 			: never
 		: never;
+	filter?: Predicate;
+	searchButtonLabel?: string;
+	searchButtonDisplayCondition?: Predicate;
+	excludedOwnerIds?: ValueExpression;
 	/** Add a second case-loading form (Close Case) to exercise the
 	 *  post-selection form menu. */
 	secondCaseLoadingForm?: boolean;
@@ -233,7 +254,26 @@ function renderCaseListScreen(opts: {
 						caseListConfig: {
 							columns: opts.columns,
 							searchInputs: opts.searchInputs ?? [],
+							...(opts.filter !== undefined && { filter: opts.filter }),
 						},
+						...(opts.searchButtonLabel !== undefined ||
+						opts.searchButtonDisplayCondition !== undefined ||
+						opts.excludedOwnerIds !== undefined
+							? {
+									caseSearchConfig: {
+										...(opts.searchButtonLabel !== undefined && {
+											searchButtonLabel: opts.searchButtonLabel,
+										}),
+										...(opts.searchButtonDisplayCondition !== undefined && {
+											searchButtonDisplayCondition:
+												opts.searchButtonDisplayCondition,
+										}),
+										...(opts.excludedOwnerIds !== undefined && {
+											excludedOwnerIds: opts.excludedOwnerIds,
+										}),
+									},
+								}
+							: {}),
 					},
 				},
 				forms: {
@@ -361,6 +401,50 @@ describe("CaseListScreen — visibleInList filter", () => {
 			expect(screen.getByText("Alice")).toBeDefined();
 			expect(screen.getByText("30")).toBeDefined();
 		});
+	});
+});
+
+// ── Independent Results / Details order ─────────────────────────
+
+describe("CaseListScreen — per-surface field order", () => {
+	it("reorders Results without rearranging the Details screen", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValueOnce({
+			kind: "rows",
+			rows: [
+				makeRow(SELECTED_CASE_ID, {
+					name: "Alice",
+					age: 30,
+				}),
+			],
+		});
+		const { container } = renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "name", "Name", {
+					listOrder: "b",
+					detailOrder: "a",
+				}),
+				plainColumn(COL_AGE_UUID, "age", "Age", {
+					listOrder: "a",
+					detailOrder: "b",
+				}),
+			],
+		});
+
+		const row = await screen.findByRole("button", { name: /Alice/ });
+		expect(
+			Array.from(row.querySelectorAll("[data-case-result-field]")).map((node) =>
+				node.getAttribute("data-case-result-field"),
+			),
+		).toEqual([COL_AGE_UUID, COL_NAME_UUID]);
+
+		fireEvent.click(row);
+		await screen.findByRole("heading", { name: "Alice" });
+		const detail = container.querySelector('[data-case-detail="responsive"]');
+		expect(
+			Array.from(
+				detail?.querySelectorAll("[data-case-detail-field]") ?? [],
+			).map((node) => node.getAttribute("data-case-detail-field")),
+		).toEqual([COL_NAME_UUID, COL_AGE_UUID]);
 	});
 });
 
@@ -567,14 +651,56 @@ function filterByNameInputValue(
 }
 
 describe("CaseListScreen — search-input form", () => {
+	const searchInput = simpleSearchInputDef(
+		SEARCH_NAME_UUID,
+		"name",
+		"Name",
+		"text",
+		"name",
+	);
+
+	it("hides Search when a nested static condition simplifies to false", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [ALICE_ROW],
+		});
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [searchInput],
+			searchButtonDisplayCondition: {
+				kind: "not",
+				clause: { kind: "match-all" },
+			},
+		});
+
+		await waitFor(() => expect(screen.getByLabelText("Name")).toBeDefined());
+		expect(screen.queryByRole("button", { name: "Search" })).toBeNull();
+	});
+
+	it("keeps Search visible for a dynamic condition the preview cannot prove false", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [ALICE_ROW],
+		});
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [searchInput],
+			searchButtonDisplayCondition: eq(
+				prop("patient", "case_name"),
+				literal("Alice"),
+			),
+		});
+
+		await waitFor(() =>
+			expect(screen.getByRole("button", { name: "Search" })).toBeDefined(),
+		);
+	});
+
 	it("renders the search landmark when searchInputs.length > 0", async () => {
 		// Single text input in the fixture's `searchInputs`. The
 		// representative input surfacing via `getByLabelText("Name")`
-		// is the structural signal that the form mounted. happy-dom
-		// emits the HTML5 `<search>` element verbatim but does not
-		// expose its implicit `role="search"` to ARIA queries
-		// (the tag is treated as an unrecognized element); checking
-		// the labelled input directly is the more portable assertion.
+		// is the structural signal that the form mounted. happy-dom emits the
+		// HTML5 element but does not expose its implicit role to ARIA queries.
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			kind: "rows",
 			rows: [ALICE_ROW],
@@ -584,23 +710,138 @@ describe("CaseListScreen — search-input form", () => {
 			searchInputs: [
 				simpleSearchInputDef(SEARCH_NAME_UUID, "name", "Name", "text", "name"),
 			],
+			searchButtonLabel: "Find patients",
 		});
 
 		await waitFor(() => {
-			// The HTML5 `<search>` landmark is in the rendered tree —
-			// the rendered tree wraps every input in the form under it.
+			// One `<search>` landmark wraps every input in the form.
 			expect(container.querySelector("search")).not.toBeNull();
 		});
 		// The representative text input renders inside the landmark.
 		expect(screen.getByLabelText("Name")).toBeDefined();
+		expect(screen.getByRole("button", { name: "Find patients" })).toBeDefined();
+	});
+
+	it("seeds authored literal and session defaults without searching until submit", async () => {
+		vi.mocked(loadCasesAction).mockImplementation(filterByNameInputValue);
+		const sessionSeed = simpleSearchInputDef(
+			asDomainUuid("00000000-0000-4000-8000-000000000e02"),
+			"worker",
+			"Worker",
+			"text",
+			"owner_id",
+			{ default: term(sessionContext("userid")) },
+		);
+		const literalSeed = simpleSearchInputDef(
+			SEARCH_NAME_UUID,
+			"name",
+			"Name",
+			"text",
+			"name",
+			{ default: term(literal("Alice")) },
+		);
+
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [literalSeed, sessionSeed],
+		});
+
+		await waitFor(() => {
+			expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
+				"Alice",
+			);
+			expect((screen.getByLabelText("Worker") as HTMLInputElement).value).toBe(
+				"owner-test",
+			);
+		});
+		// Defaults populate prompts; they become query criteria only when the
+		// worker performs the authored Search action.
+		expect(screen.getByText("Bob")).toBeDefined();
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		await waitFor(() => expect(screen.queryByText("Bob")).toBeNull());
+		expect(vi.mocked(loadCasesAction)).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				inputValues: expect.objectContaining({
+					name: "Alice",
+					worker: "owner-test",
+				}),
+			}),
+		);
+	});
+
+	it("applies ownership exclusions only after the worker submits Search", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [ALICE_ROW],
+		});
+		const excludedOwnerIds = term(sessionContext("userid"));
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [searchInput],
+			excludedOwnerIds,
+		});
+
+		await waitFor(() => expect(screen.getByText("Alice")).toBeDefined());
+		expect(vi.mocked(loadCasesAction).mock.calls.length).toBeGreaterThan(0);
+		for (const [args] of vi.mocked(loadCasesAction).mock.calls) {
+			expect(args.excludedOwnerIdsExpression).toBeUndefined();
+		}
+
+		// A blank submit is still an explicit Search action and activates the
+		// authored ownership rule even though there are no non-empty criteria.
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+		await waitFor(() => {
+			expect(vi.mocked(loadCasesAction)).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					excludedOwnerIdsExpression: excludedOwnerIds,
+				}),
+			);
+		});
+	});
+
+	it("applies ownership exclusions immediately for genuine filter-only search", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [ALICE_ROW],
+		});
+		const excludedOwnerIds = term(sessionContext("userid"));
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [],
+			filter: eq(prop("patient", "name"), literal("Alice")),
+			excludedOwnerIds,
+		});
+
+		await waitFor(() => expect(screen.getByText("Alice")).toBeDefined());
+		expect(vi.mocked(loadCasesAction)).toHaveBeenCalledWith(
+			expect.objectContaining({ excludedOwnerIdsExpression: excludedOwnerIds }),
+		);
+	});
+
+	it("does not treat ownership settings alone as a filter-only launch", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [ALICE_ROW],
+		});
+		const excludedOwnerIds = term(sessionContext("userid"));
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [],
+			excludedOwnerIds,
+		});
+
+		await waitFor(() => expect(screen.getByText("Alice")).toBeDefined());
+		for (const [args] of vi.mocked(loadCasesAction).mock.calls) {
+			expect(args.excludedOwnerIdsExpression).toBeUndefined();
+		}
 	});
 
 	it("re-fires the action with the typed value bag and renders the filtered rows", async () => {
 		// `mockImplementation` reads the inbound `inputValues` and
 		// narrows the row set — the mock stands in for the actual
 		// runtime-bindings + Postgres filtering path. The initial
-		// load (no inputValues) returns both rows; the post-debounce
-		// load (inputValues = { name: "Alice" }) returns only Alice.
+		// load (no inputValues) returns both rows; the submitted search
+		// (inputValues = { name: "Alice" }) returns only Alice.
 		vi.mocked(loadCasesAction).mockImplementation(filterByNameInputValue);
 
 		renderCaseListScreen({
@@ -616,14 +857,13 @@ describe("CaseListScreen — search-input form", () => {
 			expect(screen.getByText("Bob")).toBeDefined();
 		});
 
-		// Type "Alice" into the search input. The form debounces
-		// 300 ms before emitting upward; `waitFor` polls until the
-		// re-fired action's result lands in the DOM (Bob narrows
-		// out, only Alice remains). The 1.5 s default timeout
-		// exceeds the 300 ms debounce + action round-trip with
-		// margin.
+		// Typing alone leaves the current results intact. Submitting uses
+		// the form's latest local draft immediately, so it cannot lose a
+		// final keystroke to the draft-state debounce.
 		const input = screen.getByLabelText("Name") as HTMLInputElement;
 		fireEvent.change(input, { target: { value: "Alice" } });
+		expect(screen.getByText("Bob")).toBeDefined();
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
 		await waitFor(() => {
 			expect(screen.queryByText("Bob")).toBeNull();
@@ -653,14 +893,16 @@ describe("CaseListScreen — search-input form", () => {
 
 		const input = screen.getByLabelText("Name") as HTMLInputElement;
 
-		// Type "Alice" → debounce → only Alice visible.
+		// Type and submit Alice → only Alice visible.
 		fireEvent.change(input, { target: { value: "Alice" } });
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
 		await waitFor(() => {
 			expect(screen.queryByText("Bob")).toBeNull();
 		});
 
-		// Clear the input → debounce → both rows visible again.
-		fireEvent.change(input, { target: { value: "" } });
+		// The contextual Clear action resets both the draft and the submitted
+		// query, restoring the filter-only rows in one click.
+		fireEvent.click(screen.getByRole("button", { name: "Clear" }));
 		await waitFor(() => {
 			expect(screen.getByText("Bob")).toBeDefined();
 		});
@@ -672,9 +914,7 @@ describe("CaseListScreen — search-input form", () => {
 		// returns `null`, AND the screen's mount gate skips the
 		// container entirely. Either failure mode would surface a
 		// labelled-but-empty `<search>` landmark to assistive tech;
-		// the assertion targets the landmark element's absence
-		// directly (see the sibling test for why we query the DOM
-		// element instead of the ARIA role).
+		// the assertion targets the landmark element's absence directly.
 		vi.mocked(loadCasesAction).mockResolvedValue({
 			kind: "rows",
 			rows: [ALICE_ROW],

@@ -41,14 +41,15 @@
  *      step 7's `updateField` patch pins the id back.
  *   6. Module + form renames, then field converts (`convertField`).
  *   7. Updates — `updateModule` / `updateForm` / `updateField` patches of
- *      ONLY the changed keys (excluding `order`, `caseListConfig`, `options`,
- *      and media, each diffed separately). A field's `id` rides its
+ *      ONLY the changed keys (excluding `order`, `caseListConfig`,
+ *      `caseSearchConfig`, `options`, and media, each diffed separately). A field's `id` rides its
  *      `updateField` patch, not `renameField`.
  *   8. Media — the dedicated clear-safe kinds (`setFieldMedia` /
  *      `setModuleMedia` / `setFormMedia`).
- *   9. Granular COLLECTIONS — case-list column / search-input / `setCaseListMeta`
- *      kinds + select-option kinds, keyed by item uuid (a presence transition /
- *      case-type flip falls back to a wholesale `updateModule{caseListConfig}`).
+ *   9. Granular COLLECTIONS — case-list column / search-input /
+ *      `setCaseListMeta` / `setCaseSearchMarker` kinds + select-option kinds,
+ *      keyed by item uuid (a case-list presence transition / case-type flip
+ *      falls back to a wholesale `updateModule{caseListConfig}`).
  *  10. Module order — `moveModule{order}` for a module whose `order` changed.
  *  11. Catalog LAST — granular `declareCaseType` / `setCaseTypeMeta` /
  *      `addCaseProperty` / `setCaseProperty` / `removeCaseProperty` /
@@ -83,6 +84,7 @@ import {
 import type {
 	AssetId,
 	CaseListConfig,
+	CaseSearchConfig,
 	CaseType,
 	Column,
 	Field,
@@ -92,6 +94,8 @@ import type {
 	SearchInputDef,
 	SelectOption,
 } from "@/lib/domain";
+import { caseSearchConfigHasAuthoredSettings } from "@/lib/domain";
+import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 
 // ── Value comparison ─────────────────────────────────────────────────
 //
@@ -231,7 +235,8 @@ function propertyPatch(
 // so the generic patch skips it too.
 
 // `order` is carried by `moveModule` / `moveForm`; `caseListConfig` is diffed
-// granularly (column / search-input / `setCaseListMeta` kinds) so the
+// granularly (column / search-input / `setCaseListMeta` kinds), and empty
+// `caseSearchConfig` presence via `setCaseSearchMarker`, so the
 // module-common loop never co-emits a wholesale patch that would clobber a
 // concurrent collection edit — except on a presence transition, handled
 // explicitly below.
@@ -241,6 +246,7 @@ const MODULE_PATCH_SKIP = new Set<string>([
 	"name",
 	"order",
 	"caseListConfig",
+	"caseSearchConfig",
 ]);
 const FORM_PATCH_SKIP = new Set<string>([
 	"icon",
@@ -486,6 +492,7 @@ export function diffDocsToMutations(
 		// `updateModule{caseListConfig}`).
 		collections.push(
 			...diffCaseListConfig(prev.modules[uuid], next.modules[uuid], uuid),
+			...diffCaseSearchConfig(prev.modules[uuid], next.modules[uuid], uuid),
 		);
 	}
 
@@ -945,7 +952,7 @@ function nextParentsTopDown(next: BlueprintDoc): Uuid[] {
 
 // ── Granular collection + catalog diffs ──────────────────────────────
 
-/** Deep-equal two values ignoring the `order` sort key (collection content). */
+/** Deep-equal two values ignoring generic + surface order keys. */
 function contentEqualIgnoringOrder(a: unknown, b: unknown): boolean {
 	return deepEqual(stripOrder(a), stripOrder(b));
 }
@@ -954,7 +961,12 @@ function stripOrder(value: unknown): unknown {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) {
 		return value;
 	}
-	const { order: _order, ...rest } = value as Record<string, unknown>;
+	const {
+		order: _order,
+		listOrder: _listOrder,
+		detailOrder: _detailOrder,
+		...rest
+	} = value as Record<string, unknown>;
 	return rest;
 }
 
@@ -1032,6 +1044,22 @@ function diffColumns(
 				order: col.order,
 			});
 		}
+		if (p.listOrder !== col.listOrder) {
+			out.push({
+				kind: "moveColumnInList",
+				moduleUuid,
+				uuid: col.uuid,
+				order: col.listOrder ?? null,
+			});
+		}
+		if (p.detailOrder !== col.detailOrder) {
+			out.push({
+				kind: "moveColumnInDetail",
+				moduleUuid,
+				uuid: col.uuid,
+				order: col.detailOrder ?? null,
+			});
+		}
 	}
 	for (const col of prev) {
 		if (!nextUuids.has(col.uuid)) {
@@ -1105,6 +1133,51 @@ function diffCaseListMeta(
 	}
 	if (Object.keys(patch).length === 0) return [];
 	return [{ kind: "setCaseListMeta", uuid: moduleUuid, patch }];
+}
+
+/**
+ * Diff the search-settings bag without turning its synthetic empty marker into
+ * a destructive whole-slot write. Empty absent→present is an idempotent
+ * enable; empty present→absent after the final searchable surface disappears
+ * is a fresh-state-conditional disable. Authored settings remain a deliberate
+ * wholesale bag edit (the settings UI has one owner), while a stale marker
+ * batch can never erase a peer's newer settings.
+ */
+function diffCaseSearchConfig(
+	prevMod: Module,
+	nextMod: Module,
+	moduleUuid: Uuid,
+): Mutation[] {
+	const prev = prevMod.caseSearchConfig;
+	const next = nextMod.caseSearchConfig;
+	if (deepEqual(prev, next)) return [];
+
+	const prevIsMarker =
+		prev !== undefined && !caseSearchConfigHasAuthoredSettings(prev);
+	const nextIsMarker =
+		next !== undefined && !caseSearchConfigHasAuthoredSettings(next);
+	if (prev === undefined && nextIsMarker) {
+		return [{ kind: "setCaseSearchMarker", uuid: moduleUuid, enabled: true }];
+	}
+	if (
+		prevIsMarker &&
+		next === undefined &&
+		nextMod.caseListConfig?.searchInputs.length === 0 &&
+		effectiveFilterForEmission(nextMod.caseListConfig?.filter) === undefined
+	) {
+		return [{ kind: "setCaseSearchMarker", uuid: moduleUuid, enabled: false }];
+	}
+
+	return [
+		{
+			kind: "updateModule",
+			uuid: moduleUuid,
+			patch: {
+				caseSearchConfig:
+					next === undefined ? null : cloneEntity<CaseSearchConfig>(next),
+			},
+		},
+	];
 }
 
 /** Diff a select field's options by uuid into the granular option kinds. A

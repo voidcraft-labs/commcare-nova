@@ -345,12 +345,11 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	// ─── Granular case-list collections ──────────────────────────────────
 	//
 	// `caseListConfig.columns` / `.searchInputs` are membership arrays whose
-	// position is NOT authoritative (sequence is `sort-by-(order, uuid)`). Each
-	// quartet (`add` / `update` / `remove` / `move`) is keyed by the owning
-	// module uuid + the item uuid, so concurrent edits to different columns /
-	// inputs merge. `add` carries the entity (with its `order`); `move` carries
-	// the gesture-computed `order` and leaves membership untouched; `update`
-	// replaces content and PRESERVES the item's current `order` in the reducer.
+	// position is NOT authoritative. Search inputs use `sort-by-(order, uuid)`;
+	// columns additionally carry independent `listOrder` / `detailOrder` keys
+	// (each falling back to `order`). Every kind is keyed by the owning module
+	// uuid + item uuid, so concurrent edits merge. Column content updates preserve
+	// all three current order keys; each move changes only its named surface.
 	z.object({
 		kind: z.literal("addColumn"),
 		moduleUuid: uuidSchema,
@@ -374,6 +373,20 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 		order: z.string(),
 	}),
 	z.object({
+		kind: z.literal("moveColumnInList"),
+		moduleUuid: uuidSchema,
+		uuid: uuidSchema,
+		// `null` clears the surface override and restores fallback to `order`.
+		order: z.string().nullable(),
+	}),
+	z.object({
+		kind: z.literal("moveColumnInDetail"),
+		moduleUuid: uuidSchema,
+		uuid: uuidSchema,
+		// See Results: an explicit null survives JSON and deletes the override.
+		order: z.string().nullable(),
+	}),
+	z.object({
 		kind: z.literal("addSearchInput"),
 		moduleUuid: uuidSchema,
 		searchInput: searchInputDefSchema,
@@ -394,6 +407,16 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 		moduleUuid: uuidSchema,
 		uuid: uuidSchema,
 		order: z.string(),
+	}),
+	// Presence-only case-search transitions use semantic reducer behavior
+	// rather than a wholesale `updateModule({caseSearchConfig:{}/null})`.
+	// Enabling seeds the empty marker only when it is absent; disabling clears
+	// only a still-empty, unused marker. Reapplying a stale batch therefore
+	// cannot overwrite settings a peer authored in the meantime.
+	z.object({
+		kind: z.literal("setCaseSearchMarker"),
+		uuid: uuidSchema,
+		enabled: z.boolean(),
 	}),
 	// The module's case-list metadata that is NOT a membership array — the
 	// always-on `filter` predicate and the case-list-link `icon` / `audioLabel`.

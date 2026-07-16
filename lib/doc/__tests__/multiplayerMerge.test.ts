@@ -22,7 +22,10 @@ import {
 	backfillOptionUuids,
 	backfillOrderKeys,
 } from "@/lib/doc/order/backfill";
+import { columnSurfaceMoveMutation } from "@/lib/doc/order/columnSurface";
+import { byListColumnOrder, bySortKey } from "@/lib/doc/order/compare";
 import { keyBetween } from "@/lib/doc/order/keys";
+import { searchInputMoveMutation } from "@/lib/doc/order/searchInput";
 import {
 	declareCaseTypeForField,
 	formScaffoldMutations,
@@ -33,6 +36,7 @@ import {
 	type BlueprintDoc,
 	type Field,
 	type Module,
+	simpleSearchInputDef,
 } from "@/lib/domain";
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -379,6 +383,214 @@ describe("disjoint collection edits merge", () => {
 		// Both edits survive — neither clobbers the other.
 		expect(headerByUuid.get(colA)).toBe("Patient name");
 		expect(headerByUuid.get(colB)).toBe("Years");
+	});
+
+	it("Results and Details reorders commute and survive a stale content edit", () => {
+		const { doc, moduleUuid, colA } = moduleWithTwoColumns();
+		const original = doc.modules[moduleUuid].caseListConfig?.columns.find(
+			(c) => c.uuid === colA,
+		);
+		if (!original) throw new Error("fixture column missing");
+
+		const moveList: Mutation[] = [
+			{
+				kind: "moveColumnInList",
+				moduleUuid,
+				uuid: colA,
+				order: "list-z",
+			},
+		];
+		const moveDetail: Mutation[] = [
+			{
+				kind: "moveColumnInDetail",
+				moduleUuid,
+				uuid: colA,
+				order: "detail-a",
+			},
+		];
+		const staleContentEdit: Mutation[] = [
+			{
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: colA,
+				// Captured before either reorder: it carries neither new surface key.
+				column: { ...original, header: "Patient" },
+			},
+		];
+
+		const listThenDetail = apply(doc, moveList, moveDetail, staleContentEdit);
+		const detailThenList = apply(doc, staleContentEdit, moveDetail, moveList);
+		for (const merged of [listThenDetail, detailThenList]) {
+			const column = merged.modules[moduleUuid].caseListConfig?.columns.find(
+				(c) => c.uuid === colA,
+			);
+			expect(column?.header).toBe("Patient");
+			expect(column?.order).toBe(original.order);
+			expect(column?.listOrder).toBe("list-z");
+			expect(column?.detailOrder).toBe("detail-a");
+		}
+	});
+
+	it("two same-Results gestures write one moved row each and commute", () => {
+		const { doc, moduleUuid, colA, colB } = moduleWithTwoColumns();
+		const columns = doc.modules[moduleUuid].caseListConfig?.columns ?? [];
+		const moveA = columnSurfaceMoveMutation({
+			moduleUuid,
+			columns,
+			surface: "list",
+			uuid: colA,
+			toIndex: 1,
+		});
+		const moveB = columnSurfaceMoveMutation({
+			moduleUuid,
+			columns,
+			surface: "list",
+			uuid: colB,
+			toIndex: 0,
+		});
+		if (moveA === undefined || moveB === undefined) {
+			throw new Error("expected both gestures to plan a move");
+		}
+
+		// This is the regression: the old workspace resequenced BOTH rows for
+		// either gesture, so each autosave batch overwrote its peer's order key.
+		expect(moveA).toMatchObject({ kind: "moveColumnInList", uuid: colA });
+		expect(moveB).toMatchObject({ kind: "moveColumnInList", uuid: colB });
+
+		const aThenB = apply(doc, [moveA], [moveB]);
+		const bThenA = apply(doc, [moveB], [moveA]);
+		expect(aThenB).toEqual(bThenA);
+		const visible = [
+			...(aThenB.modules[moduleUuid].caseListConfig?.columns ?? []),
+		].sort(byListColumnOrder);
+		expect(visible.map((column) => column.uuid)).toEqual([colB, colA]);
+	});
+
+	it("two search-order gestures write one moved field each and commute", () => {
+		const inputA = simpleSearchInputDef(
+			asUuid("00000000-0000-4000-8000-000000000321"),
+			"case_name",
+			"Patient name",
+			"text",
+			"case_name",
+		);
+		const inputB = simpleSearchInputDef(
+			asUuid("00000000-0000-4000-8000-000000000322"),
+			"external_id",
+			"External ID",
+			"text",
+			"external_id",
+		);
+		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+		config.searchInputs = [inputA, inputB];
+		const doc = backfilled(
+			buildDoc({
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [
+							{ name: "case_name", label: "Name" },
+							{ name: "external_id", label: "External ID" },
+						],
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: config,
+					},
+				],
+			}),
+		);
+		const moduleUuid = doc.moduleOrder[0];
+		const inputs = doc.modules[moduleUuid].caseListConfig?.searchInputs ?? [];
+		const moveA = searchInputMoveMutation({
+			moduleUuid,
+			inputs,
+			uuid: inputA.uuid,
+			toIndex: 1,
+		});
+		const moveB = searchInputMoveMutation({
+			moduleUuid,
+			inputs,
+			uuid: inputB.uuid,
+			toIndex: 0,
+		});
+		if (moveA === undefined || moveB === undefined) {
+			throw new Error("expected both search gestures to plan a move");
+		}
+
+		expect(moveA).toMatchObject({
+			kind: "moveSearchInput",
+			uuid: inputA.uuid,
+		});
+		expect(moveB).toMatchObject({
+			kind: "moveSearchInput",
+			uuid: inputB.uuid,
+		});
+
+		const aThenB = apply(doc, [moveA], [moveB]);
+		const bThenA = apply(doc, [moveB], [moveA]);
+		expect(aThenB).toEqual(bThenA);
+		const ordered = [
+			...(aThenB.modules[moduleUuid].caseListConfig?.searchInputs ?? []),
+		].sort(bySortKey);
+		expect(ordered.map((input) => input.uuid)).toEqual([
+			inputB.uuid,
+			inputA.uuid,
+		]);
+	});
+
+	it("diff emits independent surface moves without a content update", () => {
+		const { doc, moduleUuid, colA } = moduleWithTwoColumns();
+		const next = produce(doc, (draft) => {
+			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
+				(c) => c.uuid === colA,
+			);
+			if (column) {
+				column.listOrder = "list-z";
+				column.detailOrder = "detail-a";
+			}
+		});
+
+		const diff = diffDocsToMutations(doc, next);
+		expect(diff.filter((m) => m.kind === "moveColumnInList")).toHaveLength(1);
+		expect(diff.filter((m) => m.kind === "moveColumnInDetail")).toHaveLength(1);
+		expect(diff.some((m) => m.kind === "updateColumn")).toBe(false);
+
+		const replayed = apply(doc, diff);
+		const replayedColumn = replayed.modules[
+			moduleUuid
+		].caseListConfig?.columns.find((c) => c.uuid === colA);
+		expect(replayedColumn?.listOrder).toBe("list-z");
+		expect(replayedColumn?.detailOrder).toBe("detail-a");
+
+		// Undo/reset removes the optional overrides so each surface falls back to
+		// generic `order`. The diff must carry explicit nulls across JSON; omitting
+		// these moves would leave the confirmed/server doc stuck on stale keys.
+		const reset = produce(next, (draft) => {
+			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
+				(c) => c.uuid === colA,
+			);
+			if (column) {
+				delete column.listOrder;
+				delete column.detailOrder;
+			}
+		});
+		const resetDiff = diffDocsToMutations(next, reset);
+		expect(resetDiff.find((m) => m.kind === "moveColumnInList")).toMatchObject({
+			order: null,
+		});
+		expect(
+			resetDiff.find((m) => m.kind === "moveColumnInDetail"),
+		).toMatchObject({ order: null });
+		const resetReplayed = apply(next, resetDiff);
+		const resetColumn = resetReplayed.modules[
+			moduleUuid
+		].caseListConfig?.columns.find((c) => c.uuid === colA);
+		expect(resetColumn?.listOrder).toBeUndefined();
+		expect(resetColumn?.detailOrder).toBeUndefined();
 	});
 
 	it("two members editing different options of one field merge", () => {
@@ -850,6 +1062,157 @@ describe("diff round-trip — granular edits", () => {
 			}
 		).options.map((o) => o.label);
 		expect(opts).toContain("Emerald");
+	});
+});
+
+describe("case-search marker merges", () => {
+	function searchDoc(): {
+		doc: BlueprintDoc;
+		moduleUuid: Uuid;
+		inputUuid: Uuid;
+	} {
+		const inputUuid = asUuid("00000000-0000-4000-8000-000000000051");
+		const doc = buildDoc({
+			appName: "Search merge",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListOnly: true,
+					caseListConfig: {
+						columns: caseListConfig([{ field: "case_name", header: "Name" }])
+							.columns,
+						searchInputs: [
+							{
+								uuid: inputUuid,
+								kind: "simple",
+								name: "case_name",
+								label: "Name",
+								type: "text",
+								property: "case_name",
+							},
+						],
+					},
+					caseSearchConfig: {},
+				},
+			],
+		});
+		return { doc, moduleUuid: doc.moduleOrder[0], inputUuid };
+	}
+
+	it("a stale enable never overwrites settings a peer authored", () => {
+		const { doc, moduleUuid } = searchDoc();
+		const markerless = produce(doc, (draft) => {
+			delete draft.modules[moduleUuid].caseSearchConfig;
+		});
+		const peerInputUuid = asUuid("00000000-0000-4000-8000-000000000052");
+		const peerBatch: Mutation[] = [
+			{
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: { caseSearchConfig: { searchScreenTitle: "Find a patient" } },
+			},
+			{
+				kind: "addSearchInput",
+				moduleUuid,
+				searchInput: {
+					uuid: peerInputUuid,
+					kind: "simple",
+					name: "other_name",
+					label: "Other name",
+					type: "text",
+					property: "case_name",
+				},
+			},
+		];
+		const staleEnable: Mutation[] = [
+			{ kind: "setCaseSearchMarker", uuid: moduleUuid, enabled: true },
+		];
+		const merged = apply(markerless, peerBatch, staleEnable);
+		expect(merged.modules[moduleUuid].caseSearchConfig).toEqual({
+			searchScreenTitle: "Find a patient",
+		});
+	});
+
+	it("a stale disable preserves peer settings and their newly-added input", () => {
+		const { doc, moduleUuid, inputUuid } = searchDoc();
+		const peerInputUuid = asUuid("00000000-0000-4000-8000-000000000053");
+		const peerBatch: Mutation[] = [
+			{
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: { caseSearchConfig: { searchButtonLabel: "Find" } },
+			},
+			{
+				kind: "addSearchInput",
+				moduleUuid,
+				searchInput: {
+					uuid: peerInputUuid,
+					kind: "simple",
+					name: "peer_name",
+					label: "Peer name",
+					type: "text",
+					property: "case_name",
+				},
+			},
+		];
+		const staleDisable: Mutation[] = [
+			{ kind: "removeSearchInput", moduleUuid, uuid: inputUuid },
+			{ kind: "setCaseSearchMarker", uuid: moduleUuid, enabled: false },
+		];
+		const merged = apply(doc, peerBatch, staleDisable);
+		expect(merged.modules[moduleUuid].caseSearchConfig).toEqual({
+			searchButtonLabel: "Find",
+		});
+		expect(
+			merged.modules[moduleUuid].caseListConfig?.searchInputs.map(
+				(s) => s.uuid,
+			),
+		).toEqual([peerInputUuid]);
+		expect(mutationCommitVerdict(apply(doc, peerBatch), staleDisable).ok).toBe(
+			true,
+		);
+	});
+
+	it("the diff emits semantic marker transitions instead of wholesale writes", () => {
+		const { doc, moduleUuid, inputUuid } = searchDoc();
+		const markerless = produce(doc, (draft) => {
+			delete draft.modules[moduleUuid].caseSearchConfig;
+		});
+		expect(diffDocsToMutations(markerless, doc)).toContainEqual({
+			kind: "setCaseSearchMarker",
+			uuid: moduleUuid,
+			enabled: true,
+		});
+
+		const disabled = produce(doc, (draft) => {
+			draft.modules[moduleUuid].caseListConfig?.searchInputs.splice(0, 1);
+			delete draft.modules[moduleUuid].caseSearchConfig;
+		});
+		const diff = diffDocsToMutations(doc, disabled);
+		expect(diff).toContainEqual({
+			kind: "removeSearchInput",
+			moduleUuid,
+			uuid: inputUuid,
+		});
+		expect(diff).toContainEqual({
+			kind: "setCaseSearchMarker",
+			uuid: moduleUuid,
+			enabled: false,
+		});
+		expect(
+			diff.some(
+				(m) =>
+					m.kind === "updateModule" &&
+					Object.hasOwn(m.patch, "caseSearchConfig"),
+			),
+		).toBe(false);
 	});
 });
 

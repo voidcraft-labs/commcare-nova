@@ -85,13 +85,38 @@ describe("caseListConfigVerdicts", () => {
 		const v = verdicts({
 			columns: [dateColumn(asUuid("c1"), "name", "Name", "%d/%m/%Y")],
 		});
-		// The mark + both tab dots (both canvases render every column)…
+		// The mark + both tab dots (the default column appears on both screens)…
 		expect(v.brokenColumns.has(asUuid("c1"))).toBe(true);
 		expect(v.errorAreas.list).toBe(true);
 		expect(v.errorAreas.detail).toBe(true);
 		// …but the live rows keep running: an applicability mismatch is a
 		// formatting concern, not an AST the SQL compiler would choke on.
 		expect(v.previewObstacle).toBeNull();
+	});
+
+	it("badges only Details for a broken Details-only field", () => {
+		const column = {
+			...dateColumn(asUuid("details-only"), "name", "Name", "%d/%m/%Y"),
+			visibleInList: false,
+		};
+		const v = verdicts({ columns: [column] });
+
+		expect(v.brokenColumns.has(column.uuid)).toBe(true);
+		expect(v.errorAreas.list).toBe(false);
+		expect(v.errorAreas.detail).toBe(true);
+	});
+
+	it("attributes a broken off-screen sort carrier to Results only", () => {
+		const column = {
+			...dateColumn(asUuid("sort-carrier"), "name", "Name", "%d/%m/%Y"),
+			visibleInList: false,
+			visibleInDetail: false,
+			sort: { direction: "asc" as const, priority: 0 },
+		};
+		const v = verdicts({ columns: [column] });
+
+		expect(v.errorAreas.list).toBe(true);
+		expect(v.errorAreas.detail).toBe(false);
 	});
 
 	it("accepts a date column on a property with NO resolved type (honest unknown)", () => {
@@ -126,6 +151,23 @@ describe("caseListConfigVerdicts", () => {
 		expect(v.brokenColumns.has(asUuid("c1"))).toBe(true);
 		expect(v.previewObstacle).toContain('the calculated column "Calc"');
 		expect(v.previewObstacle).toContain("has an error");
+	});
+
+	it("ignores an unconsumed legacy hidden calculation until it is added back", () => {
+		const hidden = {
+			...calculatedColumn(
+				asUuid("hidden-calc"),
+				"Old calculation",
+				term(prop("patient", "missing_prop")),
+			),
+			visibleInList: false,
+			visibleInDetail: false,
+		};
+		const v = verdicts({ columns: [hidden] });
+
+		expect(v.errorAreas).toEqual(CLEAN);
+		expect(v.brokenColumns.size).toBe(0);
+		expect(v.previewObstacle).toBeNull();
 	});
 
 	it("pauses the preview for a filter that references an unknown property", () => {

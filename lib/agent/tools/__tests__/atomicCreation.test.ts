@@ -292,7 +292,9 @@ describe("createModule — atomic module + forms + case list", () => {
 			completeDoc(),
 		);
 
-		expect("error" in out.result && out.result.error).toContain("column");
+		expect("error" in out.result && out.result.error).toContain(
+			"visible Results field",
+		);
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 

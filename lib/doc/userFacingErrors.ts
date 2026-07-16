@@ -139,7 +139,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	CASE_TYPE_TOO_LONG: (e) =>
 		`${q(modName(e))}'s case type name is too long. Try a shorter one.`,
 	MISSING_CASE_LIST_COLUMNS: (e) =>
-		`${q(modName(e))}'s case list doesn't have any columns yet, so there's no way to tell cases apart. Add at least one — a name column is a good start.`,
+		`${q(modName(e))} needs at least one result field so people can tell cases apart. Add a name or another identifying field; if you're replacing the last one, add its replacement first.`,
 
 	// ── Case-list config ─────────────────────────────────────────────
 	CASE_LIST_COLUMN_UNKNOWN_FIELD: (e) =>

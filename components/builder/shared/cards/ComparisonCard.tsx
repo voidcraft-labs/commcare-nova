@@ -12,7 +12,7 @@
 // via `LiteralValueInput`'s `data_type` switch.
 
 "use client";
-import { isOrdered } from "@/lib/domain";
+import { canonicalCasePropertyName, isOrdered } from "@/lib/domain";
 import {
 	type ComparisonKind,
 	comparisonObjectConstraint,
@@ -98,7 +98,7 @@ export function comparisonDefault<K extends ComparisonKind>(
 	const property = ct?.properties.find((p) =>
 		ORDERED_KINDS.has(kind) ? isOrdered(p) : true,
 	);
-	const propName = property?.name ?? "";
+	const propName = canonicalCasePropertyName(property?.name ?? "");
 	const builder = KIND_BUILDERS[kind] as (
 		l: Parameters<typeof eq>[0],
 		r: Parameters<typeof eq>[1],

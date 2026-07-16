@@ -1,13 +1,16 @@
 /**
- * The case-list workspace has one globally ordered column sequence, but each
- * canvas renders a visibility projection of it. These tests pin the seam that
- * keeps hidden/detail-only columns out of the primary screen outlines while
- * preserving the one canonical full sequence for the inspector.
+ * Results and Details share field definitions but own independent visible
+ * sequences. These tests pin the projection seam: information removed from a
+ * screen stays out of the direct canvas and is available only to the add menu.
  */
 
 import { describe, expect, it } from "vitest";
 import { asUuid, type Column } from "@/lib/domain";
-import { projectCaseWorkspaceColumns } from "../workspaceProjection";
+import {
+	projectCaseWorkspaceColumns,
+	pruneStoppedSortOrphans,
+	removeColumnFromDisplay,
+} from "../workspaceProjection";
 
 function column(
 	uuid: string,
@@ -80,5 +83,60 @@ describe("projectCaseWorkspaceColumns", () => {
 		projectCaseWorkspaceColumns(storageOrder);
 
 		expect(storageOrder).toEqual([later, earlier]);
+	});
+});
+
+describe("removeColumnFromDisplay", () => {
+	it("removes a field from Results without disturbing its Details placement", () => {
+		const shared = column("shared", "a");
+
+		expect(removeColumnFromDisplay([shared], shared.uuid, "list")).toEqual([
+			{ ...shared, visibleInList: false },
+		]);
+	});
+
+	it("deletes an unsorted field when its final screen removes it", () => {
+		const detailOnly = column("detail-only", "a", {
+			visibleInList: false,
+		});
+
+		expect(
+			removeColumnFromDisplay([detailOnly], detailOnly.uuid, "detail"),
+		).toEqual([]);
+	});
+
+	it("keeps an off-screen definition while Default order still uses it", () => {
+		const detailOnly = {
+			...column("detail-only", "a", { visibleInList: false }),
+			sort: { direction: "asc" as const, priority: 0 },
+		};
+
+		expect(
+			removeColumnFromDisplay([detailOnly], detailOnly.uuid, "detail"),
+		).toEqual([{ ...detailOnly, visibleInDetail: false }]);
+	});
+});
+
+describe("pruneStoppedSortOrphans", () => {
+	it("deletes an off-screen definition after its final ordering job ends", () => {
+		const before = {
+			...column("sort-only", "a", {
+				visibleInList: false,
+				visibleInDetail: false,
+			}),
+			sort: { direction: "asc" as const, priority: 0 },
+		};
+		const { sort: _sort, ...after } = before;
+
+		expect(pruneStoppedSortOrphans([before], [after])).toEqual([]);
+	});
+
+	it("preserves untouched legacy off-screen definitions", () => {
+		const legacy = column("legacy-search-only", "a", {
+			visibleInList: false,
+			visibleInDetail: false,
+		});
+
+		expect(pruneStoppedSortOrphans([legacy], [legacy])).toEqual([legacy]);
 	});
 });

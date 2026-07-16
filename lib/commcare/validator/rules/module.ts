@@ -155,12 +155,11 @@ function caseTypeTooLong(
 }
 
 /**
- * Modules with cases but no case-list columns are unusable — the case
- * list screen has no row content to render. The columns array is the
- * single display source: every entry in it is a column the runtime
- * may render (visibility flags gate per-surface display, not the
- * "is this a column" check), so non-emptiness of the array is the
- * condition.
+ * Every reachable case list needs at least one visible Results field so a
+ * person has something to scan before choosing a case. A definition that is
+ * Details-only (or otherwise kept off Results) does not satisfy that floor.
+ * This applies equally to form-bearing case modules and case-list-only
+ * viewers: the latter have no other screen through which a case can be picked.
  */
 function missingCaseListColumns(
 	mod: Module,
@@ -169,17 +168,19 @@ function missingCaseListColumns(
 ): ValidationError[] {
 	const forms = formsOf(doc, moduleUuid);
 	const columns = mod.caseListConfig?.columns ?? [];
+	const hasVisibleResult = columns.some(
+		(column) => column.visibleInList !== false,
+	);
 	const needsColumns =
 		!!mod.caseType &&
-		!mod.caseListOnly &&
-		forms.length > 0 &&
-		columns.length === 0;
+		(mod.caseListOnly || forms.length > 0) &&
+		!hasVisibleResult;
 	if (!needsColumns) return [];
 	return [
 		validationError(
 			"MISSING_CASE_LIST_COLUMNS",
 			"module",
-			`Module "${mod.name}" manages "${mod.caseType}" cases but its case list has no columns. The case list screen needs at least one column so users can tell rows apart and pick which case to open. Add a column to \`caseListConfig.columns\` — usually something identifying like "name" — so the list has something to render.`,
+			`Module "${mod.name}" shows "${mod.caseType}" cases but its Results screen has no visible fields. Every case list needs at least one visible Results field so users can tell rows apart and pick which case to open. Add or restore an identifying field such as "case_name" on Results.`,
 			{ moduleUuid, moduleName: mod.name },
 		),
 	];
@@ -213,10 +214,10 @@ export const MODULE_RULES = [
 	searchInputPredicateTypeCheck,
 	searchInputRefUsesWhenInputPresent,
 	searchInputViaModeCompatibility,
-	// Case-search-config rules — fire only when `caseSearchConfig`
-	// is present on the module; otherwise the module emits no
-	// `<remote-request>` and these rules have no authoring concern
-	// to gate.
+	// Case-search-config rules. Slot-specific checks read authored config;
+	// structural/conflict checks use `effectiveCaseSearchConfig`, so legacy
+	// markerless inputs receive the same validation as the remote request they
+	// still emit.
 	searchButtonDisplayConditionTypeCheck,
 	excludedOwnerIdsTypeCheck,
 	filterSearchInputConflict,

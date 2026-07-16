@@ -10,9 +10,10 @@
 //
 // The form is fully controlled. `value` flows in from the parent's
 // `useState<SearchInputValues>`; local typing buffers in `draft`
-// and emits to `onChange` debounced at 300 ms so the parent's
-// case-list reload trigger fires once per type-burst rather than
-// once per keystroke.
+// and emits to `onChange` debounced at 300 ms so parent draft state
+// stays current without a render per keystroke. When `onSubmit` is
+// supplied, the authored button (or Enter) submits the latest local
+// draft immediately; the running list does not race the debounce.
 //
 // Per-type widget dispatch:
 //
@@ -42,6 +43,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
+import tablerSearch from "@iconify-icons/tabler/search";
 import tablerX from "@iconify-icons/tabler/x";
 import { format, isValid, parseISO } from "date-fns";
 import { useEffect, useId, useRef, useState } from "react";
@@ -84,11 +86,13 @@ interface SearchInputFormProps {
 	 *  for range bounds; bare `<name>` otherwise. Mirrors the
 	 *  runtime-bindings layer's input-value contract verbatim. */
 	readonly value: SearchInputValues;
-	/** Fired with the new value bag 300 ms after the user pauses
-	 *  typing. The parent's case-list reload trigger keys off this
-	 *  reference; debounce in the form keeps the action-call
-	 *  cadence sane. */
+	/** Fired with the new draft bag 300 ms after the user pauses typing. */
 	readonly onChange: (next: SearchInputValues) => void;
+	/** Optional running-app submit action. When present, the form owns the
+	 *  button so pressing Enter or clicking submits its latest local draft
+	 *  immediately, without waiting for the typing debounce. */
+	readonly onSubmit?: (value: SearchInputValues) => void;
+	readonly submitLabel?: string;
 }
 
 const DEBOUNCE_MS = 300;
@@ -110,6 +114,8 @@ export function SearchInputForm({
 	caseType,
 	value,
 	onChange,
+	onSubmit,
+	submitLabel = "Search",
 }: SearchInputFormProps) {
 	const titleId = useId();
 
@@ -206,17 +212,33 @@ export function SearchInputForm({
 			<h3 id={titleId} className="sr-only">
 				Search inputs
 			</h3>
-			<div className="flex flex-col gap-4">
-				{[...searchInputs].sort(bySortKey).map((input) => (
-					<SearchInputRow
-						key={input.uuid}
-						input={input}
-						caseType={caseType}
-						draft={draft}
-						setKey={setKey}
-					/>
-				))}
-			</div>
+			<form
+				onSubmit={(event) => {
+					event.preventDefault();
+					onSubmit?.(draft);
+				}}
+			>
+				<div className="flex flex-col gap-4">
+					{[...searchInputs].sort(bySortKey).map((input) => (
+						<SearchInputRow
+							key={input.uuid}
+							input={input}
+							caseType={caseType}
+							draft={draft}
+							setKey={setKey}
+						/>
+					))}
+				</div>
+				{onSubmit !== undefined && (
+					<button
+						type="submit"
+						className="mt-4 inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-pv-accent px-4 text-sm font-semibold text-white transition-all hover:brightness-110"
+					>
+						<Icon icon={tablerSearch} width="15" height="15" />
+						{submitLabel}
+					</button>
+				)}
+			</form>
 		</search>
 	);
 }

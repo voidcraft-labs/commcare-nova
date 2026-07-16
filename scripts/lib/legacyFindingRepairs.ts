@@ -91,6 +91,7 @@ import {
 } from "../../lib/doc/expressionText";
 import { rebuildFieldParent } from "../../lib/doc/fieldParent";
 import { renameFieldIdVerdict } from "../../lib/doc/identifierVerdicts";
+import { byListColumnOrder } from "../../lib/doc/order/compare";
 import type { BlueprintDoc, Mutation, Uuid } from "../../lib/doc/types";
 import {
 	asUuid,
@@ -171,7 +172,7 @@ export const REPAIR_JUDGMENTS: Readonly<
 		"renaming a case type re-keys the case database and every cross-reference; no single mutation owns that cascade",
 	),
 	MISSING_CASE_LIST_COLUMNS: proposed(
-		'seed the single "case_name" column: every Nova build leads its case list with it, and the case-name writer is guaranteed content — but which columns to show is still a display choice, so it applies only under --apply-proposed',
+		'show one existing Results field, preferring "case_name", or seed it when no definition exists — which information to show is still a display choice, so this applies only under --apply-proposed',
 	),
 	// ── Case-list-config rules ───────────────────────────────────────
 	CASE_LIST_COLUMN_UNKNOWN_FIELD: owner(
@@ -208,7 +209,7 @@ export const REPAIR_JUDGMENTS: Readonly<
 		"wrapping the reference changes when the predicate applies — the author picks the gating input",
 	),
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: mechanical(
-		"renumber sort priorities in the already-deterministic resolution order (priority ascending, then column order); priority values never reach the wire, so the emitted bytes are identical",
+		"renumber sort priorities in the already-deterministic resolution order (priority ascending, then Results order); priority values never reach the wire, so the emitted bytes are identical",
 	),
 	CASE_LIST_ID_MAPPING_EMPTY_VALUE: owner("mapping entries are content"),
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: owner(
@@ -1101,7 +1102,7 @@ const planConnectXPathRepair: RepairModule = (finding, doc) => {
 /**
  * Renumber colliding sort priorities in the resolution order the
  * runtime, preview, and wire emitter already apply (priority ascending,
- * tie-break to column order). Priority VALUES never reach the wire —
+ * tie-break to Results order). Priority VALUES never reach the wire —
  * the emitter writes sequential 1-based `order` attributes — so the
  * emitted bytes are identical before and after.
  */
@@ -1112,21 +1113,20 @@ const planSortPriorityRenumber: RepairModule = (finding, doc) => {
 	if (!mod || !config || moduleUuid === undefined) return undefined;
 
 	const sorted = config.columns
-		.map((column, index) => ({ column, index }))
-		.filter((entry) => entry.column.sort !== undefined)
+		.filter((column) => column.sort !== undefined)
 		.sort(
 			(a, b) =>
-				(a.column.sort?.priority ?? 0) - (b.column.sort?.priority ?? 0) ||
-				a.index - b.index,
+				(a.sort?.priority ?? 0) - (b.sort?.priority ?? 0) ||
+				byListColumnOrder(a, b),
 		);
-	const newPriority = new Map<number, number>();
-	for (const [rank, entry] of sorted.entries()) {
-		newPriority.set(entry.index, rank);
+	const newPriority = new Map<Uuid, number>();
+	for (const [rank, column] of sorted.entries()) {
+		newPriority.set(column.uuid, rank);
 	}
 
 	let changed = false;
-	const columns = config.columns.map((column, index) => {
-		const rank = newPriority.get(index);
+	const columns = config.columns.map((column) => {
+		const rank = newPriority.get(column.uuid);
 		if (rank === undefined || !column.sort || column.sort.priority === rank) {
 			return column;
 		}
@@ -1148,17 +1148,44 @@ const planSortPriorityRenumber: RepairModule = (finding, doc) => {
 };
 
 /**
- * PROPOSED: seed the single `case_name` column. The case for it: every
- * Nova build leads its case list with the case-name column, and the
- * case-name writer is guaranteed content on every registering form (the
- * gate refuses its removal) — so every case has a name to show. Still a
+ * PROPOSED: restore one existing field to Results, preferring `case_name`, or
+ * seed that field when the module has no column definitions. This is still a
  * display choice, so it applies only under `--apply-proposed`.
  */
 const planSeedCaseNameColumn: RepairModule = (finding, doc) => {
 	const moduleUuid = finding.location.moduleUuid;
 	const mod = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
 	if (!mod || moduleUuid === undefined) return undefined;
-	if ((mod.caseListConfig?.columns.length ?? 0) > 0) return undefined;
+	const config = mod.caseListConfig;
+	const columns = config?.columns ?? [];
+	if (columns.some((column) => column.visibleInList !== false))
+		return undefined;
+
+	if (columns.length > 0 && config) {
+		const restoreIndex = columns.findIndex(
+			(column) => column.kind !== "calculated" && column.field === "case_name",
+		);
+		const index = restoreIndex >= 0 ? restoreIndex : 0;
+		const restored = columns[index];
+		if (!restored) return undefined;
+		const nextColumns = columns.map((column, columnIndex) =>
+			columnIndex === index ? { ...column, visibleInList: true } : column,
+		);
+		const field =
+			restored.kind === "calculated" ? restored.header : restored.field;
+		return {
+			tier: "proposed",
+			description: `restore "${field}" as a visible Results field on module "${mod.name}"`,
+			mutations: [
+				{
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: { caseListConfig: { ...config, columns: nextColumns } },
+				},
+			],
+		};
+	}
+
 	const column = plainColumn(asUuid(crypto.randomUUID()), "case_name", "Name");
 	return {
 		tier: "proposed",
@@ -1169,9 +1196,9 @@ const planSeedCaseNameColumn: RepairModule = (finding, doc) => {
 				uuid: moduleUuid,
 				patch: {
 					caseListConfig: {
-						...(mod.caseListConfig ?? {}),
+						...(config ?? {}),
 						columns: [column],
-						searchInputs: mod.caseListConfig?.searchInputs ?? [],
+						searchInputs: config?.searchInputs ?? [],
 					},
 				},
 			},

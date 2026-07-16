@@ -305,6 +305,34 @@ describe("searchInputViaModeCompatibility", () => {
 		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
 	});
 
+	it("admits a legacy date-opened target when its prompt name is canonical", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "household",
+					caseListOnly: true,
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-legacy"), "case_name", "Name")],
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-legacy-range"),
+								"date_opened",
+								"Date opened",
+								"date-range",
+								"date-opened",
+							),
+						],
+					},
+				},
+			],
+			caseTypes,
+		});
+
+		expect(runValidation(doc).some((e) => e.code === CODE)).toBe(false);
+	});
+
 	it("fires for `range` mode on self-walk when `name !== property`", () => {
 		// The bogus-auto-match case for `range`: bare prompt key
 		// `window` is what CCHQ's runtime queries as the case property,

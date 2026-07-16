@@ -23,7 +23,7 @@ import {
 	caseSearchConfigSchema,
 	type Module,
 } from "@/lib/domain";
-import { matchAll, term } from "@/lib/domain/predicate";
+import { eq, literal, matchAll, prop, term } from "@/lib/domain/predicate";
 import { setCaseSearchDisplayTool } from "../setCaseSearchDisplay";
 import {
 	MOD_A,
@@ -44,6 +44,29 @@ beforeEach(() => {
 });
 
 describe("setCaseSearchDisplay", () => {
+	it("canonicalizes standard-property aliases in the button condition", async () => {
+		const { doc, ctx } = makeCaseSearchFixture();
+		const result = await setCaseSearchDisplayTool.execute(
+			{
+				moduleIndex: 0,
+				searchScreenTitle: null,
+				searchScreenSubtitle: null,
+				searchButtonLabel: null,
+				searchButtonDisplayCondition: eq(
+					prop("patient", "external-id"),
+					literal("abc"),
+				),
+			},
+			ctx,
+			doc,
+		);
+
+		expect(
+			result.newDoc.modules[MOD_A]?.caseSearchConfig
+				?.searchButtonDisplayCondition,
+		).toEqual(eq(prop("patient", "external_id"), literal("abc")));
+	});
+
 	it("sets every display slot on the module's caseSearchConfig", async () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const buttonCondition = matchAll();

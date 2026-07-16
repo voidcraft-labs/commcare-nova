@@ -28,10 +28,9 @@
 //
 //   - `errorAreas` — which tabs carry the error dot: every finding,
 //     including search-input problems and column-kind applicability
-//     mismatches. A broken column badges BOTH the list and detail
-//     tabs — both canvases keep omitted columns in a supporting-field
-//     inventory, and an inventory containing an error opens itself so
-//     the entity is findable and fixable from either.
+//     mismatches. A broken column badges only the screen that shows it;
+//     off-screen sort carriers belong to Results because Default order uses
+//     them. Hidden recovery items never make an unrelated tab look broken.
 //   - `brokenColumns` — the per-column set behind the in-canvas
 //     error marks (a tab dot must point at something findable).
 //   - `previewObstacle` — why the live preview can't run, or `null`:
@@ -42,7 +41,13 @@
 //     rows still load and render fine; the marks + inspector carry
 //     the signal.
 
-import type { CaseListConfig, CaseType, Column, Uuid } from "@/lib/domain";
+import {
+	type CaseListConfig,
+	type CaseType,
+	type Column,
+	caseListColumnHasRuntimeRole,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	checkPredicate,
 	checkValueExpression,
@@ -91,17 +96,27 @@ export function caseListConfigVerdicts(
 	// preview gate's calculated arm. ──
 	const brokenColumns = new Set<Uuid>();
 	const brokenCalculated: Column[] = [];
+	let listColumnsBroken = false;
+	let detailColumnsBroken = false;
+	const markBrokenColumn = (column: Column) => {
+		brokenColumns.add(column.uuid);
+		if (column.visibleInList !== false || column.sort !== undefined) {
+			listColumnsBroken = true;
+		}
+		if (column.visibleInDetail !== false) detailColumnsBroken = true;
+	};
 	for (const col of config.columns) {
+		if (!caseListColumnHasRuntimeRole(col)) continue;
 		if (col.kind === "calculated") {
 			if (checkValueExpression(col.expression, bareCtx).ok) continue;
-			brokenColumns.add(col.uuid);
+			markBrokenColumn(col);
 			brokenCalculated.push(col);
 			continue;
 		}
 		const applicable = columnCardSchemas[col.kind].applicableForProperty(
 			resolveColumnProperty(editCtx, col.field),
 		);
-		if (!applicable) brokenColumns.add(col.uuid);
+		if (!applicable) markBrokenColumn(col);
 	}
 
 	// ── Filter ──
@@ -162,12 +177,11 @@ export function caseListConfigVerdicts(
 		}
 	}
 
-	const columnsBroken = brokenColumns.size > 0;
 	return {
 		errorAreas: {
 			search,
-			list: columnsBroken || filterIsBroken,
-			detail: columnsBroken,
+			list: listColumnsBroken || filterIsBroken,
+			detail: detailColumnsBroken,
 		},
 		brokenColumns,
 		previewObstacle: composePreviewObstacle(filterIsBroken, brokenCalculated),

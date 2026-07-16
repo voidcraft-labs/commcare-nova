@@ -111,7 +111,7 @@ export function FormatDateCard({ value, onChange, path }: FormatDateCardProps) {
 
 			<div className="space-y-1.5">
 				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-					Pattern
+					Date style
 				</div>
 				<CustomDatePatternInput
 					value={value.pattern}

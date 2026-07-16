@@ -30,6 +30,7 @@
 
 import { z } from "zod";
 import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
+import { canonicalCasePropertyName } from "@/lib/domain";
 
 // ── Reserved case properties (CommCare platform list) ───────────────
 //
@@ -77,7 +78,7 @@ const casePropertyDescribed = z
 				"Property name in snake_case. " +
 					`Must NOT be a reserved word: ${RESERVED_CASE_PROPERTIES}. ` +
 					"Must NOT be media/binary (photos, audio, video, signatures). " +
-					'Use descriptive alternatives (e.g. "visit_date" not "date", "full_name" not "name").',
+					'Use descriptive alternatives (e.g. "visit_date" not "date"). For a case or person display name, use the canonical "case_name" field—not "name", "full_name", or another duplicate. Standard metadata such as "external_id", "date_opened", and lifecycle "status" is implicit and should be referenced directly rather than added as custom catalog properties.',
 			),
 		label: z
 			.string()
@@ -166,7 +167,7 @@ export const caseTypeRecordSchema = z
 			.array(casePropertyDescribed)
 			.min(1)
 			.describe(
-				'Case properties to track. Forms will create fields to capture these. The case name field must always have id "case_name".',
+				'Case properties to track. Forms will create fields to capture these. Include the display/person name once as "case_name"; never add a duplicate "name" or "full_name" property. Standard metadata (external_id, date_opened, lifecycle status) is implicit rather than a custom property.',
 			),
 		parent_type: z
 			.string()
@@ -193,6 +194,20 @@ export const caseTypeRecordSchema = z
 				message: `Case type "${record.name}" has a relationship but no parent_type — relationship describes how a child links to its parent. Set parent_type to the owning case type, or pass null for relationship (a standalone case type has null for both).`,
 			});
 		}
+		const seenCanonical = new Map<string, number>();
+		for (const [index, property] of record.properties.entries()) {
+			const canonical = canonicalCasePropertyName(property.name);
+			const firstIndex = seenCanonical.get(canonical);
+			if (firstIndex !== undefined) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["properties", index, "name"],
+					message: `Case type "${record.name}" lists "${property.name}" and "${record.properties[firstIndex].name}", but both mean Nova property "${canonical}". Keep one definition under the canonical name "${canonical}".`,
+				});
+				continue;
+			}
+			seenCanonical.set(canonical, index);
+		}
 	});
 
 // ── Boundary normalization ──────────────────────────────────────────
@@ -215,7 +230,10 @@ export function cleanCaseTypeRecord(
 		Object.fromEntries(Object.entries(obj).filter(([, v]) => v != null));
 	return {
 		name: record.name,
-		properties: record.properties.map((p) => nonNull(p)),
+		properties: record.properties.map((p) => ({
+			...nonNull(p),
+			name: canonicalCasePropertyName(p.name),
+		})),
 		...(record.parent_type != null && { parent_type: record.parent_type }),
 		...(record.relationship != null && { relationship: record.relationship }),
 	};

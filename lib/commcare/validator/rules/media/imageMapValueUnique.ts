@@ -13,14 +13,21 @@
  *
  * Cousin columns can share a value freely (the arm is per-column);
  * only siblings inside one column collide. The inner loop scopes the
- * uniqueness check to one column at a time.
+ * uniqueness check to one column at a time. Fully off-screen, unsorted legacy
+ * mappings have no emitted arm, so they are ignored until they regain a
+ * Results, Details, or Default-order role.
  *
  * Mirrors `idMappingValueRequired`'s shape: module scope; iterate
  * `caseListConfig.columns`; emit one error per duplicate row with
  * 1-based human-readable row index in the message.
  */
 
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	caseListColumnHasRuntimeRole,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
 
 export function imageMapValueUnique(
@@ -32,6 +39,7 @@ export function imageMapValueUnique(
 	const errors: ValidationError[] = [];
 	for (let columnIndex = 0; columnIndex < columns.length; columnIndex++) {
 		const column = columns[columnIndex];
+		if (!caseListColumnHasRuntimeRole(column)) continue;
 		if (column.kind !== "image-map") continue;
 
 		// Track each `value` against the row index it first appeared at,

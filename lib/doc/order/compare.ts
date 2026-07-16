@@ -18,6 +18,11 @@ interface Sortable {
 	readonly uuid?: string;
 }
 
+interface ColumnSortable extends Sortable {
+	readonly listOrder?: string;
+	readonly detailOrder?: string;
+}
+
 function compareUuid(a: string | undefined, b: string | undefined): number {
 	const x = a ?? "";
 	const y = b ?? "";
@@ -40,6 +45,49 @@ export function bySortKey(a: Sortable, b: Sortable): number {
 	if (a.order !== undefined) return -1;
 	if (b.order !== undefined) return 1;
 	return 0;
+}
+
+function compareResolvedColumnOrder(
+	a: ColumnSortable,
+	b: ColumnSortable,
+	key: "listOrder" | "detailOrder",
+): number {
+	const aOrder = a[key] ?? a.order;
+	const bOrder = b[key] ?? b.order;
+	if (aOrder !== undefined && bOrder !== undefined) {
+		if (aOrder < bOrder) return -1;
+		if (aOrder > bOrder) return 1;
+		return compareUuid(a.uuid, b.uuid);
+	}
+	if (aOrder !== undefined) return -1;
+	if (bOrder !== undefined) return 1;
+	return compareUuid(a.uuid, b.uuid);
+}
+
+/**
+ * Order case-list columns for the Results surface. `listOrder` is the
+ * authoritative surface key; legacy columns fall back to their generic
+ * `order`. Equal or absent resolved keys tie-break by `uuid`, making the
+ * comparator total and deterministic even before hydration backfills order.
+ */
+export function byListColumnOrder(
+	a: ColumnSortable,
+	b: ColumnSortable,
+): number {
+	return compareResolvedColumnOrder(a, b, "listOrder");
+}
+
+/**
+ * Order case-list columns for the Details surface. `detailOrder` is the
+ * authoritative surface key; legacy columns fall back to their generic
+ * `order`. Equal or absent resolved keys tie-break by `uuid`, making the
+ * comparator total and deterministic even before hydration backfills order.
+ */
+export function byDetailColumnOrder(
+	a: ColumnSortable,
+	b: ColumnSortable,
+): number {
+	return compareResolvedColumnOrder(a, b, "detailOrder");
 }
 
 /**

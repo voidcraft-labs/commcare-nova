@@ -39,8 +39,9 @@ import type {
 	SessionUserRef,
 	Term,
 } from "@/lib/domain/predicate/types";
+import { emitCasePropertyWirePath } from "../casePropertyWire";
 import type { CsqlSegment } from "./csqlSegment";
-import { formatNumeric, quoteIdentifier, quoteLiteral } from "./stringQuoting";
+import { formatNumeric, quoteLiteral } from "./stringQuoting";
 
 /**
  * The four CommCare case properties CCHQ stores as XML attributes on
@@ -62,12 +63,7 @@ import { formatNumeric, quoteIdentifier, quoteLiteral } from "./stringQuoting";
  * Both dialects share the same set because both target the same
  * underlying case storage shape.
  */
-export const RESERVED_CASE_ATTRIBUTES: ReadonlySet<string> = new Set([
-	"case_id",
-	"case_type",
-	"owner_id",
-	"status",
-]);
+export { RESERVED_CASE_ATTRIBUTES } from "../casePropertyWire";
 
 // ============================================================
 // Relation-walk anchor builders
@@ -277,9 +273,7 @@ export function emitOnDevicePropertyRef(
 	prop: PropertyRef,
 	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
 ): string {
-	const leaf = RESERVED_CASE_ATTRIBUTES.has(prop.property)
-		? `@${quoteIdentifier(prop.property)}`
-		: quoteIdentifier(prop.property);
+	const leaf = emitCasePropertyWirePath(prop.property);
 	const via = prop.via;
 	if (via === undefined || via.kind === "self") {
 		return leaf;
@@ -407,10 +401,7 @@ export function emitTermSegment(t: Term): TermEmission {
  * per-operator branching on which slots admit the slash-path shape.
  */
 export function emitCsqlPropertyRefText(t: PropertyRef): string {
-	if (RESERVED_CASE_ATTRIBUTES.has(t.property)) {
-		return `@${quoteIdentifier(t.property)}`;
-	}
-	return quoteIdentifier(t.property);
+	return emitCasePropertyWirePath(t.property);
 }
 
 /**

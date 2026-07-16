@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HqFormLink } from "@/lib/commcare";
 import {
+	deriveCaseListEntryDefinition,
 	deriveEntryDefinition,
 	deriveFormLinkStack,
 	derivePostSubmitStack,
@@ -445,6 +446,21 @@ describe("deriveEntryDefinition", () => {
 		);
 		const ids = entry.instances.map((i) => i.id);
 		expect(ids).toContain("commcaresession");
+	});
+
+	it("omits detail-confirm when a case-list viewer has no Details fields", () => {
+		const entry = deriveCaseListEntryDefinition(
+			0,
+			"patient",
+			undefined,
+			undefined,
+			undefined,
+			false,
+		);
+		const datum = entry.session?.datums[0];
+
+		expect(datum?.detailSelect).toBe("m0_case_short");
+		expect(datum?.detailConfirm).toBeUndefined();
 	});
 
 	it("accumulates search-input:results when the search-button display condition references a search input", () => {

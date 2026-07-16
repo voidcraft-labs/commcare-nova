@@ -165,7 +165,7 @@ describe("dual-detail emission — case-only modules", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeListConfig({
-				columns: [plainColumn(COL(1), "name", "Name")],
+				columns: [plainColumn(COL(1), "full_name", "Name")],
 			}),
 		});
 		const doc = buildDoc({
@@ -173,7 +173,7 @@ describe("dual-detail emission — case-only modules", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", data_type: "text" }],
+					properties: [{ name: "full_name", data_type: "text" }],
 				},
 			],
 		});
@@ -197,7 +197,7 @@ describe("dual-detail emission — case-only modules", () => {
 			caseType: "patient",
 			caseListConfig: makeListConfig({
 				columns: [
-					plainColumn(COL(1), "name", "Name", {
+					plainColumn(COL(1), "full_name", "Name", {
 						sort: { direction: "asc", priority: 0 },
 					}),
 				],
@@ -208,7 +208,7 @@ describe("dual-detail emission — case-only modules", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", data_type: "text" }],
+					properties: [{ name: "full_name", data_type: "text" }],
 				},
 			],
 		});
@@ -235,7 +235,7 @@ describe("dual-detail emission — search-enabled modules", () => {
 			caseType: "patient",
 			caseListConfig: makeListConfig({
 				columns: [
-					plainColumn(COL(1), "name", "Name", {
+					plainColumn(COL(1), "full_name", "Name", {
 						sort: { direction: "asc", priority: 0 },
 					}),
 					dateColumn(COL(2), "birthdate", "Birthdate", "%d/%m/%Y"),
@@ -249,7 +249,7 @@ describe("dual-detail emission — search-enabled modules", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "name", data_type: "text" },
+						{ name: "full_name", data_type: "text" },
 						{ name: "birthdate", data_type: "date" },
 					],
 				},
@@ -276,7 +276,7 @@ describe("dual-detail emission — search-enabled modules", () => {
 			caseType: "patient",
 			caseListConfig: makeListConfig({
 				columns: [
-					plainColumn(COL(1), "name", "Name", {
+					plainColumn(COL(1), "full_name", "Name", {
 						sort: { direction: "asc", priority: 0 },
 					}),
 				],
@@ -288,7 +288,7 @@ describe("dual-detail emission — search-enabled modules", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", data_type: "text" }],
+					properties: [{ name: "full_name", data_type: "text" }],
 				},
 			],
 		});
@@ -324,7 +324,7 @@ describe("dual-detail emission — search-enabled modules", () => {
 			caseType: "patient",
 			caseListConfig: makeListConfig({
 				columns: [
-					plainColumn(COL(1), "name", "Name", {
+					plainColumn(COL(1), "full_name", "Name", {
 						sort: { direction: "asc", priority: 0 },
 					}),
 				],
@@ -336,7 +336,7 @@ describe("dual-detail emission — search-enabled modules", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", data_type: "text" }],
+					properties: [{ name: "full_name", data_type: "text" }],
 				},
 			],
 		});
@@ -367,12 +367,82 @@ describe("dual-detail emission — search-enabled modules", () => {
 // shapes carry identically.
 
 describe("dual-detail emission — field content identity", () => {
+	it("orders Results and Details independently without changing case/search target parity", () => {
+		const first = plainColumn(COL(1), "first", "First", {
+			listOrder: "b",
+			detailOrder: "a",
+		});
+		const second = plainColumn(COL(2), "second", "Second", {
+			listOrder: "a",
+			detailOrder: "b",
+		});
+		const mod = makeModule({
+			caseType: "patient",
+			caseListConfig: makeListConfig({ columns: [first, second] }),
+			caseSearchConfig: makeSearchConfig(),
+		});
+		const doc = buildDoc({
+			module: mod,
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "first", data_type: "text" },
+						{ name: "second", data_type: "text" },
+					],
+				},
+			],
+		});
+
+		const caseShort = emitShortDetail({
+			module: mod,
+			moduleIndex: 0,
+			doc,
+			target: "case",
+		});
+		const searchShort = emitShortDetail({
+			module: mod,
+			moduleIndex: 0,
+			doc,
+			target: "search",
+		});
+		const caseLong = emitLongDetail({
+			module: mod,
+			moduleIndex: 0,
+			doc,
+			target: "case",
+		});
+		const searchLong = emitLongDetail({
+			module: mod,
+			moduleIndex: 0,
+			doc,
+			target: "search",
+		});
+
+		// Results: second, first. Details: first, second. Case and search
+		// targets remain structurally identical within each surface.
+		expect(extractFieldTemplates(caseShort.xml)).toEqual([
+			'<template><text><xpath function="second"/></text></template>',
+			'<template><text><xpath function="first"/></text></template>',
+		]);
+		expect(extractFieldTemplates(searchShort.xml)).toEqual(
+			extractFieldTemplates(caseShort.xml),
+		);
+		expect(extractFieldTemplates(caseLong.xml)).toEqual([
+			'<template><text><xpath function="first"/></text></template>',
+			'<template><text><xpath function="second"/></text></template>',
+		]);
+		expect(extractFieldTemplates(searchLong.xml)).toEqual(
+			extractFieldTemplates(caseLong.xml),
+		);
+	});
+
 	it("renders the same <field> set on case-short and search-short under the visibleInList filter", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeListConfig({
 				columns: [
-					plainColumn(COL(1), "name", "Name"),
+					plainColumn(COL(1), "full_name", "Name"),
 					// Hidden from list — must NOT appear on either wire id.
 					plainColumn(COL(2), "external_id", "External ID", {
 						visibleInList: false,
@@ -388,7 +458,7 @@ describe("dual-detail emission — field content identity", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "name", data_type: "text" },
+						{ name: "full_name", data_type: "text" },
 						{ name: "external_id", data_type: "text" },
 						{ name: "birthdate", data_type: "date" },
 					],
@@ -418,12 +488,54 @@ describe("dual-detail emission — field content identity", () => {
 		expect(searchShort.xml).not.toContain('<xpath function="external_id"/>');
 	});
 
+	it("preserves an off-screen Default-order rule in the compiled CCZ without showing it", () => {
+		const sortOnly = plainColumn(COL(2), "external_id", "External ID", {
+			visibleInList: false,
+			visibleInDetail: false,
+			sort: { direction: "asc", priority: 0 },
+		});
+		const mod = makeModule({
+			caseType: "patient",
+			caseListConfig: makeListConfig({
+				columns: [plainColumn(COL(1), "full_name", "Name"), sortOnly],
+			}),
+		});
+		const doc = buildDoc({
+			module: mod,
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "full_name", data_type: "text" },
+						{ name: "external_id", data_type: "text" },
+					],
+				},
+			],
+		});
+
+		const suiteXml = readSuiteXml(compileCcz(expandDoc(doc), "Test App", doc));
+		const short = suiteXml.match(
+			/<detail id="m0_case_short">[\s\S]*?<\/detail>/,
+		)?.[0];
+		const long = suiteXml.match(
+			/<detail id="m0_case_long">[\s\S]*?<\/detail>/,
+		)?.[0];
+
+		expect(short).toContain('<header width="0">');
+		expect(short).toContain('<template width="0">');
+		expect(short).toContain('<xpath function="external_id"/>');
+		expect(short).toContain(
+			'<sort type="string" order="1" direction="ascending">',
+		);
+		expect(long).not.toContain('<xpath function="external_id"/>');
+	});
+
 	it("renders the same <field> set on case-long and search-long under the visibleInDetail filter", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeListConfig({
 				columns: [
-					plainColumn(COL(1), "name", "Name"),
+					plainColumn(COL(1), "full_name", "Name"),
 					// Hidden from detail — must NOT appear on either long block.
 					plainColumn(COL(2), "external_id", "External ID", {
 						visibleInDetail: false,
@@ -439,7 +551,7 @@ describe("dual-detail emission — field content identity", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "name", data_type: "text" },
+						{ name: "full_name", data_type: "text" },
 						{ name: "external_id", data_type: "text" },
 						{ name: "birthdate", data_type: "date" },
 					],
@@ -483,7 +595,7 @@ describe("dual-detail emission — locale-id prefix swap", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeListConfig({
-				columns: [plainColumn(COL(1), "name", "Name")],
+				columns: [plainColumn(COL(1), "full_name", "Name")],
 			}),
 			caseSearchConfig: makeSearchConfig(),
 		});
@@ -492,7 +604,7 @@ describe("dual-detail emission — locale-id prefix swap", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", data_type: "text" }],
+					properties: [{ name: "full_name", data_type: "text" }],
 				},
 			],
 		});
@@ -510,10 +622,10 @@ describe("dual-detail emission — locale-id prefix swap", () => {
 		});
 
 		expect(caseShort.strings).toEqual({
-			"m0.case_short.case_name_1.header": "Name",
+			"m0.case_short.case_full_name_1.header": "Name",
 		});
 		expect(searchShort.strings).toEqual({
-			"m0.search_short.case_name_1.header": "Name",
+			"m0.search_short.case_full_name_1.header": "Name",
 		});
 	});
 
@@ -521,7 +633,7 @@ describe("dual-detail emission — locale-id prefix swap", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeListConfig({
-				columns: [plainColumn(COL(1), "name", "Name")],
+				columns: [plainColumn(COL(1), "full_name", "Name")],
 			}),
 			caseSearchConfig: makeSearchConfig(),
 		});
@@ -530,7 +642,7 @@ describe("dual-detail emission — locale-id prefix swap", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", data_type: "text" }],
+					properties: [{ name: "full_name", data_type: "text" }],
 				},
 			],
 		});
@@ -548,10 +660,10 @@ describe("dual-detail emission — locale-id prefix swap", () => {
 		});
 
 		expect(caseLong.strings).toEqual({
-			"m0.case_long.case_name_1.header": "Name",
+			"m0.case_long.case_full_name_1.header": "Name",
 		});
 		expect(searchLong.strings).toEqual({
-			"m0.search_long.case_name_1.header": "Name",
+			"m0.search_long.case_full_name_1.header": "Name",
 		});
 	});
 });
@@ -687,7 +799,7 @@ describe("dual-detail emission — calc-xpath instance rewrite", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeListConfig({
-				columns: [plainColumn(COL(1), "name", "Name")],
+				columns: [plainColumn(COL(1), "full_name", "Name")],
 			}),
 			caseSearchConfig: makeSearchConfig(),
 		});
@@ -696,7 +808,7 @@ describe("dual-detail emission — calc-xpath instance rewrite", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", data_type: "text" }],
+					properties: [{ name: "full_name", data_type: "text" }],
 				},
 			],
 		});
@@ -707,7 +819,7 @@ describe("dual-detail emission — calc-xpath instance rewrite", () => {
 			target: "search",
 		});
 
-		expect(searchShort.xml).toContain('<xpath function="name"/>');
+		expect(searchShort.xml).toContain('<xpath function="full_name"/>');
 		// No instance reference should leak in either flavor. XPath
 		// single-quote literals round-trip through the serializer as
 		// `&apos;`, so the negative assertions check the entity-encoded

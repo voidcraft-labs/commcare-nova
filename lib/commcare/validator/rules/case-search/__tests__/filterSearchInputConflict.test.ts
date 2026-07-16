@@ -375,7 +375,7 @@ describe("filterSearchInputConflict", () => {
 		).toBe(false);
 	});
 
-	it("short-circuits when `caseSearchConfig` is absent", () => {
+	it("covers legacy markerless search inputs because they still emit search", () => {
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -428,10 +428,10 @@ describe("filterSearchInputConflict", () => {
 			],
 		});
 		expect(
-			runValidation(doc).some(
+			runValidation(doc).filter(
 				(e) => e.code === "CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",
 			),
-		).toBe(false);
+		).toHaveLength(1);
 	});
 
 	it("short-circuits when `mod.caseType` is absent", () => {
@@ -476,5 +476,40 @@ describe("filterSearchInputConflict", () => {
 				(e) => e.code === "CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",
 			),
 		).toBe(false);
+	});
+
+	it("treats a legacy property alias and its canonical name as one binding", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Viewer",
+					caseType: "patient",
+					caseListOnly: true,
+					caseListConfig: {
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						filter: eq(prop("patient", "external_id"), literal("fixed")),
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-external"),
+								"external_id",
+								"External ID",
+								"text",
+								"external-id",
+							),
+						],
+					},
+					caseSearchConfig: {},
+					forms: [],
+				},
+			],
+			caseTypes: [{ name: "patient", properties: [] }],
+		});
+
+		expect(
+			runValidation(doc).filter(
+				(error) => error.code === "CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",
+			),
+		).toHaveLength(1);
 	});
 });

@@ -245,6 +245,64 @@ describe("mutationSchema round-trip", () => {
 		});
 	});
 
+	describe("case-list column surface order", () => {
+		const columnUuid = asUuid("66666666-6666-6666-6666-666666666666");
+
+		it("moveColumnInList", () => {
+			expectRoundTrip({
+				kind: "moveColumnInList",
+				moduleUuid,
+				uuid: columnUuid,
+				order: "list-a",
+			});
+		});
+
+		it("moveColumnInList clears an override with null", () => {
+			expectRoundTrip({
+				kind: "moveColumnInList",
+				moduleUuid,
+				uuid: columnUuid,
+				order: null,
+			});
+		});
+
+		it("moveColumnInDetail", () => {
+			expectRoundTrip({
+				kind: "moveColumnInDetail",
+				moduleUuid,
+				uuid: columnUuid,
+				order: "detail-z",
+			});
+		});
+
+		it("moveColumnInDetail clears an override with null", () => {
+			expectRoundTrip({
+				kind: "moveColumnInDetail",
+				moduleUuid,
+				uuid: columnUuid,
+				order: null,
+			});
+		});
+	});
+
+	describe("case-search marker", () => {
+		it("enables", () => {
+			expectRoundTrip({
+				kind: "setCaseSearchMarker",
+				uuid: moduleUuid,
+				enabled: true,
+			});
+		});
+
+		it("disables", () => {
+			expectRoundTrip({
+				kind: "setCaseSearchMarker",
+				uuid: moduleUuid,
+				enabled: false,
+			});
+		});
+	});
+
 	it("rejects an unknown mutation kind", () => {
 		const bad = { kind: "totallyMadeUp", uuid: moduleUuid };
 		expect(() => mutationSchema.parse(bad)).toThrow();

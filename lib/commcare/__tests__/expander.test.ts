@@ -2375,17 +2375,12 @@ describe("case detail (long) view", () => {
 		const hq = expandDoc(doc);
 		const shortCols = hq.modules[0].case_details.short.columns;
 		const longCols = hq.modules[0].case_details.long.columns;
-		// Short detail: all three columns appear; the two hidden ones
-		// carry `format: "invisible"`. CCHQ keeps the column rows
-		// present so sort + index keep working.
-		expect(shortCols.length).toBe(3);
+		// Results persists only the field people see. Details-only fields do not
+		// become zero-width technical rows unless they carry a Results sort rule.
+		expect(shortCols.length).toBe(1);
 		expect(shortCols[0].field).toBe("case_name");
 		expect(shortCols[0].format).toBe("plain");
-		expect(shortCols[1].field).toBe("age");
-		expect(shortCols[1].format).toBe("invisible");
-		expect(shortCols[2].field).toBe("dob");
-		expect(shortCols[2].format).toBe("invisible");
-		// Long detail: all three columns, in source-array order, with
+		// Details keeps all three columns, in its independent display order, with
 		// normal `plain` format because `visibleInDetail` is unset.
 		expect(longCols.length).toBe(3);
 		expect(longCols[0].field).toBe("case_name");
@@ -3996,11 +3991,10 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		expect(shortCols[0].field).toBe("age");
 	});
 
-	it("surfaces visibleInList: false as `invisible` format on the short detail while keeping the column on long detail", () => {
-		// CCHQ's `invisible` format renders a zero-width column;
-		// the column stays present for sort + index purposes. The
-		// long detail keeps its normal format when `visibleInDetail`
-		// is unset.
+	it("omits a Details-only field from Results while preserving it on Details", () => {
+		// A field with no Results behavior should not persist as a zero-width
+		// technical row. Off-screen fields remain only when Default order needs
+		// their sort carrier.
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
@@ -4013,8 +4007,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			searchInputs: [],
 		});
 		const details = expandDoc(doc).modules[0].case_details;
-		expect(details.short.columns[0].format).toBe("invisible");
-		expect(details.short.columns[0].field).toBe("phone");
+		expect(details.short.columns).toEqual([]);
 		expect(details.long.columns[0].format).toBe("plain");
 		expect(details.long.columns[0].field).toBe("phone");
 	});

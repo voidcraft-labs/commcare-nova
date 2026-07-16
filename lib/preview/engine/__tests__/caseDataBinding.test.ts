@@ -62,7 +62,17 @@ import {
 	simpleSearchInputDef,
 	startsWithMode,
 } from "@/lib/domain";
-import { eq, gt, input, literal, prop, term } from "@/lib/domain/predicate";
+import {
+	eq,
+	gt,
+	input,
+	isIn,
+	literal,
+	not,
+	prop,
+	sessionContext,
+	term,
+} from "@/lib/domain/predicate";
 import {
 	caseRowDisplayValue,
 	caseRowsToFormPreloads,
@@ -391,6 +401,66 @@ describe("readCases", () => {
 		expect(ids).toEqual([ALICE_CASE_ID, BOB_CASE_ID].sort());
 	});
 
+	it("uses Results order, not Details order, to break equal sort priorities", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+
+		const CAROL_CASE_ID = "40000000-0000-0000-0000-000000000003";
+		for (const row of [
+			{ caseId: ALICE_CASE_ID, name: "A", age: 2 },
+			{ caseId: BOB_CASE_ID, name: "A", age: 1 },
+			{ caseId: CAROL_CASE_ID, name: "B", age: 0 },
+		]) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: row.caseId,
+					case_type: "patient",
+					case_name: row.name,
+					status: "open",
+					properties: { name: row.name, age: row.age },
+				},
+			});
+		}
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: {
+				columns: [
+					plainColumn(NAME_COLUMN_UUID, "name", "Name", {
+						sort: { direction: "asc", priority: 0 },
+						listOrder: "a",
+						detailOrder: "b",
+					}),
+					plainColumn(
+						asUuid("10000000-0000-0000-0000-000000000003"),
+						"age",
+						"Age",
+						{
+							sort: { direction: "asc", priority: 0 },
+							listOrder: "b",
+							detailOrder: "a",
+						},
+					),
+				],
+				searchInputs: [],
+			},
+		});
+
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		// Results order makes `name` primary, then `age`: B, A, C. If
+		// Details order leaked into sorting, `age` would lead: C, B, A.
+		expect(result.rows.map((row) => row.case_id)).toEqual([
+			BOB_CASE_ID,
+			ALICE_CASE_ID,
+			CAROL_CASE_ID,
+		]);
+	});
+
 	it("respects tenant scope — owner B sees an empty case-type that owner A populated", async () => {
 		const storeA = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
@@ -439,6 +509,48 @@ const READCASES_ADVANCED_INPUT_UUID = asUuid(
 );
 
 describe("readCases — running-app search-input composition", () => {
+	it("excludes resolved owner ids inside the case-store query", async () => {
+		const store = makeStore(OWNER_A);
+		const excludedOwnerStore = makeStore(OWNER_A, "excluded-owner");
+		const visibleOwnerStore = makeStore(OWNER_A, "visible-owner");
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await excludedOwnerStore.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		await visibleOwnerStore.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				status: "open",
+				properties: { name: "Bob", age: 40 },
+			},
+		});
+
+		const result = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: { columns: [], searchInputs: [] },
+			excludedOwnerIds: ["excluded-owner"],
+		});
+
+		expect(result.kind).toBe("rows");
+		if (result.kind !== "rows") return;
+		expect(result.rows.map((row) => [row.case_id, row.owner_id])).toEqual([
+			[BOB_CASE_ID, "visible-owner"],
+		]);
+	});
+
 	it("reads as before when caseListConfig has no search inputs (filter alone)", async () => {
 		// Pins the no-runtime-contribution short-circuit. The helper
 		// MUST pass `caseListConfig.filter` through to `store.query`
@@ -2684,6 +2796,46 @@ describe("loadCasesAction", () => {
 		expect(queryArg?.caseTypeSchemas).toBeInstanceOf(Map);
 		expect(queryArg?.caseTypeSchemas?.get("patient")).toEqual(
 			PATIENT_CASE_TYPE,
+		);
+	});
+
+	it("evaluates a session-backed excluded-owner expression before querying", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: {
+				id: OWNER_A,
+				name: "Owner A",
+				email: "owner-a@example.org",
+			},
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi.fn().mockResolvedValueOnce([]),
+			count: vi.fn(),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+
+		const { loadCasesAction } = await import("../caseDataBinding");
+		const result = await loadCasesAction({
+			appId: APP_ID,
+			caseType: "patient",
+			excludedOwnerIdsExpression: term(sessionContext("userid")),
+		});
+
+		expect(result).toEqual({ kind: "empty" });
+		expect(stubStore.query).toHaveBeenCalledWith(
+			expect.objectContaining({
+				predicate: not(isIn(prop("patient", "owner_id"), literal(OWNER_A))),
+			}),
 		);
 	});
 

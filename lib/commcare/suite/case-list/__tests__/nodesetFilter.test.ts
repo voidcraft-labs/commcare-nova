@@ -94,8 +94,8 @@ describe("emitNodesetFilter — predicate compilation", () => {
 	it("wraps a string-literal comparison preserving the quoted value", () => {
 		// String-literal escape lives in the shared emitter; this
 		// layer's contract is just the bracket wrap.
-		const filter = eq(prop("patient", "name"), literal("Alice"));
-		expect(emitNodesetFilter(filter)).toBe("[name = 'Alice']");
+		const filter = eq(prop("patient", "full_name"), literal("Alice"));
+		expect(emitNodesetFilter(filter)).toBe("[full_name = 'Alice']");
 	});
 
 	it("wraps a compound logical expression as one bracket", () => {

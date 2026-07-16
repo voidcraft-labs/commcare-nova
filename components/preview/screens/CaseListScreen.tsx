@@ -4,8 +4,8 @@
 // for every case-list workspace URL (`cases` / `search-config` /
 // `detail-config`). Search and detail are facets of the same list, so
 // preview always shows the assembled artifact: the real
-// `SearchInputForm` widgets query the real case store as you type, the
-// list narrows through its own filter box (the same per-word,
+// `SearchInputForm` widgets submit to the real case store with the
+// authored button, the list narrows through its own filter box (the same per-word,
 // case-insensitive narrowing CommCare's case list runs), and rows open
 // the case detail IN PLACE. From the detail, Continue carries the
 // selected case into a CASE-LOADING form (followup / close — never
@@ -53,15 +53,22 @@ import {
 	rowMatchesFilterText,
 } from "@/components/preview/shared/listFilter";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
+import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
-import { bySortKey } from "@/lib/doc/order/compare";
+import {
+	byDetailColumnOrder,
+	byListColumnOrder,
+} from "@/lib/doc/order/compare";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseListConfig,
+	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
+	DEFAULT_CASE_SEARCH_TITLE,
+	effectiveCaseSearchConfig,
 	effectiveDataType,
 	fuzzyMode,
 	SEARCH_MODE_PROPERTY_TYPES,
@@ -69,11 +76,17 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
+import {
+	effectiveFilterForEmission,
+	isMatchNone,
+	simplifyForEmission,
+} from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
-import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
+import { previewSearchSessionValues } from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useCases } from "@/lib/preview/hooks/useCaseDataBinding";
+import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAppId,
@@ -155,7 +168,17 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const mod = useModuleEntity(moduleUuid);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
 	const config = mod?.caseListConfig;
-	const searchConfig = mod?.caseSearchConfig;
+	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
+	const { user } = useAuth();
+	// Better Auth can resolve its cached session synchronously on the browser's
+	// first paint while SSR has no client session. Keep the first render on the
+	// shared empty context, then apply session-backed defaults after hydration.
+	const [authMounted, setAuthMounted] = useState(false);
+	useEffect(() => setAuthMounted(true), []);
+	const searchSession = useMemo(
+		() => previewSearchSessionValues(authMounted ? user : null),
+		[authMounted, user],
+	);
 
 	// ── Responsive split — the canvas's own width decides ──
 	// Measured synchronously in the ref callback so the very first
@@ -179,9 +202,25 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const split = width >= SPLIT_MIN_WIDTH;
 
 	// ── Live state ──
-	const [inputValues, setInputValues] = useState<SearchInputValues>(
-		() => new Map(),
-	);
+	const searchRun = useSearchInputRunState({
+		scopeKey: moduleUuid ?? "",
+		searchInputs: config?.searchInputs ?? [],
+		session: searchSession,
+	});
+	const hasSearch = (config?.searchInputs.length ?? 0) > 0;
+	/* Ownership exclusions are part of the authored search, not the passive
+	 * list load. Do not narrow the initial list before the worker actually
+	 * submits Search — even an all-blank submit is intentional. A real
+	 * filter-only search has no submit screen, so its effective filter is the
+	 * launch and activates the exclusion immediately. */
+	const filterOnlyAutoLaunch =
+		!hasSearch &&
+		searchConfig !== undefined &&
+		effectiveFilterForEmission(config?.filter) !== undefined;
+	const excludedOwnerIdsExpression =
+		searchRun.hasSubmitted || filterOnlyAutoLaunch
+			? searchConfig?.excludedOwnerIds
+			: undefined;
 	const [filterText, setFilterText] = useState("");
 	const [openCase, setOpenCase] = useState<CaseRowWithCalculated | null>(null);
 	/** When set, the case has been picked (and confirmed) and the running app
@@ -189,6 +228,14 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	 *  Only reached on a case-first entry with more than one such form. */
 	const [formMenuCase, setFormMenuCase] =
 		useState<CaseRowWithCalculated | null>(null);
+	const stateScopeRef = useRef(moduleUuid);
+	useEffect(() => {
+		if (stateScopeRef.current === moduleUuid) return;
+		stateScopeRef.current = moduleUuid;
+		setFilterText("");
+		setOpenCase(null);
+		setFormMenuCase(null);
+	}, [moduleUuid]);
 
 	/* Mirror the locally-selected case into session so the breadcrumb can
 	 * name it while we're on the list (the strip is a sibling component and
@@ -213,7 +260,8 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		appId,
 		caseType: caseType?.name,
 		caseListConfig: config,
-		inputValues,
+		inputValues: searchRun.submitted,
+		excludedOwnerIdsExpression,
 		// The live case-type catalog — the schema slice the SQL compiler
 		// casts the config's predicate/sort/calc against. Sent with the
 		// config so a property rename/retype reaches both together, and a
@@ -232,22 +280,21 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	 *  form menu is the breadcrumb + "Back to Results" job, not this one, so
 	 *  this clears the search inputs and the list filter and nothing else. */
 	const clearSearch = () => {
-		setInputValues(new Map());
+		searchRun.clear();
 		setFilterText("");
 	};
 
-	// DISPLAY order (`sort-by-(order, uuid)`, the sequence the wire case-list
-	// detail emits), not `columns` array position — a `moveColumn` reorder must
-	// show here exactly as it exports.
-	const sortedColumns = [...(config?.columns ?? [])].sort(bySortKey);
-	const visibleColumns = sortedColumns.filter(
-		(col) => col.visibleInList ?? true,
-	);
-	const detailColumns = sortedColumns.filter(
-		(col) => col.visibleInDetail !== false,
-	);
-	const hasSearch = (config?.searchInputs.length ?? 0) > 0;
-	const queryActive = [...inputValues.values()].some((v) => v !== "");
+	// Results and Details are independent compositions. Each consumes its own
+	// fractional order key (falling back to legacy `order`) so rearranging one
+	// running-app screen cannot silently rearrange the other.
+	const visibleColumns = [...(config?.columns ?? [])]
+		.sort(byListColumnOrder)
+		.filter((col) => col.visibleInList ?? true);
+	const detailColumns = [...(config?.columns ?? [])]
+		.sort(byDetailColumnOrder)
+		.filter((col) => col.visibleInDetail !== false);
+	const queryActive = searchRun.queryActive;
+	const draftActive = searchRun.draftActive;
 	/* The case type has no rows at all (vs. a search that matched nothing —
 	 *  that's `empty` WITH an active query). The generate affordance keys off
 	 *  this so it never shows over a real no-match. */
@@ -274,7 +321,8 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			(config?.searchInputs ?? []).filter((s): s is SimpleSearchInputDef => {
 				if (s.kind !== "simple" || s.type !== "text" || s.via !== undefined)
 					return false;
-				if ((inputValues.get(s.name)?.trim() ?? "") === "") return false;
+				if ((searchRun.submitted.get(s.name)?.trim() ?? "") === "")
+					return false;
 				if (effectiveModeKind(s) !== "exact") return false;
 				const def = caseType?.properties.find((p) => p.name === s.property);
 				if (def === undefined) return false;
@@ -283,7 +331,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 					true
 				);
 			}),
-		[config?.searchInputs, inputValues, caseType],
+		[config?.searchInputs, searchRun.submitted, caseType],
 	);
 	const makeFuzzy = () => {
 		if (moduleUuid === undefined || config === undefined) return;
@@ -360,8 +408,19 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		else if (rowAction === "form") proceedWithCase(row);
 	};
 
-	const title = searchConfig?.searchScreenTitle ?? "Search";
+	const title = searchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
 	const subtitle = searchConfig?.searchScreenSubtitle;
+	const searchButtonLabel =
+		searchConfig?.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL;
+	const buttonCondition = searchConfig?.searchButtonDisplayCondition;
+	// The preview has no authoritative CommCare session/case-action context in
+	// which to evaluate a dynamic predicate. It can still honor every static
+	// boolean identity exactly (including nested `not` / `and` / `or`) without
+	// inventing values: deeply simplify, hide only when the condition proves
+	// false, and keep unresolved dynamic conditions visible.
+	const showSearchButton =
+		buttonCondition === undefined ||
+		!isMatchNone(simplifyForEmission(buttonCondition));
 
 	// ── Panes ──
 
@@ -382,7 +441,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				{/* Clear what was typed — lives WITH the search (where you'd
 				 *  reach to start over) and only appears when there's an active
 				 *  query to clear. */}
-				{queryActive && (
+				{(queryActive || draftActive || filterText !== "") && (
 					<button
 						type="button"
 						onClick={clearSearch}
@@ -401,8 +460,10 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			<SearchInputForm
 				searchInputs={config?.searchInputs ?? []}
 				caseType={caseType}
-				value={inputValues}
-				onChange={setInputValues}
+				value={searchRun.draft}
+				onChange={searchRun.changeDraft}
+				onSubmit={showSearchButton ? searchRun.submit : undefined}
+				submitLabel={searchButtonLabel}
 			/>
 			{/* No data to search yet — the generate affordance lives here, with
 			 *  the search, rather than as a giant button dominating the results.

@@ -22,6 +22,9 @@
 // `Object.assign(mod, patch)`).
 
 "use client";
+import { Icon } from "@iconify/react/offline";
+import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
+import { type ReactNode, useState } from "react";
 import { OptionalMarkdownRow } from "@/components/builder/inspector/OptionalMarkdownRow";
 import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
@@ -60,6 +63,8 @@ export interface SearchPanelInspectorBodyProps {
 	 *  envelope). The show-when condition does NOT: it evaluates on the
 	 *  case list before search, so it forbids input refs entirely. */
 	readonly knownInputs?: readonly SearchInputDecl[];
+	/** False for filter-only automatic search, whose screen copy never renders. */
+	readonly hasVisibleSearchScreen?: boolean;
 }
 
 export function SearchPanelInspectorBody({
@@ -68,6 +73,7 @@ export function SearchPanelInspectorBody({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
+	hasVisibleSearchScreen = true,
 }: SearchPanelInspectorBodyProps) {
 	const setTitle = (next: string | undefined) =>
 		onChange(setOptionalSlot(value, "searchScreenTitle", next));
@@ -79,80 +85,145 @@ export function SearchPanelInspectorBody({
 		onChange(setOptionalSlot(value, "searchButtonDisplayCondition", next));
 	const setExcludedOwners = (next: ValueExpression | undefined) =>
 		onChange(setOptionalSlot(value, "excludedOwnerIds", next));
+	const advancedIsActive =
+		value?.searchButtonDisplayCondition !== undefined ||
+		value?.excludedOwnerIds !== undefined;
 
 	return (
 		<>
-			<OptionalTextRow
-				label="Title"
-				hint="Shown above the search inputs."
-				value={value?.searchScreenTitle}
-				onCommit={setTitle}
-				placeholder="Find a patient"
-			/>
-
-			<OptionalMarkdownRow
-				label="Subtitle"
-				hint="Shown below the title."
-				value={value?.searchScreenSubtitle}
-				onCommit={setSubtitle}
-			/>
-
-			<OptionalTextRow
-				label="Search button label"
-				hint="Label on the search button."
-				value={value?.searchButtonLabel}
-				onCommit={setButtonLabel}
-				placeholder="Search"
-			/>
-
-			<PredicateSlotCard
-				title="Show when"
-				description="Show the search button only when this condition is met."
-				addLabel="Add a Condition"
-				clearLabel="Clear"
-				clearAriaLabel="Clear the show-when condition"
-				value={value?.searchButtonDisplayCondition}
-				onChange={setDisplayCondition}
-				caseTypes={caseTypes}
-				currentCaseType={currentCaseType}
-				// Forbids input refs — runs on the case list before search.
-				// See NO_SEARCH_INPUTS.
-				knownInputs={NO_SEARCH_INPUTS}
-			/>
-
-			<OptionalSlotCard<ValueExpression>
-				title="Excluded owners"
-				description="Hide cases that belong to particular owner ids — they never appear in results."
-				addLabel="Add Excluded Owners"
-				clearLabel="Clear"
-				clearAriaLabel="Clear the excluded owners"
-				value={value?.excludedOwnerIds}
-				onChange={setExcludedOwners}
-				// Empty-string seed — the editor body renders a text
-				// literal input the author fills with the space-separated
-				// owner ids.
-				addSeed={term(literal(""))}
-				renderEditor={(expression, onExpressionChange, onValidityChange) => (
-					// The text constraint narrows the editor's kind menu +
-					// value sources to text-producing shapes, so a
-					// non-text expression is unauthorable rather than
-					// rejected at the validator pass.
-					<ExpressionCardEditor
-						value={expression}
-						onChange={onExpressionChange}
-						caseTypes={caseTypes}
-						currentCaseType={currentCaseType}
-						knownInputs={knownInputs}
-						constraint={EXCLUDED_OWNERS_CONSTRAINT}
-						onValidityChange={onValidityChange}
+			{hasVisibleSearchScreen ? (
+				<>
+					<OptionalTextRow
+						label="Title"
+						hint="Shown above the search inputs."
+						value={value?.searchScreenTitle}
+						onCommit={setTitle}
+						placeholder="Find a patient"
 					/>
-				)}
-				collapse={{
-					defaultOpen: false,
-					expandLabel: "Expand excluded owners",
-					collapseLabel: "Collapse excluded owners",
-				}}
-			/>
+
+					<OptionalMarkdownRow
+						label="Subtitle"
+						hint="Shown below the title."
+						value={value?.searchScreenSubtitle}
+						onCommit={setSubtitle}
+					/>
+
+					<OptionalTextRow
+						label="Search button label"
+						hint="Label on the search button."
+						value={value?.searchButtonLabel}
+						onCommit={setButtonLabel}
+						placeholder="Search"
+					/>
+				</>
+			) : (
+				<p className="rounded-lg border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[12px] leading-relaxed text-nova-text-secondary">
+					People go straight to Results, so there is no title or button to
+					customize. These rules still shape the automatic search.
+				</p>
+			)}
+
+			<AdvancedSearchSettings
+				active={advancedIsActive}
+				label={hasVisibleSearchScreen ? "Advanced" : "Automatic search rules"}
+				defaultOpen={!hasVisibleSearchScreen}
+			>
+				<PredicateSlotCard
+					title={
+						hasVisibleSearchScreen
+							? "Conditional button"
+							: "Run automatic search conditionally"
+					}
+					description={
+						hasVisibleSearchScreen
+							? "Only show the search button when a particular condition is met."
+							: "Go straight to filtered Results only when a particular condition is met."
+					}
+					addLabel="Add a condition"
+					clearLabel="Clear"
+					clearAriaLabel={
+						hasVisibleSearchScreen
+							? "Clear the search button condition"
+							: "Clear the automatic search condition"
+					}
+					value={value?.searchButtonDisplayCondition}
+					onChange={setDisplayCondition}
+					caseTypes={caseTypes}
+					currentCaseType={currentCaseType}
+					// Forbids input refs — runs on the case list before search.
+					// See NO_SEARCH_INPUTS.
+					knownInputs={NO_SEARCH_INPUTS}
+				/>
+
+				<OptionalSlotCard<ValueExpression>
+					title="Ownership exclusions"
+					description="For rare workflows: keep cases assigned to particular owners out of the results."
+					addLabel="Choose cases to exclude"
+					clearLabel="Clear"
+					clearAriaLabel="Clear ownership exclusions"
+					value={value?.excludedOwnerIds}
+					onChange={setExcludedOwners}
+					// Empty-string seed — the editor body renders a text
+					// literal input the author fills with the space-separated
+					// owner ids.
+					addSeed={term(literal(""))}
+					renderEditor={(expression, onExpressionChange, onValidityChange) => (
+						// The text constraint narrows the editor's kind menu +
+						// value sources to text-producing shapes, so a
+						// non-text expression is unauthorable rather than
+						// rejected at the validator pass.
+						<ExpressionCardEditor
+							value={expression}
+							onChange={onExpressionChange}
+							caseTypes={caseTypes}
+							currentCaseType={currentCaseType}
+							knownInputs={knownInputs}
+							constraint={EXCLUDED_OWNERS_CONSTRAINT}
+							onValidityChange={onValidityChange}
+						/>
+					)}
+				/>
+			</AdvancedSearchSettings>
 		</>
+	);
+}
+
+function AdvancedSearchSettings({
+	active,
+	label,
+	defaultOpen,
+	children,
+}: {
+	readonly active: boolean;
+	readonly label: string;
+	readonly defaultOpen: boolean;
+	readonly children: ReactNode;
+}) {
+	const [open, setOpen] = useState(active || defaultOpen);
+	return (
+		<section className="border-t border-white/[0.06] pt-1">
+			<button
+				type="button"
+				onClick={() => setOpen((current) => !current)}
+				aria-expanded={open}
+				className="group flex min-h-11 w-full cursor-pointer items-center gap-2 text-left"
+			>
+				<Icon
+					icon={tablerChevronRight}
+					width="13"
+					height="13"
+					className={`shrink-0 text-nova-text-muted transition-transform ${open ? "rotate-90" : ""}`}
+				/>
+				<span className="text-[12px] font-medium text-nova-text-secondary transition-colors group-hover:text-nova-text">
+					{label}
+				</span>
+				{active && (
+					<span className="ml-auto text-[11px] text-nova-violet-bright">
+						Settings in use
+					</span>
+				)}
+			</button>
+			{open && <div className="space-y-5 pb-2 pt-2">{children}</div>}
+		</section>
 	);
 }

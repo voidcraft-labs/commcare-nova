@@ -75,25 +75,27 @@ function singleSort(
 
 describe("emitColumnField — plain", () => {
 	it("emits a bare property reference inside the template", () => {
-		const col = plainColumn(COL_UUIDS.a, "name", "Name");
+		const col = plainColumn(COL_UUIDS.a, "full_name", "Name");
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
 		expect(out.xml).toContain("<field>");
-		expect(out.xml).toContain('<xpath function="name"/>');
+		expect(out.xml).toContain('<xpath function="full_name"/>');
 		// The header references the CCHQ-canonical locale id shape.
-		expect(out.xml).toContain('locale id="m0.case_short.case_name_1.header"');
+		expect(out.xml).toContain(
+			'locale id="m0.case_short.case_full_name_1.header"',
+		);
 		// app_strings entry registers the column header.
 		expect(out.strings).toEqual({
-			"m0.case_short.case_name_1.header": "Name",
+			"m0.case_short.case_full_name_1.header": "Name",
 		});
 	});
 
 	it("uses the 1-based position to disambiguate two columns on the same property", () => {
-		const colA = plainColumn(COL_UUIDS.a, "name", "Name A");
-		const colB = plainColumn(COL_UUIDS.b, "name", "Name B");
+		const colA = plainColumn(COL_UUIDS.a, "full_name", "Name A");
+		const colB = plainColumn(COL_UUIDS.b, "full_name", "Name B");
 		const a = emitColumnField({ column: colA, position: 1, ctx: emptyCtx });
 		const b = emitColumnField({ column: colB, position: 2, ctx: emptyCtx });
-		expect(a.xml).toContain("m0.case_short.case_name_1.header");
-		expect(b.xml).toContain("m0.case_short.case_name_2.header");
+		expect(a.xml).toContain("m0.case_short.case_full_name_1.header");
+		expect(b.xml).toContain("m0.case_short.case_full_name_2.header");
 	});
 });
 
@@ -308,13 +310,13 @@ describe("emitColumnField — id-mapping", () => {
 
 describe("emitColumnField — calculated", () => {
 	it("emits the CCHQ inline-variable template shape with a calc-property locale id", () => {
-		// `term(prop("patient", "name"))` lowers to a bare `name`
+		// `term(prop("patient", "full_name"))` lowers to a bare `full_name`
 		// XPath via the on-device emitter — sufficient to pin the
 		// surrounding template structure.
 		const calc = calculatedColumn(
 			COL_UUIDS.a,
 			"My Calc",
-			term(prop("patient", "name")),
+			term(prop("patient", "full_name")),
 		);
 		const out = emitColumnField({
 			column: calc,
@@ -332,7 +334,7 @@ describe("emitColumnField — calculated", () => {
 		// bare-`$` suite.xml.
 		expect(out.xml).toContain('<xpath function="$calculated_property">');
 		expect(out.xml).toContain('<variable name="calculated_property">');
-		expect(out.xml).toContain('<xpath function="name"/>');
+		expect(out.xml).toContain('<xpath function="full_name"/>');
 		// The strings map carries the calc's authored header text.
 		expect(out.strings).toEqual({
 			"m0.case_short.case_calculated_property_1.header": "My Calc",
@@ -394,7 +396,7 @@ describe("emitColumnField — calculated", () => {
 
 describe("emitColumnField — sort integration", () => {
 	it("attaches a sort block when ctx.sortByUuid carries a directive keyed by the column uuid", () => {
-		const col = plainColumn(COL_UUIDS.a, "name", "Name");
+		const col = plainColumn(COL_UUIDS.a, "full_name", "Name");
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
 			detailKind: "short",
@@ -404,7 +406,7 @@ describe("emitColumnField — sort integration", () => {
 				order: 1,
 				direction: "asc",
 				type: "plain",
-				xpath: "name",
+				xpath: "full_name",
 			}),
 		};
 		const out = emitColumnField({ column: col, position: 1, ctx });
@@ -413,7 +415,7 @@ describe("emitColumnField — sort integration", () => {
 		expect(out.xml).toContain('direction="ascending"');
 		// Sort xpath = bare property for plain columns.
 		const sortMatches = out.xml.match(/<sort[\s\S]*?<\/sort>/);
-		expect(sortMatches?.[0]).toContain('<xpath function="name"/>');
+		expect(sortMatches?.[0]).toContain('<xpath function="full_name"/>');
 	});
 
 	it("uses the raw property as sort xpath for date columns even when display is formatted", () => {
@@ -444,7 +446,7 @@ describe("emitColumnField — sort integration", () => {
 	});
 
 	it("does not attach a sort block when the column's uuid has no directive in ctx.sortByUuid", () => {
-		const col = plainColumn(COL_UUIDS.a, "name", "Name");
+		const col = plainColumn(COL_UUIDS.a, "full_name", "Name");
 		const otherUuid = asUuid("00000000-0000-4000-8000-cccc99999999");
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,

@@ -1,16 +1,9 @@
 // components/builder/case-list-config/ColumnEditor.tsx
 //
-// Inspector body for one `Column`. A column is one thing shown about
-// each case, and the panel walks through it in plain sections:
-//
-//   - **Display** — what kind of thing this column shows (full-width
-//     picker, every choice labeled and described) and the kind's own
-//     fields (property, header, date pattern, mapping table, …).
-//   - **Shown on** — labeled switches for the two surfaces a column
-//     can appear on (the case list, the case detail).
-//   - **Sorting** — a segmented Off / Ascending / Descending control,
-//     plus the column's place in the sort order when several columns
-//     sort.
+// Inspector body for one `Column`. The rail owns the field's data source and
+// formatting — the properties that cannot be manipulated in the running-app
+// composition. Results/Details membership and order, and the list's default
+// ordering, each live once in the center canvas where their effect is visible.
 //
 // Every control carries a visible text label and a full-size target.
 // The kind-vs-property applicability check surfaces inline next to
@@ -25,20 +18,11 @@ import { useMemo, useRef } from "react";
 import {
 	CONSOLE_MENU_ITEM_MIN,
 	CONSOLE_TRIGGER_CLS,
-	InspectorHint,
 	InspectorSection,
-	SegmentedRow,
-	ToggleRow,
 } from "@/components/builder/inspector/inspectorChrome";
 import { PredicateEditProvider } from "@/components/builder/shared/editorContext";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
-import type {
-	CaseType,
-	Column,
-	ColumnKind,
-	ColumnSort,
-	SortDirection,
-} from "@/lib/domain";
+import type { CaseType, Column, ColumnKind } from "@/lib/domain";
 import {
 	calculatedColumn,
 	dateColumn,
@@ -54,13 +38,13 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
+import { propertyDisplayLabel } from "../shared/primitives/propertyDisplay";
 import {
 	type ColumnCardSchema,
 	type ColumnEditContext,
 	columnCardSchemaList,
 	columnCardSchemas,
 	resolveColumnProperty,
-	resolveColumnPropertyDataType,
 } from "./columnEditorSchemas";
 import { NO_SEARCH_INPUTS } from "./searchInputResolution";
 
@@ -92,22 +76,6 @@ interface ColumnEditorProps {
 	 */
 	readonly currentCaseType: string;
 	/**
-	 * Total number of columns in the current list whose `sort` slot
-	 * is set. A freshly-switched-on sort lands at the end of the
-	 * existing priority order, so the user's first sorted column is
-	 * the primary.
-	 */
-	readonly sortedColumnCount: number;
-	/**
-	 * The column's resolved sort priority position among its sorted
-	 * peers (1-based). `undefined` when the column isn't sorted.
-	 */
-	readonly sortPriorityPosition: number | undefined;
-	/** Opens the case list's own settings (where the sort-order
-	 *  stack lives) — surfaced when several columns sort and the
-	 *  order between them matters. */
-	readonly onEditSortOrder?: () => void;
-	/**
 	 * Surfaces the boolean validity verdict to the parent on
 	 * every onChange. The parent gates its save affordance on
 	 * this. The editor does not gate the onChange itself —
@@ -117,17 +85,13 @@ interface ColumnEditorProps {
 }
 
 /**
- * Column inspector body. Display (kind + per-kind fields) →
- * Shown on → Sorting, every control labeled.
+ * Column inspector body: display kind and the selected kind's own properties.
  */
 export function ColumnEditor({
 	value,
 	onChange,
 	caseTypes,
 	currentCaseType,
-	sortedColumnCount,
-	sortPriorityPosition,
-	onEditSortOrder,
 	onValidityChange,
 }: ColumnEditorProps) {
 	const ctx = useMemo<ColumnEditContext>(
@@ -145,11 +109,16 @@ export function ColumnEditor({
 		const property = resolveColumnProperty(ctx, value.field);
 		const schema = columnCardSchemas[value.kind];
 		if (schema.applicableForProperty(property)) return [] as const;
-		const requirement =
-			schema.applicabilityRequirement ?? "an applicable property";
-		const dataType = resolveColumnPropertyDataType(ctx, value.field);
+		const information =
+			property !== undefined
+				? propertyDisplayLabel(property)
+				: "This information";
+		const guidance =
+			value.kind === "phone"
+				? "Choose information saved as text or a choice."
+				: "Choose information saved as a date or date and time.";
 		return [
-			`${schema.label} columns require ${requirement}; "${value.field}" is ${dataType ?? "untyped"}.`,
+			`${information} can’t use ${schema.label.toLowerCase()} formatting. ${guidance}`,
 		] as const;
 	}, [ctx, value]);
 
@@ -179,41 +148,6 @@ export function ColumnEditor({
 		errors?: readonly string[];
 	}>;
 
-	const visibleInList = value.visibleInList ?? true;
-	const visibleInDetail = value.visibleInDetail ?? true;
-
-	// Visibility toggles — the canonical "visible" default is absent;
-	// toggling off writes `false`, toggling back to visible writes
-	// `undefined` so the slot returns to absent and the parse stays
-	// clean. (Schema reads `visibleInList ?? true` so absent ≡ true.)
-	const setVisibleInList = (next: boolean) => {
-		onChange(replaceSlot(value, "visibleInList", next ? undefined : false));
-	};
-	const setVisibleInDetail = (next: boolean) => {
-		onChange(replaceSlot(value, "visibleInDetail", next ? undefined : false));
-	};
-
-	// Sort control — "off" drops the slot; switching on appends the
-	// column at the end of the existing priority order; a direction
-	// change preserves the existing priority. Per-column clears drop
-	// the sort slot without renumbering peers, so the resulting
-	// priority sequence may carry gaps (priorities `[0, 1, 2]` with
-	// the middle column cleared becomes `[0, 2]`). Gaps are tolerated
-	// by every layer — the schema doesn't enforce contiguity, the
-	// wire emitter sorts by priority ascending, and
-	// `resolveSortedColumns` tie-breaks to source-array index when
-	// priorities collide. The list settings' sort-order stack
-	// normalizes back to 0..N-1 the next time the user reorders.
-	const sortSetting: "off" | SortDirection = value.sort?.direction ?? "off";
-	const setSortSetting = (next: "off" | SortDirection) => {
-		if (next === "off") {
-			onChange(replaceSlot(value, "sort", undefined));
-			return;
-		}
-		const priority = value.sort?.priority ?? sortedColumnCount;
-		onChange(replaceSlot(value, "sort", { direction: next, priority }));
-	};
-
 	return (
 		<PredicateEditProvider
 			caseTypes={caseTypes}
@@ -221,7 +155,7 @@ export function ColumnEditor({
 			knownInputs={NO_SEARCH_INPUTS}
 			validityIndex={EMPTY_VALIDITY_INDEX}
 		>
-			<InspectorSection label="Display">
+			<InspectorSection label="What this shows">
 				<KindPicker currentValue={value} onChange={onChange} ctx={ctx} />
 				<Component
 					value={value}
@@ -230,98 +164,8 @@ export function ColumnEditor({
 					errors={applicabilityErrors}
 				/>
 			</InspectorSection>
-
-			<InspectorSection label="Shown on">
-				<ToggleRow
-					label="Case list"
-					description="Visible while choosing a case."
-					checked={visibleInList}
-					onChange={setVisibleInList}
-				/>
-				<ToggleRow
-					label="Case detail"
-					description="Visible after opening a case."
-					checked={visibleInDetail}
-					onChange={setVisibleInDetail}
-				/>
-				{!visibleInList && !visibleInDetail && (
-					<InspectorHint>
-						Supporting field only. It stays available for search, sorting, or
-						app logic, but is not shown as a list column or detail row.
-					</InspectorHint>
-				)}
-			</InspectorSection>
-
-			<InspectorSection label="Sorting">
-				<SegmentedRow
-					legend="Sort the case list by this column"
-					options={[
-						{ value: "off", label: "Off" },
-						{ value: "asc", label: "Ascending" },
-						{ value: "desc", label: "Descending" },
-					]}
-					value={sortSetting}
-					onChange={setSortSetting}
-				/>
-				<SortOrderNote
-					position={sortPriorityPosition}
-					sortedColumnCount={sortedColumnCount}
-					onEditSortOrder={onEditSortOrder}
-				/>
-			</InspectorSection>
 		</PredicateEditProvider>
 	);
-}
-
-/**
- * What the sort setting means right now, in a sentence — and, when
- * several columns sort, the way to the list settings where their
- * order is arranged.
- */
-function SortOrderNote({
-	position,
-	sortedColumnCount,
-	onEditSortOrder,
-}: {
-	readonly position: number | undefined;
-	readonly sortedColumnCount: number;
-	readonly onEditSortOrder?: () => void;
-}) {
-	if (position === undefined) {
-		return (
-			<InspectorHint>
-				Ascending runs A to Z, oldest to newest, lowest to highest.
-			</InspectorHint>
-		);
-	}
-	if (sortedColumnCount <= 1) {
-		return <InspectorHint>The list follows this column's order.</InspectorHint>;
-	}
-	return (
-		<div className="space-y-2">
-			<InspectorHint>
-				{position === 1
-					? `First of ${sortedColumnCount} in the sort order — it sorts the whole list.`
-					: `${ordinalWord(position)} of ${sortedColumnCount} in the sort order — it breaks ties left by the ones above it.`}
-			</InspectorHint>
-			{onEditSortOrder !== undefined && (
-				<button
-					type="button"
-					onClick={onEditSortOrder}
-					className="w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-secondary hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-				>
-					Arrange the Sort Order…
-				</button>
-			)}
-		</div>
-	);
-}
-
-/** Ordinal words for sort positions — sorted-column lists are short,
- *  so the numeric fallback rarely shows. */
-function ordinalWord(n: number): string {
-	const words = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth"];
-	return words[n - 1] ?? `${n}th`;
 }
 
 /**
@@ -335,8 +179,8 @@ function ordinalWord(n: number): string {
  * field-bearing kind seeds the new column's field via the target
  * schema's default-value factory; swapping TO calc drops the
  * field entirely. Header is preserved on every transition. The
- * column's `uuid` and optional common slots (`sort`,
- * `visibleInList`, `visibleInDetail`) thread through verbatim —
+ * column's `uuid` and optional common slots (`sort`, visibility,
+ * and each surface order) thread through verbatim —
  * they're identity / surface-visibility shape, not kind-specific.
  *
  * Exported as part of the module's tested surface — the
@@ -353,6 +197,8 @@ export function preservedColumnSwap(
 		sort: currentValue.sort,
 		visibleInList: currentValue.visibleInList,
 		visibleInDetail: currentValue.visibleInDetail,
+		listOrder: currentValue.listOrder,
+		detailOrder: currentValue.detailOrder,
 	};
 	// Field source: the current value's field if the source has one;
 	// otherwise the target schema's default-picked field.
@@ -586,7 +432,7 @@ function KindPicker({
 										>
 											{isApplicable
 												? s.description
-												: `Needs ${s.applicabilityRequirement ?? "a different property"}.`}
+												: `Choose ${s.applicabilityRequirement ?? "different information"}.`}
 										</div>
 									</span>
 									{isCurrent && (
@@ -605,51 +451,6 @@ function KindPicker({
 			</Menu.Portal>
 		</Menu.Root>
 	);
-}
-
-// ── Slot replacement helper ────────────────────────────────────────
-//
-// `replaceSlot` produces a fresh column object with one optional slot
-// replaced. Drops keys whose value is `undefined` so the output shape
-// round-trips equal to a freshly-built column under the schema's
-// strip-mode parse. The discriminated-union narrowing is preserved
-// because `Pick<Column, "kind" | ...required>` is intersected with
-// the rebuilt optional slots — TypeScript carries the kind discriminator
-// through the spread on each arm.
-
-function replaceSlot<K extends "sort" | "visibleInList" | "visibleInDetail">(
-	value: Column,
-	key: K,
-	next: Column[K],
-): Column {
-	const baseSlots = {
-		sort: value.sort,
-		visibleInList: value.visibleInList,
-		visibleInDetail: value.visibleInDetail,
-	};
-	const merged = { ...baseSlots, [key]: next };
-	const optional: {
-		sort?: ColumnSort;
-		visibleInList?: boolean;
-		visibleInDetail?: boolean;
-	} = {};
-	if (merged.sort !== undefined) optional.sort = merged.sort;
-	if (merged.visibleInList !== undefined)
-		optional.visibleInList = merged.visibleInList;
-	if (merged.visibleInDetail !== undefined)
-		optional.visibleInDetail = merged.visibleInDetail;
-	// Strip the existing optional slots from the incoming column then
-	// reapply the cleaned set. This keeps the column's required slots
-	// (uuid, kind, field/header/etc.) intact while ensuring the
-	// optional slots reflect the updated state — including absent keys
-	// when the user toggles a slot back to its default.
-	const {
-		sort: _s,
-		visibleInList: _v,
-		visibleInDetail: _d,
-		...required
-	} = value;
-	return { ...required, ...optional } as Column;
 }
 
 function Chevron() {

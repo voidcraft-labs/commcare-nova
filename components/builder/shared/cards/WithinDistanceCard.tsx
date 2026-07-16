@@ -8,6 +8,7 @@
 "use client";
 import { Menu } from "@base-ui/react/menu";
 import { useEffect, useRef, useState } from "react";
+import { canonicalCasePropertyName } from "@/lib/domain";
 import {
 	type DistanceUnit,
 	literal,
@@ -51,7 +52,7 @@ export function withinDistanceDefault(
 ): Extract<Predicate, { kind: "within-distance" }> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find((p) => p.data_type === "geopoint");
-	const propName = property?.name ?? "";
+	const propName = canonicalCasePropertyName(property?.name ?? "");
 	return within(prop(ctx.currentCaseType, propName), literal(""), 1, "miles");
 }
 

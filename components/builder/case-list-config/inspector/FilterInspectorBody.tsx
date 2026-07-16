@@ -11,13 +11,11 @@
 // background. Boxing the editor again or re-titling it duplicates
 // chrome the user just read.
 //
-// A live match count rides beneath the editor (the canvas table shows
+// A match count rides beneath the editor (the canvas shows
 // the matching rows themselves, so the count is the one piece of
 // feedback that needs its own query — `loadFilterPreviewAction`
 // returns the total matching count, not just the sampled rows). It
-// renders as the same quiet LIVE console readout the canvas footer
-// uses — a count is information, not a success state, so it never
-// wears the semantic-green alert chrome.
+// renders as a plain sentence — a count is useful feedback, not console state.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -29,9 +27,23 @@ import {
 	RemoveRow,
 } from "@/components/builder/inspector/inspectorChrome";
 import { PredicateCardEditor } from "@/components/builder/shared/PredicateCardEditor";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/shadcn/alert-dialog";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { CaseListConfig, CaseType } from "@/lib/domain";
-import { matchAll, type Predicate } from "@/lib/domain/predicate";
+import type { CaseListConfig, CaseType, CommitOutcome } from "@/lib/domain";
+import {
+	effectiveFilterForEmission,
+	matchAll,
+	type Predicate,
+} from "@/lib/domain/predicate";
 import { loadFilterPreviewAction } from "@/lib/preview/engine/caseDataBinding";
 import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingClient";
 
@@ -41,6 +53,12 @@ export interface FilterInspectorBodyProps {
 	 *  calculated projections stay consistent with the canvas. */
 	readonly config: CaseListConfig;
 	readonly onChange: (next: CaseListConfig) => void;
+	/** Atomic filter-clear + automatic-search shutdown owned by the workspace. */
+	readonly onClearFilter: (next: Predicate | undefined) => CommitOutcome;
+	/** Clearing this final rule also removes the filter-only search marker. */
+	readonly stopsAutomaticSearch: boolean;
+	/** The shutdown intentionally discards settings that have no screen left. */
+	readonly discardsAutomaticSearchSettings: boolean;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly appId: string;
@@ -49,6 +67,9 @@ export interface FilterInspectorBodyProps {
 export function FilterInspectorBody({
 	config,
 	onChange,
+	onClearFilter,
+	stopsAutomaticSearch,
+	discardsAutomaticSearchSettings,
 	caseTypes,
 	currentCaseType,
 	appId,
@@ -58,9 +79,25 @@ export function FilterInspectorBody({
 	// case-store compiler. Reset to true on clear/add so a stale false
 	// from a removed editor can't outlive it.
 	const [filterValid, setFilterValid] = useState(true);
+	const [pendingShutdown, setPendingShutdown] = useState<{
+		readonly filter: Predicate | undefined;
+	} | null>(null);
 
 	const handleFilterChange = (next: Predicate | undefined) => {
 		if (next === undefined) setFilterValid(true);
+		// A filter-only automatic search needs a real narrowing predicate. The
+		// structural editor can make the root ineffective too (for example by
+		// choosing Always true or removing the final AND clause), so route that
+		// transition through the same explicit shutdown as Show all cases. Keep
+		// the proposed predicate pending until the author confirms; cancelling
+		// leaves the current effective rule untouched.
+		if (
+			stopsAutomaticSearch &&
+			effectiveFilterForEmission(next) === undefined
+		) {
+			setPendingShutdown({ filter: next });
+			return;
+		}
 		onChange({ ...config, filter: next });
 	};
 
@@ -81,7 +118,7 @@ export function FilterInspectorBody({
 					className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 				>
 					<Icon icon={tablerPlus} width="14" height="14" />
-					<span>Add a Filter</span>
+					<span>Add a condition</span>
 				</button>
 			</>
 		);
@@ -107,14 +144,54 @@ export function FilterInspectorBody({
 				filterValid={filterValid}
 			/>
 			<RemoveRow
-				label="Remove Filter"
-				onClick={() => handleFilterChange(undefined)}
+				label="Show all cases"
+				onClick={() => {
+					if (stopsAutomaticSearch) {
+						setPendingShutdown({ filter: undefined });
+						return;
+					}
+					handleFilterChange(undefined);
+				}}
 			/>
+			<AlertDialog
+				open={pendingShutdown !== null}
+				onOpenChange={(open) => {
+					if (!open) setPendingShutdown(null);
+				}}
+			>
+				<AlertDialogContent className="text-left">
+					<AlertDialogHeader>
+						<AlertDialogTitle className="font-display">
+							Show all cases instead?
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							This is the only rule behind automatic search. Showing every case
+							turns automatic search off, so people will go straight to results.
+							{discardsAutomaticSearchSettings
+								? " Its automatic-search settings will be removed too."
+								: ""}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Keep this rule</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => {
+								if (pendingShutdown === null) return;
+								setFilterValid(true);
+								const outcome = onClearFilter(pendingShutdown.filter);
+								if (outcome.ok) setPendingShutdown(null);
+							}}
+						>
+							Show all cases
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</>
 	);
 }
 
-// ── Live match count ──────────────────────────────────────────────
+// ── Match count ───────────────────────────────────────────────────
 
 type CountState =
 	| { kind: "loading"; lastCount: number | null }
@@ -122,10 +199,8 @@ type CountState =
 	| { kind: "unavailable" };
 
 /**
- * The same quiet console readout as the canvas footer — LIVE etched
- * eyebrow, the count in plain words, a small spinner while a recount
- * settles. The last settled count stays on screen during recounts so
- * the line never flickers back to a loading placeholder.
+ * Plain-language count with a small spinner while a recount settles. The last
+ * settled count stays on screen during recounts so the line never flickers.
  */
 function MatchCount({
 	appId,
@@ -194,9 +269,6 @@ function MatchCount({
 
 	return (
 		<div className="flex items-center gap-2.5 text-xs text-nova-text-muted">
-			<span className="font-mono text-[9px] tracking-[0.13em] text-nova-violet-bright">
-				LIVE
-			</span>
 			<span>
 				{settled === null
 					? "Counting matches…"

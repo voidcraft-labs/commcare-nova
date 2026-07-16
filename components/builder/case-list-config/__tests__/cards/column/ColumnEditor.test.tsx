@@ -21,7 +21,7 @@
 //      mapping table, non-default threshold + unit) round-trip
 //      through the editor untouched.
 
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { asUuid } from "@/lib/doc/types";
 import {
@@ -59,6 +59,151 @@ const PATIENT: CaseType = {
 const TEST_UUID = asUuid("00000000-0000-0000-0000-000000000001");
 
 describe("ColumnEditor — applicability errors", () => {
+	it("names the selected information in human language", () => {
+		render(
+			<ColumnEditor
+				value={plainColumn(TEST_UUID, "name", "Patient")}
+				onChange={() => {}}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		expect(
+			screen.getByRole("button", { name: "Information from: Name" }),
+		).toBeDefined();
+		expect(screen.queryByText("name")).toBeNull();
+	});
+
+	it("disambiguates duplicate labels with friendly property names only when needed", () => {
+		const onChange = vi.fn();
+		const caseType: CaseType = {
+			name: "patient",
+			properties: [
+				{
+					name: "enrollment_status",
+					label: "Status",
+					data_type: "text",
+				},
+				{
+					name: "follow_up_status",
+					label: "Status",
+					data_type: "text",
+				},
+				{ name: "facility", label: "Facility", data_type: "text" },
+			],
+		};
+		render(
+			<ColumnEditor
+				value={plainColumn(TEST_UUID, "enrollment_status", "Patient")}
+				onChange={onChange}
+				caseTypes={[caseType]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		const trigger = screen.getByRole("button", {
+			name: "Information from: Status, Enrollment status",
+		});
+		expect(screen.getByText("Enrollment status")).toBeDefined();
+		fireEvent.click(trigger);
+
+		expect(
+			screen.getByRole("menuitem", {
+				name: /^Status\s+Enrollment status · Text$/,
+			}),
+		).toBeDefined();
+		const followUpStatus = screen.getByRole("menuitem", {
+			name: /^Status\s+Follow up status · Text$/,
+		});
+		expect(followUpStatus).toBeDefined();
+		expect(
+			screen.getByRole("menuitem", { name: /^Facility\s+Text$/ }),
+		).toBeDefined();
+		expect(screen.queryByText("enrollment_status")).toBeNull();
+		expect(screen.queryByText("follow_up_status")).toBeNull();
+
+		fireEvent.click(followUpStatus);
+		expect(onChange).toHaveBeenCalledWith(
+			expect.objectContaining({ field: "follow_up_status" }),
+		);
+	});
+
+	it("uses friendly words when duplicate labels and names normalize alike", () => {
+		const caseType: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "clinic_code", label: "Clinic", data_type: "text" },
+				{ name: "clinic-code", label: "Clinic", data_type: "text" },
+			],
+		};
+		render(
+			<ColumnEditor
+				value={plainColumn(TEST_UUID, "clinic_code", "Clinic")}
+				onChange={() => {}}
+				caseTypes={[caseType]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Information from: Clinic, First field",
+			}),
+		);
+
+		expect(
+			screen.getByRole("menuitem", {
+				name: /^Clinic\s+First field · Text$/,
+			}),
+		).toBeDefined();
+		expect(
+			screen.getByRole("menuitem", {
+				name: /^Clinic\s+Second field · Text$/,
+			}),
+		).toBeDefined();
+		expect(screen.queryByText("clinic_code")).toBeNull();
+		expect(screen.queryByText("clinic-code")).toBeNull();
+	});
+
+	it("offers one friendly choice for each CCHQ system alias", () => {
+		const caseType: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "case_name", label: "case_name", data_type: "text" },
+				{ name: "name", label: "name", data_type: "text" },
+				{ name: "external_id", label: "external_id", data_type: "text" },
+				{ name: "external-id", label: "external-id", data_type: "text" },
+				{ name: "status", label: "status", data_type: "text" },
+			],
+		};
+		render(
+			<ColumnEditor
+				value={plainColumn(TEST_UUID, "case_name", "Patient")}
+				onChange={() => {}}
+				caseTypes={[caseType]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Information from: Case name" }),
+		);
+
+		expect(
+			screen.getAllByRole("menuitem", { name: /^Case name\s+Text$/ }),
+		).toHaveLength(1);
+		expect(
+			screen.getAllByRole("menuitem", { name: /^External ID\s+Text$/ }),
+		).toHaveLength(1);
+		expect(
+			screen.getByRole("menuitem", {
+				name: /^Case status \(open or closed\)\s+Text$/,
+			}),
+		).toBeDefined();
+		expect(screen.queryByText("external-id")).toBeNull();
+	});
+
 	it("reports invalid + surfaces inline error for Interval (flag) on a text property", async () => {
 		const onValidityChange = vi.fn();
 		const value = intervalColumn(
@@ -76,15 +221,16 @@ describe("ColumnEditor — applicability errors", () => {
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 				onValidityChange={onValidityChange}
 			/>,
 		);
 		await waitFor(() => {
 			expect(onValidityChange).toHaveBeenLastCalledWith(false);
 		});
-		expect(container.textContent).toMatch(/date-typed property/i);
+		expect(container.textContent).toMatch(
+			/Name can’t use time since formatting.*saved as a date or date and time/i,
+		);
+		expect(container.textContent).not.toContain('"name"');
 	});
 
 	it("reports invalid + surfaces inline error for Date on a text property", async () => {
@@ -96,15 +242,15 @@ describe("ColumnEditor — applicability errors", () => {
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 				onValidityChange={onValidityChange}
 			/>,
 		);
 		await waitFor(() => {
 			expect(onValidityChange).toHaveBeenLastCalledWith(false);
 		});
-		expect(container.textContent).toMatch(/date-typed property/i);
+		expect(container.textContent).toMatch(
+			/Name can’t use date formatting.*saved as a date or date and time/i,
+		);
 	});
 
 	it("reports invalid + surfaces inline error for Phone on a date property", async () => {
@@ -116,15 +262,15 @@ describe("ColumnEditor — applicability errors", () => {
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 				onValidityChange={onValidityChange}
 			/>,
 		);
 		await waitFor(() => {
 			expect(onValidityChange).toHaveBeenLastCalledWith(false);
 		});
-		expect(container.textContent).toMatch(/text-typed property/i);
+		expect(container.textContent).toMatch(
+			/Date of birth can’t use phone number formatting.*saved as text or a choice/i,
+		);
 	});
 
 	it("reports valid for Phone on a text property", async () => {
@@ -136,8 +282,6 @@ describe("ColumnEditor — applicability errors", () => {
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 				onValidityChange={onValidityChange}
 			/>,
 		);
@@ -163,15 +307,15 @@ describe("ColumnEditor — applicability errors", () => {
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 				onValidityChange={onValidityChange}
 			/>,
 		);
 		await waitFor(() => {
 			expect(onValidityChange).toHaveBeenLastCalledWith(false);
 		});
-		expect(container.textContent).toMatch(/date-typed property/i);
+		expect(container.textContent).toMatch(
+			/Name can’t use time since formatting.*saved as a date or date and time/i,
+		);
 	});
 
 	it("reports valid for Interval (flag) on a date property", async () => {
@@ -191,8 +335,6 @@ describe("ColumnEditor — applicability errors", () => {
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 				onValidityChange={onValidityChange}
 			/>,
 		);
@@ -210,8 +352,6 @@ describe("ColumnEditor — applicability errors", () => {
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 				onValidityChange={onValidityChange}
 			/>,
 		);
@@ -232,8 +372,6 @@ describe("ColumnEditor — applicability errors", () => {
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 				onValidityChange={onValidityChange}
 			/>,
 		);
@@ -263,8 +401,6 @@ describe("ColumnEditor — applicability errors", () => {
 				onChange={() => {}}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 				onValidityChange={onValidityChange}
 			/>,
 		);
@@ -284,8 +420,6 @@ describe("ColumnEditor — round-trip preservation", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 			/>,
 		);
 		expect(onChange).not.toHaveBeenCalled();
@@ -295,8 +429,6 @@ describe("ColumnEditor — round-trip preservation", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 			/>,
 		);
 		expect(onChange).not.toHaveBeenCalled();
@@ -315,8 +447,6 @@ describe("ColumnEditor — round-trip preservation", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 			/>,
 		);
 		expect(onChange).not.toHaveBeenCalled();
@@ -340,8 +470,6 @@ describe("ColumnEditor — round-trip preservation", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 			/>,
 		);
 		expect(onChange).not.toHaveBeenCalled();
@@ -357,8 +485,6 @@ describe("ColumnEditor — round-trip preservation", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
-				sortedColumnCount={0}
-				sortPriorityPosition={undefined}
 			/>,
 		);
 		expect(onChange).not.toHaveBeenCalled();

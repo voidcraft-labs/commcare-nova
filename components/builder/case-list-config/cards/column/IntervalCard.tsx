@@ -73,8 +73,8 @@ const DISPLAY_COPY: Record<
 };
 
 const DISPLAY_LABELS: Record<IntervalDisplay, string> = {
-	always: "Show Interval",
-	flag: "Flag When Overdue",
+	always: "Show interval",
+	flag: "Only when overdue",
 };
 
 export function IntervalCard({ value, onChange, errors }: IntervalCardProps) {
@@ -178,7 +178,7 @@ export function IntervalCard({ value, onChange, errors }: IntervalCardProps) {
 			/>
 			<DisplayToggle value={value.display} onChange={setDisplay} />
 			<div>
-				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
+				<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
 					{copy.textLabel}
 				</div>
 				<BlurCommitTextInput
@@ -205,8 +205,8 @@ interface DisplayToggleProps {
 function DisplayToggle({ value, onChange }: DisplayToggleProps) {
 	return (
 		<div>
-			<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-				Display
+			<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
+				Show
 			</div>
 			<SegmentedRow
 				legend="Interval display mode"
@@ -229,10 +229,14 @@ function slotsFrom(value: Extract<Column, { kind: "interval" }>): {
 	sort?: typeof value.sort;
 	visibleInList?: typeof value.visibleInList;
 	visibleInDetail?: typeof value.visibleInDetail;
+	listOrder?: typeof value.listOrder;
+	detailOrder?: typeof value.detailOrder;
 } {
 	return {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		listOrder: value.listOrder,
+		detailOrder: value.detailOrder,
 	};
 }

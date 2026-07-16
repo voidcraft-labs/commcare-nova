@@ -291,7 +291,32 @@ describe("module rules", () => {
 		).toBe(true);
 	});
 
-	it("does not require columns on case_list_only modules", () => {
+	it("requires a visible Results field even when Details definitions exist", () => {
+		const doc = update(minDoc(), (d) => {
+			const mod = d.modules[d.moduleOrder[0]];
+			const column = mod.caseListConfig?.columns[0];
+			if (column) {
+				column.visibleInList = false;
+				column.visibleInDetail = true;
+			}
+		});
+		expect(
+			runValidation(doc).some((e) => e.code === "MISSING_CASE_LIST_COLUMNS"),
+		).toBe(true);
+	});
+
+	it("allows Results fields to be absent from Details", () => {
+		const doc = update(minDoc(), (d) => {
+			const mod = d.modules[d.moduleOrder[0]];
+			const column = mod.caseListConfig?.columns[0];
+			if (column) column.visibleInDetail = false;
+		});
+		expect(
+			runValidation(doc).some((e) => e.code === "MISSING_CASE_LIST_COLUMNS"),
+		).toBe(false);
+	});
+
+	it("requires a visible Results field on case_list_only modules", () => {
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [{ name: "M", caseType: "c", caseListOnly: true, forms: [] }],
@@ -299,7 +324,7 @@ describe("module rules", () => {
 		});
 		expect(
 			runValidation(doc).some((e) => e.code === "MISSING_CASE_LIST_COLUMNS"),
-		).toBe(false);
+		).toBe(true);
 	});
 });
 

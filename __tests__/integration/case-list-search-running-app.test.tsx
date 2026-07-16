@@ -563,14 +563,14 @@ beforeEach(async () => {
 //
 // Seed three rows differing on `name` + `status`. The case-list's
 // always-on filter narrows to `status = 'open'` (drops the closed
-// row). Typing into the search input narrows further to the row
-// whose `name` matches the typed value. Both narrowing layers
+// row). Submitting the search input narrows further to the row whose
+// `name` matches the typed value. Both narrowing layers
 // compile through the Postgres compiler stack — no mocked store,
 // no hand-rolled SQL.
 // =================================================================
 
 describe("CaseListScreen with search inputs — real Postgres narrowing", () => {
-	it("renders sorted rows after the always-on filter, then narrows further on typed search input", async () => {
+	it("renders sorted rows after the always-on filter, then narrows after Search is submitted", async () => {
 		const store = buildStore();
 		const doc = buildFixtureDoc();
 		await store.applySchemaChange({
@@ -649,11 +649,11 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 		expect(bodyRows[0]?.textContent).toContain("41");
 		expect(bodyRows[1]?.textContent).toContain("26");
 
-		// Type "Alice" into the search input. `SearchInputForm`
-		// debounces 300 ms before emitting the new value bag;
-		// `waitFor` polls until the re-fired action's result lands.
+		// Type "Alice", then submit. Draft values must not disturb the current
+		// Results until the person explicitly chooses Search.
 		const input = screen.getByLabelText("Name") as HTMLInputElement;
 		fireEvent.change(input, { target: { value: "Alice" } });
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
 		// Encode the full expected end-state in the predicate, not a
 		// partial signal. Asserting only `Bob is null` is satisfied by
@@ -669,11 +669,12 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 			{ timeout: 3_000 },
 		);
 
-		// Clear the input — debounced 300 ms → both open-status rows
-		// return. The runtime-bindings layer's empty-value
+		// Clear and submit again — both open-status rows return. The
+		// runtime-bindings layer's empty-value
 		// short-circuit drops the input clause; the always-on filter
 		// (`status = 'open'`) still applies so Carol stays out.
 		fireEvent.change(input, { target: { value: "" } });
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
 		await waitFor(
 			() => {
 				expect(screen.getByText("Bob")).toBeDefined();

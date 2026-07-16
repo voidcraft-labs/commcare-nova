@@ -60,19 +60,24 @@ export function CalculatedColumnCard({
 	return (
 		<div className="space-y-2">
 			<div>
-				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-					Header
+				<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
+					Label
 				</div>
 				<BlurCommitTextInput
 					value={value.header}
 					onCommit={setHeader}
-					placeholder="Column heading"
-					ariaLabel="Column header"
+					placeholder="Label shown in the app"
+					ariaLabel="Display label"
 				/>
 			</div>
-			<div className="rounded-md border border-white/[0.04] bg-nova-deep/30 p-2 space-y-1.5">
-				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted">
-					Expression
+			<div className="space-y-1.5 rounded-lg border border-white/[0.04] bg-nova-deep/30 p-3">
+				<div>
+					<div className="text-[11px] font-medium text-nova-text-muted">
+						What to show
+					</div>
+					<p className="mt-0.5 text-[11px] leading-relaxed text-nova-text-muted">
+						Build the value people should see for each case.
+					</p>
 				</div>
 				<ExpressionCardEditor
 					value={value.expression}
@@ -93,10 +98,14 @@ function slotsFrom(value: Extract<Column, { kind: "calculated" }>): {
 	sort?: typeof value.sort;
 	visibleInList?: typeof value.visibleInList;
 	visibleInDetail?: typeof value.visibleInDetail;
+	listOrder?: typeof value.listOrder;
+	detailOrder?: typeof value.detailOrder;
 } {
 	return {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		listOrder: value.listOrder,
+		detailOrder: value.detailOrder,
 	};
 }

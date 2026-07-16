@@ -11,6 +11,7 @@
 // AST so persisted predicates carry the strict semantic explicitly.
 
 "use client";
+import { canonicalCasePropertyName } from "@/lib/domain";
 import { isNull, type Predicate, prop } from "@/lib/domain/predicate";
 import { useEditorErrorsAt } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
@@ -24,7 +25,7 @@ export function isNullDefault(
 ): Extract<Predicate, { kind: "is-null" }> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties[0];
-	const propName = property?.name ?? "";
+	const propName = canonicalCasePropertyName(property?.name ?? "");
 	return isNull(prop(ctx.currentCaseType, propName));
 }
 

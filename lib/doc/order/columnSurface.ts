@@ -1,0 +1,83 @@
+// lib/doc/order/columnSurface.ts
+//
+// Fractional-order planning for one direct Results / Details row move.
+// A gesture changes ONE column's surface-specific key; it never resequences
+// the rest of the screen. That narrow write is what lets two collaborators
+// move different rows without either gesture overwriting the other's keys.
+
+import type { Mutation, Uuid } from "@/lib/doc/types";
+import type { Column } from "@/lib/domain";
+import { byDetailColumnOrder, byListColumnOrder } from "./compare";
+import { keysForSlot } from "./keys";
+
+export type ColumnSurface = "list" | "detail";
+
+/** The effective key a surface comparator reads (legacy `order` fallback). */
+export function resolvedColumnSurfaceOrder(
+	column: Column,
+	surface: ColumnSurface,
+): string | undefined {
+	return surface === "list"
+		? (column.listOrder ?? column.order)
+		: (column.detailOrder ?? column.order);
+}
+
+function isVisibleOnSurface(column: Column, surface: ColumnSurface): boolean {
+	return surface === "list"
+		? column.visibleInList !== false
+		: column.visibleInDetail !== false;
+}
+
+/** Visible columns in the exact order the named screen consumes. */
+export function orderedColumnsOnSurface(
+	columns: readonly Column[],
+	surface: ColumnSurface,
+): Column[] {
+	return columns
+		.filter((column) => isVisibleOnSurface(column, surface))
+		.sort(surface === "list" ? byListColumnOrder : byDetailColumnOrder);
+}
+
+/**
+ * Plan one direct-manipulation row move as one granular mutation.
+ *
+ * `toIndex` is the row's desired FINAL index in the visible surface sequence.
+ * The moved row is removed before neighbor bounds are read, matching the
+ * post-splice semantics used by the field-tree move API. The key is minted
+ * through `keysForSlot`, so equal-key collisions widen through the same shared
+ * contract as every other builder move. Returns `undefined` for an unknown,
+ * omitted, or already-in-place row.
+ */
+export function columnSurfaceMoveMutation(args: {
+	readonly moduleUuid: Uuid;
+	readonly columns: readonly Column[];
+	readonly surface: ColumnSurface;
+	readonly uuid: Uuid;
+	readonly toIndex: number;
+}): Mutation | undefined {
+	const { moduleUuid, columns, surface, uuid } = args;
+	const ordered = orderedColumnsOnSurface(columns, surface);
+	const fromIndex = ordered.findIndex((column) => column.uuid === uuid);
+	if (fromIndex < 0) return undefined;
+
+	const siblings = ordered.filter((column) => column.uuid !== uuid);
+	const toIndex = Math.max(0, Math.min(args.toIndex, siblings.length));
+	if (toIndex === fromIndex) return undefined;
+
+	/* Hydration backfills generic `order`, so every resolved key is normally
+	 * present. Count only defined keys before the requested slot as a defensive
+	 * legacy fallback: present keys sort ahead of keyless rows, so this preserves
+	 * the closest representable slot without ever resequencing those rows. */
+	const siblingKeys = siblings
+		.map((column) => resolvedColumnSurfaceOrder(column, surface))
+		.filter((order): order is string => order !== undefined);
+	const keySlot = siblings
+		.slice(0, toIndex)
+		.map((column) => resolvedColumnSurfaceOrder(column, surface))
+		.filter((order): order is string => order !== undefined).length;
+	const order = keysForSlot(siblingKeys, keySlot, 1)[0];
+
+	return surface === "list"
+		? { kind: "moveColumnInList", moduleUuid, uuid, order }
+		: { kind: "moveColumnInDetail", moduleUuid, uuid, order };
+}

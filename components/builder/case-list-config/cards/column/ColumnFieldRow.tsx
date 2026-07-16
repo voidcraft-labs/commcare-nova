@@ -73,26 +73,28 @@ export function ColumnFieldRow({
 	return (
 		<div className="space-y-2">
 			<div>
-				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-					Property
+				<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
+					Information from
 				</div>
 				<PropertyPicker
 					value={field === "" ? undefined : field}
 					onChange={onFieldChange}
 					filter={propertyFilter}
 					invalid={fieldInvalid}
+					displayLabels
+					ariaLabel="Information from"
 				/>
 				<InlineError errors={errors ?? []} />
 			</div>
 			<div>
-				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-					Header
+				<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
+					Label
 				</div>
 				<BlurCommitTextInput
 					value={header}
 					onCommit={onHeaderChange}
-					placeholder="Header text"
-					ariaLabel="Column header"
+					placeholder="Label shown in the app"
+					ariaLabel="Display label"
 				/>
 			</div>
 		</div>

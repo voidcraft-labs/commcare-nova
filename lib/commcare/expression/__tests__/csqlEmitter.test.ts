@@ -173,8 +173,8 @@ describe("emitCsqlExpressionSegments — unwrap-list", () => {
 
 describe("emitCsqlExpressionSegments — term arm structural lifter", () => {
 	it("emits a property reference as a constant segment", () => {
-		expect(emitCsqlExpressionSegments(term(prop("p", "name")))).toEqual([
-			{ kind: "constant", text: "name" },
+		expect(emitCsqlExpressionSegments(term(prop("p", "full_name")))).toEqual([
+			{ kind: "constant", text: "full_name" },
 		]);
 	});
 

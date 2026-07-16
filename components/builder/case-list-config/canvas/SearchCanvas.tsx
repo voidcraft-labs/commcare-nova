@@ -8,10 +8,9 @@
 // invisible on the screen, so it stays off the canvas).
 //
 // Clicking a thing configures that thing: field rows select their
-// field, everything else on the card (title, subtitle, the Search
-// button) selects the panel. The fields are depictions, not live
-// widgets — the Preview tab mounts the real `SearchInputForm` for
-// actually searching.
+// field, while the screen-copy action and depicted Search button open
+// screen settings. The fields are depictions, not live widgets — the
+// global Preview mode mounts the real `SearchInputForm` for searching.
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
@@ -19,19 +18,44 @@ import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerBarcode from "@iconify-icons/tabler/barcode";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
+import tablerMinus from "@iconify-icons/tabler/minus";
 import tablerSearch from "@iconify-icons/tabler/search";
-import { useId, useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import {
 	ReorderableRow,
 	useReorderableList,
 } from "@/components/builder/shared/useReorderableList";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/shadcn/alert-dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { bySortKey } from "@/lib/doc/order/compare";
-import type { CaseSearchConfig, CaseType, SearchInputDef } from "@/lib/domain";
+import {
+	type CaseSearchConfig,
+	type CaseType,
+	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
+	DEFAULT_CASE_SEARCH_TITLE,
+	type SearchInputDef,
+} from "@/lib/domain";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
+import { useCanEdit } from "@/lib/session/hooks";
 import { summarizeFilter } from "../predicateSummary";
 import {
 	resolveRows,
@@ -39,7 +63,7 @@ import {
 	SEARCH_INPUT_TYPE_ICONS,
 } from "../searchInputResolution";
 import type { WorkspaceSelection } from "../workspaceSelection";
-import { AddGhostButton, activateOnKeyDown } from "./canvasChrome";
+import { AddGhostButton } from "./canvasChrome";
 
 export interface SearchCanvasProps {
 	readonly searchInputs: readonly SearchInputDef[];
@@ -51,7 +75,17 @@ export interface SearchCanvasProps {
 	readonly onAddInput: () => void;
 	/** Disabled-add hint — `undefined` means add is enabled. */
 	readonly addInputDisabledReason: string | undefined;
-	readonly onReorderInputs: (next: readonly SearchInputDef[]) => void;
+	readonly onMoveInput: (uuid: SearchInputDef["uuid"], toIndex: number) => void;
+	readonly onRemoveInput: (
+		uuid: SearchInputDef["uuid"],
+		options?: { readonly discardSearchSettings?: boolean },
+	) => void;
+	/** Whether the worker actually sees a search screen (requires an input). */
+	readonly hasSearchSurface?: boolean;
+	/** Whether an always-on rule narrows the Results they go straight to. */
+	readonly hasAutomaticResultsFilter?: boolean;
+	/** Whether removing the only input also needs to discard authored settings. */
+	readonly finalInputRemovalNeedsConfirmation?: boolean;
 }
 
 export function SearchCanvas({
@@ -63,11 +97,19 @@ export function SearchCanvas({
 	onSelect,
 	onAddInput,
 	addInputDisabledReason,
-	onReorderInputs,
+	onMoveInput,
+	onRemoveInput,
+	hasSearchSurface,
+	hasAutomaticResultsFilter = false,
+	finalInputRemovalNeedsConfirmation = false,
 }: SearchCanvasProps) {
+	const canEdit = useCanEdit();
 	const containerKey = useId();
+	const [moveAnnouncement, setMoveAnnouncement] = useState("");
+	const [removeTarget, setRemoveTarget] = useState<SearchInputDef | null>(null);
 	const panelSelected = selection?.type === "search-panel";
 	const selectedInputUuid = selection?.type === "input" ? selection.uuid : null;
+	const searchEnabled = hasSearchSurface ?? searchInputs.length > 0;
 
 	// DISPLAY order (`sort-by-(order, uuid)`), not array position — the render,
 	// the `resolved` parallel array, and the reorder drag's indices all key off
@@ -87,68 +129,120 @@ export function SearchCanvas({
 		containerKey,
 		containerKind: "search-canvas-inputs",
 		items: orderedInputs,
-		onReorder: onReorderInputs,
+		getItemKey: (input) => input.uuid,
+		onReorder: (_next, move) => {
+			if (canEdit) onMoveInput(move.item.uuid, move.toIndex);
+		},
 	});
 
-	const title = searchConfig?.searchScreenTitle ?? "Search";
+	const moveByKeyboard = (
+		index: number,
+		key: "ArrowUp" | "ArrowDown" | "Home" | "End",
+	) => {
+		const input = orderedInputs[index];
+		if (input === undefined || !canEdit) return;
+		const targetIndex =
+			key === "Home"
+				? 0
+				: key === "End"
+					? orderedInputs.length - 1
+					: index + (key === "ArrowUp" ? -1 : 1);
+		const label = input.label || input.name || "Search field";
+		if (
+			targetIndex < 0 ||
+			targetIndex >= orderedInputs.length ||
+			targetIndex === index
+		) {
+			setMoveAnnouncement(
+				`${label} is already at the ${targetIndex <= 0 ? "beginning" : "end"} of search.`,
+			);
+			return;
+		}
+		setMoveAnnouncement(
+			`${label} moved ${key === "ArrowUp" || key === "Home" ? "earlier" : "later"} in search.`,
+		);
+		onMoveInput(input.uuid, targetIndex);
+	};
+
+	const title = searchEnabled
+		? (searchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE)
+		: "People go straight to results";
 	const subtitle = searchConfig?.searchScreenSubtitle;
-	const buttonLabel = searchConfig?.searchButtonLabel ?? "Search";
+	const buttonLabel =
+		searchConfig?.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL;
 	const displayConditionPhrase = summarizeFilter(
 		searchConfig?.searchButtonDisplayCondition,
 	);
 
 	return (
-		<ContentFrame width="lg" className="px-6 pt-6 pb-24">
-			<div className="mb-5 flex items-start gap-3">
-				<span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl border border-nova-border bg-nova-surface/40 text-nova-violet-bright">
-					<Icon icon={tablerSearch} width="17" height="17" />
-				</span>
+		<ContentFrame width="3xl" className="px-6 pt-8 pb-24">
+			<header className="mb-7">
 				<div className="min-w-0">
-					<h1 className="font-display text-lg font-semibold tracking-tight text-nova-text">
-						Case search
+					<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
+						Help people find the right case
 					</h1>
-					<p className="mt-0.5 text-[13px] leading-relaxed text-nova-text-muted">
-						Design how people narrow the case list. Select any part to configure
-						it in the right panel.
+					<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
+						Drag search fields into a natural order. Select one to decide how
+						people can search with it.
 					</p>
 				</div>
-			</div>
+			</header>
 
-			{/* The search panel. Clicking panel chrome selects the panel;
-			 *  inner rows stop propagation and select themselves. */}
-			{/* biome-ignore lint/a11y/useSemanticElements: can't use <button> — the card hosts nested interactive children (rows, grips, the add affordance), which HTML forbids in a button */}
 			<div
-				role="button"
-				tabIndex={0}
-				onClick={() => onSelect({ type: "search-panel" })}
-				onKeyDown={activateOnKeyDown(() => onSelect({ type: "search-panel" }))}
-				className={`rounded-lg p-4 cursor-pointer transition-all border bg-nova-surface/40 ${
-					panelSelected
-						? "border-nova-violet shadow-[0_0_14px_rgba(139,92,246,0.25)]"
-						: "border-nova-border hover:border-nova-border-bright"
+				className={`rounded-2xl p-4 transition-colors border bg-nova-surface/25 ${
+					panelSelected ? "border-nova-violet" : "border-white/[0.08]"
 				}`}
 			>
-				<div className="flex items-center gap-2.5 px-1 pb-1">
-					<Icon
-						icon={tablerSearch}
-						width="17"
-						height="17"
-						className="text-nova-text-secondary"
-					/>
-					<span className="font-display font-semibold text-base text-nova-text">
-						{title}
+				<div className="flex min-h-14 items-start gap-3 px-1 pb-2">
+					<span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.035] text-nova-text-secondary">
+						<Icon icon={tablerSearch} width="17" height="17" />
 					</span>
-				</div>
-				{subtitle !== undefined && (
-					<div className="px-1 pb-1 preview-markdown text-xs text-nova-text-muted">
-						<PreviewMarkdown>{subtitle}</PreviewMarkdown>
+					<div className="min-w-0 flex-1">
+						<p className="font-display text-[16px] font-semibold text-nova-text">
+							{title}
+						</p>
+						{searchEnabled && subtitle !== undefined && (
+							<div className="mt-1 preview-markdown text-[12px] text-nova-text-muted">
+								<PreviewMarkdown>{subtitle}</PreviewMarkdown>
+							</div>
+						)}
 					</div>
-				)}
+					{searchEnabled ? (
+						<button
+							type="button"
+							onClick={() => onSelect({ type: "search-panel" })}
+							aria-pressed={panelSelected}
+							className="min-h-11 shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08]"
+						>
+							Edit screen text
+						</button>
+					) : searchConfig !== undefined && hasAutomaticResultsFilter ? (
+						<button
+							type="button"
+							onClick={() => onSelect({ type: "search-panel" })}
+							aria-pressed={panelSelected}
+							className="min-h-11 shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08]"
+						>
+							Search rules
+						</button>
+					) : null}
+				</div>
+
+				<p
+					role="status"
+					aria-live="polite"
+					aria-atomic="true"
+					className="sr-only"
+				>
+					{moveAnnouncement}
+				</p>
 
 				<div className="mt-2 space-y-1">
 					{orderedInputs.length === 0 && (
-						<p className="px-1 py-2 text-xs text-nova-text-muted">
-							No search fields yet — the app goes straight to the list.
+						<p className="px-2 py-5 text-center text-[12px] text-nova-text-muted">
+							{hasAutomaticResultsFilter
+								? "The Cases included rule narrows what they see. Add a search field if people should narrow it further."
+								: "Add a search field when people need to narrow the list before choosing."}
 						</p>
 					)}
 					{orderedInputs.map((input, i) => {
@@ -158,10 +252,11 @@ export function SearchCanvas({
 							<ReorderableRow
 								key={input.uuid}
 								index={i}
+								itemKey={input.uuid}
 								containerKey={containerKey}
 								containerKind="search-canvas-inputs"
 								pendingDrop={pendingDrop}
-								preview={<InputDragPreview input={input} index={i} />}
+								preview={<InputDragPreview input={input} />}
 							>
 								{({
 									wrapperRef,
@@ -188,10 +283,28 @@ export function SearchCanvas({
 											input={input}
 											selected={selectedInputUuid === input.uuid}
 											hasError={hasError}
+											canEdit={canEdit}
+											position={i + 1}
+											total={orderedInputs.length}
 											setHandleEl={setHandleEl}
+											onMove={(key) => moveByKeyboard(i, key)}
 											onClick={() =>
 												onSelect({ type: "input", uuid: input.uuid })
 											}
+											removalNeedsConfirmation={
+												orderedInputs.length === 1 &&
+												finalInputRemovalNeedsConfirmation
+											}
+											onRemove={() => {
+												if (
+													orderedInputs.length === 1 &&
+													finalInputRemovalNeedsConfirmation
+												) {
+													setRemoveTarget(input);
+													return;
+												}
+												onRemoveInput(input.uuid);
+											}}
 										/>
 										{previewPortal}
 									</div>
@@ -201,32 +314,72 @@ export function SearchCanvas({
 					})}
 				</div>
 
-				<AddGhostButton
-					label="Add Search Field"
-					onClick={(e) => {
-						e.stopPropagation();
-						onAddInput();
-					}}
-					disabledReason={addInputDisabledReason}
-					className="w-full my-3"
-				/>
+				{canEdit && (
+					<AddGhostButton
+						label="Add search field"
+						onClick={onAddInput}
+						disabledReason={addInputDisabledReason}
+						className="w-full my-3"
+					/>
+				)}
 
-				{/* The screen's Search button, drawn as a blueprint of itself —
-				 *  outlined, never filled, and with NO hover state of its own.
-				 *  The filled violet button is the pressable one in Preview; a
-				 *  hover lift here would hand the press-affordance right back.
-				 *  It's inert panel chrome: clicks bubble to the panel and open
-				 *  the settings that own its label and show-when condition. */}
-				<div className="w-full inline-flex items-center justify-center gap-2 px-4 min-h-11 rounded-md border border-nova-violet/45 bg-nova-violet/[0.07] text-nova-violet-bright text-sm font-semibold select-none">
-					<Icon icon={tablerSearch} width="15" height="15" />
-					{buttonLabel}
-				</div>
-				{displayConditionPhrase !== undefined && (
+				{/* This looks like the running Search button but, in edit mode,
+				 * opens the one screen-settings surface that owns its copy and
+				 * visibility. Preview mode mounts the real submit action. */}
+				{searchEnabled && (
+					<button
+						type="button"
+						onClick={() => onSelect({ type: "search-panel" })}
+						aria-label={`Edit ${buttonLabel} button text and visibility`}
+						aria-pressed={panelSelected}
+						className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-nova-violet/45 bg-nova-violet/[0.07] px-4 text-sm font-semibold text-nova-violet-bright transition-colors hover:border-nova-violet/70 hover:bg-nova-violet/[0.11]"
+					>
+						<Icon icon={tablerSearch} width="15" height="15" />
+						{buttonLabel}
+					</button>
+				)}
+				{searchEnabled && displayConditionPhrase !== undefined && (
 					<p className="mt-2 px-1 text-[11px] text-nova-text-muted leading-relaxed first-letter:uppercase">
 						The button appears only when {displayConditionPhrase}.
 					</p>
 				)}
 			</div>
+
+			<AlertDialog
+				open={removeTarget !== null}
+				onOpenChange={(open) => {
+					if (!open) setRemoveTarget(null);
+				}}
+			>
+				<AlertDialogContent className="text-left">
+					<AlertDialogHeader>
+						<AlertDialogTitle className="font-display">
+							Remove the search screen?
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							This removes {removeTarget?.label || "the final search field"} and
+							its screen settings. Your Results fields and Cases included rule
+							stay unchanged.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Keep search</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => {
+								if (removeTarget !== null) {
+									onRemoveInput(removeTarget.uuid, {
+										discardSearchSettings: true,
+									});
+								}
+								setRemoveTarget(null);
+							}}
+							className="bg-nova-rose text-nova-void not-disabled:hover:bg-[color-mix(in_oklab,var(--nova-rose),black_14%)] focus-visible:ring-nova-rose/40"
+						>
+							Remove search
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</ContentFrame>
 	);
 }
@@ -237,73 +390,117 @@ interface InputRowProps {
 	readonly input: SearchInputDef;
 	readonly selected: boolean;
 	readonly hasError: boolean;
+	readonly canEdit: boolean;
+	readonly position: number;
+	readonly total: number;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
+	readonly onMove: (key: "ArrowUp" | "ArrowDown" | "Home" | "End") => void;
 	readonly onClick: () => void;
+	readonly removalNeedsConfirmation: boolean;
+	readonly onRemove: () => void;
 }
 
 function InputRow({
 	input,
 	selected,
 	hasError,
+	canEdit,
+	position,
+	total,
 	setHandleEl,
+	onMove,
 	onClick,
+	removalNeedsConfirmation,
+	onRemove,
 }: InputRowProps) {
 	const dflt = defaultDisplayValue(input.default);
+	const label = input.label || input.name || "Untitled field";
 	return (
-		// biome-ignore lint/a11y/useSemanticElements: can't use <button> — the row hosts a nested grab rail button, which HTML forbids inside a button
 		<div
-			role="button"
-			tabIndex={0}
-			onClick={(e) => {
-				e.stopPropagation();
-				onClick();
-			}}
-			onKeyDown={activateOnKeyDown(onClick)}
-			className={`group/input relative rounded-md pl-8 pr-3 py-2.5 cursor-pointer border transition-all ${
+			className={`group/input flex min-h-[72px] items-stretch overflow-hidden rounded-xl border transition-colors ${
 				selected
-					? "border-nova-violet bg-nova-violet/[0.08] shadow-[0_0_10px_rgba(139,92,246,0.2)]"
+					? "border-nova-violet bg-nova-violet/[0.08]"
 					: hasError
-						? "border-nova-rose/35 hover:border-nova-rose/55"
-						: "border-transparent hover:bg-white/[0.03]"
+						? "border-nova-rose/40 bg-nova-rose/[0.03]"
+						: "border-white/[0.07] bg-nova-deep/35 hover:border-nova-border-bright hover:bg-white/[0.025]"
 			}`}
 		>
-			{/* Grab rail — the row's full height, so the drag target is
-			 *  never smaller than the row itself. */}
-			<SimpleTooltip content="Drag to reorder" side="left">
-				<button
-					type="button"
-					ref={setHandleEl}
-					aria-label={`Drag to reorder ${input.label || input.name || "search field"}`}
-					onClick={(e) => e.stopPropagation()}
-					className="absolute left-0 top-0 bottom-0 w-7 grid place-items-center rounded-l-md cursor-grab text-nova-text-muted/0 group-hover/input:text-nova-text-muted hover:!text-nova-text-muted transition-colors"
-				>
-					<Icon icon={tablerGripVertical} width="14" height="14" />
-				</button>
-			</SimpleTooltip>
-			<div className="flex items-center gap-1.5 mb-1.5">
-				<span
-					className={`text-[13px] font-medium ${input.label ? "text-nova-text" : "italic text-nova-text-muted"}`}
-				>
-					{input.label || "untitled field"}
-				</span>
-				{hasError && (
-					<SimpleTooltip content="This field has a problem — open it to see what.">
-						<span
-							role="img"
-							className="inline-flex"
-							aria-label="This field has a problem"
-						>
-							<Icon
-								icon={tablerAlertCircle}
-								width="13"
-								height="13"
-								className="text-nova-rose"
-							/>
+			{canEdit && (
+				<SimpleTooltip content="Drag to move · Arrow keys work too" side="left">
+					<button
+						type="button"
+						ref={setHandleEl}
+						onKeyDown={(event) => {
+							if (
+								event.key !== "ArrowUp" &&
+								event.key !== "ArrowDown" &&
+								event.key !== "Home" &&
+								event.key !== "End"
+							) {
+								return;
+							}
+							event.preventDefault();
+							onMove(event.key);
+						}}
+						aria-keyshortcuts="ArrowUp ArrowDown Home End"
+						aria-label={`Move ${label} in search. Position ${position} of ${total}. Use arrow keys or drag.`}
+						className="grid w-11 shrink-0 cursor-grab place-items-center text-nova-text-muted transition-colors hover:bg-white/[0.035] hover:text-nova-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet"
+					>
+						<Icon icon={tablerGripVertical} width="17" height="17" />
+					</button>
+				</SimpleTooltip>
+			)}
+			<button
+				type="button"
+				onClick={onClick}
+				aria-pressed={selected}
+				className="min-w-0 flex-1 cursor-pointer px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet"
+			>
+				<span className="mb-2 flex items-center gap-2">
+					<span
+						className={`truncate text-[13px] font-semibold ${input.label ? "text-nova-text" : "italic text-nova-text-muted"}`}
+					>
+						{input.label || "Untitled field"}
+					</span>
+					{hasError && (
+						<span className="inline-flex items-center gap-1 text-[11px] font-medium text-nova-rose">
+							<Icon icon={tablerAlertCircle} width="13" height="13" />
+							Needs attention
 						</span>
+					)}
+				</span>
+				<AppField input={input} defaultText={dflt} />
+			</button>
+			{canEdit && (
+				<DropdownMenu>
+					<SimpleTooltip content={`More options for ${label}`}>
+						<DropdownMenuTrigger
+							type="button"
+							aria-label={`More options for ${label}`}
+							className="grid min-h-11 w-11 shrink-0 cursor-pointer place-items-center self-center rounded-lg text-nova-text-muted transition-colors hover:bg-white/[0.04] hover:text-nova-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet"
+						>
+							<Icon icon={tablerDotsVertical} width="16" height="16" />
+						</DropdownMenuTrigger>
 					</SimpleTooltip>
-				)}
-			</div>
-			<AppField input={input} defaultText={dflt} />
+					<DropdownMenuContent align="end" className="min-w-64">
+						<DropdownMenuItem onClick={onRemove} className="min-h-11">
+							<Icon icon={tablerMinus} width="15" height="15" />
+							<span className="flex flex-col items-start">
+								<span>
+									{removalNeedsConfirmation
+										? "Remove search screen…"
+										: "Remove from search"}
+								</span>
+								{removalNeedsConfirmation && (
+									<span className="text-[11px] font-normal text-nova-text-muted">
+										Also removes its screen settings
+									</span>
+								)}
+							</span>
+						</DropdownMenuItem>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			)}
 		</div>
 	);
 }
@@ -411,14 +608,8 @@ function defaultDisplayValue(
 	return "computed default";
 }
 
-function InputDragPreview({
-	input,
-	index,
-}: {
-	readonly input: SearchInputDef;
-	readonly index: number;
-}) {
-	const label = input.label || input.name || `Search input ${index + 1}`;
+function InputDragPreview({ input }: { readonly input: SearchInputDef }) {
+	const label = input.label || input.name || "Untitled field";
 	return (
 		<div className="inline-flex items-center gap-1.5 rounded-lg border border-nova-violet/40 bg-nova-surface/95 px-3 py-1.5 text-sm text-nova-text shadow-lg backdrop-blur-sm">
 			<Icon

@@ -1,17 +1,16 @@
 /**
- * SA tool: `reorderCaseListColumns` — reorder the columns array on a
- * module's case list.
+ * SA tool: `reorderCaseListColumns` — reorder a module's visible fields on
+ * either Results or Details.
  *
- * Atomic op — reorders `caseListConfig.columns` in place and preserves
- * every other slot. The supplied uuid array is the new full order: it
- * must contain every existing uuid exactly once. Reorder is the only
- * operation that needs to know the full uuid set, so the input shape
- * mirrors that contract directly.
+ * Atomic op — writes only the selected screen's fractional keys while
+ * preserving the generic order, the other screen, and every content slot.
+ * The supplied uuid array is the new full VISIBLE order for that screen and
+ * must contain every field shown there exactly once.
  *
  * Three exit branches:
  *
  *   1. Module index out of range → `{ error }`, no mutations.
- *   2. The supplied order doesn't permute the existing uuids — length
+ *   2. The supplied order doesn't permute the screen's visible uuids — length
  *      mismatch, duplicates, unknown uuids, or missing uuids → `{ error }`,
  *      no mutations.
  *   3. Success → `{ message, order }` plus the persisted mutation,
@@ -38,10 +37,13 @@ export const reorderCaseListColumnsInputSchema = z
 		moduleIndex: z
 			.number()
 			.describe("0-based module index whose case list columns to reorder"),
+		surface: z
+			.enum(["results", "details"])
+			.describe("The screen whose visible fields should be rearranged"),
 		columnUuids: z
 			.array(uuidInputSchema)
 			.describe(
-				"The new full column order, given as the array of column uuids in their target order. Must contain every existing column uuid exactly once — no duplicates, no unknown uuids, no missing uuids. Look at getModule's projection for the current uuid set.",
+				"The new full visible-field order for the selected screen. Must contain every field currently shown on that screen exactly once. Use getModule's results_column_order or details_column_order for the current uuid set.",
 			),
 	})
 	.strict();
@@ -52,6 +54,7 @@ export type ReorderCaseListColumnsInput = z.infer<
 
 export interface ReorderCaseListColumnsSuccess {
 	message: string;
+	surface: "results" | "details";
 	order: Uuid[];
 	summary: ToolCallSummary;
 }
@@ -62,14 +65,14 @@ export type ReorderCaseListColumnsResult =
 
 export const reorderCaseListColumnsTool = {
 	description:
-		"Reorder the case list columns on a module. Pass the new full order as the array of existing column uuids — must contain every existing uuid exactly once.",
+		"Reorder the visible fields on either Results or Details. The two screens have independent arrangements. Pass the selected screen and its full visible uuid order from getModule.",
 	inputSchema: reorderCaseListColumnsInputSchema,
 	async execute(
 		input: ReorderCaseListColumnsInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<ReorderCaseListColumnsResult>> {
-		const { moduleIndex, columnUuids: rawColumnUuids } = input;
+		const { moduleIndex, surface, columnUuids: rawColumnUuids } = input;
 		const columnUuids = rawColumnUuids.map(asUuid);
 		try {
 			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
@@ -87,7 +90,11 @@ export const reorderCaseListColumnsTool = {
 					"reorder case list columns",
 				);
 
-			const result = reorderColumnsMutation(mod, columnUuids);
+			const result = reorderColumnsMutation(
+				mod,
+				columnUuids,
+				surface === "results" ? "list" : "detail",
+			);
 			if ("error" in result) {
 				return {
 					kind: "mutate" as const,
@@ -118,7 +125,8 @@ export const reorderCaseListColumnsTool = {
 				mutations: result.mutations,
 				newDoc,
 				result: {
-					message: `Reordered ${columnUuids.length} case list column${columnUuids.length === 1 ? "" : "s"} on module "${mod.name}".`,
+					message: `Reordered ${columnUuids.length} field${columnUuids.length === 1 ? "" : "s"} on ${surface === "results" ? "Results" : "Details"} for module "${mod.name}".`,
+					surface,
 					order: [...columnUuids],
 					summary: { location: mod.name, count: columnUuids.length },
 				},

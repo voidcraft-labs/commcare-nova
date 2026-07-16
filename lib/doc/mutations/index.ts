@@ -70,10 +70,13 @@ function dispatchMutation(
 		case "updateColumn":
 		case "removeColumn":
 		case "moveColumn":
+		case "moveColumnInList":
+		case "moveColumnInDetail":
 		case "addSearchInput":
 		case "updateSearchInput":
 		case "removeSearchInput":
 		case "moveSearchInput":
+		case "setCaseSearchMarker":
 		case "setCaseListMeta":
 			applyModuleMutation(draft, mut);
 			return;

@@ -77,6 +77,7 @@ export function CoalesceCard({
 		containerKey,
 		containerKind: "coalesce",
 		items: value.values,
+		getItemKey: nodeId,
 		onReorder: (next) => onChange(apply(next)),
 	});
 
@@ -105,6 +106,7 @@ export function CoalesceCard({
 				<ReorderableRow
 					key={nodeId(v)}
 					index={i}
+					itemKey={nodeId(v)}
 					containerKey={containerKey}
 					containerKind="coalesce"
 					pendingDrop={pendingDrop}

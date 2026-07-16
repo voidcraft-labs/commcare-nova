@@ -84,12 +84,14 @@
 // authoring.
 
 import {
+	canonicalCasePropertyName,
 	DEFAULT_SEARCH_MODE_KIND,
 	type SearchInputMode,
 	type SimpleSearchInputDef,
 } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { eq, input, match, prop, whenInput } from "@/lib/domain/predicate";
+import { emitCasePropertyWirePath } from "../../casePropertyWire";
 
 /**
  * Returns `true` if the simple-arm input's
@@ -162,15 +164,32 @@ export function simpleArmNeedsXPathQueryEmission(
 	const modeKind = authored.mode?.kind ?? defaultModeKind(authored.type);
 	const via = authored.via;
 	const viaIsSelfOrAbsent = via === undefined || via.kind === "self";
-	const nameMatchesProperty = authored.name === authored.property;
-	if (modeKind === "exact" || modeKind === "range") {
+	const nameMatchesProperty =
+		authored.name === canonicalCasePropertyName(authored.property);
+	if (modeKind === "exact") {
 		// Bare prompt is faithful only when CCHQ's auto-match against
 		// `<prompt key>` IS the authored comparison: self-walk on the
 		// current case AND the prompt key names the same property the
-		// author targeted. Either constraint missing means the
+		// author targeted AND that property is already the runtime's
+		// searchable key. Attribute-backed metadata (`status`, `owner_id`)
+		// and old detail aliases need the explicit predicate so the shared
+		// wire mapper can emit `@status` / `@owner_id` / canonical leaves.
+		// Any constraint missing means the
 		// auto-match queries the wrong case property (or no case
 		// property at all); the explicit `_xpath_query` route + the
 		// prompt's `exclude="true()"` together carry the author intent.
+		return (
+			!viaIsSelfOrAbsent ||
+			!nameMatchesProperty ||
+			emitCasePropertyWirePath(authored.property) !== authored.property
+		);
+	}
+	if (modeKind === "range") {
+		// Date-range is the one prompt-native two-value widget and has no
+		// explicit-predicate equivalent. Compare against the canonical property
+		// name so a legacy `date-opened` target can ride the valid
+		// `date_opened` prompt key instead of being rejected or querying a key
+		// that CCHQ never indexed.
 		return !viaIsSelfOrAbsent || !nameMatchesProperty;
 	}
 	// `fuzzy` / `starts-with` / `phonetic` / `fuzzy-date` always need

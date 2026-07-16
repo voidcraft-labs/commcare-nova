@@ -161,4 +161,10 @@ describe("userFacingError — delete-aware phrasing", () => {
 		expect(line).toMatch(/needs at least one form/i);
 		expect(line).toMatch(/removing its last one/i);
 	});
+
+	it("MISSING_CASE_LIST_COLUMNS explains how to replace the last result", () => {
+		const line = userFacingError(richFinding("MISSING_CASE_LIST_COLUMNS"));
+		expect(line).toMatch(/needs at least one result field/i);
+		expect(line).toMatch(/add its replacement first/i);
+	});
 });

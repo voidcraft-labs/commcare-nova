@@ -1,6 +1,10 @@
 import type { Draft } from "immer";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import type { CaseListConfig } from "@/lib/domain";
+import {
+	type CaseListConfig,
+	caseSearchConfigHasAuthoredSettings,
+} from "@/lib/domain";
+import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { cascadeDeleteForm } from "./helpers";
 
 /**
@@ -20,12 +24,11 @@ import { cascadeDeleteForm } from "./helpers";
  * untouched); a legacy event carrying only `toIndex` still replays as an
  * array-position move.
  *
- * The collection reducers (`addColumn` / `updateColumn` / `removeColumn` /
- * `moveColumn` + the search-input parallels) key on the item uuid so two
- * members editing different columns / inputs merge. `add` is idempotent on
- * uuid; `update` replaces content but PRESERVES the item's current `order`
- * (so a content edit never clobbers a concurrent reorder); `move` writes the
- * new `order` verbatim and leaves membership untouched.
+ * The collection reducers key on the item uuid so two members editing
+ * different columns / inputs merge. `add` is idempotent on uuid; a column
+ * `update` replaces content but PRESERVES its current generic, Results, and
+ * Details order keys (so a content edit never clobbers a concurrent reorder);
+ * each move writes only its named order key and leaves membership untouched.
  */
 export function applyModuleMutation(
 	draft: Draft<BlueprintDoc>,
@@ -43,10 +46,13 @@ export function applyModuleMutation(
 				| "updateColumn"
 				| "removeColumn"
 				| "moveColumn"
+				| "moveColumnInList"
+				| "moveColumnInDetail"
 				| "addSearchInput"
 				| "updateSearchInput"
 				| "removeSearchInput"
 				| "moveSearchInput"
+				| "setCaseSearchMarker"
 				| "setCaseListMeta";
 		}
 	>,
@@ -145,14 +151,17 @@ export function applyModuleMutation(
 			if (!config) return;
 			const idx = config.columns.findIndex((c) => c.uuid === mut.uuid);
 			if (idx === -1) return;
-			// Preserve the item's CURRENT `order` so a content edit never
-			// clobbers a concurrent `moveColumn` on the same item.
-			const order = config.columns[idx].order;
-			config.columns[idx] = {
-				...mut.column,
-				uuid: mut.uuid,
-				...(order !== undefined && { order }),
-			};
+			// Preserve all CURRENT order keys so a content edit never clobbers a
+			// concurrent generic, Results, or Details reorder on the same item.
+			// Delete absent current keys too: the mutation payload may have been
+			// produced from a stale snapshot that still carried one.
+			const current = config.columns[idx];
+			const replacement = { ...mut.column, uuid: mut.uuid };
+			for (const key of ["order", "listOrder", "detailOrder"] as const) {
+				if (current[key] === undefined) delete replacement[key];
+				else replacement[key] = current[key];
+			}
+			config.columns[idx] = replacement;
 			return;
 		}
 		case "removeColumn": {
@@ -166,6 +175,24 @@ export function applyModuleMutation(
 			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
 			const col = config?.columns.find((c) => c.uuid === mut.uuid);
 			if (col) col.order = mut.order;
+			return;
+		}
+		case "moveColumnInList": {
+			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
+			const col = config?.columns.find((c) => c.uuid === mut.uuid);
+			if (col) {
+				if (mut.order === null) delete col.listOrder;
+				else col.listOrder = mut.order;
+			}
+			return;
+		}
+		case "moveColumnInDetail": {
+			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
+			const col = config?.columns.find((c) => c.uuid === mut.uuid);
+			if (col) {
+				if (mut.order === null) delete col.detailOrder;
+				else col.detailOrder = mut.order;
+			}
 			return;
 		}
 		case "addSearchInput": {
@@ -201,6 +228,29 @@ export function applyModuleMutation(
 			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
 			const input = config?.searchInputs.find((s) => s.uuid === mut.uuid);
 			if (input) input.order = mut.order;
+			return;
+		}
+		case "setCaseSearchMarker": {
+			const mod = draft.modules[mut.uuid];
+			if (!mod) return;
+			if (mut.enabled) {
+				// Idempotent ensure: a peer's authored settings are stronger than
+				// this presence-only marker and must survive a stale enable.
+				if (mod.caseSearchConfig === undefined) mod.caseSearchConfig = {};
+				return;
+			}
+			// Conditional cleanup: only the synthetic empty marker may disappear,
+			// and only after the batch has removed the last thing that makes the
+			// marker meaningful. A fresh peer input/filter/settings edit turns this
+			// stale disable into a no-op rather than silently changing behavior.
+			if (
+				mod.caseSearchConfig !== undefined &&
+				!caseSearchConfigHasAuthoredSettings(mod.caseSearchConfig) &&
+				(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
+				effectiveFilterForEmission(mod.caseListConfig?.filter) === undefined
+			) {
+				delete mod.caseSearchConfig;
+			}
 			return;
 		}
 		case "setCaseListMeta": {

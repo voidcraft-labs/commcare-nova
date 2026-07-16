@@ -164,17 +164,18 @@ describe("PreviewShell — case-list-authoring integration", () => {
 
 		// The three config tabs are present…
 		expect(screen.getByRole("button", { name: /Search/ })).toBeDefined();
-		expect(screen.getByRole("button", { name: /Case List/ })).toBeDefined();
-		expect(screen.getByRole("button", { name: /Case Detail/ })).toBeDefined();
+		expect(screen.getByRole("button", { name: "Results" })).toBeDefined();
+		expect(screen.getByRole("button", { name: "Details" })).toBeDefined();
 		// …the workspace carries no Preview button of its own (the
 		// global toggle lives in the subheader, outside PreviewShell)…
 		expect(screen.queryByRole("button", { name: /Preview/ })).toBeNull();
-		// …and the case-list canvas renders the module name as the
-		// artifact's title.
-		expect(screen.getByText("Patient module")).toBeDefined();
+		// …and the direct-composition Results canvas is active.
+		expect(
+			screen.getByRole("heading", { name: "Design the results" }),
+		).toBeDefined();
 	});
 
-	it("the Case Detail tab fires navigate.openDetailConfig", async () => {
+	it("the Details tab fires navigate.openDetailConfig", async () => {
 		currentLocation = {
 			kind: "cases",
 			moduleUuid: MODULE_UUID,
@@ -185,7 +186,7 @@ describe("PreviewShell — case-list-authoring integration", () => {
 		await act(async () => {
 			renderShell();
 		});
-		fireEvent.click(screen.getByRole("button", { name: /Case Detail/ }));
+		fireEvent.click(screen.getByRole("button", { name: "Details" }));
 		expect(navigateMock.openDetailConfig).toHaveBeenCalledOnce();
 		expect(navigateMock.openDetailConfig).toHaveBeenCalledWith(MODULE_UUID);
 	});

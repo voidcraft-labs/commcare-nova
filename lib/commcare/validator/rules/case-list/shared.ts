@@ -58,13 +58,20 @@
  *
  * ## Memoization
  *
- * The admission set is memoized per `BlueprintDoc` reference INSIDE
- * `effectiveCaseTypes` (the doc-store layer replaces the doc
- * reference on every mutation, so staleness is unreachable); this
- * module adds no cache layer of its own.
+ * The effective admission set is memoized per `BlueprintDoc` reference inside
+ * `effectiveCaseTypes`; this module memoizes its canonical compatibility
+ * projection on the same identity. The doc store replaces the doc reference on
+ * every mutation, so neither cache can become stale.
  */
 
-import type { BlueprintDoc, CaseType, Module } from "@/lib/domain";
+import {
+	authorableCaseProperties,
+	type BlueprintDoc,
+	type CaseProperty,
+	type CaseType,
+	LEGACY_STANDARD_CASE_PROPERTY_ALIASES,
+	type Module,
+} from "@/lib/domain";
 import {
 	type CasePropertyDataType,
 	effectiveDataType,
@@ -89,13 +96,55 @@ export interface ValidationContext {
 	readonly augmentedCaseTypes: readonly CaseType[];
 }
 
+const VALIDATION_CONTEXT_CACHE = new WeakMap<BlueprintDoc, ValidationContext>();
+
 /**
  * The `ValidationContext` for the doc. The admission set itself is
- * memoized per doc reference inside `effectiveCaseTypes`, so this is
- * a cheap wrapper construction — no second cache layer.
+ * memoized per doc reference inside `effectiveCaseTypes`; the canonical alias
+ * projection is memoized here on the same document identity.
  */
 export function validationContextFor(doc: BlueprintDoc): ValidationContext {
-	return { augmentedCaseTypes: effectiveCaseTypes(doc) };
+	const cached = VALIDATION_CONTEXT_CACHE.get(doc);
+	if (cached !== undefined) return cached;
+
+	const context = {
+		augmentedCaseTypes: effectiveCaseTypes(doc).map((caseType) => ({
+			...caseType,
+			properties: canonicalPropertiesForValidation(caseType.properties),
+		})),
+	};
+	VALIDATION_CONTEXT_CACHE.set(doc, context);
+	return context;
+}
+
+/**
+ * Collapse CCHQ compatibility spellings onto Nova's canonical property
+ * metadata before validation reads the catalog. The wire emitter maps, for
+ * example, `name` to `case_name`; allowing a stale declared `name.data_type`
+ * to win here would therefore validate one value while emitting another.
+ *
+ * Compatibility aliases are added back as lookup-only mirrors of the
+ * canonical records. That keeps old blueprints and stored predicate ASTs
+ * readable without letting their stale alias metadata become a second source
+ * of truth. Authoring surfaces consume `authorableCaseProperties` directly and
+ * never see these mirrors.
+ */
+function canonicalPropertiesForValidation(
+	properties: readonly CaseProperty[],
+): CaseProperty[] {
+	const canonical = [...authorableCaseProperties(properties)];
+	const canonicalByName = new Map(
+		canonical.map((property) => [property.name, property]),
+	);
+
+	for (const [alias, canonicalName] of Object.entries(
+		LEGACY_STANDARD_CASE_PROPERTY_ALIASES,
+	)) {
+		const property = canonicalByName.get(canonicalName);
+		if (property !== undefined) canonical.push({ ...property, name: alias });
+	}
+
+	return canonical;
 }
 
 /**
