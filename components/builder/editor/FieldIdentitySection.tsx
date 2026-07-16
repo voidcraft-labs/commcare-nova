@@ -514,43 +514,16 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 													sideOffset={4}
 												>
 													<Menu.Popup className={MENU_POPUP_CLS}>
-														{/* `convertField` dispatches a single atomic mutation:
+														{/* `convertField` dispatches one atomic gated batch:
 														 *  the reducer swaps the kind and reconciles per-kind
 														 *  properties via `fieldSchema`, keeping undo history
-														 *  and event logging clean. A select target is seeded
-														 *  with the starter option pair by the hook when the
-														 *  source has none. */}
+														 *  and event logging clean. The hook seeds whatever
+														 *  the target kind needs to be born valid — the
+														 *  starter option pair for a select, the picker's
+														 *  inert `''` default for hidden — so every offered
+														 *  target lands, mirroring the insert picker. */}
 														{conversionTargets.map((target) => {
 															const targetMeta = fieldRegistry[target];
-															/* A hidden field must carry a calculate or a
-															 * default_value (`HIDDEN_NO_VALUE`), and this menu
-															 * can author neither — but the SOURCE field's
-															 * default_value survives the conversion. So the
-															 * target is offered exactly when the result would
-															 * be valid, and disabled with the recipe otherwise
-															 * (set a Default Value in the inspector first),
-															 * rather than letting the click bounce off the
-															 * commit gate as an error toast. */
-															const hiddenNeedsValue =
-																target === "hidden" &&
-																!(
-																	"default_value" in field &&
-																	field.default_value
-																);
-															if (hiddenNeedsValue) {
-																return (
-																	<SimpleTooltip
-																		key={target}
-																		content="A hidden field needs a value. Set this field's Default Value first, then convert — or ask the assistant to convert it with a calculate expression."
-																	>
-																		<MenuItem
-																			icon={targetMeta.icon}
-																			label={targetMeta.label}
-																			disabled
-																		/>
-																	</SimpleTooltip>
-																);
-															}
 															return (
 																<MenuItem
 																	key={target}

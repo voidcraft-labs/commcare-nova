@@ -42,9 +42,12 @@ export const singleSelectFieldMetadata: FieldKindMetadata<"single_select"> = {
 	saDocs: "Single-choice from a fixed option list.",
 	// `text` is the demotion path — a select's stored value is a plain
 	// string, so freeing it to text drops the options and keeps every
-	// row's value valid. `multi_select` deliberately lacks the same
-	// `text` target: its stored case values are JSONB arrays, which a
-	// string-typed property can't hold without a per-row migration the
-	// conversion path doesn't run.
+	// row's value valid. The `multi_select` edge reshapes stored values
+	// (string → JSONB array) with NO per-row lift, so a case-bound
+	// conversion strands existing scalar rows against the regenerated
+	// array-typed write schema until the per-row reconciliation path
+	// runs on conversions; it stays listed as a shipping affordance,
+	// but that gap is also why `multi_select` has no `text` target —
+	// the same reshape in reverse — rather than widening the exposure.
 	convertTargets: ["multi_select", "text"],
 };

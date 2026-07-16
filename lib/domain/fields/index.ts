@@ -419,6 +419,21 @@ export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
  *     under the same parent uuid, which is still a valid container after
  *     the kind swap.
  */
+/**
+ * Whether converting `source` into `toKind` must carry a born option
+ * seed on the `convertField` mutation: the destination declares an
+ * `options` slot (`.min(2)` in the select schemas) and the source kind
+ * has none to transfer. The ONE predicate every batch-building surface
+ * (the SA's `editField`, the builder's convert gesture) consults, so
+ * the two editors can't drift on when a conversion needs options.
+ */
+export function convertNeedsOptionSeed(
+	source: Field,
+	toKind: FieldKind,
+): boolean {
+	return fieldKindDeclaresKey(toKind, "options") && !("options" in source);
+}
+
 export function reconcileFieldForKind(
 	source: Field,
 	toKind: FieldKind,

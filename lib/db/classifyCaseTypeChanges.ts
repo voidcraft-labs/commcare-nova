@@ -249,15 +249,17 @@ function indexCaseTypes(
 }
 
 /**
- * Compare two case-type snapshots by their schema-affecting surface.
- * Returns `true` iff the property list has shifted in any way the
- * generated JSON Schema cares about — name, `data_type`, `required`
- * flag, validation pattern, or option set on enum types.
+ * Compare two case-type snapshots by their property surface. Returns
+ * `true` iff the property list has shifted — name, `data_type`,
+ * `required` flag, validation pattern, label/hint, or option set.
  *
- * Cosmetic-only edits (`label`, `hint`) still trigger the schema
- * regen because the JSON Schema generator embeds them into the
- * schema's `title` / `description` fields — re-emitting is cheap
- * and keeps the on-disk schema in lockstep with the blueprint.
+ * Deliberately WIDER than what the emitted JSON Schema reads (options
+ * never reach it, and label/hint only feed title/description): a
+ * re-sync is cheap, and every extra trigger is an opportunistic
+ * convergence hook — a stored row written by an OLDER generator (e.g.
+ * a legacy option-value enum) converges to the current derivation the
+ * next time anything on its case type is touched, without waiting for
+ * the drift scripts.
  */
 function caseTypePropertySurfaceDiffers(
 	prior: CaseType,
@@ -295,10 +297,11 @@ function propertyDiffers(a: CaseProperty, b: CaseProperty): boolean {
 }
 
 /**
- * Compare two option lists by value+label tuple in order. Two
- * lists matching by length but reordered count as differing — the
- * JSON Schema generator emits `enum` arrays in declaration order
- * and a reorder is a meaningful schema change.
+ * Compare two option lists by value+label tuple in order. Options
+ * never reach the emitted JSON Schema (select values validate as
+ * plain strings), so any option edit — including a pure reorder —
+ * triggers only the cheap opportunistic re-sync described on
+ * `caseTypePropertySurfaceDiffers`.
  */
 function optionsDiffer(
 	a: CaseProperty["options"],

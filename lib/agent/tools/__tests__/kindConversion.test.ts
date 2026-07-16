@@ -281,6 +281,238 @@ describe("editField — demotions", () => {
 		expect((after as { label?: string }).label).toBe("Status");
 	});
 
+	it("case-bound, declared-type property: the conversion re-declares the data_type in the same batch", async () => {
+		// generateSchema authors data_type on declared properties, and the
+		// agreement gate rejects a writer that contradicts it — so the
+		// conversion must carry the declaration along or it can never land
+		// on an SA-built app.
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name", data_type: "text" },
+						{ name: "facility", label: "Facility", data_type: "text" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									id: "case_name",
+									kind: "text",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									id: "facility",
+									kind: "text",
+									label: "Facility",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		backfillOrderKeys(doc);
+		const { ctx } = makeStubToolContext();
+		const result = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "facility",
+				updates: {
+					kind: "single_select",
+					options: [
+						{ value: "clinic_a", label: "Clinic A" },
+						{ value: "clinic_b", label: "Clinic B" },
+					],
+				},
+			},
+			ctx,
+			doc,
+		);
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(result.result.message).toContain("data_type now matches");
+
+		const after = result.newDoc.fields[soleField(doc, "facility").uuid];
+		expect(after?.kind).toBe("single_select");
+		const entry = result.newDoc.caseTypes
+			?.find((ct) => ct.name === "patient")
+			?.properties.find((p) => p.name === "facility");
+		expect(entry?.data_type).toBe("single_select");
+		expect(entry?.options).toEqual([
+			{ value: "clinic_a", label: "Clinic A" },
+			{ value: "clinic_b", label: "Clinic B" },
+		]);
+	});
+
+	it("case-bound, multi-writer property: every same-kind writer converts in one batch", async () => {
+		// One field at a time can never cross FIELD_KIND_WRITERS_DISAGREE —
+		// the conversion's subject is the property, so its peer writers in
+		// other forms carry across in the same gated commit.
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "status", label: "Status" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									id: "case_name",
+									kind: "text",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									id: "status",
+									kind: "text",
+									label: "Status",
+									case_property_on: "patient",
+								}),
+							],
+						},
+						{
+							name: "Follow up",
+							type: "followup",
+							fields: [
+								f({
+									id: "status",
+									kind: "text",
+									label: "Status",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		backfillOrderKeys(doc);
+		const { ctx } = makeStubToolContext();
+		const result = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "status",
+				updates: {
+					kind: "single_select",
+					options: [
+						{ value: "open", label: "Open" },
+						{ value: "closed", label: "Closed" },
+					],
+				},
+			},
+			ctx,
+			doc,
+		);
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(result.result.message).toContain('"Follow up"');
+
+		// Both writers flipped; each converted select carries its OWN
+		// minted option identities.
+		const converted = Object.values(result.newDoc.fields).filter(
+			(fld) => fld.id === "status",
+		);
+		expect(converted).toHaveLength(2);
+		const optionUuids = new Set<string>();
+		for (const fld of converted) {
+			expect(fld.kind).toBe("single_select");
+			const options = (fld as { options?: SelectOption[] }).options ?? [];
+			expect(options.map((o) => o.value)).toEqual(["open", "closed"]);
+			for (const o of options) {
+				expect(o.uuid).toBeTruthy();
+				optionUuids.add(o.uuid as string);
+			}
+		}
+		expect(optionUuids.size).toBe(4);
+	});
+
+	it("text → hidden as the last typed writer pins the undeclared property to text", async () => {
+		// Hidden writers are exempt from the agreement rules, so a later
+		// calculate edit could silently retype the property via expression
+		// inference — the pin freezes the entry at the type its rows
+		// already hold.
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "visit_note", label: "Visit note" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									id: "case_name",
+									kind: "text",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									id: "visit_note",
+									kind: "text",
+									label: "Visit note",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		backfillOrderKeys(doc);
+		const { ctx } = makeStubToolContext();
+		const result = await editFieldTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fieldId: "visit_note",
+				updates: { kind: "hidden", calculate: "today()" },
+			},
+			ctx,
+			doc,
+		);
+		if ("error" in result.result) throw new Error(result.result.error);
+
+		const after = result.newDoc.fields[soleField(doc, "visit_note").uuid];
+		expect(after?.kind).toBe("hidden");
+		const entry = result.newDoc.caseTypes
+			?.find((ct) => ct.name === "patient")
+			?.properties.find((p) => p.name === "visit_note");
+		expect(entry?.data_type).toBe("text");
+	});
+
 	it("single ↔ multi conversions keep the existing verbatim-options path (no seed consumed)", async () => {
 		const doc = makeDoc({
 			id: "symptoms",

@@ -51,6 +51,7 @@ import {
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
+import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { orderKeyForFieldSlot } from "@/lib/doc/order/fieldSlot";
 import { keyedOptions } from "@/lib/doc/order/options";
@@ -88,7 +89,6 @@ import {
 	type FieldPatchFor,
 	type Form,
 	type FormType,
-	fieldKindDeclaresKey,
 	type Module,
 	type SelectOption,
 } from "@/lib/domain";
@@ -808,28 +808,45 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						warnUnresolved("convertField", { uuid, toKind });
 						return NOOP_REJECTION;
 					}
-					// Converting into a select kind from a kind with no options of
-					// its own (text → single_select) must carry born options — the
-					// select schemas require `.min(2)`, so a bare convert can never
-					// reconcile. The builder gesture has no option-authoring step,
-					// so it seeds the same starter pair a picker-inserted select
-					// gets; the user renames them in the inspector. Identity is
-					// minted here (the batch-building layer), never in the reducer.
-					const needsOptionSeed =
-						fieldKindDeclaresKey(toKind, "options") &&
-						(field as { options?: SelectOption[] }).options === undefined;
-					return toOutcome(
-						guardedApply([
-							{
-								kind: "convertField",
-								uuid,
-								toKind,
-								...(needsOptionSeed && {
-									options: keyedOptions([...DEFAULT_SELECT_OPTIONS]),
-								}),
+					const batch: Mutation[] = [];
+					// Converting to hidden must land with a value source or the
+					// gate rejects on HIDDEN_NO_VALUE — and this gesture has no
+					// authoring step. Seed the same inert `''` default a
+					// picker-inserted hidden is born with (the user authors the
+					// real calculate in the inspector right after); the seed
+					// lands on the SOURCE field pre-convert (its kind declares
+					// `default_value`) and carries through the kind swap. A
+					// field that already has a default keeps it.
+					if (
+						toKind === "hidden" &&
+						!("default_value" in field && field.default_value) &&
+						!("calculate" in field && field.calculate)
+					) {
+						batch.push({
+							kind: "updateField",
+							uuid,
+							targetKind: field.kind,
+							patch: {
+								default_value: { parts: [{ kind: "text", text: "''" }] },
 							},
-						]),
-					);
+						} as Mutation);
+					}
+					// The property-centric plan (shared with the SA's editField):
+					// a case-bound conversion carries every same-kind peer writer
+					// of the (caseType, property) across in the same batch and
+					// re-declares a stale declared data_type — one field at a
+					// time can never cross the agreement gate. Select targets
+					// whose source has no options get the same starter pair a
+					// picker-inserted select is born with, minted fresh per
+					// converted field; the user renames them in the inspector.
+					const plan = planKindConversion({
+						doc,
+						field,
+						toKind,
+						mintOptions: () => keyedOptions([...DEFAULT_SELECT_OPTIONS]) ?? [],
+					});
+					batch.push(...plan.mutations);
+					return toOutcome(guardedApply(batch));
 				},
 
 				addForm(moduleUuid, form) {

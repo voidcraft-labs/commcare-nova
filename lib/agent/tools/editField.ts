@@ -44,6 +44,8 @@
 import { z } from "zod";
 import { parseXPathForField } from "@/lib/doc/expressionText";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
+import { planKindConversion } from "@/lib/doc/kindConversionCascade";
+import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { reconciledOptions } from "@/lib/doc/order/options";
 import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
@@ -55,7 +57,7 @@ import type {
 	Uuid,
 	XPathExpression,
 } from "@/lib/domain";
-import { fieldKindDeclaresKey, getConvertibleTypes } from "@/lib/domain";
+import { convertNeedsOptionSeed, getConvertibleTypes } from "@/lib/domain";
 import {
 	FIELD_REF_HINT,
 	renameFieldMutations,
@@ -242,6 +244,9 @@ export const editFieldTool = {
 			let workingDoc = doc;
 			const stages: StagedMutationBatch[] = [];
 			const fieldUuid: Uuid = resolved.field.uuid;
+			// Property-wide conversion effects, appended to the success
+			// message by the convert stage below.
+			let conversionNote = "";
 
 			// Pre-dispatch rename guard, checked BEFORE the convert stage so
 			// a rejected rename fails the whole call with nothing persisted
@@ -312,9 +317,8 @@ export const editFieldTool = {
 				// (single ↔ multi) keep the existing behavior: options
 				// transfer verbatim in the reducer, and a same-call `options`
 				// patch reconciles uuid identity in the patch stage.
-				let convertOptionSeed: SelectOption[] | undefined;
-				const sourceHasOptions = "options" in resolved.field;
-				if (fieldKindDeclaresKey(newKind, "options") && !sourceHasOptions) {
+				let mintOptions: (() => SelectOption[]) | undefined;
+				if (convertNeedsOptionSeed(resolved.field, newKind)) {
 					const seedInput = fieldUpdates.options;
 					if (!seedInput || seedInput.length < 2) {
 						return {
@@ -326,20 +330,26 @@ export const editFieldTool = {
 							},
 						};
 					}
-					convertOptionSeed = reconciledOptions(seedInput, undefined);
+					const seed = seedInput;
+					mintOptions = () => reconciledOptions(seed, undefined);
 					// Consumed by the convert — the patch stage must not apply
 					// it a second time against the already-seeded options.
-					fieldUpdates.options = undefined;
+					delete fieldUpdates.options;
 				}
 
-				const convertMuts: Mutation[] = [
-					{
-						kind: "convertField",
-						uuid: fieldUuid,
-						toKind: newKind,
-						...(convertOptionSeed && { options: convertOptionSeed }),
-					},
-				];
+				// The property-centric plan: a case-bound conversion carries
+				// every same-kind peer writer of the (caseType, property)
+				// across in the same batch and re-declares a stale declared
+				// data_type — one field at a time can never cross the
+				// agreement gate. `mintOptions` runs per converted field so
+				// each gets its own option identities.
+				const plan = planKindConversion({
+					doc: workingDoc,
+					field: resolved.field,
+					toKind: newKind,
+					...(mintOptions && { mintOptions }),
+				});
+				const convertMuts: Mutation[] = plan.mutations;
 
 				// Apply the candidate first so we can verify the reducer
 				// accepted the conversion before STAGING it. A silent no-op
@@ -370,6 +380,24 @@ export const editFieldTool = {
 					stage: `convert:${moduleIndex}-${formIndex}`,
 				});
 				workingDoc = afterConvert;
+
+				// Name the property-wide effects so the SA can relay them
+				// without re-reading the blueprint: peer writers carried
+				// across (by their containing form), and the declaration
+				// following the writers.
+				if (plan.peers.length > 0) {
+					const peerForms = plan.peers.map((p) => {
+						const peerFormUuid = findContainingForm(workingDoc, p.uuid);
+						const name = peerFormUuid
+							? workingDoc.forms[peerFormUuid]?.name
+							: undefined;
+						return name ? `"${name}"` : "another form";
+					});
+					conversionNote += ` Also converted the property's other writer${plan.peers.length === 1 ? "" : "s"} of the same kind (in ${peerForms.join(", ")}) so every form stays in agreement.`;
+				}
+				if (plan.redeclared) {
+					conversionNote += ` The case property's declared data_type now matches ${newKind}.`;
+				}
 			}
 
 			// Id rename next as its own emitted batch. The `renameField`
@@ -513,7 +541,7 @@ export const editFieldTool = {
 				// above read `workingDoc` only for this call's own display values.
 				newDoc: commit.newDoc,
 				result: {
-					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.`,
+					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.${conversionNote}`,
 					summary: {
 						location: formName,
 						subject: label || finalId,
