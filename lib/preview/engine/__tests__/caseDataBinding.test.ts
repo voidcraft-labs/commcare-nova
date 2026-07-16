@@ -2448,9 +2448,12 @@ describe("applyCloseMutation", () => {
 			caseType: "patient",
 		});
 		if (patients.kind !== "rows") throw new Error("expected rows");
-		// Property update + closure timestamp landed atop the same row.
+		// Property update + both halves of the built-in lifecycle
+		// transition landed atop the same row. The preview helper passes
+		// no status value; the CaseStore close operation owns it.
 		expect(patients.rows[0]?.properties).toEqual({ name: "Alice", age: 32 });
 		expect(patients.rows[0]?.closed_on).not.toBeNull();
+		expect(patients.rows[0]?.status).toBe("closed");
 	});
 
 	it("skips the primary UPDATE call when the patch carries no writes but still stamps closed_on", async () => {
@@ -2523,6 +2526,7 @@ describe("applyCloseMutation", () => {
 		// landed regardless.
 		expect(patients.rows[0]?.properties).toEqual({ name: "Alice", age: 30 });
 		expect(patients.rows[0]?.closed_on).not.toBeNull();
+		expect(patients.rows[0]?.status).toBe("closed");
 	});
 });
 

@@ -213,8 +213,9 @@ export type PopulateSampleCasesResult =
  * - `followup` — `caseId` is the bound case the form updates;
  *   `patch.properties` is the JSONB delta. Children carry
  *   `parentCaseId` set to the bound caseId at derivation time.
- * - `close` — same shape as `followup`, plus a closure stamp on
- *   the bound case after the updates land.
+ * - `close` — same shape as `followup`, plus the bound case's atomic
+ *   lifecycle transition (`closed_on` + built-in `status = "closed"`)
+ *   after the updates land.
  * - `survey` — structural no-op; the form owns no case rows.
  *
  * `caseName` is a separate slot from `properties` because the

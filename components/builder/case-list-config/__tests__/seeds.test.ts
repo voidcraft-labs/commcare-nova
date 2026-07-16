@@ -49,6 +49,14 @@ describe("labelFromProperty", () => {
 		expect(labelFromProperty("rash_onset_date")).toBe("Rash onset date");
 		expect(labelFromProperty("case_name")).toBe("Case name");
 	});
+
+	it.each([
+		["name", "Case name"],
+		["external-id", "External ID"],
+		["date-opened", "Date opened"],
+	])("uses the canonical label for legacy %s", (property, label) => {
+		expect(labelFromProperty(property)).toBe(label);
+	});
 });
 
 describe("xmlNameFromProperty", () => {

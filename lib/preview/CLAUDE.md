@@ -45,6 +45,13 @@ writes) can still produce it. Consumers of `is-blank` should
 read `lib/domain/predicate/CLAUDE.md` § "Null vs blank semantics
 — locked invariant".
 
+Close-form completion delegates the lifecycle transition to
+`CaseStore.close()`. That storage operation atomically owns both
+`closed_on` and the canonical built-in `status = "closed"`; the preview
+must never supply or invent its own status vocabulary. This keeps the live
+row aligned with CommCare's `@status` attribute and makes a close form with no
+property writes a complete lifecycle write by itself.
+
 ## Repeat instances are first-class
 
 Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one FieldState per live instance, while everything AUTHORED about them is index-free — `printXPath` emits `#form/orders/name`, the dependency extractor emits `/data/orders/name`. Three mechanisms bridge the two shapes (`instancePaths.ts` holds the conversions):

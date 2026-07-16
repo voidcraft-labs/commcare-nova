@@ -1,8 +1,10 @@
 import type { CaseProperty } from "@/lib/domain";
 import {
+	authorableCaseProperties,
 	canonicalCasePropertyName,
 	effectiveDataType,
 	isStandardCaseListProperty,
+	LEGACY_STANDARD_CASE_PROPERTY_ALIASES,
 	standardCasePropertyDisplayLabel,
 } from "@/lib/domain";
 import { humanizeId } from "@/lib/domain/idSlug";
@@ -10,16 +12,78 @@ import { humanizeId } from "@/lib/domain/idSlug";
 export function propertyDisplayLabel(property: CaseProperty): string {
 	const authored = property.label.trim();
 	const canonicalName = canonicalCasePropertyName(property.name);
-	const authoredLooksGenerated =
-		authored.toLowerCase() === property.name.toLowerCase() ||
-		authored.toLowerCase() === humanizeId(property.name).toLowerCase();
+	const generatedNames = [
+		canonicalName,
+		...Object.entries(LEGACY_STANDARD_CASE_PROPERTY_ALIASES)
+			.filter(([, canonical]) => canonical === canonicalName)
+			.map(([legacy]) => legacy),
+	];
+	const authoredLooksGenerated = generatedNames.some(
+		(name) =>
+			normalizedIdentifierLabel(authored) === normalizedIdentifierLabel(name),
+	);
 	if (
 		isStandardCaseListProperty(property.name) &&
 		(authored.length === 0 || authoredLooksGenerated)
 	) {
+		return propertyFallbackDisplayLabel(canonicalName);
+	}
+	return authored.length > 0
+		? humanizeId(authored)
+		: propertyFallbackDisplayLabel(property.name);
+}
+
+/**
+ * Friendly fallback when a surface has only a stored property name. Legacy
+ * CCHQ spellings are normalized before display so they can keep working in an
+ * old document without reappearing as a second Nova concept.
+ */
+export function propertyFallbackDisplayLabel(name: string): string {
+	const canonicalName = canonicalCasePropertyName(name);
+	if (isStandardCaseListProperty(canonicalName)) {
 		return standardCasePropertyDisplayLabel(canonicalName);
 	}
-	return humanizeId(authored || property.name) || "Untitled information";
+	return humanizeId(canonicalName) || "Untitled information";
+}
+
+/**
+ * Resolve a stored name through Nova's canonical authoring projection. A
+ * meaningful legacy-authored label survives, while generated alias copy is
+ * replaced by the canonical system label.
+ */
+export function propertyDisplayLabelForName(
+	name: string,
+	properties: readonly CaseProperty[],
+): string {
+	const canonicalName = canonicalCasePropertyName(name);
+	const property = authorableCaseProperties(properties).find(
+		(candidate) => candidate.name === canonicalName,
+	);
+	return property === undefined
+		? propertyFallbackDisplayLabel(canonicalName)
+		: propertyDisplayLabel(property);
+}
+
+/**
+ * Sentence-case counterpart for predicate prose. Keep the current concise
+ * identifier wording for ordinary properties, while the canonical case-name,
+ * external-ID, and opened-date concepts use their carefully cased labels.
+ */
+export function propertyFallbackSentenceLabel(name: string): string {
+	const canonicalName = canonicalCasePropertyName(name);
+	if (
+		canonicalName === "case_name" ||
+		canonicalName === "external_id" ||
+		canonicalName === "date_opened"
+	) {
+		const label = propertyFallbackDisplayLabel(canonicalName);
+		return label.charAt(0).toLowerCase() + label.slice(1);
+	}
+	return canonicalName.replace(/[_-]+/g, " ").trim() || canonicalName;
+}
+
+function normalizedIdentifierLabel(value: string): string {
+	return value.trim().toLowerCase().replace(/[_-]+/g, " ");
 }
 
 function normalizedDisplayLabel(label: string): string {

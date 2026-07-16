@@ -26,6 +26,25 @@ wins. `update`/`close` re-stamp `modified_on`. Without this, the standard-name
 aliases read blank on freshly created rows in every case list, filter, and
 sort.
 
+## Case lifecycle is one storage operation
+
+`CaseStore.close()` owns both halves of the built-in lifecycle transition:
+it stamps `closed_on = now()` and `status = "closed"` together. Callers never
+choose a close status; CommCare's `@status` vocabulary is the lifecycle value,
+not an app-defined workflow stage. A retry over a consistent closed row is
+idempotent. Re-closing a row left inconsistent by the former close path repairs
+its status while preserving the original `closed_on` and `modified_on` event
+times. Historical import and deliberate recovery/reopen flows use `update()`
+and explicitly pair their intended values (for example,
+`{ status: "open", closed_on: null }`).
+
+The former preview path can have persisted closed rows whose status stayed
+`open`. Deploy this invariant with the required one-off data choreography:
+`scripts/scan-case-lifecycle-status.ts` (read-only sizing),
+`scripts/migrate-case-lifecycle-status.ts` (dry-run, then `--execute` in an
+explicit write-capable environment), then the scan again to zero. The repair
+changes only `status`; it preserves the already-correct lifecycle timestamps.
+
 ## No preview mode — the running-app view shares the editor's rows
 
 The running-app view reads the SAME `cases` rows the editor

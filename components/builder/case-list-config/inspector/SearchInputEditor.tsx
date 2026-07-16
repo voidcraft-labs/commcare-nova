@@ -52,6 +52,8 @@ import { InlineError } from "@/components/builder/shared/primitives/CardShell";
 import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
+	propertyDisplayLabelForName,
+	propertyFallbackDisplayLabel,
 	propertyTypeLabel,
 } from "@/components/builder/shared/primitives/propertyDisplay";
 import {
@@ -74,7 +76,6 @@ import {
 	type SimpleSearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { humanizeId } from "@/lib/domain/idSlug";
 import {
 	ancestorPath,
 	type Predicate,
@@ -676,7 +677,9 @@ function BindingPicker({
 
 	if (scope === "custom") {
 		const readableProperty =
-			humanizeId(row.property) || "Unavailable information";
+			row.property.trim() === ""
+				? "Unavailable information"
+				: propertyFallbackDisplayLabel(row.property);
 		return (
 			<div className="flex items-center gap-3 w-full min-h-11 px-3 py-2 rounded-lg border border-white/[0.06] bg-nova-deep/30">
 				<span className="flex-1 min-w-0">
@@ -711,7 +714,9 @@ function BindingPicker({
 	const scopeLabel = scope === "parent" ? "Parent case" : "This case";
 	const selectedLabel =
 		selectedDef === undefined
-			? humanizeId(row.property) || "Unavailable information"
+			? row.property.trim() === ""
+				? "Unavailable information"
+				: propertyDisplayLabelForName(row.property, destinationProperties)
 			: propertyDisplayLabel(selectedDef);
 	const selectedQualifier =
 		selectedDef === undefined

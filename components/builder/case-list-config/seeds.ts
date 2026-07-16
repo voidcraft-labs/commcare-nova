@@ -33,8 +33,10 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { walkPropertyRefs } from "@/lib/domain/predicate";
-import { propertyDisplayLabel } from "../shared/primitives/propertyDisplay";
-import { humanizeName } from "./predicateSummary";
+import {
+	propertyDisplayLabel,
+	propertyFallbackDisplayLabel,
+} from "../shared/primitives/propertyDisplay";
 import { newUuid } from "./uuid";
 
 // ── Naming helpers ────────────────────────────────────────────────
@@ -42,8 +44,7 @@ import { newUuid } from "./uuid";
 /** Property name → person-facing label: `rash_onset_date` reads
  *  "Rash onset date". */
 export function labelFromProperty(property: string): string {
-	const words = humanizeName(property);
-	return words.charAt(0).toUpperCase() + words.slice(1);
+	return propertyFallbackDisplayLabel(property);
 }
 
 /**

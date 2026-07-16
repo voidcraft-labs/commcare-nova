@@ -66,6 +66,41 @@ describe("summarizeFilter", () => {
 		expect(humanizeName("follow-up_date")).toBe("follow up date");
 	});
 
+	it("uses Nova's canonical labels for legacy property references", () => {
+		expect(
+			summarizeFilter({
+				kind: "eq",
+				left: term(prop("patient", "name")),
+				right: term(literal("Alice")),
+			}),
+		).toBe("case name is Alice");
+		expect(
+			summarizeFilter({
+				kind: "match",
+				property: prop("patient", "external-id"),
+				value: term(literal("ABC")),
+				mode: "fuzzy",
+			}),
+		).toBe("external ID roughly matches ABC");
+		expect(
+			summarizeFilter({
+				kind: "multi-select-contains",
+				property: prop("patient", "name"),
+				values: [literal("Alice")],
+				quantifier: "any",
+			}),
+		).toBe("case name includes any of Alice");
+		expect(
+			summarizeFilter({
+				kind: "within-distance",
+				property: prop("patient", "date-opened"),
+				center: term(literal("0 0")),
+				distance: 5,
+				unit: "kilometers",
+			}),
+		).toBe("date opened is within 5 kilometers");
+	});
+
 	it("joins and/or clauses with words and overflows past two", () => {
 		expect(summarizeFilter(and(statusIsntClosed, statusIsntClosed))).toBe(
 			"status isn't closed and status isn't closed",

@@ -96,7 +96,12 @@ export type CaseInsert = Omit<
 export interface CaseUpdate {
 	/** The case's display name. Routed to the top-level `case_name` column, NOT the JSONB document. */
 	readonly case_name?: string;
-	/** Open/closed status string. `null` admits the rare admin / data-recovery flow. */
+	/**
+	 * Open/closed lifecycle status. Normal app closure goes through
+	 * `close()`, which owns the canonical `closed` value. This slot remains
+	 * patchable so an importer can preserve historical lifecycle data and an
+	 * explicit recovery flow can reopen with `{ status: "open", closed_on: null }`.
+	 */
 	readonly status?: string | null;
 	/** When the case was opened — patchable for historical-import flows. */
 	readonly opened_on?: Date | string | null;
@@ -506,18 +511,15 @@ export interface CaseStore extends SchemaCaseStore {
 	}): Promise<void>;
 
 	/**
-	 * Close a case row. Stamps `closed_on = now()` on the first
-	 * close; idempotent on row state — the UPDATE filters on
-	 * `closed_on IS NULL`, so re-closing an already-closed case
-	 * preserves the original timestamp. A status change on an
-	 * already-closed row goes through `update`, not `close`. Does
-	 * not delete — closed cases remain queryable.
+	 * Close a case row. Atomically stamps `closed_on = now()` and the
+	 * canonical built-in lifecycle `status = "closed"` on the first close.
+	 * Re-closing a previously inconsistent row repairs its status while
+	 * preserving the original closure timestamp. Re-closing a consistent row
+	 * is idempotent. Does not delete — closed cases remain queryable.
+	 * Historical import and explicit reopen flows use `update` to write their
+	 * paired lifecycle data.
 	 */
-	close(args: {
-		appId: string;
-		caseId: string;
-		status?: string;
-	}): Promise<void>;
+	close(args: { appId: string; caseId: string }): Promise<void>;
 
 	/**
 	 * Traverse a `RelationPath` from the anchor to its destination

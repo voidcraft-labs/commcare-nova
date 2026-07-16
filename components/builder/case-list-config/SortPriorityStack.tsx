@@ -13,6 +13,7 @@ import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useId, useMemo, useState } from "react";
+import { propertyDisplayLabelForName } from "@/components/builder/shared/primitives/propertyDisplay";
 import {
 	ReorderableRow,
 	useReorderableList,
@@ -32,8 +33,11 @@ import type {
 	ColumnSort,
 	SortDirection,
 } from "@/lib/domain";
+import {
+	authorableCaseProperties,
+	canonicalCasePropertyName,
+} from "@/lib/domain";
 import { effectiveDataType } from "@/lib/domain/casePropertyTypes";
-import { humanizeId } from "@/lib/domain/idSlug";
 import { checkExpression } from "@/lib/domain/predicate";
 import { useCanEdit } from "@/lib/session/hooks";
 import { resolveSortedColumns } from "./sortPriority";
@@ -480,8 +484,8 @@ function columnDataType(
 		return undefined;
 	}
 	if (!("field" in column)) return undefined;
-	const property = caseType?.properties.find(
-		(candidate) => candidate.name === column.field,
+	const property = authorableCaseProperties(caseType?.properties ?? []).find(
+		(candidate) => candidate.name === canonicalCasePropertyName(column.field),
 	);
 	return property === undefined ? undefined : effectiveDataType(property);
 }
@@ -494,12 +498,7 @@ function friendlyColumnLabel(
 	const authored = column.header.trim();
 	if (authored.length > 0) return authored;
 	if (!("field" in column)) return "Calculated field";
-	const property = caseType?.properties.find(
-		(candidate) => candidate.name === column.field,
-	);
-	const propertyLabel = property?.label.trim();
-	if (propertyLabel) return propertyLabel;
-	return humanizeId(column.field) || "Untitled field";
+	return propertyDisplayLabelForName(column.field, caseType?.properties ?? []);
 }
 
 function CaseOrderingDragPreview({ label }: { readonly label: string }) {

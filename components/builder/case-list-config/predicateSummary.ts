@@ -13,6 +13,7 @@
 // The summary is display-only — nothing parses it back.
 
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import { propertyFallbackSentenceLabel } from "../shared/primitives/propertyDisplay";
 
 /** Cap on rendered `and` / `or` clauses before "+N more" kicks in —
  *  past two clauses the sentence stops being scannable. */
@@ -66,7 +67,7 @@ function summarizePredicate(p: Predicate): string {
 		case "is-blank":
 			return `${operand(p.left)} is blank`;
 		case "match": {
-			const subject = humanizeName(p.property.property);
+			const subject = propertyFallbackSentenceLabel(p.property.property);
 			const value = operand(p.value);
 			switch (p.mode) {
 				case "fuzzy":
@@ -84,10 +85,10 @@ function summarizePredicate(p: Predicate): string {
 		case "multi-select-contains": {
 			const values = p.values.map((v) => literalText(v.value)).join(", ");
 			const quantifier = p.quantifier === "all" ? "all of" : "any of";
-			return `${humanizeName(p.property.property)} includes ${quantifier} ${values}`;
+			return `${propertyFallbackSentenceLabel(p.property.property)} includes ${quantifier} ${values}`;
 		}
 		case "within-distance":
-			return `${humanizeName(p.property.property)} is within ${p.distance} ${p.unit}`;
+			return `${propertyFallbackSentenceLabel(p.property.property)} is within ${p.distance} ${p.unit}`;
 		case "and":
 		case "or":
 			return joinClauses(p.clauses, p.kind === "and" ? "and" : "or");
@@ -130,7 +131,7 @@ function operand(expr: ValueExpression): string {
 			const t = expr.term;
 			switch (t.kind) {
 				case "prop":
-					return humanizeName(t.property);
+					return propertyFallbackSentenceLabel(t.property);
 				case "input":
 					return humanizeName(t.name);
 				case "literal":

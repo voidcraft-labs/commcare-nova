@@ -229,6 +229,43 @@ describe("CaseOrderingComposer", () => {
 		expect(screen.queryByText("A to Z")).toBeNull();
 	});
 
+	it("uses canonical fallback labels for legacy default-order fields", () => {
+		const legacyCaseType: CaseType = {
+			name: "legacy_patient",
+			properties: [
+				{ name: "case_name", label: "case_name", data_type: "text" },
+				{ name: "external_id", label: "external_id", data_type: "text" },
+				{ name: "date_opened", label: "date_opened", data_type: "datetime" },
+			],
+		};
+		const legacyColumns = [
+			column("101", "name", "", "a", { direction: "asc", priority: 0 }),
+			column("102", "external-id", "", "b", {
+				direction: "asc",
+				priority: 1,
+			}),
+			column("103", "date-opened", "", "c", {
+				direction: "desc",
+				priority: 2,
+			}),
+		];
+
+		render(
+			<CaseOrderingComposer
+				value={legacyColumns}
+				caseType={legacyCaseType}
+				onChange={() => {}}
+			/>,
+		);
+
+		expect(screen.getByText("Case name")).toBeDefined();
+		expect(screen.getByText("External ID")).toBeDefined();
+		expect(screen.getByText("Date opened")).toBeDefined();
+		expect(screen.getByText("Latest first")).toBeDefined();
+		expect(screen.queryByText("External id")).toBeNull();
+		expect(screen.queryByText("Name")).toBeNull();
+	});
+
 	it("breaks equal priorities by the independent Results arrangement", () => {
 		const laterInResults = {
 			...NAME,

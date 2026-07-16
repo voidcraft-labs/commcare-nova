@@ -868,27 +868,32 @@ export class PostgresCaseStore implements CaseStore {
 		});
 	}
 
-	async close(args: {
-		appId: string;
-		caseId: string;
-		status?: string;
-	}): Promise<void> {
-		// `closed_on IS NULL` makes close idempotent on row state:
-		// an already-closed row is excluded so its `closed_on` keeps
-		// the original timestamp. The same filter also prevents a
-		// stray `status` patch on an already-closed row from sliding
-		// through — status changes on closed rows go through `update`.
+	async close(args: { appId: string; caseId: string }): Promise<void> {
+		// Lifecycle status is NOT caller input: CCHQ's built-in `@status`
+		// is exactly `open` / `closed`, so close owns the canonical
+		// `closed` write alongside the timestamp. `coalesce` preserves an
+		// existing closure timestamp while the second WHERE arm lets a
+		// re-close repair rows written by the old close path (`closed_on`
+		// present but status still `open`). `modified_on` advances only for
+		// a genuinely open row; status-only repair preserves the original
+		// close event's timestamp. Import/reopen flows go through `update`
+		// with both lifecycle fields.
 		await this.db
 			.updateTable("cases as c")
 			.set({
-				closed_on: sql<Date>`now()`,
-				modified_on: sql<Date>`now()`,
-				...(args.status !== undefined ? { status: args.status } : {}),
+				closed_on: sql<Date>`coalesce(c.closed_on, now())`,
+				modified_on: sql<Date>`case when c.closed_on is null then now() else c.modified_on end`,
+				status: "closed",
 			})
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_id", "=", args.caseId)
 			.where("c.project_id", "=", this.requireProjectId())
-			.where("c.closed_on", "is", null)
+			.where((eb) =>
+				eb.or([
+					eb("c.closed_on", "is", null),
+					eb("c.status", "is distinct from", "closed"),
+				]),
+			)
 			.execute();
 	}
 

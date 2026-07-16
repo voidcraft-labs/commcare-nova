@@ -99,9 +99,11 @@ export interface CasesTable {
 	owner_id: string | null;
 
 	/**
-	 * Open/closed status string. Distinct from `closed_on` so
-	 * domain status vocabularies (CCHQ's `open` / `closed` tokens)
-	 * round-trip without lossy derivation from a timestamp.
+	 * CommCare's built-in open/closed lifecycle status (`@status` on the
+	 * wire). Distinct from `closed_on` because both values are part of the
+	 * case model; `CaseStore.close()` writes `closed` and the closure timestamp
+	 * together. Nullable/wide at the database boundary so historical imports
+	 * and pre-invariant rows remain readable for explicit convergence.
 	 */
 	status: string | null;
 

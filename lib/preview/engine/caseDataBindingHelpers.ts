@@ -772,10 +772,11 @@ export async function applyFollowupMutation(
 /**
  * Apply a close `SubmissionMutation`: same primary update + child
  * inserts as the followup arm, plus a final `caseStore.close` to
- * stamp `closed_on`. Close runs last so the closure timestamp
- * lands after every property write. `caseStore.close` is
- * idempotent on row state — re-closing preserves the original
- * timestamp.
+ * atomically stamp `closed_on` and the built-in lifecycle
+ * `status = "closed"`. Close runs last so the lifecycle transition
+ * lands after every property write. `caseStore.close` is idempotent
+ * on consistent row state and repairs the status of a previously
+ * inconsistent closed row without replacing its closure timestamp.
  */
 export async function applyCloseMutation(
 	store: CaseStore,
