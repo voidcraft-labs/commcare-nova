@@ -112,18 +112,22 @@ export type CaseTypeJsonSchema = {
 
 /**
  * Per-property schema. Intentionally a loose union (a `string` flavor
- * could technically carry both `format` and `enum` simultaneously) —
+ * could technically carry both `format` and `pattern` simultaneously) —
  * tightening to a per-flavor discriminated union pulls in plumbing the
  * downstream tooling doesn't need and obscures the simple
  * data_type-to-shape mapping the file is built around. The schema
  * emitter never produces an inconsistent combination because each arm
  * of the switch sets at most one of those fields.
+ *
+ * There is deliberately no `enum` flavor: select values validate as
+ * plain strings (see the `single_select` arm below for why an
+ * option-value enum poisons rows under merged-document validation).
  */
 export type CaseTypePropertyJsonSchema =
-	| { type: "string"; format?: string; enum?: string[]; pattern?: string }
+	| { type: "string"; format?: string; pattern?: string }
 	| { type: "integer"; minimum: number; maximum: number }
 	| { type: "number" }
-	| { type: "array"; items: { type: "string"; enum?: string[] } };
+	| { type: "array"; items: { type: "string" } };
 
 /**
  * Convert a `CaseType` to a JSON Schema document. Pure — no
@@ -163,19 +167,14 @@ export function caseTypeToJsonSchema(caseType: CaseType): CaseTypeJsonSchema {
 /**
  * Map a single `CaseProperty` to its JSON Schema shape.
  *
- * Empty-options behavior for select kinds: when `prop.options` is
- * undefined or empty, the emitted schema falls back to a permissive
- * shape — `{ type: "string" }` for `single_select`, `{ type: "array",
- * items: { type: "string" } }` for `multi_select`. Two reasons it
- * doesn't emit `enum: []`:
- *   1. Ajv 8 (and other strict validators) reject empty-enum schemas
- *      at compile time; emitting `enum: []` would block ALL writes
- *      against the case type rather than just writes to this property.
- *   2. The "fail closed until configured" intent is reasonable but
- *      placed at the wrong layer — mid-edit blueprints don't carry
- *      real authored data, so locking the validator against them
- *      creates spurious breakage. Once the author configures options,
- *      the emitted schema tightens automatically.
+ * The constraints emitted here are exactly the ones the SQL compiler's
+ * Postgres casts depend on — the int4 bounds and the date/time formats
+ * keep AJV's acceptance set aligned with the casts so a bad value fails
+ * as a typed validation error at the write boundary instead of a raw
+ * Postgres error at query/index time. Select kinds carry NO value
+ * constraint beyond their string/array shape (rationale on the
+ * `single_select` arm) — no cast reads them typed, so there is nothing
+ * to protect.
  *
  * Default for missing data_type: `casePropertySchema.data_type` is
  * `.optional()` in `lib/domain/blueprint.ts`. We treat the absent
@@ -200,19 +199,23 @@ function propertyToSchema(prop: CaseProperty): CaseTypePropertyJsonSchema {
 		case "datetime":
 			return { type: "string", format: "date-time" };
 		case "single_select":
-			return prop.options && prop.options.length > 0
-				? { type: "string", enum: prop.options.map((o) => o.value) }
-				: { type: "string" };
+			// No `enum` over the option values — deliberately. Select values
+			// are plain strings at every layer that matters (the XForms wire,
+			// the SQL compiler's text reads, `tryCastValue`'s retype arm), and
+			// option lists are FORM UI, not a data constraint: CommCare never
+			// re-validates stored case data against an app's current choices.
+			// Because the write path validates the MERGED row document, an
+			// option-value enum here turns every option edit or text→select
+			// conversion into a row poisoner — a case holding yesterday's
+			// legal value fails validation on its next write of ANY property.
+			// Values outside the current options are legitimate history; the
+			// explicit `narrow-options` migration (quarantine) is the opt-in
+			// path for callers that want them flushed.
+			return { type: "string" };
 		case "multi_select":
-			return prop.options && prop.options.length > 0
-				? {
-						type: "array",
-						items: {
-							type: "string",
-							enum: prop.options.map((o) => o.value),
-						},
-					}
-				: { type: "array", items: { type: "string" } };
+			// Array-shaped (one element per selected value) but item values
+			// are unconstrained — same no-enum rationale as `single_select`.
+			return { type: "array", items: { type: "string" } };
 		case "geopoint":
 			return { type: "string", pattern: GEOPOINT_PATTERN };
 		default: {

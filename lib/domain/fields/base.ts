@@ -181,3 +181,32 @@ export const selectOptionSchema = z
 		order: z.string().optional(),
 	})
 	.strict();
+
+/**
+ * A fresh select's two starter options — the smallest set the select
+ * schemas admit (`options` is `.min(2)`), named so the user's only job
+ * is renaming them. Shared by every surface that mints a select with no
+ * authored options yet: the builder's insert picker and the builder's
+ * convert-to-select gesture (the SA passes real options instead, so its
+ * paths never consume this).
+ */
+export const DEFAULT_SELECT_OPTIONS: readonly Pick<
+	SelectOption,
+	"value" | "label"
+>[] = [
+	{ value: "option_1", label: "Option 1" },
+	{ value: "option_2", label: "Option 2" },
+];
+
+/**
+ * The inert value a builder-born hidden field starts with — the XPath
+ * empty-string literal, satisfying the `HIDDEN_NO_VALUE` rule until the
+ * user authors the real calculate in the inspector. Shared by the two
+ * surfaces that mint a hidden field with no authored value: the
+ * builder's insert picker and the builder's convert-to-hidden gesture
+ * (the SA passes a real `calculate` instead). One constant so the two
+ * born shapes can't drift.
+ */
+export const HIDDEN_INERT_DEFAULT_VALUE: XPathExpression = {
+	parts: [{ kind: "text", text: "''" }],
+};

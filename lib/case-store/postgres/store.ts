@@ -1880,7 +1880,15 @@ function tryCastValue(
 	value: unknown,
 	toType: CasePropertyDataType,
 ): CastResult {
-	const stringValue = typeof value === "string" ? value : String(value);
+	// A multi-select value is a JSONB array of selected option values; its
+	// string projection is the XForms wire convention — space-separated —
+	// not JS's default comma join. Every string-target arm below (text,
+	// single_select, geopoint, and the parse attempts) reads this.
+	const stringValue = Array.isArray(value)
+		? value.join(" ")
+		: typeof value === "string"
+			? value
+			: String(value);
 
 	switch (toType) {
 		case "text":

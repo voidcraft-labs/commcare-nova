@@ -1190,6 +1190,61 @@ describe("useBlueprintMutations", () => {
 			expect(converted?.id).toBe("a");
 		});
 
+		it("seeds the starter option pair on text → single_select", () => {
+			// The select schemas require `.min(2)` options the text source
+			// can't carry, and the convert menu has no option-authoring step —
+			// the hook attaches the same starter pair a picker-inserted select
+			// gets, fully minted (uuid + order) at dispatch so the reducer
+			// never invents identity.
+			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+				wrapper,
+			});
+
+			expect(result.current.store?.getState().fields[Q_A]?.kind).toBe("text");
+
+			act(() => {
+				result.current.mutations.convertField(
+					Q_A,
+					"single_select" as FieldKind,
+				);
+			});
+
+			const converted = result.current.store?.getState().fields[Q_A];
+			expect(converted?.kind).toBe("single_select");
+			const options =
+				converted && "options" in converted ? converted.options : [];
+			expect(options.map((o) => o.value)).toEqual(["option_1", "option_2"]);
+			for (const opt of options) {
+				expect(opt.uuid).toBeTruthy();
+				expect(opt.order).toBeTruthy();
+			}
+		});
+
+		it("seeds the picker's inert default on text → hidden with no value source", () => {
+			// HIDDEN_NO_VALUE would reject a bare convert; the gesture seeds
+			// the same `''` default a picker-inserted hidden is born with (in
+			// the SAME gated batch), so every offered target lands and the
+			// user authors the real calculate in the inspector afterwards.
+			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+				wrapper,
+			});
+
+			act(() => {
+				result.current.mutations.convertField(Q_A, "hidden" as FieldKind);
+			});
+
+			const converted = result.current.store?.getState().fields[Q_A];
+			expect(converted?.kind).toBe("hidden");
+			expect(
+				converted && "default_value" in converted
+					? converted.default_value
+					: undefined,
+			).toEqual({ parts: [{ kind: "text", text: "''" }] });
+			expect(
+				converted && "label" in converted ? converted.label : undefined,
+			).toBeUndefined();
+		});
+
 		it("is visible in useMaterialize after dispatch", () => {
 			// Confirm that the live `children` array (read via the hook composer)
 			// reflects the post-dispatch kind — proves the reactive subscription

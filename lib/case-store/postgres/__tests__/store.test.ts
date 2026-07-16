@@ -839,6 +839,64 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		]);
 	});
 
+	it("on multi_select→text retype: array values join space-separated (the XForms wire convention)", async () => {
+		// A multi-select property's stored value is a JSONB array of
+		// selected option values; its string projection is the XForms
+		// space-separated convention, NOT JS's default comma join —
+		// `["en","fr"]` must land as `"en fr"`.
+		const store = makeStore(OWNER_A);
+		const initial: CaseType = {
+			name: "patient",
+			properties: [
+				{
+					name: "languages",
+					label: "Languages",
+					data_type: "multi_select",
+					options: [
+						{ value: "en", label: "English" },
+						{ value: "fr", label: "French" },
+					],
+				},
+			],
+		};
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildSchemaMap(initial),
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: "31000000-0000-0000-0000-000000000001",
+				case_type: "patient",
+				case_name: "test-case",
+				properties: { languages: ["en", "fr"] },
+			},
+		});
+
+		const retyped: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "languages", label: "Languages", data_type: "text" },
+			],
+		};
+		const report = await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildSchemaMap(retyped),
+			property: "languages",
+			change: { kind: "retype", fromType: "multi_select", toType: "text" },
+		});
+		expect(report.migrated).toBe(1);
+		expect(report.quarantined).toBe(0);
+
+		const { rows } = await dbHandle.pool.query(
+			`SELECT properties->>'languages' AS languages FROM cases WHERE app_id = $1 AND case_id = $2`,
+			[APP_ID, "31000000-0000-0000-0000-000000000001"],
+		);
+		expect(rows[0]?.languages).toBe("en fr");
+	});
+
 	// -----------------------------------------------------------
 	// Phase A atomicity — Phase A's transaction rolls back independent of Phase B
 	// -----------------------------------------------------------

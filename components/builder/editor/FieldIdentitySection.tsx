@@ -514,10 +514,14 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 													sideOffset={4}
 												>
 													<Menu.Popup className={MENU_POPUP_CLS}>
-														{/* `convertField` dispatches a single atomic mutation:
+														{/* `convertField` dispatches one atomic gated batch:
 														 *  the reducer swaps the kind and reconciles per-kind
 														 *  properties via `fieldSchema`, keeping undo history
-														 *  and event logging clean. */}
+														 *  and event logging clean. The hook seeds whatever
+														 *  the target kind needs to be born valid — the
+														 *  starter option pair for a select, the picker's
+														 *  inert `''` default for hidden — so every offered
+														 *  target lands, mirroring the insert picker. */}
 														{conversionTargets.map((target) => {
 															const targetMeta = fieldRegistry[target];
 															return (

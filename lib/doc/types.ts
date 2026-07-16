@@ -279,6 +279,14 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 		kind: z.literal("convertField"),
 		uuid: uuidSchema,
 		toKind: z.enum(fieldKinds),
+		// Born options for a conversion INTO a select kind from a kind with
+		// no options slot (text → single_select) — the select schemas
+		// require `.min(2)` options the source can't carry, so the
+		// reducer's reconcile would otherwise always fail. Minted (uuid +
+		// order) at the batch-building layer so the reducer stays
+		// deterministic for replay and peers. Ignored when the target kind
+		// has no options slot.
+		options: z.array(selectOptionSchema).optional(),
 	}),
 	// App-level
 	z.object({ kind: z.literal("setAppName"), name: z.string() }),

@@ -51,6 +51,7 @@ import {
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
+import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { orderKeyForFieldSlot } from "@/lib/doc/order/fieldSlot";
 import { keyedOptions } from "@/lib/doc/order/options";
@@ -82,11 +83,14 @@ import {
 	type CaseType,
 	type CommitOutcome,
 	type ConnectType,
+	DEFAULT_SELECT_OPTIONS,
 	type Field,
 	type FieldKind,
 	type FieldPatchFor,
 	type Form,
 	type FormType,
+	fieldRegistry,
+	HIDDEN_INERT_DEFAULT_VALUE,
 	type Module,
 	type SelectOption,
 } from "@/lib/domain";
@@ -797,7 +801,8 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 
 				convertField(uuid, toKind) {
 					const doc = get();
-					if (!doc.fields[uuid]) {
+					const field = doc.fields[uuid];
+					if (!field) {
 						// Include `toKind` so the dev-mode warn disambiguates the caller's
 						// intent — a stale UI closure and a drifted SA dispatch present
 						// identically without it. Matches the debug payload shape the
@@ -805,9 +810,51 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						warnUnresolved("convertField", { uuid, toKind });
 						return NOOP_REJECTION;
 					}
-					return toOutcome(
-						guardedApply([{ kind: "convertField", uuid, toKind }]),
-					);
+					const batch: Mutation[] = [];
+					// Converting to hidden must land with a value source or the
+					// gate rejects on HIDDEN_NO_VALUE — and this gesture has no
+					// authoring step. Seed the same inert `''` default a
+					// picker-inserted hidden is born with (the user authors the
+					// real calculate in the inspector right after); the seed
+					// lands on the SOURCE field pre-convert (its kind declares
+					// `default_value`) and carries through the kind swap. A
+					// field that already has a default keeps it.
+					if (
+						toKind === "hidden" &&
+						!("default_value" in field && field.default_value) &&
+						!("calculate" in field && field.calculate)
+					) {
+						batch.push({
+							kind: "updateField",
+							uuid,
+							targetKind: field.kind,
+							patch: { default_value: HIDDEN_INERT_DEFAULT_VALUE },
+						} as Mutation);
+					}
+					// The property-centric plan (shared with the SA's editField):
+					// a case-bound string-scalar conversion carries the
+					// property's other writers across in the same batch and
+					// re-declares a stale declared data_type — one field at a
+					// time can never cross the agreement gate. Select targets
+					// whose source has no options get the same starter pair a
+					// picker-inserted select is born with, minted fresh per
+					// converted field; the user renames them in the inspector.
+					const plan = planKindConversion({
+						doc,
+						field,
+						toKind,
+						mintOptions: () => keyedOptions([...DEFAULT_SELECT_OPTIONS]) ?? [],
+					});
+					if (!plan.ok) {
+						return {
+							ok: false,
+							messages: [
+								`This field's case property is also captured by a ${fieldRegistry[plan.blocker.kind].label} field in another form, which can't become a ${fieldRegistry[toKind].label}. Convert that field to Text first, then convert this one.`,
+							],
+						};
+					}
+					batch.push(...plan.mutations);
+					return toOutcome(guardedApply(batch));
 				},
 
 				addForm(moduleUuid, form) {

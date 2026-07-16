@@ -13,14 +13,12 @@
 // This is what replaced the `as unknown as Field` double-cast at the
 // insertion site, which had erased exactly this check.
 
-import type { Field, FieldKind } from "@/lib/domain";
-
-/** A fresh select's two starter options, so the new field is immediately valid
- *  (`options` is `.min(2)`) and the user just renames them. */
-const DEFAULT_SELECT_OPTIONS = [
-	{ value: "option_1", label: "Option 1" },
-	{ value: "option_2", label: "Option 2" },
-] as const;
+import {
+	DEFAULT_SELECT_OPTIONS,
+	type Field,
+	type FieldKind,
+	HIDDEN_INERT_DEFAULT_VALUE,
+} from "@/lib/domain";
 
 /**
  * Per-kind builder for a new field's default shape. `label` is the suggested
@@ -78,6 +76,6 @@ export const NEW_FIELD_BUILDERS: {
 	hidden: (id) => ({
 		kind: "hidden",
 		id,
-		default_value: { parts: [{ kind: "text", text: "''" }] },
+		default_value: HIDDEN_INERT_DEFAULT_VALUE,
 	}),
 };

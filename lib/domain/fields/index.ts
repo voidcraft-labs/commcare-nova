@@ -20,6 +20,7 @@ import {
 	barcodeFieldMetadata,
 	barcodeFieldSchema,
 } from "./barcode";
+import type { SelectOption } from "./base";
 import { type DateField, dateFieldMetadata, dateFieldSchema } from "./date";
 import {
 	type DatetimeField,
@@ -358,6 +359,21 @@ export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
 }
 
 /**
+ * Whether converting `source` into `toKind` must carry a born option
+ * seed on the `convertField` mutation: the destination declares an
+ * `options` slot (`.min(2)` in the select schemas) and the source kind
+ * has none to transfer. The ONE predicate every batch-building surface
+ * (the SA's `editField`, the builder's convert gesture) consults, so
+ * the two editors can't drift on when a conversion needs options.
+ */
+export function convertNeedsOptionSeed(
+	source: Field,
+	toKind: FieldKind,
+): boolean {
+	return fieldKindDeclaresKey(toKind, "options") && !("options" in source);
+}
+
+/**
  * Produce a normalized `Field` of `toKind` seeded from `source`.
  *
  * Reconciliation rules — applied in this order:
@@ -397,9 +413,19 @@ export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
  *
  * Special cases:
  *   - `single_select` ↔ `multi_select`: `options` transfers verbatim.
- *   - `text` ↔ `secret`: no options on either — validate / relevant /
- *     required / hint / default_value / case_property_on carry over
- *     (neither carries `calculate`; that's a `hidden`-only slot).
+ *   - `text` ↔ `secret` / `barcode`: no options on any — validate /
+ *     relevant / required / hint / default_value / case_property_on
+ *     carry over (none carries `calculate`; that's a `hidden`-only slot).
+ *   - `text` → `single_select`: the select schemas require `options`
+ *     (`.min(2)`) and the source has none, so the caller supplies them
+ *     via `seed.options` (the `convertField` mutation's payload) — a
+ *     seedless attempt fails the parse and the reducer no-ops.
+ *   - `text` → `hidden`: label / hint / required / validate drop (hidden
+ *     declares none of them); id / case binding / relevant /
+ *     default_value survive. The `HIDDEN_NO_VALUE` validator still wants
+ *     a `calculate` or `default_value` on the result — the commit gate
+ *     adjudicates that, not this function.
+ *   - `single_select` → `text`: `options` drops; everything else carries.
  *   - Media subkinds (image/audio/video/signature): identity + label +
  *     hint + required + relevant carry over; no case_property_on, no
  *     validate (not in media schemas today).
@@ -411,8 +437,18 @@ export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
 export function reconcileFieldForKind(
 	source: Field,
 	toKind: FieldKind,
+	seed?: { options?: readonly SelectOption[] },
 ): Field | undefined {
 	const candidate: Record<string, unknown> = { ...source, kind: toKind };
+	// A caller-supplied option seed WINS over source options: it exists
+	// for conversions INTO a select kind from a kind with no options
+	// slot, where the destination schema requires what the source can't
+	// carry. The payload arrives with uuids + order keys already minted
+	// (the batch-building layer owns identity), so the reducer stays
+	// deterministic for replay.
+	if (seed?.options !== undefined) {
+		candidate.options = seed.options;
+	}
 	// Repeat is a discriminated union on `repeat_mode`. When converting
 	// FROM a non-repeat kind (most commonly group→repeat), the source
 	// has no `repeat_mode` and the union has no default to fall back on.
@@ -560,7 +596,11 @@ export type FieldPatchFor<K extends FieldKind> = {
 export type { SelectOption } from "./base";
 // Re-export the shared option shape (used by single_select + multi_select,
 // and by the SA tool schema generator for the `options` field on select tools).
-export { selectOptionSchema } from "./base";
+export {
+	DEFAULT_SELECT_OPTIONS,
+	HIDDEN_INERT_DEFAULT_VALUE,
+	selectOptionSchema,
+} from "./base";
 
 // Re-export individual kind types for downstream switch blocks.
 export type {

@@ -27,7 +27,10 @@
  *      reserved / over-long / sibling-conflicting new id, checked
  *      before ANY stage builds) → `{ error }`, nothing persisted.
  *   3. Illegal kind conversion (target not in the source kind's
- *      `convertTargets`) → `{ error }`, no mutations.
+ *      `convertTargets`), or a conversion into a select kind without
+ *      the `options` the destination schema requires (they must ride
+ *      the same call — the seed travels on the `convertField` mutation
+ *      itself) → `{ error }`, no mutations.
  *   4. Conversion rejected by the reducer (reconcile returned a shape
  *      the target kind's schema rejects) → `{ error }`, nothing
  *      persisted (the candidate apply runs before anything commits).
@@ -41,18 +44,21 @@
 import { z } from "zod";
 import { parseXPathForField } from "@/lib/doc/expressionText";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
+import { planKindConversion } from "@/lib/doc/kindConversionCascade";
+import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { reconciledOptions } from "@/lib/doc/order/options";
 import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
+	Field,
 	FieldKind,
 	FieldPatchFor,
 	SelectOption,
 	Uuid,
 	XPathExpression,
 } from "@/lib/domain";
-import { getConvertibleTypes } from "@/lib/domain";
+import { convertNeedsOptionSeed, getConvertibleTypes } from "@/lib/domain";
 import {
 	FIELD_REF_HINT,
 	renameFieldMutations,
@@ -239,6 +245,9 @@ export const editFieldTool = {
 			let workingDoc = doc;
 			const stages: StagedMutationBatch[] = [];
 			const fieldUuid: Uuid = resolved.field.uuid;
+			// Property-wide conversion effects, appended to the success
+			// message by the convert stage below.
+			let conversionNote = "";
 
 			// Pre-dispatch rename guard, checked BEFORE the convert stage so
 			// a rejected rename fails the whole call with nothing persisted
@@ -296,16 +305,89 @@ export const editFieldTool = {
 						},
 					};
 				}
-				const convertMuts: Mutation[] = [
-					{ kind: "convertField", uuid: fieldUuid, toKind: newKind },
-				];
+
+				// Converting INTO a select kind from a kind that carries no
+				// options (text → single_select): the destination schema
+				// requires `.min(2)` options, and the only way they can exist
+				// on the converted field is riding the convertField mutation
+				// itself — a post-convert `updateField { options }` can't
+				// help, because the convert would already have no-opped. So
+				// the call's `options` are CONSUMED into the convert (minted
+				// here, at the batch-building layer) and dropped from the
+				// later scalar-patch stage. Kinds that already carry options
+				// (single ↔ multi) keep the existing behavior: options
+				// transfer verbatim in the reducer, and a same-call `options`
+				// patch reconciles uuid identity in the patch stage.
+				let mintOptions: (() => SelectOption[]) | undefined;
+				if (convertNeedsOptionSeed(resolved.field, newKind)) {
+					const seedInput = fieldUpdates.options;
+					if (!seedInput || seedInput.length < 2) {
+						return {
+							kind: "mutate" as const,
+							mutations: [],
+							newDoc: doc,
+							result: {
+								error: `Converting "${currentId}" from ${fromKind} to ${newKind} needs the option list in the same call — pass \`options\` with at least 2 entries alongside kind="${newKind}".`,
+							},
+						};
+					}
+					const seed = seedInput;
+					mintOptions = () => reconciledOptions(seed, undefined);
+					// Consumed by the convert — the patch stage must not apply
+					// it a second time against the already-seeded options.
+					delete fieldUpdates.options;
+				}
+
+				// The property-centric plan: a case-bound string-scalar
+				// conversion carries the property's other writers across in
+				// the same batch and re-declares a stale declared data_type —
+				// one field at a time can never cross the agreement gate. The
+				// plan must see the binding as THIS CALL leaves it: a
+				// same-call `case_property_on` change (retarget or null-clear)
+				// must not cascade a binding the field is leaving.
+				const nextBinding = fieldUpdates.case_property_on;
+				const planField =
+					nextBinding === undefined
+						? resolved.field
+						: ({
+								...resolved.field,
+								case_property_on: nextBinding ?? undefined,
+							} as Field);
+				const plan = planKindConversion({
+					doc: workingDoc,
+					field: planField,
+					toKind: newKind,
+					...(mintOptions && { mintOptions }),
+				});
+				if (!plan.ok) {
+					const blockerFormUuid = findContainingForm(
+						workingDoc,
+						plan.blocker.uuid,
+					);
+					const blockerForm =
+						(blockerFormUuid
+							? workingDoc.forms[blockerFormUuid]?.name
+							: undefined) ?? "another form";
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error: `Converting "${currentId}" to ${newKind} is blocked: the same case property is also captured by a ${plan.blocker.kind} field in "${blockerForm}", and a ${plan.blocker.kind} field can't convert to ${newKind}. Convert that field to text first (editField with kind="text"), then convert this property.`,
+						},
+					};
+				}
+				const convertMuts: Mutation[] = plan.mutations;
 
 				// Apply the candidate first so we can verify the reducer
 				// accepted the conversion before STAGING it. A silent no-op
 				// from the reducer (reconcile produces a shape the target
 				// kind's schema rejects) would otherwise stage a misleading
 				// `convert:M-F` event and the SA wrapper would advance
-				// `doc = newDoc` against unchanged state.
+				// `doc = newDoc` against unchanged state. With the option
+				// seed handled above, no matrix edge should land here — this
+				// is the backstop for a future kind pair whose required keys
+				// this tool doesn't know to thread.
 				const afterConvert = applyToDoc(workingDoc, convertMuts);
 				const postConvertField = afterConvert.fields[fieldUuid];
 				if (!postConvertField || postConvertField.kind !== newKind) {
@@ -315,7 +397,7 @@ export const editFieldTool = {
 						mutations: [],
 						newDoc: doc,
 						result: {
-							error: `convertField ${fromKind} → ${newKind} for "${currentId}" rejected by the reducer: the target kind's schema requires a key the source doesn't carry. Add the missing key first (e.g. \`options\` for select kinds), then retry.`,
+							error: `convertField ${fromKind} → ${newKind} for "${currentId}" rejected by the reducer: the target kind's schema requires a key the source doesn't carry and this call didn't supply. Pass the missing property in the same call, or report this if none applies.`,
 						},
 					};
 				}
@@ -326,6 +408,27 @@ export const editFieldTool = {
 					stage: `convert:${moduleIndex}-${formIndex}`,
 				});
 				workingDoc = afterConvert;
+
+				// Name the property-wide effects so the SA can relay them
+				// without re-reading the blueprint: peer writers carried
+				// across (by their containing form), and the declaration
+				// following the writers.
+				if (plan.peers.length > 0) {
+					const peerForms = plan.peers.map((p) => {
+						const peerFormUuid = findContainingForm(workingDoc, p.uuid);
+						const name = peerFormUuid
+							? workingDoc.forms[peerFormUuid]?.name
+							: undefined;
+						return name ? `"${name}"` : "another form";
+					});
+					conversionNote += ` Also converted the property's other writer${plan.peers.length === 1 ? "" : "s"} of the same kind (in ${peerForms.join(", ")}) so every form stays in agreement.`;
+				}
+				if (plan.redeclaredTo !== undefined) {
+					// Worded from the plan's actual declaration — a hidden
+					// conversion PINS the source type ("text"), it doesn't
+					// declare "hidden" (not a data type).
+					conversionNote += ` The case property's declared data_type is now "${plan.redeclaredTo}".`;
+				}
 			}
 
 			// Id rename next as its own emitted batch. The `renameField`
@@ -469,7 +572,7 @@ export const editFieldTool = {
 				// above read `workingDoc` only for this call's own display values.
 				newDoc: commit.newDoc,
 				result: {
-					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.`,
+					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.${conversionNote}`,
 					summary: {
 						location: formName,
 						subject: label || finalId,
