@@ -51,7 +51,7 @@ import {
 	opaqueXPathExpression,
 	type SelectOption,
 } from "@/lib/domain";
-import { findFieldByBareId } from "../../blueprintHelpers";
+import { resolveFieldInForm } from "../../blueprintHelpers";
 import {
 	applyDefaults,
 	type FlatField,
@@ -151,12 +151,21 @@ export function assembleFieldMutations(
 	// parent and never consumes an anchor slot.
 	let batchInsertParent: Uuid = formUuid;
 	if (batchParentId) {
-		const existing = findFieldByBareId(doc, formUuid, batchParentId);
-		// Only a container can be a parent — a `parentId` naming a leaf
-		// field falls through to form-level (matching the per-field path
-		// below). Nesting under a leaf would make every batch field
-		// invisible to the emitter.
-		if (existing && isContainer(existing.field)) {
+		const existing = resolveFieldInForm(doc, formUuid, batchParentId);
+		// An AMBIGUOUS parent ref (or a uuid living in another form) fails
+		// the whole call — silently nesting the batch under the depth-first
+		// duplicate is the wrong-target class the field tools refuse, and a
+		// parent slot must refuse it identically. A missing parent keeps the
+		// legacy fall-through to form level, as does a leaf: only a
+		// container can be a parent — nesting under a leaf would make every
+		// batch field invisible to the emitter.
+		if (!existing.ok && existing.reason !== "not_found") {
+			return {
+				ok: false,
+				rejected: [{ id: batchParentId, reason: existing.error }],
+			};
+		}
+		if (existing.ok && isContainer(existing.field)) {
 			batchInsertParent = existing.field.uuid;
 		}
 	}
@@ -184,7 +193,13 @@ export function assembleFieldMutations(
 	// so a later item's `parentId` can resolve to them; `pendingByParent`
 	// carries the ids earlier items claimed per parent (they aren't in
 	// `doc` yet), so two new siblings can't land with the same id.
+	// `dupMintedIds` tracks a container id minted TWICE in this batch
+	// (legal — sibling uniqueness is per parent level, so two same-id
+	// groups under different parents both pass the verdict): a later
+	// `parentId` naming it is refused rather than silently resolved to
+	// whichever container the map happened to keep.
 	const mintedByBareId = new Map<string, Uuid>();
+	const dupMintedIds = new Set<string>();
 	const mutations: Mutation[] = [];
 	const skipped: Array<{ id: string; reason: string }> = [];
 	const rejected: Array<{ id: string; reason: string }> = [];
@@ -210,10 +225,46 @@ export function assembleFieldMutations(
 		if (parentId && typeof parentId === "string") {
 			const minted = mintedByBareId.get(parentId);
 			if (minted) {
+				// A same-call parent ref must have exactly ONE viable
+				// referent. Two same-id containers minted in this batch, or
+				// a minted container shadowing an EXISTING container with
+				// the same id, are both silent-wrong-parent hazards — refuse
+				// them like every other ambiguous field ref. An existing
+				// LEAF with the id doesn't refuse: a leaf can't be a parent,
+				// so the minted container is the only viable referent.
+				if (dupMintedIds.has(parentId)) {
+					rejected.push({
+						id: raw.id,
+						reason: `parentId "${parentId}": this call adds more than one container with that id — give the new containers distinct ids so the reference is unambiguous.`,
+					});
+					continue;
+				}
+				const shadowed = resolveFieldInForm(doc, formUuid, parentId);
+				if (
+					(shadowed.ok && isContainer(shadowed.field)) ||
+					(!shadowed.ok && shadowed.reason === "ambiguous")
+				) {
+					rejected.push({
+						id: raw.id,
+						reason: `parentId "${parentId}": a container added in this call and an existing field in the form share that id — rename the container this call adds, or pass the existing container's uuid.`,
+					});
+					continue;
+				}
 				parentUuid = minted;
 			} else {
-				const existing = findFieldByBareId(doc, formUuid, parentId);
-				if (existing && isContainer(existing.field)) {
+				const existing = resolveFieldInForm(doc, formUuid, parentId);
+				// An ambiguous parent ref (or a foreign-form uuid) rejects
+				// this item — same refusal contract as the batch-level
+				// parent above, reported per item so one corrected re-issue
+				// suffices.
+				if (!existing.ok && existing.reason !== "not_found") {
+					rejected.push({
+						id: raw.id,
+						reason: `parentId "${parentId}": ${existing.error}`,
+					});
+					continue;
+				}
+				if (existing.ok && isContainer(existing.field)) {
 					parentUuid = existing.field.uuid;
 				}
 				// A non-existent parentId, or one naming a non-container
@@ -256,7 +307,13 @@ export function assembleFieldMutations(
 		if (pending) pending.add(field.id);
 		else pendingByParent.set(parentUuid, new Set([field.id]));
 
-		if (isContainer(field)) mintedByBareId.set(field.id, fieldUuid);
+		if (isContainer(field)) {
+			// Keep the FIRST minted uuid per id — once the id is marked
+			// duplicated, any later ref to it is refused, so which uuid the
+			// map holds no longer matters.
+			if (mintedByBareId.has(field.id)) dupMintedIds.add(field.id);
+			else mintedByBareId.set(field.id, fieldUuid);
+		}
 		// Top-level batch fields honor the anchor (a contiguous block at
 		// the resolved index, walking forward per field); everything else
 		// — fields nested under their own parentId, or any field when no

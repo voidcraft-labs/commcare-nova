@@ -43,7 +43,8 @@ import { z } from "zod";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { fieldKindDeclaresKey } from "@/lib/domain";
 import {
-	resolveFieldByIndex,
+	FIELD_REF_HINT,
+	resolveFieldTarget,
 	setFieldMediaMutations,
 } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -67,7 +68,9 @@ const fieldMediaAttachmentSchema = z
 		formIndex: z.number().describe("0-based form index"),
 		fieldId: z
 			.string()
-			.describe("Field id whose message slot to attach media to"),
+			.describe(
+				`Field whose message slot to attach media to — ${FIELD_REF_HINT}`,
+			),
 		slot: z
 			.enum(FIELD_MEDIA_SLOTS)
 			.describe(
@@ -120,10 +123,10 @@ export const attachFieldMediaTool = {
 			const failures: string[] = [];
 			for (const [i, attachment] of attachments.entries()) {
 				const { moduleIndex, formIndex, fieldId, slot, media } = attachment;
-				const found = resolveFieldByIndex(doc, moduleIndex, formIndex, fieldId);
-				if (!found) {
+				const found = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+				if (!found.ok) {
 					failures.push(
-						`attachments[${i}]: found no field "${fieldId}" in m${moduleIndex}-f${formIndex}. Run getForm or searchBlueprint to find the right field id.`,
+						`attachments[${i}]: ${found.error}. Run getForm or searchBlueprint to find the right field.`,
 					);
 					continue;
 				}
@@ -140,7 +143,7 @@ export const attachFieldMediaTool = {
 				// carry is rejected here rather than silently dropped downstream.
 				if (!fieldKindDeclaresKey(field.kind, mediaKey)) {
 					failures.push(
-						`attachments[${i}]: field "${fieldId}" is a ${field.kind} field, which has no ${slot} message — so there's nothing to attach ${slot} media to. ${supportedSlotsHint(field.kind)}`,
+						`attachments[${i}]: field "${field.id}" is a ${field.kind} field, which has no ${slot} message — so there's nothing to attach ${slot} media to. ${supportedSlotsHint(field.kind)}`,
 					);
 					continue;
 				}
@@ -161,13 +164,13 @@ export const attachFieldMediaTool = {
 					),
 					expectations: bundleExpectations(
 						branded,
-						`the ${slot} media on field "${fieldId}"`,
+						`the ${slot} media on field "${field.id}"`,
 					),
 					fieldUuid: field.uuid,
 					line:
 						setKinds.length > 0
-							? `attached ${setKinds.join(", ")} ${slot} media on field "${fieldId}"`
-							: `cleared ${slot} media on field "${fieldId}"`,
+							? `attached ${setKinds.join(", ")} ${slot} media on field "${field.id}"`
+							: `cleared ${slot} media on field "${field.id}"`,
 				});
 			}
 

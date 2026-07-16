@@ -69,6 +69,7 @@ import { listMediaAssetsTool } from "@/lib/agent/tools/media/listMediaAssets";
 import { removeMediaAssetTool } from "@/lib/agent/tools/media/removeMediaAsset";
 import { setAppLogoTool } from "@/lib/agent/tools/media/setAppLogo";
 import { setMenuMediaTool } from "@/lib/agent/tools/media/setMenuMedia";
+import { moveFieldTool } from "@/lib/agent/tools/moveField";
 import { removeFieldTool } from "@/lib/agent/tools/removeField";
 import { removeFormTool } from "@/lib/agent/tools/removeForm";
 import { removeModuleTool } from "@/lib/agent/tools/removeModule";
@@ -132,6 +133,7 @@ const SHARED_TOOLS: ReadonlyArray<{
 	{ name: "get_field", tool: getFieldTool, requires: "view" },
 	{ name: "get_form", tool: getFormTool, requires: "view" },
 	{ name: "get_module", tool: getModuleTool, requires: "view" },
+	{ name: "move_field", tool: moveFieldTool, requires: "edit" },
 	{ name: "remove_field", tool: removeFieldTool, requires: "edit" },
 	{ name: "remove_form", tool: removeFormTool, requires: "edit" },
 	{ name: "remove_module", tool: removeModuleTool, requires: "edit" },

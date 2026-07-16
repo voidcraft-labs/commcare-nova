@@ -61,6 +61,7 @@ import { listMediaAssetsTool } from "./tools/media/listMediaAssets";
 import { removeMediaAssetTool } from "./tools/media/removeMediaAsset";
 import { setAppLogoTool } from "./tools/media/setAppLogo";
 import { setMenuMediaTool } from "./tools/media/setMenuMedia";
+import { moveFieldTool } from "./tools/moveField";
 import { removeFieldTool } from "./tools/removeField";
 import { removeFormTool } from "./tools/removeForm";
 import { removeModuleTool } from "./tools/removeModule";
@@ -312,6 +313,7 @@ export function createSolutionsArchitect(
 		// ── Field mutations ────────────────────────────────────────
 
 		editField: wrapMutating(editFieldTool),
+		moveField: wrapMutating(moveFieldTool),
 		removeField: wrapMutating(removeFieldTool),
 
 		// ── Structural mutations ──────────────────────────────────────

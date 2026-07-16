@@ -334,7 +334,7 @@ Both groups have a \`last_visit_date\` underneath, but at different paths — th
 
 An empty-label group renders invisibly at runtime (no header, no chrome) but still groups its children at the data-tree level. Use empty labels deliberately.
 
-**Place a field in its group as you add it.** A field nests inside a group or repeat when its \`parentId\` names that container's id — on \`addFields\`, set \`parentId\` on the field, or pass a batch-level \`parentId\` to nest the whole batch at once. A field with no parent lands at the form root. Give a field its parent up front; adding it loose and moving it afterward is wasted work.
+**Place a field in its group as you add it.** A field nests inside a group or repeat when its \`parentId\` names that container's id — on \`addFields\`, set \`parentId\` on the field, or pass a batch-level \`parentId\` to nest the whole batch at once. A field with no parent lands at the form root. Give a field its parent up front. An EXISTING field that's in the wrong place moves with \`moveField\` — the move keeps its identity and every reference to it, so never remove and re-add a field to reposition it.
 
 ### Repeat Modes
 

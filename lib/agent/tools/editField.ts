@@ -20,7 +20,9 @@
  *
  * Six exit branches:
  *
- *   1. Field not found at the given triple → `{ error }`, no mutations.
+ *   1. Field not resolved at the given triple (missing, or a duplicated
+ *      bare id `resolveFieldTarget` refuses as ambiguous — the uuid is
+ *      the unambiguous handle) → `{ error }`, no mutations.
  *   2. Rename rejected by the shared identifier verdict (XML-illegal /
  *      reserved / over-long / sibling-conflicting new id, checked
  *      before ANY stage builds) → `{ error }`, nothing persisted.
@@ -52,8 +54,9 @@ import type {
 } from "@/lib/domain";
 import { getConvertibleTypes } from "@/lib/domain";
 import {
+	FIELD_REF_HINT,
 	renameFieldMutations,
-	resolveFieldByIndex,
+	resolveFieldTarget,
 	updateFieldMutations,
 } from "../blueprintHelpers";
 import { unescapeXPath } from "../contentProcessing";
@@ -75,7 +78,7 @@ export const editFieldInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
-		fieldId: z.string().describe("Field id to update"),
+		fieldId: z.string().describe(`Field to update — ${FIELD_REF_HINT}`),
 		updates: editFieldUpdatesSchema,
 	})
 	.strict();
@@ -215,22 +218,18 @@ export const editFieldTool = {
 	): Promise<MutatingToolResult<EditFieldResult>> {
 		const { moduleIndex, formIndex, fieldId, updates } = input;
 		try {
-			const resolved = resolveFieldByIndex(
-				doc,
-				moduleIndex,
-				formIndex,
-				fieldId,
-			);
-			if (!resolved) {
+			const resolved = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+			if (!resolved.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
-					result: {
-						error: `Field "${fieldId}" not found in m${moduleIndex}-f${formIndex}`,
-					},
+					result: { error: resolved.error },
 				};
 			}
+			// `fieldId` may have been the field's uuid — every rename
+			// comparison below is against the SEMANTIC id.
+			const currentId = resolved.field.id;
 
 			const { id: newId, kind: newKind, ...fieldUpdates } = updates;
 
@@ -250,7 +249,7 @@ export const editFieldTool = {
 			// length cap, and the peer-aware sibling-conflict scan — the same
 			// rules the UI commit guard applies, with the validator's
 			// DUPLICATE_FIELD_ID / INVALID_FIELD_ID rules as backstops.
-			if (newId && newId !== fieldId) {
+			if (newId && newId !== currentId) {
 				const verdict = renameFieldIdVerdict({ doc, fieldUuid, newId });
 				if (!verdict.ok) {
 					return {
@@ -258,7 +257,7 @@ export const editFieldTool = {
 						mutations: [],
 						newDoc: doc,
 						result: {
-							error: `Cannot rename "${fieldId}" to "${newId}". ${verdict.message}`,
+							error: `Cannot rename "${currentId}" to "${newId}". ${verdict.message}`,
 						},
 					};
 				}
@@ -293,7 +292,7 @@ export const editFieldTool = {
 						mutations: [],
 						newDoc: doc,
 						result: {
-							error: `Field "${fieldId}" is a "${fromKind}" field, but you passed kind="${newKind}". To edit it in place, pass kind="${fromKind}".${convertHint}`,
+							error: `Field "${currentId}" is a "${fromKind}" field, but you passed kind="${newKind}". To edit it in place, pass kind="${fromKind}".${convertHint}`,
 						},
 					};
 				}
@@ -316,7 +315,7 @@ export const editFieldTool = {
 						mutations: [],
 						newDoc: doc,
 						result: {
-							error: `convertField ${fromKind} → ${newKind} for "${fieldId}" rejected by the reducer: the target kind's schema requires a key the source doesn't carry. Add the missing key first (e.g. \`options\` for select kinds), then retry.`,
+							error: `convertField ${fromKind} → ${newKind} for "${currentId}" rejected by the reducer: the target kind's schema requires a key the source doesn't carry. Add the missing key first (e.g. \`options\` for select kinds), then retry.`,
 						},
 					};
 				}
@@ -335,7 +334,7 @@ export const editFieldTool = {
 			// case property, and peer-field renames. The client runs the SAME
 			// reducer against `applyMany`, so the cascade reproduces on the
 			// client without needing a full blueprint snapshot.
-			if (newId && newId !== fieldId) {
+			if (newId && newId !== currentId) {
 				const renameMuts = renameFieldMutations(workingDoc, fieldUuid, newId);
 				if (renameMuts.length > 0) {
 					workingDoc = applyToDoc(workingDoc, renameMuts);
@@ -347,16 +346,14 @@ export const editFieldTool = {
 				}
 			}
 
-			// Re-resolve the field record after rename — the uuid is stable,
-			// but we want the most recent `field` snapshot from `workingDoc`.
-			const finalId = newId ?? fieldId;
-			const afterRename = resolveFieldByIndex(
-				workingDoc,
-				moduleIndex,
-				formIndex,
-				finalId,
-			);
-			if (!afterRename) {
+			// Re-read the field record after the convert/rename stages — by
+			// its STABLE uuid, never by id: the just-assigned id could match
+			// another field elsewhere in the form (the sibling-conflict
+			// verdict only scans peers at the field's own level), and a
+			// depth-first id lookup would silently patch that one instead.
+			const finalId = newId ?? currentId;
+			const currentField = workingDoc.fields[fieldUuid];
+			if (!currentField) {
 				// The rename stage is candidate-only at this point — nothing
 				// has persisted, so the failure reports an untouched doc.
 				return {
@@ -378,9 +375,8 @@ export const editFieldTool = {
 				// containing form.
 				const patch = editPatchToFieldPatch(
 					fieldUpdates,
-					(text) =>
-						parseXPathForField(workingDoc, afterRename.field.uuid, text),
-					(afterRename.field as { options?: SelectOption[] }).options,
+					(text) => parseXPathForField(workingDoc, fieldUuid, text),
+					(currentField as { options?: SelectOption[] }).options,
 				);
 				if (Object.keys(patch).length > 0) {
 					// Declaration chokepoint: a patch RE-TARGETING `case_property_on`
@@ -400,14 +396,14 @@ export const editFieldTool = {
 							});
 						}
 					}
-					// `afterRename.field.kind` is the kind after any
-					// just-applied conversion — pass it as `targetKind` so
-					// the mutation discriminates against the post-convert
-					// shape, not the pre-convert kind from `resolved.field`.
+					// `currentField.kind` is the kind after any just-applied
+					// conversion — pass it as `targetKind` so the mutation
+					// discriminates against the post-convert shape, not the
+					// pre-convert kind from `resolved.field`.
 					const updateMuts = updateFieldMutations(
 						workingDoc,
-						afterRename.field.uuid,
-						afterRename.field.kind,
+						fieldUuid,
+						currentField.kind,
 						patch,
 					);
 					if (updateMuts.length > 0) {
@@ -435,7 +431,7 @@ export const editFieldTool = {
 				};
 			}
 
-			const postField = workingDoc.fields[afterRename.field.uuid];
+			const postField = workingDoc.fields[fieldUuid];
 			// `kind` is always required on the patch, so only list it as a
 			// change when it was an actual conversion. A `null` update is a
 			// clear — reported as such.
@@ -447,12 +443,12 @@ export const editFieldTool = {
 				)
 				.map(([k, v]) => (v === null ? `${k} (cleared)` : k));
 			const renameNote =
-				newId && newId !== fieldId ? ` (renamed from "${fieldId}")` : "";
-			// `afterRename` already carries the form's uuid — read the display
+				newId && newId !== currentId ? ` (renamed from "${currentId}")` : "";
+			// `resolved` already carries the form's uuid — read the display
 			// name directly rather than re-traversing `moduleOrder` →
 			// `formOrder` to get back to the same uuid.
 			const formName =
-				workingDoc.forms[afterRename.formUuid]?.name ??
+				workingDoc.forms[resolved.formUuid]?.name ??
 				`m${moduleIndex}-f${formIndex}`;
 			const label = postField && "label" in postField ? postField.label : "";
 			const kind = postField?.kind ?? "unknown";

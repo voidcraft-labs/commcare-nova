@@ -27,7 +27,7 @@
 
 import { z } from "zod";
 import { asUuid, type BlueprintDoc, type SelectOption } from "@/lib/domain";
-import { resolveFieldByIndex } from "../../blueprintHelpers";
+import { FIELD_REF_HINT, resolveFieldTarget } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
@@ -46,7 +46,7 @@ const optionMediaAttachmentSchema = z
 		formIndex: z.number().describe("0-based form index"),
 		fieldId: z
 			.string()
-			.describe("Field id of the single_select / multi_select field"),
+			.describe(`The single_select / multi_select field — ${FIELD_REF_HINT}`),
 		optionValue: z
 			.string()
 			.describe(
@@ -100,10 +100,10 @@ export const attachOptionMediaTool = {
 			for (const [i, attachment] of attachments.entries()) {
 				const { moduleIndex, formIndex, fieldId, optionValue, media } =
 					attachment;
-				const found = resolveFieldByIndex(doc, moduleIndex, formIndex, fieldId);
-				if (!found) {
+				const found = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+				if (!found.ok) {
 					failures.push(
-						`attachments[${i}]: found no field "${fieldId}" in m${moduleIndex}-f${formIndex}. Run getForm or searchBlueprint to find the right field id.`,
+						`attachments[${i}]: ${found.error}. Run getForm or searchBlueprint to find the right field.`,
 					);
 					continue;
 				}
@@ -111,7 +111,7 @@ export const attachOptionMediaTool = {
 				const { field } = found;
 				if (field.kind !== "single_select" && field.kind !== "multi_select") {
 					failures.push(
-						`attachments[${i}]: field "${fieldId}" is a ${field.kind} field, which has no options to attach media to. Option media is only for single_select and multi_select fields.`,
+						`attachments[${i}]: field "${field.id}" is a ${field.kind} field, which has no options to attach media to. Option media is only for single_select and multi_select fields.`,
 					);
 					continue;
 				}
@@ -120,7 +120,7 @@ export const attachOptionMediaTool = {
 				if (index < 0) {
 					const values = field.options.map((o) => `"${o.value}"`).join(", ");
 					failures.push(
-						`attachments[${i}]: field "${fieldId}" has no option with value "${optionValue}". Its option values are: ${values}.`,
+						`attachments[${i}]: field "${field.id}" has no option with value "${optionValue}". Its option values are: ${values}.`,
 					);
 					continue;
 				}
@@ -157,12 +157,12 @@ export const attachOptionMediaTool = {
 					],
 					expectations: bundleExpectations(
 						branded,
-						`option "${optionValue}" of field "${fieldId}"`,
+						`option "${optionValue}" of field "${field.id}"`,
 					),
 					line:
 						setKinds.length > 0
-							? `attached ${setKinds.join(", ")} media on option "${optionValue}" of field "${fieldId}"`
-							: `cleared media on option "${optionValue}" of field "${fieldId}"`,
+							? `attached ${setKinds.join(", ")} media on option "${optionValue}" of field "${field.id}"`
+							: `cleared media on option "${optionValue}" of field "${field.id}"`,
 				});
 			}
 
