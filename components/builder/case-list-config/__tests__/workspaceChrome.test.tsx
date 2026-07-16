@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	asUuid,
@@ -290,7 +290,7 @@ describe("case workspace chrome", () => {
 		});
 	});
 
-	it("confirms before removing a customized search screen", () => {
+	it("confirms before removing a customized search screen", async () => {
 		const input = simpleSearchInputDef(
 			asUuid("00000000-0000-4000-8000-000000000005"),
 			"case_name",
@@ -341,10 +341,21 @@ describe("case workspace chrome", () => {
 				name: /remove search screen.*also removes its screen settings/i,
 			}),
 		);
+		// Let FloatingFocusManager finish the newly-opened dialog's initial-focus
+		// microtask before immediately accepting it. Otherwise the test can close
+		// the dialog in the same turn that mounted it and strand that task.
+		await waitFor(() =>
+			expect(
+				screen.getByRole("heading", { name: "Remove the search screen?" }),
+			).toBeDefined(),
+		);
+		await Promise.resolve();
 		fireEvent.click(screen.getByRole("button", { name: "Remove search" }));
 		expect(onRemoveInput).toHaveBeenCalledWith(input.uuid, {
 			discardSearchSettings: true,
 		});
+		// Base UI releases the dialog focus/scroll lock on the next macrotask.
+		await new Promise<void>((resolve) => setTimeout(resolve, 0));
 	});
 
 	it("guides a fresh Search screen to add a field before exposing settings", () => {

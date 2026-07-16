@@ -33,8 +33,14 @@ const FILTERED: CaseListConfig = {
 	filter: eq(prop("patient", "region"), literal("North")),
 };
 
+/** Base UI releases dialog focus/scroll locks on the next macrotask. Tests that
+ * open and close a dialog must let that cleanup run before leak detection. */
+async function settleDialogTeardown(): Promise<void> {
+	await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 describe("filter-only automatic search", () => {
-	it("confirms and delegates one atomic shutdown instead of clearing into an invalid marker", () => {
+	it("confirms and delegates one atomic shutdown instead of clearing into an invalid marker", async () => {
 		const onChange = vi.fn();
 		const onClearFilter = vi.fn(() => ({ ok: true }) as const);
 		render(
@@ -62,6 +68,7 @@ describe("filter-only automatic search", () => {
 		fireEvent.click(actions[actions.length - 1]);
 		expect(onClearFilter).toHaveBeenCalledOnce();
 		expect(onChange).not.toHaveBeenCalled();
+		await settleDialogTeardown();
 	});
 
 	it("plain result filters still clear directly without extra ceremony", () => {
@@ -128,5 +135,6 @@ describe("filter-only automatic search", () => {
 
 		expect(onClearFilter).toHaveBeenCalledWith(matchAll());
 		expect(onChange).not.toHaveBeenCalled();
+		await settleDialogTeardown();
 	});
 });

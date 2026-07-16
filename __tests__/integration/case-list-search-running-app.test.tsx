@@ -198,6 +198,15 @@ vi.mock("@/lib/session/hooks", async () => {
 	};
 });
 
+// CaseListScreen reads the authenticated worker to evaluate session-backed
+// search defaults. Keep this integration focused on case-store behavior and
+// avoid Better Auth's nanostore subscription timer crossing test teardown.
+vi.mock("@/lib/auth/hooks/useAuth", () => ({
+	useAuth: () => ({
+		user: { id: OWNER_ID, name: "Preview Worker", email: "worker@example.org" },
+	}),
+}));
+
 // `caseDataBinding` Server Actions are mocked at module scope so
 // the action wrappers' session resolution + `withOwnerContext`
 // construction are bypassed; each mock delegates to the helper
