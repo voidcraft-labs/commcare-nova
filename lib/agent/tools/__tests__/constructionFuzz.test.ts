@@ -68,6 +68,7 @@ import { createFormTool } from "../createForm";
 import { createModuleTool } from "../createModule";
 import { editFieldTool } from "../editField";
 import { generateSchemaTool } from "../generateSchema";
+import { moveFieldTool } from "../moveField";
 import { removeFieldTool } from "../removeField";
 import { removeFormTool } from "../removeForm";
 import { removeModuleTool } from "../removeModule";
@@ -367,6 +368,20 @@ const opArb = fc.oneof(
 			label: fc.option(fc.constantFrom(...LABEL_POOL), { nil: undefined }),
 		})
 		.map((r) => ({ type: "editField" as const, ...r })),
+	fc
+		.record({
+			moduleIndex: moduleIndexArb,
+			formIndex: formIndexArb,
+			fieldPick: fc.nat({ max: 5 }),
+			anchorPick: fc.nat({ max: 5 }),
+			side: fc.constantFrom(
+				"before" as const,
+				"after" as const,
+				"into" as const,
+				"top" as const,
+			),
+		})
+		.map((r) => ({ type: "moveField" as const, ...r })),
 	fc
 		.record({
 			moduleIndex: moduleIndexArb,
@@ -779,6 +794,46 @@ async function applyOp(
 						...(op.label !== undefined &&
 							target?.kind !== "hidden" && { label: op.label }),
 					},
+				},
+				ctx,
+				doc,
+			);
+		}
+		case "moveField": {
+			/* Both picks resolve against the form's top level (the same pool
+			 * `editField` / `removeField` draw from) — colliding picks
+			 * exercise the self-anchor refusal, an "into" side naming a leaf
+			 * exercises the non-container refusal, and a group picked into
+			 * its own anchor exercises the own-subtree guard. All legitimate
+			 * outcomes; the invariant judges the doc. */
+			const fieldId = pickFieldId(
+				doc,
+				op.moduleIndex,
+				op.formIndex,
+				op.fieldPick,
+			);
+			if (!fieldId) return doc;
+			const anchorId = pickFieldId(
+				doc,
+				op.moduleIndex,
+				op.formIndex,
+				op.anchorPick,
+			);
+			const placement =
+				op.side === "top" || anchorId === undefined
+					? { parentId: null }
+					: op.side === "into"
+						? { parentId: anchorId }
+						: op.side === "before"
+							? { beforeFieldId: anchorId }
+							: { afterFieldId: anchorId };
+			return runParsed(
+				moveFieldTool,
+				{
+					moduleIndex: op.moduleIndex,
+					formIndex: op.formIndex,
+					fieldId,
+					...placement,
 				},
 				ctx,
 				doc,
@@ -1443,6 +1498,7 @@ const OP_TYPES = [
 	"createForm",
 	"addFields",
 	"editField",
+	"moveField",
 	"updateFormClose",
 	"updateModule",
 	"removeField",

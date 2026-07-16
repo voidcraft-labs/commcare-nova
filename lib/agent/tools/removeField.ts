@@ -8,7 +8,9 @@
  *
  * Two exit branches:
  *
- *   1. Field not found at the given triple → `{ error }`, no mutations.
+ *   1. Field not resolved at the given triple (missing, or a duplicated
+ *      bare id `resolveFieldTarget` refuses as ambiguous) → `{ error }`,
+ *      no mutations.
  *   2. Success → human-readable summary showing before/after field
  *      counts, tagged `form:M-F`.
  */
@@ -16,7 +18,7 @@
 import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc } from "@/lib/domain";
-import { removeFieldMutations, resolveFieldByIndex } from "../blueprintHelpers";
+import { removeFieldMutations, resolveFieldTarget } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	guardedMutate,
@@ -32,7 +34,11 @@ export const removeFieldInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
-		fieldId: z.string().describe("Field id to remove"),
+		fieldId: z
+			.string()
+			.describe(
+				"Field id to remove, or the field's uuid when duplicate ids make the bare id ambiguous",
+			),
 	})
 	.strict();
 
@@ -51,20 +57,13 @@ export const removeFieldTool = {
 	): Promise<MutatingToolResult<RemoveFieldResult>> {
 		const { moduleIndex, formIndex, fieldId } = input;
 		try {
-			const resolved = resolveFieldByIndex(
-				doc,
-				moduleIndex,
-				formIndex,
-				fieldId,
-			);
-			if (!resolved) {
+			const resolved = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+			if (!resolved.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
-					result: {
-						error: `Field "${fieldId}" not found in m${moduleIndex}-f${formIndex}`,
-					},
+					result: { error: resolved.error },
 				};
 			}
 			// Snapshot the pre-mutation count so the result can read "N → N-1".
@@ -95,15 +94,17 @@ export const removeFieldTool = {
 			const newDoc = commit.newDoc;
 			const formName = newDoc.forms[formUuid]?.name ?? "";
 			const afterCount = countFieldsUnder(newDoc, formUuid);
+			// Report the field's semantic id (`fieldId` may have been its uuid).
+			const removedId = resolved.field.id;
 			return {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: {
-					message: `Successfully removed field "${fieldId}" from "${formName}". Fields: ${beforeCount} → ${afterCount}.`,
+					message: `Successfully removed field "${removedId}" from "${formName}". Fields: ${beforeCount} → ${afterCount}.`,
 					summary: {
 						location: formName,
-						subject: removedLabel || fieldId,
+						subject: removedLabel || removedId,
 					} satisfies ToolCallSummary,
 				},
 			};

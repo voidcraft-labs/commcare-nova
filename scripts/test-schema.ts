@@ -20,8 +20,8 @@
  *     `removeCaseListColumn`, `reorderCaseListColumns`,
  *     `setCaseListFilter`, `addSearchInputs`, `updateSearchInput`,
  *     `removeSearchInput`, `reorderSearchInputs`,
- *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`, `createForm`,
- *     `createModule`, `updateModule`,
+ *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`,
+ *     `moveField`, `createForm`, `createModule`, `updateModule`,
  *     `attachFieldMedia`, `attachOptionMedia`, `setMenuMedia`,
  *     `setAppLogo`, `listMediaAssets`,
  *     `removeMediaAsset`, `uploadMediaAsset`.
@@ -51,6 +51,7 @@ import { listMediaAssetsTool } from "../lib/agent/tools/media/listMediaAssets";
 import { removeMediaAssetTool } from "../lib/agent/tools/media/removeMediaAsset";
 import { setAppLogoTool } from "../lib/agent/tools/media/setAppLogo";
 import { setMenuMediaTool } from "../lib/agent/tools/media/setMenuMedia";
+import { moveFieldTool } from "../lib/agent/tools/moveField";
 import { updateAppTool } from "../lib/agent/tools/updateApp";
 import {
 	updateModuleInputSchema,
@@ -175,6 +176,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: editFieldTool.inputSchema,
 		prompt:
 			"Use editField on module 0, form 0, field patient_name to set its help text to 'Enter the patient's full legal name.'",
+	},
+	{
+		name: "moveField",
+		description: moveFieldTool.description,
+		schema: moveFieldTool.inputSchema,
+		prompt:
+			"Use moveField on module 0, form 0 to move the field visit_notes after the field visit_date.",
 	},
 	{
 		name: "createForm",

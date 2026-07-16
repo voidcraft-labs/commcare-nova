@@ -43,7 +43,7 @@ import { z } from "zod";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { fieldKindDeclaresKey } from "@/lib/domain";
 import {
-	resolveFieldByIndex,
+	resolveFieldTarget,
 	setFieldMediaMutations,
 } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -67,7 +67,9 @@ const fieldMediaAttachmentSchema = z
 		formIndex: z.number().describe("0-based form index"),
 		fieldId: z
 			.string()
-			.describe("Field id whose message slot to attach media to"),
+			.describe(
+				"Field id (or uuid, when duplicate ids make the bare id ambiguous) whose message slot to attach media to",
+			),
 		slot: z
 			.enum(FIELD_MEDIA_SLOTS)
 			.describe(
@@ -120,10 +122,10 @@ export const attachFieldMediaTool = {
 			const failures: string[] = [];
 			for (const [i, attachment] of attachments.entries()) {
 				const { moduleIndex, formIndex, fieldId, slot, media } = attachment;
-				const found = resolveFieldByIndex(doc, moduleIndex, formIndex, fieldId);
-				if (!found) {
+				const found = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+				if (!found.ok) {
 					failures.push(
-						`attachments[${i}]: found no field "${fieldId}" in m${moduleIndex}-f${formIndex}. Run getForm or searchBlueprint to find the right field id.`,
+						`attachments[${i}]: ${found.error}. Run getForm or searchBlueprint to find the right field.`,
 					);
 					continue;
 				}
@@ -140,7 +142,7 @@ export const attachFieldMediaTool = {
 				// carry is rejected here rather than silently dropped downstream.
 				if (!fieldKindDeclaresKey(field.kind, mediaKey)) {
 					failures.push(
-						`attachments[${i}]: field "${fieldId}" is a ${field.kind} field, which has no ${slot} message — so there's nothing to attach ${slot} media to. ${supportedSlotsHint(field.kind)}`,
+						`attachments[${i}]: field "${field.id}" is a ${field.kind} field, which has no ${slot} message — so there's nothing to attach ${slot} media to. ${supportedSlotsHint(field.kind)}`,
 					);
 					continue;
 				}

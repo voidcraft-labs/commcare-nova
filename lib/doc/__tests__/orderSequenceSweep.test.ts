@@ -266,7 +266,7 @@ describe("pure order-consumers read ONLY through ordered* helpers", () => {
  * position addresses the WRONG entity after a same-parent reorder (which
  * leaves the membership array untouched). Every tool must resolve through the
  * sorted helpers (`resolveModuleUuid` / `resolveFormUuid` / `resolveFormContext`
- * / `resolveFieldByIndex`, or the `ordered{Module,Form,Field}Uuids` walks).
+ * / `resolveFieldTarget`, or the `ordered{Module,Form,Field}Uuids` walks).
  *
  * This guard scans the whole SA tool tree for the forbidden positional-index
  * shapes, so a NEW tool that indexes the raw arrays fails the build. Unlike

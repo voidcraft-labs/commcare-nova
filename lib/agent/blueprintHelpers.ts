@@ -4,8 +4,8 @@
  * Two surfaces:
  *
  *   - Positional lookups the SA's tool handlers use to resolve a
- *     `(moduleIndex, formIndex, bareId)` triple to a `{ field, path, formUuid }`
- *     record: `findFieldByBareId`, `resolveFieldByIndex`.
+ *     `(moduleIndex, formIndex, fieldRef)` triple to a `{ field, path, formUuid }`
+ *     record: `findFieldByBareId`, `resolveFieldTarget`.
  *   - Mutation builders that return `Mutation[]` for the caller to apply
  *     via `docStore.applyMany(mutations)`. Helpers cover every level of
  *     the tree (app / module / form / field) plus the scaffolding +
@@ -60,16 +60,17 @@ import {
 
 // ── Positional lookup helpers ───────────────────────────────────────────
 
-/** Resolve a field by bare id within a form (first match, depth-first).
- *  Used by SA tools that receive "patient_name" without a path. */
-export function findFieldByBareId(
+/**
+ * Every field in a form's subtree, in display order, each with its full
+ * slash path. The DFS records the current path prefix alongside each
+ * uuid so the returned `path` matches the order of traversal (visual
+ * order of the form).
+ */
+function walkFormFields(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	bareId: string,
-): { field: Field; path: string } | undefined {
-	// Stack-based DFS across the form's field subtree. We record the current
-	// path prefix alongside each uuid so the returned `path` matches the
-	// order of traversal (visual order of the form).
+): Array<{ field: Field; path: string }> {
+	const out: Array<{ field: Field; path: string }> = [];
 	const stack: Array<{ uuid: Uuid; prefix: string }> = [];
 	const topOrder = orderedFieldUuids(doc, formUuid);
 	// Push in reverse so iteration order matches visual (sorted) form order.
@@ -83,7 +84,7 @@ export function findFieldByBareId(
 		const field = doc.fields[uuid];
 		if (!field) continue;
 		const path = prefix ? `${prefix}/${field.id}` : field.id;
-		if (field.id === bareId) return { field, path };
+		out.push({ field, path });
 		// Only container kinds have children in the order map.
 		if (isContainer(field)) {
 			const children = orderedFieldUuids(doc, uuid);
@@ -92,28 +93,144 @@ export function findFieldByBareId(
 			}
 		}
 	}
-	return undefined;
+	return out;
+}
+
+/** Resolve a field by bare id within a form (first match, depth-first).
+ *  The batch assembly's parent lookups go through this; the SA tool
+ *  boundary resolves through `resolveFieldTarget`, which refuses an
+ *  ambiguous bare id instead of silently taking the first match. */
+export function findFieldByBareId(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	bareId: string,
+): { field: Field; path: string } | undefined {
+	return walkFormFields(doc, formUuid).find(
+		(entry) => entry.field.id === bareId,
+	);
 }
 
 /**
- * Given a (module index, form index, bareId) triple — the SA's
- * positional lookup shape — resolve the field's uuid + path in the
- * normalized doc. Internal tool handlers can then dispatch mutations
- * uuid-first without tracking indices themselves.
+ * Walk the `fieldParent` chain from a field up to its containing form,
+ * collecting the id path on the way. Returns `undefined` for an orphan
+ * (or a degenerate cycle) — the caller reports that as not-found.
  */
-export function resolveFieldByIndex(
+function locateFieldByUuid(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+): { formUuid: Uuid; path: string } | undefined {
+	const segments: string[] = [];
+	let cursor: Uuid = fieldUuid;
+	const seen = new Set<Uuid>();
+	while (!seen.has(cursor)) {
+		seen.add(cursor);
+		const field = doc.fields[cursor];
+		if (!field) return undefined;
+		segments.unshift(field.id);
+		const parent = doc.fieldParent[cursor];
+		if (parent == null) return undefined;
+		if (doc.forms[parent] !== undefined) {
+			return { formUuid: parent, path: segments.join("/") };
+		}
+		cursor = parent;
+	}
+	return undefined;
+}
+
+/** Render a form's addressable location for an error message — its name
+ *  plus the positional (module, form) indices the SA's tools take. */
+function describeFormLocation(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): string | undefined {
+	const moduleUuids = orderedModuleUuids(doc);
+	for (let mi = 0; mi < moduleUuids.length; mi++) {
+		const fi = orderedFormUuids(doc, moduleUuids[mi]).indexOf(formUuid);
+		if (fi !== -1) {
+			return `"${doc.forms[formUuid]?.name ?? formUuid}" (m${mi}-f${fi})`;
+		}
+	}
+	return undefined;
+}
+
+/** Tagged result of `resolveFieldTarget`. The failure arm carries a
+ *  ready-to-forward Elm-style message so every field-addressing tool
+ *  reports misses, ambiguity, and wrong-form uuids identically. */
+export type FieldTargetResolution =
+	| { ok: true; field: Field; path: string; formUuid: Uuid }
+	| { ok: false; error: string };
+
+/**
+ * Resolve the SA's `(moduleIndex, formIndex, fieldRef)` triple to a
+ * `{ field, path, formUuid }` record. `fieldRef` is a field's bare id
+ * OR its uuid — sibling-uniqueness is per parent level, so one form can
+ * legally hold two fields with the same bare id in different groups,
+ * and the uuid is the unambiguous handle the read tools already
+ * surface. Resolution order:
+ *
+ *   1. A ref matching a field uuid resolves to that field — rejected
+ *      with its actual location when it lives in a different form (a
+ *      silent cross-form edit would hit an entity the SA can't see at
+ *      this address). Uuids are `crypto.randomUUID()`-minted, so a bare
+ *      id shadowing another field's uuid is not a practical collision.
+ *   2. Otherwise the ref is a bare id: exactly one depth-first match
+ *      resolves; zero is a miss; two or more is REFUSED with every
+ *      match's path + uuid, so the SA re-targets instead of silently
+ *      editing the first match.
+ */
+export function resolveFieldTarget(
 	doc: BlueprintDoc,
 	moduleIndex: number,
 	formIndex: number,
-	bareId: string,
-): { field: Field; path: string; formUuid: Uuid } | undefined {
-	const moduleUuid = orderedModuleUuids(doc)[moduleIndex];
-	if (!moduleUuid) return undefined;
-	const formUuid = orderedFormUuids(doc, moduleUuid)[formIndex];
-	if (!formUuid) return undefined;
-	const resolved = findFieldByBareId(doc, formUuid, bareId);
-	if (!resolved) return undefined;
-	return { ...resolved, formUuid };
+	fieldRef: string,
+): FieldTargetResolution {
+	const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
+	if (!formUuid) {
+		return {
+			ok: false,
+			error: `Form m${moduleIndex}-f${formIndex} not found`,
+		};
+	}
+	const byUuid = doc.fields[asUuid(fieldRef)];
+	if (byUuid) {
+		const located = locateFieldByUuid(doc, byUuid.uuid);
+		if (located && located.formUuid === formUuid) {
+			return { ok: true, field: byUuid, path: located.path, formUuid };
+		}
+		const home = located
+			? describeFormLocation(doc, located.formUuid)
+			: undefined;
+		return {
+			ok: false,
+			error: home
+				? `Field "${byUuid.id}" (uuid ${fieldRef}) is not in m${moduleIndex}-f${formIndex} — it lives in ${home}. Re-issue against that form.`
+				: `Field "${byUuid.id}" (uuid ${fieldRef}) isn't attached to any form`,
+		};
+	}
+	const formName = doc.forms[formUuid]?.name ?? "";
+	const matches = walkFormFields(doc, formUuid).filter(
+		(entry) => entry.field.id === fieldRef,
+	);
+	if (matches.length === 1) {
+		return {
+			ok: true,
+			field: matches[0].field,
+			path: matches[0].path,
+			formUuid,
+		};
+	}
+	if (matches.length === 0) {
+		return {
+			ok: false,
+			error: `Field "${fieldRef}" not found in "${formName}" (m${moduleIndex}-f${formIndex})`,
+		};
+	}
+	return {
+		ok: false,
+		error: `Field id "${fieldRef}" is ambiguous in "${formName}" (m${moduleIndex}-f${formIndex}) — ${matches.length} fields share it: ${matches
+			.map((m) => `"${m.path}" (uuid ${m.field.uuid})`)
+			.join(", ")}. Re-issue with the uuid of the one you mean.`,
+	};
 }
 
 /**
@@ -121,7 +238,7 @@ export function resolveFieldByIndex(
  * `undefined` when either index is out of range — tool bodies surface
  * that as an error string to the SA.
  *
- * The lighter cousin of `resolveFieldByIndex`: callers that don't need a
+ * The lighter cousin of `resolveFieldTarget`: callers that don't need a
  * field lookup (per-form reads, structural edits) use this to skip the
  * DFS walk over the form's field subtree.
  */

@@ -1,11 +1,13 @@
 /**
- * SA tool: `getField` — fetch a single field by bare id, with children
- * when the field is a container.
+ * SA tool: `getField` — fetch a single field by id or uuid, with
+ * children when the field is a container.
  *
  * Pure read — no mutations, no SSE emission. Resolves the field through
  * the positional `(moduleIndex, formIndex, fieldId)` triple so the SA
  * can read a field it knows only by name without threading a path
- * prefix through the call. Both the SA chat factory and the MCP
+ * prefix through the call — and through the field's uuid when duplicate
+ * ids make the bare id ambiguous (`resolveFieldTarget` refuses those
+ * with every match listed). Both the SA chat factory and the MCP
  * adapter call this the same way.
  *
  * Container-vs-leaf branching lives here: group / repeat fields carry a
@@ -18,7 +20,7 @@ import { z } from "zod";
 import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, Field } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
-import { resolveFieldByIndex } from "../blueprintHelpers";
+import { resolveFieldTarget } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
 
@@ -26,7 +28,11 @@ export const getFieldInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
-		fieldId: z.string().describe("Field id"),
+		fieldId: z
+			.string()
+			.describe(
+				"Field id, or the field's uuid when duplicate ids make the bare id ambiguous",
+			),
 	})
 	.strict();
 
@@ -61,7 +67,7 @@ export type GetFieldResult =
 	  };
 
 export const getFieldTool = {
-	description: "Get a single field by ID within a form.",
+	description: "Get a single field by id (or uuid) within a form.",
 	inputSchema: getFieldInputSchema,
 	async execute(
 		input: GetFieldInput,
@@ -69,14 +75,9 @@ export const getFieldTool = {
 		doc: BlueprintDoc,
 	): Promise<ReadToolResult<GetFieldResult>> {
 		const { moduleIndex, formIndex, fieldId } = input;
-		const resolved = resolveFieldByIndex(doc, moduleIndex, formIndex, fieldId);
-		if (!resolved) {
-			return {
-				kind: "read",
-				data: {
-					error: `Field "${fieldId}" not found in m${moduleIndex}-f${formIndex}`,
-				},
-			};
+		const resolved = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+		if (!resolved.ok) {
+			return { kind: "read", data: { error: resolved.error } };
 		}
 		// If the resolved field is a container, include its children so
 		// the SA sees the subtree in one call. Leaf fields return a plain
