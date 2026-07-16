@@ -27,6 +27,7 @@ import "server-only";
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import type {
 	CaseInsert,
+	CaseRow,
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	CaseUpdate,
@@ -42,7 +43,15 @@ import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchema
 import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
-import { and, eq, literal, prop, term } from "@/lib/domain/predicate/builders";
+import {
+	ancestorPath,
+	and,
+	eq,
+	literal,
+	prop,
+	relationStep,
+	term,
+} from "@/lib/domain/predicate/builders";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate/simplify";
 import { log } from "@/lib/logger";
@@ -423,6 +432,18 @@ const UUID_PATTERN =
  * inherits a stale link from a deleted case, and surfacing
  * malformed ids as missing keeps the upstream flow structural.
  *
+ * The `row` arm also carries the case's ANCESTOR chain
+ * (nearest-first: parent, grandparent, …) so the form engine can
+ * resolve `#<ancestor_type>/<prop>` references the same way the
+ * wire's `…/index/parent × depth …` casedb walk does. The walk is
+ * data-driven — one `traverse` per hop off the live `parent_case_id`
+ * links — so no blueprint needs threading: the caller supplies just
+ * `ancestorDepth`, the form's reachable-chain depth
+ * (`reachableCaseTypes(...).length - 1`), which is exactly how many
+ * hops any ref on the form can address; which namespaces a form may
+ * READ is the validator's `caseRefAcceptMap` concern, decided at
+ * authoring time.
+ *
  * No `blueprint` is threaded — `case_id` is a reserved scalar
  * column, so the term compiler never resolves a property
  * `data_type`. `limit: 1` is belt-and-suspenders; the PK
@@ -430,7 +451,12 @@ const UUID_PATTERN =
  */
 export async function readCaseData(
 	store: CaseStore,
-	args: { appId: string; caseType: string; caseId: string },
+	args: {
+		appId: string;
+		caseType: string;
+		caseId: string;
+		ancestorDepth: number;
+	},
 ): Promise<LoadCaseDataResult> {
 	// Postgres rejects malformed UUIDs at the parameter cast (the
 	// column is `uuid`-typed). The early-return covers the
@@ -444,7 +470,76 @@ export async function readCaseData(
 	});
 	const found = rows[0];
 	if (found === undefined) return { kind: "missing" };
-	return { kind: "row", row: found };
+	return {
+		kind: "row",
+		row: found,
+		ancestors: await walkAncestors(
+			store,
+			args.appId,
+			found,
+			args.ancestorDepth,
+		),
+	};
+}
+
+/**
+ * Hard ceiling on the ancestor walk's hop count. `ancestorDepth`
+ * arrives from the client (the form's reachable-chain depth), so the
+ * clamp bounds the per-hop SELECTs a crafted request could demand.
+ * Real CommCare hierarchies run 2–3 levels; a `parent_type` chain
+ * anywhere near 64 is pathological authoring, so within the ceiling
+ * the walk covers every depth the validator admits.
+ */
+const ANCESTOR_WALK_DEPTH_CEILING = 64;
+
+/**
+ * Walk the anchor's parent chain through the case-store's `parent`
+ * index edges, nearest-first, at most `min(depth, ceiling)` hops.
+ * Each hop is one `traverse` call (the tenant-scoped way to fetch a
+ * row whose case TYPE isn't known up front — `query` requires a
+ * case-type partition). The seen-set terminates data-level cycles.
+ *
+ * The chain is ENRICHMENT: a missing parent row (dangling
+ * `parent_case_id`, cross-tenant parent) ends the walk, and a
+ * mid-walk throw degrades to the rows already fetched rather than
+ * failing a load whose essential row already succeeded — either
+ * way the unreached namespaces read blank in the form, the same
+ * shape as an unset property.
+ */
+async function walkAncestors(
+	store: CaseStore,
+	appId: string,
+	anchor: CaseRow,
+	depth: number,
+): Promise<CaseRow[]> {
+	const maxDepth = Number.isFinite(depth)
+		? Math.min(Math.max(0, Math.floor(depth)), ANCESTOR_WALK_DEPTH_CEILING)
+		: 0;
+	const ancestors: CaseRow[] = [];
+	const seen = new Set<string>([anchor.case_id]);
+	let current = anchor;
+	try {
+		while (current.parent_case_id !== null && ancestors.length < maxDepth) {
+			const parents = await store.traverse({
+				appId,
+				caseId: current.case_id,
+				via: ancestorPath(relationStep("parent")),
+			});
+			const parent = parents[0];
+			if (parent === undefined || seen.has(parent.case_id)) break;
+			seen.add(parent.case_id);
+			ancestors.push(parent);
+			current = parent;
+		}
+	} catch (err) {
+		log.warn("[caseDataBinding] ancestor walk failed mid-chain", {
+			appId,
+			caseId: anchor.case_id,
+			fetched: ancestors.length,
+			error: err instanceof Error ? err.message : String(err),
+		});
+	}
+	return ancestors;
 }
 
 /**

@@ -51,7 +51,11 @@ import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
-import { FormEngine, type FormEngineInput } from "./formEngine";
+import {
+	type CaseDataByType,
+	FormEngine,
+	type FormEngineInput,
+} from "./formEngine";
 import { type FieldState, fieldStatesEqual } from "./types";
 
 // ── Runtime store types ─────────────────────────────────────────────────
@@ -264,7 +268,7 @@ export class EngineController {
 	 *  callbacks and the `currentEngineInput()` helper read this to re-derive
 	 *  the owning module + form state from the latest doc snapshot. */
 	private activeFormUuid: Uuid | undefined;
-	private activeCaseData: Map<string, string> | undefined;
+	private activeCaseData: CaseDataByType | undefined;
 
 	/** Field UUIDs with active per-field subscriptions. */
 	private trackedUuids = new Set<string>();
@@ -295,7 +299,7 @@ export class EngineController {
 	 * module internally via `findModuleForForm` so callers never have to
 	 * thread positional indices through React state.
 	 */
-	activateForm(formUuid: Uuid, caseData?: Map<string, string>): void {
+	activateForm(formUuid: Uuid, caseData?: CaseDataByType): void {
 		this.deactivate();
 		if (!this.docStore) return;
 

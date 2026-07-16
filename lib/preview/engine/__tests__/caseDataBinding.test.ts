@@ -65,6 +65,7 @@ import {
 import { eq, gt, input, literal, prop, term } from "@/lib/domain/predicate";
 import {
 	caseRowDisplayValue,
+	caseRowsToFormPreloads,
 	caseRowToFormPreload,
 	mapCaseListPreviewError,
 	mapFilterPreviewError,
@@ -190,6 +191,8 @@ const PROJECT_A = "project-a";
 
 const ALICE_CASE_ID = "40000000-0000-0000-0000-000000000001";
 const BOB_CASE_ID = "40000000-0000-0000-0000-000000000002";
+const HOUSEHOLD_CASE_ID = "40000000-0000-0000-0000-000000000003";
+const VISIT_CASE_ID = "40000000-0000-0000-0000-000000000004";
 
 /**
  * The case type the binding tests bind against — `patient` with
@@ -216,6 +219,17 @@ const VISIT_CASE_TYPE: CaseType = {
 	name: "visit",
 	parent_type: "patient",
 	properties: [{ name: "notes", label: "Notes", data_type: "text" }],
+};
+
+/**
+ * Grandparent case-type for the ancestor-walk tests — `household ←
+ * patient ← visit` gives `readCaseData` a two-hop chain to return
+ * nearest-first. (The catalog's `parent_type` is authoring metadata;
+ * the walk itself follows the ROWS' `parent_case_id` links.)
+ */
+const HOUSEHOLD_CASE_TYPE: CaseType = {
+	name: "household",
+	properties: [{ name: "head_name", label: "Head of household" }],
 };
 
 /**
@@ -949,11 +963,299 @@ describe("readCaseData", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseId: ALICE_CASE_ID,
+			ancestorDepth: 5,
 		});
 		expect(result.kind).toBe("row");
 		if (result.kind !== "row") return;
 		expect(result.row.case_id).toBe(ALICE_CASE_ID);
 		expect(result.row.properties).toEqual({ name: "Alice", age: 30 });
+		// A root case (no parent link) carries an empty ancestor chain.
+		expect(result.ancestors).toEqual([]);
+	});
+
+	it("walks the ancestor chain nearest-first onto the row arm", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([
+			HOUSEHOLD_CASE_TYPE,
+			PATIENT_CASE_TYPE,
+			VISIT_CASE_TYPE,
+		]);
+		await seedSchema(store, blueprint, "household");
+		await seedSchema(store, blueprint, "patient");
+		await seedSchema(store, blueprint, "visit");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: HOUSEHOLD_CASE_ID,
+				case_type: "household",
+				case_name: "Smith household",
+				status: "open",
+				external_id: "HH-42",
+				properties: { head_name: "John Smith" },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				parent_case_id: HOUSEHOLD_CASE_ID,
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: VISIT_CASE_ID,
+				case_type: "visit",
+				case_name: "Visit 1",
+				status: "open",
+				parent_case_id: ALICE_CASE_ID,
+				properties: { notes: "initial" },
+			},
+		});
+
+		const result = await readCaseData(store, {
+			appId: APP_ID,
+			caseType: "visit",
+			caseId: VISIT_CASE_ID,
+			ancestorDepth: 5,
+		});
+		expect(result.kind).toBe("row");
+		if (result.kind !== "row") return;
+		expect(result.ancestors.map((a) => a.case_id)).toEqual([
+			ALICE_CASE_ID,
+			HOUSEHOLD_CASE_ID,
+		]);
+		// The rows are full `CaseRow`s — the form engine flattens them
+		// per type, so the property bags must arrive intact.
+		expect(result.ancestors[1]?.properties).toEqual({
+			head_name: "John Smith",
+		});
+		// `external_id` rides the traverse projection like every other
+		// reserved scalar — an ancestor's `#<type>/external-id` must
+		// preview the same value the wire's casedb walk returns.
+		expect(result.ancestors[1]?.external_id).toBe("HH-42");
+	});
+
+	it("walks only as deep as the requested ancestorDepth", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([
+			HOUSEHOLD_CASE_TYPE,
+			PATIENT_CASE_TYPE,
+			VISIT_CASE_TYPE,
+		]);
+		await seedSchema(store, blueprint, "household");
+		await seedSchema(store, blueprint, "patient");
+		await seedSchema(store, blueprint, "visit");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: HOUSEHOLD_CASE_ID,
+				case_type: "household",
+				case_name: "Smith household",
+				status: "open",
+				properties: {},
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				parent_case_id: HOUSEHOLD_CASE_ID,
+				properties: {},
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: VISIT_CASE_ID,
+				case_type: "visit",
+				case_name: "Visit 1",
+				status: "open",
+				parent_case_id: ALICE_CASE_ID,
+				properties: {},
+			},
+		});
+
+		// Depth 1: only the direct parent — the caller's blueprint says
+		// no ref can address deeper, so no deeper hop is paid for.
+		const shallow = await readCaseData(store, {
+			appId: APP_ID,
+			caseType: "visit",
+			caseId: VISIT_CASE_ID,
+			ancestorDepth: 1,
+		});
+		expect(shallow.kind).toBe("row");
+		if (shallow.kind !== "row") return;
+		expect(shallow.ancestors.map((a) => a.case_id)).toEqual([ALICE_CASE_ID]);
+
+		// Depth 0 (and any non-finite/negative garbage a crafted request
+		// could send) clamps to no walk at all.
+		const none = await readCaseData(store, {
+			appId: APP_ID,
+			caseType: "visit",
+			caseId: VISIT_CASE_ID,
+			ancestorDepth: Number.NaN,
+		});
+		expect(none.kind).toBe("row");
+		if (none.kind !== "row") return;
+		expect(none.ancestors).toEqual([]);
+	});
+
+	it("degrades to the partial chain when a hop throws mid-walk", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([
+			HOUSEHOLD_CASE_TYPE,
+			PATIENT_CASE_TYPE,
+			VISIT_CASE_TYPE,
+		]);
+		await seedSchema(store, blueprint, "household");
+		await seedSchema(store, blueprint, "patient");
+		await seedSchema(store, blueprint, "visit");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: HOUSEHOLD_CASE_ID,
+				case_type: "household",
+				case_name: "Smith household",
+				status: "open",
+				properties: {},
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				parent_case_id: HOUSEHOLD_CASE_ID,
+				properties: {},
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: VISIT_CASE_ID,
+				case_type: "visit",
+				case_name: "Visit 1",
+				status: "open",
+				parent_case_id: ALICE_CASE_ID,
+				properties: {},
+			},
+		});
+
+		// The chain is enrichment: the second hop's failure must not
+		// fail a load whose essential row (and first ancestor) already
+		// succeeded — the unreached namespace just reads blank. Explicit
+		// per-method delegation (a spread would miss the class
+		// prototype's methods), same shape as `schemaHealingCaseStore`.
+		let calls = 0;
+		const flaky: CaseStore = {
+			query: (a) => store.query(a),
+			count: (a) => store.count(a),
+			insert: (a) => store.insert(a),
+			insertWithChildren: (a) => store.insertWithChildren(a),
+			update: (a) => store.update(a),
+			close: (a) => store.close(a),
+			traverse: (a) => {
+				calls += 1;
+				if (calls > 1) throw new Error("connection dropped mid-walk");
+				return store.traverse(a);
+			},
+			applySchemaChange: (a) => store.applySchemaChange(a),
+			dropSchema: (a) => store.dropSchema(a),
+			generateSampleData: (a) => store.generateSampleData(a),
+			resetSampleData: (a) => store.resetSampleData(a),
+		};
+		const result = await readCaseData(flaky, {
+			appId: APP_ID,
+			caseType: "visit",
+			caseId: VISIT_CASE_ID,
+			ancestorDepth: 5,
+		});
+		expect(result.kind).toBe("row");
+		if (result.kind !== "row") return;
+		expect(result.ancestors.map((a) => a.case_id)).toEqual([ALICE_CASE_ID]);
+	});
+
+	it("ends the walk at a dangling parent link without erroring", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		// `parent_case_id` carries no FK — a deleted parent leaves a
+		// dangling link, which must end the walk, not throw.
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				parent_case_id: "40000000-0000-0000-0000-00000000dead",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+
+		const result = await readCaseData(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseId: ALICE_CASE_ID,
+			ancestorDepth: 5,
+		});
+		expect(result.kind).toBe("row");
+		if (result.kind !== "row") return;
+		expect(result.ancestors).toEqual([]);
+	});
+
+	it("terminates on a parent-link cycle", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				status: "open",
+				parent_case_id: ALICE_CASE_ID,
+				properties: { name: "Bob", age: 60 },
+			},
+		});
+		// Close the loop: Alice's parent becomes Bob. The seen-set must
+		// stop the walk after one full lap instead of spinning.
+		await store.update({
+			appId: APP_ID,
+			caseId: ALICE_CASE_ID,
+			patch: { parent_case_id: BOB_CASE_ID },
+		});
+
+		const result = await readCaseData(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseId: BOB_CASE_ID,
+			ancestorDepth: 5,
+		});
+		expect(result.kind).toBe("row");
+		if (result.kind !== "row") return;
+		expect(result.ancestors.map((a) => a.case_id)).toEqual([ALICE_CASE_ID]);
 	});
 
 	it("returns the missing arm for an absent case-id", async () => {
@@ -965,6 +1267,7 @@ describe("readCaseData", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseId: "does-not-exist",
+			ancestorDepth: 5,
 		});
 		expect(result.kind).toBe("missing");
 	});
@@ -992,6 +1295,7 @@ describe("readCaseData", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseId: ALICE_CASE_ID,
+			ancestorDepth: 5,
 		});
 		expect(result.kind).toBe("missing");
 	});
@@ -1050,6 +1354,7 @@ describe("caseRowToFormPreload", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseId: ALICE_CASE_ID,
+			ancestorDepth: 5,
 		});
 		if (result.kind !== "row") throw new Error("expected row");
 
@@ -1097,6 +1402,97 @@ describe("caseRowToFormPreload", () => {
 		// an untouched submit writes the same array back.
 		expect(preload.get("array_prop")).toBe("a b");
 		expect(preload.get("object_prop")).toBe('{"nested":"value"}');
+	});
+});
+
+// ---------------------------------------------------------------
+// `caseRowsToFormPreloads`
+// ---------------------------------------------------------------
+
+describe("caseRowsToFormPreloads", () => {
+	it("binds each reachable namespace to the row at its blueprint depth", () => {
+		// `nickname`, not `name` — `name` is a reserved standard alias
+		// whose scalar column (`case_name`) shadows the JSONB key.
+		const patient = {
+			...buildSyntheticRow({ nickname: "Alice" }),
+			case_type: "patient",
+		};
+		const household = {
+			...buildSyntheticRow({ head_name: "John Smith" }),
+			case_id: "test-household",
+			case_type: "household",
+		};
+
+		const byType = caseRowsToFormPreloads(
+			patient,
+			[household],
+			[
+				{ name: "patient", depth: 0 },
+				{ name: "household", depth: 1 },
+			],
+		);
+		expect([...byType.keys()]).toEqual(["patient", "household"]);
+		expect(byType.get("patient")?.get("nickname")).toBe("Alice");
+		expect(byType.get("household")?.get("head_name")).toBe("John Smith");
+		// Reserved scalar aliases flatten per row — an ancestor's
+		// `case_id` is addressable as `#household/case_id`.
+		expect(byType.get("household")?.get("case_id")).toBe("test-household");
+	});
+
+	it("binds by depth, not row type — the wire's positional walk", () => {
+		// Blueprint chain visit → patient → household, but the live data
+		// chain skips a level (visit's parent IS a household row — data
+		// predating a hierarchy edit, or a re-parented case). The wire's
+		// `index/parent × depth` walk has NO case-type filter: depth 1
+		// lands on the household row for #patient refs, and depth 2
+		// walks past the chain's end for #household refs. The preview
+		// must read the same rows, not same-named rows elsewhere.
+		const visit = {
+			...buildSyntheticRow({ notes: "initial" }),
+			case_type: "visit",
+		};
+		const household = {
+			...buildSyntheticRow({ head_name: "John Smith" }),
+			case_id: "test-household",
+			case_type: "household",
+		};
+
+		const byType = caseRowsToFormPreloads(
+			visit,
+			[household],
+			[
+				{ name: "visit", depth: 0 },
+				{ name: "patient", depth: 1 },
+				{ name: "household", depth: 2 },
+			],
+		);
+		expect(byType.get("visit")?.get("notes")).toBe("initial");
+		expect(byType.get("patient")?.get("head_name")).toBe("John Smith");
+		expect(byType.has("household")).toBe(false);
+	});
+
+	it("addresses the loaded case at depth 0 on a self-parented chain", () => {
+		// `reachableCaseTypes`' cycle guard emits a self-parented type
+		// once, at depth 0 — so the deeper same-type row is unaddressed,
+		// matching the wire (where #person/ refs always mean the loaded
+		// case).
+		const person = {
+			...buildSyntheticRow({ nickname: "child" }),
+			case_type: "person",
+		};
+		const parentPerson = {
+			...buildSyntheticRow({ nickname: "parent" }),
+			case_id: "test-parent",
+			case_type: "person",
+		};
+
+		const byType = caseRowsToFormPreloads(
+			person,
+			[parentPerson],
+			[{ name: "person", depth: 0 }],
+		);
+		expect(byType.get("person")?.get("nickname")).toBe("child");
+		expect(byType.size).toBe(1);
 	});
 });
 

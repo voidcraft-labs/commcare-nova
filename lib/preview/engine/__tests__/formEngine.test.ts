@@ -15,7 +15,20 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
-import { FormEngine, type FormEngineInput } from "../formEngine";
+import {
+	type CaseDataByType,
+	FormEngine,
+	type FormEngineInput,
+} from "../formEngine";
+
+/** Case data holding a single case type's property map — the common
+ *  single-namespace shape of the engine's per-type case data. */
+function caseDataFor(
+	caseType: string,
+	entries: ReadonlyArray<[string, string]>,
+): CaseDataByType {
+	return new Map([[caseType, new Map(entries)]]);
+}
 
 /** Convenience type for building field subtrees in test fixtures. The engine
  *  itself works on flat maps — this nested shape is purely for readability at
@@ -204,7 +217,7 @@ describe("FormEngine", () => {
 				"followup",
 			);
 
-			const caseData = new Map([
+			const caseData = caseDataFor("patient", [
 				["case_name", "Alice"],
 				["age", "30"],
 			]);
@@ -245,7 +258,7 @@ describe("FormEngine", () => {
 				],
 				"followup",
 			);
-			const caseData = new Map([
+			const caseData = caseDataFor("patient", [
 				["case_name", "Alice"],
 				["age", "30"],
 			]);
@@ -268,7 +281,7 @@ describe("FormEngine", () => {
 				],
 				"followup",
 			);
-			const caseData = new Map([
+			const caseData = caseDataFor("patient", [
 				["case_name", "Alice"],
 				["age", "30"],
 			]);
@@ -292,7 +305,7 @@ describe("FormEngine", () => {
 				],
 				"followup",
 			);
-			const caseData = new Map([
+			const caseData = caseDataFor("patient", [
 				["case_name", "Mary Smith"],
 				["hiv_status", "negative"],
 			]);
@@ -324,7 +337,7 @@ describe("FormEngine", () => {
 				],
 				"followup",
 			);
-			const caseData = new Map([["case_name", "Mary Smith"]]);
+			const caseData = caseDataFor("patient", [["case_name", "Mary Smith"]]);
 			const engine = new FormEngine(input, "patient", caseData);
 
 			expect(engine.getState("/data/patient_name").value).toBe("Mary Smith");
@@ -361,7 +374,7 @@ describe("FormEngine", () => {
 			const engine = new FormEngine(
 				input,
 				"medication_order",
-				new Map([["order_status", "delivered"]]),
+				caseDataFor("medication_order", [["order_status", "delivered"]]),
 			);
 
 			expect(engine.getState("/data/not_delivered_warning").visible).toBe(
@@ -369,7 +382,71 @@ describe("FormEngine", () => {
 			);
 		});
 
-		it("resolves an ancestor case type's refs blank (no ancestor data is threaded)", () => {
+		it("resolves an ancestor case type's refs against its parent-chain row", () => {
+			const input = dTree(
+				[
+					{
+						id: "copy",
+						kind: "hidden",
+						default_value: "#household/head_name",
+					},
+					{
+						id: "banner",
+						kind: "label",
+						label: "Household: #household/case_name",
+					},
+				],
+				"followup",
+			);
+			const engine = new FormEngine(
+				input,
+				"patient",
+				new Map([
+					["patient", new Map([["case_name", "Mary Smith"]])],
+					[
+						"household",
+						new Map([
+							["case_name", "Smith household"],
+							["head_name", "John Smith"],
+						]),
+					],
+				]),
+			);
+
+			expect(engine.getState("/data/copy").value).toBe("John Smith");
+			expect(engine.getState("/data/banner").resolvedLabel).toBe(
+				"Household: Smith household",
+			);
+		});
+
+		it("resolves refs at every depth of the ancestor chain", () => {
+			const input = dTree(
+				[
+					{
+						id: "context",
+						kind: "label",
+						label:
+							"#patient/case_name / #household/case_name / #village/case_name",
+					},
+				],
+				"followup",
+			);
+			const engine = new FormEngine(
+				input,
+				"patient",
+				new Map([
+					["patient", new Map([["case_name", "Mary"]])],
+					["household", new Map([["case_name", "Smiths"]])],
+					["village", new Map([["case_name", "Riverside"]])],
+				]),
+			);
+
+			expect(engine.getState("/data/context").resolvedLabel).toBe(
+				"Mary / Smiths / Riverside",
+			);
+		});
+
+		it("resolves an ancestor ref blank when its row isn't in the chain", () => {
 			const input = dTree(
 				[
 					{
@@ -383,10 +460,62 @@ describe("FormEngine", () => {
 			const engine = new FormEngine(
 				input,
 				"patient",
-				new Map([["case_name", "Mary Smith"]]),
+				caseDataFor("patient", [["case_name", "Mary Smith"]]),
 			);
 
 			expect(engine.getState("/data/copy").value).toBe("");
+		});
+
+		it("withholds preload when a retype re-pairs stale case data with a new module type", () => {
+			const input = dTree(
+				[
+					{
+						id: "head_name",
+						kind: "text",
+						case_property_on: "household",
+					},
+				],
+				"followup",
+			);
+			const caseData: CaseDataByType = new Map([
+				["patient", new Map([["case_name", "Mary"]])],
+				["household", new Map([["head_name", "John Smith"]])],
+			]);
+			// Bound to a patient case; household is ancestor reference data.
+			const engine = new FormEngine(input, "patient", caseData);
+			expect(engine.getState("/data/head_name").value).toBe("");
+
+			// A mid-preview module retype reaches the engine through
+			// refreshCaseContext with the OLD data re-paired to the NEW
+			// type. The household entry is the ANCESTOR's row, not the
+			// bound case — seeding field values from it would submit the
+			// parent's data onto the bound row, so preload is withheld
+			// until the React layer rebuilds the engine with a fresh pair.
+			engine.refreshCaseContext(input, caseData, "household");
+			expect(engine.getState("/data/head_name").value).toBe("");
+		});
+
+		it("keeps #case/ aliased to the module's own type, never an ancestor", () => {
+			const input = dTree(
+				[
+					{
+						id: "own",
+						kind: "hidden",
+						default_value: "#case/case_name",
+					},
+				],
+				"followup",
+			);
+			const engine = new FormEngine(
+				input,
+				"patient",
+				new Map([
+					["patient", new Map([["case_name", "Mary"]])],
+					["household", new Map([["case_name", "Smiths"]])],
+				]),
+			);
+
+			expect(engine.getState("/data/own").value).toBe("Mary");
 		});
 
 		it("accepts a past date under the natural `. <= today()` validation", () => {
@@ -427,7 +556,7 @@ describe("FormEngine", () => {
 			const engine = new FormEngine(
 				input,
 				"patient",
-				new Map([["case_name", "Mary Smith"]]),
+				caseDataFor("patient", [["case_name", "Mary Smith"]]),
 			);
 
 			expect(engine.getState("/data/case_name").value).toBe("Mary Smith");
@@ -870,7 +999,7 @@ describe("FormEngine", () => {
 				],
 				"followup",
 			);
-			const caseData = new Map([["case_name", "John Smith"]]);
+			const caseData = caseDataFor("patient", [["case_name", "John Smith"]]);
 			const engine = new FormEngine(input, "patient", caseData);
 
 			expect(engine.getState("/data/greeting").resolvedLabel).toBe(
@@ -1291,7 +1420,7 @@ describe("FormEngine", () => {
 					],
 					"followup",
 				);
-				const caseData = new Map([["case_name", "Alice"]]);
+				const caseData = caseDataFor("patient", [["case_name", "Alice"]]);
 				const engine = new FormEngine(input, "patient", caseData);
 
 				engine.setValue("/data/case_name", "Alice");

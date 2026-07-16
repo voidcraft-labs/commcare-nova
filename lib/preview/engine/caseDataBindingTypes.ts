@@ -156,9 +156,16 @@ export type LoadFilterPreviewResult =
  * Result of loading a single case by id (the case-loading form
  * path for followup / close). `missing` covers absent-id AND
  * cross-tenant — equivalent under the case-store contract.
+ *
+ * `ancestors` is the bound case's parent chain, nearest-first
+ * (parent, grandparent, …), walked server-side through the case
+ * store's `parent` index edges. The form engine resolves
+ * `#<ancestor_type>/<prop>` references against it — the preview
+ * counterpart of the wire's `…/index/parent × depth …` casedb
+ * walk. Empty for a root case.
  */
 export type LoadCaseDataResult =
-	| { kind: "row"; row: CaseRow }
+	| { kind: "row"; row: CaseRow; ancestors: ReadonlyArray<CaseRow> }
 	| { kind: "missing" }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
