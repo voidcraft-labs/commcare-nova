@@ -27,7 +27,7 @@
 
 import { z } from "zod";
 import { asUuid, type BlueprintDoc, type SelectOption } from "@/lib/domain";
-import { resolveFieldTarget } from "../../blueprintHelpers";
+import { FIELD_REF_HINT, resolveFieldTarget } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
@@ -46,9 +46,7 @@ const optionMediaAttachmentSchema = z
 		formIndex: z.number().describe("0-based form index"),
 		fieldId: z
 			.string()
-			.describe(
-				"Field id (or uuid, when duplicate ids make the bare id ambiguous) of the single_select / multi_select field",
-			),
+			.describe(`The single_select / multi_select field — ${FIELD_REF_HINT}`),
 		optionValue: z
 			.string()
 			.describe(
@@ -159,12 +157,12 @@ export const attachOptionMediaTool = {
 					],
 					expectations: bundleExpectations(
 						branded,
-						`option "${optionValue}" of field "${fieldId}"`,
+						`option "${optionValue}" of field "${field.id}"`,
 					),
 					line:
 						setKinds.length > 0
-							? `attached ${setKinds.join(", ")} media on option "${optionValue}" of field "${fieldId}"`
-							: `cleared media on option "${optionValue}" of field "${fieldId}"`,
+							? `attached ${setKinds.join(", ")} media on option "${optionValue}" of field "${field.id}"`
+							: `cleared media on option "${optionValue}" of field "${field.id}"`,
 				});
 			}
 

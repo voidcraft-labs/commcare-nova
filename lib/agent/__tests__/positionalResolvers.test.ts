@@ -213,6 +213,35 @@ describe("resolveFieldTarget — bare id, uuid, and ambiguity", () => {
 		expect(resolved.error).toContain('"Register" (m1-f0)');
 	});
 
+	it("resolves a bare id that collides with an Object.prototype key", () => {
+		// `doc.fields` is a plain prototype-bearing record, so an id like
+		// "constructor" would hit an inherited key on a naive `doc.fields[ref]`
+		// probe — the resolver's own-key guard keeps such fields addressable.
+		const doc = hydrate(
+			buildDoc({
+				modules: [
+					{
+						name: "M",
+						forms: [
+							{
+								name: "F",
+								type: "survey",
+								fields: [
+									f({ id: "constructor", kind: "text", label: "Builder" }),
+								],
+							},
+						],
+					},
+				],
+			}),
+		);
+		const resolved = resolveFieldTarget(doc, 0, 0, "constructor");
+		expect(resolved.ok).toBe(true);
+		if (!resolved.ok) return;
+		expect(resolved.field.id).toBe("constructor");
+		expect(resolved.path).toBe("constructor");
+	});
+
 	it("misses cleanly on an unknown id and an out-of-range form", () => {
 		const doc = makeDoc();
 		const missing = resolveFieldTarget(doc, 0, 0, "nope");

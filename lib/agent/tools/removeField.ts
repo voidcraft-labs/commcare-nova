@@ -18,7 +18,11 @@
 import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc } from "@/lib/domain";
-import { removeFieldMutations, resolveFieldTarget } from "../blueprintHelpers";
+import {
+	FIELD_REF_HINT,
+	removeFieldMutations,
+	resolveFieldTarget,
+} from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	guardedMutate,
@@ -34,11 +38,7 @@ export const removeFieldInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
-		fieldId: z
-			.string()
-			.describe(
-				"Field id to remove, or the field's uuid when duplicate ids make the bare id ambiguous",
-			),
+		fieldId: z.string().describe(`Field to remove — ${FIELD_REF_HINT}`),
 	})
 	.strict();
 

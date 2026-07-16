@@ -50,10 +50,9 @@ import {
 } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { FieldPath } from "@/lib/doc/fieldPath";
-import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
-import { keysForSlot } from "@/lib/doc/order/keys";
+import { orderKeyForFieldSlot } from "@/lib/doc/order/fieldSlot";
 import { keyedOptions } from "@/lib/doc/order/options";
 import {
 	BlueprintDocContext,
@@ -104,43 +103,6 @@ export type AddCommitOutcome =
 export type { CommitOutcome };
 
 const COMMITTED: CommitOutcome = { ok: true };
-
-/**
- * Compute the absolute fractional `order` key for a field landing in (or
- * moving within) `parentUuid` at the requested slot — `index` (clamped) wins,
- * else `beforeUuid` / `afterUuid` resolves to a slot in the parent's DISPLAY
- * sequence (`sort-by-(order, uuid)`), default append. `excludeUuid` drops the
- * field being moved from the neighbor set so a same-parent reorder keys between
- * the OTHER siblings. The key is computed against the live store doc and the
- * reducer stores it verbatim — never recomputed from an index server-side.
- */
-function orderKeyForFieldSlot(
-	doc: BlueprintDoc,
-	parentUuid: Uuid,
-	slot: { index?: number; beforeUuid?: Uuid; afterUuid?: Uuid },
-	excludeUuid?: Uuid,
-): string {
-	const siblings = orderedFieldUuids(doc, parentUuid).filter(
-		(u) => u !== excludeUuid,
-	);
-	let index = siblings.length;
-	if (slot.index !== undefined) {
-		index = Math.max(0, Math.min(slot.index, siblings.length));
-	} else if (slot.beforeUuid) {
-		const i = siblings.indexOf(slot.beforeUuid);
-		if (i >= 0) index = i;
-	} else if (slot.afterUuid) {
-		const i = siblings.indexOf(slot.afterUuid);
-		if (i >= 0) index = i + 1;
-	}
-	// Route through the shared slot helper so a collision (two display-adjacent
-	// siblings sharing a key) widens past the tied run to a well-defined slot —
-	// identically to the SA anchor path, so builder-drag and SA-insert agree.
-	const siblingKeys = siblings
-		.map((u) => doc.fields[u]?.order)
-		.filter((o): o is string => o !== undefined);
-	return keysForSlot(siblingKeys, index, 1)[0];
-}
 
 /** The silent-no-op rejection (a stale uuid, nothing dispatched) — no
  *  messages, so editors keep the legacy quiet behavior. */

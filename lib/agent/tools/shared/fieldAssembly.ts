@@ -51,7 +51,7 @@ import {
 	opaqueXPathExpression,
 	type SelectOption,
 } from "@/lib/domain";
-import { findFieldByBareId } from "../../blueprintHelpers";
+import { resolveFieldInForm } from "../../blueprintHelpers";
 import {
 	applyDefaults,
 	type FlatField,
@@ -151,12 +151,21 @@ export function assembleFieldMutations(
 	// parent and never consumes an anchor slot.
 	let batchInsertParent: Uuid = formUuid;
 	if (batchParentId) {
-		const existing = findFieldByBareId(doc, formUuid, batchParentId);
-		// Only a container can be a parent — a `parentId` naming a leaf
-		// field falls through to form-level (matching the per-field path
-		// below). Nesting under a leaf would make every batch field
-		// invisible to the emitter.
-		if (existing && isContainer(existing.field)) {
+		const existing = resolveFieldInForm(doc, formUuid, batchParentId);
+		// An AMBIGUOUS parent ref (or a uuid living in another form) fails
+		// the whole call — silently nesting the batch under the depth-first
+		// duplicate is the wrong-target class the field tools refuse, and a
+		// parent slot must refuse it identically. A missing parent keeps the
+		// legacy fall-through to form level, as does a leaf: only a
+		// container can be a parent — nesting under a leaf would make every
+		// batch field invisible to the emitter.
+		if (!existing.ok && existing.reason !== "not_found") {
+			return {
+				ok: false,
+				rejected: [{ id: batchParentId, reason: existing.error }],
+			};
+		}
+		if (existing.ok && isContainer(existing.field)) {
 			batchInsertParent = existing.field.uuid;
 		}
 	}
@@ -212,8 +221,19 @@ export function assembleFieldMutations(
 			if (minted) {
 				parentUuid = minted;
 			} else {
-				const existing = findFieldByBareId(doc, formUuid, parentId);
-				if (existing && isContainer(existing.field)) {
+				const existing = resolveFieldInForm(doc, formUuid, parentId);
+				// An ambiguous parent ref (or a foreign-form uuid) rejects
+				// this item — same refusal contract as the batch-level
+				// parent above, reported per item so one corrected re-issue
+				// suffices.
+				if (!existing.ok && existing.reason !== "not_found") {
+					rejected.push({
+						id: raw.id,
+						reason: `parentId "${parentId}": ${existing.error}`,
+					});
+					continue;
+				}
+				if (existing.ok && isContainer(existing.field)) {
 					parentUuid = existing.field.uuid;
 				}
 				// A non-existent parentId, or one naming a non-container

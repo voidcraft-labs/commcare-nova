@@ -43,6 +43,7 @@ import { z } from "zod";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { fieldKindDeclaresKey } from "@/lib/domain";
 import {
+	FIELD_REF_HINT,
 	resolveFieldTarget,
 	setFieldMediaMutations,
 } from "../../blueprintHelpers";
@@ -68,7 +69,7 @@ const fieldMediaAttachmentSchema = z
 		fieldId: z
 			.string()
 			.describe(
-				"Field id (or uuid, when duplicate ids make the bare id ambiguous) whose message slot to attach media to",
+				`Field whose message slot to attach media to — ${FIELD_REF_HINT}`,
 			),
 		slot: z
 			.enum(FIELD_MEDIA_SLOTS)
@@ -163,13 +164,13 @@ export const attachFieldMediaTool = {
 					),
 					expectations: bundleExpectations(
 						branded,
-						`the ${slot} media on field "${fieldId}"`,
+						`the ${slot} media on field "${field.id}"`,
 					),
 					fieldUuid: field.uuid,
 					line:
 						setKinds.length > 0
-							? `attached ${setKinds.join(", ")} ${slot} media on field "${fieldId}"`
-							: `cleared ${slot} media on field "${fieldId}"`,
+							? `attached ${setKinds.join(", ")} ${slot} media on field "${field.id}"`
+							: `cleared ${slot} media on field "${field.id}"`,
 				});
 			}
 

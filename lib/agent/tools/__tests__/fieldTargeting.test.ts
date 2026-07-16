@@ -3,16 +3,16 @@
  * the ambiguity refusal (`resolveFieldTarget`).
  *
  * Sibling-uniqueness is per parent level, so one form can legally hold
- * two fields with the same bare id in different groups. Before uuid
- * targeting, `editField` / `removeField` / `getField` silently took the
- * FIRST depth-first match — the SA had no signal it hit the wrong field
- * and no way to address the second one. These tests pin the fix:
+ * two fields with the same bare id in different groups — a bare id is
+ * not a unique handle. These tests pin the addressing contract:
  *
  *   - a duplicated bare id is REFUSED with every match's path + uuid;
  *   - a uuid addresses the exact field, wherever it nests;
- *   - `editField`'s post-rename re-read is by uuid, so a rename that
- *     duplicates an id elsewhere in the form patches the RENAMED field,
- *     not the depth-first twin (the old id-based re-resolve bug).
+ *   - `editField`'s post-rename re-read is by uuid, so a rename whose
+ *     new id has a twin elsewhere in the form patches the RENAMED
+ *     field, never the depth-first twin;
+ *   - `addFields`' parent slots refuse an ambiguous container ref the
+ *     same way, instead of nesting the batch under the first match.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +20,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { backfillOrderKeys } from "@/lib/doc/order/backfill";
 import type { BlueprintDoc } from "@/lib/domain";
 import { makeStubToolContext } from "../../__tests__/fixtures";
+import { addFieldsTool } from "../addFields";
 import { editFieldTool } from "../editField";
 import { getFieldTool } from "../getField";
 import { removeFieldTool } from "../removeField";
@@ -31,8 +32,8 @@ vi.mock("@/lib/db/applyBlueprintChange", () => ({
 	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
 }));
 
-/** Two groups sharing a `patient_name` child — the July-9 case-study
- *  shape that forced the SA into a rename-aside workaround. */
+/** Two groups legally sharing a `patient_name` child — per-level
+ *  sibling uniqueness makes the bare id ambiguous form-wide. */
 function makeDoc(): BlueprintDoc {
 	const doc = buildDoc({
 		modules: [
@@ -237,6 +238,113 @@ describe("removeField targeting", () => {
 		).toBeDefined();
 		// The message names the field's id, not the uuid the call passed.
 		expect(result.result.message).toContain('"patient_name"');
+	});
+});
+
+describe("addFields parent targeting", () => {
+	/** Two containers legally sharing the id `details` — one at the form's
+	 *  top level, one nested — so a bare parent ref is ambiguous. */
+	function twoDetailsDoc(): BlueprintDoc {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Clinic",
+					forms: [
+						{
+							name: "Encounter",
+							type: "survey",
+							fields: [
+								f({
+									id: "details",
+									kind: "group",
+									label: "Top details",
+									children: [f({ id: "alpha", kind: "text" })],
+								}),
+								f({
+									id: "wrapper",
+									kind: "group",
+									label: "Wrapper",
+									children: [
+										f({
+											id: "details",
+											kind: "group",
+											label: "Nested details",
+											children: [f({ id: "bravo", kind: "text" })],
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		backfillOrderKeys(doc);
+		return doc;
+	}
+
+	it("refuses an ambiguous batch parentId instead of nesting under the first match", async () => {
+		const doc = twoDetailsDoc();
+		const { ctx, recordMutations } = makeStubToolContext();
+		const result = await addFieldsTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [{ kind: "text", id: "new_q", label: "New question" }],
+				parentId: "details",
+			},
+			ctx,
+			doc,
+		);
+		if (!("error" in result.result)) throw new Error("expected error");
+		expect(result.result.error).toContain("ambiguous");
+		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("refuses an ambiguous per-field parentId the same way", async () => {
+		const doc = twoDetailsDoc();
+		const { ctx, recordMutations } = makeStubToolContext();
+		const result = await addFieldsTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [
+					{
+						kind: "text",
+						id: "new_q",
+						label: "New question",
+						parentId: "details",
+					},
+				],
+			},
+			ctx,
+			doc,
+		);
+		if (!("error" in result.result)) throw new Error("expected error");
+		expect(result.result.error).toContain("ambiguous");
+		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("nests under the uuid-addressed duplicate container", async () => {
+		const doc = twoDetailsDoc();
+		const { ctx } = makeStubToolContext();
+		const nested = fieldByLabel(doc, "Nested details");
+		const result = await addFieldsTool.execute(
+			{
+				moduleIndex: 0,
+				formIndex: 0,
+				fields: [{ kind: "text", id: "new_q", label: "New question" }],
+				parentId: nested.uuid,
+			},
+			ctx,
+			doc,
+		);
+		if ("error" in result.result) throw new Error(result.result.error);
+		const added = Object.values(result.newDoc.fields).find(
+			(fld) => fld.id === "new_q",
+		);
+		if (!added) throw new Error("added field missing");
+		expect(result.newDoc.fieldOrder[nested.uuid]).toContain(added.uuid);
 	});
 });
 

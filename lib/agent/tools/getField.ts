@@ -20,7 +20,7 @@ import { z } from "zod";
 import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, Field } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
-import { resolveFieldTarget } from "../blueprintHelpers";
+import { FIELD_REF_HINT, resolveFieldTarget } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
 
@@ -28,11 +28,7 @@ export const getFieldInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
-		fieldId: z
-			.string()
-			.describe(
-				"Field id, or the field's uuid when duplicate ids make the bare id ambiguous",
-			),
+		fieldId: z.string().describe(`Field to read — ${FIELD_REF_HINT}`),
 	})
 	.strict();
 

@@ -19,8 +19,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { backfillOrderKeys } from "@/lib/doc/order/backfill";
+import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { makeStubToolContext } from "../../__tests__/fixtures";
+import type { ToolExecutionContext } from "../../toolExecutionContext";
+import { applyToDoc } from "../common";
 import { moveFieldTool } from "../moveField";
 
 vi.mock("@/lib/db/apps", () => ({
@@ -333,6 +336,36 @@ describe("moveField — refusals", () => {
 		);
 		if (!("error" in result.result)) throw new Error("expected error");
 		expect(result.result.error).toContain("can't anchor to itself");
+	});
+
+	it("reports an error when the commit re-applies onto a peer-changed doc and the reducer skips", async () => {
+		// The guarded writer re-applies the mutation onto the FRESH stored
+		// doc — here one where a peer deleted the moved field first, so the
+		// reducer warn-and-skips while the commit itself succeeds. The tool
+		// must verify the landing on the committed doc and refuse to report
+		// a move over an unchanged form.
+		const doc = makeDoc();
+		const peerDoc = applyToDoc(doc, [
+			{ kind: "removeField", uuid: uuidOf(doc, "alpha") },
+		]);
+		const ctx = {
+			appId: "test-app",
+			userId: "user-1",
+			runId: "run-1",
+			recordMutations: vi.fn(async (mutations: Mutation[]) => ({
+				events: [],
+				committedDoc: applyToDoc(peerDoc, mutations),
+			})),
+			recordMutationStages: vi.fn(),
+			recordConversation: vi.fn(),
+		} as unknown as ToolExecutionContext;
+		const result = await moveFieldTool.execute(
+			{ moduleIndex: 0, formIndex: 0, fieldId: "alpha", afterFieldId: "bravo" },
+			ctx,
+			doc,
+		);
+		if (!("error" in result.result)) throw new Error("expected error");
+		expect(result.result.error).toContain("didn't land");
 	});
 
 	it("refuses moving a container into its own subtree", async () => {

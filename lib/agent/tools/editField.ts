@@ -54,6 +54,7 @@ import type {
 } from "@/lib/domain";
 import { getConvertibleTypes } from "@/lib/domain";
 import {
+	FIELD_REF_HINT,
 	renameFieldMutations,
 	resolveFieldTarget,
 	updateFieldMutations,
@@ -77,11 +78,7 @@ export const editFieldInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
-		fieldId: z
-			.string()
-			.describe(
-				"Field id to update, or the field's uuid when duplicate ids make the bare id ambiguous",
-			),
+		fieldId: z.string().describe(`Field to update — ${FIELD_REF_HINT}`),
 		updates: editFieldUpdatesSchema,
 	})
 	.strict();

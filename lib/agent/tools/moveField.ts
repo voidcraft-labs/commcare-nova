@@ -20,7 +20,11 @@
  * success — so every skip condition is pre-checked here and returned as
  * a real `{ error }`: cross-form targets are structurally unreachable
  * (every ref resolves within the addressed form), and a destination
- * inside the moved field's own subtree is rejected before dispatch.
+ * inside the moved field's own subtree is rejected before dispatch. The
+ * pre-checks see THIS run's doc while the guarded writer re-applies onto
+ * the fresh stored doc, so the landing is additionally verified on the
+ * committed doc — a peer edit that made the reducer skip mid-commit
+ * surfaces as an error, never as a success over an unchanged form.
  *
  * Exit branches:
  *
@@ -34,17 +38,23 @@
  *      `{ error }`, no mutations.
  *   4. Commit-gate rejection (the move would introduce a validator
  *      finding) → `{ error }` listing the findings, nothing persisted.
- *   5. Success → a human-readable `message` (noting a sibling-collision
+ *   5. The committed doc shows the move didn't land (a concurrent edit
+ *      displaced the field or its destination) → `{ error }` pointing
+ *      at a re-read.
+ *   6. Success → a human-readable `message` (noting a sibling-collision
  *      auto-rename when the reducer deduped the id) + a UI `summary`.
  */
 
 import { z } from "zod";
-import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
-import { keysForSlot } from "@/lib/doc/order/keys";
+import { orderKeyForFieldSlot } from "@/lib/doc/order/fieldSlot";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
-import { resolveFieldTarget, resolveFormContext } from "../blueprintHelpers";
+import {
+	FIELD_REF_HINT,
+	resolveFieldInForm,
+	resolveFieldTarget,
+} from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	guardedMutate,
@@ -60,11 +70,7 @@ export const moveFieldInputSchema = z
 	.object({
 		moduleIndex: z.number().describe("0-based module index"),
 		formIndex: z.number().describe("0-based form index"),
-		fieldId: z
-			.string()
-			.describe(
-				"Field to move — its id, or its uuid when duplicate ids make the bare id ambiguous",
-			),
+		fieldId: z.string().describe(`Field to move — ${FIELD_REF_HINT}`),
 		beforeFieldId: z
 			.string()
 			.optional()
@@ -89,8 +95,10 @@ export const moveFieldInputSchema = z
 
 export type MoveFieldInput = z.infer<typeof moveFieldInputSchema>;
 
-/** Human-readable success `message` + UI `summary`, or an error record. */
-export type MoveFieldResult = MutationSuccess | { error: string };
+/** Human-readable success `message` + UI `summary`, or an error record.
+ *  Named apart from the doc layer's `MoveFieldResult` (the reducer's
+ *  dedup-rename metadata) — same mutation, unrelated shape. */
+export type MoveFieldToolResult = MutationSuccess | { error: string };
 
 export const moveFieldTool = {
 	description:
@@ -100,24 +108,23 @@ export const moveFieldTool = {
 		input: MoveFieldInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
-	): Promise<MutatingToolResult<MoveFieldResult>> {
+	): Promise<MutatingToolResult<MoveFieldToolResult>> {
 		const { moduleIndex, formIndex, fieldId, parentId } = input;
-		const fail = (error: string): MutatingToolResult<MoveFieldResult> => ({
+		const fail = (error: string): MutatingToolResult<MoveFieldToolResult> => ({
 			kind: "mutate" as const,
 			mutations: [],
 			newDoc: doc,
 			result: { error },
 		});
 		try {
-			const context = resolveFormContext(doc, moduleIndex, formIndex);
-			if (!context) {
-				return fail(`Form m${moduleIndex}-f${formIndex} not found`);
-			}
-			const { formUuid, form } = context;
-
+			// One positional resolution covers the form too — the target's
+			// `formUuid` scopes every later anchor/parent lookup.
 			const target = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
 			if (!target.ok) return fail(target.error);
 			const moved = target.field;
+			const formUuid = target.formUuid;
+			const formName =
+				doc.forms[formUuid]?.name ?? `m${moduleIndex}-f${formIndex}`;
 
 			// `beforeFieldId` wins when both anchors are given — the same
 			// precedence `addFields` documents on its anchor pair.
@@ -131,12 +138,7 @@ export const moveFieldTool = {
 
 			let anchor: Field | undefined;
 			if (anchorRef !== undefined) {
-				const resolvedAnchor = resolveFieldTarget(
-					doc,
-					moduleIndex,
-					formIndex,
-					anchorRef,
-				);
+				const resolvedAnchor = resolveFieldInForm(doc, formUuid, anchorRef);
 				if (!resolvedAnchor.ok) return fail(`Anchor: ${resolvedAnchor.error}`);
 				if (resolvedAnchor.field.uuid === moved.uuid) {
 					return fail(
@@ -166,12 +168,7 @@ export const moveFieldTool = {
 							);
 						}
 					} else {
-						const resolvedParent = resolveFieldTarget(
-							doc,
-							moduleIndex,
-							formIndex,
-							parentId,
-						);
+						const resolvedParent = resolveFieldInForm(doc, formUuid, parentId);
 						if (!resolvedParent.ok) {
 							return fail(`Destination parent: ${resolvedParent.error}`);
 						}
@@ -185,12 +182,7 @@ export const moveFieldTool = {
 			} else if (parentId == null) {
 				destParentUuid = formUuid;
 			} else {
-				const resolvedParent = resolveFieldTarget(
-					doc,
-					moduleIndex,
-					formIndex,
-					parentId,
-				);
+				const resolvedParent = resolveFieldInForm(doc, formUuid, parentId);
 				if (!resolvedParent.ok) {
 					return fail(`Destination parent: ${resolvedParent.error}`);
 				}
@@ -222,24 +214,21 @@ export const moveFieldTool = {
 				cursor = doc.fieldParent[cursor] ?? undefined;
 			}
 
-			// The slot in the destination's DISPLAY order, with the moved
-			// field lifted out first — its own current key must not bound the
-			// interval it re-enters on a same-parent reorder. `keysForSlot`
-			// is the collision-safe layer every insert-between gesture routes
-			// through, so the SA's move and the builder's drag land a key
-			// identically.
-			const siblings = orderedFieldUuids(doc, destParentUuid).filter(
-				(u) => u !== moved.uuid,
+			// The shared slot → order-key computation — the same one the
+			// builder's drag dispatches through, so the SA's move and a drag
+			// of the same gesture land the same key. The moved field is
+			// excluded from the neighbor set so a same-parent reorder keys
+			// between the OTHER siblings.
+			const order = orderKeyForFieldSlot(
+				doc,
+				destParentUuid,
+				anchor
+					? anchorSide === "before"
+						? { beforeUuid: anchor.uuid }
+						: { afterUuid: anchor.uuid }
+					: {},
+				moved.uuid,
 			);
-			let slot = siblings.length;
-			if (anchor) {
-				const anchorIndex = siblings.indexOf(anchor.uuid);
-				slot = anchorSide === "before" ? anchorIndex : anchorIndex + 1;
-			}
-			const siblingKeys = siblings
-				.map((u) => doc.fields[u]?.order)
-				.filter((o): o is string => o !== undefined);
-			const [order] = keysForSlot(siblingKeys, slot, 1);
 
 			const mutations: Mutation[] = [
 				{
@@ -258,11 +247,26 @@ export const moveFieldTool = {
 			if (!commit.ok) return fail(commit.error);
 			const newDoc = commit.newDoc;
 
+			// The pre-checks above ran against THIS run's doc, but the
+			// guarded writer re-applies the mutation onto the fresh stored
+			// doc — a peer edit landing in between (the field deleted, the
+			// destination folded inside the moved group) makes the reducer
+			// warn-and-skip while the commit itself succeeds. Verify the move
+			// actually landed on the committed doc, or the report would claim
+			// a move over an unchanged form.
+			const postField = newDoc.fields[moved.uuid];
+			const landedInDest =
+				newDoc.fieldOrder[destParentUuid]?.includes(moved.uuid) ?? false;
+			if (!postField || !landedInDest || postField.order !== order) {
+				return fail(
+					`The move of "${moved.id}" didn't land: a collaborator's edit changed the form while it was in flight (the field or its destination was moved or removed). Re-read the form with getForm and re-issue against its current shape.`,
+				);
+			}
+
 			// A cross-parent move can rename the field to keep sibling ids
 			// unique at the new level (the reducer's dedup) — read the id off
 			// the committed doc and report it, or the SA keeps addressing a
 			// name that no longer exists.
-			const postField = newDoc.fields[moved.uuid];
 			const finalId = postField?.id ?? moved.id;
 			const renameNote =
 				finalId !== moved.id
@@ -280,9 +284,9 @@ export const moveFieldTool = {
 				mutations,
 				newDoc,
 				result: {
-					message: `Moved "${moved.id}" ${placement} in "${form.name}".${renameNote}`,
+					message: `Moved "${moved.id}" ${placement} in "${formName}".${renameNote}`,
 					summary: {
-						location: form.name,
+						location: formName,
 						subject: label || finalId,
 					} satisfies ToolCallSummary,
 				},
