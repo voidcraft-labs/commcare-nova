@@ -80,16 +80,20 @@ export interface CaseTypeDrift {
 
 /**
  * Invert a stored per-property JSON Schema spec back to the
- * `CasePropertyDataType` that emitted it — the exact inverse of
- * `propertyToSchema` in `lib/domain/predicate/jsonSchema.ts`.
- * `text` and an option-less `single_select` both emit a bare
- * `{type:"string"}`; the inversion answers `text`, which is
- * cast-equivalent (both are Postgres text reads), so the retype
+ * `CasePropertyDataType` that emitted it — the inverse of
+ * `propertyToSchema` in `lib/domain/predicate/jsonSchema.ts`, widened
+ * to the LEGACY stored shape: rows written while the generator still
+ * emitted option-value enums carry `enum`, and reading it keeps a
+ * legacy select row inverting to `single_select` — so the enum-drop
+ * classifies as a refinement (spec re-sync) rather than a spurious
+ * text→single_select retype. `text` and today's `single_select` both
+ * emit a bare `{type:"string"}`; the inversion answers `text`, which
+ * is cast-equivalent (both are Postgres text reads), so the retype
  * migration behaves identically. Returns `undefined` for a spec no
- * current arm emits.
+ * arm ever emitted.
  */
 export function dataTypeFromSpec(
-	spec: CaseTypePropertyJsonSchema,
+	spec: CaseTypePropertyJsonSchema & { enum?: readonly string[] },
 ): CasePropertyDataType | undefined {
 	switch (spec.type) {
 		case "integer":

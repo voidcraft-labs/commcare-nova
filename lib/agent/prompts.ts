@@ -336,6 +336,8 @@ An empty-label group renders invisibly at runtime (no header, no chrome) but sti
 
 **Place a field in its group as you add it.** A field nests inside a group or repeat when its \`parentId\` names that container's id — on \`addFields\`, set \`parentId\` on the field, or pass a batch-level \`parentId\` to nest the whole batch at once. A field with no parent lands at the form root. Give a field its parent up front. An EXISTING field that's in the wrong place moves with \`moveField\` — the move keeps its identity and every reference to it, so never remove and re-add a field to reposition it.
 
+**Change a field's kind by converting it, never by remove-and-re-add.** Pass a different \`kind\` to \`editField\` and the field converts in place, keeping its identity, every reference to it, and its collected case data. The supported targets are the string-compatible ones (each kind's valid targets come back in the error message if you pass an unsupported one). Two conversions carry a same-call obligation: converting to \`single_select\` requires \`options\` in the same call (the old free-typed answers remain on existing cases as history), and converting to \`hidden\` drops the label and needs a \`calculate\` (or \`default_value\`) in the same call. Typed promotions (text to a date or number kind) are not conversions — existing answers may not parse — so when a user asks for one, explain the constraint instead of removing and re-adding the field.
+
 ### Repeat Modes
 
 When \`kind: "repeat"\`, you must include a \`repeat\` object with one of three \`mode\` values. The mode determines runtime cardinality and whether Add/Remove appears.

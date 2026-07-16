@@ -489,12 +489,12 @@ describe("convertField — invariants", () => {
 	});
 
 	it("no-ops when the target kind is not in the source's convertTargets", () => {
-		// text's convertTargets is ["secret"] — group is a cross-paradigm
-		// destination (leaf → container) that Zod's strip behavior would
-		// happily accept structurally, but the resulting doc would have no
-		// `fieldOrder` entry for the new "group" and break the "every
-		// container has an order slot" invariant. The reducer's
-		// convertibility gate rejects the swap before reconciliation runs.
+		// group is a cross-paradigm destination for text (leaf → container)
+		// that Zod's strip behavior would happily accept structurally, but
+		// the resulting doc would have no `fieldOrder` entry for the new
+		// "group" and break the "every container has an order slot"
+		// invariant. The reducer's convertibility gate rejects the swap
+		// before reconciliation runs.
 		const doc = docWithField({
 			uuid: "q-1",
 			kind: "text",
@@ -569,5 +569,210 @@ describe("convertField — invariants", () => {
 		expect(next.fields[asUuid("g-1")]?.kind).toBe("group");
 		expect(next.fieldOrder[asUuid("g-1")]).toEqual([asUuid("c-1")]);
 		expect(next.fields[asUuid("c-1")]).toBeDefined();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// 7. The string-compatible tier — text ↔ barcode, text → select/hidden,
+//    select → text
+// ---------------------------------------------------------------------------
+
+describe("convertField — string-compatible tier", () => {
+	it("text → barcode preserves id, label, uuid, hint, validate, default_value", () => {
+		const doc = docWithField({
+			uuid: "q-1",
+			kind: "text",
+			id: "tracking_code",
+			label: "Tracking code",
+			hint: "on the package",
+			validate: "string-length(.) = 12",
+			default_value: '"unknown"',
+		});
+		const next = produce(doc, (d) => {
+			applyMutation(d, {
+				kind: "convertField",
+				uuid: asUuid("q-1"),
+				toKind: "barcode",
+			});
+		});
+		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		expect(converted.kind).toBe("barcode");
+		expect(converted.id).toBe("tracking_code");
+		expect(converted.uuid).toBe("q-1");
+		expect(converted.hint).toBe("on the package");
+		expect(printSlot(converted.validate, next)).toBe("string-length(.) = 12");
+		expect(printSlot(converted.default_value, next)).toBe('"unknown"');
+	});
+
+	it("barcode → text preserves id, label, uuid, required", () => {
+		const doc = docWithField({
+			uuid: "q-1",
+			kind: "barcode",
+			id: "sample_id",
+			label: "Sample",
+			required: "true()",
+		});
+		const next = produce(doc, (d) => {
+			applyMutation(d, {
+				kind: "convertField",
+				uuid: asUuid("q-1"),
+				toKind: "text",
+			});
+		});
+		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		expect(converted.kind).toBe("text");
+		expect(converted.id).toBe("sample_id");
+		expect(printSlot(converted.required, next)).toBe("true()");
+	});
+
+	it("text → single_select lands the mutation's seed options verbatim", () => {
+		const doc = docWithField({
+			uuid: "q-1",
+			kind: "text",
+			id: "facility",
+			label: "Specialist facility",
+			hint: "referral target",
+			case_property_on: "patient",
+		});
+		const seed = [
+			{
+				value: "clinic_a",
+				label: "Clinic A",
+				uuid: asUuid("o-1"),
+				order: "a1",
+			},
+			{
+				value: "clinic_b",
+				label: "Clinic B",
+				uuid: asUuid("o-2"),
+				order: "a2",
+			},
+		];
+		const next = produce(doc, (d) => {
+			applyMutation(d, {
+				kind: "convertField",
+				uuid: asUuid("q-1"),
+				toKind: "single_select",
+				options: seed,
+			});
+		});
+		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		expect(converted.kind).toBe("single_select");
+		expect(converted.id).toBe("facility");
+		expect(converted.uuid).toBe("q-1");
+		expect(converted.hint).toBe("referral target");
+		expect(converted.case_property_on).toBe("patient");
+		// The payload's minted identity survives untouched — the reducer
+		// never re-mints, which is what keeps a replayed/peer-applied batch
+		// byte-identical to the committer's.
+		expect(converted.options).toEqual(seed);
+	});
+
+	it("text → single_select with no seed options no-ops (schema requires min 2)", () => {
+		const doc = docWithField({
+			uuid: "q-1",
+			kind: "text",
+			id: "facility",
+			label: "Facility",
+		});
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const next = produce(doc, (d) => {
+			applyMutation(d, {
+				kind: "convertField",
+				uuid: asUuid("q-1"),
+				toKind: "single_select",
+			});
+		});
+		expect(warn).toHaveBeenCalledTimes(1);
+		warn.mockRestore();
+		expect(next.fields[asUuid("q-1")]).toBe(doc.fields[asUuid("q-1")]);
+	});
+
+	it("text → hidden drops label/hint/required/validate, keeps id/uuid/relevant/default_value/case binding", () => {
+		const doc = docWithField({
+			uuid: "q-1",
+			kind: "text",
+			id: "full_name",
+			label: "Full name",
+			hint: "first and last",
+			required: "true()",
+			validate: "string-length(.) > 1",
+			relevant: "true()",
+			default_value: '"unnamed"',
+			case_property_on: "patient",
+		});
+		const next = produce(doc, (d) => {
+			applyMutation(d, {
+				kind: "convertField",
+				uuid: asUuid("q-1"),
+				toKind: "hidden",
+			});
+		});
+		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		expect(converted.kind).toBe("hidden");
+		expect(converted.id).toBe("full_name");
+		expect(converted.uuid).toBe("q-1");
+		expect(converted.case_property_on).toBe("patient");
+		expect(printSlot(converted.relevant, next)).toBe("true()");
+		expect(printSlot(converted.default_value, next)).toBe('"unnamed"');
+		// Hidden declares none of the visible-control slots.
+		expect(converted.label).toBeUndefined();
+		expect(converted.hint).toBeUndefined();
+		expect(converted.required).toBeUndefined();
+		expect(converted.validate).toBeUndefined();
+	});
+
+	it("single_select → text drops options, keeps validate and case binding", () => {
+		const doc = docWithField({
+			uuid: "q-1",
+			kind: "single_select",
+			id: "status",
+			label: "Status",
+			options: [
+				{ value: "open", label: "Open" },
+				{ value: "closed", label: "Closed" },
+			],
+			validate: ". != ''",
+			case_property_on: "patient",
+		});
+		const next = produce(doc, (d) => {
+			applyMutation(d, {
+				kind: "convertField",
+				uuid: asUuid("q-1"),
+				toKind: "text",
+			});
+		});
+		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		expect(converted.kind).toBe("text");
+		expect(converted.id).toBe("status");
+		expect(converted.options).toBeUndefined();
+		expect(printSlot(converted.validate, next)).toBe(". != ''");
+		expect(converted.case_property_on).toBe("patient");
+	});
+
+	it("seed options are ignored when the target kind has no options slot", () => {
+		// A stray payload on e.g. text → secret must not smuggle an
+		// `options` key onto a kind whose strict schema rejects it — the
+		// key filter drops it before the parse.
+		const doc = docWithField({
+			uuid: "q-1",
+			kind: "text",
+			id: "pin",
+			label: "PIN",
+		});
+		const next = produce(doc, (d) => {
+			applyMutation(d, {
+				kind: "convertField",
+				uuid: asUuid("q-1"),
+				toKind: "secret",
+				options: [
+					{ value: "a", label: "A" },
+					{ value: "b", label: "B" },
+				],
+			});
+		});
+		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		expect(converted.kind).toBe("secret");
+		expect(converted.options).toBeUndefined();
 	});
 });

@@ -62,7 +62,13 @@ describe("caseTypeToJsonSchema", () => {
 		});
 	});
 
-	it("maps single_select with options to an enum", () => {
+	it("maps single_select to a plain string — options are never a value constraint", () => {
+		// Deliberately NO enum over the option values: the write path
+		// validates the MERGED row document, so an option-value enum turns
+		// every option edit or text→select conversion into a row poisoner
+		// (a case holding yesterday's legal value would fail validation on
+		// its next write of ANY property). Values outside the current
+		// options are legitimate history.
 		const ct: CaseType = {
 			name: "patient",
 			properties: [
@@ -79,11 +85,10 @@ describe("caseTypeToJsonSchema", () => {
 		};
 		expect(caseTypeToJsonSchema(ct).properties.status).toEqual({
 			type: "string",
-			enum: ["open", "closed"],
 		});
 	});
 
-	it("maps multi_select to an array of enum-restricted strings", () => {
+	it("maps multi_select to an array of unconstrained strings", () => {
 		const ct: CaseType = {
 			name: "patient",
 			properties: [
@@ -100,25 +105,13 @@ describe("caseTypeToJsonSchema", () => {
 		};
 		expect(caseTypeToJsonSchema(ct).properties.languages).toEqual({
 			type: "array",
-			items: { type: "string", enum: ["en", "fr"] },
+			items: { type: "string" },
 		});
 	});
 
-	it("emits a permissive schema when a select property has no options yet", () => {
-		// A blueprint can briefly hold a select property with no options
-		// (mid-edit, partial generation). The generator falls back to a
-		// permissive shape — `{ type: "string" }` for single, `{ type:
-		// "array", items: { type: "string" } }` for multi — rather than
-		// emitting `enum: []`. Two reasons:
-		//   1. Ajv 8 (and other strict JSON Schema validators) reject
-		//      empty-enum schemas at compile time, which would block ALL
-		//      writes against the case type rather than just writes to
-		//      this property.
-		//   2. The "fail closed until configured" intent is reasonable
-		//      but the wrong layer for it; mid-edit blueprints aren't
-		//      receiving real authored data, so locking the validator
-		//      against them creates more breakage than it prevents. Once
-		//      options are configured the schema tightens automatically.
+	it("emits the same shape whether a select property has options or none", () => {
+		// Options never reach the schema, so a select property mid-edit
+		// (no options yet) and a fully-authored one validate identically.
 		const ct: CaseType = {
 			name: "patient",
 			properties: [

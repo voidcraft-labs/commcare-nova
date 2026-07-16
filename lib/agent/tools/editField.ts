@@ -27,7 +27,10 @@
  *      reserved / over-long / sibling-conflicting new id, checked
  *      before ANY stage builds) → `{ error }`, nothing persisted.
  *   3. Illegal kind conversion (target not in the source kind's
- *      `convertTargets`) → `{ error }`, no mutations.
+ *      `convertTargets`), or a conversion into a select kind without
+ *      the `options` the destination schema requires (they must ride
+ *      the same call — the seed travels on the `convertField` mutation
+ *      itself) → `{ error }`, no mutations.
  *   4. Conversion rejected by the reducer (reconcile returned a shape
  *      the target kind's schema rejects) → `{ error }`, nothing
  *      persisted (the candidate apply runs before anything commits).
@@ -52,7 +55,7 @@ import type {
 	Uuid,
 	XPathExpression,
 } from "@/lib/domain";
-import { getConvertibleTypes } from "@/lib/domain";
+import { fieldKindDeclaresKey, getConvertibleTypes } from "@/lib/domain";
 import {
 	FIELD_REF_HINT,
 	renameFieldMutations,
@@ -296,8 +299,46 @@ export const editFieldTool = {
 						},
 					};
 				}
+
+				// Converting INTO a select kind from a kind that carries no
+				// options (text → single_select): the destination schema
+				// requires `.min(2)` options, and the only way they can exist
+				// on the converted field is riding the convertField mutation
+				// itself — a post-convert `updateField { options }` can't
+				// help, because the convert would already have no-opped. So
+				// the call's `options` are CONSUMED into the convert (minted
+				// here, at the batch-building layer) and dropped from the
+				// later scalar-patch stage. Kinds that already carry options
+				// (single ↔ multi) keep the existing behavior: options
+				// transfer verbatim in the reducer, and a same-call `options`
+				// patch reconciles uuid identity in the patch stage.
+				let convertOptionSeed: SelectOption[] | undefined;
+				const sourceHasOptions = "options" in resolved.field;
+				if (fieldKindDeclaresKey(newKind, "options") && !sourceHasOptions) {
+					const seedInput = fieldUpdates.options;
+					if (!seedInput || seedInput.length < 2) {
+						return {
+							kind: "mutate" as const,
+							mutations: [],
+							newDoc: doc,
+							result: {
+								error: `Converting "${currentId}" from ${fromKind} to ${newKind} needs the option list in the same call — pass \`options\` with at least 2 entries alongside kind="${newKind}".`,
+							},
+						};
+					}
+					convertOptionSeed = reconciledOptions(seedInput, undefined);
+					// Consumed by the convert — the patch stage must not apply
+					// it a second time against the already-seeded options.
+					fieldUpdates.options = undefined;
+				}
+
 				const convertMuts: Mutation[] = [
-					{ kind: "convertField", uuid: fieldUuid, toKind: newKind },
+					{
+						kind: "convertField",
+						uuid: fieldUuid,
+						toKind: newKind,
+						...(convertOptionSeed && { options: convertOptionSeed }),
+					},
 				];
 
 				// Apply the candidate first so we can verify the reducer
@@ -305,7 +346,10 @@ export const editFieldTool = {
 				// from the reducer (reconcile produces a shape the target
 				// kind's schema rejects) would otherwise stage a misleading
 				// `convert:M-F` event and the SA wrapper would advance
-				// `doc = newDoc` against unchanged state.
+				// `doc = newDoc` against unchanged state. With the option
+				// seed handled above, no matrix edge should land here — this
+				// is the backstop for a future kind pair whose required keys
+				// this tool doesn't know to thread.
 				const afterConvert = applyToDoc(workingDoc, convertMuts);
 				const postConvertField = afterConvert.fields[fieldUuid];
 				if (!postConvertField || postConvertField.kind !== newKind) {
@@ -315,7 +359,7 @@ export const editFieldTool = {
 						mutations: [],
 						newDoc: doc,
 						result: {
-							error: `convertField ${fromKind} → ${newKind} for "${currentId}" rejected by the reducer: the target kind's schema requires a key the source doesn't carry. Add the missing key first (e.g. \`options\` for select kinds), then retry.`,
+							error: `convertField ${fromKind} → ${newKind} for "${currentId}" rejected by the reducer: the target kind's schema requires a key the source doesn't carry and this call didn't supply. Pass the missing property in the same call, or report this if none applies.`,
 						},
 					};
 				}

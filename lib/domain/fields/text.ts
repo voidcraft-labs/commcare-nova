@@ -33,5 +33,13 @@ export const textFieldMetadata: FieldKindMetadata<"text"> = {
 	isContainer: false,
 	saDocs:
 		"Free-text field for single-line string input. Supports XPath validation.",
-	convertTargets: ["secret"],
+	// The string-compatible tier: every target stores the same string
+	// values text does, so history never needs parsing or per-row
+	// migration. `single_select` requires options in the same convert
+	// call (the schema's `.min(2)`); `hidden` drops label/hint/required
+	// and the commit gate requires a calculate or default_value on the
+	// result. Parse-requiring promotions (text→int/date/…) stay closed —
+	// existing history has no representation in those types without a
+	// coercion policy.
+	convertTargets: ["secret", "barcode", "single_select", "hidden"],
 };

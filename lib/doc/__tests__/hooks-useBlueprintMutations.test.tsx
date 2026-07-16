@@ -1190,6 +1190,36 @@ describe("useBlueprintMutations", () => {
 			expect(converted?.id).toBe("a");
 		});
 
+		it("seeds the starter option pair on text → single_select", () => {
+			// The select schemas require `.min(2)` options the text source
+			// can't carry, and the convert menu has no option-authoring step —
+			// the hook attaches the same starter pair a picker-inserted select
+			// gets, fully minted (uuid + order) at dispatch so the reducer
+			// never invents identity.
+			const { result } = renderHook(() => useMutationsAndFirstFormChildren(), {
+				wrapper,
+			});
+
+			expect(result.current.store?.getState().fields[Q_A]?.kind).toBe("text");
+
+			act(() => {
+				result.current.mutations.convertField(
+					Q_A,
+					"single_select" as FieldKind,
+				);
+			});
+
+			const converted = result.current.store?.getState().fields[Q_A];
+			expect(converted?.kind).toBe("single_select");
+			const options =
+				converted && "options" in converted ? converted.options : [];
+			expect(options.map((o) => o.value)).toEqual(["option_1", "option_2"]);
+			for (const opt of options) {
+				expect(opt.uuid).toBeTruthy();
+				expect(opt.order).toBeTruthy();
+			}
+		});
+
 		it("is visible in useMaterialize after dispatch", () => {
 			// Confirm that the live `children` array (read via the hook composer)
 			// reflects the post-dispatch kind — proves the reactive subscription

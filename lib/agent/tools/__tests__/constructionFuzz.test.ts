@@ -366,6 +366,21 @@ const opArb = fc.oneof(
 			newId: fc.option(idArb, { nil: undefined }),
 			relevant: fc.option(xpathArb, { nil: undefined }),
 			label: fc.option(fc.constantFrom(...LABEL_POOL), { nil: undefined }),
+			// Kind conversion attempt — targets drawn across the
+			// string-compatible tier. Most picks against a random source
+			// kind are refused (not in `convertTargets`), which is itself
+			// the path under test; the ones that land exercise the seeded
+			// select options and the hidden calculate obligation.
+			convertTo: fc.option(
+				fc.constantFrom(
+					"secret" as const,
+					"barcode" as const,
+					"single_select" as const,
+					"hidden" as const,
+					"text" as const,
+				),
+				{ nil: undefined },
+			),
 		})
 		.map((r) => ({ type: "editField" as const, ...r })),
 	fc
@@ -780,6 +795,11 @@ async function applyOp(
 			);
 			if (!fieldId) return doc;
 			const target = Object.values(doc.fields).find((fl) => fl.id === fieldId);
+			// The kind the patch is validated against — the conversion
+			// target when the op carries one (the tool refuses targets
+			// outside the source's `convertTargets`; a refusal is a
+			// legitimate outcome), else the current kind (edit in place).
+			const effectiveKind = op.convertTo ?? target?.kind ?? "text";
 			return runParsed(
 				editFieldTool,
 				{
@@ -787,12 +807,22 @@ async function applyOp(
 					formIndex: op.formIndex,
 					fieldId,
 					updates: {
-						kind: target?.kind ?? "text",
+						kind: effectiveKind,
+						// A select conversion must bring its options; a hidden
+						// conversion must bring a value source. Both harmless
+						// on refused conversions (nothing persists).
+						...(op.convertTo === "single_select" && {
+							options: [
+								{ value: "opt_a", label: "Option A" },
+								{ value: "opt_b", label: "Option B" },
+							],
+						}),
+						...(op.convertTo === "hidden" && { calculate: "1 + 1" }),
 						...(op.newId !== undefined && { id: op.newId }),
 						...(op.relevant !== undefined &&
-							target?.kind !== "hidden" && { relevant: op.relevant }),
+							effectiveKind !== "hidden" && { relevant: op.relevant }),
 						...(op.label !== undefined &&
-							target?.kind !== "hidden" && { label: op.label }),
+							effectiveKind !== "hidden" && { label: op.label }),
 					},
 				},
 				ctx,

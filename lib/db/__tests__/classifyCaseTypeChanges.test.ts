@@ -20,6 +20,7 @@
 //      both the schema regen and the per-row migration).
 
 import { describe, expect, it } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
 import { classifyCaseTypeChanges } from "../classifyCaseTypeChanges";
 
@@ -359,5 +360,77 @@ describe("classifyCaseTypeChanges — explicit hints", () => {
 		expect(result[0]?.caseType).toBe("patient");
 		expect(result[0]?.change?.kind).toBe("rename");
 		expect(result[1]).toEqual({ caseType: "visit" });
+	});
+});
+
+describe("classifyCaseTypeChanges — writer-derived type flips", () => {
+	// The classifier diffs the MATERIALIZABLE views, so a property whose
+	// `data_type` is never authored in the catalog still re-syncs when a
+	// kind conversion flips what its WRITER derives — a raw-catalog diff
+	// would see two identical (typeless) declarations and leave
+	// `case_type_schemas` stale against the compiler's view. The catalog
+	// entry itself is UNTYPED (the declaration chokepoint's bare record
+	// shape); only the writer's kind pins the type.
+	function docWithWriterKind(kind: "text" | "single_select"): BlueprintDoc {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "facility", label: "Facility" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									id: "case_name",
+									kind: "text",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+								f({
+									id: "facility",
+									kind,
+									label: "Facility",
+									case_property_on: "patient",
+									...(kind === "single_select" && {
+										options: [
+											{ value: "clinic_a", label: "Clinic A" },
+											{ value: "clinic_b", label: "Clinic B" },
+										],
+									}),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		return doc;
+	}
+
+	it("a text → single_select conversion of a writer emits one schema-sync entry", () => {
+		const result = classifyCaseTypeChanges({
+			prior: docWithWriterKind("text"),
+			prospective: docWithWriterKind("single_select"),
+		});
+		expect(result).toEqual([{ caseType: "patient" }]);
+	});
+
+	it("an untouched writer surface emits nothing", () => {
+		const result = classifyCaseTypeChanges({
+			prior: docWithWriterKind("text"),
+			prospective: docWithWriterKind("text"),
+		});
+		expect(result).toEqual([]);
 	});
 });

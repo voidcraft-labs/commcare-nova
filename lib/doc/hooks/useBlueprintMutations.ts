@@ -82,11 +82,13 @@ import {
 	type CaseType,
 	type CommitOutcome,
 	type ConnectType,
+	DEFAULT_SELECT_OPTIONS,
 	type Field,
 	type FieldKind,
 	type FieldPatchFor,
 	type Form,
 	type FormType,
+	fieldKindDeclaresKey,
 	type Module,
 	type SelectOption,
 } from "@/lib/domain";
@@ -797,7 +799,8 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 
 				convertField(uuid, toKind) {
 					const doc = get();
-					if (!doc.fields[uuid]) {
+					const field = doc.fields[uuid];
+					if (!field) {
 						// Include `toKind` so the dev-mode warn disambiguates the caller's
 						// intent — a stale UI closure and a drifted SA dispatch present
 						// identically without it. Matches the debug payload shape the
@@ -805,8 +808,27 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						warnUnresolved("convertField", { uuid, toKind });
 						return NOOP_REJECTION;
 					}
+					// Converting into a select kind from a kind with no options of
+					// its own (text → single_select) must carry born options — the
+					// select schemas require `.min(2)`, so a bare convert can never
+					// reconcile. The builder gesture has no option-authoring step,
+					// so it seeds the same starter pair a picker-inserted select
+					// gets; the user renames them in the inspector. Identity is
+					// minted here (the batch-building layer), never in the reducer.
+					const needsOptionSeed =
+						fieldKindDeclaresKey(toKind, "options") &&
+						(field as { options?: SelectOption[] }).options === undefined;
 					return toOutcome(
-						guardedApply([{ kind: "convertField", uuid, toKind }]),
+						guardedApply([
+							{
+								kind: "convertField",
+								uuid,
+								toKind,
+								...(needsOptionSeed && {
+									options: keyedOptions([...DEFAULT_SELECT_OPTIONS]),
+								}),
+							},
+						]),
 					);
 				},
 

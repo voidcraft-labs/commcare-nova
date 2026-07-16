@@ -181,3 +181,19 @@ export const selectOptionSchema = z
 		order: z.string().optional(),
 	})
 	.strict();
+
+/**
+ * A fresh select's two starter options — the smallest set the select
+ * schemas admit (`options` is `.min(2)`), named so the user's only job
+ * is renaming them. Shared by every surface that mints a select with no
+ * authored options yet: the builder's insert picker and the builder's
+ * convert-to-select gesture (the SA passes real options instead, so its
+ * paths never consume this).
+ */
+export const DEFAULT_SELECT_OPTIONS: readonly Pick<
+	SelectOption,
+	"value" | "label"
+>[] = [
+	{ value: "option_1", label: "Option 1" },
+	{ value: "option_2", label: "Option 2" },
+];

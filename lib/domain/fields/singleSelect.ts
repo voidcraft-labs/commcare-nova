@@ -40,5 +40,11 @@ export const singleSelectFieldMetadata: FieldKindMetadata<"single_select"> = {
 	isStructural: false,
 	isContainer: false,
 	saDocs: "Single-choice from a fixed option list.",
-	convertTargets: ["multi_select"],
+	// `text` is the demotion path — a select's stored value is a plain
+	// string, so freeing it to text drops the options and keeps every
+	// row's value valid. `multi_select` deliberately lacks the same
+	// `text` target: its stored case values are JSONB arrays, which a
+	// string-typed property can't hold without a per-row migration the
+	// conversion path doesn't run.
+	convertTargets: ["multi_select", "text"],
 };

@@ -85,7 +85,8 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 | Tool | What it does |
 |---|---|
 | `add_fields` | Insert one or more fields in one call. Use `beforeFieldId` / `afterFieldId` to control position; omit both to append. |
-| `edit_field` | Change a field's properties: label, validation, visibility, choices, case wiring. |
+| `edit_field` | Change a field's properties: label, validation, visibility, choices, case wiring. Also converts a field's kind in place where the data is compatible — e.g. text to dropdown (pass the choices in the same call), text to hidden (pass the calculate), text to barcode — keeping the field's identity, references, and collected case data. |
+| `move_field` | Reposition an existing field — same `beforeFieldId` / `afterFieldId` / `parentId` anchors as `add_fields` — keeping its identity and every reference to it. |
 | `remove_field` | Delete a field. |
 | `get_field` | Show one field's properties. |
 | `search_blueprint` | Search across the whole app for a field id, case property, label, case type, XPath fragment, or module/form name. |

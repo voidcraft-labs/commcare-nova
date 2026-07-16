@@ -729,17 +729,23 @@ export function applyFieldMutation(
 				);
 				return;
 			}
-			const reconciled = reconcileFieldForKind(field, mut.toKind);
+			const reconciled = reconcileFieldForKind(
+				field,
+				mut.toKind,
+				mut.options !== undefined ? { options: mut.options } : undefined,
+			);
 			if (!reconciled) {
-				// Unreachable under current schemas: every kind pair in any
-				// `convertTargets` list has schemas compatible enough that
-				// `fieldSchema.safeParse` on `{ ...source, kind: toKind }`
-				// succeeds. This branch stays as defense-in-depth — if a
-				// future schema introduces a required key that isn't present
-				// on every would-be source kind, throwing inside an Immer
-				// reducer propagates up through `store.applyMany()` and crashes
-				// the surrounding render. Warning + no-op keeps the app alive
-				// while making the anomaly visible in dev tools.
+				// Reachable on one real path: a conversion into a select kind
+				// (options `.min(2)` required) whose mutation carries no — or
+				// too few — seed options from a source kind with no options of
+				// its own (text → single_select). The batch-building layers
+				// (the SA tool, the builder gesture) always attach the seed, so
+				// hitting this is a caller bug; every other kind pair in a
+				// `convertTargets` list reconciles by construction. Throwing
+				// inside an Immer reducer would propagate up through
+				// `store.applyMany()` and crash the surrounding render —
+				// warning + no-op keeps the app alive while making the anomaly
+				// visible in dev tools.
 				console.warn(
 					`convertField: couldn't reconcile "${field.id}" from "${field.kind}" to "${mut.toKind}" — the converted shape failed the field schema, so the field was left unchanged.`,
 					{ uuid: mut.uuid, field },
