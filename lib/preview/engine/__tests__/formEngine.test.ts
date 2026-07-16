@@ -466,6 +466,35 @@ describe("FormEngine", () => {
 			expect(engine.getState("/data/copy").value).toBe("");
 		});
 
+		it("withholds preload when a retype re-pairs stale case data with a new module type", () => {
+			const input = dTree(
+				[
+					{
+						id: "head_name",
+						kind: "text",
+						case_property_on: "household",
+					},
+				],
+				"followup",
+			);
+			const caseData: CaseDataByType = new Map([
+				["patient", new Map([["case_name", "Mary"]])],
+				["household", new Map([["head_name", "John Smith"]])],
+			]);
+			// Bound to a patient case; household is ancestor reference data.
+			const engine = new FormEngine(input, "patient", caseData);
+			expect(engine.getState("/data/head_name").value).toBe("");
+
+			// A mid-preview module retype reaches the engine through
+			// refreshCaseContext with the OLD data re-paired to the NEW
+			// type. The household entry is the ANCESTOR's row, not the
+			// bound case — seeding field values from it would submit the
+			// parent's data onto the bound row, so preload is withheld
+			// until the React layer rebuilds the engine with a fresh pair.
+			engine.refreshCaseContext(input, caseData, "household");
+			expect(engine.getState("/data/head_name").value).toBe("");
+		});
+
 		it("keeps #case/ aliased to the module's own type, never an ancestor", () => {
 			const input = dTree(
 				[

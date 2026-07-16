@@ -155,7 +155,7 @@ export interface ReachableCaseType {
  */
 export function reachableCaseTypes(
 	caseType: string | undefined,
-	caseTypes: CaseType[],
+	caseTypes: readonly CaseType[],
 ): ReachableCaseType[] {
 	if (!caseType) return [];
 	const byName = new Map(caseTypes.map((ct) => [ct.name, ct]));

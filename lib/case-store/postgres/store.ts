@@ -953,6 +953,7 @@ export class PostgresCaseStore implements CaseStore {
 				`${leafAlias}.modified_on as modified_on`,
 				`${leafAlias}.closed_on as closed_on`,
 				`${leafAlias}.case_name as case_name`,
+				`${leafAlias}.external_id as external_id`,
 				`${leafAlias}.parent_case_id as parent_case_id`,
 				`${leafAlias}.properties as properties`,
 			])

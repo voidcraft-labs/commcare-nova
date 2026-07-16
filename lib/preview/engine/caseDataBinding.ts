@@ -159,16 +159,29 @@ export async function loadCasesAction(args: {
 	}
 }
 
+/**
+ * Load a single case row plus its ancestor chain for a case-loading
+ * form. `ancestorDepth` is the form's reachable-chain depth
+ * (`reachableCaseTypes(...).length - 1`) — how many parent hops any
+ * `#<type>/<prop>` ref on the form can address. Client-supplied, so
+ * `walkAncestors` clamps it server-side.
+ */
 export async function loadCaseDataAction(
 	appId: string,
 	caseType: string,
 	caseId: string,
+	ancestorDepth: number,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
 		const store = await gatedCaseStore(appId, session.user.id, "view");
-		return await readCaseData(store, { appId, caseType, caseId });
+		return await readCaseData(store, {
+			appId,
+			caseType,
+			caseId,
+			ancestorDepth,
+		});
 	} catch (err) {
 		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found

@@ -124,6 +124,14 @@ export class FormEngine {
 	private tree: FieldTreeNode[];
 	private caseData: CaseDataByType;
 	private moduleCaseType: string | undefined;
+	/** The module case type `caseData` was SUPPLIED under — the type
+	 *  whose entry is the bound row. Stamped only where a fresh
+	 *  (caseData, moduleCaseType) pair arrives together (constructor,
+	 *  `updateSchema`), NOT by `refreshCaseContext`, which re-pairs the
+	 *  existing data with new metadata — so after a mid-preview module
+	 *  retype the mismatch is detectable and preload can't seed fields
+	 *  from an ancestor's row as if it were the bound case. */
+	private caseDataOwnType: string | undefined;
 	private formType: string;
 	/** Live repeat-instance counts for the DAG's generic→concrete
 	 *  materialization. Arrow property so it can pass as a bare callback. */
@@ -137,6 +145,7 @@ export class FormEngine {
 	) {
 		this.store = createStore<EngineStoreState>(() => ({}));
 		this.moduleCaseType = moduleCaseType;
+		this.caseDataOwnType = moduleCaseType;
 		this.formType = input.form.type;
 		this.caseData = caseData ?? new Map();
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
@@ -1065,6 +1074,7 @@ export class FormEngine {
 		const snapshot = this.getValueSnapshot();
 
 		this.moduleCaseType = moduleCaseType;
+		this.caseDataOwnType = moduleCaseType;
 		this.formType = input.form.type;
 		this.caseData = caseData ?? new Map();
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
@@ -1371,11 +1381,18 @@ export class FormEngine {
 	/** The loaded case's own property map — the entry under the module's
 	 *  case type. Preload reads ONLY this map: ancestor namespaces are
 	 *  read-only reference data (a form never writes an ancestor's
-	 *  properties), so they seed no field values. */
+	 *  properties), so they seed no field values. After a mid-preview
+	 *  module retype (`refreshCaseContext` with a new `moduleCaseType`
+	 *  but the old data), the supplied-under type no longer matches and
+	 *  preload is withheld entirely — the entry under the NEW type would
+	 *  be an ancestor's row, not the bound case, and seeding field
+	 *  values from it would submit the parent's data onto the bound
+	 *  row. The React layer re-resolves and rebuilds the engine with a
+	 *  fresh matched pair moments later. */
 	private ownCaseData(): Map<string, string> | undefined {
-		return this.moduleCaseType !== undefined
-			? this.caseData.get(this.moduleCaseType)
-			: undefined;
+		if (this.moduleCaseType === undefined) return undefined;
+		if (this.moduleCaseType !== this.caseDataOwnType) return undefined;
+		return this.caseData.get(this.moduleCaseType);
 	}
 
 	private preloadCaseData(tree: FieldTreeNode[], prefix = "/data"): void {

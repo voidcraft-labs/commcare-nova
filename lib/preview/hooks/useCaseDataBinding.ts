@@ -138,8 +138,12 @@ export function useCaseData(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
 	caseId: string | undefined;
+	/** Parent hops the form's refs can address —
+	 *  `reachableCaseTypes(...).length - 1`. Bounds the server-side
+	 *  ancestor walk. */
+	ancestorDepth: number;
 }): { state: LoadingState<LoadCaseDataResult> } {
-	const { appId, caseType, caseId } = args;
+	const { appId, caseType, caseId, ancestorDepth } = args;
 	const [state, setState] = useState<LoadingState<LoadCaseDataResult>>({
 		kind: "idle",
 	});
@@ -152,7 +156,7 @@ export function useCaseData(args: {
 		let cancelled = false;
 		setState({ kind: "loading" });
 		/* See `useCases` for the wire-rejection rationale. */
-		loadCaseDataAction(appId, caseType, caseId)
+		loadCaseDataAction(appId, caseType, caseId, ancestorDepth)
 			.then((result) => {
 				if (cancelled) return;
 				setState(result);
@@ -167,7 +171,7 @@ export function useCaseData(args: {
 		return () => {
 			cancelled = true;
 		};
-	}, [appId, caseType, caseId]);
+	}, [appId, caseType, caseId, ancestorDepth]);
 
 	return { state };
 }

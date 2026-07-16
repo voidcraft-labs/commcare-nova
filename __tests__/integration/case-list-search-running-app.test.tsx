@@ -504,8 +504,9 @@ beforeEach(async () => {
 					: undefined,
 			}),
 	);
-	vi.mocked(loadCaseDataAction).mockImplementation((appId, caseType, caseId) =>
-		readCaseData(store, { appId, caseType, caseId }),
+	vi.mocked(loadCaseDataAction).mockImplementation(
+		(appId, caseType, caseId, ancestorDepth) =>
+			readCaseData(store, { appId, caseType, caseId, ancestorDepth }),
 	);
 	// The actions take the live `CaseType` definition straight from the
 	// client and use it directly.

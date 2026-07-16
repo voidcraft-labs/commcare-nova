@@ -107,11 +107,12 @@ export function pickBlueprintDoc<T extends BlueprintDoc>(
 
 /**
  * Flatten a `CaseRow`'s JSONB document + reserved scalar columns into
- * the `Map<string, string>` shape `useFormEngine` consumes as preload.
- * The scalar columns fold in under their standard names (both spellings
- * where CCHQ admits two) so the form engine sees one source — mirrors
- * the runtime path where the term compiler reads them via
- * `RESERVED_SCALAR_COLUMN_BY_PROPERTY`.
+ * one case's `Map<string, string>` property bag — the inner map of the
+ * per-case-type `CaseDataByType` shape `caseRowsToFormPreloads`
+ * assembles for the form engine. The scalar columns fold in under
+ * their standard names (both spellings where CCHQ admits two) so the
+ * form engine sees one source — mirrors the runtime path where the
+ * term compiler reads them via `RESERVED_SCALAR_COLUMN_BY_PROPERTY`.
  *
  * `null` values become `""` — the form engine treats missing
  * case-data the same as empty, and JSONB `null` is the same
@@ -149,29 +150,35 @@ export function caseRowToFormPreload(row: CaseRow): Map<string, string> {
 }
 
 /**
- * Build the per-case-type preload the form engine consumes: the
- * bound case plus its ancestor chain, each flattened through
- * `caseRowToFormPreload` and keyed by case-type NAME. The engine's
- * hashtag resolver looks a `#<case_type>/<prop>` reference's
- * namespace up by that key, so depth never travels — it's implicit
- * in which row claimed the type name.
+ * Build the per-case-type preload the form engine consumes,
+ * POSITIONALLY: each reachable case type's namespace binds to the
+ * row at that type's blueprint depth — depth 0 the bound case,
+ * depth d the (d−1)-th ancestor — flattened through
+ * `caseRowToFormPreload`.
  *
- * The bound case writes first and each ancestor only lands if its
- * type is unclaimed — the SHALLOWEST row of a type owns the
- * namespace, mirroring `reachableCaseTypes`' cycle guard (a
- * self-parented chain like `person → person` addresses the loaded
- * case at depth 0; the deeper same-type row is unreachable on the
- * wire too).
+ * Positional binding is the wire's semantic: `expandCaseToWire`
+ * turns `#<type>/<prop>` into a blueprint-fixed
+ * `index/parent × depth` casedb walk with NO case-type filter, so
+ * when the live parent chain doesn't mirror the blueprint's
+ * `parent_type` chain (a re-parented row, data predating a
+ * hierarchy edit), the device reads whatever row sits at the hop
+ * count — and the preview must show the same row, not a same-named
+ * row at a different depth. A depth past the chain's end binds
+ * nothing and the namespace reads blank, exactly like the wire
+ * walk landing past the chain. `reachableCaseTypes`' cycle guard
+ * means each type appears once (a self-parented chain addresses
+ * the loaded case at depth 0), so the name-keyed map is exact.
  */
 export function caseRowsToFormPreloads(
 	primary: CaseRow,
 	ancestors: ReadonlyArray<CaseRow>,
+	reachable: ReadonlyArray<{ name: string; depth: number }>,
 ): Map<string, Map<string, string>> {
 	const byType = new Map<string, Map<string, string>>();
-	byType.set(primary.case_type, caseRowToFormPreload(primary));
-	for (const row of ancestors) {
-		if (!byType.has(row.case_type)) {
-			byType.set(row.case_type, caseRowToFormPreload(row));
+	for (const t of reachable) {
+		const row = t.depth === 0 ? primary : ancestors[t.depth - 1];
+		if (row !== undefined) {
+			byType.set(t.name, caseRowToFormPreload(row));
 		}
 	}
 	return byType;
