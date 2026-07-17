@@ -63,6 +63,7 @@ import { generateSchemaTool } from "@/lib/agent/tools/generateSchema";
 import { getFieldTool } from "@/lib/agent/tools/getField";
 import { getFormTool } from "@/lib/agent/tools/getForm";
 import { getModuleTool } from "@/lib/agent/tools/getModule";
+import { markPropertyExternalTool } from "@/lib/agent/tools/markPropertyExternal";
 import { attachFieldMediaTool } from "@/lib/agent/tools/media/attachFieldMedia";
 import { attachOptionMediaTool } from "@/lib/agent/tools/media/attachOptionMedia";
 import { listMediaAssetsTool } from "@/lib/agent/tools/media/listMediaAssets";
@@ -130,6 +131,15 @@ const SHARED_TOOLS: ReadonlyArray<{
 	 * references the recorded types by name; a new case type enters an
 	 * existing app through this tool. */
 	{ name: "generate_schema", tool: generateSchemaTool, requires: "edit" },
+	/* The no-writer advisory's resolution path — records on the catalog
+	 * that something outside this app writes a property (or clears
+	 * that). Property-level and idempotent, so it reaches authored
+	 * records generate_schema's additive contract refuses. */
+	{
+		name: "mark_property_external",
+		tool: markPropertyExternalTool,
+		requires: "edit",
+	},
 	{ name: "get_field", tool: getFieldTool, requires: "view" },
 	{ name: "get_form", tool: getFormTool, requires: "view" },
 	{ name: "get_module", tool: getModuleTool, requires: "view" },

@@ -59,6 +59,7 @@ import type {
 	ReadToolResult,
 } from "@/lib/agent/tools/common";
 import type { AppCapability } from "@/lib/auth/projectRoles";
+import { describeIntroducedAdvisories } from "@/lib/doc/noWriterAdvisories";
 import type { BlueprintDoc } from "@/lib/domain";
 import { initMcpCall } from "../context";
 import {
@@ -210,7 +211,25 @@ export function registerSharedTool(
 					 * interface — same contract as the chat-side SA. */
 					const { app_id: _discardedAppId, ...toolInput } = args;
 					const outcome = await tool.execute(toolInput, mcpCtx, loaded.doc);
-					const payload = projectResult(outcome);
+					let payload = projectResult(outcome);
+					/* No-writer advisory delta — the MCP twin of the chat SA's
+					 * `wrapMutating` attach, so both surfaces report identically
+					 * with zero per-tool wiring. A non-empty batch is a persisted
+					 * success by the shared-tool contract. */
+					if (outcome.kind === "mutate" && outcome.mutations.length > 0) {
+						const advisories = describeIntroducedAdvisories(
+							loaded.doc,
+							outcome.newDoc,
+						);
+						if (advisories !== undefined) {
+							payload =
+								typeof payload === "string"
+									? `${payload}\n\n${advisories}`
+									: payload !== null && typeof payload === "object"
+										? { ...payload, advisories }
+										: payload;
+						}
+					}
 					return {
 						content: [{ type: "text", text: JSON.stringify(payload) }],
 					};

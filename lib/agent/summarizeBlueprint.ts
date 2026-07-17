@@ -12,6 +12,10 @@ import {
 	orderedFormUuids,
 	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
+import {
+	describeNoWriterAdvisory,
+	noWriterAdvisories,
+} from "@/lib/doc/noWriterAdvisories";
 import { bySortKey } from "@/lib/doc/order/compare";
 import type {
 	BlueprintDoc,
@@ -236,7 +240,16 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 		lines.push("");
 		lines.push("**Case types:**");
 		for (const ct of doc.caseTypes) {
-			const props = ct.properties.map((p) => p.name).join(", ");
+			// An external-marked property carries its marking (and note)
+			// inline, so a fresh-session SA knows another system owns it
+			// without re-asking the user.
+			const props = ct.properties
+				.map((p) =>
+					p.external
+						? `${p.name} [external${p.external.note ? `: ${p.external.note}` : ""}]`
+						: p.name,
+				)
+				.join(", ");
 			const parentInfo = ct.parent_type ? ` (child of ${ct.parent_type})` : "";
 			lines.push(`- ${ct.name}${parentInfo}: ${props}`);
 		}
@@ -249,6 +262,18 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 		const moduleUuid = moduleUuids[i];
 		if (!moduleUuid) continue;
 		lines.push(summarizeModule(doc, moduleUuid, i));
+	}
+
+	// Open no-writer advisories close the summary so what needs a
+	// decision is the last thing read — a fresh session inherits them
+	// without the user having to re-hit the wall.
+	const advisories = noWriterAdvisories(doc);
+	if (advisories.length > 0) {
+		lines.push("");
+		lines.push("**Workflow advisories (gated behavior with no writer):**");
+		for (const advisory of advisories) {
+			lines.push(`- ${describeNoWriterAdvisory(doc, advisory)}`);
+		}
 	}
 
 	return lines.join("\n");

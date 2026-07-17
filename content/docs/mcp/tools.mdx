@@ -31,7 +31,8 @@ A new app is designed first, then built module by module: `update_app` names it 
 | Tool | What it does |
 |---|---|
 | `update_app` | Set the app's name and/or its CommCare Connect type. On a Connect build, set the type before creating modules. |
-| `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A real write — `create_module` references the recorded types by name, and a form field that writes a recorded property inherits its label, options, and validation. Also how a new case type enters an existing app. |
+| `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A real write — `create_module` references the recorded types by name, and a form field that writes a recorded property inherits its label, options, and validation. Also how a new case type enters an existing app. A property something outside the app writes can carry an `external` marking (with a note naming what sets it). |
+| `mark_property_external` | Record that a case property is written outside this app — another app on the same case type, HQ, or an integration — or clear that marking (`external: null`). The resolution path for a no-writer advisory (below) when the user confirms the data comes from elsewhere; the note is kept so future sessions inherit the fact. |
 
 ## Working on modules
 
@@ -120,3 +121,7 @@ HQ has no atomic update API, so every upload creates a new app on HQ. Your Nova 
 <Callout type="warn">
 Edits are checked as they happen, and exports are checked again at the door. A tool call that would break the app — a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns) — fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms and case-list columns (with its case type already recorded via `generate_schema`), so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.
 </Callout>
+
+## Workflow advisories
+
+Some problems are about the workflow, not any single piece: a case property that gates behavior — a field's visibility or validation, a form link's condition, a case-list filter — while no form in the app writes it means records can never reach the gated state from within the app. Every piece is individually valid, so nothing is rejected; instead, a mutating call that introduces this state carries an `advisories` note in its result, and `get_app` lists any still open. Resolve one by adding a field that writes the property, or — when another app or system genuinely sets it — by recording that with `mark_property_external`.

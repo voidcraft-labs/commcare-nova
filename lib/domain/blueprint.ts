@@ -62,6 +62,19 @@ export const casePropertySchema = z
 		options: z
 			.array(z.object({ value: z.string(), label: z.string() }).strict())
 			.optional(),
+		/**
+		 * Present when something OUTSIDE this app writes the property —
+		 * another app on the same case type, HQ, or an integration.
+		 * `note` records what writes it ("set by the pharmacy app").
+		 *
+		 * This is a design statement, not configuration: nothing about
+		 * the wire, the preview, or the case-store schema reads it. Its
+		 * one consumer is the no-writer advisory
+		 * (`lib/doc/noWriterAdvisories.ts`) — a property that gates
+		 * behavior with no in-app writer stops flagging once it is
+		 * declared external, on every surface at once.
+		 */
+		external: z.object({ note: z.string().optional() }).strict().optional(),
 	})
 	.strict();
 export type CaseProperty = z.infer<typeof casePropertySchema>;

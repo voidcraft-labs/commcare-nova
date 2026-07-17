@@ -108,6 +108,11 @@ export const generateSchemaTool = {
 			const existingByName = new Map(
 				(doc.caseTypes ?? []).map((ct) => [ct.name, ct]),
 			);
+			// `external` is deliberately NOT authored content for bareness: a
+			// markPropertyExternal on an auto-declared type must not lock the
+			// record out of ever receiving its model. The marking survives
+			// enrichment instead — carried forward onto a restated property
+			// below.
 			const isBare = (ct: CaseType): boolean =>
 				ct.parent_type === undefined &&
 				ct.relationship === undefined &&
@@ -157,7 +162,20 @@ export const generateSchemaTool = {
 						relationship: record.relationship ?? null,
 					});
 				}
-				for (const property of record.properties) {
+				for (const raw of record.properties) {
+					// A restated property REPLACES the stored one by name — carry
+					// an existing external marking forward when the incoming
+					// record doesn't set its own, so enriching a bare declaration
+					// never silently un-marks a property.
+					const carried = bareExisting
+						? existingByName
+								.get(record.name)
+								?.properties.find((p) => p.name === raw.name)?.external
+						: undefined;
+					const property =
+						carried !== undefined && raw.external === undefined
+							? { ...raw, external: carried }
+							: raw;
 					mutations.push(
 						// `setCaseProperty` replaces a bare auto-registered property
 						// by name (and appends a new one); `addCaseProperty` would

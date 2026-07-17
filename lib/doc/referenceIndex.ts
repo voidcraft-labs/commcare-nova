@@ -7,8 +7,9 @@
  * X?" / "who declares X?" through these lookups instead of walking the
  * document: the rename cascade and `moveField`'s prose re-anchor pass
  * (`mutations/fields.ts`), the case-type retirement planner
- * (`caseTypeRetirement.ts`), and the peer-aware rename verdict
- * (`identifierVerdicts.ts`). Edges carry (carrier uuid, slot id),
+ * (`caseTypeRetirement.ts`), the peer-aware rename verdict
+ * (`identifierVerdicts.ts`), and the no-writer advisory derivation
+ * (`noWriterAdvisories.ts`). Edges carry (carrier uuid, slot id),
  * never character positions — a consumer that needs structure walks
  * the named slot's leaves (AST slots) or re-locates the hashtag
  * substrings (prose), so nothing positional can go stale across
@@ -803,6 +804,26 @@ export function referencingCarrierUuids(
 	targetKey: string,
 ): string[] {
 	return Object.keys(getReferenceIndex(doc).in[targetKey] ?? {});
+}
+
+/**
+ * The slot-level flavor of `referencingCarrierUuids`: carrier uuid →
+ * the registry slot ids its edges to `targetKey` live on. For
+ * consumers that dispatch on WHERE a reference sits, not just who
+ * holds it — the no-writer advisory's gate-slot filter
+ * (`noWriterAdvisories.ts`) reads property references through this and
+ * keeps only the behavior-gating slots.
+ */
+export function referencingSlotsOf(
+	doc: BlueprintDoc,
+	targetKey: string,
+): ReadonlyMap<string, readonly string[]> {
+	const byCarrier = getReferenceIndex(doc).in[targetKey] ?? {};
+	const result = new Map<string, readonly string[]>();
+	for (const [carrier, slots] of Object.entries(byCarrier)) {
+		result.set(carrier, Object.keys(slots));
+	}
+	return result;
 }
 
 /** Field uuids declaring the `(caseType, property)` pair — the

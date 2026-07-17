@@ -85,6 +85,12 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 		doing: "Recording the data model",
 		done: "Recorded the data model",
 	},
+	// One phrase covers both directions (mark + clear) — the media tools'
+	// "Set" convention: either way, who owns the property was stated.
+	markPropertyExternal: {
+		doing: "Recording property ownership",
+		done: "Recorded property ownership",
+	},
 	// Historical threads only — these tools are retired, but runs
 	// persisted before their retirement still carry these parts.
 	completeBuild: { doing: "Finishing the app", done: "Finished the app" },
