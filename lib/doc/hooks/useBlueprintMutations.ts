@@ -376,21 +376,6 @@ export interface BlueprintMutations {
 		propertyName: string,
 		updates: Partial<Omit<CaseProperty, "name">>,
 	) => CommitOutcome;
-	/**
-	 * Record — or clear (`external: null`) — that a case property is
-	 * written outside this app: the no-writer advisory's resolution
-	 * affordance (`lib/doc/noWriterAdvisories.ts`), the builder twin of
-	 * the SA's `markPropertyExternal` tool. Emits the granular catalog
-	 * kinds (never wholesale `setCaseTypes`) so a concurrent edit to a
-	 * different property merges, and declares the property (bare shape +
-	 * marking) when the catalog doesn't list it yet. Clearing an
-	 * unmarked property is a successful no-op.
-	 */
-	markCasePropertyExternal: (
-		caseTypeName: string,
-		propertyName: string,
-		external: { note?: string } | null,
-	) => CommitOutcome;
 
 	// ── Batch ─────────────────────────────────────────────────────────────
 	/**
@@ -1150,57 +1135,6 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					});
 					return toOutcome(
 						guardedApply([{ kind: "setCaseTypes", caseTypes: nextCaseTypes }]),
-					);
-				},
-
-				markCasePropertyExternal(caseTypeName, propertyName, external) {
-					const doc = get();
-					const record = (doc.caseTypes ?? []).find(
-						(ct) => ct.name === caseTypeName,
-					);
-					if (!record) {
-						warnUnresolved("markCasePropertyExternal", {
-							caseTypeName,
-							propertyName,
-							reason: "case type not found",
-						});
-						return NOOP_REJECTION;
-					}
-					const existing = record.properties.find(
-						(p) => p.name === propertyName,
-					);
-					if (external === null) {
-						// Already unmarked — clearing is idempotent, not an error.
-						if (existing?.external === undefined) return COMMITTED;
-						const { external: _cleared, ...rest } = existing;
-						return toOutcome(
-							guardedApply([
-								{
-									kind: "setCaseProperty",
-									caseType: caseTypeName,
-									property: rest,
-								},
-							]),
-						);
-					}
-					const marking =
-						external.note !== undefined && external.note.length > 0
-							? { note: external.note }
-							: {};
-					// An undeclared property gets the declaration chokepoint's bare
-					// shape (`ensureCatalogProperty`) plus the marking — a
-					// purely-external property never had a writer to register it.
-					const property: CaseProperty = existing
-						? { ...existing, external: marking }
-						: { name: propertyName, label: propertyName, external: marking };
-					return toOutcome(
-						guardedApply([
-							{
-								kind: existing ? "setCaseProperty" : "addCaseProperty",
-								caseType: caseTypeName,
-								property,
-							},
-						]),
 					);
 				},
 

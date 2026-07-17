@@ -12,11 +12,11 @@ import {
 	orderedFormUuids,
 	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
-import {
-	describeNoWriterAdvisory,
-	noWriterAdvisories,
-} from "@/lib/doc/noWriterAdvisories";
 import { bySortKey } from "@/lib/doc/order/compare";
+import {
+	describeUnwrittenProperty,
+	unwrittenProperties,
+} from "@/lib/doc/unwrittenProperties";
 import type {
 	BlueprintDoc,
 	Column,
@@ -25,6 +25,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
+import { systemReminder } from "./systemReminder";
 import {
 	ADVANCED_SLOT_NAMES,
 	DISPLAY_SLOT_NAMES,
@@ -240,16 +241,7 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 		lines.push("");
 		lines.push("**Case types:**");
 		for (const ct of doc.caseTypes) {
-			// An external-marked property carries its marking (and note)
-			// inline, so a fresh-session SA knows another system owns it
-			// without re-asking the user.
-			const props = ct.properties
-				.map((p) =>
-					p.external
-						? `${p.name} [external${p.external.note ? `: ${p.external.note}` : ""}]`
-						: p.name,
-				)
-				.join(", ");
+			const props = ct.properties.map((p) => p.name).join(", ");
 			const parentInfo = ct.parent_type ? ` (child of ${ct.parent_type})` : "";
 			lines.push(`- ${ct.name}${parentInfo}: ${props}`);
 		}
@@ -264,16 +256,25 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 		lines.push(summarizeModule(doc, moduleUuid, i));
 	}
 
-	// Open no-writer advisories close the summary so what needs a
-	// decision is the last thing read — a fresh session inherits them
-	// without the user having to re-hit the wall.
-	const advisories = noWriterAdvisories(doc);
-	if (advisories.length > 0) {
+	// Ambient knowledge, not a finding: properties the app reads but no
+	// form in it writes ride a closing system reminder so the SA holds
+	// the fact while reasoning (get_app and the edit-mode prompt both
+	// inherit this summary) without treating it as work to do or news
+	// to announce.
+	const unwritten = unwrittenProperties(doc);
+	if (unwritten.length > 0) {
 		lines.push("");
-		lines.push("**Workflow advisories (gated behavior with no writer):**");
-		for (const advisory of advisories) {
-			lines.push(`- ${describeNoWriterAdvisory(doc, advisory)}`);
-		}
+		lines.push(
+			systemReminder(
+				[
+					"For your awareness: no form in this app writes the following case properties, though the app reads them:",
+					...unwritten.map(
+						(entry) => `- ${describeUnwrittenProperty(doc, entry)}`,
+					),
+					"This is not a problem — such values come from outside the app (another app on the same case type, an integration, or staged sample data), and the builder lists them under app settings. Keep it in mind when reasoning about workflows; don't bring it up with the user unless they ask or it directly affects what they asked for.",
+				].join("\n"),
+			),
+		);
 	}
 
 	return lines.join("\n");

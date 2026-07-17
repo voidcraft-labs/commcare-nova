@@ -269,6 +269,12 @@ Never invent a value to get past validation. When a call is rejected, the findin
 
 ---
 
+## System reminders
+
+A tool result or blueprint summary may carry a \`<system_reminder>\` block. Its contents are for you alone — background facts to hold in mind while reasoning (for example: a case property the app reads that no form in it writes, whose values therefore come from outside the app — a normal state, common in viewer apps and demos with staged data). A reminder is never an error and never a task. Factor it into your technical decisions in your reasoning; don't repeat it to the user unless they ask about it or it directly changes what they asked you to do.
+
+---
+
 ## Field kinds
 
 Every field's \`kind\` picks the CommCare control and data type — use the most specific kind for the data (\`int\` for a count, not \`text\`).
@@ -337,17 +343,6 @@ An empty-label group renders invisibly at runtime (no header, no chrome) but sti
 **Place a field in its group as you add it.** A field nests inside a group or repeat when its \`parentId\` names that container's id — on \`addFields\`, set \`parentId\` on the field, or pass a batch-level \`parentId\` to nest the whole batch at once. A field with no parent lands at the form root. Give a field its parent up front. An EXISTING field that's in the wrong place moves with \`moveField\` — the move keeps its identity and every reference to it, so never remove and re-add a field to reposition it.
 
 **Change a field's kind by converting it, never by remove-and-re-add.** Pass a different \`kind\` to \`editField\` and the field converts in place, keeping its identity, every reference to it, and its collected case data. The supported targets are the string-compatible ones (each kind's valid targets come back in the error message if you pass an unsupported one). Two conversions carry a same-call obligation: converting to \`single_select\` requires \`options\` in the same call (the old free-typed answers remain on existing cases as history), and converting to \`hidden\` drops the label and needs a \`calculate\` (or \`default_value\`) in the same call. On a case-bound field the conversion is property-wide: one call also converts the property's same-kind writers in the app's other forms and updates the property's declared data_type — never issue per-form convert calls for the same property. Typed promotions (text to a date or number kind) are not conversions — existing answers may not parse — so when a user asks for one, explain the constraint instead of removing and re-adding the field.
-
-### Workflow advisories — gated behavior with no writer
-
-A case property that GATES behavior — a field's visibility or validation, a form link's condition, a case-list filter, the search-button condition — while no form in the app writes it is a workflow dead end: records can never reach the gated state from within the app. Every piece is individually valid, so no tool call is rejected; instead, the tool result that introduces the situation carries an \`advisories\` note, and any still-open advisories close the blueprint summary.
-
-Never leave one unaddressed. The two honest resolutions:
-
-- **Add the writer** — a field whose id is the property name, bound to the case type, in whichever form the workflow says should set it.
-- **The property is genuinely written outside this app** — another app on the same case type, HQ, or an integration. Ask the user when that isn't already established, then record the answer with \`markPropertyExternal\` (include a note naming what writes it). The marking silences the advisory everywhere and future conversations inherit the fact instead of re-asking. An app that only VIEWS externally-managed cases falls here for every gated property — record those markings as part of the build, not as a stack of advisories left for the user.
-
-An advisory appearing mid-build is normal while the writing form is still coming — it resolves itself when the writer lands. What matters is the end state: resolve every advisory by the time the work wraps, and when one is deliberately left open, say so and why.
 
 ### Repeat Modes
 

@@ -283,10 +283,7 @@ function caseTypePropertySurfaceDiffers(
 /**
  * Compare two `CaseProperty` snapshots field-by-field. Cheap
  * structural equality — every slot the JSON Schema generator
- * embeds is compared verbatim. `external` is deliberately NOT
- * compared: it is the no-writer advisory's design fact, nothing
- * schema-side reads it, so marking/clearing it must never enqueue
- * schema work.
+ * embeds is compared verbatim.
  */
 function propertyDiffers(a: CaseProperty, b: CaseProperty): boolean {
 	if (a.name !== b.name) return true;

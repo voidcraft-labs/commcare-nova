@@ -8,8 +8,8 @@
  * document: the rename cascade and `moveField`'s prose re-anchor pass
  * (`mutations/fields.ts`), the case-type retirement planner
  * (`caseTypeRetirement.ts`), the peer-aware rename verdict
- * (`identifierVerdicts.ts`), and the no-writer advisory derivation
- * (`noWriterAdvisories.ts`). Edges carry (carrier uuid, slot id),
+ * (`identifierVerdicts.ts`), and the unwritten-property derivation
+ * (`unwrittenProperties.ts`). Edges carry (carrier uuid, slot id),
  * never character positions — a consumer that needs structure walks
  * the named slot's leaves (AST slots) or re-locates the hashtag
  * substrings (prose), so nothing positional can go stale across
@@ -810,9 +810,9 @@ export function referencingCarrierUuids(
  * The slot-level flavor of `referencingCarrierUuids`: carrier uuid →
  * the registry slot ids its edges to `targetKey` live on. For
  * consumers that dispatch on WHERE a reference sits, not just who
- * holds it — the no-writer advisory's gate-slot filter
- * (`noWriterAdvisories.ts`) reads property references through this and
- * keeps only the behavior-gating slots.
+ * holds it — the unwritten-property derivation
+ * (`unwrittenProperties.ts`) reads a property's read edges through
+ * this to phrase each one by its slot.
  */
 export function referencingSlotsOf(
 	doc: BlueprintDoc,

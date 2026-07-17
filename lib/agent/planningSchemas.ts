@@ -132,21 +132,6 @@ const casePropertyDescribed = z
 			.describe(
 				"Options for single_select/multi_select properties. null for every other data_type.",
 			),
-		external: z
-			.object({
-				note: z
-					.string()
-					.min(1)
-					.nullable()
-					.optional()
-					.describe('What writes it — e.g. "set by the referral app".'),
-			})
-			.strict()
-			.nullable()
-			.optional()
-			.describe(
-				"Only when something OUTSIDE this app writes the property (another app on the same case type, HQ, an integration) — e.g. a status this app only ever reads. Suppresses the no-writer advisory for it. null when this app's own forms write it (the normal case). When re-recording a bare declaration: omitting this keeps an existing marking; an explicit null clears it.",
-			),
 	})
 	.strict()
 	.superRefine((prop, ctx) => {
@@ -228,20 +213,9 @@ export function cleanCaseTypeRecord(
 } {
 	const nonNull = <T extends Record<string, unknown>>(obj: T) =>
 		Object.fromEntries(Object.entries(obj).filter(([, v]) => v != null));
-	// `external` nests its own nullable slot — a null `note` (the add
-	// path's "nothing here") collapses to absence INSIDE the marking, so
-	// the stored shape is `{}` or `{ note }`, never `{ note: null }`.
-	const cleanProperty = (p: (typeof record.properties)[number]) => {
-		const cleaned = nonNull(p);
-		if (p.external != null) {
-			cleaned.external =
-				p.external.note != null ? { note: p.external.note } : {};
-		}
-		return cleaned;
-	};
 	return {
 		name: record.name,
-		properties: record.properties.map(cleanProperty),
+		properties: record.properties.map((p) => nonNull(p)),
 		...(record.parent_type != null && { parent_type: record.parent_type }),
 		...(record.relationship != null && { relationship: record.relationship }),
 	};

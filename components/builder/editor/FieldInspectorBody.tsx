@@ -24,7 +24,6 @@ import { RemoveRow } from "@/components/builder/inspector/inspectorChrome";
 import type { Field } from "@/lib/domain";
 import { useDeleteSelectedField } from "@/lib/routing/builderActions";
 import { useCanEdit, useSetActiveFieldId } from "@/lib/session/hooks";
-import { FieldAdvisorySection } from "./FieldAdvisorySection";
 import { FieldEditorPanel } from "./FieldEditorPanel";
 import { FieldIdentitySection } from "./FieldIdentitySection";
 
@@ -59,7 +58,6 @@ export function FieldInspectorBody({ field }: FieldInspectorBodyProps) {
 				<>
 					<FieldIdentitySection field={field} />
 					<FieldEditorPanel field={field} />
-					<FieldAdvisorySection field={field} />
 					<RemoveRow label="Delete field" onClick={deleteSelected} />
 				</>
 			) : (
@@ -70,7 +68,6 @@ export function FieldInspectorBody({ field }: FieldInspectorBodyProps) {
 					<div aria-disabled className="space-y-4 pointer-events-none">
 						<FieldIdentitySection field={field} />
 						<FieldEditorPanel field={field} />
-						<FieldAdvisorySection field={field} />
 					</div>
 					<p className="flex items-center gap-1.5 border-t border-nova-border pt-3 text-[11px] text-nova-text-muted">
 						<Icon

@@ -23,10 +23,6 @@ import type { ZodType } from "zod";
 import { loadApp } from "@/lib/db/apps";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import {
-	attachAdvisoriesNote,
-	describeAdvisoriesIntroducedByBatch,
-} from "@/lib/doc/noWriterAdvisories";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import {
 	reasoningProviderOptions,
@@ -59,7 +55,6 @@ import { generateSchemaTool } from "./tools/generateSchema";
 import { getFieldTool } from "./tools/getField";
 import { getFormTool } from "./tools/getForm";
 import { getModuleTool } from "./tools/getModule";
-import { markPropertyExternalTool } from "./tools/markPropertyExternal";
 import { attachFieldMediaTool } from "./tools/media/attachFieldMedia";
 import { attachOptionMediaTool } from "./tools/media/attachOptionMedia";
 import { listMediaAssetsTool } from "./tools/media/listMediaAssets";
@@ -221,27 +216,7 @@ export function createSolutionsArchitect(
 							ctx,
 							doc,
 						);
-						if (mutations.length > 0) {
-							/* No-writer advisory delta — computed at this one chokepoint
-							 * so every mutating tool reports identically with zero
-							 * per-tool wiring. Only advisories the batch INTRODUCED ride
-							 * along (removing a property's last writer, gating on an
-							 * unwritten property); the steady state stays quiet. The
-							 * baseline pair is (doc, doc ⊕ batch) — NOT `newDoc`, the
-							 * committed doc, which may carry a peer's concurrent edits
-							 * that this call must not take credit or blame for. A
-							 * non-empty batch is a persisted success by the shared-tool
-							 * contract, so attaching to `result` is safe. */
-							const advisories = describeAdvisoriesIntroducedByBatch(
-								doc,
-								mutations,
-								"markPropertyExternal",
-							);
-							doc = newDoc;
-							if (advisories !== undefined) {
-								return attachAdvisoriesNote(result, advisories) as R;
-							}
-						}
+						if (mutations.length > 0) doc = newDoc;
 						return result;
 					} catch (err) {
 						/* A RETRYABLE conflict — a peer deleted/changed what this
@@ -325,13 +300,8 @@ export function createSolutionsArchitect(
 		// Commits the case-type catalog (and the app name) onto the doc —
 		// a build's first call, and how a NEW case type enters an existing
 		// app. `createModule` references the recorded types by name.
-		// `markPropertyExternal` is the no-writer advisory's resolution
-		// path: it records on the catalog that something outside this app
-		// writes a property (or clears that), the one property-level fact
-		// `generateSchema`'s additive-over-authored contract can't reach.
 
 		generateSchema: wrapMutating(generateSchemaTool),
-		markPropertyExternal: wrapMutating(markPropertyExternalTool),
 
 		// ── Read ────────────────────────────────────────────────────────
 

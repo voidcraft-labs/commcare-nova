@@ -172,27 +172,6 @@ describe("cleanCaseTypeRecord", () => {
 		expect("parent_type" in clean).toBe(false);
 		expect("hint" in clean.properties[0]).toBe(false);
 	});
-
-	it("collapses the external marking's nested null note to a bare marking", () => {
-		const parsed = caseTypeRecordSchema.parse({
-			name: "referral",
-			properties: [
-				{ name: "status", label: "Status", external: { note: null } },
-				{ name: "facility", label: "Facility", external: null },
-				{
-					name: "owner",
-					label: "Owner",
-					external: { note: "set by the referring facility's app" },
-				},
-			],
-		});
-		const clean = cleanCaseTypeRecord(parsed);
-		expect(clean.properties[0].external).toEqual({});
-		expect("external" in clean.properties[1]).toBe(false);
-		expect(clean.properties[2].external).toEqual({
-			note: "set by the referring facility's app",
-		});
-	});
 });
 
 describe("connectFormConfigSchema", () => {

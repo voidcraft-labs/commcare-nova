@@ -108,11 +108,6 @@ export const generateSchemaTool = {
 			const existingByName = new Map(
 				(doc.caseTypes ?? []).map((ct) => [ct.name, ct]),
 			);
-			// `external` is deliberately NOT authored content for bareness: a
-			// markPropertyExternal on an auto-declared type must not lock the
-			// record out of ever receiving its model. The marking survives
-			// enrichment instead — carried forward onto a restated property
-			// below.
 			const isBare = (ct: CaseType): boolean =>
 				ct.parent_type === undefined &&
 				ct.relationship === undefined &&
@@ -162,36 +157,7 @@ export const generateSchemaTool = {
 						relationship: record.relationship ?? null,
 					});
 				}
-				// Hoisted per record: the stored properties (the marking
-				// carry-forward's source) and the input's EXPLICIT
-				// `external: null`s — `cleanCaseTypeRecord` collapses null to
-				// absence, but on the enrichment path null means CLEAR (the
-				// edit-path law), so the distinction is read off the parsed
-				// input before the collapse.
-				const storedByName = bareExisting
-					? new Map(
-							(existingByName.get(record.name)?.properties ?? []).map((p) => [
-								p.name,
-								p,
-							]),
-						)
-					: undefined;
-				const explicitClears = new Set(
-					raw.properties.filter((p) => p.external === null).map((p) => p.name),
-				);
-				for (const prop of record.properties) {
-					// A restated property REPLACES the stored one by name — carry
-					// an existing external marking forward when the incoming
-					// record neither sets its own nor explicitly clears it, so
-					// enriching a bare declaration never silently un-marks a
-					// property (and an explicit clear actually clears).
-					const carried = storedByName?.get(prop.name)?.external;
-					const property =
-						carried !== undefined &&
-						prop.external === undefined &&
-						!explicitClears.has(prop.name)
-							? { ...prop, external: carried }
-							: prop;
+				for (const property of record.properties) {
 					mutations.push(
 						// `setCaseProperty` replaces a bare auto-registered property
 						// by name (and appends a new one); `addCaseProperty` would

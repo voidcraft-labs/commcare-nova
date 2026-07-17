@@ -77,30 +77,6 @@ describe("classifyCaseTypeChanges — pure non-case-type mutations", () => {
 		});
 		expect(result).toEqual([]);
 	});
-
-	it("an external-marking-only change is schema-inert — no entry", () => {
-		// `external` is a design fact for the no-writer advisory; nothing
-		// about the materialized JSON Schema or the index set reads it, so
-		// marking/clearing must never enqueue schema work.
-		const result = classifyCaseTypeChanges({
-			prior: makeDoc([PATIENT]),
-			prospective: makeDoc([
-				{
-					name: "patient",
-					properties: [
-						{
-							name: "name",
-							label: "Name",
-							data_type: "text",
-							external: { note: "set by the registry app" },
-						},
-						{ name: "age", label: "Age", data_type: "int" },
-					],
-				},
-			]),
-		});
-		expect(result).toEqual([]);
-	});
 });
 
 describe("classifyCaseTypeChanges — case-type additions", () => {

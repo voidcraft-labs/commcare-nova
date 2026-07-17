@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { AppAppearanceSection } from "./AppAppearanceSection";
 import { AppConnectSection } from "./AppConnectSection";
+import { AppDataSourcesSection } from "./AppDataSourcesSection";
 
 /** Shell prop shape: just a dismiss callback wired from the popover
  *  trigger. The app surface is a singleton — there is no entity uuid to
@@ -15,8 +16,8 @@ interface AppSettingsPanelProps {
  * App-settings drawer body rendered inside the Popover popup. Pure
  * chrome — a labeled header with a dismiss button and a content region
  * composing the app-level sections (logo appearance + CommCare Connect
- * mode). Mirrors `FormSettingsPanel`'s `w-80` drawer layout and section
- * stacking.
+ * mode + the conditional data-sources row). Mirrors
+ * `FormSettingsPanel`'s `w-80` drawer layout and section stacking.
  */
 export function AppSettingsPanel({ onClose }: AppSettingsPanelProps) {
 	return (
@@ -39,6 +40,7 @@ export function AppSettingsPanel({ onClose }: AppSettingsPanelProps) {
 			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
 				<AppAppearanceSection />
 				<AppConnectSection />
+				<AppDataSourcesSection />
 			</div>
 		</div>
 	);

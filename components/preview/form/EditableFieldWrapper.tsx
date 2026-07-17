@@ -1,7 +1,6 @@
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
-import { NoWriterAdvisoryChip } from "@/components/preview/form/NoWriterAdvisoryChip";
 import type { Uuid } from "@/lib/doc/types";
 import { useIsFieldSelected, useSelect } from "@/lib/routing/hooks";
 import { useEditMode } from "@/lib/session/hooks";
@@ -214,10 +213,6 @@ export function EditableFieldWrapper({
 			<div className="pointer-events-none" tabIndex={-1}>
 				{children}
 			</div>
-			{/* Height-neutral overlay (edit mode only — this branch): the chip is
-			 * a sibling of the pointer-events-none content so its tooltip hovers,
-			 * and clicks fall through to this wrapper's select. */}
-			<NoWriterAdvisoryChip fieldUuid={fieldUuid} />
 		</div>
 	);
 }
