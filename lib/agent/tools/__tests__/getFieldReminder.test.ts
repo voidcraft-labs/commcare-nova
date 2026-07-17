@@ -56,7 +56,7 @@ describe("getField — unwritten-property reminder", () => {
 		expect(data.system_reminder).toContain("<system_reminder>");
 		expect(data.system_reminder).toContain("`order_status`");
 		expect(data.system_reminder).toContain("no form in this app writes");
-		expect(data.system_reminder).toContain("This is normal");
+		expect(data.system_reminder).toContain("This is not a problem");
 	});
 
 	it("covers reads anywhere in a returned container subtree", async () => {

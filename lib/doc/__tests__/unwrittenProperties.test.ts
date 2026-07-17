@@ -375,12 +375,14 @@ describe("unwrittenProperties — when it stays empty", () => {
 });
 
 describe("carrier lookup + rendering", () => {
-	it("unwrittenPropertiesReadBy filters to the carrier's own reads", () => {
+	it("unwrittenPropertiesReadBy filters to the given carriers' reads", () => {
 		const doc = readingDoc();
 		const [entry] = unwrittenProperties(doc);
 		const carrier = entry.reads[0].carrier as Uuid;
-		expect(unwrittenPropertiesReadBy(doc, carrier)).toEqual([entry]);
-		expect(unwrittenPropertiesReadBy(doc, asUuid("not-a-carrier"))).toEqual([]);
+		expect(unwrittenPropertiesReadBy(doc, new Set([carrier]))).toEqual([entry]);
+		expect(unwrittenPropertiesReadBy(doc, new Set(["not-a-carrier"]))).toEqual(
+			[],
+		);
 	});
 
 	it("describeUnwrittenProperty names the property, its type, and the read surface", () => {

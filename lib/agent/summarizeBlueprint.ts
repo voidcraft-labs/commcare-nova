@@ -13,10 +13,7 @@ import {
 	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
 import { bySortKey } from "@/lib/doc/order/compare";
-import {
-	describeUnwrittenProperty,
-	unwrittenProperties,
-} from "@/lib/doc/unwrittenProperties";
+import { unwrittenProperties } from "@/lib/doc/unwrittenProperties";
 import type {
 	BlueprintDoc,
 	Column,
@@ -25,7 +22,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
-import { systemReminder } from "./systemReminder";
+import { unwrittenPropertiesReminder } from "./systemReminder";
 import {
 	ADVANCED_SLOT_NAMES,
 	DISPLAY_SLOT_NAMES,
@@ -264,17 +261,7 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 	const unwritten = unwrittenProperties(doc);
 	if (unwritten.length > 0) {
 		lines.push("");
-		lines.push(
-			systemReminder(
-				[
-					"For your awareness: no form in this app writes the following case properties, though the app reads them:",
-					...unwritten.map(
-						(entry) => `- ${describeUnwrittenProperty(doc, entry)}`,
-					),
-					"This is not a problem — such values come from outside the app (another app on the same case type, an integration, or staged sample data), and the builder lists them under app settings. Keep it in mind when reasoning about workflows; don't bring it up with the user unless they ask or it directly affects what they asked for.",
-				].join("\n"),
-			),
-		);
+		lines.push(unwrittenPropertiesReminder(doc, unwritten));
 	}
 
 	return lines.join("\n");

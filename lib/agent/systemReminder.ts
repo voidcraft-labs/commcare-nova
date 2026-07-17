@@ -1,3 +1,9 @@
+import {
+	describeUnwrittenProperty,
+	type UnwrittenProperty,
+} from "@/lib/doc/unwrittenProperties";
+import type { BlueprintDoc } from "@/lib/domain";
+
 /**
  * The `<system_reminder>` convention — an agent-only side channel
  * inside tool results and summaries.
@@ -20,4 +26,22 @@
  */
 export function systemReminder(body: string): string {
 	return `<system_reminder>\n${body}\n</system_reminder>`;
+}
+
+/**
+ * The one rendering of the unwritten-property fact — both emitters go
+ * through this so the framing contract (calm, not-a-problem, don't
+ * relay) lives in exactly one place and cannot drift between them.
+ */
+export function unwrittenPropertiesReminder(
+	doc: BlueprintDoc,
+	entries: readonly UnwrittenProperty[],
+): string {
+	return systemReminder(
+		[
+			"For your awareness: no form in this app writes the following case properties, though the app reads them:",
+			...entries.map((entry) => `- ${describeUnwrittenProperty(doc, entry)}`),
+			"This is not a problem — such values come from outside the app (another app on the same case type, an integration, or staged sample data), and the builder lists them under app settings. Keep it in mind when reasoning about workflows; don't bring it up with the user unless they ask or it directly affects what they asked for.",
+		].join("\n"),
+	);
 }

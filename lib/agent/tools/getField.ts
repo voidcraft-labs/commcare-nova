@@ -18,14 +18,11 @@
 
 import { z } from "zod";
 import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
-import {
-	describeUnwrittenProperty,
-	unwrittenProperties,
-} from "@/lib/doc/unwrittenProperties";
+import { unwrittenPropertiesReadBy } from "@/lib/doc/unwrittenProperties";
 import type { BlueprintDoc, Field } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
 import { FIELD_REF_HINT, resolveFieldTarget } from "../blueprintHelpers";
-import { systemReminder } from "../systemReminder";
+import { unwrittenPropertiesReminder } from "../systemReminder";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
 
@@ -112,8 +109,7 @@ export const getFieldTool = {
  * The per-field flavor of the blueprint summary's closing reminder:
  * when the returned field (for containers, anything in the returned
  * subtree) reads a case property no form in the app writes, say so as
- * background knowledge — the value comes from outside the app, which
- * is a normal state, not something to fix or announce.
+ * background knowledge via the shared reminder rendering.
  */
 function unwrittenReadsReminder(
 	doc: BlueprintDoc,
@@ -127,15 +123,7 @@ function unwrittenReadsReminder(
 		}
 	};
 	collect(field);
-	const entries = unwrittenProperties(doc).filter((entry) =>
-		entry.reads.some((read) => included.has(read.carrier)),
-	);
+	const entries = unwrittenPropertiesReadBy(doc, included);
 	if (entries.length === 0) return undefined;
-	return systemReminder(
-		[
-			"For your awareness: no form in this app writes the following case properties read here:",
-			...entries.map((entry) => `- ${describeUnwrittenProperty(doc, entry)}`),
-			"This is normal — the values come from outside the app (another app on the same case type, an integration, or staged sample data). Don't bring it up with the user unless they ask or it directly affects what they asked for.",
-		].join("\n"),
-	);
+	return unwrittenPropertiesReminder(doc, entries);
 }

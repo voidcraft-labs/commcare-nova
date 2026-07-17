@@ -47,7 +47,13 @@
  * is unreachable and consumers get one stable array per doc state.
  */
 
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	FieldSlotId,
+	FormSlotId,
+	ModuleSlotId,
+	Uuid,
+} from "@/lib/domain";
 import {
 	casePropertyTargetKey,
 	isStandardCaseListProperty,
@@ -155,24 +161,29 @@ function readsOf(
 }
 
 /**
- * The unwritten properties a specific carrier (field / form / module)
- * reads — `getField`'s reminder lookup. A plain filter over the
- * memoized flat list: the list is small and per-doc-stable, so a
- * second index would be caching noise.
+ * The unwritten properties any of `carriers` reads — `getField`'s
+ * reminder lookup (the returned field plus, for containers, every
+ * field in its subtree). A plain filter over the memoized flat list:
+ * the list is small and per-doc-stable, so a second index would be
+ * caching noise.
  */
 export function unwrittenPropertiesReadBy(
 	doc: BlueprintDoc,
-	carrier: Uuid,
+	carriers: ReadonlySet<string>,
 ): readonly UnwrittenProperty[] {
 	return unwrittenProperties(doc).filter((entry) =>
-		entry.reads.some((read) => read.carrier === carrier),
+		entry.reads.some((read) => carriers.has(read.carrier)),
 	);
 }
 
 // ── Person-readable rendering ───────────────────────────────────────
 
 /** Field-slot phrasing: what the slot DOES with the value. Slots not
- *  named here fall back to the generic expression phrase. */
+ *  named here fall back to the generic expression phrase. Each map is
+ *  `satisfies`-pinned to the reference-slot registry
+ *  (`lib/domain/referenceSlots.ts`) so a slot rename breaks this build
+ *  instead of silently degrading every mention of that slot to the
+ *  generic fallback (and a typo'd key can't sit here unmatched). */
 const FIELD_SLOT_NOUNS: Readonly<Record<string, string>> = {
 	relevant: "the visibility",
 	validate: "the validation",
@@ -186,7 +197,7 @@ const FIELD_SLOT_NOUNS: Readonly<Record<string, string>> = {
 	help: "the display text",
 	validate_msg: "the display text",
 	option_label: "the display text",
-};
+} satisfies Partial<Record<FieldSlotId, string>>;
 
 const MODULE_SLOT_PHRASES: Readonly<Record<string, string>> = {
 	case_list_filter: "the case-list filter on module",
@@ -198,7 +209,7 @@ const MODULE_SLOT_PHRASES: Readonly<Record<string, string>> = {
 	search_input_predicate: "a search input of module",
 	search_button_display_condition: "the search-button condition on module",
 	excluded_owner_ids: "the owner filter on module",
-};
+} satisfies Partial<Record<ModuleSlotId, string>>;
 
 const FORM_SLOT_PHRASES: Readonly<Record<string, string>> = {
 	form_link_condition: "a form link condition on",
@@ -206,7 +217,7 @@ const FORM_SLOT_PHRASES: Readonly<Record<string, string>> = {
 	assessment_user_score: "the Connect config of",
 	deliver_entity_id: "the Connect config of",
 	deliver_entity_name: "the Connect config of",
-};
+} satisfies Partial<Record<FormSlotId, string>>;
 
 /**
  * One read as a human surface ("the visibility of "dose" in form
