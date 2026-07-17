@@ -226,6 +226,38 @@ export class PostgresCaseStore implements CaseStore {
 		return this.actorUserId;
 	}
 
+	/**
+	 * Serialize the small set of operations that create, replace, or change
+	 * parent relationships within one app + Project. `case_indices` cannot use
+	 * a conventional FK because it also models CommCare relationship semantics,
+	 * so reset and relationship writers share this transaction-level advisory
+	 * lock instead. Unrelated, parentless case writes remain concurrent.
+	 */
+	private async lockRelationshipWrites(
+		trx: Transaction<Database>,
+		appId: string,
+	): Promise<void> {
+		const scope = `nova:case-relationships:${this.requireProjectId()}:${appId}`;
+		await sql`select pg_advisory_xact_lock(hashtextextended(${scope}, 0::bigint))`.execute(
+			trx,
+		);
+	}
+
+	/** Validate a relationship target after acquiring the shared lock. */
+	private async assertParentExists(
+		trx: Transaction<Database>,
+		args: { appId: string; parentCaseId: string },
+	): Promise<void> {
+		const parent = await trx
+			.selectFrom("cases as parent")
+			.select("parent.case_id")
+			.where("parent.app_id", "=", args.appId)
+			.where("parent.case_id", "=", args.parentCaseId)
+			.where("parent.project_id", "=", this.requireProjectId())
+			.executeTakeFirst();
+		if (parent === undefined) throw new CaseNotFoundError(args.parentCaseId);
+	}
+
 	async query(args: QueryArgs): Promise<CaseRowWithCalculated[]> {
 		const calculated: ReadonlyArray<CalculatedColumn> = args.calculated ?? [];
 
@@ -506,6 +538,16 @@ export class PostgresCaseStore implements CaseStore {
 		// One transaction across cases + case_indices so a derived
 		// edge insert can't observe a partial cases-row commit.
 		return await this.db.transaction().execute(async (trx) => {
+			if (
+				args.row.parent_case_id !== null &&
+				args.row.parent_case_id !== undefined
+			) {
+				await this.lockRelationshipWrites(trx, args.appId);
+				await this.assertParentExists(trx, {
+					appId: args.appId,
+					parentCaseId: args.row.parent_case_id,
+				});
+			}
 			const inserted = await trx
 				.insertInto("cases")
 				.values(insertRow)
@@ -567,6 +609,16 @@ export class PostgresCaseStore implements CaseStore {
 		// derived edge. A failure anywhere rolls the entire
 		// registration back.
 		return await this.db.transaction().execute(async (trx) => {
+			await this.lockRelationshipWrites(trx, args.appId);
+			if (
+				args.primary.parent_case_id !== null &&
+				args.primary.parent_case_id !== undefined
+			) {
+				await this.assertParentExists(trx, {
+					appId: args.appId,
+					parentCaseId: args.primary.parent_case_id,
+				});
+			}
 			// Primary id generated up-front so child `parent_case_id`
 			// resolves before the bulk-insert lands. UUID v7's
 			// timestamp prefix matches `DEFAULT uuidv7()`'s B-tree
@@ -799,6 +851,15 @@ export class PostgresCaseStore implements CaseStore {
 		// Read inside the transaction so merge + validate + write is
 		// atomic against a concurrent updater of the same row.
 		await this.db.transaction().execute(async (trx) => {
+			if (args.patch.parent_case_id !== undefined) {
+				await this.lockRelationshipWrites(trx, args.appId);
+				if (args.patch.parent_case_id !== null) {
+					await this.assertParentExists(trx, {
+						appId: args.appId,
+						parentCaseId: args.patch.parent_case_id,
+					});
+				}
+			}
 			const existing = await trx
 				.selectFrom("cases as c")
 				.select(["c.case_type", "c.parent_case_id", "c.properties"])
@@ -1214,6 +1275,7 @@ export class PostgresCaseStore implements CaseStore {
 		// so `resetSampleData` can pass its own `trx` and the full
 		// delete + regenerate runs as one Postgres transaction.
 		return await this.db.transaction().execute(async (trx) => {
+			await this.lockRelationshipWrites(trx, args.appId);
 			return await this.generateSampleDataInTransaction(trx, args);
 		});
 	}
@@ -1266,19 +1328,46 @@ export class PostgresCaseStore implements CaseStore {
 		// regeneration so the user never lands on an empty case type.
 		const caseTypeName = args.caseType.name;
 		return await this.db.transaction().execute(async (trx) => {
-			// `case_indices` references are caller-managed (no FK
-			// constraint) — delete first so orphan edges don't
-			// accumulate.
+			await this.lockRelationshipWrites(trx, args.appId);
+			const resetCaseIds = () =>
+				trx
+					.selectFrom("cases as reset_cases")
+					.select("reset_cases.case_id")
+					.where("reset_cases.app_id", "=", args.appId)
+					.where("reset_cases.case_type", "=", caseTypeName)
+					.where("reset_cases.project_id", "=", this.requireProjectId());
+			const tenantCaseIds = () =>
+				trx
+					.selectFrom("cases as tenant_cases")
+					.select("tenant_cases.case_id")
+					.where("tenant_cases.app_id", "=", args.appId)
+					.where("tenant_cases.project_id", "=", this.requireProjectId());
+
+			/* Replacing a parent population cannot preserve its children's
+			 * exact relationships: every referenced parent is about to receive a
+			 * new id. Preserve the surviving child cases and detach them rather
+			 * than cascading an unexpected delete or assigning a random new
+			 * parent. `case_indices` has no FK, so remove both outgoing edges from
+			 * reset rows and tenant-local incoming/derived edges to those rows
+			 * before the parent rows disappear. */
 			await trx
 				.deleteFrom("case_indices")
-				.where("case_id", "in", (eb) =>
-					eb
-						.selectFrom("cases")
-						.select("case_id")
-						.where("app_id", "=", args.appId)
-						.where("case_type", "=", caseTypeName)
-						.where("project_id", "=", this.requireProjectId()),
+				.where((eb) =>
+					eb.or([
+						eb("case_id", "in", resetCaseIds()),
+						eb.and([
+							eb("ancestor_id", "in", resetCaseIds()),
+							eb("case_id", "in", tenantCaseIds()),
+						]),
+					]),
 				)
+				.execute();
+			await trx
+				.updateTable("cases")
+				.set({ parent_case_id: null, modified_on: new Date() })
+				.where("app_id", "=", args.appId)
+				.where("project_id", "=", this.requireProjectId())
+				.where("parent_case_id", "in", resetCaseIds())
 				.execute();
 			const deleteResult = await trx
 				.deleteFrom("cases")

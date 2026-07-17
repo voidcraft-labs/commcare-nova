@@ -24,7 +24,7 @@
 // inline style rather than presence/absence in the DOM.
 
 import { render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import type { Location } from "@/lib/routing/types";
@@ -45,6 +45,11 @@ const locationMock = vi.fn<() => Location>(() => ({
 const previewCaseTargetMock = vi.fn<() => PreviewCaseTarget | undefined>(
 	() => undefined,
 );
+const setPreviewingMock = vi.fn();
+
+beforeEach(() => {
+	setPreviewingMock.mockReset();
+});
 
 vi.mock("@/lib/routing/hooks", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/routing/hooks")>(
@@ -84,6 +89,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		useAppId: () => "app-preview-shell-test",
 		useBuilderIsReady: () => true,
 		usePreviewCaseTarget: () => previewCaseTargetMock(),
+		useSetPreviewing: () => setPreviewingMock,
 	};
 });
 
@@ -219,6 +225,19 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 			expect(isVisible(getByTestId("workspace-stub"))).toBe(false);
 		});
 	}
+
+	it("treats /cases/{caseId} as a running record and restores preview mode after reload", () => {
+		editModeMock.mockReturnValue("edit");
+		locationMock.mockReturnValue({
+			kind: "cases",
+			moduleUuid: MODULE_UUID,
+			caseId: "case-deep-link",
+		});
+		const { getByTestId } = renderShell();
+		expect(isVisible(getByTestId("legacy-case-list-stub"))).toBe(true);
+		expect(isVisible(getByTestId("workspace-stub"))).toBe(false);
+		expect(setPreviewingMock).toHaveBeenCalledWith(true);
+	});
 
 	it("toggling from edit → preview at /cases keeps the workspace mounted but hidden", () => {
 		// Both surfaces should retain state across mode toggles. The

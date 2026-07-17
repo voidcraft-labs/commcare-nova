@@ -14,8 +14,9 @@
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
-import tablerPlayerPause from "@iconify-icons/tabler/player-pause";
+import tablerEdit from "@iconify-icons/tabler/edit";
 import tablerPlayerPlay from "@iconify-icons/tabler/player-play";
+import { usePreviewModeTransition } from "@/components/builder/usePreviewModeTransition";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { usePreviewing } from "@/lib/session/hooks";
 
@@ -26,6 +27,7 @@ interface PreviewToggleProps {
 
 export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {
 	const previewing = usePreviewing();
+	const transitionPreview = usePreviewModeTransition(onSetPreviewing);
 	return (
 		<SimpleTooltip
 			content={
@@ -35,23 +37,21 @@ export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {
 		>
 			<button
 				type="button"
-				onClick={() => onSetPreviewing(!previewing)}
-				aria-pressed={previewing}
+				onClick={() => transitionPreview(!previewing)}
 				className={`inline-flex items-center gap-2 px-4 min-h-11 rounded-lg text-[13px] font-semibold whitespace-nowrap cursor-pointer border transition-all ${
 					previewing
 						? "bg-nova-action border-nova-action text-white shadow-[0_0_16px_rgba(79,70,229,0.4)]"
 						: "bg-nova-violet/[0.12] border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.2]"
 				}`}
 			>
-				{/* Play ↔ pause: idle invites you to run the app; while
-				 *  previewing it reads as "running", press to pause back to
-				 *  editing. */}
+				{/* Preview is a destination, not a media transport. Once inside,
+				 * the control names the useful return action explicitly. */}
 				<Icon
-					icon={previewing ? tablerPlayerPause : tablerPlayerPlay}
+					icon={previewing ? tablerEdit : tablerPlayerPlay}
 					width="17"
 					height="17"
 				/>
-				Preview
+				{previewing ? "Back to edit" : "Preview"}
 			</button>
 		</SimpleTooltip>
 	);

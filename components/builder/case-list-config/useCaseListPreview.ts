@@ -22,6 +22,7 @@ import type { CaseListConfig } from "@/lib/domain";
 import { loadCaseListPreviewAction } from "@/lib/preview/engine/caseDataBinding";
 import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingClient";
 import type { LoadCaseListPreviewResult } from "@/lib/preview/engine/caseDataBindingTypes";
+import { useCaseDataRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
 
 export type CaseListPreviewState =
@@ -49,6 +50,7 @@ export function useCaseListPreview(args: {
 } {
 	const { appId, caseListConfig, currentCaseType, previewObstacle } = args;
 	const docApi = useBlueprintDocApi();
+	const caseDataRevision = useCaseDataRevision(appId, currentCaseType);
 
 	/* `docApi.getState` is a stable bound method on the doc-store singleton,
 	 * so the load only re-fires on a real config / case-type / validity change.
@@ -81,6 +83,7 @@ export function useCaseListPreview(args: {
 			currentCaseType,
 			previewObstacle,
 			docApi.getState,
+			caseDataRevision,
 		],
 	});
 }

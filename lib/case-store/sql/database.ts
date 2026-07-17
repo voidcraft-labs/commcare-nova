@@ -148,8 +148,9 @@ export interface CasesTable {
 	/**
 	 * CommCare's standard `external_id` case metadata — a cross-system
 	 * traceability slot beside `case_name` / `status`, never a JSONB
-	 * key. Nothing writes it yet (HQ import / future features will);
-	 * it exists so the standard-name reads
+	 * key. Nova's sample generator fills it with a deterministic,
+	 * readable identifier; imports and other create flows may supply
+	 * their own. The column also ensures standard-name reads
 	 * (`RESERVED_SCALAR_COLUMN_BY_PROPERTY`'s `external_id` /
 	 * `external-id` entries) resolve to an honest column instead of
 	 * throwing.

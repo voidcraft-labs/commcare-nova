@@ -8,12 +8,9 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerId from "@iconify-icons/tabler/id";
-import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import type { CaseListConfig, Column } from "@/lib/domain";
-import { GenerateSampleDataButton } from "../SampleDataButton";
 import type { CaseListPreviewState } from "../useCaseListPreview";
-import type { SampleDataAction } from "../useSampleData";
 import { projectCaseWorkspaceColumns } from "../workspaceProjection";
 import type { WorkspaceSelection } from "../workspaceSelection";
 import { CanvasNotice, previewNotice } from "./canvasChrome";
@@ -31,9 +28,8 @@ export interface DetailCanvasProps {
 	readonly onAddDetailField: () => void;
 	readonly addDisabledReason: string | undefined;
 	readonly onMoveColumn: (uuid: Column["uuid"], toIndex: number) => void;
-	readonly onRemoveColumn: (column: Column) => void;
 	readonly onShowColumn: (column: Column) => void;
-	readonly generate: SampleDataAction;
+	readonly onRepairColumn: (column: Column) => void;
 }
 
 export function DetailCanvas({
@@ -45,9 +41,8 @@ export function DetailCanvas({
 	onAddDetailField,
 	addDisabledReason,
 	onMoveColumn,
-	onRemoveColumn,
 	onShowColumn,
-	generate,
+	onRepairColumn,
 }: DetailCanvasProps) {
 	const projection = projectCaseWorkspaceColumns(config.columns);
 	const selectedColumnUuid =
@@ -67,107 +62,82 @@ export function DetailCanvas({
 					</p>
 				</header>
 
-				<DetailPreviewState
-					preview={preview}
-					hasFields={projection.detailVisible.length > 0}
-					generate={generate}
-				/>
-
-				<section
-					className="overflow-hidden rounded-2xl border border-white/[0.08] bg-nova-surface/25 p-3"
-					aria-labelledby="case-details-heading"
-				>
-					<div className="mb-3 flex min-h-16 items-center gap-3 rounded-xl bg-nova-deep/35 px-3 py-3">
-						<span className="grid size-10 shrink-0 place-items-center rounded-full bg-white/[0.04] text-nova-text-secondary">
-							<Icon icon={tablerId} width="18" height="18" />
-						</span>
-						<div className="min-w-0 flex-1">
-							<h2
-								id="case-details-heading"
-								className="truncate font-display text-[17px] font-semibold tracking-tight text-nova-text"
-							>
-								{sampleRow?.case_name || "Example case"}
-							</h2>
-							<p className="mt-0.5 text-[12px] leading-relaxed text-nova-text-muted">
-								What people see before they continue.
-							</p>
+				<div className="space-y-5">
+					<section
+						className="overflow-hidden rounded-2xl border border-white/[0.08] bg-nova-surface/25 p-3"
+						aria-labelledby="case-details-heading"
+					>
+						<div className="mb-3 flex min-h-16 items-center gap-3 rounded-xl bg-nova-deep/35 px-3 py-3">
+							<span className="grid size-10 shrink-0 place-items-center rounded-full bg-white/[0.04] text-nova-text-secondary">
+								<Icon icon={tablerId} width="18" height="18" />
+							</span>
+							<div className="min-w-0 flex-1">
+								<h2
+									id="case-details-heading"
+									className="truncate font-display text-[17px] font-semibold tracking-tight text-nova-text"
+								>
+									{sampleRow?.case_name || "Example case"}
+								</h2>
+								<p className="mt-0.5 text-[12px] leading-relaxed text-nova-text-muted">
+									What people see before they continue.
+								</p>
+							</div>
 						</div>
-					</div>
 
-					{projection.detailVisible.length === 0 ? (
-						<CanvasNotice tone="muted">
-							Use Add information to build the detail screen.
-						</CanvasNotice>
-					) : (
-						<DisplayFieldComposer
-							columns={projection.detailVisible}
-							surface="detail"
-							sampleRow={sampleRow}
-							selectedUuid={selectedColumnUuid}
-							brokenColumns={brokenColumns}
-							onSelect={(column) =>
-								onSelect({ type: "column", uuid: column.uuid })
-							}
-							onMove={onMoveColumn}
-							onRemove={onRemoveColumn}
-						/>
-					)}
+						{projection.detailVisible.length === 0 ? (
+							<CanvasNotice tone="muted">
+								Details are optional. Without them, people continue directly
+								from Results.
+							</CanvasNotice>
+						) : (
+							<DisplayFieldComposer
+								columns={projection.detailVisible}
+								surface="detail"
+								sampleRow={sampleRow}
+								selectedUuid={selectedColumnUuid}
+								brokenColumns={brokenColumns}
+								onSelect={(column) =>
+									onSelect({ type: "column", uuid: column.uuid })
+								}
+								onMove={onMoveColumn}
+							/>
+						)}
 
-					<div className="pt-3">
-						<AddInformationControl
-							columns={projection.detailHidden}
-							brokenColumns={brokenColumns}
-							onShow={onShowColumn}
-							onCreate={onAddDetailField}
-							createDisabledReason={addDisabledReason}
-						/>
-					</div>
-				</section>
+						<div className="pt-3">
+							<AddInformationControl
+								surface="detail"
+								columns={projection.detailHidden}
+								brokenColumns={brokenColumns}
+								onShow={onShowColumn}
+								onRepair={onRepairColumn}
+								onCreate={onAddDetailField}
+								createDisabledReason={addDisabledReason}
+							/>
+						</div>
+					</section>
+					<DetailPreviewIssue preview={preview} />
+				</div>
 			</div>
 		</ContentFrame>
 	);
 }
 
-function DetailPreviewState({
+function DetailPreviewIssue({
 	preview,
-	hasFields,
-	generate,
 }: {
 	readonly preview: CaseListPreviewState;
-	readonly hasFields: boolean;
-	readonly generate: SampleDataAction;
 }) {
-	if (!hasFields || preview.kind === "rows") return null;
-
-	if (preview.kind === "empty") {
-		return (
-			<div className="mb-4 rounded-2xl border border-dashed border-nova-border-bright px-5 py-5 text-center">
-				<p className="mb-3 text-[12px] leading-relaxed text-nova-text-muted">
-					Add a few realistic cases to see useful example values while you
-					design.
-				</p>
-				<GenerateSampleDataButton generate={generate} />
-			</div>
-		);
+	if (
+		preview.kind === "rows" ||
+		preview.kind === "empty" ||
+		preview.kind === "idle" ||
+		preview.kind === "loading"
+	) {
+		return null;
 	}
-
-	if (preview.kind === "idle" || preview.kind === "loading") {
-		return (
-			<div className="mb-4 flex min-h-11 items-center justify-center gap-2 text-[12px] text-nova-text-muted">
-				<Icon
-					icon={tablerLoader2}
-					width="14"
-					height="14"
-					className="animate-spin"
-				/>
-				Loading examples…
-			</div>
-		);
-	}
-
 	const notice = previewNotice(preview);
 	return (
-		<div className="mb-4 overflow-hidden rounded-xl border border-nova-border">
+		<div className="overflow-hidden rounded-xl border border-nova-border">
 			<CanvasNotice tone={notice.tone}>{notice.text}</CanvasNotice>
 		</div>
 	);

@@ -66,6 +66,7 @@ function dispatchMutation(
 		case "renameModule":
 		case "updateModule":
 		case "setModuleMedia":
+		case "ensureCaseListConfig":
 		case "addColumn":
 		case "updateColumn":
 		case "removeColumn":

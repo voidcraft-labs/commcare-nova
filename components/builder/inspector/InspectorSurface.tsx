@@ -30,7 +30,7 @@ import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useInspectorContext } from "@/lib/ui/inspector";
 
 interface InspectorSurfaceProps {
-	/** Mono eyebrow above the title — entity context like
+	/** Friendly context above the title — for example,
 	 *  "Column 2 of 5" or "Search input". */
 	readonly kicker: string;
 	/** Entity title — the column header, input label, etc. */
@@ -73,7 +73,7 @@ export function InspectorSurface({
 		<div className="flex-1 min-h-0 flex flex-col">
 			<div className="flex items-center gap-3 px-4 pt-3 pb-2.5 border-b border-nova-border shrink-0">
 				<div className="min-w-0 flex-1">
-					<div className="text-[9px] font-mono uppercase tracking-[0.15em] text-nova-text-muted mb-0.5 truncate">
+					<div className="mb-1 truncate text-[12px] font-medium leading-4 text-nova-text-secondary">
 						{kicker}
 					</div>
 					<div className="text-[15px] font-display font-semibold text-nova-text truncate">

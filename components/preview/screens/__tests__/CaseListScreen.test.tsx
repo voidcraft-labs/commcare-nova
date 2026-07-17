@@ -74,6 +74,7 @@ const SELECTED_CASE_ID = "11111111-1111-1111-1111-111111111111";
 /** Mocked `useSetPreviewCaseTarget` — asserts the selected case datum is
  *  recorded for the form before navigation. */
 const setPreviewCaseTargetMock = vi.fn();
+const setPreviewSelectedCaseMock = vi.fn();
 
 // Routing — mounting the screen reads `useLocation()` to derive
 // `moduleUuid`. The screen branches on `loc.kind === "cases"`,
@@ -89,7 +90,7 @@ const navigateMock = {
 	back: vi.fn(),
 	up: vi.fn(),
 };
-const currentLocation: Location = {
+let currentLocation: Location = {
 	kind: "cases",
 	moduleUuid: MODULE_UUID,
 };
@@ -116,7 +117,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		useBuilderIsReady: () => true,
 		usePreviewCaseTarget: () => undefined,
 		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
-		useSetPreviewSelectedCase: () => vi.fn(),
+		useSetPreviewSelectedCase: () => setPreviewSelectedCaseMock,
 	};
 });
 
@@ -138,14 +139,15 @@ vi.mock("@/lib/auth/hooks/useAuth", () => ({
 vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
 	loadCasesAction: vi.fn(),
 	loadCaseDataAction: vi.fn(),
-	populateSampleCasesAction: vi.fn(),
-	resetSampleCasesAction: vi.fn(),
 	submitFormAction: vi.fn(),
 	loadCaseListPreviewAction: vi.fn(),
 	loadFilterPreviewAction: vi.fn(),
 }));
 
-import { loadCasesAction } from "@/lib/preview/engine/caseDataBinding";
+import {
+	loadCaseDataAction,
+	loadCasesAction,
+} from "@/lib/preview/engine/caseDataBinding";
 import { CaseListScreen } from "../CaseListScreen";
 
 // ── Fixtures ─────────────────────────────────────────────────────
@@ -241,7 +243,7 @@ function renderCaseListScreen(opts: {
 			}
 		: {};
 	const extraFormOrder = opts.secondCaseLoadingForm ? [CLOSE_FORM_UUID] : [];
-	return render(
+	const tree = () => (
 		<BlueprintDocProvider
 			appId={APP_ID}
 			initialDoc={{
@@ -315,13 +317,23 @@ function renderCaseListScreen(opts: {
 			<CaseListScreen
 				screen={{ type: "caseList", moduleIndex: 0, formIndex: 0 }}
 			/>
-		</BlueprintDocProvider>,
+		</BlueprintDocProvider>
 	);
+	const result = render(tree());
+	return Object.assign(result, {
+		rerenderAt(location: Location) {
+			currentLocation = location;
+			result.rerender(tree());
+		},
+	});
 }
 
 beforeEach(() => {
 	capturedDocStore = undefined;
+	currentLocation = { kind: "cases", moduleUuid: MODULE_UUID };
+	setPreviewSelectedCaseMock.mockClear();
 	vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+	vi.mocked(loadCaseDataAction).mockResolvedValue({ kind: "missing" });
 });
 
 /* No `afterEach(mockReset)` — clearing the action mock's
@@ -355,6 +367,27 @@ describe("CaseListScreen — heading", () => {
 		// Inversion check: the first form's name does NOT surface as
 		// the heading, regardless of where it lives in the DOM.
 		expect(screen.queryByRole("heading", { name: FIRST_FORM_NAME })).toBeNull();
+	});
+});
+
+// ── App-pure empty state ────────────────────────────────────────
+
+describe("CaseListScreen — empty case type", () => {
+	it("shows worker-facing registration guidance without builder data controls", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+		});
+
+		expect(await screen.findByText("No cases yet")).toBeDefined();
+		expect(
+			screen.getByText(
+				"Cases will appear here after someone completes a registration form.",
+			),
+		).toBeDefined();
+		expect(
+			screen.queryByRole("button", { name: /generate sample data/i }),
+		).toBeNull();
 	});
 });
 
@@ -927,6 +960,35 @@ describe("CaseListScreen — search-input form", () => {
 		expect(screen.getByText("Alice")).toBeDefined();
 	});
 
+	it("keeps zero-result guidance worker-facing and exposes no authoring fixes", async () => {
+		vi.mocked(loadCasesAction).mockImplementation(filterByNameInputValue);
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [searchInput],
+		});
+
+		await screen.findByText("Alice");
+		fireEvent.change(screen.getByLabelText("Name"), {
+			target: { value: "Nobody" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+		expect(
+			await screen.findByText("No cases match this search."),
+		).toBeDefined();
+		expect(
+			screen.getByText(
+				"Check the spelling, clear a field, or try a broader search.",
+			),
+		).toBeDefined();
+		expect(
+			screen.queryByRole("button", { name: /switch to fuzzy match/i }),
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: /generate sample data/i }),
+		).toBeNull();
+	});
+
 	it("reverts to the filter-only result set after the user clears the input", async () => {
 		// Same mock implementation as the typing test — the value bag
 		// drives row narrowing. Clearing the text input emits an
@@ -1016,10 +1078,14 @@ describe("CaseListScreen — detail confirm step", () => {
 			expect(screen.getByText("Alice")).toBeDefined();
 		});
 
-		// Click the row — the detail pane replaces the results in
-		// place (no navigation yet).
+		// Click the row — the detail pane replaces the results and its
+		// canonical record URL becomes the navigation source of truth.
 		fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
 		expect(navigateMock.openForm).not.toHaveBeenCalled();
+		expect(navigateMock.openCaseDetail).toHaveBeenCalledWith(
+			MODULE_UUID,
+			SELECTED_CASE_ID,
+		);
 		expect(screen.getByRole("heading", { name: "Alice" })).toBeDefined();
 		expect(
 			screen.getByRole("button", { name: /Back to Results/ }),
@@ -1037,6 +1103,14 @@ describe("CaseListScreen — detail confirm step", () => {
 			expect(value.className).not.toContain("whitespace-nowrap");
 			expect(value.className).not.toContain("text-ellipsis");
 		}
+		fireEvent.click(screen.getByRole("button", { name: /Back to Results/ }));
+		expect(navigateMock.openCaseList).toHaveBeenCalledWith(MODULE_UUID);
+		expect(
+			screen.queryByRole("button", { name: /Back to Results/ }),
+		).toBeNull();
+
+		/* Re-open for the Continue half of the journey. */
+		fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
 
 		// Continue — the confirm step ends in the module's case-loading
 		// form (the followup, NOT the order-zero registration form), with
@@ -1057,6 +1131,72 @@ describe("CaseListScreen — detail confirm step", () => {
 		expect(
 			screen.queryByRole("button", { name: /Back to Results/ }),
 		).toBeNull();
+	});
+
+	it("hydrates a canonical /cases/{caseId} deep link even when Results did not return that row", async () => {
+		currentLocation = {
+			kind: "cases",
+			moduleUuid: MODULE_UUID,
+			caseId: SELECTED_CASE_ID,
+		};
+		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+		vi.mocked(loadCaseDataAction).mockResolvedValue({
+			kind: "row",
+			row: {
+				...makeRow(SELECTED_CASE_ID, { name: "Deep-link Alice", age: 31 }),
+			},
+			ancestors: [],
+		});
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_AGE_UUID, "age", "Age"),
+			],
+		});
+
+		expect(
+			await screen.findByRole("heading", { name: "Deep-link Alice" }),
+		).toBeDefined();
+		expect(screen.getByText("31")).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: /Back to Results/ }),
+		).toBeDefined();
+		expect(setPreviewSelectedCaseMock).toHaveBeenCalledWith({
+			caseId: SELECTED_CASE_ID,
+			caseName: "Deep-link Alice",
+		});
+	});
+
+	it("drops the retained record when a preview exit removes the case id from the URL", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice", age: 31 })],
+		});
+		const view = renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "name", "Name"),
+				plainColumn(COL_AGE_UUID, "age", "Age"),
+			],
+		});
+
+		fireEvent.click(await screen.findByRole("button", { name: /Alice/ }));
+		expect(
+			screen.getByRole("button", { name: /Back to Results/ }),
+		).toBeDefined();
+
+		view.rerenderAt({
+			kind: "cases",
+			moduleUuid: MODULE_UUID,
+			caseId: SELECTED_CASE_ID,
+		});
+		view.rerenderAt({ kind: "cases", moduleUuid: MODULE_UUID });
+
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("button", { name: /Back to Results/ }),
+			).toBeNull();
+		});
+		expect(screen.getByRole("heading", { name: MODULE_NAME })).toBeDefined();
 	});
 
 	it("row click navigates straight to the case-loading form when no detail fields are configured", async () => {

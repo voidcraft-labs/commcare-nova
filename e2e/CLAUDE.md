@@ -38,6 +38,14 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   `data-testid`, prefer it for the gate.
 - **Specs live in `e2e/tests/**` only** — Vitest excludes that dir; everything else
   under `e2e/` (helpers, `seed.ts`) is plain TS and importable by Vitest.
+- **Case-workspace visual QA has one canonical fixture.** `e2e/lib/caseWorkspaceSeed.ts`
+  owns a fixed-entity-id patient Search / Results / Details blueprint plus eight stable
+  displayed rows. `seed.ts` installs it through `appendSyntheticBatch`, materializes
+  its case schema, inserts the rows through the tenant-bound case store, and writes the
+  minted app/case ids + canonical routes under `.caseWorkspace` in `seed.json`.
+  `npm run case:manual` is the opt-in, forged-session, open-ended browser harness; its
+  Playwright project is registered only under `CASE_WORKSPACE_MANUAL=1`, so CI cannot
+  enter the forever-wait.
 - **The `multiplayer` project drives FOUR seeded users** in two blocks:
   the two-user matrix (the mechanism) and a four-user co-editing storm (the
   crowd-scale proof — simultaneous four-writer disjoint storm, same-slot

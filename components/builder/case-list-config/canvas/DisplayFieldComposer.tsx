@@ -11,11 +11,10 @@
 import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
-import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
-import tablerMinus from "@iconify-icons/tabler/minus";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import { useId, useState } from "react";
+import tablerSearch from "@iconify-icons/tabler/search";
+import { useId, useMemo, useState } from "react";
 import {
 	ReorderableRow,
 	useReorderableList,
@@ -26,7 +25,6 @@ import {
 	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuLabel,
-	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
@@ -47,7 +45,6 @@ export interface DisplayFieldComposerProps {
 	readonly brokenColumns: ReadonlySet<string>;
 	readonly onSelect: (column: Column) => void;
 	readonly onMove: (uuid: Column["uuid"], toIndex: number) => void;
-	readonly onRemove: (column: Column) => void;
 }
 
 export function DisplayFieldComposer({
@@ -58,7 +55,6 @@ export function DisplayFieldComposer({
 	brokenColumns,
 	onSelect,
 	onMove,
-	onRemove,
 }: DisplayFieldComposerProps) {
 	const canEdit = useCanEdit();
 	const containerKey = useId();
@@ -156,7 +152,6 @@ export function DisplayFieldComposer({
 								setHandleEl={setHandleEl}
 								onMove={(key) => moveByKeyboard(index, key)}
 								onSelect={() => onSelect(column)}
-								onRemove={() => onRemove(column)}
 							/>
 							{previewPortal}
 						</div>
@@ -179,7 +174,6 @@ function FieldRow({
 	setHandleEl,
 	onMove,
 	onSelect,
-	onRemove,
 }: {
 	readonly column: Column;
 	readonly surface: DisplaySurface;
@@ -192,11 +186,9 @@ function FieldRow({
 	readonly setHandleEl: (el: HTMLElement | null) => void;
 	readonly onMove: (key: "ArrowUp" | "ArrowDown" | "Home" | "End") => void;
 	readonly onSelect: () => void;
-	readonly onRemove: () => void;
 }) {
 	const label = columnLabel(column);
 	const screenName = surface === "list" ? "results" : "details";
-	const mustKeepResult = surface === "list" && total === 1;
 	const sample =
 		sampleRow === undefined
 			? "Example value"
@@ -243,8 +235,9 @@ function FieldRow({
 			<button
 				type="button"
 				onClick={onSelect}
+				disabled={!canEdit}
 				aria-pressed={selected}
-				className="grid min-w-0 flex-1 cursor-pointer grid-cols-1 items-center gap-1 px-3 py-3 text-left @min-[34rem]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] @min-[34rem]:gap-5"
+				className="grid min-w-0 flex-1 cursor-pointer grid-cols-1 items-center gap-1 px-3 py-3 text-left disabled:cursor-default @min-[34rem]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] @min-[34rem]:gap-5"
 			>
 				<span className="min-w-0">
 					<span className="flex items-center gap-2">
@@ -269,39 +262,6 @@ function FieldRow({
 					{sample}
 				</span>
 			</button>
-
-			{canEdit && (
-				<DropdownMenu>
-					<SimpleTooltip content={`More options for ${label}`}>
-						<DropdownMenuTrigger
-							type="button"
-							aria-label={`More options for ${label}`}
-							className="grid min-h-11 w-11 shrink-0 cursor-pointer place-items-center self-center rounded-lg text-nova-text-muted transition-colors hover:bg-white/[0.04] hover:text-nova-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet"
-						>
-							<Icon icon={tablerDotsVertical} width="16" height="16" />
-						</DropdownMenuTrigger>
-					</SimpleTooltip>
-					<DropdownMenuContent align="end" className="min-w-64">
-						<DropdownMenuItem
-							disabled={mustKeepResult}
-							onClick={mustKeepResult ? undefined : onRemove}
-							className="min-h-11"
-						>
-							<Icon icon={tablerMinus} width="15" height="15" />
-							<span className="min-w-0 flex-1">
-								{mustKeepResult
-									? "Keep at least one result"
-									: `Remove from ${screenName}`}
-							</span>
-							{mustKeepResult && (
-								<span className="text-[10px] text-nova-text-muted">
-									Add another first
-								</span>
-							)}
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
-			)}
 		</div>
 	);
 }
@@ -313,23 +273,35 @@ function FieldRow({
  * something.
  */
 export function AddInformationControl({
+	surface,
 	columns,
 	brokenColumns,
 	onShow,
+	onRepair,
 	onCreate,
 	createDisabledReason,
 }: {
+	readonly surface: DisplaySurface;
 	readonly columns: readonly Column[];
 	readonly brokenColumns: ReadonlySet<string>;
 	readonly onShow: (column: Column) => void;
+	readonly onRepair: (column: Column) => void;
 	readonly onCreate: () => void;
 	readonly createDisabledReason: string | undefined;
 }) {
 	const canEdit = useCanEdit();
-	if (!canEdit) return null;
+	const [query, setQuery] = useState("");
 	const hasBrokenRecovery = columns.some((column) =>
 		brokenColumns.has(column.uuid),
 	);
+	const filteredColumns = useMemo(() => {
+		const normalized = query.trim().toLocaleLowerCase();
+		if (normalized === "") return columns;
+		return columns.filter((column) =>
+			columnLabel(column).toLocaleLowerCase().includes(normalized),
+		);
+	}, [columns, query]);
+	if (!canEdit) return null;
 
 	if (columns.length === 0) {
 		return (
@@ -338,12 +310,13 @@ export function AddInformationControl({
 				onClick={onCreate}
 				disabledReason={createDisabledReason}
 				className="w-full"
+				dataCaseAdd={surface}
 			/>
 		);
 	}
 
 	return (
-		<DropdownMenu>
+		<DropdownMenu onOpenChange={(open) => !open && setQuery("")}>
 			<DropdownMenuTrigger
 				type="button"
 				aria-label={
@@ -351,6 +324,7 @@ export function AddInformationControl({
 						? "Add information, one existing item needs attention"
 						: "Add information"
 				}
+				data-case-add={surface}
 				className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-nova-border-bright px-4 text-[13px] text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.06]"
 			>
 				<Icon icon={tablerPlus} width="14" height="14" />
@@ -363,13 +337,43 @@ export function AddInformationControl({
 				)}
 				<Icon icon={tablerChevronDown} width="14" height="14" />
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align="start" className="min-w-72">
-				<DropdownMenuGroup>
-					<DropdownMenuLabel>Ready to add</DropdownMenuLabel>
-					{columns.map((column) => (
+			<DropdownMenuContent
+				align="start"
+				className="flex max-h-[min(28rem,var(--available-height))] min-w-72 flex-col overflow-hidden py-0"
+			>
+				<div className="shrink-0 border-b border-white/[0.06] p-2">
+					<label className="flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/55 px-3 focus-within:border-nova-violet/40">
+						<Icon
+							icon={tablerSearch}
+							width="14"
+							height="14"
+							className="shrink-0 text-nova-text-muted"
+						/>
+						<span className="sr-only">Find information</span>
+						<input
+							type="search"
+							value={query}
+							onChange={(event) => setQuery(event.target.value)}
+							placeholder="Find information"
+							autoComplete="off"
+							data-1p-ignore
+							className="min-w-0 flex-1 bg-transparent text-[13px] text-nova-text outline-none placeholder:text-nova-text-muted"
+						/>
+					</label>
+				</div>
+				<DropdownMenuGroup
+					className="min-h-0 flex-1 overflow-y-auto py-1"
+					data-add-information-scroll-region
+				>
+					<DropdownMenuLabel>Available information</DropdownMenuLabel>
+					{filteredColumns.map((column) => (
 						<DropdownMenuItem
 							key={column.uuid}
-							onClick={() => onShow(column)}
+							onClick={() =>
+								brokenColumns.has(column.uuid)
+									? onRepair(column)
+									: onShow(column)
+							}
 							className="min-h-11"
 						>
 							<Icon icon={tablerPlus} width="14" height="14" />
@@ -378,26 +382,35 @@ export function AddInformationControl({
 							</span>
 							{brokenColumns.has(column.uuid) && (
 								<span className="text-[11px] text-nova-rose">
-									Needs attention
+									Fix before adding
 								</span>
 							)}
 						</DropdownMenuItem>
 					))}
-				</DropdownMenuGroup>
-				<DropdownMenuSeparator />
-				<DropdownMenuItem
-					disabled={createDisabledReason !== undefined}
-					onClick={onCreate}
-					className="min-h-11"
-				>
-					<Icon icon={tablerPlus} width="14" height="14" />
-					<span className="min-w-0 flex-1">Create new information</span>
-					{createDisabledReason !== undefined && (
-						<span className="text-[10px] text-nova-text-muted">
-							{createDisabledReason}
-						</span>
+					{filteredColumns.length === 0 && (
+						<p className="px-2 py-4 text-center text-[12px] text-nova-text-muted">
+							No information matches “{query}”.
+						</p>
 					)}
-				</DropdownMenuItem>
+				</DropdownMenuGroup>
+				<div
+					className="shrink-0 border-t border-white/[0.06] p-1"
+					data-add-information-footer
+				>
+					<DropdownMenuItem
+						disabled={createDisabledReason !== undefined}
+						onClick={onCreate}
+						className="min-h-11 rounded-lg"
+					>
+						<Icon icon={tablerPlus} width="14" height="14" />
+						<span className="min-w-0 flex-1">Create new information</span>
+						{createDisabledReason !== undefined && (
+							<span className="text-[10px] text-nova-text-muted">
+								{createDisabledReason}
+							</span>
+						)}
+					</DropdownMenuItem>
+				</div>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

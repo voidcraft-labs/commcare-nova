@@ -547,7 +547,8 @@ export interface CaseStore extends SchemaCaseStore {
 
 	/**
 	 * Drop every row of `caseType.name` for the bound tenant + the
-	 * matching `case_indices` edges, then regenerate from a fresh
+	 * matching `case_indices` edges, detach surviving tenant-local children
+	 * whose deleted parent cannot be preserved, then regenerate from a fresh
 	 * seed. The whole operation runs in one transaction — a
 	 * mid-operation failure rolls back the deletion alongside the
 	 * partial regeneration so the case-type's pre-call population

@@ -86,6 +86,8 @@ const navigateMock = {
 	back: vi.fn(),
 	up: vi.fn(),
 };
+const setPreviewCaseTargetMock = vi.fn();
+const setPreviewSelectedCaseMock = vi.fn();
 
 /* Mutable carrier the `useAppId` mock reads from. Most tests run
  *  against the default `APP_ID`; the `!appId` guard test overrides
@@ -120,6 +122,8 @@ vi.mock("@/lib/session/hooks", async () => {
 		useEditMode: () => "preview" as const,
 		usePreviewing: () => true,
 		useBuilderIsReady: () => true,
+		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
+		useSetPreviewSelectedCase: () => setPreviewSelectedCaseMock,
 	};
 });
 
@@ -130,8 +134,6 @@ vi.mock("@/lib/session/hooks", async () => {
 vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
 	loadCasesAction: vi.fn(),
 	loadCaseDataAction: vi.fn(),
-	populateSampleCasesAction: vi.fn(),
-	resetSampleCasesAction: vi.fn(),
 	submitFormAction: vi.fn(),
 	loadCaseListPreviewAction: vi.fn(),
 	loadFilterPreviewAction: vi.fn(),
@@ -143,6 +145,7 @@ import {
 	submitFormAction,
 } from "@/lib/preview/engine/caseDataBinding";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
+import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { FormScreen } from "../FormScreen";
 
 // ── Fixtures ─────────────────────────────────────────────────────
@@ -286,6 +289,9 @@ beforeEach(() => {
 	onBackMock.mockClear();
 	navigateMock.goHome.mockClear();
 	navigateMock.openModule.mockClear();
+	navigateMock.replace.mockClear();
+	setPreviewCaseTargetMock.mockClear();
+	setPreviewSelectedCaseMock.mockClear();
 	/* Reset the appId carrier so the `!appId` guard test's per-run
 	 *  override doesn't leak into sibling tests. */
 	currentAppId = APP_ID;
@@ -300,6 +306,51 @@ beforeEach(() => {
 	 *  directly-previewed case-loading form) to an empty store; tests that
 	 *  exercise auto-selection override with rows. */
 	vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+});
+
+describe("FormScreen — destructive case-data replacement", () => {
+	it("disables the bound form immediately and replaces it with Results", async () => {
+		vi.mocked(loadCaseDataAction).mockResolvedValue({
+			kind: "row",
+			row: {
+				case_id: FOLLOWUP_CASE_ID,
+				case_type: CASE_TYPE,
+				case_name: "Existing case",
+				app_id: APP_ID,
+				owner_id: "owner-test",
+				status: "open",
+				opened_on: null,
+				modified_on: null,
+				closed_on: null,
+				external_id: null,
+				parent_case_id: null,
+				properties: {},
+			},
+			ancestors: [],
+		});
+		renderFormScreen({
+			formUuid: FOLLOWUP_FORM_UUID,
+			caseId: FOLLOWUP_CASE_ID,
+		});
+
+		const submit = await screen.findByRole("button", { name: /^submit$/i });
+		expect((submit as HTMLButtonElement).disabled).toBe(false);
+		act(() => invalidateCaseData(APP_ID, CASE_TYPE, "replacement"));
+
+		await waitFor(() => {
+			expect((submit as HTMLButtonElement).disabled).toBe(true);
+			expect(navigateMock.replace).toHaveBeenCalledWith({
+				kind: "cases",
+				moduleUuid: MODULE_UUID,
+			});
+		});
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: FOLLOWUP_FORM_UUID,
+		});
+		expect(setPreviewSelectedCaseMock).toHaveBeenCalledWith(undefined);
+		fireEvent.click(submit);
+		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
+	});
 });
 
 // ── Validate-pass: per-FormType action dispatch ─────────────────
@@ -792,12 +843,11 @@ describe("FormScreen — case-loading form previewed directly (no nav caseId)", 
 		).toBeNull();
 	});
 
-	it("keeps the form rendered and offers Generate Sample Data inline when the store is empty — never a loading/empty screen", async () => {
-		/* Empty store → no case to auto-select. The form must STILL render
-		 *  (the flipbook stance — the form stays put, data flips in), with
-		 *  the generate affordance in the submit row in place of Submit, so a
-		 *  case can be created and its data loads straight into the standing
-		 *  form. */
+	it("keeps the form rendered and explains that an existing case must be chosen when the store is empty", async () => {
+		/* Empty store → no case to auto-select. The form still renders for
+		 *  flipbook continuity, but Preview stays app-pure: it explains the
+		 *  normal Results → case-selection journey instead of exposing a
+		 *  builder-only sample-data action. */
 		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
 		renderFormScreen({ formUuid: CLOSE_FORM_UUID });
 
@@ -805,9 +855,14 @@ describe("FormScreen — case-loading form previewed directly (no nav caseId)", 
 		 *  interstitial would have replaced the whole form). */
 		expect((await screen.findAllByRole("textbox")).length).toBeGreaterThan(0);
 		expect(
-			screen.getByRole("button", { name: /generate sample data/i }),
+			screen.getByText(
+				/this form opens an existing case\. start from results and choose a case before continuing\./i,
+			),
 		).toBeDefined();
-		/* Submit is replaced by the generate affordance until a case exists. */
+		expect(
+			screen.queryByRole("button", { name: /generate sample data/i }),
+		).toBeNull();
+		/* No case is bound, so the worker cannot submit this form yet. */
 		expect(screen.queryByRole("button", { name: /^submit$/i })).toBeNull();
 		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
 	});

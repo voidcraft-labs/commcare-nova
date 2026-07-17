@@ -285,6 +285,15 @@ describe("mutationSchema round-trip", () => {
 		});
 	});
 
+	describe("case-list config presence", () => {
+		it("ensures the config", () => {
+			expectRoundTrip({
+				kind: "ensureCaseListConfig",
+				uuid: moduleUuid,
+			});
+		});
+	});
+
 	describe("case-search marker", () => {
 		it("enables", () => {
 			expectRoundTrip({

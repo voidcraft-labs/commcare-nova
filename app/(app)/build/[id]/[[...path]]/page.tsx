@@ -7,7 +7,10 @@
  *   /build/{id}              → home
  *   /build/{id}/{uuid}       → module or form
  *   /build/{id}/{uuid}/{uuid} → form + selected field
- *   /build/{id}/{uuid}/cases  → case list
+ *   /build/{id}/{uuid}/search  → case-search authoring
+ *   /build/{id}/{uuid}/results → case-results authoring
+ *   /build/{id}/{uuid}/details → case-details authoring
+ *   /build/{id}/{uuid}/cases/{caseId} → case record
  *
  * The `path` param is NOT read here — all path resolution happens
  * client-side in `useLocation()` (via `useBuilderPathSegments` +

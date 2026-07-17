@@ -56,6 +56,7 @@ import {
 	SignalGridController,
 	type SignalMode,
 } from "@/lib/signalGridController";
+import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import { INSPECTOR_RAIL_WIDTH, useInspectorContext } from "@/lib/ui/inspector";
 import {
 	computeScaffoldProgress,
@@ -174,7 +175,8 @@ export function ChatSidebar({
 		requestClose: closeInspector,
 	} = useInspectorContext();
 	const docked = inspectorActive && !centered;
-	const railWidth = docked ? INSPECTOR_RAIL_WIDTH : CHAT_SIDEBAR_WIDTH;
+	const shortViewport = useIsBreakpoint("max", 700, "height");
+	const shortInspectorDock = docked && shortViewport;
 	const agentError = useAgentError();
 	const agentStage = useAgentStage();
 	const postBuildEdit = usePostBuildEdit();
@@ -602,7 +604,7 @@ export function ChatSidebar({
 			<motion.div
 				layout={morphing ? "position" : false}
 				data-inspector-rail={centered ? undefined : true}
-				style={centered ? undefined : { width: railWidth }}
+				style={centered ? undefined : { width: "100%" }}
 				className={`pointer-events-auto flex flex-col overflow-hidden transition-[width,max-width,max-height,height,border-radius,border-color] duration-[450ms] ease-[cubic-bezier(0.4,0,0.2,1)] ${
 					centered
 						? "w-full max-w-2xl max-h-[min(700px,80vh)] rounded-2xl border border-nova-border bg-nova-deep"
@@ -788,30 +790,32 @@ export function ChatSidebar({
 				)}
 
 				{/* Nova's thinking panel — permanent status display */}
-				<div className="shrink-0">
-					<SignalPanel
-						active={activeMode !== "idle"}
-						label={activeLabel}
-						suffix={gridSuffix}
-						error={activeMode === "error-fatal"}
-						recovering={activeMode === "error-recovering"}
-						done={activeMode === "done"}
-					>
-						<SignalGrid controller={gridController} messages={messages} />
-					</SignalPanel>
-				</div>
+				{!shortInspectorDock && (
+					<div className="shrink-0">
+						<SignalPanel
+							active={activeMode !== "idle"}
+							label={activeLabel}
+							suffix={gridSuffix}
+							error={activeMode === "error-fatal"}
+							recovering={activeMode === "error-recovering"}
+							done={activeMode === "done"}
+						>
+							<SignalGrid controller={gridController} messages={messages} />
+						</SignalPanel>
+					</div>
+				)}
 
 				{/* A view-only member sees why they can't send, where the composer
 				 *  would be — only when a notice is supplied for the
 				 *  read-only-access case. */}
-				{readOnly && readOnlyNotice && (
+				{!shortInspectorDock && readOnly && readOnlyNotice && (
 					<div className="shrink-0 px-4 py-3 text-sm text-nova-text-muted border-t border-nova-border">
 						{readOnlyNotice}
 					</div>
 				)}
 
 				{/* Input — hidden in readOnly mode */}
-				{!readOnly && (
+				{!shortInspectorDock && !readOnly && (
 					<div className="shrink-0">
 						<ChatInput
 							onSend={handleSend}

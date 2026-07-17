@@ -156,6 +156,11 @@ describe("batchTargetsMissing — entity kinds", () => {
 				{ kind: "removeField", uuid: MISSING } as Mutation,
 			]),
 		).toBe(true);
+		expect(
+			batchTargetsMissing(doc, [
+				{ kind: "ensureCaseListConfig", uuid: MISSING } as Mutation,
+			]),
+		).toBe(true);
 	});
 
 	it("tracks intra-batch adds — an add-then-edit of the same entity is not missing", () => {
@@ -405,15 +410,14 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				},
 			},
 		} as BlueprintDoc;
-		// A wholesale config birth (`updateModule{caseListConfig}`) followed by a
-		// setCaseListMeta in the same batch: the guard tracks the intra-batch birth.
+		// The semantic config ensure followed by setCaseListMeta: the guard tracks
+		// the intra-batch birth without requiring a stale whole-config snapshot.
 		expect(
 			batchTargetsMissing(cleared, [
 				{
-					kind: "updateModule",
+					kind: "ensureCaseListConfig",
 					uuid: moduleUuid,
-					patch: { caseListConfig: { columns: [], searchInputs: [] } },
-				} as unknown as Mutation,
+				} as Mutation,
 				{
 					kind: "setCaseListMeta",
 					uuid: moduleUuid,

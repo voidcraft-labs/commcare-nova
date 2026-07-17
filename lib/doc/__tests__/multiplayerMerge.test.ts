@@ -796,8 +796,9 @@ describe("setCaseListMeta on a peer-removed config", () => {
 
 	it("a same-batch config birth then setCaseListMeta is not falsely rejected", () => {
 		const { doc, moduleUuid } = moduleWithFilter();
-		// Peer cleared the config; a later batch re-creates it wholesale AND edits
-		// its metadata in the same batch — the guard must see the intra-batch birth.
+		// Peer cleared the config; a later batch idempotently re-creates it AND
+		// edits its metadata in the same batch — the guard must see the
+		// intra-batch birth.
 		const cleared = apply(doc, [
 			{
 				kind: "updateModule",
@@ -807,13 +808,14 @@ describe("setCaseListMeta on a peer-removed config", () => {
 		]);
 		const rebirth: Mutation[] = [
 			{
-				kind: "updateModule",
+				kind: "ensureCaseListConfig",
 				uuid: moduleUuid,
-				patch: {
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-				} as Partial<Module>,
+			},
+			{
+				kind: "addColumn",
+				moduleUuid,
+				column: caseListConfig([{ field: "case_name", header: "Name" }])
+					.columns[0],
 			},
 			{
 				kind: "setCaseListMeta",
@@ -825,10 +827,10 @@ describe("setCaseListMeta on a peer-removed config", () => {
 	});
 });
 
-// ── Diff: presence transition + round-trip ─────────────────────────────
+// ── Diff: case-list birth / case-type flip stay granular ───────────────
 
 describe("diff — case-list presence transition", () => {
-	it("emits a wholesale updateModule{caseListConfig} on absent↔present", () => {
+	it("emits an idempotent ensure for an empty absent→present transition", () => {
 		const prev = backfilled(
 			buildDoc({
 				modules: [{ name: "M", caseType: "patient" }],
@@ -842,14 +844,158 @@ describe("diff — case-list presence transition", () => {
 			};
 		});
 		const diff = diffDocsToMutations(prev, next);
-		const wholesale = diff.find(
-			(m) =>
-				m.kind === "updateModule" &&
-				"caseListConfig" in (m.patch as Record<string, unknown>),
+		expect(diff).toContainEqual({
+			kind: "ensureCaseListConfig",
+			uuid: moduleUuid,
+		});
+		expect(
+			diff.some(
+				(m) =>
+					m.kind === "updateModule" && Object.hasOwn(m.patch, "caseListConfig"),
+			),
+		).toBe(false);
+		expect(apply(prev, diff).modules[moduleUuid].caseListConfig).toEqual(
+			next.modules[moduleUuid].caseListConfig,
 		);
-		expect(wholesale).toBeDefined();
-		// No granular column/search-input kinds on the birth transition.
-		expect(diff.some((m) => m.kind === "addColumn")).toBe(false);
+	});
+
+	it("replays a populated birth over a peer config without losing peer items", () => {
+		const prev = backfilled(
+			buildDoc({
+				modules: [{ name: "M", caseType: "patient" }],
+			}),
+		);
+		const moduleUuid = prev.moduleOrder[0];
+		const localColumnUuid = asUuid("00000000-0000-4000-8000-000000000061");
+		const peerColumnUuid = asUuid("00000000-0000-4000-8000-000000000062");
+		const next = produce(prev, (draft) => {
+			draft.modules[moduleUuid].caseListConfig = {
+				columns: [
+					{
+						uuid: localColumnUuid,
+						kind: "plain",
+						field: "case_name",
+						header: "Name",
+					},
+				],
+				searchInputs: [],
+				filter: { kind: "match-all" },
+			};
+		});
+		const localBatch = diffDocsToMutations(prev, next);
+		expect(localBatch).toContainEqual({
+			kind: "ensureCaseListConfig",
+			uuid: moduleUuid,
+		});
+		expect(
+			localBatch.some(
+				(m) =>
+					m.kind === "updateModule" && Object.hasOwn(m.patch, "caseListConfig"),
+			),
+		).toBe(false);
+
+		const peerFresh = apply(prev, [
+			{
+				kind: "addColumn",
+				moduleUuid,
+				column: {
+					uuid: peerColumnUuid,
+					kind: "plain",
+					field: "external_id",
+					header: "External ID",
+				},
+			},
+		]);
+		expect(batchTargetsMissing(peerFresh, localBatch)).toBe(false);
+		const merged = apply(peerFresh, localBatch);
+		expect(
+			merged.modules[moduleUuid].caseListConfig?.columns
+				.map((column) => column.uuid)
+				.sort(),
+		).toEqual([localColumnUuid, peerColumnUuid].sort());
+		expect(merged.modules[moduleUuid].caseListConfig?.filter).toEqual({
+			kind: "match-all",
+		});
+	});
+
+	it("keeps a case-type flip granular so a peer search input survives", () => {
+		const prev = backfilled(
+			buildDoc({
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [{ name: "case_name", label: "Name" }],
+					},
+					{
+						name: "visit",
+						properties: [{ name: "case_name", label: "Name" }],
+					},
+				],
+				modules: [
+					{
+						name: "M",
+						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+					},
+				],
+			}),
+		);
+		const moduleUuid = prev.moduleOrder[0];
+		const localColumnUuid = asUuid("00000000-0000-4000-8000-000000000063");
+		const peerInputUuid = asUuid("00000000-0000-4000-8000-000000000064");
+		const next = produce(prev, (draft) => {
+			draft.modules[moduleUuid].caseType = "visit";
+			draft.modules[moduleUuid].caseListConfig?.columns.push({
+				uuid: localColumnUuid,
+				kind: "plain",
+				field: "case_name",
+				header: "Visit name",
+			});
+		});
+		const localBatch = diffDocsToMutations(prev, next);
+		expect(
+			localBatch.some(
+				(m) =>
+					m.kind === "updateModule" && Object.hasOwn(m.patch, "caseListConfig"),
+			),
+		).toBe(false);
+		expect(localBatch).toContainEqual(
+			expect.objectContaining({
+				kind: "addColumn",
+				moduleUuid,
+				column: expect.objectContaining({ uuid: localColumnUuid }),
+			}),
+		);
+
+		const peerFresh = apply(prev, [
+			{
+				kind: "addSearchInput",
+				moduleUuid,
+				searchInput: {
+					uuid: peerInputUuid,
+					kind: "simple",
+					name: "peer_name",
+					label: "Peer name",
+					type: "text",
+					property: "case_name",
+				},
+			},
+		]);
+		expect(batchTargetsMissing(peerFresh, localBatch)).toBe(false);
+		const merged = apply(peerFresh, localBatch);
+		expect(merged.modules[moduleUuid].caseType).toBe("visit");
+		expect(
+			merged.modules[moduleUuid].caseListConfig?.columns.some(
+				(column) => column.uuid === localColumnUuid,
+			),
+		).toBe(true);
+		expect(
+			merged.modules[moduleUuid].caseListConfig?.searchInputs.map(
+				(input) => input.uuid,
+			),
+		).toContain(peerInputUuid);
 	});
 });
 

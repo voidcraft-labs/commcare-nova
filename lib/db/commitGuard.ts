@@ -126,9 +126,9 @@ export function batchTargetsMissing(
 	// existing config's metadata (`filter` / `icon` / `audioLabel`); a config a
 	// peer concurrently cleared is a missing target, not one to resurrect (the
 	// reducer no-ops on it — see `mutations/modules.ts`). Tracking config
-	// presence (seeded here from the fresh doc, advanced by intra-batch births /
-	// clears below) turns a `setCaseListMeta` on a cleared config into a
-	// conflict rather than a silent lost filter.
+	// presence (seeded here from the fresh doc, advanced by semantic / collection
+	// births and explicit clears below) turns a `setCaseListMeta` on a cleared
+	// config into a conflict rather than a silent lost filter.
 	const modulesWithConfig = new Set<string>();
 	for (const mod of Object.values(doc.modules)) {
 		const config = mod.caseListConfig;
@@ -164,10 +164,9 @@ export function batchTargetsMissing(
 				break;
 			case "updateModule":
 				if (!modules.has(m.uuid)) return true;
-				// The wholesale config birth / clear (the presence transition the
-				// diff emits outside the generic patch): a non-null `caseListConfig`
-				// births it, an explicit `null` clears it — track both so a
-				// same-batch `setCaseListMeta` sees the post-patch presence.
+				// A historical/direct whole-config birth or the live diff's explicit
+				// clear: non-null births it, `null` clears it. Track both so the
+				// guard remains compatible with replayed events and same-batch edits.
 				if ("caseListConfig" in m.patch) {
 					if (m.patch.caseListConfig == null) modulesWithConfig.delete(m.uuid);
 					else modulesWithConfig.add(m.uuid);
@@ -241,6 +240,13 @@ export function batchTargetsMissing(
 			// Add checks the parent module and seeds the new item; update / move
 			// / remove check the ITEM's own uuid (a concurrently-removed target is
 			// a conflict, not a silent no-op). `setCaseListMeta` is module-scoped.
+			case "ensureCaseListConfig":
+				// The ensure targets only the module and idempotently materializes the
+				// config. An already-present peer config is deliberately not a
+				// conflict; its granular contents must survive this stale birth.
+				if (!modules.has(m.uuid)) return true;
+				modulesWithConfig.add(m.uuid);
+				break;
 			case "addColumn":
 				if (!modules.has(m.moduleUuid)) return true;
 				// The first column births a config-less module's config (the

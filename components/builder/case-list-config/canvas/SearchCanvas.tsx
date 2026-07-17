@@ -8,9 +8,9 @@
 // invisible on the screen, so it stays off the canvas).
 //
 // Clicking a thing configures that thing: field rows select their
-// field, while the screen-copy action and depicted Search button open
-// screen settings. The fields are depictions, not live widgets — the
-// global Preview mode mounts the real `SearchInputForm` for searching.
+// field, while Screen settings opens the screen-copy inspector. The
+// fields are depictions, not live widgets — the global Preview mode
+// mounts the real `SearchInputForm` and its functional Search action.
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
@@ -18,9 +18,7 @@ import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerBarcode from "@iconify-icons/tabler/barcode";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
-import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
-import tablerMinus from "@iconify-icons/tabler/minus";
 import tablerSearch from "@iconify-icons/tabler/search";
 import { useId, useMemo, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
@@ -28,35 +26,17 @@ import {
 	ReorderableRow,
 	useReorderableList,
 } from "@/components/builder/shared/useReorderableList";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from "@/components/shadcn/alert-dialog";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { bySortKey } from "@/lib/doc/order/compare";
 import {
 	type CaseSearchConfig,
 	type CaseType,
-	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	type SearchInputDef,
 } from "@/lib/domain";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { useCanEdit } from "@/lib/session/hooks";
-import { summarizeFilter } from "../predicateSummary";
 import {
 	resolveRows,
 	rowHasStructuralError,
@@ -76,16 +56,10 @@ export interface SearchCanvasProps {
 	/** Disabled-add hint — `undefined` means add is enabled. */
 	readonly addInputDisabledReason: string | undefined;
 	readonly onMoveInput: (uuid: SearchInputDef["uuid"], toIndex: number) => void;
-	readonly onRemoveInput: (
-		uuid: SearchInputDef["uuid"],
-		options?: { readonly discardSearchSettings?: boolean },
-	) => void;
 	/** Whether the worker actually sees a search screen (requires an input). */
 	readonly hasSearchSurface?: boolean;
 	/** Whether an always-on rule narrows the Results they go straight to. */
 	readonly hasAutomaticResultsFilter?: boolean;
-	/** Whether removing the only input also needs to discard authored settings. */
-	readonly finalInputRemovalNeedsConfirmation?: boolean;
 }
 
 export function SearchCanvas({
@@ -98,15 +72,12 @@ export function SearchCanvas({
 	onAddInput,
 	addInputDisabledReason,
 	onMoveInput,
-	onRemoveInput,
 	hasSearchSurface,
 	hasAutomaticResultsFilter = false,
-	finalInputRemovalNeedsConfirmation = false,
 }: SearchCanvasProps) {
 	const canEdit = useCanEdit();
 	const containerKey = useId();
 	const [moveAnnouncement, setMoveAnnouncement] = useState("");
-	const [removeTarget, setRemoveTarget] = useState<SearchInputDef | null>(null);
 	const panelSelected = selection?.type === "search-panel";
 	const selectedInputUuid = selection?.type === "input" ? selection.uuid : null;
 	const searchEnabled = hasSearchSurface ?? searchInputs.length > 0;
@@ -168,12 +139,6 @@ export function SearchCanvas({
 		? (searchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE)
 		: "People go straight to results";
 	const subtitle = searchConfig?.searchScreenSubtitle;
-	const buttonLabel =
-		searchConfig?.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL;
-	const displayConditionPhrase = summarizeFilter(
-		searchConfig?.searchButtonDisplayCondition,
-	);
-
 	return (
 		<ContentFrame width="3xl" className="px-6 pt-8 pb-24">
 			<header className="mb-7">
@@ -193,35 +158,39 @@ export function SearchCanvas({
 					panelSelected ? "border-nova-violet" : "border-white/[0.08]"
 				}`}
 			>
-				<div className="flex min-h-14 items-start gap-3 px-1 pb-2">
-					<span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.035] text-nova-text-secondary">
-						<Icon icon={tablerSearch} width="17" height="17" />
-					</span>
-					<div className="min-w-0 flex-1">
-						<p className="font-display text-[16px] font-semibold text-nova-text">
-							{title}
-						</p>
-						{searchEnabled && subtitle !== undefined && (
-							<div className="mt-1 preview-markdown text-[12px] text-nova-text-muted">
-								<PreviewMarkdown>{subtitle}</PreviewMarkdown>
-							</div>
-						)}
+				<div className="flex min-h-16 flex-wrap items-center gap-3 px-1 pb-2">
+					<div className="flex min-w-0 flex-1 items-center gap-3">
+						<span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.035] text-nova-text-secondary">
+							<Icon icon={tablerSearch} width="17" height="17" />
+						</span>
+						<div className="min-w-0 flex-1">
+							<h2 className="font-display text-[16px] font-semibold text-nova-text">
+								{title}
+							</h2>
+							{searchEnabled && subtitle !== undefined && (
+								<div className="mt-1 preview-markdown text-[12px] text-nova-text-muted">
+									<PreviewMarkdown>{subtitle}</PreviewMarkdown>
+								</div>
+							)}
+						</div>
 					</div>
-					{searchEnabled ? (
+					{canEdit && searchEnabled ? (
 						<button
 							type="button"
 							onClick={() => onSelect({ type: "search-panel" })}
-							aria-pressed={panelSelected}
-							className="min-h-11 shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08]"
+							aria-expanded={panelSelected}
+							className="min-h-11 w-full shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
 						>
-							Edit screen text
+							Screen settings
 						</button>
-					) : searchConfig !== undefined && hasAutomaticResultsFilter ? (
+					) : canEdit &&
+						searchConfig !== undefined &&
+						hasAutomaticResultsFilter ? (
 						<button
 							type="button"
 							onClick={() => onSelect({ type: "search-panel" })}
-							aria-pressed={panelSelected}
-							className="min-h-11 shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08]"
+							aria-expanded={panelSelected}
+							className="min-h-11 w-full shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
 						>
 							Search rules
 						</button>
@@ -291,20 +260,6 @@ export function SearchCanvas({
 											onClick={() =>
 												onSelect({ type: "input", uuid: input.uuid })
 											}
-											removalNeedsConfirmation={
-												orderedInputs.length === 1 &&
-												finalInputRemovalNeedsConfirmation
-											}
-											onRemove={() => {
-												if (
-													orderedInputs.length === 1 &&
-													finalInputRemovalNeedsConfirmation
-												) {
-													setRemoveTarget(input);
-													return;
-												}
-												onRemoveInput(input.uuid);
-											}}
 										/>
 										{previewPortal}
 									</div>
@@ -322,64 +277,7 @@ export function SearchCanvas({
 						className="w-full my-3"
 					/>
 				)}
-
-				{/* This looks like the running Search button but, in edit mode,
-				 * opens the one screen-settings surface that owns its copy and
-				 * visibility. Preview mode mounts the real submit action. */}
-				{searchEnabled && (
-					<button
-						type="button"
-						onClick={() => onSelect({ type: "search-panel" })}
-						aria-label={`Edit ${buttonLabel} button text and visibility`}
-						aria-pressed={panelSelected}
-						className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-nova-violet/45 bg-nova-violet/[0.07] px-4 text-sm font-semibold text-nova-violet-bright transition-colors hover:border-nova-violet/70 hover:bg-nova-violet/[0.11]"
-					>
-						<Icon icon={tablerSearch} width="15" height="15" />
-						{buttonLabel}
-					</button>
-				)}
-				{searchEnabled && displayConditionPhrase !== undefined && (
-					<p className="mt-2 px-1 text-[11px] text-nova-text-muted leading-relaxed first-letter:uppercase">
-						The button appears only when {displayConditionPhrase}.
-					</p>
-				)}
 			</div>
-
-			<AlertDialog
-				open={removeTarget !== null}
-				onOpenChange={(open) => {
-					if (!open) setRemoveTarget(null);
-				}}
-			>
-				<AlertDialogContent className="text-left">
-					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
-							Remove the search screen?
-						</AlertDialogTitle>
-						<AlertDialogDescription>
-							This removes {removeTarget?.label || "the final search field"} and
-							its screen settings. Your Results fields and Cases included rule
-							stay unchanged.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Keep search</AlertDialogCancel>
-						<AlertDialogAction
-							onClick={() => {
-								if (removeTarget !== null) {
-									onRemoveInput(removeTarget.uuid, {
-										discardSearchSettings: true,
-									});
-								}
-								setRemoveTarget(null);
-							}}
-							className="bg-nova-rose text-nova-void not-disabled:hover:bg-[color-mix(in_oklab,var(--nova-rose),black_14%)] focus-visible:ring-nova-rose/40"
-						>
-							Remove search
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
 		</ContentFrame>
 	);
 }
@@ -396,8 +294,6 @@ interface InputRowProps {
 	readonly setHandleEl: (el: HTMLElement | null) => void;
 	readonly onMove: (key: "ArrowUp" | "ArrowDown" | "Home" | "End") => void;
 	readonly onClick: () => void;
-	readonly removalNeedsConfirmation: boolean;
-	readonly onRemove: () => void;
 }
 
 function InputRow({
@@ -410,8 +306,6 @@ function InputRow({
 	setHandleEl,
 	onMove,
 	onClick,
-	removalNeedsConfirmation,
-	onRemove,
 }: InputRowProps) {
 	const dflt = defaultDisplayValue(input.default);
 	const label = input.label || input.name || "Untitled field";
@@ -453,8 +347,9 @@ function InputRow({
 			<button
 				type="button"
 				onClick={onClick}
+				disabled={!canEdit}
 				aria-pressed={selected}
-				className="min-w-0 flex-1 cursor-pointer px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet"
+				className="min-w-0 flex-1 cursor-pointer px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet disabled:cursor-default"
 			>
 				<span className="mb-2 flex items-center gap-2">
 					<span
@@ -471,36 +366,6 @@ function InputRow({
 				</span>
 				<AppField input={input} defaultText={dflt} />
 			</button>
-			{canEdit && (
-				<DropdownMenu>
-					<SimpleTooltip content={`More options for ${label}`}>
-						<DropdownMenuTrigger
-							type="button"
-							aria-label={`More options for ${label}`}
-							className="grid min-h-11 w-11 shrink-0 cursor-pointer place-items-center self-center rounded-lg text-nova-text-muted transition-colors hover:bg-white/[0.04] hover:text-nova-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet"
-						>
-							<Icon icon={tablerDotsVertical} width="16" height="16" />
-						</DropdownMenuTrigger>
-					</SimpleTooltip>
-					<DropdownMenuContent align="end" className="min-w-64">
-						<DropdownMenuItem onClick={onRemove} className="min-h-11">
-							<Icon icon={tablerMinus} width="15" height="15" />
-							<span className="flex flex-col items-start">
-								<span>
-									{removalNeedsConfirmation
-										? "Remove search screen…"
-										: "Remove from search"}
-								</span>
-								{removalNeedsConfirmation && (
-									<span className="text-[11px] font-normal text-nova-text-muted">
-										Also removes its screen settings
-									</span>
-								)}
-							</span>
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
-			)}
 		</div>
 	);
 }

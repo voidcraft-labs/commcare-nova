@@ -323,11 +323,10 @@ function pickFieldFromTarget(
  * kind-specific extras across structural-twin transitions (see
  * `preservedColumnSwap`).
  *
- * Kinds the current property can't run (a date format over a text
- * property, say) stay clickable — same convention as the predicate /
- * expression kind menus, so authors switching kinds mid-edit aren't
- * locked out by transient property mismatches — but dim and say what
- * they need instead of their normal description.
+ * Kinds the current property can't run (a date format over text information,
+ * say) stay visible so authors can understand the available presentation
+ * choices, but are disabled with a plain-language reason. A display choice
+ * must never look selectable and then bounce back from the document gate.
  */
 function KindPicker({
 	currentValue,
@@ -406,10 +405,10 @@ function KindPicker({
 								<Menu.Item
 									key={s.kind}
 									onClick={() => replaceWith(s)}
-									disabled={isCurrent}
+									disabled={isCurrent || !isApplicable}
 									className={`${corners} ${MENU_ITEM_CLS} ${CONSOLE_MENU_ITEM_MIN} ${
 										isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									} ${isApplicable ? "" : "opacity-45"}`}
+									}`}
 								>
 									<Icon
 										icon={s.icon}

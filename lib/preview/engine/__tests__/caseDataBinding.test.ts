@@ -67,8 +67,10 @@ import {
 	gt,
 	input,
 	isIn,
+	isNull,
 	literal,
 	not,
+	or,
 	prop,
 	sessionContext,
 	term,
@@ -513,6 +515,7 @@ describe("readCases — running-app search-input composition", () => {
 		const store = makeStore(OWNER_A);
 		const excludedOwnerStore = makeStore(OWNER_A, "excluded-owner");
 		const visibleOwnerStore = makeStore(OWNER_A, "visible-owner");
+		const unownedCaseId = "40000000-0000-0000-0000-000000000003";
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
 		await excludedOwnerStore.insert({
@@ -535,6 +538,25 @@ describe("readCases — running-app search-input composition", () => {
 				properties: { name: "Bob", age: 40 },
 			},
 		});
+		await visibleOwnerStore.insert({
+			appId: APP_ID,
+			row: {
+				case_id: unownedCaseId,
+				case_type: "patient",
+				case_name: "Unowned",
+				status: "open",
+				properties: { name: "Unowned", age: 50 },
+			},
+		});
+		/* Historical/imported rows may carry no CommCare owner. SQL's
+		 * three-valued logic makes `NOT (NULL IN (...))` unknown, so mutate
+		 * this fixture to the nullable storage shape and pin that owner
+		 * exclusion keeps it visible. */
+		await (dbHandle.db as unknown as Kysely<Database>)
+			.updateTable("cases")
+			.set({ owner_id: null })
+			.where("case_id", "=", unownedCaseId)
+			.execute();
 
 		const result = await readCases(store, {
 			appId: APP_ID,
@@ -548,6 +570,7 @@ describe("readCases — running-app search-input composition", () => {
 		if (result.kind !== "rows") return;
 		expect(result.rows.map((row) => [row.case_id, row.owner_id])).toEqual([
 			[BOB_CASE_ID, "visible-owner"],
+			[unownedCaseId, null],
 		]);
 	});
 
@@ -2838,7 +2861,10 @@ describe("loadCasesAction", () => {
 		expect(result).toEqual({ kind: "empty" });
 		expect(stubStore.query).toHaveBeenCalledWith(
 			expect.objectContaining({
-				predicate: not(isIn(prop("patient", "owner_id"), literal(OWNER_A))),
+				predicate: or(
+					isNull(prop("patient", "owner_id")),
+					not(isIn(prop("patient", "owner_id"), literal(OWNER_A))),
+				),
 			}),
 		);
 	});
@@ -2866,6 +2892,58 @@ describe("loadCasesAction", () => {
 			caseType: "patient",
 		});
 		expect(result).toEqual({ kind: "error", message: "App not found." });
+		expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
+	});
+});
+
+// ---------------------------------------------------------------
+// `loadCaseCountAction` (Server Action)
+// ---------------------------------------------------------------
+
+describe("loadCaseCountAction", () => {
+	it("returns the complete unfiltered population for the bound case type", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi.fn(),
+			count: vi.fn().mockResolvedValueOnce(37),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+
+		const { loadCaseCountAction } = await import("../caseDataBinding");
+		const result = await loadCaseCountAction({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+
+		expect(result).toEqual({ kind: "count", count: 37 });
+		expect(stubStore.count).toHaveBeenCalledWith({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+	});
+
+	it("short-circuits before the store when the session is missing", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce(null);
+
+		const { loadCaseCountAction } = await import("../caseDataBinding");
+		expect(
+			await loadCaseCountAction({ appId: APP_ID, caseType: "patient" }),
+		).toEqual({ kind: "unauthenticated" });
 		expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
 	});
 });

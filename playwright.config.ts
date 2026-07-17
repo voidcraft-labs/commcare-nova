@@ -33,6 +33,8 @@ const isCI = !!process.env.CI;
  */
 const MP_SLOWMO = Number(process.env.MP_SLOWMO ?? 0) || 0;
 const MP_MANUAL = process.env.MP_MANUAL === "1";
+/** Open-ended single-user patient-workspace review harness (`npm run case:manual`). */
+const CASE_WORKSPACE_MANUAL = process.env.CASE_WORKSPACE_MANUAL === "1";
 const localHost = urlHost(BASE_URL);
 const isLocalTarget =
 	localHost === "localhost" || localHost === "127.0.0.1" || localHost === "::1";
@@ -59,6 +61,9 @@ const OPTIONAL_SERVER_ENV = [
 	"GOOGLE_CLIENT_ID",
 	"GOOGLE_CLIENT_SECRET",
 	"NOVA_MEDIA_BUCKET",
+	// `case:manual` uses :3100 so it can run beside an existing `npm run dev`
+	// on :3000; Next's production server reads this standard env variable.
+	"PORT",
 	// Suppresses google-auth's GCE metadata probe (a noisy MetadataLookupWarning)
 	// — the smoke env is not on GCP. See scripts/smoke.sh.
 	"METADATA_SERVER_DETECTION",
@@ -155,6 +160,20 @@ export default defineConfig({
 		// closes both windows, which must never run in an unattended suite.
 		...(MP_MANUAL
 			? [{ name: "mp-manual", testMatch: /mp-manual\.spec\.ts/ }]
+			: []),
+		// Single-user case-workspace review, also opt-in so CI never waits for a
+		// human to close the browser. It reuses the ordinary forged smoke session.
+		...(CASE_WORKSPACE_MANUAL
+			? [
+					{
+						name: "case-workspace-manual",
+						testMatch: /case-workspace-manual\.spec\.ts/,
+						use: {
+							...devices["Desktop Chrome"],
+							storageState: "e2e/.auth/state.json",
+						},
+					},
+				]
 			: []),
 	],
 	// Manage our own server only when smoke.sh is driving a localhost run.

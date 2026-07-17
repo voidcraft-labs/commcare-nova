@@ -18,9 +18,19 @@
 "use client";
 import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
+import tablerCheck from "@iconify-icons/tabler/check";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerExclamationCircle from "@iconify-icons/tabler/exclamation-circle";
-import { useCallback, useId, useMemo, useRef } from "react";
+import tablerPlus from "@iconify-icons/tabler/plus";
+import tablerSearch from "@iconify-icons/tabler/search";
+import {
+	useCallback,
+	useId,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import {
 	authorableCaseProperties,
 	type CaseProperty,
@@ -74,6 +84,12 @@ interface PropertyPickerProps {
 	 * name. Low-code authoring surfaces set this even when the persisted value is
 	 * an expression reference; the stored name remains an implementation detail. */
 	readonly displayLabels?: boolean;
+	/** Optional create flow supplied by the owning surface. Property catalogs are
+	 * derived from authored fields, so the picker never invents a mutation itself.
+	 * When present, the action stays fixed below the scrolling choices. */
+	readonly onCreateNew?: () => void;
+	/** Friendly label for the optional fixed create action. */
+	readonly createNewLabel?: string;
 }
 
 /**
@@ -96,10 +112,15 @@ export function PropertyPicker({
 	ariaLabel = "Property",
 	invalid = false,
 	displayLabels = false,
+	onCreateNew,
+	createNewLabel = "Create new information",
 }: PropertyPickerProps) {
 	const ctx = usePredicateEditContext();
 	const triggerId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
+	const searchInputRef = useRef<HTMLInputElement>(null);
+	const [open, setOpen] = useState(false);
+	const [query, setQuery] = useState("");
 
 	const targetCaseTypeName = caseType ?? ctx.currentCaseType;
 	const targetCaseType = useMemo<CaseType | undefined>(
@@ -129,6 +150,27 @@ export function PropertyPicker({
 		displayLabels && selectedProperty !== undefined
 			? friendlyPropertyDisambiguator(selectedProperty, properties)
 			: undefined;
+	const visibleProperties = useMemo(() => {
+		const normalizedQuery = query.trim().toLocaleLowerCase();
+		if (normalizedQuery === "") return properties;
+
+		return properties.filter((property) => {
+			const disambiguator = friendlyPropertyDisambiguator(property, properties);
+			const searchableText = [
+				property.name,
+				humanizeId(property.name),
+				property.label,
+				propertyDisplayLabel(property),
+				disambiguator,
+				propertyTypeLabel(property),
+				effectiveDataType(property),
+			]
+				.filter((part): part is string => typeof part === "string")
+				.join(" ")
+				.toLocaleLowerCase();
+			return searchableText.includes(normalizedQuery);
+		});
+	}, [properties, query]);
 
 	const handleSelect = useCallback(
 		(name: string) => {
@@ -136,6 +178,19 @@ export function PropertyPicker({
 		},
 		[onChange],
 	);
+	const handleOpenChange = useCallback((nextOpen: boolean) => {
+		setOpen(nextOpen);
+		if (!nextOpen) setQuery("");
+	}, []);
+	useLayoutEffect(() => {
+		if (!open) return;
+		/* Menu schedules its default first-item focus during the open commit.
+		 * Queueing our focus from the owning component's layout effect runs after
+		 * that setup, so typing can begin immediately without a timing race. */
+		queueMicrotask(() => {
+			searchInputRef.current?.focus({ preventScroll: true });
+		});
+	}, [open]);
 
 	const triggerClass = [
 		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
@@ -160,7 +215,7 @@ export function PropertyPicker({
 			: `${displayLabel}, ${selectedDisambiguator}`;
 
 	return (
-		<Menu.Root>
+		<Menu.Root open={open} onOpenChange={handleOpenChange}>
 			<Menu.Trigger
 				ref={triggerRef}
 				id={triggerId}
@@ -215,73 +270,149 @@ export function PropertyPicker({
 					sideOffset={4}
 					anchor={triggerRef}
 					className={MENU_POSITIONER_CLS}
-					style={{ minWidth: "var(--anchor-width)", maxHeight: 280 }}
+					style={{ minWidth: "var(--anchor-width)", maxHeight: 360 }}
 				>
-					<Menu.Popup className={`${MENU_POPUP_CLS} max-h-72 overflow-y-auto`}>
-						{properties.length === 0 ? (
-							<div className={`${MENU_ITEM_BASE} text-nova-text-muted italic`}>
-								No applicable properties
+					<Menu.Popup
+						className={`${MENU_POPUP_CLS} flex max-h-[22rem] min-w-[16rem] flex-col`}
+					>
+						<div className="shrink-0 border-b border-white/[0.06] p-2">
+							<label htmlFor={`${triggerId}-search`} className="sr-only">
+								Search information
+							</label>
+							<div className="flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/70 px-3 transition-colors focus-within:border-nova-violet/40 focus-within:ring-1 focus-within:ring-nova-violet/25">
+								<Icon
+									icon={tablerSearch}
+									width="15"
+									height="15"
+									className="shrink-0 text-nova-text-muted"
+								/>
+								<input
+									ref={searchInputRef}
+									id={`${triggerId}-search`}
+									type="search"
+									value={query}
+									onChange={(event) => setQuery(event.target.value)}
+									onKeyDown={(event) => {
+										/* Keep ordinary editing keys out of Menu's typeahead while
+										 * preserving Escape, navigation, Enter, and Tab behavior. */
+										if (
+											![
+												"ArrowDown",
+												"ArrowUp",
+												"Enter",
+												"Escape",
+												"Tab",
+											].includes(event.key)
+										) {
+											event.stopPropagation();
+										}
+									}}
+									placeholder="Search information…"
+									autoComplete="off"
+									data-1p-ignore
+									className="min-w-0 flex-1 bg-transparent text-[13px] text-nova-text outline-none placeholder:text-nova-text-muted"
+								/>
 							</div>
-						) : (
-							properties.map((p, i) => {
-								const isActive = p.name === selectedName;
-								const disambiguator = displayLabels
-									? friendlyPropertyDisambiguator(p, properties)
-									: undefined;
-								const last = properties.length - 1;
-								const corners =
-									i === 0 && i === last
-										? "rounded-xl"
-										: i === 0
-											? "rounded-t-xl"
-											: i === last
-												? "rounded-b-xl"
-												: "";
-								return (
-									<Menu.Item
-										key={p.name}
-										onClick={() => handleSelect(p.name)}
-										className={`${corners} ${
-											isActive
-												? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`
-												: MENU_ITEM_CLS
-										}`}
-									>
-										<Icon
-											icon={tablerDatabase}
-											width="14"
-											height="14"
-											className={
+						</div>
+
+						<div
+							className="min-h-0 flex-1 overflow-y-auto p-1"
+							style={{ scrollbarGutter: "stable" }}
+						>
+							{properties.length === 0 ? (
+								<div className="px-3 py-4 text-center text-[12px] leading-relaxed text-nova-text-muted">
+									No information is available yet.
+								</div>
+							) : visibleProperties.length === 0 ? (
+								<div className="px-3 py-4 text-center text-[12px] leading-relaxed text-nova-text-muted">
+									No information matches “{query.trim()}”.
+								</div>
+							) : (
+								visibleProperties.map((p, i) => {
+									const isActive = p.name === selectedName;
+									const disambiguator = displayLabels
+										? friendlyPropertyDisambiguator(p, properties)
+										: undefined;
+									const last = visibleProperties.length - 1;
+									const corners =
+										i === 0 && i === last
+											? "rounded-lg"
+											: i === 0
+												? "rounded-t-lg"
+												: i === last
+													? "rounded-b-lg"
+													: "";
+									return (
+										<Menu.Item
+											key={p.name}
+											onClick={() => handleSelect(p.name)}
+											className={`${corners} ${
 												isActive
-													? "text-nova-violet-bright"
-													: "text-nova-text-muted"
-											}
-										/>
-										<span className="flex-1 text-left min-w-0">
-											<div
+													? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`
+													: MENU_ITEM_CLS
+											}`}
+										>
+											<Icon
+												icon={tablerDatabase}
+												width="14"
+												height="14"
 												className={
-													displayLabels ? "truncate" : "font-mono truncate"
-												}
-											>
-												{displayLabels ? propertyDisplayLabel(p) : p.name}
-											</div>
-											<div
-												className={`text-[10px] ${
 													isActive
 														? "text-nova-violet-bright"
 														: "text-nova-text-muted"
-												}`}
-											>
-												{displayLabels
-													? [disambiguator, propertyTypeLabel(p)]
-															.filter(Boolean)
-															.join(" · ")
-													: effectiveDataType(p)}
-											</div>
-										</span>
-									</Menu.Item>
-								);
-							})
+												}
+											/>
+											<span className="flex-1 text-left min-w-0">
+												<div
+													className={
+														displayLabels ? "truncate" : "font-mono truncate"
+													}
+												>
+													{displayLabels ? propertyDisplayLabel(p) : p.name}
+												</div>
+												<div
+													className={`text-[10px] ${
+														isActive
+															? "text-nova-violet-bright"
+															: "text-nova-text-muted"
+													}`}
+												>
+													{displayLabels
+														? [disambiguator, propertyTypeLabel(p)]
+																.filter(Boolean)
+																.join(" · ")
+														: effectiveDataType(p)}
+												</div>
+											</span>
+											{isActive && (
+												<Icon
+													icon={tablerCheck}
+													width="14"
+													height="14"
+													className="shrink-0 text-nova-violet-bright"
+												/>
+											)}
+										</Menu.Item>
+									);
+								})
+							)}
+						</div>
+
+						{onCreateNew !== undefined && (
+							<div className="shrink-0 border-t border-white/[0.06] p-1">
+								<Menu.Item
+									onClick={onCreateNew}
+									className={`${MENU_ITEM_CLS} min-h-11 rounded-lg font-medium text-nova-violet-bright`}
+								>
+									<Icon
+										icon={tablerPlus}
+										width="15"
+										height="15"
+										className="shrink-0"
+									/>
+									<span>{createNewLabel}</span>
+								</Menu.Item>
+							</div>
 						)}
 					</Menu.Popup>
 				</Menu.Positioner>

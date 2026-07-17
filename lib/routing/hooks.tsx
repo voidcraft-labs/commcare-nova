@@ -122,13 +122,13 @@ export interface NavigateActions {
 	openCaseDetail: (moduleUuid: Uuid, caseId: string) => void;
 	/**
 	 * Open the case-search authoring workspace for `moduleUuid`. Routes
-	 * to `/build/{appId}/{moduleUuid}/search-config`. Sibling to
+	 * to `/build/{appId}/{moduleUuid}/search`. Sibling to
 	 * `openCaseList` — same per-module shape, different config slot.
 	 */
 	openSearchConfig: (moduleUuid: Uuid) => void;
 	/**
-	 * Open the case-detail authoring workspace for `moduleUuid`. Routes
-	 * to `/build/{appId}/{moduleUuid}/detail-config` — the third tab of
+	 * Open the case-details authoring workspace for `moduleUuid`. Routes
+	 * to `/build/{appId}/{moduleUuid}/details` — the third tab of
 	 * the case-list workspace alongside `openCaseList` / `openSearchConfig`.
 	 */
 	openDetailConfig: (moduleUuid: Uuid) => void;
@@ -166,7 +166,7 @@ export function useIsModuleSelected(uuid: Uuid): boolean {
 /**
  * `true` when any of the case-list workspace's URLs (list / search /
  * detail tab) is open for this module. Used by the tree sidebar's
- * Case List & Search node for highlight state.
+ * Search, Results & Details node for highlight state.
  */
 export function useIsCaseListSelected(uuid: Uuid): boolean {
 	const loc = useLocation();
@@ -233,8 +233,8 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		formUuid ? s.forms[formUuid]?.name : undefined,
 	);
 	/* A bare case list (a `caseListOnly` module) has no module screen — it IS
-	 * its case list. Its module crumb points straight at the list, and the
-	 * intermediate "Case List" crumb is dropped (below) so the trail doesn't
+	 * its Results screen. Its module crumb points straight at Results, and the
+	 * intermediate "Results" crumb is dropped (below) so the trail doesn't
 	 * restate the same destination twice. */
 	const moduleIsBareCaseList = useIsBareCaseListModule(moduleUuid);
 
@@ -252,16 +252,16 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 			});
 		}
 		// The trailing crumb names the workspace tab, word-for-word
-		// ("Case List" / "Search" / "Case Detail") — the module crumb
+		// ("Search" / "Results" / "Details") — the module crumb
 		// already carries the case-type context, so a "client search"-
 		// style prefix would just restate it in a different casing.
 		if (loc.kind === "cases") {
-			/* The module crumb already points at the list for a bare case
+			/* The module crumb already points at Results for a bare case
 			 * list, so this intermediate crumb would just repeat it. */
 			if (!moduleIsBareCaseList) {
 				items.push({
 					key: `cases:${moduleUuid}`,
-					label: "Case List",
+					label: "Results",
 					location: { kind: "cases", moduleUuid: loc.moduleUuid },
 				});
 			}
@@ -287,7 +287,7 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		if (loc.kind === "detail-config") {
 			items.push({
 				key: `detail-config:${moduleUuid}`,
-				label: "Case Detail",
+				label: "Details",
 				location: { kind: "detail-config", moduleUuid: loc.moduleUuid },
 			});
 		}

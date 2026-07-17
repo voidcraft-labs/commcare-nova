@@ -30,11 +30,11 @@ Results and Details have separate arrangements. Moving an item in Results does
 not move it in Details, so each screen can follow the reading order that makes
 sense there.
 
-The normal canvas stays focused on what people will see. Open a row's **More**
-menu to remove it from Search, Results, or Details. Information removed from
-one screen does not become a permanent shelf in the workspace. If you later
-choose **Add information**, Nova quietly offers that existing setup alongside
-the option to create something new.
+The normal canvas stays focused on what people will see. Select a Results or
+Details row, then use **Hide from results** or **Hide from details** at the
+bottom of its properties. Hiding is reversible: the information stays out of
+the way until you choose **Add information**, where Nova offers it again.
+Search fields can be removed from the bottom of their own properties.
 
 ## Choose which cases appear first
 
@@ -65,6 +65,24 @@ though older CommCare wire formats have alternate spellings for them.
 `current_status` property appears only when the app has intentionally created
 one; Nova does not treat it as a second spelling of Case status.
 
+## Manage the data used for testing
+
+Use **Case data** in the builder's breadcrumb bar to see the complete,
+unfiltered number of cases for the current module. When there are none, you
+can create a realistic sample set. When cases already exist, Nova offers a
+single **Replace all cases** action and confirms before deleting anything.
+That confirmation is important: replacement includes cases entered by hand
+or through Preview, not only generated examples. If another case type contains
+cases linked to the replaced cases, Nova preserves those cases and clears the
+links whose old targets no longer exist. It never silently deletes the linked
+case or assigns it to an unrelated new sample case.
+
+Sample cases include readable names and unique external IDs, so standard
+information chosen for Results or Details shows useful examples immediately.
+
+Case-data controls stay outside Preview. Preview contains only the app a
+frontline user will run, so every button there behaves like a real app button.
+
 ## Preview without starting over
 
 The edit canvases can show values from your real case data while you configure
@@ -74,13 +92,15 @@ same case data. Entering a search leaves the current results in place until you
 choose the screen's Search button, matching the app people will ultimately use.
 
 Nova keeps the running preview in its flipbook. Switch back to edit a setting,
-then return to Preview and continue where you left off instead of restarting
-the app and retracing every step.
+with **Back to edit**, then return to Preview and continue where you left off
+instead of restarting the app and retracing every step.
 
 ## Working with the sidebars
 
 The workspace is designed to remain readable with both sidebars open. Use the
 left sidebar to keep your place in the app and the right sidebar for chat or
-the settings of the selected item. You can collapse either sidebar when you
-want more room; the canvas reflows without moving a setting to a different
-place.
+the settings of the selected item. On narrower desktop windows, both open
+sidebars compact to preserve useful canvas space. On short windows, selecting
+an item gives its properties priority and condenses chat to a return bar. You
+can collapse either sidebar when you want more room; the canvas reflows without
+moving a setting to a different place.

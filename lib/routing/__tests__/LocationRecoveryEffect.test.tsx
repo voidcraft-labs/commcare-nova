@@ -67,6 +67,7 @@ function makeStore() {
 				{
 					uuid: "module-1-uuid",
 					name: "M",
+					caseType: "patient",
 					forms: [
 						{
 							uuid: "form-1-uuid",
@@ -127,6 +128,26 @@ describe("LocationRecoveryEffect", () => {
 		renderEffect(store);
 
 		expect(replaceStateSpy).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["cases", "results"],
+		["search-config", "search"],
+		["detail-config", "details"],
+	] as const)("canonicalizes the legacy /%s authoring alias to /%s", async (legacySegment, canonicalSegment) => {
+		const store = makeStore();
+		const moduleUuid = store.getState().moduleOrder[0];
+		mockSegments.current = [moduleUuid, legacySegment];
+
+		renderEffect(store);
+
+		await waitFor(() => {
+			expect(replaceStateSpy).toHaveBeenCalledWith(
+				null,
+				"",
+				`${pathname}/${moduleUuid}/${canonicalSegment}`,
+			);
+		});
 	});
 
 	it("strips stale selectedUuid and keeps the form", async () => {

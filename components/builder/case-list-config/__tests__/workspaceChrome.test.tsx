@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	asUuid,
@@ -52,7 +52,6 @@ describe("case workspace chrome", () => {
 				brokenColumns={new Set()}
 				onSelect={() => {}}
 				onMove={onMove}
-				onRemove={() => {}}
 			/>,
 		);
 
@@ -68,8 +67,8 @@ describe("case workspace chrome", () => {
 		expect(screen.queryByText(/^1$/)).toBeNull();
 	});
 
-	it("keeps the last result with friendly disabled guidance", () => {
-		const onHide = vi.fn();
+	it("keeps membership actions out of the result row", () => {
+		const onSelect = vi.fn();
 		render(
 			<DisplayFieldComposer
 				columns={[NAME]}
@@ -77,70 +76,16 @@ describe("case workspace chrome", () => {
 				sampleRow={undefined}
 				selectedUuid={null}
 				brokenColumns={new Set()}
-				onSelect={() => {}}
+				onSelect={onSelect}
 				onMove={() => {}}
-				onRemove={onHide}
 			/>,
 		);
 
-		expect(screen.queryByText("Hide")).toBeNull();
+		expect(screen.queryByRole("button", { name: /more options/i })).toBeNull();
 		fireEvent.click(
-			screen.getByRole("button", { name: "More options for Patient name" }),
+			screen.getByRole("button", { name: /patient name example value/i }),
 		);
-		const keepItem = screen.getByRole("menuitem", {
-			name: /keep at least one result add another first/i,
-		});
-		expect(keepItem.getAttribute("aria-disabled")).toBe("true");
-		fireEvent.click(keepItem);
-		expect(onHide).not.toHaveBeenCalled();
-	});
-
-	it("removes a result once another remains", () => {
-		const onRemove = vi.fn();
-		render(
-			<DisplayFieldComposer
-				columns={[NAME, DOB]}
-				surface="list"
-				sampleRow={undefined}
-				selectedUuid={null}
-				brokenColumns={new Set()}
-				onSelect={() => {}}
-				onMove={() => {}}
-				onRemove={onRemove}
-			/>,
-		);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "More options for Patient name" }),
-		);
-		fireEvent.click(
-			screen.getByRole("menuitem", { name: "Remove from results" }),
-		);
-		expect(onRemove).toHaveBeenCalledWith(NAME);
-	});
-
-	it("allows removing the last detail field", () => {
-		const onRemove = vi.fn();
-		render(
-			<DisplayFieldComposer
-				columns={[NAME]}
-				surface="detail"
-				sampleRow={undefined}
-				selectedUuid={null}
-				brokenColumns={new Set()}
-				onSelect={() => {}}
-				onMove={() => {}}
-				onRemove={onRemove}
-			/>,
-		);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "More options for Patient name" }),
-		);
-		fireEvent.click(
-			screen.getByRole("menuitem", { name: "Remove from details" }),
-		);
-		expect(onRemove).toHaveBeenCalledWith(NAME);
+		expect(onSelect).toHaveBeenCalledWith(NAME);
 	});
 
 	it("offers removed information only after the author asks to add", () => {
@@ -148,22 +93,100 @@ describe("case workspace chrome", () => {
 		const onShow = vi.fn();
 		render(
 			<AddInformationControl
+				surface="list"
 				columns={[hidden]}
 				brokenColumns={new Set()}
 				onShow={onShow}
+				onRepair={() => {}}
 				onCreate={() => {}}
 				createDisabledReason={undefined}
 			/>,
 		);
 
 		expect(screen.queryByText("Date of birth")).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Add information" }));
+		const addInformation = screen.getByRole("button", {
+			name: "Add information",
+		});
+		expect(addInformation.getAttribute("data-case-add")).toBe("list");
+		fireEvent.click(addInformation);
 		fireEvent.click(screen.getByRole("menuitem", { name: "Date of birth" }));
 		expect(onShow).toHaveBeenCalledWith(hidden);
 		expect(screen.queryByText("date_of_birth")).toBeNull();
 	});
 
-	it("keeps search-field membership in the center composition", () => {
+	it("routes saved information that needs a fix to repair instead of revealing it", () => {
+		const hidden = column("33", "date_of_birth", "Date of birth");
+		const onShow = vi.fn();
+		const onRepair = vi.fn();
+		render(
+			<AddInformationControl
+				surface="list"
+				columns={[hidden]}
+				brokenColumns={new Set([hidden.uuid])}
+				onShow={onShow}
+				onRepair={onRepair}
+				onCreate={() => {}}
+				createDisabledReason={undefined}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Add information, one existing item needs attention",
+			}),
+		);
+		fireEvent.click(
+			screen.getByRole("menuitem", {
+				name: /date of birth.*fix before adding/i,
+			}),
+		);
+
+		expect(onRepair).toHaveBeenCalledWith(hidden);
+		expect(onShow).not.toHaveBeenCalled();
+	});
+
+	it("keeps a large recovery inventory searchable with creation outside its scroll region", () => {
+		const hiddenColumns = Array.from({ length: 24 }, (_, index) =>
+			column(String(index + 100), `field_${index + 1}`, `Field ${index + 1}`),
+		);
+		render(
+			<AddInformationControl
+				surface="list"
+				columns={hiddenColumns}
+				brokenColumns={new Set()}
+				onShow={() => {}}
+				onRepair={() => {}}
+				onCreate={() => {}}
+				createDisabledReason={undefined}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Add information" }));
+		expect(screen.getAllByRole("menuitem")).toHaveLength(25);
+
+		const scrollRegion = document.querySelector(
+			"[data-add-information-scroll-region]",
+		);
+		const footer = document.querySelector("[data-add-information-footer]");
+		const createItem = screen.getByRole("menuitem", {
+			name: "Create new information",
+		});
+		expect(scrollRegion).not.toBeNull();
+		expect(footer).not.toBeNull();
+		expect(scrollRegion?.contains(createItem)).toBe(false);
+		expect(footer?.contains(createItem)).toBe(true);
+
+		fireEvent.change(
+			screen.getByRole("searchbox", { name: "Find information" }),
+			{
+				target: { value: "Field 23" },
+			},
+		);
+		expect(screen.getByRole("menuitem", { name: "Field 23" })).toBeDefined();
+		expect(screen.queryByRole("menuitem", { name: "Field 2" })).toBeNull();
+	});
+
+	it("opens Search screen settings without depicting a submit button", () => {
 		const input = simpleSearchInputDef(
 			asUuid("00000000-0000-4000-8000-000000000004"),
 			"case_name",
@@ -171,12 +194,15 @@ describe("case workspace chrome", () => {
 			"text",
 			"case_name",
 		);
-		const onRemoveInput = vi.fn();
+		const onSelect = vi.fn();
 
 		render(
 			<SearchCanvas
 				searchInputs={[input]}
-				searchConfig={undefined}
+				searchConfig={{
+					searchScreenTitle: "Find a patient",
+					searchButtonLabel: "Find matching cases",
+				}}
 				caseTypes={[
 					{
 						name: "patient",
@@ -187,22 +213,22 @@ describe("case workspace chrome", () => {
 				]}
 				currentCaseType="patient"
 				selection={null}
-				onSelect={() => {}}
+				onSelect={onSelect}
 				onAddInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
-				onRemoveInput={onRemoveInput}
 			/>,
 		);
 
-		fireEvent.click(
-			screen.getByRole("button", { name: "More options for Patient name" }),
-		);
-		fireEvent.click(
-			screen.getByRole("menuitem", { name: "Remove from search" }),
-		);
-
-		expect(onRemoveInput).toHaveBeenCalledWith(input.uuid);
+		expect(
+			screen.getByRole("heading", { name: "Find a patient" }),
+		).toBeDefined();
+		expect(
+			screen.queryByRole("button", { name: "Find matching cases" }),
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: /more options/i })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Screen settings" }));
+		expect(onSelect).toHaveBeenCalledWith({ type: "search-panel" });
 	});
 
 	it("moves a search field with one identity-keyed gesture", () => {
@@ -233,7 +259,6 @@ describe("case workspace chrome", () => {
 				onAddInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={onMoveInput}
-				onRemoveInput={() => {}}
 			/>,
 		);
 
@@ -290,74 +315,6 @@ describe("case workspace chrome", () => {
 		});
 	});
 
-	it("confirms before removing a customized search screen", async () => {
-		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000005"),
-			"case_name",
-			"Patient name",
-			"text",
-			"case_name",
-		);
-		const onRemoveInput = vi.fn();
-
-		render(
-			<SearchCanvas
-				searchInputs={[input]}
-				searchConfig={{ searchScreenTitle: "Find a patient" }}
-				caseTypes={[]}
-				currentCaseType="patient"
-				selection={null}
-				onSelect={() => {}}
-				onAddInput={() => {}}
-				addInputDisabledReason={undefined}
-				onMoveInput={() => {}}
-				onRemoveInput={onRemoveInput}
-				finalInputRemovalNeedsConfirmation
-			/>,
-		);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "More options for Patient name" }),
-		);
-		fireEvent.click(
-			screen.getByRole("menuitem", {
-				name: /remove search screen.*also removes its screen settings/i,
-			}),
-		);
-		expect(
-			screen.getByRole("heading", { name: "Remove the search screen?" }),
-		).toBeDefined();
-		expect(
-			screen.getByText(/results fields and cases included rule/i),
-		).toBeDefined();
-		fireEvent.click(screen.getByRole("button", { name: "Keep search" }));
-		expect(onRemoveInput).not.toHaveBeenCalled();
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "More options for Patient name" }),
-		);
-		fireEvent.click(
-			screen.getByRole("menuitem", {
-				name: /remove search screen.*also removes its screen settings/i,
-			}),
-		);
-		// Let FloatingFocusManager finish the newly-opened dialog's initial-focus
-		// microtask before immediately accepting it. Otherwise the test can close
-		// the dialog in the same turn that mounted it and strand that task.
-		await waitFor(() =>
-			expect(
-				screen.getByRole("heading", { name: "Remove the search screen?" }),
-			).toBeDefined(),
-		);
-		await Promise.resolve();
-		fireEvent.click(screen.getByRole("button", { name: "Remove search" }));
-		expect(onRemoveInput).toHaveBeenCalledWith(input.uuid, {
-			discardSearchSettings: true,
-		});
-		// Base UI releases the dialog focus/scroll lock on the next macrotask.
-		await new Promise<void>((resolve) => setTimeout(resolve, 0));
-	});
-
 	it("guides a fresh Search screen to add a field before exposing settings", () => {
 		render(
 			<SearchCanvas
@@ -370,7 +327,6 @@ describe("case workspace chrome", () => {
 				onAddInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
-				onRemoveInput={() => {}}
 				hasSearchSurface={false}
 			/>,
 		);
@@ -380,7 +336,7 @@ describe("case workspace chrome", () => {
 		).toBeDefined();
 		expect(screen.getByText("People go straight to results")).toBeDefined();
 		expect(
-			screen.queryByRole("button", { name: "Edit screen text" }),
+			screen.queryByRole("button", { name: "Screen settings" }),
 		).toBeNull();
 		expect(
 			screen.getByRole("button", { name: "Add search field" }),
@@ -400,7 +356,6 @@ describe("case workspace chrome", () => {
 				onAddInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
-				onRemoveInput={() => {}}
 				hasSearchSurface={false}
 			/>,
 		);
@@ -423,7 +378,6 @@ describe("case workspace chrome", () => {
 				onAddInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
-				onRemoveInput={() => {}}
 				hasSearchSurface={false}
 				hasAutomaticResultsFilter
 			/>,
@@ -433,10 +387,7 @@ describe("case workspace chrome", () => {
 		expect(screen.getByText(/cases included rule narrows/i)).toBeDefined();
 		expect(screen.queryByText("Unused title")).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: /edit screen text/i }),
-		).toBeNull();
-		expect(
-			screen.queryByRole("button", { name: /edit search button/i }),
+			screen.queryByRole("button", { name: "Screen settings" }),
 		).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Search rules" }));
 		expect(onSelect).toHaveBeenCalledWith({ type: "search-panel" });
@@ -479,13 +430,9 @@ describe("case workspace chrome", () => {
 				addColumnDisabledReason={undefined}
 				onMoveColumn={() => {}}
 				onColumnsChange={() => {}}
-				onRemoveColumn={() => {}}
 				onShowColumn={() => {}}
+				onRepairColumn={() => {}}
 				onOpenOptions={() => {}}
-				generateSampleData={{
-					status: { kind: "idle" },
-					run: async () => {},
-				}}
 			/>,
 		);
 

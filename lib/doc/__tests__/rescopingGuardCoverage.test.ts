@@ -697,6 +697,19 @@ const GUARD_COVERAGE = {
 	},
 
 	// ── Case-list collections ────────────────────────────────────────
+	ensureCaseListConfig: {
+		neverGates:
+			"births only the empty collection container; rules already treat absence as empty, and substantive edits follow as granular mutations",
+		build: () => {
+			const doc = structuredClone(richDoc()) as BlueprintDoc;
+			const moduleUuid = asUuid("mod-patients");
+			delete doc.modules[moduleUuid].caseListConfig;
+			return {
+				doc,
+				batch: [{ kind: "ensureCaseListConfig", uuid: moduleUuid }],
+			};
+		},
+	},
 	addColumn: {
 		build: () => {
 			const doc = richDoc();

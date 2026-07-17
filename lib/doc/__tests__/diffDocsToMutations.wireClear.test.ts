@@ -101,8 +101,8 @@ describe("diffDocsToMutations — clearing an optional slot survives the wire", 
 		expect(prev.modules[moduleUuid].caseListConfig?.filter).toBeDefined();
 
 		// Clear just the nested `filter` — the surrounding `caseListConfig`
-		// survives. The diff emits a wholesale `caseListConfig` patch whose
-		// rebuilt object omits `filter`.
+		// survives. The granular metadata mutation carries an explicit `null`
+		// for the filter so the clear survives JSON serialization.
 		const next = produce(prev, (d) => {
 			const config = d.modules[moduleUuid].caseListConfig;
 			if (config) config.filter = undefined;

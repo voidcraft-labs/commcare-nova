@@ -5,8 +5,7 @@
 // drag the visible rows where workers will see them, add information
 // in place, and compose the default case ordering as a readable sentence.
 // Selecting one item opens its data source and formatting in the right rail.
-// The tab IS the URL (`/cases`,
-// `/search-config`, `/detail-config`), so tab switches are ordinary
+// The tab IS the URL (`/search`, `/results`, `/details`), so tab switches are ordinary
 // history navigation and deep links land on the right canvas. The
 // run-through lives behind the chrome's global Preview toggle —
 // this surface carries no preview affordance of its own.
@@ -25,6 +24,7 @@
 
 "use client";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
+import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import tablerId from "@iconify-icons/tabler/id";
 import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerSearch from "@iconify-icons/tabler/search";
@@ -34,12 +34,20 @@ import { ContentFrame } from "@/components/builder/ContentFrame";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
 import { EditableTitle } from "@/components/builder/EditableTitle";
 import { InspectorSurface } from "@/components/builder/inspector/InspectorSurface";
+import { RemoveRow } from "@/components/builder/inspector/inspectorChrome";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/shadcn/alert-dialog";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import {
-	useEffectiveCaseTypes,
-	useMaterializableCaseTypes,
-} from "@/lib/doc/hooks/useCaseTypes";
+import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { appendOrderKey } from "@/lib/doc/order/append";
 import type { ColumnSurface } from "@/lib/doc/order/columnSurface";
@@ -76,10 +84,11 @@ import { SearchPanelInspectorBody } from "./inspector/SearchPanelInspectorBody";
 import { withPreservedIdentity } from "./preserveIdentity";
 import { labelFromProperty, seedColumn, seedSearchInput } from "./seeds";
 import { useCaseListPreview } from "./useCaseListPreview";
-import { useSampleData } from "./useSampleData";
 import {
+	projectCaseWorkspaceColumns,
 	pruneStoppedSortOrphans,
 	removeColumnFromDisplay,
+	showColumnOnDisplay,
 } from "./workspaceProjection";
 import type { WorkspaceSelection } from "./workspaceSelection";
 
@@ -134,6 +143,20 @@ function appendSurfaceOrderKey(
 	);
 }
 
+/** The friendly name used when a display field moves on or off a surface. */
+function columnDisplayLabel(column: Column): string {
+	return (
+		column.header ||
+		(column.kind === "calculated"
+			? "Information"
+			: labelFromProperty(column.field) || "Information")
+	);
+}
+
+function surfaceDisplayName(surface: ColumnSurface): "results" | "details" {
+	return surface === "list" ? "results" : "details";
+}
+
 // ── Top-level component ───────────────────────────────────────────
 
 export function CaseListConfigWorkspace({
@@ -168,6 +191,8 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 
 	// ── Selection ──
 	const [sel, setSel] = useState<WorkspaceSelection | null>(null);
+	const [workspaceAnnouncement, setWorkspaceAnnouncement] = useState("");
+	const pendingCanvasFocusRef = useRef<ColumnSurface | null>(null);
 	const deselect = useCallback(() => setSel(null), []);
 
 	/* Tab switches deselect — covers in-app tab clicks AND browser
@@ -178,6 +203,21 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		prevTabRef.current = tab;
 		setSel(null);
 	}, [tab]);
+
+	/* Hiding is initiated from the inspector, so its focused button unmounts.
+	 * Return focus to the active canvas's Add information control after React
+	 * commits the hidden state, and announce the reversible result. */
+	useEffect(() => {
+		const surface = pendingCanvasFocusRef.current;
+		if (surface === null || sel !== null) return;
+		const frame = requestAnimationFrame(() => {
+			document
+				.querySelector<HTMLButtonElement>(`[data-case-add="${surface}"]`)
+				?.focus();
+			pendingCanvasFocusRef.current = null;
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [sel]);
 
 	/* Escape closes the inspector. Routed through the shared keyboard
 	 * manager (not a raw listener — the manager preventDefaults every
@@ -203,28 +243,11 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 				: EMPTY_VERDICTS,
 		[config, caseTypes, caseType],
 	);
-	const {
-		state: preview,
-		fetching: previewFetching,
-		reload: reloadPreview,
-	} = useCaseListPreview({
+	const { state: preview, fetching: previewFetching } = useCaseListPreview({
 		appId,
 		caseListConfig: config,
 		currentCaseType: caseType ?? "",
 		previewObstacle,
-	});
-
-	/* Generate / Reset sample data — surfaced from the list canvas's
-	 * empty state and the list-panel inspector. Writes real rows to the
-	 * user's case store, then reloads the live canvases. */
-	/* Sample data consumes the MATERIALIZABLE view — the same shape the
-	 * stored insert schema is derived from, so the generator emits
-	 * exactly the keys (and value types) the row validation accepts. */
-	const materializable = useMaterializableCaseTypes();
-	const sampleData = useSampleData({
-		appId,
-		caseType: materializable.find((ct) => ct.name === caseType),
-		onDone: reloadPreview,
 	});
 
 	// ── Mutators ──
@@ -255,14 +278,78 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 	const addDisabledReason =
 		(ct?.properties.length ?? 0) === 0 ? PROPERTYLESS_HINT : undefined;
 
+	const routeColumnToRepair = (
+		surface: ColumnSurface,
+		column: Column,
+		messages: readonly string[] = [],
+	) => {
+		setWorkspaceAnnouncement(
+			`${columnDisplayLabel(column)} needs a quick fix before it can be added to ${surfaceDisplayName(surface)}.`,
+		);
+		setSel({
+			type: "column",
+			uuid: column.uuid,
+			reveal: { surface, messages },
+		});
+	};
+
 	const replaceColumn = (uuid: string, next: Column) => {
 		// Carry identity and all display-order keys forward — see
 		// `withPreservedIdentity`.
-		updateConfig({
+		const nextConfig = {
 			...config,
 			columns: config.columns.map((c) =>
 				c.uuid === uuid ? withPreservedIdentity(c, next) : c,
 			),
+		};
+		const repair =
+			sel?.type === "column" && sel.uuid === uuid ? sel.reveal : undefined;
+		if (repair === undefined) {
+			updateConfig(nextConfig);
+			return;
+		}
+
+		/* The author arrived here by asking to add saved information. Try the
+		 * repair and reveal as ONE gated edit; when it is ready, the requested
+		 * field appears without another confirmation click or a half-valid
+		 * intermediate state. If more repair remains, preserve the safe hidden
+		 * edit and keep the inspector open with the fresh gate guidance. */
+		const order = appendSurfaceOrderKey(nextConfig.columns, repair.surface);
+		const revealConfig = {
+			...nextConfig,
+			columns: showColumnOnDisplay(
+				nextConfig.columns,
+				next.uuid,
+				repair.surface,
+				order,
+			),
+		};
+		const revealOutcome = inline.updateModule(moduleUuid, {
+			caseListConfig: revealConfig,
+		});
+		if (revealOutcome.ok) {
+			setWorkspaceAnnouncement(
+				`${columnDisplayLabel(next)} fixed and added to ${surfaceDisplayName(repair.surface)}.`,
+			);
+			setSel({ type: "column", uuid: next.uuid });
+			return;
+		}
+
+		const repairOutcome = inline.updateModule(moduleUuid, {
+			caseListConfig: nextConfig,
+		});
+		setSel({
+			type: "column",
+			uuid: next.uuid,
+			reveal: {
+				surface: repair.surface,
+				messages:
+					revealOutcome.messages.length > 0
+						? revealOutcome.messages
+						: repairOutcome.ok
+							? repair.messages
+							: repairOutcome.messages,
+			},
 		});
 	};
 	const addColumn = (surface: ColumnSurface) => {
@@ -299,27 +386,45 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 			columns: pruneStoppedSortOrphans(config.columns, next),
 		});
 	};
-	const removeColumnFromSurface = (surface: ColumnSurface, column: Column) => {
+	const hideColumnFromSurface = (surface: ColumnSurface, column: Column) => {
+		const visible = projectCaseWorkspaceColumns(config.columns);
+		if (surface === "list" && visible.listVisible.length <= 1) return;
+		const label = columnDisplayLabel(column);
 		updateConfig({
 			...config,
 			columns: removeColumnFromDisplay(config.columns, column.uuid, surface),
 		});
+		pendingCanvasFocusRef.current = surface;
+		setWorkspaceAnnouncement(
+			`${label} hidden from ${surface === "list" ? "results" : "details"}. You can add it again from Add information.`,
+		);
 		deselect();
 	};
 	const showColumn = (surface: ColumnSurface, column: Column) => {
+		/* A definition already known to need attention never touches the gate.
+		 * Open its source/formatting controls while it remains off-screen. */
+		if (brokenColumns.has(column.uuid)) {
+			routeColumnToRepair(surface, column);
+			return;
+		}
 		const order = appendSurfaceOrderKey(config.columns, surface);
-		updateConfig({
+		const nextConfig = {
 			...config,
-			columns: config.columns.map((candidate) => {
-				if (candidate.uuid !== column.uuid) return candidate;
-				if (surface === "list") {
-					const { visibleInList: _visibility, ...rest } = candidate;
-					return { ...rest, listOrder: order } as Column;
-				}
-				const { visibleInDetail: _visibility, ...rest } = candidate;
-				return { ...rest, detailOrder: order } as Column;
-			}),
+			columns: showColumnOnDisplay(config.columns, column.uuid, surface, order),
+		};
+		/* Fully hidden legacy definitions are deliberately absent from normal
+		 * config warnings. Ask the SAME gate silently before revealing one: a
+		 * refusal becomes a repair route, never a toast plus a dead click. */
+		const outcome = inline.updateModule(moduleUuid, {
+			caseListConfig: nextConfig,
 		});
+		if (!outcome.ok) {
+			routeColumnToRepair(surface, column, outcome.messages);
+			return;
+		}
+		setWorkspaceAnnouncement(
+			`${columnDisplayLabel(column)} added to ${surfaceDisplayName(surface)}.`,
+		);
 		setSel({ type: "column", uuid: column.uuid });
 	};
 
@@ -424,6 +529,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 
 	const inspector = resolveInspector({
 		sel,
+		activeTab: tab,
 		moduleUuid,
 		config,
 		searchConfig,
@@ -431,12 +537,13 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		caseType,
 		appId,
 		caseListOnly: mod.caseListOnly === true,
-		sampleData,
 		onConfigChange: updateConfig,
 		onClearFilter: clearFilter,
 		onSearchConfigChange: updateSearchConfig,
 		replaceColumn,
 		replaceInput,
+		onHideColumn: hideColumnFromSurface,
+		onRemoveInput: removeInput,
 	});
 
 	/* A `caseListOnly` module has no module screen (it would be an empty form
@@ -453,6 +560,14 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 
 	return (
 		<div className="case-list-workspace @container">
+			<p
+				className="sr-only"
+				role="status"
+				aria-live="polite"
+				aria-atomic="true"
+			>
+				{workspaceAnnouncement}
+			</p>
 			<WorkspaceTabs
 				header={moduleHeader}
 				tab={tab}
@@ -480,12 +595,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					hasAutomaticResultsFilter={
 						effectiveFilterForEmission(config.filter) !== undefined
 					}
-					finalInputRemovalNeedsConfirmation={
-						effectiveFilterForEmission(config.filter) === undefined &&
-						caseSearchConfigHasAuthoredSettings(searchConfig)
-					}
 					onMoveInput={moveInput}
-					onRemoveInput={removeInput}
 				/>
 			)}
 			{tab === "list" && (
@@ -502,11 +612,10 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					addColumnDisabledReason={addDisabledReason}
 					onMoveColumn={(uuid, toIndex) => moveColumn("list", uuid, toIndex)}
 					onColumnsChange={updateColumns}
-					onRemoveColumn={(column) => removeColumnFromSurface("list", column)}
 					onShowColumn={(column) => showColumn("list", column)}
+					onRepairColumn={(column) => routeColumnToRepair("list", column)}
 					onOpenOptions={() => setSel({ type: "list-panel" })}
-					showOptions={canEdit || mod.caseListOnly === true}
-					generateSampleData={sampleData.generate}
+					showMenuAppearance={canEdit && mod.caseListOnly === true}
 				/>
 			)}
 			{tab === "detail" && (
@@ -519,9 +628,8 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					onAddDetailField={() => addColumn("detail")}
 					addDisabledReason={addDisabledReason}
 					onMoveColumn={(uuid, toIndex) => moveColumn("detail", uuid, toIndex)}
-					onRemoveColumn={(column) => removeColumnFromSurface("detail", column)}
 					onShowColumn={(column) => showColumn("detail", column)}
-					generate={sampleData.generate}
+					onRepairColumn={(column) => routeColumnToRepair("detail", column)}
 				/>
 			)}
 
@@ -542,6 +650,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 
 interface ResolveInspectorArgs {
 	readonly sel: WorkspaceSelection | null;
+	readonly activeTab: CaseListWorkspaceTab;
 	/** Owning module — used to key media-slot staged uploads
 	 *  (`caselist:<moduleUuid>:<slot>`). */
 	readonly moduleUuid: Uuid;
@@ -551,12 +660,16 @@ interface ResolveInspectorArgs {
 	readonly caseType: string;
 	readonly appId: string;
 	readonly caseListOnly: boolean;
-	readonly sampleData: ReturnType<typeof useSampleData>;
 	readonly onConfigChange: (next: CaseListConfig) => void;
 	readonly onClearFilter: (next: Predicate | undefined) => CommitOutcome;
 	readonly onSearchConfigChange: (next: CaseSearchConfig) => void;
 	readonly replaceColumn: (uuid: string, next: Column) => void;
 	readonly replaceInput: (uuid: string, next: SearchInputDef) => void;
+	readonly onHideColumn: (surface: ColumnSurface, column: Column) => void;
+	readonly onRemoveInput: (
+		uuid: SearchInputDef["uuid"],
+		options?: { readonly discardSearchSettings?: boolean },
+	) => void;
 }
 
 /**
@@ -578,6 +691,14 @@ function resolveInspector(args: ResolveInspectorArgs): {
 			const sortedCols = [...config.columns].sort(bySortKey);
 			const column = sortedCols.find((c) => c.uuid === sel.uuid);
 			if (column === undefined) return null;
+			const projection = projectCaseWorkspaceColumns(config.columns);
+			const surface =
+				sel.reveal?.surface ??
+				(args.activeTab === "list"
+					? "list"
+					: args.activeTab === "detail"
+						? "detail"
+						: null);
 			const title =
 				column.kind === "calculated"
 					? column.header || "Untitled field"
@@ -587,14 +708,23 @@ function resolveInspector(args: ResolveInspectorArgs): {
 			return {
 				kicker: "Information",
 				title,
-				body: (
-					<ColumnEditor
-						value={column}
-						onChange={(next) => args.replaceColumn(column.uuid, next)}
-						caseTypes={args.caseTypes}
-						currentCaseType={args.caseType}
-					/>
-				),
+				body:
+					surface === null ? null : (
+						<ColumnInspectorBody
+							column={column}
+							surface={surface}
+							visibleCount={
+								surface === "list"
+									? projection.listVisible.length
+									: projection.detailVisible.length
+							}
+							caseTypes={args.caseTypes}
+							currentCaseType={args.caseType}
+							repairMessages={sel.reveal?.messages}
+							onChange={(next) => args.replaceColumn(column.uuid, next)}
+							onHide={() => args.onHideColumn(surface, column)}
+						/>
+					),
 			};
 		}
 		case "input": {
@@ -608,13 +738,26 @@ function resolveInspector(args: ResolveInspectorArgs): {
 				kicker: "Search field",
 				title: input.label || labelFromProperty(input.name) || "Untitled field",
 				body: (
-					<SearchInputEditor
-						value={input}
+					<SearchInputInspectorBody
+						input={input}
 						index={index}
 						siblings={sortedInputs}
 						caseTypes={args.caseTypes}
 						currentCaseType={args.caseType}
 						onChange={(next) => args.replaceInput(input.uuid, next)}
+						removalNeedsConfirmation={
+							sortedInputs.length === 1 &&
+							effectiveFilterForEmission(config.filter) === undefined &&
+							caseSearchConfigHasAuthoredSettings(args.searchConfig)
+						}
+						onRemove={(discardSearchSettings) =>
+							args.onRemoveInput(
+								input.uuid,
+								discardSearchSettings
+									? { discardSearchSettings: true }
+									: undefined,
+							)
+						}
 					/>
 				),
 			};
@@ -663,18 +806,161 @@ function resolveInspector(args: ResolveInspectorArgs): {
 		case "list-panel":
 			return {
 				kicker: "Results",
-				title: "Options",
+				title: "Menu appearance",
 				body: (
 					<ListPanelInspectorBody
 						moduleUuid={args.moduleUuid}
 						config={config}
 						onChange={args.onConfigChange}
 						caseListOnly={args.caseListOnly}
-						sampleData={args.sampleData}
 					/>
 				),
 			};
 	}
+}
+
+function ColumnInspectorBody({
+	column,
+	surface,
+	visibleCount,
+	caseTypes,
+	currentCaseType,
+	repairMessages,
+	onChange,
+	onHide,
+}: {
+	readonly column: Column;
+	readonly surface: ColumnSurface;
+	readonly visibleCount: number;
+	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
+	readonly currentCaseType: string;
+	/** Defined (including an empty array) while this off-screen definition is
+	 * being repaired in response to an Add information request. */
+	readonly repairMessages: readonly string[] | undefined;
+	readonly onChange: (next: Column) => void;
+	readonly onHide: () => void;
+}) {
+	const screenName = surfaceDisplayName(surface);
+	const keepLastResult = surface === "list" && visibleCount <= 1;
+	const repairing = repairMessages !== undefined;
+	const uniqueRepairMessages = [...new Set(repairMessages ?? [])];
+	return (
+		<>
+			{repairing && (
+				<div className="rounded-xl border border-nova-violet/25 bg-nova-violet/[0.06] px-3 py-3 text-[12px] leading-relaxed">
+					<p className="font-medium text-nova-text">One quick fix first</p>
+					<p className="mt-1 text-nova-text-secondary">
+						Review the source or display settings below. Nova will add this to{" "}
+						{screenName} automatically as soon as it’s ready.
+					</p>
+					{uniqueRepairMessages.length > 0 && (
+						<ul className="mt-2 list-disc space-y-1 pl-4 text-nova-text-muted">
+							{uniqueRepairMessages.map((message) => (
+								<li key={message}>{message}</li>
+							))}
+						</ul>
+					)}
+				</div>
+			)}
+			<ColumnEditor
+				value={column}
+				onChange={onChange}
+				caseTypes={caseTypes}
+				currentCaseType={currentCaseType}
+			/>
+			{!repairing && (
+				<div className="border-t border-nova-border pt-3">
+					<button
+						type="button"
+						onClick={keepLastResult ? undefined : onHide}
+						aria-disabled={keepLastResult}
+						className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border px-3 text-[13px] transition-colors ${
+							keepLastResult
+								? "cursor-not-allowed border-white/[0.04] text-nova-text-muted opacity-60"
+								: "cursor-pointer border-white/[0.06] text-nova-text-secondary hover:border-nova-violet/30 hover:bg-nova-violet/[0.06] hover:text-nova-text"
+						}`}
+					>
+						<Icon icon={tablerEyeOff} width="15" height="15" />
+						Hide from {screenName}
+					</button>
+					<p className="mt-2 text-[12px] leading-relaxed text-nova-text-muted">
+						{keepLastResult
+							? "Add another result first. People need at least one piece of information to choose a case."
+							: `You can add it back later from Add information in ${screenName}.`}
+					</p>
+				</div>
+			)}
+		</>
+	);
+}
+
+function SearchInputInspectorBody({
+	input,
+	index,
+	siblings,
+	caseTypes,
+	currentCaseType,
+	onChange,
+	removalNeedsConfirmation,
+	onRemove,
+}: {
+	readonly input: SearchInputDef;
+	readonly index: number;
+	readonly siblings: readonly SearchInputDef[];
+	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
+	readonly currentCaseType: string;
+	readonly onChange: (next: SearchInputDef) => void;
+	readonly removalNeedsConfirmation: boolean;
+	readonly onRemove: (discardSearchSettings: boolean) => void;
+}) {
+	const [confirming, setConfirming] = useState(false);
+	const remove = () => {
+		if (removalNeedsConfirmation) setConfirming(true);
+		else onRemove(false);
+	};
+	return (
+		<>
+			<SearchInputEditor
+				value={input}
+				index={index}
+				siblings={siblings}
+				caseTypes={caseTypes}
+				currentCaseType={currentCaseType}
+				onChange={onChange}
+			/>
+			<RemoveRow
+				label={
+					removalNeedsConfirmation
+						? "Remove search field and screen settings…"
+						: "Remove search field"
+				}
+				onClick={remove}
+			/>
+			<AlertDialog open={confirming} onOpenChange={setConfirming}>
+				<AlertDialogContent className="text-left">
+					<AlertDialogHeader>
+						<AlertDialogTitle className="font-display">
+							Remove the search screen?
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							This is the final search field, so removing it also removes the
+							screen title and button settings. Results, Details, and the rule
+							for who appears stay unchanged.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Keep search</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => onRemove(true)}
+							className="bg-nova-rose text-nova-void not-disabled:hover:bg-[color-mix(in_oklab,var(--nova-rose),black_14%)] focus-visible:ring-nova-rose/40"
+						>
+							Remove search
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</>
+	);
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────
@@ -730,15 +1016,17 @@ function WorkspaceTabs({
 }: WorkspaceTabsProps) {
 	/* The canvas narrows when the inspector docks (and again with both
 	 * sidebars open), so the concise Search / Results / Details labels must
-	 * remain visible. The
+	 * remain visible. Below the `sm` container boundary, spacing tightens and
+	 * the decorative icons step away; the text stays intact and the buttons keep
+	 * their full accessible names. The
 	 * bar spans the column (sticky, border); its contents use the same `3xl`
 	 * frame as the composition canvases so navigation and content share a
 	 * calm, consistent width when either sidebar collapses. */
 	return (
 		<div className="sticky top-0 z-raised py-2.5 border-b border-nova-border bg-pv-bg/90 backdrop-blur-md">
-			<ContentFrame width="3xl" className="px-6">
+			<ContentFrame width="3xl" className="px-3 @sm:px-6">
 				{header}
-				<div className="flex items-center gap-1.5 @2xl:gap-2">
+				<div className="flex items-center gap-1 @sm:gap-1.5 @2xl:gap-2">
 					{TAB_DEFS.map(({ id, icon, label, accessibleLabel }) => {
 						const active = tab === id;
 						const hasErrors = errorAreas[id];
@@ -760,7 +1048,7 @@ function WorkspaceTabs({
 									aria-label={accessibleName}
 									aria-current={active ? "page" : undefined}
 									onClick={() => onSelectTab(id)}
-									className={`relative flex min-w-0 flex-1 items-center justify-center gap-2 px-2 @2xl:px-3.5 py-1.5 min-h-11 rounded-lg text-left whitespace-nowrap cursor-pointer border transition-all ${
+									className={`relative flex min-w-0 flex-1 items-center justify-center gap-1 px-1.5 @sm:gap-2 @sm:px-2 @2xl:px-3.5 py-1.5 min-h-11 rounded-lg text-left whitespace-nowrap cursor-pointer border transition-all ${
 										active
 											? "bg-nova-violet/[0.13] border-nova-border-bright"
 											: "border-transparent hover:bg-white/[0.03]"
@@ -776,7 +1064,7 @@ function WorkspaceTabs({
 										icon={icon}
 										width="17"
 										height="17"
-										className={`shrink-0 ${
+										className={`hidden shrink-0 @sm:block ${
 											active
 												? "text-nova-violet-bright"
 												: "text-nova-text-muted"

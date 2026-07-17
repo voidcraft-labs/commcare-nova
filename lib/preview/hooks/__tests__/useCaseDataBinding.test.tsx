@@ -19,7 +19,7 @@
 //      `CaseType` definition the client passes through (never the whole
 //      blueprint) — and returns the action's resolved result.
 
-import { renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
 
@@ -29,14 +29,30 @@ import type { CaseType } from "@/lib/domain";
 // test sets `mockResolvedValueOnce` against the action it wants to
 // drive.
 vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
+	loadCaseCountAction: vi.fn(),
 	loadCasesAction: vi.fn(),
 	loadCaseDataAction: vi.fn(),
 	populateSampleCasesAction: vi.fn(),
 	resetSampleCasesAction: vi.fn(),
 }));
 
-import { resetSampleCasesAction } from "@/lib/preview/engine/caseDataBinding";
-import { useResetSampleCases } from "../useCaseDataBinding";
+import {
+	loadCaseCountAction,
+	loadCaseDataAction,
+	loadCasesAction,
+	resetSampleCasesAction,
+} from "@/lib/preview/engine/caseDataBinding";
+import {
+	invalidateCaseData,
+	useCaseDataReplacementRevision,
+	useCaseDataRevision,
+} from "../caseDataInvalidation";
+import {
+	useCaseCount,
+	useCaseData,
+	useCases,
+	useResetSampleCases,
+} from "../useCaseDataBinding";
 
 const APP_ID = "app-hook-test";
 
@@ -46,6 +62,9 @@ const APP_ID = "app-hook-test";
 const PATIENT: CaseType = { name: "patient", properties: [] };
 
 beforeEach(() => {
+	vi.mocked(loadCaseCountAction).mockReset();
+	vi.mocked(loadCaseDataAction).mockReset();
+	vi.mocked(loadCasesAction).mockReset();
 	vi.mocked(resetSampleCasesAction).mockReset();
 });
 
@@ -110,6 +129,31 @@ describe("useResetSampleCases", () => {
 		);
 	});
 
+	it("invalidates every subscriber for the case type after a successful reset", async () => {
+		vi.mocked(resetSampleCasesAction).mockResolvedValueOnce({
+			kind: "ok",
+			inserted: 30,
+		});
+		const revision = renderHook(() =>
+			useCaseDataRevision(APP_ID, PATIENT.name),
+		);
+		const before = revision.result.current;
+		const replacementRevision = renderHook(() =>
+			useCaseDataReplacementRevision(APP_ID, PATIENT.name),
+		);
+		const replacementBefore = replacementRevision.result.current;
+		const reset = renderHook(() =>
+			useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
+		);
+
+		await act(async () => {
+			await reset.result.current();
+		});
+
+		expect(revision.result.current).toBe(before + 1);
+		expect(replacementRevision.result.current).toBe(replacementBefore + 1);
+	});
+
 	it("passes through the unauthenticated arm from the action", async () => {
 		// `unauthenticated` is the action's session-absent arm. The
 		// hook surfaces it verbatim — the consumer dispatches the same
@@ -138,5 +182,113 @@ describe("useResetSampleCases", () => {
 		);
 		const outcome = await result.current();
 		expect(outcome).toEqual({ kind: "error", message: "connection refused" });
+	});
+});
+
+describe("case-data invalidation", () => {
+	it("hides the prior selected row synchronously when its revision changes", async () => {
+		let resolveReload: ((value: { kind: "missing" }) => void) | undefined;
+		vi.mocked(loadCaseDataAction)
+			.mockResolvedValueOnce({
+				kind: "row",
+				row: {
+					case_id: "case-1",
+					app_id: APP_ID,
+					case_type: PATIENT.name,
+					owner_id: "owner-1",
+					status: "open",
+					opened_on: null,
+					modified_on: null,
+					closed_on: null,
+					case_name: "Alice",
+					external_id: null,
+					parent_case_id: null,
+					properties: {},
+				},
+				ancestors: [],
+			})
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveReload = resolve;
+					}),
+			);
+		const selected = renderHook(() =>
+			useCaseData({
+				appId: APP_ID,
+				caseType: PATIENT.name,
+				caseId: "case-1",
+				ancestorDepth: 0,
+			}),
+		);
+
+		await waitFor(() => expect(selected.result.current.state.kind).toBe("row"));
+		act(() => invalidateCaseData(APP_ID, PATIENT.name));
+		/* The invalidation render returns `loading` before the refetch effect
+		 * settles, never the row from the prior revision. */
+		expect(selected.result.current.state).toEqual({ kind: "loading" });
+
+		await act(async () => resolveReload?.({ kind: "missing" }));
+		await waitFor(() =>
+			expect(selected.result.current.state).toEqual({ kind: "missing" }),
+		);
+	});
+
+	it("reloads the unfiltered count, list rows, and selected case after a write", async () => {
+		vi.mocked(loadCaseCountAction).mockResolvedValue({
+			kind: "count",
+			count: 4,
+		});
+		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+		vi.mocked(loadCaseDataAction).mockResolvedValue({ kind: "missing" });
+
+		const countHook = renderHook(() =>
+			useCaseCount({ appId: APP_ID, caseType: PATIENT.name }),
+		);
+		const casesHook = renderHook(() =>
+			useCases({ appId: APP_ID, caseType: PATIENT.name }),
+		);
+		const caseHook = renderHook(() =>
+			useCaseData({
+				appId: APP_ID,
+				caseType: PATIENT.name,
+				caseId: "case-1",
+				ancestorDepth: 0,
+			}),
+		);
+
+		await waitFor(() => {
+			expect(countHook.result.current.state).toEqual({
+				kind: "count",
+				count: 4,
+			});
+			expect(casesHook.result.current.state).toEqual({ kind: "empty" });
+			expect(caseHook.result.current.state).toEqual({ kind: "missing" });
+		});
+		expect(loadCaseCountAction).toHaveBeenCalledTimes(1);
+		expect(loadCasesAction).toHaveBeenCalledTimes(1);
+		expect(loadCaseDataAction).toHaveBeenCalledTimes(1);
+
+		act(() => invalidateCaseData(APP_ID, PATIENT.name));
+
+		await waitFor(() => {
+			expect(loadCaseCountAction).toHaveBeenCalledTimes(2);
+			expect(loadCasesAction).toHaveBeenCalledTimes(2);
+			expect(loadCaseDataAction).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	it("keeps invalidation scoped to the written case type", async () => {
+		vi.mocked(loadCaseCountAction).mockResolvedValue({
+			kind: "count",
+			count: 2,
+		});
+		renderHook(() => useCaseCount({ appId: APP_ID, caseType: "visit" }));
+		await waitFor(() => expect(loadCaseCountAction).toHaveBeenCalledTimes(1));
+
+		act(() => invalidateCaseData(APP_ID, PATIENT.name));
+
+		await Promise.resolve();
+		expect(loadCaseCountAction).toHaveBeenCalledTimes(1);
 	});
 });

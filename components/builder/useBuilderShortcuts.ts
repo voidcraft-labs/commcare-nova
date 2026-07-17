@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
+import { usePreviewModeTransition } from "@/components/builder/usePreviewModeTransition";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { notifyMoveRename } from "@/lib/doc/mutations/notify";
@@ -45,6 +46,7 @@ export function useBuilderShortcuts(
 	const { undo, redo } = useUndoRedo();
 	const { duplicateField, moveField } = useBlueprintMutations();
 	const previewing = usePreviewing();
+	const transitionPreview = usePreviewModeTransition(setPreviewing);
 	/* Imperative store handle — handlers read the freshest doc snapshot at
 	 * fire time. The hook never subscribes to a slice, so keystrokes never
 	 * trigger a component re-render on unrelated mutations. */
@@ -72,7 +74,7 @@ export function useBuilderShortcuts(
 				key: "Escape",
 				handler: () => {
 					if (previewing) {
-						setPreviewing(false);
+						transitionPreview(false);
 						return;
 					}
 					if (loc.kind === "form" && loc.selectedUuid) {
@@ -84,7 +86,7 @@ export function useBuilderShortcuts(
 			},
 			// P — toggle preview (Figma-style single-key shortcut, suppressed
 			// when an input/editor is focused via keyboardManager)
-			{ key: "p", handler: () => setPreviewing(!previewing) },
+			{ key: "p", handler: () => transitionPreview(!previewing) },
 			// Tab / Shift+Tab — navigate fields in depth-first order, editing only
 			{
 				key: "Tab",
@@ -219,7 +221,7 @@ export function useBuilderShortcuts(
 		docApi,
 		setPending,
 		select,
-		setPreviewing,
+		transitionPreview,
 		deleteSelected,
 		undo,
 		redo,

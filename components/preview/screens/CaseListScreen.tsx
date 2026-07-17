@@ -1,8 +1,8 @@
 // components/preview/screens/CaseListScreen.tsx
 //
 // The case list as the running app shows it — the preview-mode screen
-// for every case-list workspace URL (`cases` / `search-config` /
-// `detail-config`). Search and detail are facets of the same list, so
+// for every case-list workspace URL (`results` / `search` / `details`).
+// Search and detail are facets of the same list, so
 // preview always shows the assembled artifact: the real
 // `SearchInputForm` widgets submit to the real case store with the
 // authored button, the list narrows through its own filter box (the same per-word,
@@ -40,21 +40,16 @@ import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerSearch from "@iconify-icons/tabler/search";
-import tablerWand from "@iconify-icons/tabler/wand";
 import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { renderColumnCell } from "@/components/builder/case-list-config/columnCellRenderer";
-import { GenerateSampleDataButton } from "@/components/builder/case-list-config/SampleDataButton";
-import { effectiveModeKind } from "@/components/builder/case-list-config/searchInputResolution";
-import { useSampleData } from "@/components/builder/case-list-config/useSampleData";
 import {
 	ListFilterBox,
 	rowMatchesFilterText,
 } from "@/components/preview/shared/listFilter";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
-import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
@@ -69,11 +64,6 @@ import {
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
-	effectiveDataType,
-	fuzzyMode,
-	SEARCH_MODE_PROPERTY_TYPES,
-	type SimpleSearchInputDef,
-	simpleSearchInputDef,
 } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import {
@@ -85,7 +75,8 @@ import { PreviewMarkdown } from "@/lib/markdown";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import { previewSearchSessionValues } from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
-import { useCases } from "@/lib/preview/hooks/useCaseDataBinding";
+import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
+import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
@@ -115,10 +106,9 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	 * validation accepts. */
 	const caseTypes = useMaterializableCaseTypes();
 	const appId = useAppId() ?? "";
-	const { updateModule } = useBlueprintMutations();
 
-	/* All three case-list workspace URLs (`cases` / `search-config` /
-	 * `detail-config`) render this screen in preview mode — search and
+	/* All three case-list workspace URLs (`results` / `search` / `details`)
+	 * render this screen in preview mode — search and
 	 * detail are facets of the same case list, so the live preview is
 	 * always the assembled artifact. */
 	const moduleUuid =
@@ -127,6 +117,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		loc.kind === "detail-config"
 			? loc.moduleUuid
 			: undefined;
+	const routeCaseId = loc.kind === "cases" ? loc.caseId : undefined;
 
 	/* Where selecting a case leads — read from the running app's own
 	 * navigation, not a default. Selecting a case always continues into a
@@ -228,6 +219,33 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	 *  Only reached on a case-first entry with more than one such form. */
 	const [formMenuCase, setFormMenuCase] =
 		useState<CaseRowWithCalculated | null>(null);
+	/* The list stays mounted inside React Activity while authoring is visible.
+	 * A record opened from Results therefore leaves its optimistic local row in
+	 * memory after a URL-only preview exit unless we clear it when the record
+	 * segment disappears. Without this boundary, re-entering Preview could show
+	 * the old record under the plain `/results` URL. */
+	useEffect(() => {
+		if (routeCaseId !== undefined) return;
+		setOpenCase(null);
+		setFormMenuCase(null);
+	}, [routeCaseId]);
+	const replacementRevision = useCaseDataReplacementRevision(
+		appId,
+		caseType?.name,
+	);
+	const routeRevisionRef = useRef({
+		caseId: routeCaseId,
+		revision: replacementRevision,
+	});
+	if (routeRevisionRef.current.caseId !== routeCaseId) {
+		routeRevisionRef.current = {
+			caseId: routeCaseId,
+			revision: replacementRevision,
+		};
+	}
+	const routeCaseReplaced =
+		routeCaseId !== undefined &&
+		routeRevisionRef.current.revision !== replacementRevision;
 	const stateScopeRef = useRef(moduleUuid);
 	useEffect(() => {
 		if (stateScopeRef.current === moduleUuid) return;
@@ -237,26 +255,16 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		setFormMenuCase(null);
 	}, [moduleUuid]);
 
-	/* Mirror the locally-selected case into session so the breadcrumb can
-	 * name it while we're on the list (the strip is a sibling component and
-	 * can't read this local state). The detail/form-menu case is the one being
-	 * looked at; clears to undefined when neither is open — including on
-	 * reveal after navigating back from the form, so the list's breadcrumb
-	 * drops the stale case. */
 	const setPreviewSelectedCase = useSetPreviewSelectedCase();
-	const selectedCase = formMenuCase ?? openCase;
 	useEffect(() => {
-		setPreviewSelectedCase(
-			selectedCase
-				? {
-						caseId: selectedCase.case_id,
-						caseName: selectedCase.case_name || "Case",
-					}
-				: undefined,
-		);
-	}, [selectedCase, setPreviewSelectedCase]);
+		if (!routeCaseReplaced || !moduleUuid) return;
+		setOpenCase(null);
+		setFormMenuCase(null);
+		setPreviewSelectedCase(undefined);
+		navigate.replace({ kind: "cases", moduleUuid });
+	}, [routeCaseReplaced, moduleUuid, navigate, setPreviewSelectedCase]);
 
-	const { state, fetching, reload } = useCases({
+	const { state, fetching } = useCases({
 		appId,
 		caseType: caseType?.name,
 		caseListConfig: config,
@@ -268,11 +276,15 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		// fresh `caseTypes` reference re-fires the load on a schema edit.
 		caseTypes,
 	});
-
-	const { generate } = useSampleData({
+	/* A record deep link must not depend on the row surviving the authored
+	 * Results filter. Load it directly by identity; when the list query also
+	 * contains the row, prefer that projection so calculated fields remain
+	 * available in Details. */
+	const { state: routeCaseState } = useCaseData({
 		appId,
-		caseType,
-		onDone: reload,
+		caseType: caseType?.name,
+		caseId: routeCaseId,
+		ancestorDepth: 0,
 	});
 
 	/* Clear what the worker typed — the search panel's "Clear" affordance,
@@ -295,12 +307,28 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		.filter((col) => col.visibleInDetail !== false);
 	const queryActive = searchRun.queryActive;
 	const draftActive = searchRun.draftActive;
-	/* The case type has no rows at all (vs. a search that matched nothing —
-	 *  that's `empty` WITH an active query). The generate affordance keys off
-	 *  this so it never shows over a real no-match. */
-	const storeEmpty = state.kind === "empty" && !queryActive;
-
 	const loadedRows = state.kind === "rows" ? state.rows : [];
+	const routeCase = useMemo<CaseRowWithCalculated | null>(() => {
+		if (!routeCaseId || routeCaseReplaced) return null;
+		const projected = loadedRows.find((row) => row.case_id === routeCaseId);
+		if (projected) return projected;
+		if (routeCaseState.kind !== "row") return null;
+		return { ...routeCaseState.row, calculated: {} };
+	}, [routeCaseId, routeCaseReplaced, loadedRows, routeCaseState]);
+	const displayedOpenCase = routeCaseId ? routeCase : openCase;
+	/* Mirror the URL-backed or local selection into session so the sibling
+	 * breadcrumb names the same record the screen is actually showing. */
+	const selectedCase = formMenuCase ?? displayedOpenCase;
+	useEffect(() => {
+		setPreviewSelectedCase(
+			selectedCase
+				? {
+						caseId: selectedCase.case_id,
+						caseName: selectedCase.case_name || "Case",
+					}
+				: undefined,
+		);
+	}, [selectedCase, setPreviewSelectedCase]);
 	const filteredRows = useMemo(
 		() =>
 			filterText === ""
@@ -310,46 +338,6 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 					),
 		[loadedRows, visibleColumns, filterText],
 	);
-
-	/* A zero-match against a letter-for-letter text field is the single
-	 * most common "search is broken" experience — a lowercase or
-	 * partial name typed into an exact-match field. Spot that shape
-	 * (typed-into, text, exact mode, property admits fuzzy) so the
-	 * no-match state can name the cause and fix it in one click. */
-	const strictTextInputs = useMemo(
-		() =>
-			(config?.searchInputs ?? []).filter((s): s is SimpleSearchInputDef => {
-				if (s.kind !== "simple" || s.type !== "text" || s.via !== undefined)
-					return false;
-				if ((searchRun.submitted.get(s.name)?.trim() ?? "") === "")
-					return false;
-				if (effectiveModeKind(s) !== "exact") return false;
-				const def = caseType?.properties.find((p) => p.name === s.property);
-				if (def === undefined) return false;
-				return (
-					SEARCH_MODE_PROPERTY_TYPES.fuzzy?.includes(effectiveDataType(def)) ??
-					true
-				);
-			}),
-		[config?.searchInputs, searchRun.submitted, caseType],
-	);
-	const makeFuzzy = () => {
-		if (moduleUuid === undefined || config === undefined) return;
-		const strict = new Set(strictTextInputs.map((s) => s.uuid));
-		const next: CaseListConfig = {
-			...config,
-			searchInputs: config.searchInputs.map((s) =>
-				s.kind === "simple" && strict.has(s.uuid)
-					? simpleSearchInputDef(s.uuid, s.name, s.label, s.type, s.property, {
-							via: s.via,
-							mode: fuzzyMode(),
-							default: s.default,
-						})
-					: s,
-			),
-		};
-		updateModule(moduleUuid, { caseListConfig: next });
-	};
 
 	if (!mod || !caseType || visibleColumns.length === 0) {
 		return (
@@ -404,8 +392,15 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const rowAction: "detail" | "form" | "none" =
 		detailColumns.length > 0 ? "detail" : canContinue ? "form" : "none";
 	const handleOpenCase = (row: CaseRowWithCalculated) => {
-		if (rowAction === "detail") setOpenCase(row);
-		else if (rowAction === "form") proceedWithCase(row);
+		if (rowAction === "detail") {
+			setOpenCase(row);
+			if (moduleUuid) navigate.openCaseDetail(moduleUuid, row.case_id);
+		} else if (rowAction === "form") proceedWithCase(row);
+	};
+	const closeCaseDetail = () => {
+		setOpenCase(null);
+		setFormMenuCase(null);
+		if (moduleUuid) navigate.openCaseList(moduleUuid);
 	};
 
 	const title = searchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
@@ -465,33 +460,21 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				onSubmit={showSearchButton ? searchRun.submit : undefined}
 				submitLabel={searchButtonLabel}
 			/>
-			{/* No data to search yet — the generate affordance lives here, with
-			 *  the search, rather than as a giant button dominating the results.
-			 *  (Only when there IS a search panel; the no-search case keeps it
-			 *  inline in the results body.) */}
-			{storeEmpty && (
-				<div className="mt-3 pt-3 border-t border-pv-input-border/60 text-center">
-					<p className="text-xs text-nova-text-muted mb-2.5">
-						No sample data to search yet.
-					</p>
-					<GenerateSampleDataButton generate={generate} className="w-full" />
-				</div>
-			)}
 		</div>
 	) : null;
 
-	const detailPane = openCase !== null && (
+	const detailPane = displayedOpenCase !== null && (
 		<div className="max-w-lg min-w-0 flex-1">
 			<button
 				type="button"
-				onClick={() => setOpenCase(null)}
+				onClick={closeCaseDetail}
 				className="inline-flex items-center gap-1.5 -ml-2 mb-3 px-2 py-1.5 min-h-11 rounded-md text-[13px] text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
 				Back to Results
 			</button>
 			<h2 className="font-display font-bold text-xl tracking-tight text-nova-text mb-4">
-				{openCase.case_name || "Case"}
+				{displayedOpenCase.case_name || "Case"}
 			</h2>
 			<div
 				data-case-detail="responsive"
@@ -515,7 +498,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 								data-case-detail-value
 								className="min-w-0 break-words text-[13px] leading-relaxed text-nova-text-secondary [overflow-wrap:anywhere]"
 							>
-								{renderColumnCell(col, openCase)}
+								{renderColumnCell(col, displayedOpenCase)}
 							</span>
 						</div>
 					);
@@ -529,7 +512,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			{canContinue && (
 				<button
 					type="button"
-					onClick={() => proceedWithCase(openCase)}
+					onClick={() => proceedWithCase(displayedOpenCase)}
 					className="mt-4 inline-flex items-center gap-2 px-4 min-h-11 rounded-lg bg-pv-accent text-white text-[13px] font-semibold hover:brightness-110 transition-all cursor-pointer"
 				>
 					Continue
@@ -538,6 +521,40 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			)}
 		</div>
 	);
+
+	const routeCaseFallbackPane = routeCaseId !== undefined &&
+		routeCase === null && (
+			<div className="max-w-lg min-w-0 flex-1">
+				<button
+					type="button"
+					onClick={closeCaseDetail}
+					className="inline-flex items-center gap-1.5 -ml-2 mb-3 px-2 py-1.5 min-h-11 rounded-md text-[13px] text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer"
+				>
+					<Icon icon={tablerChevronLeft} width="15" height="15" />
+					Back to Results
+				</button>
+				{routeCaseState.kind === "missing" ? (
+					<div className="rounded-lg border border-pv-input-border px-6 py-10 text-center">
+						<p className="text-sm text-nova-text-secondary mb-1">
+							This case is no longer available
+						</p>
+						<p className="text-xs text-nova-text-muted">
+							Return to Results and choose another case.
+						</p>
+					</div>
+				) : routeCaseState.kind === "error" ? (
+					<div className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] px-5 py-6 text-center text-xs text-nova-rose">
+						{routeCaseState.message}
+					</div>
+				) : routeCaseState.kind === "unauthenticated" ? (
+					<div className="rounded-lg border border-pv-input-border px-5 py-6 text-center text-xs text-nova-text-muted">
+						Sign in to view this case.
+					</div>
+				) : (
+					<CasesLoading />
+				)}
+			</div>
+		);
 
 	/* Form menu — the running app's post-selection screen for a case-first
 	 *  module with more than one case-loading form: the worker picked a case,
@@ -554,7 +571,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				className="inline-flex items-center gap-1.5 -ml-2 mb-3 px-2 py-1.5 min-h-11 rounded-md text-[13px] text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
-				{openCase !== null ? "Back" : "Back to Results"}
+				{displayedOpenCase !== null ? "Back" : "Back to Results"}
 			</button>
 			<h2 className="font-display font-bold text-xl tracking-tight text-nova-text mb-1">
 				{formMenuCase.case_name || "Case"}
@@ -633,12 +650,8 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				filterActive={filterText !== ""}
 				visibleColumns={visibleColumns}
 				queryActive={queryActive}
-				hasSearch={hasSearch}
 				rowAction={rowAction}
 				onOpenCase={handleOpenCase}
-				generate={generate}
-				strictTextInputs={strictTextInputs}
-				onMakeFuzzy={makeFuzzy}
 			/>
 			{state.kind === "rows" &&
 				filteredRows.length > 0 &&
@@ -655,7 +668,10 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	/* Right-hand pane priority mirrors the running app's screen stack: the
 	 * form menu (post-selection) sits above the detail confirm, which sits
 	 * above the results list. */
-	const onSubScreen = formMenuCase !== null || openCase !== null;
+	const onSubScreen =
+		formMenuCase !== null ||
+		displayedOpenCase !== null ||
+		routeCaseId !== undefined;
 	return (
 		<ContentFrame ref={containerRef} width="5xl" className="px-6 pt-6 pb-24">
 			<div
@@ -666,9 +682,11 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				{(split || !onSubScreen) && searchPane}
 				{formMenuCase !== null
 					? formMenuPane
-					: openCase !== null
+					: displayedOpenCase !== null
 						? detailPane
-						: resultsPane}
+						: routeCaseId !== undefined
+							? routeCaseFallbackPane
+							: resultsPane}
 			</div>
 		</ContentFrame>
 	);
@@ -699,12 +717,8 @@ function ResultsBody({
 	filterActive,
 	visibleColumns,
 	queryActive,
-	hasSearch,
 	rowAction,
 	onOpenCase,
-	generate,
-	strictTextInputs,
-	onMakeFuzzy,
 }: {
 	readonly state: ReturnType<typeof useCases>["state"];
 	readonly fetching: boolean;
@@ -713,14 +727,8 @@ function ResultsBody({
 	readonly filterActive: boolean;
 	readonly visibleColumns: CaseListConfig["columns"];
 	readonly queryActive: boolean;
-	/** Whether the module has a search panel — when it does, the empty-store
-	 *  generate affordance lives THERE, so this body only names the gap. */
-	readonly hasSearch: boolean;
 	readonly rowAction: "detail" | "form" | "none";
 	readonly onOpenCase: (row: CaseRowWithCalculated) => void;
-	readonly generate: ReturnType<typeof useSampleData>["generate"];
-	readonly strictTextInputs: readonly SimpleSearchInputDef[];
-	readonly onMakeFuzzy: () => void;
 }) {
 	if (state.kind === "idle" || state.kind === "loading") {
 		return <CasesLoading />;
@@ -745,37 +753,20 @@ function ResultsBody({
 	if (state.kind === "empty" && queryActive) {
 		// The store reports `empty` for "this query matched nothing" too —
 		// with a search active that means no match, not an empty store.
-		return (
-			<NoMatchNotice
-				strictTextInputs={strictTextInputs}
-				onMakeFuzzy={onMakeFuzzy}
-			/>
-		);
+		return <NoMatchNotice />;
 	}
 
 	if (state.kind === "empty") {
-		// Revalidating a stale "empty" — e.g. re-entering preview after rows
-		// were generated elsewhere, which re-runs the load. Show the loader,
-		// not a generate button that's about to be replaced by rows. A
-		// user-initiated generate keeps its own "Generating…" affordance
-		// (status running), so don't swallow that.
-		if (fetching && generate.status.kind !== "running") {
+		// Revalidating a stale empty view after case data changed elsewhere.
+		if (fetching) {
 			return <CasesLoading />;
 		}
-		// The case type has no rows at all — a dead-end preview. When the
-		// module has a search panel the generate affordance lives THERE
-		// (this body just names the gap and points at it); without one it
-		// falls back to a compact inline affordance — never the old giant
-		// primary button.
 		return (
 			<div className="rounded-lg border border-dashed border-nova-border-bright px-6 py-10 text-center">
 				<p className="text-sm text-nova-text-secondary mb-1">No cases yet</p>
-				<p className="text-xs text-nova-text-muted mb-4">
-					{hasSearch
-						? "Generate sample data from the search panel to try these screens with realistic rows."
-						: "Generate sample data to try these screens with realistic rows."}
+				<p className="text-xs text-nova-text-muted">
+					Cases will appear here after someone completes a registration form.
 				</p>
-				{!hasSearch && <GenerateSampleDataButton generate={generate} />}
 			</div>
 		);
 	}
@@ -789,12 +780,7 @@ function ResultsBody({
 			);
 		}
 		if (queryActive) {
-			return (
-				<NoMatchNotice
-					strictTextInputs={strictTextInputs}
-					onMakeFuzzy={onMakeFuzzy}
-				/>
-			);
+			return <NoMatchNotice />;
 		}
 		return (
 			<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center text-xs text-nova-text-muted">
@@ -820,45 +806,18 @@ function ResultsBody({
 // ── No-match state ────────────────────────────────────────────────
 
 /**
- * The zero-results card. When the miss is explained by a
- * letter-for-letter text field someone typed into, the card says so
- * in plain words and offers the one-click fix — switching those
- * fields to fuzzy match IS a config edit (visible in the inspector,
- * undoable), so the result updates live.
+ * Worker-facing zero-results guidance. Preview never mutates authoring
+ * configuration; changing match behavior belongs in edit mode.
  */
-function NoMatchNotice({
-	strictTextInputs,
-	onMakeFuzzy,
-}: {
-	readonly strictTextInputs: readonly SimpleSearchInputDef[];
-	readonly onMakeFuzzy: () => void;
-}) {
-	const names = strictTextInputs.map((s) => `“${s.label || s.name}”`);
-	const list =
-		names.length <= 1
-			? names[0]
-			: `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+function NoMatchNotice() {
 	return (
 		<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center">
-			<p className="text-xs text-nova-text-muted">
+			<p className="text-sm text-nova-text-secondary">
 				No cases match this search.
 			</p>
-			{strictTextInputs.length > 0 && (
-				<div className="max-w-md mx-auto mt-4 pt-4 border-t border-nova-violet/[0.08]">
-					<p className="mb-3 text-xs text-nova-text-secondary text-balance">
-						{list} {names.length === 1 ? "matches" : "match"} letter for letter
-						— capitalization and spelling have to be exact.
-					</p>
-					<button
-						type="button"
-						onClick={onMakeFuzzy}
-						className="inline-flex items-center gap-1.5 px-3 min-h-11 rounded-lg border border-nova-border-bright bg-nova-violet/[0.12] text-xs font-medium text-nova-violet-bright hover:bg-nova-violet/[0.2] transition-colors cursor-pointer"
-					>
-						<Icon icon={tablerWand} width="13" height="13" />
-						Switch to Fuzzy Match
-					</button>
-				</div>
-			)}
+			<p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-nova-text-muted">
+				Check the spelling, clear a field, or try a broader search.
+			</p>
 		</div>
 	);
 }

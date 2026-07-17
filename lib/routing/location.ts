@@ -9,10 +9,10 @@
  *
  *   []                              → home
  *   [moduleUuid]                    → module
- *   [moduleUuid, "cases"]           → case list authoring
+ *   [moduleUuid, "results"]         → case-results authoring
  *   [moduleUuid, "cases", caseId]   → case detail
- *   [moduleUuid, "search-config"]   → case-search authoring
- *   [moduleUuid, "detail-config"]   → case-detail authoring
+ *   [moduleUuid, "search"]          → case-search authoring
+ *   [moduleUuid, "details"]         → case-details authoring
  *   [formUuid]                      → form
  *   [formUuid, fieldUuid]        → form + selected field
  *
@@ -56,11 +56,11 @@ export function serializePath(loc: Location): string[] {
 		case "cases":
 			return loc.caseId !== undefined
 				? [loc.moduleUuid, "cases", loc.caseId]
-				: [loc.moduleUuid, "cases"];
+				: [loc.moduleUuid, "results"];
 		case "search-config":
-			return [loc.moduleUuid, "search-config"];
+			return [loc.moduleUuid, "search"];
 		case "detail-config":
-			return [loc.moduleUuid, "detail-config"];
+			return [loc.moduleUuid, "details"];
 		case "form":
 			/* A selected field is serialized as a single UUID — the parser
 			 * resolves it to its parent form via findFormForField. This
@@ -191,8 +191,16 @@ export function parsePathToLocation(
 
 	const second = segments[1];
 
+	if (second === "results") {
+		/* /build/{id}/{moduleUuid}/results — Results authoring surface. */
+		if (doc.modules[first] === undefined) return { kind: "home" };
+		return { kind: "cases", moduleUuid: first };
+	}
+
 	if (second === "cases") {
-		/* /build/{id}/{moduleUuid}/cases or /build/{id}/{moduleUuid}/cases/{caseId} */
+		/* `/cases/{caseId}` remains the running case-record deep link.
+		 * The two-segment `/cases` form is a legacy Results-authoring alias;
+		 * LocationRecoveryEffect replaces it with the canonical `/results`. */
 		if (doc.modules[first] === undefined) return { kind: "home" };
 		if (segments.length === 2) {
 			return { kind: "cases", moduleUuid: first };
@@ -201,18 +209,16 @@ export function parsePathToLocation(
 		return { kind: "cases", moduleUuid: first, caseId: segments[2] };
 	}
 
-	if (second === "search-config") {
-		/* /build/{id}/{moduleUuid}/search-config — case-search authoring
-		 * surface. Mirrors the `cases` arm: the module must exist, no
-		 * tail segment, fall back to home when the module is missing. */
+	if (second === "search" || second === "search-config") {
+		/* `/search` is canonical; `/search-config` remains a legacy alias.
+		 * The module must exist or the path falls back to home. */
 		if (doc.modules[first] === undefined) return { kind: "home" };
 		return { kind: "search-config", moduleUuid: first };
 	}
 
-	if (second === "detail-config") {
-		/* /build/{id}/{moduleUuid}/detail-config — case-detail authoring
-		 * surface, the third tab of the case-list workspace. Same module-
-		 * must-exist rule as its `cases` / `search-config` siblings. */
+	if (second === "details" || second === "detail-config") {
+		/* `/details` is canonical; `/detail-config` remains a legacy alias.
+		 * This is the third tab of the case workspace. */
 		if (doc.modules[first] === undefined) return { kind: "home" };
 		return { kind: "detail-config", moduleUuid: first };
 	}

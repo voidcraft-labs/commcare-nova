@@ -350,6 +350,14 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	// (each falling back to `order`). Every kind is keyed by the owning module
 	// uuid + item uuid, so concurrent edits merge. Column content updates preserve
 	// all three current order keys; each move changes only its named surface.
+	// A config's absent -> present transition is its own idempotent ensure:
+	// replaying a stale birth against a peer-populated config preserves that
+	// peer state, while still giving metadata-only / empty configs a concrete
+	// container for the granular mutations that follow.
+	z.object({
+		kind: z.literal("ensureCaseListConfig"),
+		uuid: uuidSchema,
+	}),
 	z.object({
 		kind: z.literal("addColumn"),
 		moduleUuid: uuidSchema,

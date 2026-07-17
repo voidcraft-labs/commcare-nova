@@ -59,7 +59,7 @@ export function previewNotice(
 		case "empty":
 			return {
 				tone: "muted",
-				text: "No cases yet — add realistic examples from Results.",
+				text: "No cases yet — the canvas is using placeholder values.",
 			};
 		case "unauthenticated":
 			return { tone: "warning", text: "Sign in to view case data." };
@@ -89,6 +89,7 @@ export function AddGhostButton({
 	disabledReason,
 	icon = tablerPlus,
 	className = "",
+	dataCaseAdd,
 }: {
 	readonly label: string;
 	/** Receives the click event so canvases hosting the button inside
@@ -99,6 +100,8 @@ export function AddGhostButton({
 	readonly disabledReason?: string;
 	readonly icon?: IconifyIcon;
 	readonly className?: string;
+	/** Stable focus target used after hiding an item from a composition. */
+	readonly dataCaseAdd?: "list" | "detail";
 }) {
 	const reasonId = useId();
 	return (
@@ -109,6 +112,7 @@ export function AddGhostButton({
 					onClick={onClick}
 					disabled={disabledReason !== undefined}
 					aria-describedby={disabledReason === undefined ? undefined : reasonId}
+					data-case-add={dataCaseAdd}
 					className={`inline-flex items-center justify-center gap-2 px-4 min-h-11 text-[13px] rounded-lg border border-dashed border-nova-border-bright text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${className}`}
 				>
 					<Icon icon={icon} width="14" height="14" />

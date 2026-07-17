@@ -10,6 +10,7 @@ import {
 	projectCaseWorkspaceColumns,
 	pruneStoppedSortOrphans,
 	removeColumnFromDisplay,
+	showColumnOnDisplay,
 } from "../workspaceProjection";
 
 function column(
@@ -91,18 +92,18 @@ describe("removeColumnFromDisplay", () => {
 		const shared = column("shared", "a");
 
 		expect(removeColumnFromDisplay([shared], shared.uuid, "list")).toEqual([
-			{ ...shared, visibleInList: false },
+			{ ...shared, listOrder: "a", visibleInList: false },
 		]);
 	});
 
-	it("deletes an unsorted field when its final screen removes it", () => {
+	it("retains an unsorted field when its final screen hides it", () => {
 		const detailOnly = column("detail-only", "a", {
 			visibleInList: false,
 		});
 
 		expect(
 			removeColumnFromDisplay([detailOnly], detailOnly.uuid, "detail"),
-		).toEqual([]);
+		).toEqual([{ ...detailOnly, detailOrder: "a", visibleInDetail: false }]);
 	});
 
 	it("keeps an off-screen definition while Default order still uses it", () => {
@@ -113,12 +114,46 @@ describe("removeColumnFromDisplay", () => {
 
 		expect(
 			removeColumnFromDisplay([detailOnly], detailOnly.uuid, "detail"),
-		).toEqual([{ ...detailOnly, visibleInDetail: false }]);
+		).toEqual([{ ...detailOnly, detailOrder: "a", visibleInDetail: false }]);
+	});
+});
+
+describe("showColumnOnDisplay", () => {
+	it("returns a Nova-hidden field to its saved Results position", () => {
+		const hidden = {
+			...column("hidden", "a", { visibleInList: false }),
+			listOrder: "saved-place",
+		};
+
+		expect(
+			showColumnOnDisplay([hidden], hidden.uuid, "list", "append-place"),
+		).toEqual([{ ...hidden, visibleInList: undefined }]);
+	});
+
+	it("appends information that has never appeared on that screen", () => {
+		const detailOnly = column("detail-only", "a", {
+			visibleInList: false,
+		});
+
+		expect(
+			showColumnOnDisplay(
+				[detailOnly],
+				detailOnly.uuid,
+				"list",
+				"append-place",
+			),
+		).toEqual([
+			{
+				...detailOnly,
+				visibleInList: undefined,
+				listOrder: "append-place",
+			},
+		]);
 	});
 });
 
 describe("pruneStoppedSortOrphans", () => {
-	it("deletes an off-screen definition after its final ordering job ends", () => {
+	it("retains an off-screen definition after its final ordering job ends", () => {
 		const before = {
 			...column("sort-only", "a", {
 				visibleInList: false,
@@ -128,7 +163,7 @@ describe("pruneStoppedSortOrphans", () => {
 		};
 		const { sort: _sort, ...after } = before;
 
-		expect(pruneStoppedSortOrphans([before], [after])).toEqual([]);
+		expect(pruneStoppedSortOrphans([before], [after])).toEqual([after]);
 	});
 
 	it("preserves untouched legacy off-screen definitions", () => {

@@ -63,50 +63,70 @@ export function projectCaseWorkspaceColumns(
 }
 
 /**
- * Remove one definition from a user-facing screen without manufacturing a
- * hidden-field inventory. If this was its final screen and no Default order
- * rule still needs the definition, it leaves the document entirely.
+ * Hide one definition from a user-facing screen. The definition always stays
+ * in the document so the author can restore it through Add information. Nova
+ * treats visibility as a reversible presentation choice, never as deletion.
  */
 export function removeColumnFromDisplay(
 	columns: readonly Column[],
 	uuid: Column["uuid"],
 	surface: CaseDisplaySurface,
 ): Column[] {
-	const target = columns.find((column) => column.uuid === uuid);
-	if (target === undefined) return [...columns];
-	const shownOnOtherSurface =
-		surface === "list"
-			? target.visibleInDetail !== false
-			: target.visibleInList !== false;
-	if (!shownOnOtherSurface && target.sort === undefined) {
-		return columns.filter((column) => column.uuid !== uuid);
-	}
 	return columns.map((column) => {
 		if (column.uuid !== uuid) return column;
 		return surface === "list"
-			? ({ ...column, visibleInList: false } as Column)
-			: ({ ...column, visibleInDetail: false } as Column);
+			? ({
+					...column,
+					/* Snapshot the resolved fallback before hiding. A later restore
+					 * can then return this field to the exact place the author arranged
+					 * instead of quietly appending it to the end. */
+					listOrder: column.listOrder ?? column.order,
+					visibleInList: false,
+				} as Column)
+			: ({
+					...column,
+					detailOrder: column.detailOrder ?? column.order,
+					visibleInDetail: false,
+				} as Column);
 	});
 }
 
 /**
- * When an author removes the ordering rule that was an off-screen field's last
- * job, remove that newly-created orphan. Untouched legacy search-only fields
- * are preserved; this cleanup responds only to the sort removal in `next`.
+ * Restore a definition to one screen. A field hidden through Nova carries a
+ * surface-order snapshot and returns to that place; a definition that has
+ * never appeared on the screen has no surface key and joins at the end.
+ */
+export function showColumnOnDisplay(
+	columns: readonly Column[],
+	uuid: Column["uuid"],
+	surface: CaseDisplaySurface,
+	appendOrder: string,
+): Column[] {
+	return columns.map((column) => {
+		if (column.uuid !== uuid) return column;
+		if (surface === "list") {
+			const { visibleInList: _visibility, ...rest } = column;
+			return {
+				...rest,
+				listOrder: column.listOrder ?? appendOrder,
+			} as Column;
+		}
+		const { visibleInDetail: _visibility, ...rest } = column;
+		return {
+			...rest,
+			detailOrder: column.detailOrder ?? appendOrder,
+		} as Column;
+	});
+}
+
+/**
+ * Retain hidden definitions when their Default order role changes. This helper
+ * remains at the historical call seam, but intentionally performs no pruning:
+ * visibility is reversible and must not be coupled to sorting.
  */
 export function pruneStoppedSortOrphans(
-	previous: readonly Column[],
+	_previous: readonly Column[],
 	next: readonly Column[],
 ): Column[] {
-	const previousByUuid = new Map(
-		previous.map((column) => [column.uuid, column]),
-	);
-	return next.filter((column) => {
-		const before = previousByUuid.get(column.uuid);
-		const justStoppedSorting =
-			before?.sort !== undefined && column.sort === undefined;
-		const shownSomewhere =
-			column.visibleInList !== false || column.visibleInDetail !== false;
-		return !justStoppedSorting || shownSomewhere;
-	});
+	return [...next];
 }

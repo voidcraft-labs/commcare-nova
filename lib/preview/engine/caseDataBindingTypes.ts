@@ -57,6 +57,17 @@ export type LoadCasesResult =
 	| { kind: "error"; message: string };
 
 /**
+ * Unfiltered case count for the builder-owned case-data manager. This is
+ * deliberately a separate action from `LoadCasesResult`: the manager needs
+ * the full population size, while list surfaces may be filtered, paginated,
+ * or carrying calculated projections.
+ */
+export type LoadCaseCountResult =
+	| { kind: "count"; count: number }
+	| { kind: "unauthenticated" }
+	| { kind: "error"; message: string };
+
+/**
  * Result of loading the case-list authoring-surface live preview.
  * Mirrors `LoadCasesResult` but the `rows` arm carries
  * `CaseRowWithCalculated` so per-row evaluated calculated columns

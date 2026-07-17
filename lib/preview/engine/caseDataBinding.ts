@@ -46,6 +46,7 @@ import {
 } from "./caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
 import type {
+	LoadCaseCountResult,
 	LoadCaseDataResult,
 	LoadCaseListPreviewResult,
 	LoadCasesResult,
@@ -179,6 +180,38 @@ export async function loadCasesAction(args: {
 		return {
 			kind: "error",
 			message: err instanceof Error ? err.message : "Failed to load cases.",
+		};
+	}
+}
+
+/**
+ * Count every row for one case type, with no authored filter applied. The
+ * builder's case-data manager uses this as its source of truth so an empty
+ * filtered Results screen can never be mistaken for an empty case store.
+ */
+export async function loadCaseCountAction(args: {
+	appId: string;
+	caseType: string;
+}): Promise<LoadCaseCountResult> {
+	try {
+		const session = await getSession();
+		if (!session) return { kind: "unauthenticated" };
+		const store = await gatedCaseStore(args.appId, session.user.id, "view");
+		const count = await store.count({
+			appId: args.appId,
+			caseType: args.caseType,
+		});
+		return { kind: "count", count };
+	} catch (err) {
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
+		reportUnexpectedActionError("loadCaseCount", err, {
+			appId: args.appId,
+			caseType: args.caseType,
+		});
+		return {
+			kind: "error",
+			message: err instanceof Error ? err.message : "Failed to count cases.",
 		};
 	}
 }

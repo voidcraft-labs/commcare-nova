@@ -52,8 +52,10 @@ import {
 	ancestorPath,
 	eq,
 	isIn,
+	isNull,
 	literal,
 	not,
+	or,
 	prop,
 	relationStep,
 	term,
@@ -209,11 +211,14 @@ function composeQueryPredicate(
 	if (ownerIds.length > 0) {
 		const [firstOwnerId, ...otherOwnerIds] = ownerIds;
 		clauses.push(
-			not(
-				isIn(
-					prop(caseType, "owner_id"),
-					literal(firstOwnerId),
-					...otherOwnerIds.map((ownerId) => literal(ownerId)),
+			or(
+				isNull(prop(caseType, "owner_id")),
+				not(
+					isIn(
+						prop(caseType, "owner_id"),
+						literal(firstOwnerId),
+						...otherOwnerIds.map((ownerId) => literal(ownerId)),
+					),
 				),
 			),
 		);

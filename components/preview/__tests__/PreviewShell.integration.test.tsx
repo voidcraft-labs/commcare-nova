@@ -24,6 +24,7 @@ import { asUuid } from "@/lib/doc/types";
 import type { Location } from "@/lib/routing/types";
 
 const MODULE_UUID = asUuid("mod-1");
+const setPreviewingMock = vi.fn();
 
 // Mutable location state so the test can flip between module and
 // cases URLs without remounting the provider. `useLocation` is
@@ -77,6 +78,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		useEditMode: () => "edit" as const,
 		useAppId: () => "app-integration-test",
 		useBuilderIsReady: () => true,
+		useSetPreviewing: () => setPreviewingMock,
 		usePreviewCaseTarget: () => undefined,
 		useSetPreviewCaseTarget: () => vi.fn(),
 	};

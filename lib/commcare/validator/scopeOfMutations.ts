@@ -437,6 +437,11 @@ export function scopeOfMutations(
 				break;
 
 			// ── Granular case-list collections ─────────────────────────
+			case "ensureCaseListConfig":
+				// Presence can introduce or clear structural findings only on the
+				// owning module; the ensure carries no references of its own.
+				acc.moduleUuids.add(mut.uuid);
+				break;
 			case "addColumn":
 			case "updateColumn":
 				// A column edit re-walks its module. A CALCULATED column carries

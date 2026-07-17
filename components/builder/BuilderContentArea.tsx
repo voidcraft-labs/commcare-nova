@@ -46,7 +46,6 @@ import { GenerationProgress } from "@/components/builder/GenerationProgress";
 import { StructureSidebar } from "@/components/builder/StructureSidebar";
 import { ChatContainer } from "@/components/chat/ChatContainer";
 import { ChatRail } from "@/components/chat/ChatRail";
-import { CHAT_SIDEBAR_WIDTH } from "@/components/chat/ChatSidebar";
 import { PreviewShell } from "@/components/preview/PreviewShell";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import type { ThreadDoc, ThreadMeta } from "@/lib/db/types";
@@ -60,11 +59,13 @@ import {
 	useSetSidebarOpen,
 	useSidebarState,
 } from "@/lib/session/hooks";
-import { INSPECTOR_RAIL_WIDTH, useInspectorActive } from "@/lib/ui/inspector";
-
-/** Width of the structure sidebar in pixels (w-90) — the same width
- *  as the right rail, so the two edges frame the canvas evenly. */
-const STRUCTURE_SIDEBAR_WIDTH = 360;
+import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
+import {
+	COMPACT_BUILDER_RAIL_BREAKPOINT,
+	COMPACT_INSPECTOR_RAIL_WIDTH,
+	INSPECTOR_RAIL_WIDTH,
+	useInspectorActive,
+} from "@/lib/ui/inspector";
 
 /** Width of the collapsed icon rails (w-14) — structure and chat
  *  share it, so the two edges read as one system. */
@@ -109,18 +110,24 @@ export function BuilderContentArea({
 	const { open: structureOpen } = useSidebarState("structure");
 	const previewing = usePreviewing();
 	const setSidebarOpen = useSetSidebarOpen();
+	const compactDesktopRails = useIsBreakpoint(
+		"max",
+		COMPACT_BUILDER_RAIL_BREAKPOINT,
+	);
+	const openRailWidth = compactDesktopRails
+		? COMPACT_INSPECTOR_RAIL_WIDTH
+		: INSPECTOR_RAIL_WIDTH;
 
 	/* The right rail belongs to the inspector while a surface claims it:
 	 * it stays open even when the chat sidebar is toggled closed — a
 	 * selection without a visible properties panel would be dead UI.
-	 * Chat and inspector share ONE width (CHAT_SIDEBAR_WIDTH aliases
-	 * INSPECTOR_RAIL_WIDTH), so claiming the rail never reflows the
-	 * canvas. */
+	 * Chat and inspector share ONE live width, so claiming the rail never
+	 * reflows the canvas. Both open rails compact together on narrow desktops. */
 	const inspectorActive = useInspectorActive();
 	const railWidth = inspectorActive
-		? INSPECTOR_RAIL_WIDTH
+		? openRailWidth
 		: chatOpen
-			? CHAT_SIDEBAR_WIDTH
+			? openRailWidth
 			: 0;
 
 	/* Flank widths as the flex row will actually lay them out THIS render —
@@ -129,7 +136,7 @@ export function BuilderContentArea({
 	const structureColumnVisible = showFlanks && !previewing;
 	const structureWidth = structureColumnVisible
 		? structureOpen
-			? STRUCTURE_SIDEBAR_WIDTH
+			? openRailWidth
 			: COLLAPSED_RAIL_WIDTH
 		: 0;
 	const chatRailWidth =
@@ -299,7 +306,7 @@ export function BuilderContentArea({
 						? ""
 						: `absolute right-0 inset-y-0${previewing ? " z-raised" : ""}`
 				}
-				style={isCentered ? undefined : { width: CHAT_SIDEBAR_WIDTH }}
+				style={isCentered ? undefined : { width: openRailWidth }}
 				inert={chatParked}
 			>
 				<ErrorBoundary>

@@ -2,9 +2,8 @@
  * Module-row card in the AppTree sidebar.
  *
  * Renders the module header (icon tile, name, optional case-type slug,
- * collapse chevron), an inline case-list column preview when the
- * module defines case-list columns, and — when expanded — the nested
- * list of FormCards.
+ * collapse chevron), a calm entry point for the case workspace, and —
+ * when expanded — the nested list of FormCards.
  *
  * Subscribes by UUID to exactly this module's entity + its
  * `formOrder` array. Other modules' edits do not re-render this card.
@@ -12,7 +11,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerGridDots from "@iconify-icons/tabler/grid-dots";
-import tablerTable from "@iconify-icons/tabler/table";
+import tablerListSearch from "@iconify-icons/tabler/list-search";
 import { AnimatePresence, motion } from "motion/react";
 import { memo } from "react";
 import { FormCard } from "@/components/builder/appTree/FormCard";
@@ -32,8 +31,7 @@ import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
 import { useModule as useModuleDoc } from "@/lib/doc/hooks/useEntity";
 import { useFormIds } from "@/lib/doc/hooks/useModuleIds";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
-import { byListColumnOrder } from "@/lib/doc/order/compare";
-import type { CaseListConfig, Uuid } from "@/lib/domain";
+import type { Uuid } from "@/lib/domain";
 import {
 	useIsCaseListSelected,
 	useIsModuleSelected,
@@ -171,16 +169,13 @@ export const ModuleCard = memo(function ModuleCard({
 
 			{!isCollapsed && (
 				<>
-					{/* Case List & Search — the workspace's entry point. Lives
+					{/* Cases — the workspace's entry point. Lives
 					 *  here in the tree (not on the module screen) so it's
 					 *  one click from anywhere, including via the collapsed
-					 *  icon rail. The column strip beneath the row is a
-					 *  scaled-down mirror of the runtime list (visibleInList
-					 *  ?? true), so the node doubles as an at-a-glance
-					 *  preview of what workers see. */}
+					 *  icon rail. Its summary matches the three authoring
+					 *  destinations without squeezing field data into the tree. */}
 					{mod.caseType && !locked && (
 						<CaseListNode
-							caseListConfig={mod.caseListConfig}
 							selected={isCaseListSelected}
 							onClick={() => onSelect({ kind: "cases", moduleUuid })}
 						/>
@@ -230,72 +225,50 @@ export const ModuleCard = memo(function ModuleCard({
 });
 
 /**
- * The tree's Case List & Search node — a navigable row plus the
- * column-strip preview, both one click target. Always renders for
- * case-typed modules (even before any column exists) so the entry
- * point stays discoverable.
+ * The tree's case-workspace node. Always renders for case-typed modules
+ * so Search, Results, and Details stay one friendly click away without
+ * turning the narrow structure tree into a miniature data table.
  */
 function CaseListNode({
-	caseListConfig,
 	selected,
 	onClick,
 }: {
-	caseListConfig: CaseListConfig | undefined;
 	selected: boolean;
 	onClick: () => void;
 }) {
-	const visibleColumns =
-		caseListConfig?.columns
-			.filter((col) => col.visibleInList ?? true)
-			.sort(byListColumnOrder) ?? [];
 	return (
 		<button
 			type="button"
 			onClick={onClick}
-			className={`block text-left mx-4 mb-3 w-[calc(100%-2rem)] rounded-lg border overflow-hidden cursor-pointer transition-colors ${
+			aria-current={selected ? "page" : undefined}
+			className={`group mx-4 mb-3 flex min-h-14 w-[calc(100%-2rem)] cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${
 				selected
 					? "border-nova-violet/50 bg-nova-violet/[0.08]"
 					: "border-white/[0.06] bg-white/[0.02] hover:border-nova-violet/30 hover:bg-nova-violet/[0.04]"
 			}`}
 		>
-			<div
-				className={`flex items-center gap-1.5 px-3 py-2 ${visibleColumns.length > 0 ? "border-b border-white/[0.04]" : ""}`}
+			<span
+				className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
+					selected
+						? "bg-nova-violet/15 text-nova-violet-bright"
+						: "bg-white/[0.03] text-nova-text-muted group-hover:bg-nova-violet/[0.08] group-hover:text-nova-text"
+				}`}
+				aria-hidden="true"
 			>
-				<Icon
-					icon={tablerTable}
-					width="13"
-					height="13"
-					className={
-						selected ? "text-nova-violet-bright" : "text-nova-text-muted"
-					}
-				/>
+				<Icon icon={tablerListSearch} width="16" height="16" />
+			</span>
+			<span className="min-w-0">
 				<span
-					className={`text-[11px] font-medium uppercase tracking-widest ${
-						selected ? "text-nova-violet-bright" : "text-nova-text-muted"
+					className={`block truncate text-sm font-medium ${
+						selected ? "text-nova-text" : "text-nova-text-secondary"
 					}`}
 				>
-					Case List & Search
+					Cases
 				</span>
-			</div>
-			{visibleColumns.length > 0 && (
-				<div className="flex">
-					{visibleColumns.map((col, colIdx) => {
-						const labelSource =
-							col.kind === "calculated" ? col.header : col.header || col.field;
-						const label = labelSource || "(unnamed)";
-						return (
-							<div
-								key={col.uuid}
-								className={`flex-1 px-3 py-2 text-xs font-medium text-nova-text-secondary truncate ${
-									colIdx > 0 ? "border-l border-white/[0.04]" : ""
-								}`}
-							>
-								{label}
-							</div>
-						);
-					})}
-				</div>
-			)}
+				<span className="block truncate text-xs text-nova-text-muted">
+					Search · Results · Details
+				</span>
+			</span>
 		</button>
 	);
 }

@@ -150,7 +150,7 @@ export function OptionalMarkdownRow({
 		<div ref={rowRef} className="flex flex-col gap-1.5">
 			<label
 				htmlFor={inputId}
-				className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted"
+				className="text-[12px] font-medium leading-5 text-nova-text-secondary"
 			>
 				{label}
 			</label>

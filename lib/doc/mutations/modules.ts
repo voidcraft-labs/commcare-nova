@@ -42,6 +42,7 @@ export function applyModuleMutation(
 				| "renameModule"
 				| "updateModule"
 				| "setModuleMedia"
+				| "ensureCaseListConfig"
 				| "addColumn"
 				| "updateColumn"
 				| "removeColumn"
@@ -136,6 +137,14 @@ export function applyModuleMutation(
 			if (!mod) return;
 			mod.icon = mut.icon ?? undefined;
 			mod.audioLabel = mut.audioLabel ?? undefined;
+			return;
+		}
+		case "ensureCaseListConfig": {
+			// Semantic, idempotent birth: a stale absent -> present diff must not
+			// replace a config that a peer populated in the meantime. Membership
+			// adds use the same helper, but this explicit kind also materializes an
+			// intentionally empty or metadata-only config before `setCaseListMeta`.
+			ensureCaseListConfig(draft, mut.uuid);
 			return;
 		}
 		case "addColumn": {
@@ -277,10 +286,11 @@ export function applyModuleMutation(
 
 /**
  * Resolve a module's `caseListConfig`, seeding an empty one (`columns: []`,
- * `searchInputs: []`) when absent so the membership-adding reducers are total —
- * an `addColumn` / `addSearchInput` against a config-less module births it (a
- * module's first case-list item is a legitimate config-birth). Returns
- * `undefined` only when the module itself is missing.
+ * `searchInputs: []`) when absent so `ensureCaseListConfig` and the
+ * membership-adding reducers are total. An `addColumn` / `addSearchInput`
+ * against a config-less module still births it (a module's first case-list
+ * item is a legitimate config-birth). Returns `undefined` only when the module
+ * itself is missing.
  *
  * `setCaseListMeta` deliberately does NOT route through here: patching an
  * always-on config's metadata (`filter` / `icon` / `audioLabel`) is an EDIT of

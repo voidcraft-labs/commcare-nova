@@ -34,8 +34,9 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerExclamationCircle from "@iconify-icons/tabler/exclamation-circle";
 import tablerPlus from "@iconify-icons/tabler/plus";
+import tablerSearch from "@iconify-icons/tabler/search";
 import tablerWand from "@iconify-icons/tabler/wand";
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
 	CONSOLE_MENU_ITEM_MIN,
 	CONSOLE_TRIGGER_CLS,
@@ -602,7 +603,7 @@ function AdvancedInputSettings({
 
 // ── Field chrome ──────────────────────────────────────────────────
 
-/** Etched console label + control + quiet hint. */
+/** Friendly sentence-case label + control + quiet hint. */
 function FieldRow({
 	label,
 	hint,
@@ -614,7 +615,7 @@ function FieldRow({
 }) {
 	return (
 		<div className="space-y-2">
-			<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted">
+			<div className="text-[12px] font-medium leading-5 text-nova-text-secondary">
 				{label}
 			</div>
 			{children}
@@ -668,6 +669,13 @@ function BindingPicker({
 	rowIndex,
 }: BindingPickerProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
+	const searchRef = useRef<HTMLInputElement>(null);
+	const [open, setOpen] = useState(false);
+	const [query, setQuery] = useState("");
+	useLayoutEffect(() => {
+		if (!open) return;
+		queueMicrotask(() => searchRef.current?.focus({ preventScroll: true }));
+	}, [open]);
 	const scope = classifyVia(row.via);
 	const ct = caseTypes.find((c) => c.name === currentCaseType);
 	const parentCt =
@@ -705,6 +713,34 @@ function BindingPicker({
 	const parentCaseProperties = authorableCaseProperties(
 		parentCt?.properties ?? [],
 	);
+	const matchesQuery = (
+		property: CaseProperty,
+		peers: readonly CaseProperty[],
+	) => {
+		const normalized = query.trim().toLocaleLowerCase();
+		if (normalized === "") return true;
+		return [
+			property.name,
+			property.label,
+			propertyDisplayLabel(property),
+			friendlyPropertyDisambiguator(property, peers),
+			propertyTypeLabel(property),
+		]
+			.filter((part): part is string => typeof part === "string")
+			.join(" ")
+			.toLocaleLowerCase()
+			.includes(normalized);
+	};
+	const visibleThisCaseProperties = thisCaseProperties.filter((property) =>
+		matchesQuery(property, thisCaseProperties),
+	);
+	const visibleParentCaseProperties = parentCaseProperties.filter((property) =>
+		matchesQuery(property, parentCaseProperties),
+	);
+	const hasAnyProperties =
+		thisCaseProperties.length + parentCaseProperties.length > 0;
+	const hasVisibleProperties =
+		visibleThisCaseProperties.length + visibleParentCaseProperties.length > 0;
 	const destinationProperties =
 		scope === "parent" ? parentCaseProperties : thisCaseProperties;
 	const selectedDef = destinationProperties.find(
@@ -724,7 +760,13 @@ function BindingPicker({
 			: friendlyPropertyDisambiguator(selectedDef, destinationProperties);
 
 	return (
-		<Menu.Root>
+		<Menu.Root
+			open={open}
+			onOpenChange={(nextOpen) => {
+				setOpen(nextOpen);
+				if (!nextOpen) setQuery("");
+			}}
+		>
 			<Menu.Trigger
 				ref={triggerRef}
 				aria-label={`Search field ${rowIndex + 1} property`}
@@ -770,30 +812,84 @@ function BindingPicker({
 					style={{ minWidth: "var(--anchor-width)" }}
 				>
 					<Menu.Popup
-						className={`${MENU_POPUP_CLS} max-h-80 overflow-y-auto min-w-[16rem]`}
+						className={`${MENU_POPUP_CLS} flex max-h-80 min-w-[16rem] flex-col`}
 					>
-						<PropertyGroup
-							heading="This case"
-							properties={thisCaseProperties}
-							isSelected={(p) =>
-								scope === "self" && p.name === selectedPropertyName
-							}
-							onPick={(p) => onPick(p.name, "self")}
-							roundTop
-							roundBottom={parentCt === undefined}
-						/>
-						{parentCt !== undefined && (
-							<PropertyGroup
-								heading="Parent case"
-								properties={parentCaseProperties}
-								isSelected={(p) =>
-									scope === "parent" && p.name === selectedPropertyName
-								}
-								onPick={(p) => onPick(p.name, "parent")}
-								roundTop={false}
-								roundBottom
-							/>
-						)}
+						<div className="shrink-0 border-b border-white/[0.06] p-2">
+							<label className="flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/70 px-3 focus-within:border-nova-violet/40">
+								<Icon
+									icon={tablerSearch}
+									width="15"
+									height="15"
+									className="shrink-0 text-nova-text-muted"
+								/>
+								<span className="sr-only">Search information</span>
+								<input
+									ref={searchRef}
+									type="search"
+									value={query}
+									onChange={(event) => setQuery(event.target.value)}
+									onKeyDown={(event) => {
+										if (
+											![
+												"ArrowDown",
+												"ArrowUp",
+												"Enter",
+												"Escape",
+												"Tab",
+											].includes(event.key)
+										)
+											event.stopPropagation();
+									}}
+									placeholder="Search information…"
+									autoComplete="off"
+									data-1p-ignore
+									className="min-w-0 flex-1 bg-transparent text-[13px] text-nova-text outline-none placeholder:text-nova-text-muted"
+								/>
+							</label>
+						</div>
+						<div className="min-h-0 flex-1 overflow-y-auto p-1">
+							{!hasAnyProperties ? (
+								<p className="px-3 py-4 text-center text-[12px] text-nova-text-muted">
+									No information is available yet.
+								</p>
+							) : !hasVisibleProperties ? (
+								<p className="px-3 py-4 text-center text-[12px] text-nova-text-muted">
+									No information matches “{query.trim()}”.
+								</p>
+							) : (
+								<>
+									{visibleThisCaseProperties.length > 0 && (
+										<PropertyGroup
+											heading="This case"
+											properties={visibleThisCaseProperties}
+											allProperties={thisCaseProperties}
+											isSelected={(p) =>
+												scope === "self" && p.name === selectedPropertyName
+											}
+											onPick={(p) => onPick(p.name, "self")}
+											roundTop
+											roundBottom={
+												parentCt === undefined ||
+												visibleParentCaseProperties.length === 0
+											}
+										/>
+									)}
+									{visibleParentCaseProperties.length > 0 && (
+										<PropertyGroup
+											heading="Parent case"
+											properties={visibleParentCaseProperties}
+											allProperties={parentCaseProperties}
+											isSelected={(p) =>
+												scope === "parent" && p.name === selectedPropertyName
+											}
+											onPick={(p) => onPick(p.name, "parent")}
+											roundTop={visibleThisCaseProperties.length === 0}
+											roundBottom
+										/>
+									)}
+								</>
+							)}
+						</div>
 					</Menu.Popup>
 				</Menu.Positioner>
 			</Menu.Portal>
@@ -804,6 +900,7 @@ function BindingPicker({
 function PropertyGroup({
 	heading,
 	properties,
+	allProperties,
 	isSelected,
 	onPick,
 	roundTop,
@@ -811,6 +908,7 @@ function PropertyGroup({
 }: {
 	readonly heading: string;
 	readonly properties: readonly CaseProperty[];
+	readonly allProperties: readonly CaseProperty[];
 	readonly isSelected: (p: CaseProperty) => boolean;
 	readonly onPick: (p: CaseProperty) => void;
 	readonly roundTop: boolean;
@@ -819,7 +917,7 @@ function PropertyGroup({
 	return (
 		<Menu.Group>
 			<Menu.GroupLabel
-				className={`px-3 pt-2.5 pb-1 font-mono text-[9px] uppercase tracking-[0.14em] text-nova-text-muted ${roundTop ? "rounded-t-xl" : ""}`}
+				className={`px-3 pb-1 pt-2.5 text-[12px] font-medium leading-5 text-nova-text-secondary ${roundTop ? "rounded-t-xl" : ""}`}
 			>
 				{heading}
 			</Menu.GroupLabel>
@@ -831,7 +929,7 @@ function PropertyGroup({
 			{properties.map((p, i) => {
 				const active = isSelected(p);
 				const isLast = roundBottom && i === properties.length - 1;
-				const disambiguator = friendlyPropertyDisambiguator(p, properties);
+				const disambiguator = friendlyPropertyDisambiguator(p, allProperties);
 				return (
 					<Menu.Item
 						key={p.name}

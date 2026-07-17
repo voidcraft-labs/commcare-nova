@@ -24,7 +24,7 @@ export function StructureSidebar() {
 	const appName = useAppName();
 
 	return (
-		<div className="w-90 border-r border-nova-border-bright bg-nova-deep flex flex-col shrink-0 h-full">
+		<div className="w-full border-r border-nova-border-bright bg-nova-deep flex flex-col shrink-0 h-full">
 			{/* App row */}
 			<div className="flex items-center gap-1 pl-3 pr-1 h-12 border-b border-nova-border shrink-0">
 				<button

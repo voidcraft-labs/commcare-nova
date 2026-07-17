@@ -1023,6 +1023,7 @@ export function planReferenceIndexMaintenance(
 		case "moveSearchInput":
 			carriers.add(mut.moduleUuid);
 			break;
+		case "ensureCaseListConfig":
 		case "setCaseSearchMarker":
 		case "setCaseListMeta":
 			carriers.add(mut.uuid);

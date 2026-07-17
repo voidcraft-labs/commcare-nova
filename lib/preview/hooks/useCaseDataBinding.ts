@@ -24,12 +24,14 @@ import { useEffect, useState } from "react";
 import type { CaseListConfig, CaseType } from "@/lib/domain";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import {
+	loadCaseCountAction,
 	loadCaseDataAction,
 	loadCasesAction,
 	populateSampleCasesAction,
 	resetSampleCasesAction,
 } from "@/lib/preview/engine/caseDataBinding";
 import type {
+	LoadCaseCountResult,
 	LoadCaseDataResult,
 	LoadCasesResult,
 	PopulateSampleCasesResult,
@@ -38,6 +40,10 @@ import {
 	type SearchInputValues,
 	searchInputValuesToWire,
 } from "@/lib/preview/engine/runtimeBindings";
+import {
+	invalidateCaseData,
+	useCaseDataRevision,
+} from "@/lib/preview/hooks/caseDataInvalidation";
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
 
 /**
@@ -52,9 +58,9 @@ type LoadingState<T extends { kind: string }> =
 
 /**
  * Subscribe to case-list rows for `(appId, caseType)`. `reload`
- * re-runs the action without changing dependencies (consumers
- * call it after `populateSampleCasesAction` returns to refresh
- * the table). `undefined` for either id keeps the hook in `idle`
+ * re-runs the action without changing dependencies; successful case-data
+ * writes also refresh it through the shared per-type revision signal.
+ * `undefined` for either id keeps the hook in `idle`
  * — same shape `useFormEngine` uses for `formUuid`.
  *
  * Optional `caseListConfig` threads through to the Server Action so
@@ -114,6 +120,7 @@ export function useCases(args: {
 		excludedOwnerIdsExpression,
 		caseTypes,
 	} = args;
+	const caseDataRevision = useCaseDataRevision(appId, caseType);
 	return useReloadableResource<LoadingState<LoadCasesResult>>({
 		prepare: () =>
 			!appId || !caseType
@@ -144,7 +151,41 @@ export function useCases(args: {
 			inputValues,
 			excludedOwnerIdsExpression,
 			caseTypes,
+			caseDataRevision,
 		],
+	});
+}
+
+/**
+ * Subscribe to the complete, unfiltered population size for one case type.
+ * Unlike a Results query, this count never carries the module's authored
+ * filter, so the case-data manager can safely distinguish "no cases exist"
+ * from "no cases match this view."
+ */
+export function useCaseCount(args: {
+	appId: string | undefined;
+	caseType: string | undefined;
+}): {
+	state: LoadingState<LoadCaseCountResult>;
+	fetching: boolean;
+	reload: () => Promise<void>;
+} {
+	const { appId, caseType } = args;
+	const caseDataRevision = useCaseDataRevision(appId, caseType);
+	return useReloadableResource<LoadingState<LoadCaseCountResult>>({
+		prepare: () =>
+			!appId || !caseType
+				? { notReady: { kind: "idle" } }
+				: {
+						fetch: () => loadCaseCountAction({ appId, caseType }),
+					},
+		loading: { kind: "loading" },
+		toError: (err) => ({
+			kind: "error",
+			message: err instanceof Error ? err.message : "Failed to count cases.",
+		}),
+		keepStale: (prev) => prev.kind === "count",
+		deps: [appId, caseType, caseDataRevision],
 	});
 }
 
@@ -165,36 +206,56 @@ export function useCaseData(args: {
 	ancestorDepth: number;
 }): { state: LoadingState<LoadCaseDataResult> } {
 	const { appId, caseType, caseId, ancestorDepth } = args;
-	const [state, setState] = useState<LoadingState<LoadCaseDataResult>>({
-		kind: "idle",
-	});
+	const caseDataRevision = useCaseDataRevision(appId, caseType);
+	const ready = Boolean(appId && caseType && caseId);
+	/* Keep the request identity beside its result. A dependency change renders
+	 * before this hook's effect can set `loading`; returning a row from the prior
+	 * case/revision for that one render would let a case-loading form submit an
+	 * identity that has already been replaced. */
+	const requestKey = ready
+		? `${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${caseDataRevision}`
+		: "";
+	const [resource, setResource] = useState<{
+		key: string;
+		state: LoadingState<LoadCaseDataResult>;
+	}>({ key: "", state: { kind: "idle" } });
 
 	useEffect(() => {
+		// The value is a refetch trigger, not an action argument. Reading it here
+		// documents that this effect intentionally re-runs after a case-data write.
+		void caseDataRevision;
 		if (!appId || !caseType || !caseId) {
-			setState({ kind: "idle" });
+			setResource({ key: "", state: { kind: "idle" } });
 			return;
 		}
 		let cancelled = false;
-		setState({ kind: "loading" });
+		setResource({ key: requestKey, state: { kind: "loading" } });
 		/* See `useCases` for the wire-rejection rationale. */
 		loadCaseDataAction(appId, caseType, caseId, ancestorDepth)
 			.then((result) => {
 				if (cancelled) return;
-				setState(result);
+				setResource({ key: requestKey, state: result });
 			})
 			.catch((err: unknown) => {
 				if (cancelled) return;
-				setState({
-					kind: "error",
-					message: err instanceof Error ? err.message : "Failed to load case.",
+				setResource({
+					key: requestKey,
+					state: {
+						kind: "error",
+						message:
+							err instanceof Error ? err.message : "Failed to load case.",
+					},
 				});
 			});
 		return () => {
 			cancelled = true;
 		};
-	}, [appId, caseType, caseId, ancestorDepth]);
+	}, [appId, caseType, caseId, ancestorDepth, caseDataRevision, requestKey]);
 
-	return { state };
+	if (!ready) return { state: { kind: "idle" } };
+	return {
+		state: resource.key === requestKey ? resource.state : { kind: "loading" },
+	};
 }
 
 /**
@@ -220,7 +281,9 @@ export function usePopulateSampleCases(args: {
 				message: "App or case type not yet available.",
 			};
 		}
-		return populateSampleCasesAction(appId, caseType);
+		const result = await populateSampleCasesAction(appId, caseType);
+		if (result.kind === "ok") invalidateCaseData(appId, caseType.name);
+		return result;
 	};
 }
 
@@ -250,6 +313,9 @@ export function useResetSampleCases(args: {
 				message: "App or case type not yet available.",
 			};
 		}
-		return resetSampleCasesAction(appId, caseType);
+		const result = await resetSampleCasesAction(appId, caseType);
+		if (result.kind === "ok")
+			invalidateCaseData(appId, caseType.name, "replacement");
+		return result;
 	};
 }

@@ -11,6 +11,7 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
+import tablerSearch from "@iconify-icons/tabler/search";
 import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useId, useMemo, useState } from "react";
 import { propertyDisplayLabelForName } from "@/components/builder/shared/primitives/propertyDisplay";
@@ -64,11 +65,21 @@ export function CaseOrderingComposer({
 	const canEdit = useCanEdit();
 	const containerKey = useId();
 	const [moveAnnouncement, setMoveAnnouncement] = useState("");
+	const [sortQuery, setSortQuery] = useState("");
 	const sorted = useMemo(() => resolveSortedColumns(value), [value]);
 	const unsorted = useMemo(
 		() => value.filter((column) => column.sort === undefined).sort(bySortKey),
 		[value],
 	);
+	const visibleUnsorted = useMemo(() => {
+		const normalized = sortQuery.trim().toLocaleLowerCase();
+		if (normalized === "") return unsorted;
+		return unsorted.filter((column) =>
+			friendlyColumnLabel(column, caseType)
+				.toLocaleLowerCase()
+				.includes(normalized),
+		);
+	}, [caseType, sortQuery, unsorted]);
 
 	const applyRuleSequence = useCallback(
 		(nextRules: readonly Column[]) => {
@@ -272,7 +283,7 @@ export function CaseOrderingComposer({
 
 			{canEdit && (
 				<div className="mt-3">
-					<DropdownMenu>
+					<DropdownMenu onOpenChange={(open) => !open && setSortQuery("")}>
 						<DropdownMenuTrigger
 							type="button"
 							disabled={unsorted.length === 0}
@@ -285,16 +296,58 @@ export function CaseOrderingComposer({
 								: "Add another way to sort"}
 							<Icon icon={tablerChevronDown} width="14" height="14" />
 						</DropdownMenuTrigger>
-						<DropdownMenuContent align="start" className="min-w-64">
-							{unsorted.map((column) => (
-								<DropdownMenuItem
-									key={column.uuid}
-									onClick={() => addRule(column)}
-									className="min-h-11"
-								>
-									{friendlyColumnLabel(column, caseType)}
-								</DropdownMenuItem>
-							))}
+						<DropdownMenuContent
+							align="start"
+							className="flex max-h-[min(28rem,var(--available-height))] min-w-72 flex-col overflow-hidden py-0"
+						>
+							<div className="shrink-0 border-b border-white/[0.06] p-2">
+								<label className="flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/55 px-3 focus-within:border-nova-violet/40">
+									<Icon
+										icon={tablerSearch}
+										width="14"
+										height="14"
+										className="shrink-0 text-nova-text-muted"
+									/>
+									<span className="sr-only">Find information to sort by</span>
+									<input
+										type="search"
+										value={sortQuery}
+										onChange={(event) => setSortQuery(event.target.value)}
+										onKeyDown={(event) => {
+											if (
+												![
+													"ArrowDown",
+													"ArrowUp",
+													"Enter",
+													"Escape",
+													"Tab",
+												].includes(event.key)
+											)
+												event.stopPropagation();
+										}}
+										placeholder="Find information"
+										autoComplete="off"
+										data-1p-ignore
+										className="min-w-0 flex-1 bg-transparent text-[13px] text-nova-text outline-none placeholder:text-nova-text-muted"
+									/>
+								</label>
+							</div>
+							<div className="min-h-0 flex-1 overflow-y-auto py-1">
+								{visibleUnsorted.map((column) => (
+									<DropdownMenuItem
+										key={column.uuid}
+										onClick={() => addRule(column)}
+										className="min-h-11"
+									>
+										{friendlyColumnLabel(column, caseType)}
+									</DropdownMenuItem>
+								))}
+								{visibleUnsorted.length === 0 && (
+									<p className="px-3 py-4 text-center text-[12px] text-nova-text-muted">
+										No information matches “{sortQuery}”.
+									</p>
+								)}
+							</div>
 						</DropdownMenuContent>
 					</DropdownMenu>
 				</div>

@@ -24,6 +24,7 @@
 // through `renderCalculatedCell`.
 
 "use client";
+import { isValid, parseISO } from "date-fns";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { Column } from "@/lib/domain";
@@ -32,6 +33,7 @@ import type {
 	CalculatedValue,
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
+import { ISO_DATE_PATTERN } from "@/lib/preview/engine/runtimeBindings";
 
 /**
  * Render one column's cell for one row. Dispatches on the
@@ -162,14 +164,20 @@ export function renderCalculatedCell(
 // ── Best-effort formatters ────────────────────────────────────────
 
 /**
- * Best-effort ISO-string parser + locale-formatted renderer. The
- * authoring preview prioritizes "this looks date-shaped" over exact
- * CCHQ wire-format parity — the wire emitter applies the column's
- * `pattern` via Postgres's `to_char`. Falls back to the raw value
- * when the parse fails so authoring continues unimpeded.
+ * Best-effort ISO-string parser + locale-formatted renderer. Bare ISO dates
+ * are calendar values, not instants: `new Date("2026-07-14")` parses at
+ * midnight UTC and therefore renders July 13 in negative UTC offsets. Parse
+ * validated `YYYY-MM-DD` values in local time so their authored calendar date
+ * survives formatting. Timestamp-shaped values retain the existing native
+ * `Date` behavior. Falls back to the raw value when parsing fails so
+ * authoring continues unimpeded.
  */
-function formatDateBestEffort(raw: string): string {
+export function formatDateBestEffort(raw: string): string {
 	if (!raw) return "—";
+	if (ISO_DATE_PATTERN.test(raw)) {
+		const calendarDate = parseISO(raw);
+		return isValid(calendarDate) ? calendarDate.toLocaleDateString() : raw;
+	}
 	const parsed = new Date(raw);
 	if (Number.isNaN(parsed.getTime())) return raw;
 	return parsed.toLocaleDateString();

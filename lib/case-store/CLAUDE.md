@@ -49,7 +49,12 @@ changes only `status`; it preserves the already-correct lifecycle timestamps.
 
 The running-app view reads the SAME `cases` rows the editor
 inspects — no `InMemoryCaseStore`, no per-session lifecycle;
-"Generate / Reset sample data" writes or replaces real rows.
+The builder's centralized **Case data** manager creates or replaces real rows;
+replacement includes hand-entered and Preview-entered cases and requires an
+explicit destructive confirmation. Replacing a parent case type preserves its
+surviving children but atomically detaches them (`parent_case_id = null` and
+removes the corresponding `case_indices` edges); it never cascades deletion
+into another case type or invents random relationships to the new sample rows.
 
 ## Tenant scoping is structural — `(app_id, project_id)`; `owner_id` is a second axis
 

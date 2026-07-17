@@ -43,9 +43,13 @@ import { createSeededPrng, type SeededPrng } from "./prng";
 export class HeuristicCaseGenerator implements SampleCaseGenerator {
 	generate(args: SampleGeneratorArgs): ReadonlyArray<CaseInsert> {
 		const caseType = args.caseType;
-		const prng = createSeededPrng(
-			`${args.appId}::${caseType.name}::${args.seed}`,
-		);
+		const generatorSeed = `${args.appId}::${caseType.name}::${args.seed}`;
+		const prng = createSeededPrng(generatorSeed);
+		// External IDs get an independent stream. Adding this standard
+		// top-level value must not advance the long-standing property/name/
+		// parent PRNG sequence and silently re-randomize every other sample.
+		const externalIdStart =
+			1000 + createSeededPrng(`${generatorSeed}::external-id`).pickIndex(8000);
 		const dateGenerators = composeDateRangeGenerators(prng, REFERENCE_DATE);
 
 		// Empty parent-id list produces orphan rows (parent_case_id
@@ -78,6 +82,15 @@ export class HeuristicCaseGenerator implements SampleCaseGenerator {
 				// Pool contract guarantees non-empty, satisfying the
 				// column's `length > 0` CHECK.
 				case_name: pickFullName(prng),
+				// Standard case metadata lives in its scalar column, not the
+				// JSONB property document. A seed-specific starting number plus
+				// the row position keeps the default sample batch both realistic
+				// and collision-free.
+				external_id: sampleExternalId({
+					caseTypeName: caseType.name,
+					start: externalIdStart,
+					rowIndex: i,
+				}),
 				status: "open",
 				properties,
 				// `?? null` is defensive — `pickIndex(N)` returns
@@ -310,6 +323,19 @@ function identifierPrefix(terms: readonly string[]): string {
 		(term) => term.length > 1 && !IDENTIFIER_TERMS.has(term),
 	);
 	return (semantic ?? "REF").slice(0, 3).toUpperCase();
+}
+
+function sampleExternalId(args: {
+	caseTypeName: string;
+	start: number;
+	rowIndex: number;
+}): string {
+	const caseTypeTerms = args.caseTypeName
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter(Boolean);
+	const number = String(args.start + args.rowIndex).padStart(4, "0");
+	return `${identifierPrefix(caseTypeTerms)}-${number}`;
 }
 
 function pickIdentifierValue(

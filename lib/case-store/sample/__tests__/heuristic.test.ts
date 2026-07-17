@@ -226,6 +226,72 @@ describe("HeuristicCaseGenerator", () => {
 		expect(thirty).toHaveLength(30);
 	});
 
+	it("fills every row with a deterministic, unique top-level external ID", () => {
+		const args = {
+			appId: "app-1",
+			caseType: PATIENT_CASE_TYPE,
+			count: 30,
+			seed: "external-id-regression",
+		};
+		const first = generator.generate(args);
+		const second = generator.generate(args);
+		const externalIds = first.map((row) => row.external_id);
+
+		expect(externalIds).toEqual(second.map((row) => row.external_id));
+		expect(new Set(externalIds).size).toBe(first.length);
+		expect(externalIds[0]).toBe("PAT-5777");
+		expect(externalIds.at(-1)).toBe("PAT-5806");
+		for (const row of first) {
+			expect(row.external_id).toMatch(/^PAT-\d{4,}$/);
+			expect(row.properties).not.toHaveProperty("external_id");
+		}
+	});
+
+	it("does not consume the existing property, name, or parent PRNG stream", () => {
+		const rows = generator.generate({
+			appId: "app-1",
+			caseType: {
+				name: "patient",
+				properties: [
+					{ name: "name", label: "Name", data_type: "text" },
+					{ name: "age", label: "Age", data_type: "int" },
+					{ name: "dob", label: "DOB", data_type: "date" },
+				],
+			},
+			count: 2,
+			seed: "external-id-regression",
+		});
+
+		// These are the generator's values from before `external_id` was
+		// added. Keeping its PRNG on a separate seed stream preserves them.
+		expect(
+			rows.map((row) => ({
+				case_name: row.case_name,
+				properties: row.properties,
+				parent_case_id: row.parent_case_id,
+			})),
+		).toEqual([
+			{
+				case_name: "Kofi Hassan",
+				properties: {
+					name: "Mei Reddy",
+					age: 68,
+					dob: "1952-03-22",
+				},
+				parent_case_id: null,
+			},
+			{
+				case_name: "Gita Tran",
+				properties: {
+					name: "Rashid Zhang",
+					age: 19,
+					dob: "1963-06-29",
+				},
+				parent_case_id: null,
+			},
+		]);
+	});
+
 	it("generated rows validate against the case-type JSON Schema", () => {
 		// Pin every row against the same schema validator the case
 		// store uses at insert time. A heuristic that emits an

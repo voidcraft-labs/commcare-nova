@@ -9,9 +9,10 @@
  * `byDetailColumnOrder`, each falling back to generic `order`. A consumer that
  * iterates one of those arrays AS A SEQUENCE must therefore sort it through
  * its matching comparator (or the `ordered{Field,Form,Module}Uuids`,
- * `projectCaseWorkspaceColumns`, `readOptions`, or `sortedOrderKeys` helpers,
- * which sort internally), or a same-parent reorder — which leaves the array
- * untouched and only changes an entity's `order` — would be invisible.
+ * `useFormIds`, `projectCaseWorkspaceColumns`, `readOptions`, or
+ * `sortedOrderKeys` helpers, which sort internally), or a same-parent reorder
+ * — which leaves the array untouched and only changes an entity's `order` —
+ * would be invisible.
  *
  * This guard fails if one of the enumerated sequence consumers loses its sort,
  * so a missed/regressed site fails the build rather than prod. A NEW emitter or
@@ -88,7 +89,7 @@ const SEQUENCE_CONSUMERS = [
 ] as const;
 
 const SORTS =
-	/by(?:SortKey|ListColumnOrder|DetailColumnOrder)|ordered(?:Field|Form|Module)Uuids|projectCaseWorkspaceColumns|readOptions|sortedOrderKeys/;
+	/by(?:SortKey|ListColumnOrder|DetailColumnOrder)|ordered(?:Field|Form|Module)Uuids|useFormIds|projectCaseWorkspaceColumns|readOptions|sortedOrderKeys/;
 
 describe("order-sequence sweep", () => {
 	it.each(

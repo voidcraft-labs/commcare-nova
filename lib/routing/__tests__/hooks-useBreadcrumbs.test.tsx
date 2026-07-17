@@ -116,8 +116,8 @@ describe("useBreadcrumbs", () => {
 		]);
 	});
 
-	it("at a form-bearing module's case list, shows [Home, Module, Case List]", () => {
-		mockSegments.current = [moduleUuid, "cases"];
+	it("at a form-bearing module's Results screen, shows [Home, Module, Results]", () => {
+		mockSegments.current = [moduleUuid, "results"];
 		const { result } = renderHook(() => useBreadcrumbs(), {
 			wrapper: wrapperFn,
 		});
@@ -130,14 +130,14 @@ describe("useBreadcrumbs", () => {
 			},
 			{
 				key: `cases:${moduleUuid}`,
-				label: "Case List",
+				label: "Results",
 				location: { kind: "cases", moduleUuid },
 			},
 		]);
 	});
 
-	it("at a bare case list, collapses to [Home, Module→cases] with no Case List crumb", () => {
-		mockSegments.current = [bareCaseListUuid, "cases"];
+	it("at a bare case list, collapses to [Home, Module→Results] with no Results crumb", () => {
+		mockSegments.current = [bareCaseListUuid, "results"];
 		const { result } = renderHook(() => useBreadcrumbs(), {
 			wrapper: wrapperFn,
 		});
@@ -150,6 +150,21 @@ describe("useBreadcrumbs", () => {
 				location: { kind: "cases", moduleUuid: bareCaseListUuid },
 			},
 		]);
+	});
+
+	it.each([
+		["search", "Search", "search-config"],
+		["details", "Details", "detail-config"],
+	] as const)("at the %s workspace path, names the %s tab in the breadcrumb", (pathSegment, label, kind) => {
+		mockSegments.current = [moduleUuid, pathSegment];
+		const { result } = renderHook(() => useBreadcrumbs(), {
+			wrapper: wrapperFn,
+		});
+		expect(result.current.at(-1)).toEqual({
+			key: `${kind}:${moduleUuid}`,
+			label,
+			location: { kind, moduleUuid },
+		});
 	});
 
 	it("at a form, shows [Home, Module, Form]", () => {

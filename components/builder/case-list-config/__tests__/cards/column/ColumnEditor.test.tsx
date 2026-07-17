@@ -204,6 +204,27 @@ describe("ColumnEditor — applicability errors", () => {
 		expect(screen.queryByText("external-id")).toBeNull();
 	});
 
+	it("keeps incompatible display choices visible but disabled with a reason", () => {
+		const onChange = vi.fn();
+		render(
+			<ColumnEditor
+				value={plainColumn(TEST_UUID, "name", "Patient")}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Display as: Text" }));
+		const dateChoice = screen.getByRole("menuitem", {
+			name: /date.*choose date or date-and-time information/i,
+		});
+		expect(dateChoice.getAttribute("aria-disabled")).toBe("true");
+		fireEvent.click(dateChoice);
+
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
 	it("reports invalid + surfaces inline error for Interval (flag) on a text property", async () => {
 		const onValidityChange = vi.fn();
 		const value = intervalColumn(

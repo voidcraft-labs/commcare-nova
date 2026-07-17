@@ -1,11 +1,11 @@
 // components/builder/inspector/inspectorChrome.tsx
 //
-// The console chrome every right-rail inspector body is built from —
+// The shared chrome every right-rail inspector body is built from —
 // the case-list/search bodies and the form-field inspector alike.
-// One place owns the rail's sizing and voice so every editor reads
-// the same way: etched mono section labels, recessed input wells,
-// generous calm spacing, and full-size targets — every interactive
-// control in the rail is at least 44px tall.
+// One place owns the rail's sizing and voice so every editor feels
+// like the same calm, approachable surface: readable labels, recessed
+// input wells, generous spacing, and full-size targets. Every
+// interactive control in the rail is at least 44px tall.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -22,11 +22,11 @@ export const CONSOLE_TRIGGER_CLS =
  *  for single-line items. */
 export const CONSOLE_MENU_ITEM_MIN = "min-h-11";
 
-/** The mono micro-label that titles a single control inside a section —
- *  the section header's etched voice, one step quieter. Every rail editor
- *  labels its control with this so the inspector reads as one surface. */
+/** The friendly label that titles a single control inside a section.
+ *  Sentence case and ordinary type keep configuration readable instead
+ *  of making common choices feel like technical instrumentation. */
 export const INSPECTOR_LABEL_CLS =
-	"font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted";
+	"text-[12px] font-medium leading-5 text-nova-text-secondary";
 
 /** The recessed single-line input well every text field in the rail uses.
  *  Pure `focus:` ring — for inputs that also carry a refusable state, build
@@ -36,9 +36,9 @@ export const INSPECTOR_INPUT_CLS =
 	"w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
 
 /**
- * One titled cluster of controls. The etched label is console
- * instrumentation — mono, uppercase, wide tracking — and the body
- * below it breathes.
+ * One titled cluster of controls. The heading is deliberately plain-language
+ * and readable; visual hierarchy comes from weight and spacing, not a
+ * technical-looking all-caps treatment.
  */
 export function InspectorSection({
 	label,
@@ -49,7 +49,7 @@ export function InspectorSection({
 }) {
 	return (
 		<section className="pt-4 first:pt-0 border-t border-nova-border first:border-t-0 space-y-2.5">
-			<h3 className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted">
+			<h3 className="text-[12px] font-semibold leading-5 text-nova-text-secondary">
 				{label}
 			</h3>
 			{children}

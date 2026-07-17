@@ -10,7 +10,7 @@
  * / `useBreadcrumbs` (URL-driven), names from the doc store. In preview
  * the trail is rebuilt to follow the running app — a case-list URL names
  * the case-loading FORM it feeds (plus the picked case), not the editor's
- * "Case List" tab.
+ * "Results" tab.
  *
  * The row is a ContentFrame sharing the one content frame every screen
  * uses (`5xl` / `px-6`), so the trail's left edge never shifts between
@@ -19,11 +19,14 @@
  */
 "use client";
 import { useMemo } from "react";
+import { CaseDataManager } from "@/components/builder/CaseDataManager";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
 import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
+import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
+import { useModule } from "@/lib/doc/hooks/useEntity";
 import {
 	useIsBareCaseListModule,
 	useOrderedForms,
@@ -35,6 +38,8 @@ import {
 	previewBreadcrumbTrail,
 } from "@/lib/routing/previewBreadcrumbs";
 import {
+	useAppId,
+	useCanEdit,
 	usePreviewCaseTarget,
 	usePreviewing,
 	usePreviewSelectedCase,
@@ -74,6 +79,16 @@ export function BreadcrumbStrip() {
 		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;
+	const appId = useAppId();
+	const canEdit = useCanEdit();
+	const currentModule = useModule(moduleUuid);
+	const materializableCaseTypes = useMaterializableCaseTypes();
+	const caseType = materializableCaseTypes.find(
+		(candidate) => candidate.name === currentModule?.caseType,
+	);
+	const hasLinkedChildren = materializableCaseTypes.some(
+		(candidate) => candidate.parent_type === caseType?.name,
+	);
 	const moduleForms = useOrderedForms((moduleUuid ?? "") as Uuid);
 	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
 
@@ -160,6 +175,14 @@ export function BreadcrumbStrip() {
 					/>
 				)}
 				<CollapsibleBreadcrumb parts={breadcrumbParts} />
+				{appId && caseType && (
+					<CaseDataManager
+						appId={appId}
+						caseType={caseType}
+						canEdit={canEdit}
+						hasLinkedChildren={hasLinkedChildren}
+					/>
+				)}
 			</ContentFrame>
 		</div>
 	);

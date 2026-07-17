@@ -47,9 +47,11 @@
  *   8. Media — the dedicated clear-safe kinds (`setFieldMedia` /
  *      `setModuleMedia` / `setFormMedia`).
  *   9. Granular COLLECTIONS — case-list column / search-input /
- *      `setCaseListMeta` / `setCaseSearchMarker` kinds + select-option kinds,
- *      keyed by item uuid (a case-list presence transition / case-type flip
- *      falls back to a wholesale `updateModule{caseListConfig}`).
+ *      `ensureCaseListConfig` / `setCaseListMeta` /
+ *      `setCaseSearchMarker` kinds + select-option kinds, keyed by item uuid.
+ *      Case-list birth is an idempotent ensure followed by granular contents;
+ *      only an explicit whole-config removal uses
+ *      `updateModule{caseListConfig:null}`.
  *  10. Module order — `moveModule{order}` for a module whose `order` changed.
  *  11. Catalog LAST — granular `declareCaseType` / `setCaseTypeMeta` /
  *      `addCaseProperty` / `setCaseProperty` / `removeCaseProperty` /
@@ -237,9 +239,9 @@ function propertyPatch(
 // `order` is carried by `moveModule` / `moveForm`; `caseListConfig` is diffed
 // granularly (column / search-input / `setCaseListMeta` kinds), and empty
 // `caseSearchConfig` presence via `setCaseSearchMarker`, so the
-// module-common loop never co-emits a wholesale patch that would clobber a
-// concurrent collection edit — except on a presence transition, handled
-// explicitly below.
+// module-common loop never co-emits a wholesale present-config patch that
+// would clobber a concurrent collection edit. An explicit config removal still
+// travels as `updateModule{caseListConfig:null}`.
 const MODULE_PATCH_SKIP = new Set<string>([
 	"icon",
 	"audioLabel",
@@ -487,9 +489,9 @@ export function diffDocsToMutations(
 			});
 		}
 		// `caseListConfig` is excluded from the generic patch — its content is
-		// diffed into granular column / search-input / `setCaseListMeta` kinds
-		// (a presence transition / case-type flip falls back to a wholesale
-		// `updateModule{caseListConfig}`).
+		// diffed into an idempotent birth plus granular column / search-input /
+		// `setCaseListMeta` kinds. A case-type flip never snapshots the config;
+		// only an explicit config removal uses `updateModule{caseListConfig:null}`.
 		collections.push(
 			...diffCaseListConfig(prev.modules[uuid], next.modules[uuid], uuid),
 			...diffCaseSearchConfig(prev.modules[uuid], next.modules[uuid], uuid),
@@ -971,11 +973,16 @@ function stripOrder(value: unknown): unknown {
 }
 
 /**
- * Diff a module's `caseListConfig`. Content edits emit granular column /
- * search-input / `setCaseListMeta` kinds (keyed by item uuid, so concurrent
- * edits to different items merge). A PRESENCE transition (config absent↔present)
- * OR a case-type flip emits the wholesale `updateModule{caseListConfig}` (the
- * whole-object birth / clear / swap), never for a content edit.
+ * Diff a module's `caseListConfig`. Birth is an idempotent
+ * `ensureCaseListConfig`, followed by the same granular column / search-input /
+ * `setCaseListMeta` kinds used for ordinary content edits. Reapplying that
+ * batch over a peer-populated config therefore merges by item uuid instead of
+ * replacing the peer's work with the stale `next` snapshot.
+ *
+ * A case-type flip has no special config behavior: `updateModule{caseType}`
+ * changes the module context, while any simultaneous config changes remain
+ * granular. Only an explicit present -> absent transition is a deliberate
+ * whole-config removal and carries `updateModule{caseListConfig:null}`.
  */
 function diffCaseListConfig(
 	prevMod: Module,
@@ -984,26 +991,25 @@ function diffCaseListConfig(
 ): Mutation[] {
 	const prevConfig = prevMod.caseListConfig;
 	const nextConfig = nextMod.caseListConfig;
-	const presenceChanged =
-		(prevConfig === undefined) !== (nextConfig === undefined);
-	const caseTypeFlipped = prevMod.caseType !== nextMod.caseType;
-	if (presenceChanged || (caseTypeFlipped && nextConfig !== undefined)) {
-		// Wholesale birth / clear / swap. A clear travels as `null` (the patch
-		// schema admits it on the optional slot); a present config is set whole.
+	if (nextConfig === undefined) {
+		if (prevConfig === undefined) return [];
+		// A deliberate whole-config removal travels as `null` (the patch schema
+		// admits it on the optional slot, and null survives the JSON wire).
 		return [
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: {
-					caseListConfig:
-						nextConfig === undefined ? null : cloneEntity(nextConfig),
-				} as Partial<Module>,
+				patch: { caseListConfig: null } as unknown as Partial<Module>,
 			},
 		];
 	}
-	if (nextConfig === undefined) return []; // both absent
+	const birth: Mutation[] =
+		prevConfig === undefined
+			? [{ kind: "ensureCaseListConfig", uuid: moduleUuid }]
+			: [];
 	const prevC = prevConfig ?? { columns: [], searchInputs: [] };
 	return [
+		...birth,
 		...diffColumns(prevC.columns, nextConfig.columns, moduleUuid),
 		...diffSearchInputs(
 			prevC.searchInputs,
