@@ -145,7 +145,7 @@ const casePropertyDescribed = z
 			.nullable()
 			.optional()
 			.describe(
-				"Only when something OUTSIDE this app writes the property (another app on the same case type, HQ, an integration) — e.g. a status this app only ever reads. Suppresses the no-writer advisory for it. null when this app's own forms write it (the normal case).",
+				"Only when something OUTSIDE this app writes the property (another app on the same case type, HQ, an integration) — e.g. a status this app only ever reads. Suppresses the no-writer advisory for it. null when this app's own forms write it (the normal case). When re-recording a bare declaration: omitting this keeps an existing marking; an explicit null clears it.",
 			),
 	})
 	.strict()

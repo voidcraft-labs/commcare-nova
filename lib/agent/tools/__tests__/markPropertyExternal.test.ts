@@ -95,6 +95,9 @@ describe("markPropertyExternal — marking", () => {
 		if ("error" in result.result) throw new Error(result.result.error);
 		expect(result.result.message).toContain("set outside this app");
 		expect(result.result.message).toContain("pharmacy fulfillment");
+		// The gate on order_status was open — the prose may honestly claim
+		// the advisory is silenced.
+		expect(result.result.message).toContain("silenced");
 
 		expect(result.mutations).toEqual([
 			expect.objectContaining({
@@ -133,7 +136,11 @@ describe("markPropertyExternal — marking", () => {
 		).toEqual({});
 	});
 
-	it("declares an undeclared property in the bare shape plus the marking", async () => {
+	it("declares an unlisted property in the bare shape — and DISCLOSES the new declaration loudly", async () => {
+		// The declare-new arm is deliberate (the only declare-external path
+		// on an authored record), but a typo'd name would land here too —
+		// so the prose must scream "declared it new", never claim an
+		// advisory was silenced, and hand back the correction recipe.
 		const doc = gatedDoc();
 		const { ctx } = makeStubToolContext();
 		const result = await markPropertyExternalTool.execute(
@@ -157,6 +164,56 @@ describe("markPropertyExternal — marking", () => {
 			label: "priority_flag",
 			external: { note: "set by HQ" },
 		});
+		expect(result.result.message).toContain("DECLARED it new");
+		expect(result.result.message).toContain('"order_status"');
+		expect(result.result.message).toContain("external: null");
+		expect(result.result.message).not.toContain("silenced");
+	});
+
+	it("marking a property with no open advisory says so instead of claiming a silence", async () => {
+		// order_status has a writer here, so no advisory is open — the
+		// marking is a recorded fact, and the prose must not invent a
+		// silence that never happened.
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "medication_order",
+					properties: [{ name: "order_status", label: "Order status" }],
+				},
+			],
+			modules: [
+				{
+					name: "Orders",
+					caseType: "medication_order",
+					forms: [
+						{
+							name: "Pharmacy Fulfillment",
+							type: "followup",
+							fields: [
+								f({
+									id: "order_status",
+									kind: "text",
+									case_property_on: "medication_order",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const { ctx } = makeStubToolContext();
+		const result = await markPropertyExternalTool.execute(
+			{
+				case_type: "medication_order",
+				property: "order_status",
+				external: {},
+			},
+			ctx,
+			doc,
+		);
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(result.result.message).toContain("No advisory was open");
+		expect(result.result.message).not.toContain("silenced");
 	});
 
 	it("refuses an unknown case type, naming the known ones and generateSchema", async () => {
@@ -285,6 +342,67 @@ describe("generateSchema × external — the marking survives enrichment", () =>
 		);
 		expect(after?.label).toBe("Order status");
 		expect(after?.external).toEqual({ note: "pharmacy" });
+	});
+
+	it("an explicit external: null on a restated property CLEARS the stored marking", async () => {
+		// The edit-path law at the enrichment boundary: omission keeps (the
+		// carry-forward), an explicit null clears — cleanCaseTypeRecord
+		// collapses the null before the catalog sees it, so the tool reads
+		// the distinction off the parsed input.
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "medication_order",
+					properties: [
+						{
+							name: "order_status",
+							label: "order_status",
+							external: { note: "pharmacy" },
+						},
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Orders",
+					caseType: "medication_order",
+					forms: [
+						{
+							name: "Administer Medication",
+							type: "followup",
+							fields: [f({ id: "med_given", kind: "text" })],
+						},
+					],
+				},
+			],
+		});
+		const { ctx } = makeStubToolContext();
+		const result = await generateSchemaTool.execute(
+			{
+				caseTypes: [
+					{
+						name: "medication_order",
+						properties: [
+							{
+								name: "order_status",
+								label: "Order status",
+								external: null,
+							},
+						],
+					},
+				],
+			},
+			ctx,
+			doc,
+		);
+		if ("error" in result.result) throw new Error(result.result.error);
+		const after = catalogProperty(
+			result.newDoc,
+			"medication_order",
+			"order_status",
+		);
+		expect(after?.label).toBe("Order status");
+		expect(after?.external).toBeUndefined();
 	});
 
 	it("an incoming record's own external wins over the carried one", async () => {

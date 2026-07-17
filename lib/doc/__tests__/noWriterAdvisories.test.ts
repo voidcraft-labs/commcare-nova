@@ -15,6 +15,8 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseType, Module, Uuid } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import {
+	attachAdvisoriesNote,
+	describeAdvisoriesIntroducedByBatch,
 	describeIntroducedAdvisories,
 	describeNoWriterAdvisory,
 	noWriterAdvisories,
@@ -431,19 +433,112 @@ describe("describeIntroducedAdvisories — the batch delta", () => {
 			],
 		});
 		const withoutWriter = gatedDoc();
-		const note = describeIntroducedAdvisories(withWriter, withoutWriter);
+		const note = describeIntroducedAdvisories(
+			withWriter,
+			withoutWriter,
+			"markPropertyExternal",
+		);
 		expect(note).toBeDefined();
 		expect(note).toContain("`order_status`");
+		// The remediation names the CALLING surface's tool id — the chat
+		// name here, the snake_case one when the MCP adapter passes it.
 		expect(note).toContain("markPropertyExternal");
+		expect(
+			describeIntroducedAdvisories(
+				withWriter,
+				withoutWriter,
+				"mark_property_external",
+			),
+		).toContain("mark_property_external");
 	});
 
 	it("stays silent when nothing new was introduced — including resolutions", () => {
 		const withWriter = gatedDoc({ note: "pharmacy" });
 		const open = gatedDoc();
 		// Unchanged advisory set → quiet.
-		expect(describeIntroducedAdvisories(open, open)).toBeUndefined();
+		expect(
+			describeIntroducedAdvisories(open, open, "markPropertyExternal"),
+		).toBeUndefined();
 		// A change that RESOLVES the advisory → quiet (the fix is its own
 		// confirmation).
-		expect(describeIntroducedAdvisories(open, withWriter)).toBeUndefined();
+		expect(
+			describeIntroducedAdvisories(open, withWriter, "markPropertyExternal"),
+		).toBeUndefined();
+	});
+});
+
+describe("describeAdvisoriesIntroducedByBatch — the chokepoint flavor", () => {
+	it("baselines against the batch's own local effect, so it reports what THIS batch introduced", () => {
+		// The writer-suppressed doc: removing the writer field is the batch.
+		const doc = buildDoc({
+			caseTypes: orderCatalog(),
+			modules: [
+				{
+					name: "Orders",
+					caseType: "medication_order",
+					forms: [
+						{
+							name: "Administer Medication",
+							type: "followup",
+							fields: [
+								f({
+									id: "med_given",
+									kind: "text",
+									relevant: "#medication_order/order_status = 'delivered'",
+								}),
+							],
+						},
+						{
+							name: "Pharmacy Fulfillment",
+							type: "followup",
+							fields: [
+								f({
+									id: "order_status",
+									kind: "text",
+									case_property_on: "medication_order",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const writerUuid = Object.values(doc.fields).find(
+			(field) => field.id === "order_status",
+		)?.uuid;
+		if (writerUuid === undefined) throw new Error("fixture writer missing");
+		const note = describeAdvisoriesIntroducedByBatch(
+			doc,
+			[{ kind: "removeField", uuid: writerUuid }],
+			"markPropertyExternal",
+		);
+		expect(note).toContain("`order_status`");
+		// An empty batch is always quiet.
+		expect(
+			describeAdvisoriesIntroducedByBatch(doc, [], "markPropertyExternal"),
+		).toBeUndefined();
+		// A batch that introduces nothing is quiet even when the doc already
+		// carries an open advisory — steady state stays silent.
+		const open = gatedDoc();
+		expect(
+			describeAdvisoriesIntroducedByBatch(
+				open,
+				[{ kind: "setAppName", name: "Renamed" }],
+				"markPropertyExternal",
+			),
+		).toBeUndefined();
+	});
+});
+
+describe("attachAdvisoriesNote — the shared result projection", () => {
+	it("appends to prose, spreads onto objects, passes anything else through", () => {
+		expect(attachAdvisoriesNote("Removed the form.", "Heads-up")).toBe(
+			"Removed the form.\n\nHeads-up",
+		);
+		expect(attachAdvisoriesNote({ message: "ok" }, "Heads-up")).toEqual({
+			message: "ok",
+			advisories: "Heads-up",
+		});
+		expect(attachAdvisoriesNote(42, "Heads-up")).toBe(42);
 	});
 });

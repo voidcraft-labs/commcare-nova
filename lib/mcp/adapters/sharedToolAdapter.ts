@@ -59,7 +59,10 @@ import type {
 	ReadToolResult,
 } from "@/lib/agent/tools/common";
 import type { AppCapability } from "@/lib/auth/projectRoles";
-import { describeIntroducedAdvisories } from "@/lib/doc/noWriterAdvisories";
+import {
+	attachAdvisoriesNote,
+	describeAdvisoriesIntroducedByBatch,
+} from "@/lib/doc/noWriterAdvisories";
 import type { BlueprintDoc } from "@/lib/domain";
 import { initMcpCall } from "../context";
 import {
@@ -214,20 +217,19 @@ export function registerSharedTool(
 					let payload = projectResult(outcome);
 					/* No-writer advisory delta — the MCP twin of the chat SA's
 					 * `wrapMutating` attach, so both surfaces report identically
-					 * with zero per-tool wiring. A non-empty batch is a persisted
-					 * success by the shared-tool contract. */
+					 * with zero per-tool wiring. The baseline pair is
+					 * (loaded.doc, loaded.doc ⊕ batch) — never `outcome.newDoc`,
+					 * whose transactional re-apply may carry a peer's concurrent
+					 * edits this call must not take blame for. A non-empty batch
+					 * is a persisted success by the shared-tool contract. */
 					if (outcome.kind === "mutate" && outcome.mutations.length > 0) {
-						const advisories = describeIntroducedAdvisories(
+						const advisories = describeAdvisoriesIntroducedByBatch(
 							loaded.doc,
-							outcome.newDoc,
+							outcome.mutations,
+							"mark_property_external",
 						);
 						if (advisories !== undefined) {
-							payload =
-								typeof payload === "string"
-									? `${payload}\n\n${advisories}`
-									: payload !== null && typeof payload === "object"
-										? { ...payload, advisories }
-										: payload;
+							payload = attachAdvisoriesNote(payload, advisories);
 						}
 					}
 					return {

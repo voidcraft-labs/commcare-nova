@@ -50,6 +50,7 @@
  * is unreachable and consumers get one stable array per doc state.
  */
 
+import { produce } from "immer";
 import type {
 	BlueprintDoc,
 	FieldSlotId,
@@ -61,8 +62,10 @@ import {
 	casePropertyTargetKey,
 	isStandardCaseListProperty,
 } from "@/lib/domain";
+import { applyMutations } from "./mutations";
 import { findContainingForm } from "./mutations/helpers";
 import { declarersOf, referencingSlotsOf } from "./referenceIndex";
+import type { Mutation } from "./types";
 
 /**
  * The behavior-gating slots — a reference from one of these makes the
@@ -143,9 +146,12 @@ function buildAdvisories(doc: BlueprintDoc): readonly NoWriterAdvisory[] {
 			if (isStandardCaseListProperty(prop.name) || prop.name === "case_id") {
 				continue;
 			}
+			// Writer check first — one O(1) index lookup skips the read
+			// collection (map build + entity resolution + sort) for the
+			// steady-state majority: written-and-gated properties.
+			if (declarersOf(doc, ct.name, prop.name).length > 0) continue;
 			const reads = gateReads(doc, ct.name, prop.name);
 			if (reads.length === 0) continue;
-			if (declarersOf(doc, ct.name, prop.name).length > 0) continue;
 			advisories.push({ caseType: ct.name, property: prop.name, reads });
 		}
 	}
@@ -266,7 +272,7 @@ export function describeNoWriterAdvisory(
 }
 
 const advisoryKey = (a: NoWriterAdvisory): string =>
-	`${a.caseType} ${a.property}`;
+	`${a.caseType} ${a.property}`;
 
 /**
  * The delta note for a committed batch: the advisories the batch
@@ -276,13 +282,14 @@ const advisoryKey = (a: NoWriterAdvisory): string =>
  * quiet. Resolved advisories are deliberately silent: the fix is its
  * own confirmation.
  *
- * Both mutating-tool chokepoints consume this — the chat SA's
- * `wrapMutating` and the MCP adapter — so every mutating tool reports
- * the same way with no per-tool wiring.
+ * `resolutionTool` is the calling surface's registered name for the
+ * marking tool (`markPropertyExternal` on chat, `mark_property_external`
+ * on MCP) so the remediation never names a tool the reader can't call.
  */
 export function describeIntroducedAdvisories(
 	prevDoc: BlueprintDoc,
 	nextDoc: BlueprintDoc,
+	resolutionTool: string,
 ): string | undefined {
 	const before = new Set(noWriterAdvisories(prevDoc).map(advisoryKey));
 	const introduced = noWriterAdvisories(nextDoc).filter(
@@ -292,6 +299,44 @@ export function describeIntroducedAdvisories(
 	return [
 		"Heads-up — after this change, gated behavior depends on case properties nothing in the app writes:",
 		...introduced.map((a) => `- ${describeNoWriterAdvisory(nextDoc, a)}`),
-		"Add a field that writes the property, or — if another app or system genuinely sets it — record that on the property (markPropertyExternal) so this stops flagging.",
+		`Add a field that writes the property, or — if another app or system genuinely sets it — record that on the property (${resolutionTool}) so this stops flagging.`,
 	].join("\n");
+}
+
+/**
+ * The batch-scoped flavor both mutating-tool chokepoints consume (the
+ * chat SA's `wrapMutating`, the MCP adapter) — so every mutating tool
+ * reports the same way with no per-tool wiring. The "after" doc is the
+ * batch's OWN local effect (`prevDoc ⊕ mutations`), never the writer's
+ * committed doc: under multiplayer the committed doc can carry a
+ * peer's concurrent edits, and a peer-introduced advisory
+ * misattributed to this call would tell its user about a change they
+ * never made — and steer a wrong catalog write over the co-editor's
+ * in-progress intent.
+ */
+export function describeAdvisoriesIntroducedByBatch(
+	prevDoc: BlueprintDoc,
+	mutations: readonly Mutation[],
+	resolutionTool: string,
+): string | undefined {
+	if (mutations.length === 0) return undefined;
+	const localNext = produce(prevDoc, (draft) => {
+		applyMutations(draft, [...mutations]);
+	});
+	return describeIntroducedAdvisories(prevDoc, localNext, resolutionTool);
+}
+
+/**
+ * Attach a delta note to a tool result — ONE projection shared by both
+ * chokepoints so chat and MCP can never report the same committed
+ * batch differently. A prose result gets the note appended; an object
+ * result carries it as an `advisories` field; anything else passes
+ * through unchanged.
+ */
+export function attachAdvisoriesNote(payload: unknown, note: string): unknown {
+	if (typeof payload === "string") return `${payload}\n\n${note}`;
+	if (payload !== null && typeof payload === "object") {
+		return { ...payload, advisories: note };
+	}
+	return payload;
 }

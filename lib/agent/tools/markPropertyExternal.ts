@@ -21,6 +21,7 @@
  */
 
 import { z } from "zod";
+import { noWriterAdvisories } from "@/lib/doc/noWriterAdvisories";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CaseProperty } from "@/lib/domain";
 import type { ToolExecutionContext } from "../toolExecutionContext";
@@ -123,15 +124,34 @@ export const markPropertyExternalTool = {
 				input.external.note != null ? { note: input.external.note } : {};
 			const property: CaseProperty = existing
 				? { ...existing, external }
-				: // An undeclared property gets the declaration chokepoint's bare
-					// shape (`ensureCatalogProperty`) plus the marking — declared
-					// properties outlive their writers, and a purely-external one
-					// never had a writer to register it.
+				: // An unlisted property gets the declaration chokepoint's bare
+					// shape (`ensureCatalogProperty`) plus the marking. This is a
+					// DELIBERATE declare-new arm, not just typo tolerance: on an
+					// authored record it is the only way to declare a property
+					// another system writes (generateSchema rejects authored
+					// re-declaration, and a gate can't reference an undeclared
+					// property) — so a typo'd name can't be refused outright;
+					// instead the message below discloses the new declaration
+					// loudly with the correction recipe.
 					{ name: input.property, label: input.property, external };
 			const noteText =
 				input.external.note != null ? ` (${input.external.note})` : "";
+			// The prose is honest about what actually happened: a marking only
+			// "silences" an advisory that was open, and a name the catalog
+			// didn't list minted a NEW property — which is either the
+			// declare-external flow working as intended or a typo the caller
+			// must hear about now, while the fix is one call away.
+			const advisoryWasOpen = noWriterAdvisories(doc).some(
+				(a) => a.caseType === input.case_type && a.property === input.property,
+			);
+			const effect = advisoryWasOpen
+				? "Its no-writer advisory is silenced; forms here can still read it, and adding a writer later is fine."
+				: "No advisory was open for it — the marking records the fact for future reference.";
+			const declaredNew = !existing
+				? ` The catalog didn't list "${input.property}", so this DECLARED it new — if you meant an existing property (this type declares: ${caseType.properties.map((p) => `"${p.name}"`).join(", ") || "none"}), clear this marking (external: null on "${input.property}") and mark the right one.`
+				: "";
 			return commitMarking(ctx, doc, input, property, {
-				message: `Marked "${input.property}" on case type "${input.case_type}" as set outside this app${noteText}. Its no-writer advisory is silenced; forms here can still read it, and adding a writer later is fine.`,
+				message: `Marked "${input.property}" on case type "${input.case_type}" as set outside this app${noteText}. ${effect}${declaredNew}`,
 				summary: { subject: input.property, location: input.case_type },
 			});
 		} catch (err) {

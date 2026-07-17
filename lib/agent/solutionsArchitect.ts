@@ -23,7 +23,10 @@ import type { ZodType } from "zod";
 import { loadApp } from "@/lib/db/apps";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { describeIntroducedAdvisories } from "@/lib/doc/noWriterAdvisories";
+import {
+	attachAdvisoriesNote,
+	describeAdvisoriesIntroducedByBatch,
+} from "@/lib/doc/noWriterAdvisories";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import {
 	reasoningProviderOptions,
@@ -223,18 +226,20 @@ export function createSolutionsArchitect(
 							 * so every mutating tool reports identically with zero
 							 * per-tool wiring. Only advisories the batch INTRODUCED ride
 							 * along (removing a property's last writer, gating on an
-							 * unwritten property); the steady state stays quiet. A
+							 * unwritten property); the steady state stays quiet. The
+							 * baseline pair is (doc, doc ⊕ batch) — NOT `newDoc`, the
+							 * committed doc, which may carry a peer's concurrent edits
+							 * that this call must not take credit or blame for. A
 							 * non-empty batch is a persisted success by the shared-tool
 							 * contract, so attaching to `result` is safe. */
-							const advisories = describeIntroducedAdvisories(doc, newDoc);
+							const advisories = describeAdvisoriesIntroducedByBatch(
+								doc,
+								mutations,
+								"markPropertyExternal",
+							);
 							doc = newDoc;
 							if (advisories !== undefined) {
-								if (typeof result === "string") {
-									return `${result}\n\n${advisories}` as R;
-								}
-								if (result !== null && typeof result === "object") {
-									return { ...result, advisories } as R;
-								}
+								return attachAdvisoriesNote(result, advisories) as R;
 							}
 						}
 						return result;
