@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	asUuid,
@@ -145,7 +145,7 @@ describe("case workspace chrome", () => {
 		expect(onShow).not.toHaveBeenCalled();
 	});
 
-	it("keeps a large recovery inventory searchable with creation outside its scroll region", () => {
+	it("keeps a large recovery inventory searchable with creation outside its scroll region", async () => {
 		const hiddenColumns = Array.from({ length: 24 }, (_, index) =>
 			column(String(index + 100), `field_${index + 1}`, `Field ${index + 1}`),
 		);
@@ -161,8 +161,11 @@ describe("case workspace chrome", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Add information" }));
-		expect(screen.getAllByRole("menuitem")).toHaveLength(25);
+		const addInformation = screen.getByRole("button", {
+			name: "Add information",
+		});
+		fireEvent.click(addInformation);
+		expect(await screen.findAllByRole("menuitem")).toHaveLength(25);
 
 		const scrollRegion = document.querySelector(
 			"[data-add-information-scroll-region]",
@@ -184,6 +187,11 @@ describe("case workspace chrome", () => {
 		);
 		expect(screen.getByRole("menuitem", { name: "Field 23" })).toBeDefined();
 		expect(screen.queryByRole("menuitem", { name: "Field 2" })).toBeNull();
+
+		// Close the floating inventory and let Base UI restore focus before
+		// the async-resource detector tears down the test.
+		fireEvent.click(addInformation);
+		await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
 	});
 
 	it("opens Search screen settings without depicting a submit button", () => {
