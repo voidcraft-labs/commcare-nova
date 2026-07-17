@@ -57,11 +57,13 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 		});
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
-		// Message names all three remediation paths so the author knows
-		// which surface to extend.
-		expect(hits[0].message).toContain("searchInputs");
-		expect(hits[0].message).toContain("caseListConfig.filter");
-		expect(hits[0].message).toContain("remove `caseSearchConfig`");
+		// Person-facing copy names all three remediation paths without leaking
+		// the document's storage slots into the builder.
+		expect(hits[0].message).toContain("Add a search field");
+		expect(hits[0].message).toContain("narrow the available cases");
+		expect(hits[0].message).toContain(
+			"remove the unused search-screen settings",
+		);
 	});
 
 	it("is silent when caseSearchConfig is absent (no search button to render)", () => {

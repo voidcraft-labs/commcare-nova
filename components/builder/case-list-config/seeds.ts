@@ -8,13 +8,14 @@
 // reads as "search is broken" to anyone who types a lowercase
 // first name.
 //
-// Property choice prefers `case_name` (the property every case
-// type has and the one searches use), then any unused text
-// property, then any unused property at all. The widget follows the
-// property's data type; text-shaped properties seed with FORGIVING
-// (fuzzy) match — typo-and-case-tolerant on both the wire (CCHQ's
-// per-prompt fuzzy flag) and the preview runtime (pg_trgm) — with
-// Exact one click away in the Match picker.
+// Search-field creation still chooses a useful initial property because that
+// canvas has one concise add action. Display-field creation is different: its
+// center-canvas chooser asks which information the author wants, then the
+// helpers here build a working column for that explicit property. The widget
+// follows the property's data type; text-shaped search properties seed with
+// FORGIVING (fuzzy) match — typo-and-case-tolerant on both the wire (CCHQ's
+// per-prompt fuzzy flag) and the preview runtime (pg_trgm) — with Exact one
+// click away in the Match picker.
 
 import {
 	authorableCaseProperties,
@@ -22,6 +23,7 @@ import {
 	type CaseProperty,
 	type CaseType,
 	type Column,
+	calculatedColumn,
 	canonicalCasePropertyName,
 	dateColumn,
 	effectiveDataType,
@@ -32,7 +34,7 @@ import {
 	type SearchInputType,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { walkPropertyRefs } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/predicate";
 import {
 	propertyDisplayLabel,
 	propertyFallbackDisplayLabel,
@@ -130,20 +132,6 @@ export function seedSearchInput(
 				: [],
 		),
 	);
-	// A direct always-on filter and a simple self-search on the same property
-	// AND-compose to an empty-looking result whenever their values disagree.
-	// Treat those directly-filtered properties as occupied for seed choice, so
-	// the first Add gesture lands valid whenever any alternative exists. The
-	// validator remains the backstop when the case type exposes only the one
-	// filtered property.
-	if (config.filter !== undefined && caseType !== undefined) {
-		walkPropertyRefs(config.filter, (ref) => {
-			const selfWalk = ref.via === undefined || ref.via.kind === "self";
-			if (selfWalk && ref.caseType === caseType.name) {
-				used.add(canonicalCasePropertyName(ref.property));
-			}
-		});
-	}
 	const property = pickSeedProperty(caseType, used);
 	if (property === undefined) return undefined;
 
@@ -184,11 +172,75 @@ export function seedColumn(
 	);
 	const property = pickSeedProperty(caseType, used);
 	if (property === undefined) return undefined;
+	return seedColumnForProperty(property, slots);
+}
 
+/** Build a presentable display field for the property the author explicitly
+ * chose in Add information. Unlike `seedColumn`, this never guesses which
+ * information they meant. */
+export function seedColumnForProperty(
+	property: CaseProperty,
+	slots?: { visibleInList?: boolean; visibleInDetail?: boolean },
+): Column {
 	const header = propertyDisplayLabel(property);
 	const dataType = effectiveDataType(property);
 	if (dataType === "date" || dataType === "datetime") {
 		return dateColumn(newUuid(), property.name, header, "%Y-%m-%d", slots);
 	}
 	return plainColumn(newUuid(), property.name, header, slots);
+}
+
+/** Build the intentionally secondary, property-free display option exposed by
+ * Add information. The empty literal is a valid starting expression and the
+ * newly selected row opens directly into the inspector, where the author can
+ * compose the value. */
+export function seedCalculatedColumn(slots?: {
+	visibleInList?: boolean;
+	visibleInDetail?: boolean;
+}): Column {
+	return calculatedColumn(
+		newUuid(),
+		"Calculated value",
+		term(literal("")),
+		slots,
+	);
+}
+
+/** Properties that do not already have a display definition. Existing
+ * definitions absent from one screen are mixed into the shared Add
+ * information chooser by meaning so restoring them preserves formatting
+ * without teaching "hidden fields" as a primary concept. */
+export function unrepresentedColumnProperties(
+	config: CaseListConfig,
+	caseType: CaseType | undefined,
+): readonly CaseProperty[] {
+	const represented = new Set(
+		config.columns.flatMap((column) =>
+			column.kind !== "calculated" && column.field !== ""
+				? [canonicalCasePropertyName(column.field)]
+				: [],
+		),
+	);
+	return authorableCaseProperties(caseType?.properties ?? []).filter(
+		(property) => !represented.has(canonicalCasePropertyName(property.name)),
+	);
+}
+
+/** Properties already used by at least one display definition. They stay out
+ * of the primary Add list, but power the quiet "show another way" path for a
+ * second label or format. */
+export function representedColumnProperties(
+	config: CaseListConfig,
+	caseType: CaseType | undefined,
+): readonly CaseProperty[] {
+	const represented = new Set(
+		config.columns.flatMap((column) =>
+			column.kind !== "calculated" && column.field !== ""
+				? [canonicalCasePropertyName(column.field)]
+				: [],
+		),
+	);
+	return authorableCaseProperties(caseType?.properties ?? []).filter(
+		(property) => represented.has(canonicalCasePropertyName(property.name)),
+	);
 }

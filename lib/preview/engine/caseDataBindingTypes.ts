@@ -43,16 +43,41 @@ export type {
 	JsonValue,
 };
 
+/** Why the effective query can return zero rows. Derived at the server query
+ * composition boundary after blank inputs and empty owner-id expressions have
+ * been removed, so the running app never guesses from client-side syntax. */
+export type CaseQueryConstraintSource =
+	| "unconstrained"
+	| "worker-search"
+	| "authored-rules";
+
+/** What the client can truthfully say about a settled query result. `unknown`
+ * exists only for the short rolling-deploy window where a new client receives
+ * the older Server Action response shape without constraint metadata. */
+export type CaseQueryConstraintContext = CaseQueryConstraintSource | "unknown";
+
 /**
- * Result of loading every case row for a case type. The `rows` arm
+ * Result of loading every case row for a case type. The success arms carry the
+ * effective query's constraint source alongside their data so empty-state copy
+ * describes the query that actually reached the case store, not merely the
+ * presence of an authored expression or a raw submitted string. The `rows` arm
  * carries `CaseRowWithCalculated` so calc-arm columns surface their
  * SQL-projected values on `row.calculated[uuid]` — `evaluateColumnValue`
  * reads the slot directly. Callers without a `caseListConfig` (raw-
  * row consumers) get an empty `calculated: {}` map per row.
  */
 export type LoadCasesResult =
-	| { kind: "rows"; rows: ReadonlyArray<CaseRowWithCalculated> }
-	| { kind: "empty" }
+	| {
+			kind: "rows";
+			rows: ReadonlyArray<CaseRowWithCalculated>;
+			/** Optional only for rolling-deploy compatibility with an older action. */
+			constraintSource?: CaseQueryConstraintSource;
+	  }
+	| {
+			kind: "empty";
+			/** Optional only for rolling-deploy compatibility with an older action. */
+			constraintSource?: CaseQueryConstraintSource;
+	  }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 

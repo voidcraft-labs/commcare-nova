@@ -72,7 +72,10 @@ import {
 	simplifyForEmission,
 } from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
-import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
+import type {
+	CaseQueryConstraintContext,
+	CaseRowWithCalculated,
+} from "@/lib/preview/engine/caseDataBindingTypes";
 import { previewSearchSessionValues } from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
@@ -198,15 +201,15 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		session: searchSession,
 	});
 	const hasSearch = (config?.searchInputs.length ?? 0) > 0;
+	const hasEffectiveBaselineFilter =
+		effectiveFilterForEmission(config?.filter) !== undefined;
 	/* Ownership exclusions are part of the authored search, not the passive
 	 * list load. Do not narrow the initial list before the worker actually
 	 * submits Search — even an all-blank submit is intentional. A real
 	 * filter-only search has no submit screen, so its effective filter is the
 	 * launch and activates the exclusion immediately. */
 	const filterOnlyAutoLaunch =
-		!hasSearch &&
-		searchConfig !== undefined &&
-		effectiveFilterForEmission(config?.filter) !== undefined;
+		!hasSearch && searchConfig !== undefined && hasEffectiveBaselineFilter;
 	const excludedOwnerIdsExpression =
 		searchRun.hasSubmitted || filterOnlyAutoLaunch
 			? searchConfig?.excludedOwnerIds
@@ -263,7 +266,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		navigate.replace({ kind: "cases", moduleUuid });
 	}, [routeCaseReplaced, moduleUuid, navigate, setPreviewSelectedCase]);
 
-	const { state, fetching } = useCases({
+	const { state, fetching, queryConstraintSource } = useCases({
 		appId,
 		caseType: caseType?.name,
 		caseListConfig: config,
@@ -286,13 +289,12 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		ancestorDepth: 0,
 	});
 
-	/* Clear what the worker typed — the search panel's "Clear" affordance,
-	 *  shown only when a query is active. Backing out of an open detail /
-	 *  form menu is the breadcrumb + "Back to Results" job, not this one, so
-	 *  this clears the search inputs and the list filter and nothing else. */
+	/* Clear what the worker typed into the authored Search fields. The list's
+	 * quick filter owns its own adjacent clear button; coupling the two produced
+	 * two distant-looking ways to clear one filter and made the surfaces feel
+	 * interchangeable when they are not. */
 	const clearSearch = () => {
 		searchRun.clear();
-		setFilterText("");
 	};
 
 	// Results and Details are independent compositions. Each consumes its own
@@ -435,7 +437,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				{/* Clear what was typed — lives WITH the search (where you'd
 				 *  reach to start over) and only appears when there's an active
 				 *  query to clear. */}
-				{(queryActive || draftActive || filterText !== "") && (
+				{(queryActive || draftActive) && (
 					<button
 						type="button"
 						onClick={clearSearch}
@@ -648,7 +650,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 				rows={filteredRows}
 				filterActive={filterText !== ""}
 				visibleColumns={visibleColumns}
-				queryActive={queryActive}
+				emptyResultContext={queryConstraintSource}
 				rowAction={rowAction}
 				onOpenCase={handleOpenCase}
 			/>
@@ -715,7 +717,7 @@ function ResultsBody({
 	rows,
 	filterActive,
 	visibleColumns,
-	queryActive,
+	emptyResultContext,
 	rowAction,
 	onOpenCase,
 }: {
@@ -725,7 +727,8 @@ function ResultsBody({
 	readonly rows: readonly CaseRowWithCalculated[];
 	readonly filterActive: boolean;
 	readonly visibleColumns: CaseListConfig["columns"];
-	readonly queryActive: boolean;
+	/** Why an empty server result may differ from a truly empty case type. */
+	readonly emptyResultContext: CaseQueryConstraintContext;
 	readonly rowAction: "detail" | "form" | "none";
 	readonly onOpenCase: (row: CaseRowWithCalculated) => void;
 }) {
@@ -749,16 +752,18 @@ function ResultsBody({
 		);
 	}
 
-	if (state.kind === "empty" && queryActive) {
-		// The store reports `empty` for "this query matched nothing" too —
-		// with a search active that means no match, not an empty store.
-		return <NoMatchNotice />;
-	}
-
 	if (state.kind === "empty") {
-		// Revalidating a stale empty view after case data changed elsewhere.
+		// A retained empty result belongs to the previous request until the
+		// authoritative action settles, so do not guess its new cause mid-fetch.
 		if (fetching) {
 			return <CasesLoading />;
+		}
+		if (emptyResultContext === "worker-search") return <NoMatchNotice />;
+		if (emptyResultContext === "authored-rules") {
+			return <CurrentRulesEmptyNotice />;
+		}
+		if (emptyResultContext === "unknown") {
+			return <UnavailableCasesNotice />;
 		}
 		return (
 			<div className="rounded-lg border border-dashed border-nova-border-bright px-6 py-10 text-center">
@@ -778,8 +783,14 @@ function ResultsBody({
 				</div>
 			);
 		}
-		if (queryActive) {
+		if (emptyResultContext === "worker-search") {
 			return <NoMatchNotice />;
+		}
+		if (emptyResultContext === "authored-rules") {
+			return <CurrentRulesEmptyNotice />;
+		}
+		if (emptyResultContext === "unknown") {
+			return <UnavailableCasesNotice />;
 		}
 		return (
 			<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center text-xs text-nova-text-muted">
@@ -816,6 +827,36 @@ function NoMatchNotice() {
 			</p>
 			<p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-nova-text-muted">
 				Check the spelling, clear a field, or try a broader search.
+			</p>
+		</div>
+	);
+}
+
+/** Zero results caused only by app-authored filters or ownership rules. The
+ * worker has no prompt value to broaden, so do not tell them to clear a field. */
+function CurrentRulesEmptyNotice() {
+	return (
+		<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center">
+			<p className="text-sm text-nova-text-secondary">
+				No cases are available with the app's current rules.
+			</p>
+			<p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-nova-text-muted">
+				Case availability may change when the app's data or rules change.
+			</p>
+		</div>
+	);
+}
+
+/** Neutral compatibility copy for an older action response that cannot tell
+ * the new client whether the settled query was narrowed. */
+function UnavailableCasesNotice() {
+	return (
+		<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center">
+			<p className="text-sm text-nova-text-secondary">
+				No cases are available right now.
+			</p>
+			<p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-nova-text-muted">
+				Try again in a moment.
 			</p>
 		</div>
 	);

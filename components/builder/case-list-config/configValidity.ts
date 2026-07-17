@@ -33,8 +33,8 @@
 //     them. Hidden recovery items never make an unrelated tab look broken.
 //   - `brokenColumns` — the per-column set behind the in-canvas
 //     error marks (a tab dot must point at something findable).
-//   - `filterBroken` — the one non-row Results finding, used to mark the
-//     Cases included summary directly so every tab dot leads somewhere.
+//   - `filterBroken` — the one non-row Search finding, used to mark the
+//     Cases available summary directly so every tab dot leads somewhere.
 
 import {
 	type CaseListConfig,
@@ -72,7 +72,7 @@ export interface CaseListConfigErrorAreas {
 export interface CaseListConfigVerdicts {
 	readonly errorAreas: CaseListConfigErrorAreas;
 	readonly brokenColumns: ReadonlySet<Uuid>;
-	/** The Results canvas marks its one filter summary row directly so a
+	/** The Search canvas marks its one filter summary row directly so a
 	 *  problem remains findable even when no result fields are visible. */
 	readonly filterBroken: boolean;
 }
@@ -173,8 +173,8 @@ export function caseListConfigVerdicts(
 
 	return {
 		errorAreas: {
-			search,
-			list: listColumnsBroken || filterIsBroken,
+			search: search || filterIsBroken,
+			list: listColumnsBroken,
 			detail: detailColumnsBroken,
 		},
 		brokenColumns,

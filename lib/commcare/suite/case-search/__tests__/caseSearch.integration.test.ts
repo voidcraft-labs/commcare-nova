@@ -127,11 +127,10 @@ const SI_STATUS_UUID = asUuid("33333333-3333-3333-3333-bbbbbbbb0002");
  * rather than rebuilding the spec inline — drift in the spec
  * surfaces across those sections.
  *
- * Filter and simple input target distinct runtime paths so the
- * `filterSearchInputConflict` rule admits the pair. The filter walks
- * `region` directly on `patient`; the simple input targets a
- * different property (`case_name`) on the same case type. The
- * advanced input is a free-form predicate over `status`.
+ * The always-on filter and both search-input arms compose into one
+ * query. The filter walks `region` directly on `patient`; the simple
+ * input targets `case_name`; the advanced input is a free-form
+ * predicate over `status`.
  */
 function buildSearchBlueprint(): BlueprintDoc {
 	return buildDoc({
@@ -149,9 +148,7 @@ function buildSearchBlueprint(): BlueprintDoc {
 					// Filter on `region` — a self-walk on the patient case.
 					filter: eq(prop("patient", "region"), literal("North")),
 					searchInputs: [
-						// Simple input on `case_name` — distinct destination
-						// from the filter's `region` so the filter/simple-
-						// input conflict rule admits the pair.
+						// Simple input on `case_name`.
 						simpleSearchInputDef(
 							SI_NAME_UUID,
 							"name_search",
@@ -297,7 +294,6 @@ describe("case-search integration — validator surface", () => {
 			"CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			"CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
 			"CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
-			"CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",
 		]);
 		expect(errors.filter((e) => caseSearchCodes.has(e.code))).toEqual([]);
 	});
@@ -675,6 +671,67 @@ describe("case-search integration — suite XML wire emission", () => {
 		expect(xpathBlock).toContain(" and ");
 		expect(xpathBlock).toContain("region = &apos;North&apos;");
 		expect(xpathBlock).toContain("status = &apos;active&apos;");
+	});
+
+	it("emits a same-property always-on filter and exact search input as cumulative query criteria", () => {
+		// This is intentionally one property on both authoring surfaces:
+		// the always-on rule narrows every request to Alice, while the
+		// exact input lets the user narrow that already-filtered set. CCHQ
+		// carries those criteria in separate, cumulative query slots: the
+		// rule in `_xpath_query`, and the exact input as a bare prompt whose
+		// key names the same case property.
+		const doc = buildSearchBlueprint();
+		const searchModule = doc.modules[MOD_UUID];
+		if (searchModule?.caseListConfig === undefined) {
+			throw new Error("Expected the search fixture module and its case list.");
+		}
+		const samePropertyDoc: BlueprintDoc = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[MOD_UUID]: {
+					...searchModule,
+					caseListConfig: {
+						...searchModule.caseListConfig,
+						filter: eq(prop("patient", "case_name"), literal("Alice")),
+						searchInputs: [
+							simpleSearchInputDef(
+								SI_NAME_UUID,
+								"case_name",
+								"Search by name",
+								"text",
+								"case_name",
+							),
+						],
+					},
+				},
+			},
+		};
+
+		// The shared fixture deliberately carries an unrelated legacy
+		// form-level `status` property. Scope this assertion to the module
+		// whose case-search configuration is under test.
+		expect(
+			runValidation(samePropertyDoc).filter(
+				(finding) => finding.scope === "module",
+			),
+		).toEqual([]);
+		const suite = compileSuiteXml(samePropertyDoc);
+		const queryOpenIdx = suite.indexOf("<query ");
+		const queryCloseIdx = suite.indexOf("</query>", queryOpenIdx);
+		if (queryOpenIdx === -1 || queryCloseIdx === -1) {
+			throw new Error("Expected the compiled suite to contain a search query.");
+		}
+		const queryBlock = suite.slice(queryOpenIdx, queryCloseIdx);
+
+		expect(queryBlock).toContain(
+			'<data key="_xpath_query" ref="concat(&quot;case_name = &apos;Alice&apos;&quot;)"/>',
+		);
+		expect(queryBlock).toContain('<prompt key="case_name">');
+		// Exact self-property prompts are the native CCHQ auto-match
+		// route. They must remain active alongside `_xpath_query` rather
+		// than being excluded as an explicitly-derived predicate would be.
+		expect(queryBlock).not.toContain('<prompt key="case_name" exclude=');
 	});
 
 	it("emits <description> + the case_search.m{N}.description app-strings entry when searchScreenSubtitle is authored", () => {

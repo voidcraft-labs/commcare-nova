@@ -12,9 +12,9 @@
 //      through `prop()` correctly.
 //   2. Advanced-arm `input(name)` substitution — the recursive AST
 //      rewriter substitutes value-position term refs across every
-//      Predicate / ValueExpression / Term arm, preserves the
-//      structurally-non-value `whenInputPresent.input` trigger slot,
-//      and leaves orphan `input(other)` refs untouched.
+//      Predicate / ValueExpression / Term arm, resolves matching
+//      `whenInputPresent.input` gates from their own values, and leaves
+//      orphan `input(other)` refs untouched.
 //   3. Composition + empty-value short-circuit — empty / absent values
 //      contribute nothing per input; multiple contributing inputs
 //      AND-compose; zero-input or all-empty calls return `matchAll()`.
@@ -84,9 +84,11 @@ import {
 	within,
 } from "@/lib/domain/predicate";
 import {
+	bindSearchInputValuesInPredicate,
 	composeRuntimeFilter,
 	searchInputValuesFromWire,
 	searchInputValuesToWire,
+	withSearchInputExpressionValues,
 } from "../runtimeBindings";
 
 describe("searchInputValues wire bridge", () => {
@@ -117,9 +119,72 @@ describe("searchInputValues wire bridge", () => {
 		expect(searchInputValuesToWire(new Map())).toEqual({});
 		expect(searchInputValuesFromWire({})).toEqual(new Map());
 	});
+
+	it("adds CommCare's bare daterange token only for two complete bounds", () => {
+		const range = simpleSearchInputDef(
+			asUuid("range"),
+			"visit_dates",
+			"Visit dates",
+			"date-range",
+			"visit_date",
+		);
+		const values = withSearchInputExpressionValues(
+			[range],
+			new Map([
+				["visit_dates:from", "2025-01-02"],
+				["visit_dates:to", "2025-03-04"],
+			]),
+		);
+
+		expect(Object.fromEntries(values)).toEqual({
+			"visit_dates:from": "2025-01-02",
+			"visit_dates:to": "2025-03-04",
+			visit_dates: "__range__2025-01-02__2025-03-04",
+		});
+	});
+
+	it.each([
+		["lower", new Map([["visit_dates:from", "2025-01-02"]])],
+		["upper", new Map([["visit_dates:to", "2025-03-04"]])],
+	] as const)("keeps the bare daterange key absent for a %s-only range", (_side, raw) => {
+		const range = simpleSearchInputDef(
+			asUuid("range"),
+			"visit_dates",
+			"Visit dates",
+			"date-range",
+			"visit_date",
+		);
+		const values = withSearchInputExpressionValues([range], raw);
+
+		expect(values.has("visit_dates")).toBe(false);
+	});
 });
 
 const PATIENT = "patient";
+
+describe("bindSearchInputValuesInPredicate", () => {
+	const wrappedFilter = whenInput(
+		input("region"),
+		eq(prop(PATIENT, "region"), input("region")),
+	);
+	const knownNames = new Set(["region"]);
+
+	it("unwraps a matching gate when its declared input is present", () => {
+		expect(
+			bindSearchInputValuesInPredicate(
+				wrappedFilter,
+				new Map([["region", "  north  "]]),
+				knownNames,
+			),
+		).toEqual(eq(prop(PATIENT, "region"), literal("north")));
+	});
+
+	it("neutralizes a matching gate when its declared input is absent", () => {
+		expect(
+			bindSearchInputValuesInPredicate(wrappedFilter, new Map(), knownNames),
+		).toEqual(matchAll());
+	});
+});
 
 describe("composeRuntimeFilter — empty-input contributions", () => {
 	it("returns matchAll() when no search inputs are declared", () => {
@@ -643,6 +708,35 @@ describe("composeRuntimeFilter — range mode", () => {
 });
 
 describe("composeRuntimeFilter — advanced arm substitution", () => {
+	it("binds a wrapped completed date range with CommCare's scalar token", () => {
+		const advanced = advancedSearchInputDef(
+			asUuid("range"),
+			"visit_dates",
+			"Visit dates",
+			"date-range",
+			whenInput(
+				input("visit_dates"),
+				eq(prop(PATIENT, "range_token"), input("visit_dates")),
+			),
+		);
+		const result = composeRuntimeFilter(
+			[advanced],
+			new Map([
+				["visit_dates:from", "2025-01-02"],
+				["visit_dates:to", "2025-03-04"],
+			]),
+			PATIENT,
+		);
+
+		expect(result).toEqual(
+			eq(
+				prop(PATIENT, "range_token"),
+				literal("__range__2025-01-02__2025-03-04"),
+			),
+		);
+		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+
 	it("substitutes a value-position `input(name)` term across `compare`", () => {
 		// Authored predicate: `prop("name") === input("name_search")`.
 		const advanced = advancedSearchInputDef(
@@ -853,11 +947,10 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		expect(result).toEqual(not(eq(prop(PATIENT, "name"), literal("alice"))));
 	});
 
-	it("preserves the trigger slot of `whenInputPresent` (no substitution on the SearchInputRef)", () => {
-		// `whenInputPresent.input` is structurally a `SearchInputRef`,
-		// NOT a value-position term. The substitution must NOT replace
-		// it with a literal — that would violate the slot's
-		// discriminator. Only the inner `clause` is recursed into.
+	it("resolves a matching `whenInputPresent` gate after binding", () => {
+		// A schema-valid input-dependent advanced predicate carries a matching
+		// structural gate. Preview already knows the submitted value, so the
+		// gate must unwrap before the predicate reaches the SQL compiler.
 		const advanced = advancedSearchInputDef(
 			asUuid("a"),
 			"q",
@@ -870,12 +963,59 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			new Map(Object.entries({ q: "alice" })),
 			PATIENT,
 		);
-		// The trigger slot stays as `input("q")`; the inner-clause
-		// `input("q")` is substituted with the literal.
-		expect(result).toEqual(
-			whenInput(input("q"), eq(prop(PATIENT, "name"), literal("alice"))),
-		);
+		expect(result).toEqual(eq(prop(PATIENT, "name"), literal("alice")));
 		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+
+	it("resolves cross-input gates only from their own submitted values", () => {
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"q",
+			"Query",
+			"text",
+			whenInput(
+				input("q"),
+				and(
+					eq(prop(PATIENT, "name"), input("q")),
+					whenInput(
+						input("region"),
+						eq(prop(PATIENT, "region"), input("region")),
+					),
+				),
+			),
+		);
+		const region = simpleSearchInputDef(
+			asUuid("region"),
+			"region",
+			"Region",
+			"text",
+			"region",
+		);
+
+		const withoutRegion = composeRuntimeFilter(
+			[advanced, region],
+			new Map(Object.entries({ q: "alice" })),
+			PATIENT,
+		);
+		expect(withoutRegion).toEqual(
+			and(eq(prop(PATIENT, "name"), literal("alice")), matchAll()),
+		);
+
+		const withRegion = composeRuntimeFilter(
+			[advanced, region],
+			new Map(Object.entries({ q: "alice", region: "north" })),
+			PATIENT,
+		);
+		expect(withRegion).toEqual(
+			and(
+				and(
+					eq(prop(PATIENT, "name"), literal("alice")),
+					eq(prop(PATIENT, "region"), literal("north")),
+				),
+				eq(prop(PATIENT, "region"), literal("north")),
+			),
+		);
+		expect(predicateSchema.parse(withRegion)).toEqual(withRegion);
 	});
 
 	it("leaves orphan `input(other)` references untouched", () => {

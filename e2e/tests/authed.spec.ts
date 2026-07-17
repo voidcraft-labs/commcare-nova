@@ -28,7 +28,9 @@ interface SeedManifest {
 	olderThreadAssistantText: string;
 	caseWorkspace: {
 		routes: {
+			search: string;
 			results: string;
+			details: string;
 		};
 	};
 }
@@ -79,7 +81,7 @@ async function expectSecondaryHeadersAligned(
 
 async function expectCaseDataClearance(page: Page): Promise<void> {
 	const header = page.locator('[data-builder-secondary-header="breadcrumb"]');
-	const caseData = page.getByRole("button", { name: /^Case data,/ });
+	const caseData = page.getByRole("button", { name: /^Case data for / });
 	await expect(caseData).toBeInViewport({ ratio: 0.9 });
 
 	const geometry = async () => {
@@ -221,6 +223,188 @@ test.describe("authenticated builder", () => {
 			]);
 			await expectCaseDataClearance(page);
 		});
+	});
+
+	test("case workspace keeps filtering coherent and searchable menus fully interactive", async ({
+		page,
+	}) => {
+		await page.goto(seed.caseWorkspace.routes.search);
+		await expect(
+			page.getByRole("heading", { name: "Search", level: 1 }),
+		).toBeVisible({ timeout: 20_000 });
+
+		const waysToNarrow = page.getByRole("heading", {
+			name: "Ways to narrow",
+			level: 2,
+		});
+		const casesAvailable = page.getByRole("heading", {
+			name: "Cases available",
+			level: 2,
+		});
+		await expect(waysToNarrow).toBeVisible();
+		await expect(casesAvailable).toBeVisible();
+		const [waysBox, availableBox] = await Promise.all([
+			waysToNarrow.boundingBox(),
+			casesAvailable.boundingBox(),
+		]);
+		expect(waysBox).not.toBeNull();
+		expect(availableBox).not.toBeNull();
+		if (waysBox === null || availableBox === null) return;
+		expect(waysBox.y).toBeLessThan(availableBox.y);
+
+		// Reproduce the exact old rejection path: an exact case-name search
+		// already exists, then the always-on rule changes from Always true to
+		// "is" (whose friendly default is Case name). This is a valid
+		// intersection and must commit without a gate-error toast.
+		await page.getByRole("button", { name: "Change available cases" }).click();
+		await page.getByRole("button", { name: "Add a condition" }).click();
+		await page.getByRole("button", { name: "Condition: Always true" }).click();
+		await page.getByText("is", { exact: true }).click();
+		await expect(
+			page.getByRole("button", { name: "Condition: is" }),
+		).toBeVisible();
+		await expect(page.getByText(/filters on .* in both/i)).toHaveCount(0);
+
+		await page.goto(seed.caseWorkspace.routes.results);
+		await expect(
+			page.getByRole("heading", { name: "Results", level: 1 }),
+		).toBeVisible();
+		const addInformation = page.getByRole("button", {
+			name: "Add information",
+		});
+		await addInformation.click();
+		const informationSearch = page.getByRole("searchbox", {
+			name: "Search case information",
+		});
+		const menu = page
+			.locator('[data-slot="popover-content"]')
+			.filter({ has: informationSearch });
+		const openMenuBox = await menu.boundingBox();
+		await informationSearch.fill("phone");
+		await expect(
+			page.getByRole("button", {
+				name: /Phone number.*Keeps its current format/,
+			}),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", {
+				name: /Date of birth.*Keeps its current format/,
+			}),
+		).toHaveCount(0);
+
+		const phoneItem = page.getByRole("button", {
+			name: /Phone number.*Keeps its current format/,
+		});
+		await phoneItem.hover();
+		const [menuBox, phoneBox, phoneRadius] = await Promise.all([
+			menu.boundingBox(),
+			phoneItem.boundingBox(),
+			phoneItem.evaluate((element) =>
+				Number.parseFloat(getComputedStyle(element).borderTopLeftRadius),
+			),
+		]);
+		expect(menuBox).not.toBeNull();
+		expect(openMenuBox).not.toBeNull();
+		expect(phoneBox).not.toBeNull();
+		if (menuBox === null || openMenuBox === null || phoneBox === null) return;
+		expect(Math.abs(menuBox.x - openMenuBox.x)).toBeLessThanOrEqual(8);
+		expect(Math.abs(menuBox.y - openMenuBox.y)).toBeLessThanOrEqual(8);
+		expect(phoneBox.x - menuBox.x).toBeGreaterThanOrEqual(4);
+		expect(phoneRadius).toBeGreaterThanOrEqual(8);
+		await informationSearch.press("Escape");
+		await expect(informationSearch).toHaveCount(0);
+		await expect(addInformation).toBeFocused();
+
+		await page.getByRole("button", { name: /^Case data for / }).click();
+		const caseData = page.getByRole("dialog");
+		const caseDataDescription = caseData.getByText(
+			/^All Patient cases in this app\./,
+		);
+		await expect(caseDataDescription).toBeVisible();
+		const countPhrase = caseData.locator("p").filter({ hasText: /^8 cases$/ });
+		const [titleSize, countSize, descriptionSize, popoverBox] =
+			await Promise.all([
+				caseData
+					.getByRole("heading", { name: "Case data" })
+					.evaluate((element) =>
+						Number.parseFloat(getComputedStyle(element).fontSize),
+					),
+				countPhrase
+					.locator("span")
+					.first()
+					.evaluate((element) =>
+						Number.parseFloat(getComputedStyle(element).fontSize),
+					),
+				caseDataDescription.evaluate((element) =>
+					Number.parseFloat(getComputedStyle(element).fontSize),
+				),
+				caseData.boundingBox(),
+			]);
+		expect(countSize).toBeGreaterThan(titleSize);
+		expect(titleSize).toBeGreaterThan(descriptionSize);
+		expect(popoverBox).not.toBeNull();
+		if (popoverBox === null) return;
+		const viewport = page.viewportSize();
+		expect(viewport).not.toBeNull();
+		if (viewport === null) return;
+		expect(popoverBox.x).toBeGreaterThanOrEqual(4);
+		expect(popoverBox.y).toBeGreaterThanOrEqual(4);
+		expect(popoverBox.x + popoverBox.width).toBeLessThanOrEqual(
+			viewport.width - 4,
+		);
+		expect(popoverBox.y + popoverBox.height).toBeLessThanOrEqual(
+			viewport.height - 4,
+		);
+
+		// Details used to bypass the chooser when it had no information to add
+		// back, silently picking the next system property. It must now wait for
+		// an explicit choice, then expose true deletion separately from Hide.
+		await page.goto(seed.caseWorkspace.routes.details);
+		await expect(
+			page.getByRole("heading", { name: "Details", level: 1 }),
+		).toBeVisible();
+		const detailsInformation = page.getByRole("region", {
+			name: "Information shown",
+		});
+		const detailsRows = detailsInformation.locator(
+			'[data-case-field-role="visible"]',
+		);
+		const originalDetailCount = await detailsRows.count();
+		const addDetailsInformation = page.getByRole("button", {
+			name: "Add information",
+		});
+		await addDetailsInformation.click();
+		await expect(page.getByText("More case information")).toBeVisible();
+		expect(await detailsRows.count()).toBe(originalDetailCount);
+		await page
+			.getByRole("button", { name: /Date opened.*Date and time/ })
+			.click();
+		await expect(
+			detailsInformation.getByRole("button", {
+				name: "Date opened",
+				exact: true,
+			}),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Delete information…" }),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Delete information…" }).click();
+		const deletionDialog = page.getByRole("alertdialog");
+		await expect(
+			deletionDialog.getByText(
+				/does not delete any case property or saved case data/i,
+			),
+		).toBeVisible();
+		await deletionDialog
+			.getByRole("button", { name: "Delete information" })
+			.click();
+		await expect(
+			detailsInformation.getByRole("button", {
+				name: "Date opened",
+				exact: true,
+			}),
+		).toHaveCount(0);
+		await expect(addDetailsInformation).toBeFocused();
 	});
 
 	test("/build/new renders the new-app builder (no LLM)", async ({ page }) => {

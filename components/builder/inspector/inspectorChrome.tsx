@@ -115,20 +115,35 @@ export function ToggleRow({
 export function RemoveRow({
 	label,
 	onClick,
+	disabledReason,
 }: {
 	readonly label: string;
 	readonly onClick: () => void;
+	/** When present, keep the destructive action visible but unavailable and
+	 * explain which prerequisite protects the document. */
+	readonly disabledReason?: string;
 }) {
+	const reasonId = useId();
 	return (
 		<div className="pt-3 border-t border-nova-border">
 			<button
 				type="button"
 				onClick={onClick}
-				className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
+				disabled={disabledReason !== undefined}
+				aria-describedby={disabledReason === undefined ? undefined : reasonId}
+				className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-muted not-disabled:hover:text-nova-rose not-disabled:hover:border-nova-rose/40 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
 			>
 				<Icon icon={tablerTrash} width="14" height="14" />
 				<span>{label}</span>
 			</button>
+			{disabledReason !== undefined && (
+				<p
+					id={reasonId}
+					className="mt-2 text-[11px] leading-relaxed text-nova-text-muted"
+				>
+					{disabledReason}
+				</p>
+			)}
 		</div>
 	);
 }

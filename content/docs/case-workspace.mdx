@@ -11,7 +11,7 @@ work on one part of that experience at a time.
 
 | Tab | What you configure |
 | --- | --- |
-| **Search** | The questions people use to narrow the results. |
+| **Search** | Which cases are available and the questions people use to narrow them. |
 | **Results** | The information people scan while choosing a case. |
 | **Details** | The information people see after opening a case. |
 
@@ -30,19 +30,41 @@ Results and Details have separate arrangements. Moving an item in Results does
 not move it in Details, so each screen can follow the reading order that makes
 sense there.
 
-The normal canvas stays focused on what people will see. Select a Results or
-Details row, then use **Hide from results** or **Hide from details** at the
-bottom of its properties. Hiding is reversible: the information stays out of
-the way until you choose **Add information**, where Nova offers it again.
-Search fields can be removed from the bottom of their own properties.
+The normal canvas stays focused on what people will see. **Add information**
+always asks what you want to show; it never picks a case property for you. If
+the same information was already set up for another screen, choosing it keeps
+that label and formatting. Previously configured information stays mixed into
+the same familiar groups instead of becoming a prominent “hidden fields”
+concept. Less-common choices sit quietly at the bottom: **Calculated value**
+for information derived from other values, and **Show information another
+way** when the same property needs a second label or format.
+
+Select a Results or Details row, then use **Hide from results** or **Hide from
+details** at the bottom of its properties when you only want it off that
+screen. Hiding is reversible. **Delete information** removes that display
+setup from both screens and Default order, if used, but never deletes the case
+property or saved case data. Results must keep at least one item so people can
+recognize and choose a case. Search fields can be removed from the bottom of
+their own properties.
+
+## Choose which cases people can find
+
+Search keeps the complete filtering story together. **Ways to narrow** comes
+first and contains the fields people can fill in themselves: select a field to
+change it, or choose **Screen settings** for the screen copy. **Cases
+available** is the less-common rule that always applies before anyone searches;
+choose **Change** to edit it in the properties sidebar.
+
+The always-on rule and a search field may use the same property. Nova combines
+them: leaving the field empty keeps the always-on rule, a compatible value
+narrows the cases further, and a value that disagrees can legitimately return
+no matches.
 
 ## Choose which cases appear first
 
-The Results canvas groups **Cases included** and **Default order** under **How
-results are chosen**. The collapsed rows give experienced authors a quick
-summary without filling the page with controls. Choose **Set order** the first
-time, or **Change** once it is configured, to expand the editor in the canvas;
-then add the information to sort by,
+Results keeps **Default order** beside the information it affects. Choose **Set
+order** the first time, or **Change** once it is configured, to expand the
+editor in the canvas; then add the information to sort by,
 choose a friendly direction such as A to Z or newest first, and drag the rules
 into priority order. The first rule decides first; when two cases match, the
 next rule breaks the tie.
@@ -58,8 +80,8 @@ that do not have a visible row also live there. Rare internal settings stay
 behind **Advanced**. Arrangement does not: screen membership, row order, and
 Default order each have one home in the center canvas.
 
-The **Cases included** sentence on Results summarizes the current filter.
-Choose **Change** to open the filter editor without duplicating the filter
+The **Cases available** sentence on Search summarizes the current always-on
+rule. Choose **Change** to open the condition editor without duplicating its
 controls on the canvas.
 
 Property menus use the labels people recognize and offer each built-in value
@@ -72,9 +94,12 @@ one; Nova does not treat it as a second spelling of Case status.
 ## Manage the data used for testing
 
 Use **Case data** in the builder's breadcrumb bar to see the complete,
-unfiltered number of cases for the current module. When there are none, you
-can create a realistic sample set. When cases already exist, Nova offers a
-single **Replace all cases** action and confirms before deleting anything.
+unfiltered number of cases for the module's case type. That population is
+shared across the app, so every module that uses the same case type sees the
+same cases in Preview. When there are none, you can choose **Add sample cases**
+to create a realistic set. When cases already exist, Nova offers one
+case-type-qualified **Replace all …** action and confirms before deleting
+anything.
 That confirmation is important: replacement includes cases entered by hand
 or through Preview, not only generated examples. If another case type contains
 cases linked to the replaced cases, Nova preserves those cases and clears the

@@ -8,28 +8,41 @@
 
 "use client";
 
-import { Icon } from "@iconify/react/offline";
+import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
+import tablerArrowLeft from "@iconify-icons/tabler/arrow-left";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import tablerCopy from "@iconify-icons/tabler/copy";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
+import tablerMathFunction from "@iconify-icons/tabler/math-function";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSearch from "@iconify-icons/tabler/search";
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
 	ReorderableRow,
 	useReorderableList,
 } from "@/components/builder/shared/useReorderableList";
 import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuGroup,
-	DropdownMenuItem,
-	DropdownMenuLabel,
-	DropdownMenuTrigger,
-} from "@/components/shadcn/dropdown-menu";
+	Popover,
+	PopoverContent,
+	PopoverDescription,
+	PopoverHeader,
+	PopoverTitle,
+	PopoverTrigger,
+} from "@/components/shadcn/popover";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import type { Column } from "@/lib/domain";
+import {
+	type CaseProperty,
+	type Column,
+	canonicalCasePropertyName,
+	isStandardCaseListProperty,
+} from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
+import {
+	friendlyPropertyDisambiguator,
+	propertyDisplayLabel,
+	propertyTypeLabel,
+} from "../../shared/primitives/propertyDisplay";
 import { columnLabel } from "./ColumnInventory";
 import { AddGhostButton } from "./canvasChrome";
 
@@ -255,37 +268,139 @@ function FieldRow({
 export function AddInformationControl({
 	surface,
 	columns,
+	properties,
+	repeatableProperties,
 	brokenColumns,
 	onShow,
 	onRepair,
 	onCreate,
+	onCreateCalculated,
 	createDisabledReason,
 }: {
 	readonly surface: DisplaySurface;
 	readonly columns: readonly Column[];
+	/** Case properties that do not yet have a display definition anywhere. */
+	readonly properties: readonly CaseProperty[];
+	/** Properties already shown somewhere, offered only through the quiet
+	 * "another way" path so duplicate views stay possible without clutter. */
+	readonly repeatableProperties: readonly CaseProperty[];
 	readonly brokenColumns: ReadonlySet<string>;
 	readonly onShow: (column: Column) => void;
 	readonly onRepair: (column: Column) => void;
-	readonly onCreate: () => void;
+	readonly onCreate: (property: CaseProperty) => void;
+	readonly onCreateCalculated: () => void;
 	readonly createDisabledReason: string | undefined;
 }) {
 	const canEdit = useCanEdit();
+	const [open, setOpen] = useState(false);
+	const [mode, setMode] = useState<"main" | "alternate">("main");
 	const [query, setQuery] = useState("");
+	const searchInputRef = useRef<HTMLInputElement>(null);
+	const closePicker = () => {
+		setQuery("");
+		setMode("main");
+		setOpen(false);
+	};
+	useEffect(() => {
+		if (open && searchInputRef.current?.dataset.addInformationMode === mode) {
+			searchInputRef.current.focus({ preventScroll: true });
+		}
+	}, [open, mode]);
+	const normalizedQuery = query.trim().toLocaleLowerCase();
+	const allProperties = useMemo(() => {
+		const byName = new Map<string, CaseProperty>();
+		for (const property of [...properties, ...repeatableProperties]) {
+			byName.set(canonicalCasePropertyName(property.name), property);
+		}
+		return [...byName.values()];
+	}, [properties, repeatableProperties]);
+	const propertyByName = useMemo(
+		() =>
+			new Map(
+				allProperties.map((property) => [
+					canonicalCasePropertyName(property.name),
+					property,
+				]),
+			),
+		[allProperties],
+	);
+	const matchesQuery = (text: string) =>
+		normalizedQuery === "" ||
+		text.toLocaleLowerCase().includes(normalizedQuery);
 	const filteredColumns = useMemo(() => {
-		const normalized = query.trim().toLocaleLowerCase();
-		if (normalized === "") return columns;
+		if (normalizedQuery === "") return columns;
 		return columns.filter((column) =>
-			columnLabel(column).toLocaleLowerCase().includes(normalized),
+			`${columnLabel(column)} ${column.kind === "calculated" ? "calculated value" : column.field}`
+				.toLocaleLowerCase()
+				.includes(normalizedQuery),
 		);
-	}, [columns, query]);
+	}, [columns, normalizedQuery]);
+	const filteredProperties = useMemo(() => {
+		if (normalizedQuery === "") return properties;
+		return properties.filter((property) =>
+			`${propertyDisplayLabel(property)} ${property.name} ${propertyTypeLabel(property)}`
+				.toLocaleLowerCase()
+				.includes(normalizedQuery),
+		);
+	}, [properties, normalizedQuery]);
+	const filteredRepeatableProperties = useMemo(() => {
+		if (normalizedQuery === "") return repeatableProperties;
+		return repeatableProperties.filter((property) =>
+			`${propertyDisplayLabel(property)} ${property.name} ${propertyTypeLabel(property)}`
+				.toLocaleLowerCase()
+				.includes(normalizedQuery),
+		);
+	}, [repeatableProperties, normalizedQuery]);
+	const isCommonProperty = (property: CaseProperty) => {
+		const name = canonicalCasePropertyName(property.name);
+		return name === "case_name" || !isStandardCaseListProperty(name);
+	};
+	const isCommonColumn = (column: Column) => {
+		if (column.kind === "calculated") return true;
+		const name = canonicalCasePropertyName(column.field);
+		return name === "case_name" || !isStandardCaseListProperty(name);
+	};
+	const commonProperties = filteredProperties.filter(isCommonProperty);
+	const additionalProperties = filteredProperties.filter(
+		(property) => !isCommonProperty(property),
+	);
+	const commonColumns = filteredColumns.filter(isCommonColumn);
+	const additionalColumns = filteredColumns.filter(
+		(column) => !isCommonColumn(column),
+	);
+	const commonRepeatableProperties =
+		filteredRepeatableProperties.filter(isCommonProperty);
+	const additionalRepeatableProperties = filteredRepeatableProperties.filter(
+		(property) => !isCommonProperty(property),
+	);
+	const showCalculated =
+		createDisabledReason === undefined &&
+		matchesQuery("Calculated value combine transform case information");
+	const showAlternate =
+		repeatableProperties.length > 0 &&
+		matchesQuery(
+			"Show information another way second view label format appearance",
+		);
+	const hasChoices =
+		columns.length > 0 ||
+		properties.length > 0 ||
+		repeatableProperties.length > 0 ||
+		createDisabledReason === undefined;
+	const noMainMatches =
+		filteredColumns.length === 0 &&
+		filteredProperties.length === 0 &&
+		!showCalculated &&
+		!showAlternate;
 	if (!canEdit) return null;
 
-	if (columns.length === 0) {
+	if (!hasChoices) {
 		return (
 			<AddGhostButton
 				label="Add information"
-				onClick={onCreate}
-				disabledReason={createDisabledReason}
+				onClick={() => {}}
+				disabledReason={
+					createDisabledReason ?? "All available information is already shown."
+				}
 				className="w-full"
 				dataCaseAdd={surface}
 			/>
@@ -293,8 +408,14 @@ export function AddInformationControl({
 	}
 
 	return (
-		<DropdownMenu onOpenChange={(open) => !open && setQuery("")}>
-			<DropdownMenuTrigger
+		<Popover
+			open={open}
+			onOpenChange={(nextOpen) => {
+				if (nextOpen) setOpen(true);
+				else closePicker();
+			}}
+		>
+			<PopoverTrigger
 				type="button"
 				aria-label="Add information"
 				data-case-add={surface}
@@ -303,12 +424,53 @@ export function AddInformationControl({
 				<Icon icon={tablerPlus} width="14" height="14" />
 				<span>Add information</span>
 				<Icon icon={tablerChevronDown} width="14" height="14" />
-			</DropdownMenuTrigger>
-			<DropdownMenuContent
+			</PopoverTrigger>
+			<PopoverContent
 				align="start"
-				className="flex max-h-[min(28rem,var(--available-height))] min-w-72 flex-col overflow-hidden py-0"
+				sideOffset={6}
+				collisionPadding={6}
+				collisionAvoidance={{
+					// Never move along the bottom/top axis: the popup's max-height and
+					// internal scroll region absorb changing result height instead. Side
+					// shifting made a long menu jump hundreds of pixels when filtering
+					// shortened it. Alignment shifting still keeps the menu on-screen
+					// horizontally with both rails open.
+					side: "none",
+					align: "shift",
+					fallbackAxisSide: "none",
+				}}
+				className="max-h-[calc(var(--available-height)-0.5rem)] w-80 max-w-[calc(var(--available-width)-0.5rem)] gap-0 overflow-hidden p-0"
 			>
-				<div className="shrink-0 border-b border-white/[0.06] p-2">
+				<PopoverHeader className="gap-1 px-3 pb-2.5 pt-3">
+					<div className="flex items-start gap-2">
+						{mode === "alternate" && (
+							<button
+								type="button"
+								aria-label="Back to Add information"
+								onClick={() => {
+									setQuery("");
+									setMode("main");
+								}}
+								className="-ml-1 grid size-11 shrink-0 place-items-center rounded-lg text-nova-text-muted transition-colors hover:bg-white/[0.05] hover:text-nova-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet"
+							>
+								<Icon icon={tablerArrowLeft} width="15" height="15" />
+							</button>
+						)}
+						<div className="min-w-0 pt-0.5">
+							<PopoverTitle className="font-display text-[15px] font-semibold text-nova-text">
+								{mode === "main"
+									? "Add information"
+									: "Show information another way"}
+							</PopoverTitle>
+							<PopoverDescription className="mt-1 text-[12px] leading-relaxed text-nova-text-muted">
+								{mode === "main"
+									? `Choose what people should see in ${surface === "list" ? "Results" : "Details"}.`
+									: "Choose information that needs a second label or format."}
+							</PopoverDescription>
+						</div>
+					</div>
+				</PopoverHeader>
+				<div className="shrink-0 border-y border-white/[0.06] p-2">
 					<label className="flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/55 px-3 focus-within:border-nova-violet/40">
 						<Icon
 							icon={tablerSearch}
@@ -316,70 +478,309 @@ export function AddInformationControl({
 							height="14"
 							className="shrink-0 text-nova-text-muted"
 						/>
-						<span className="sr-only">Find information</span>
+						<span className="sr-only">
+							{mode === "main"
+								? "Search case information"
+								: "Search information already shown"}
+						</span>
 						<input
+							ref={searchInputRef}
+							data-add-information-mode={mode}
 							type="search"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
-							placeholder="Find information"
+							placeholder={
+								mode === "main"
+									? "Search case information"
+									: "Search information already shown"
+							}
 							autoComplete="off"
 							data-1p-ignore
 							className="min-w-0 flex-1 bg-transparent text-[13px] text-nova-text outline-none placeholder:text-nova-text-muted"
 						/>
 					</label>
 				</div>
-				<DropdownMenuGroup
-					className="min-h-0 flex-1 overflow-y-auto py-1"
+				<div
+					className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5"
 					data-add-information-scroll-region
 				>
-					<DropdownMenuLabel>Available information</DropdownMenuLabel>
-					{filteredColumns.map((column) => (
-						<DropdownMenuItem
-							key={column.uuid}
-							onClick={() =>
-								brokenColumns.has(column.uuid)
-									? onRepair(column)
-									: onShow(column)
-							}
-							className="min-h-11"
-						>
-							<Icon icon={tablerPlus} width="14" height="14" />
-							<span className="min-w-0 flex-1 truncate">
-								{columnLabel(column)}
-							</span>
-							{brokenColumns.has(column.uuid) && (
-								<span className="text-[11px] text-nova-rose">
-									Fix before adding
-								</span>
+					{mode === "main" ? (
+						<>
+							<MixedChoiceGroup
+								label="Common information"
+								properties={commonProperties}
+								columns={commonColumns}
+								allProperties={allProperties}
+								propertyByName={propertyByName}
+								brokenColumns={brokenColumns}
+								onChooseProperty={(property) => {
+									closePicker();
+									onCreate(property);
+								}}
+								onChooseColumn={(column) => {
+									closePicker();
+									if (brokenColumns.has(column.uuid)) onRepair(column);
+									else onShow(column);
+								}}
+							/>
+							<MixedChoiceGroup
+								label="More case information"
+								properties={additionalProperties}
+								columns={additionalColumns}
+								allProperties={allProperties}
+								propertyByName={propertyByName}
+								brokenColumns={brokenColumns}
+								onChooseProperty={(property) => {
+									closePicker();
+									onCreate(property);
+								}}
+								onChooseColumn={(column) => {
+									closePicker();
+									if (brokenColumns.has(column.uuid)) onRepair(column);
+									else onShow(column);
+								}}
+							/>
+							{(showCalculated || showAlternate) && (
+								<div className="mt-1 border-t border-white/[0.06] pt-1">
+									{showCalculated && (
+										<InformationChoice
+											label="Calculated value"
+											detail="Combine or transform case information"
+											icon={tablerMathFunction}
+											quiet
+											onClick={() => {
+												closePicker();
+												onCreateCalculated();
+											}}
+										/>
+									)}
+									{showAlternate && (
+										<InformationChoice
+											label="Show information another way…"
+											detail="Add a second view with its own label or format"
+											icon={tablerCopy}
+											quiet
+											onClick={() => {
+												setQuery("");
+												setMode("alternate");
+											}}
+										/>
+									)}
+								</div>
 							)}
-						</DropdownMenuItem>
-					))}
-					{filteredColumns.length === 0 && (
-						<p className="px-2 py-4 text-center text-[12px] text-nova-text-muted">
+						</>
+					) : (
+						<>
+							<PropertyChoiceGroup
+								label="Common information"
+								properties={commonRepeatableProperties}
+								allProperties={allProperties}
+								detailSuffix="Add a second label or format"
+								onChoose={(property) => {
+									closePicker();
+									onCreate(property);
+								}}
+							/>
+							<PropertyChoiceGroup
+								label="More case information"
+								properties={additionalRepeatableProperties}
+								allProperties={allProperties}
+								detailSuffix="Add a second label or format"
+								onChoose={(property) => {
+									closePicker();
+									onCreate(property);
+								}}
+							/>
+						</>
+					)}
+					{((mode === "main" && noMainMatches) ||
+						(mode === "alternate" &&
+							filteredRepeatableProperties.length === 0)) && (
+						<p
+							role="status"
+							className="px-3 py-7 text-center text-[12px] text-nova-text-muted"
+						>
 							No information matches “{query}”.
 						</p>
 					)}
-				</DropdownMenuGroup>
-				<div
-					className="shrink-0 border-t border-white/[0.06] p-1"
-					data-add-information-footer
-				>
-					<DropdownMenuItem
-						disabled={createDisabledReason !== undefined}
-						onClick={onCreate}
-						className="min-h-11 rounded-lg"
-					>
-						<Icon icon={tablerPlus} width="14" height="14" />
-						<span className="min-w-0 flex-1">Create new information</span>
-						{createDisabledReason !== undefined && (
-							<span className="text-[10px] text-nova-text-muted">
-								{createDisabledReason}
-							</span>
-						)}
-					</DropdownMenuItem>
 				</div>
-			</DropdownMenuContent>
-		</DropdownMenu>
+			</PopoverContent>
+		</Popover>
+	);
+}
+
+function MixedChoiceGroup({
+	label,
+	properties,
+	columns,
+	allProperties,
+	propertyByName,
+	brokenColumns,
+	onChooseProperty,
+	onChooseColumn,
+}: {
+	readonly label: string;
+	readonly properties: readonly CaseProperty[];
+	readonly columns: readonly Column[];
+	readonly allProperties: readonly CaseProperty[];
+	readonly propertyByName: ReadonlyMap<string, CaseProperty>;
+	readonly brokenColumns: ReadonlySet<string>;
+	readonly onChooseProperty: (property: CaseProperty) => void;
+	readonly onChooseColumn: (column: Column) => void;
+}) {
+	return (
+		<InformationChoiceGroup
+			label={label}
+			show={properties.length > 0 || columns.length > 0}
+		>
+			{properties.map((property) => (
+				<PropertyChoice
+					key={property.name}
+					property={property}
+					allProperties={allProperties}
+					onChoose={onChooseProperty}
+				/>
+			))}
+			{columns.map((column) => {
+				const broken = brokenColumns.has(column.uuid);
+				const property =
+					column.kind === "calculated"
+						? undefined
+						: propertyByName.get(canonicalCasePropertyName(column.field));
+				const valueKind =
+					column.kind === "calculated"
+						? "Calculated value"
+						: property === undefined
+							? undefined
+							: propertyTypeLabel(property);
+				const detail = broken
+					? "Needs a quick fix"
+					: valueKind === undefined
+						? "Keeps its current format"
+						: `${valueKind} · Keeps its current format`;
+				return (
+					<InformationChoice
+						key={column.uuid}
+						label={columnLabel(column)}
+						detail={detail}
+						tone={broken ? "attention" : "normal"}
+						onClick={() => onChooseColumn(column)}
+					/>
+				);
+			})}
+		</InformationChoiceGroup>
+	);
+}
+
+function InformationChoiceGroup({
+	label,
+	show,
+	children,
+}: {
+	readonly label: string;
+	readonly show: boolean;
+	readonly children: React.ReactNode;
+}) {
+	if (!show) return null;
+	return (
+		<section>
+			<h3 className="px-2 pb-1 pt-1.5 text-[11px] font-semibold text-nova-text-muted">
+				{label}
+			</h3>
+			<div>{children}</div>
+		</section>
+	);
+}
+
+function PropertyChoiceGroup({
+	label,
+	properties,
+	allProperties,
+	detailSuffix,
+	onChoose,
+}: {
+	readonly label: string;
+	readonly properties: readonly CaseProperty[];
+	readonly allProperties: readonly CaseProperty[];
+	readonly detailSuffix?: string;
+	readonly onChoose: (property: CaseProperty) => void;
+}) {
+	return (
+		<InformationChoiceGroup label={label} show={properties.length > 0}>
+			{properties.map((property) => (
+				<PropertyChoice
+					key={property.name}
+					property={property}
+					allProperties={allProperties}
+					detailSuffix={detailSuffix}
+					onChoose={onChoose}
+				/>
+			))}
+		</InformationChoiceGroup>
+	);
+}
+
+function PropertyChoice({
+	property,
+	allProperties,
+	detailSuffix,
+	onChoose,
+}: {
+	readonly property: CaseProperty;
+	readonly allProperties: readonly CaseProperty[];
+	readonly detailSuffix?: string;
+	readonly onChoose: (property: CaseProperty) => void;
+}) {
+	const disambiguator = friendlyPropertyDisambiguator(property, allProperties);
+	const detail = [propertyTypeLabel(property), disambiguator, detailSuffix]
+		.filter((part): part is string => part !== undefined)
+		.join(" · ");
+	return (
+		<InformationChoice
+			label={propertyDisplayLabel(property)}
+			detail={detail}
+			onClick={() => onChoose(property)}
+		/>
+	);
+}
+
+function InformationChoice({
+	label,
+	detail,
+	tone = "normal",
+	icon = tablerPlus,
+	quiet = false,
+	onClick,
+}: {
+	readonly label: string;
+	readonly detail: string;
+	readonly tone?: "normal" | "attention";
+	readonly icon?: IconifyIcon;
+	readonly quiet?: boolean;
+	readonly onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-nova-violet/[0.1] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet"
+		>
+			<span
+				className={`grid size-7 shrink-0 place-items-center rounded-lg ${quiet ? "bg-white/[0.035] text-nova-text-muted" : "bg-nova-violet/[0.08] text-nova-violet-bright"}`}
+			>
+				<Icon icon={icon} width="14" height="14" />
+			</span>
+			<span className="min-w-0 flex-1">
+				<span className="block truncate text-[13px] font-medium text-nova-text">
+					{label}
+				</span>
+				<span
+					className={`block truncate text-[11px] ${tone === "attention" ? "text-nova-rose" : "text-nova-text-muted"}`}
+				>
+					{detail}
+				</span>
+			</span>
+		</button>
 	);
 }
 

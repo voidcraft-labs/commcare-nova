@@ -193,11 +193,9 @@ const USER_MESSAGE_BY_CODE: Partial<
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: (e) =>
 		`${q(modName(e))} has a search set up but no case type, so there's nothing for it to look through. Pick the kind of case it should find, like "patient" or "household".`,
 	CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE: (e) =>
-		`The search screen for ${q(modName(e))} has nothing to search by yet. Add a search field, or a filter to narrow the list.`,
+		`Search for ${q(modName(e))} has nothing to narrow yet. Add a search field, or narrow Cases available.`,
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: (e) =>
 		`The excluded-owners setting on ${q(modName(e))} isn't coming out as text. Check the formula, or clear it.`,
-	CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT: (e) =>
-		`${q(modName(e))} filters on ${q(det(e, "property", "a property"))} in both its default filter and a search input, which can come back empty. Keep just one.`,
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
 		`The condition for when ${q(modName(e))}'s search button shows has an error. Fix it, or clear it to always show the button.`,
 

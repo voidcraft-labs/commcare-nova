@@ -29,7 +29,6 @@ import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
 import { caseSearchConfigRequiresCaseType } from "./case-search/caseSearchConfigRequiresCaseType";
 import { caseSearchConfigRequiresSearchableSurface } from "./case-search/caseSearchConfigRequiresSearchableSurface";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
-import { filterSearchInputConflict } from "./case-search/filterSearchInputConflict";
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
 import { imageMapValueUnique } from "./media/imageMapValueUnique";
 
@@ -220,7 +219,6 @@ export const MODULE_RULES = [
 	// still emit.
 	searchButtonDisplayConditionTypeCheck,
 	excludedOwnerIdsTypeCheck,
-	filterSearchInputConflict,
 	caseSearchConfigRequiresSearchableSurface,
 	caseSearchConfigRequiresCaseType,
 ];

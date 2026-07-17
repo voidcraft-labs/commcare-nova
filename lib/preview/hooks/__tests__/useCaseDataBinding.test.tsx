@@ -185,6 +185,19 @@ describe("useResetSampleCases", () => {
 	});
 });
 
+describe("useCases query constraints", () => {
+	it("keeps a legacy action result neutral when constraint metadata is unavailable", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValueOnce({ kind: "empty" });
+		const hook = renderHook(() =>
+			useCases({ appId: APP_ID, caseType: PATIENT.name }),
+		);
+
+		await waitFor(() => expect(hook.result.current.state.kind).toBe("empty"));
+		expect(hook.result.current.state).toEqual({ kind: "empty" });
+		expect(hook.result.current.queryConstraintSource).toBe("unknown");
+	});
+});
+
 describe("case-data invalidation", () => {
 	it("hides the prior selected row synchronously when its revision changes", async () => {
 		let resolveReload: ((value: { kind: "missing" }) => void) | undefined;

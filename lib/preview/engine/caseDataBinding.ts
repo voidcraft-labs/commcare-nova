@@ -55,6 +55,7 @@ import type {
 import {
 	type SearchInputValuesWire,
 	searchInputValuesFromWire,
+	withSearchInputExpressionValues,
 } from "./runtimeBindings";
 import {
 	evaluatePreviewSearchExpression,
@@ -145,6 +146,13 @@ export async function loadCasesAction(args: {
 		const inputValues = args.inputValues
 			? searchInputValuesFromWire(args.inputValues)
 			: undefined;
+		const expressionInputValues =
+			inputValues === undefined || args.caseListConfig === undefined
+				? inputValues
+				: withSearchInputExpressionValues(
+						args.caseListConfig.searchInputs,
+						inputValues,
+					);
 		const excludedOwnerIds =
 			args.excludedOwnerIdsExpression === undefined
 				? undefined
@@ -152,7 +160,7 @@ export async function loadCasesAction(args: {
 						evaluatePreviewSearchExpression(
 							args.excludedOwnerIdsExpression,
 							previewSearchSessionValues(session.user),
-							inputValues,
+							expressionInputValues,
 						),
 					);
 		const store = await gatedCaseStore(args.appId, session.user.id, "view");

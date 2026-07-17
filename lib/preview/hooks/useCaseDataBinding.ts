@@ -31,6 +31,7 @@ import {
 	resetSampleCasesAction,
 } from "@/lib/preview/engine/caseDataBinding";
 import type {
+	CaseQueryConstraintContext,
 	LoadCaseCountResult,
 	LoadCaseDataResult,
 	LoadCasesResult,
@@ -102,6 +103,9 @@ export function useCases(args: {
 	caseTypes?: readonly CaseType[];
 }): {
 	state: LoadingState<LoadCasesResult>;
+	/** Server-derived cause of the effective query's narrowing. Blank prompt
+	 *  values and empty evaluated owner expressions remain unconstrained. */
+	queryConstraintSource: CaseQueryConstraintContext;
 	/** A reload is in flight while settled data stays on screen.
 	 *  Render the stale rows dimmed (or with an inline spinner)
 	 *  rather than unmounting them. */
@@ -121,7 +125,7 @@ export function useCases(args: {
 		caseTypes,
 	} = args;
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
-	return useReloadableResource<LoadingState<LoadCasesResult>>({
+	const resource = useReloadableResource<LoadingState<LoadCasesResult>>({
 		prepare: () =>
 			!appId || !caseType
 				? { notReady: { kind: "idle" } }
@@ -154,6 +158,11 @@ export function useCases(args: {
 			caseDataRevision,
 		],
 	});
+	const queryConstraintSource =
+		resource.state.kind === "rows" || resource.state.kind === "empty"
+			? (resource.state.constraintSource ?? "unknown")
+			: "unconstrained";
+	return { ...resource, queryConstraintSource };
 }
 
 /**

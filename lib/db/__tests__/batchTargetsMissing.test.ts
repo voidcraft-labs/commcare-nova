@@ -249,6 +249,10 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 			selectUuid,
 			optionUuid,
 		} = fixture();
+		const column = doc.modules[moduleUuid].caseListConfig?.columns.find(
+			(candidate) => candidate.uuid === columnUuid,
+		);
+		if (!column) throw new Error("fixture column missing");
 		// Non-destructive edits to every live item (no remove-then-move on the
 		// same uuid, which would legitimately trip the guard mid-batch).
 		const live: Mutation[] = [
@@ -271,6 +275,13 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				order: "a3",
 			} as Mutation,
 			{
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				column: { ...column, visibleInDetail: false },
+				visibilityPatch: { surface: "detail", visible: false },
+			} as Mutation,
+			{
 				kind: "removeSearchInput",
 				moduleUuid,
 				uuid: searchInputUuid,
@@ -291,6 +302,23 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 		expect(
 			batchTargetsMissing(doc, [
 				{ kind: "removeColumn", moduleUuid, uuid: MISSING } as Mutation,
+			]),
+		).toBe(true);
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "updateColumn",
+					moduleUuid,
+					uuid: MISSING,
+					column: {
+						uuid: MISSING,
+						kind: "plain",
+						field: "x",
+						header: "X",
+						visibleInList: false,
+					},
+					visibilityPatch: { surface: "list", visible: false },
+				} as Mutation,
 			]),
 		).toBe(true);
 		expect(
@@ -332,6 +360,30 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				} as Mutation,
 			]),
 		).toBe(true);
+	});
+
+	it("tracks an intra-batch column add before its visibility patch", () => {
+		const { doc, moduleUuid } = fixture();
+		const owner = asUuid(moduleUuid);
+		const uuid = asUuid("column-new");
+		const column = {
+			uuid,
+			kind: "plain" as const,
+			field: "case_name",
+			header: "Second name",
+		};
+		expect(
+			batchTargetsMissing(doc, [
+				{ kind: "addColumn", moduleUuid: owner, column },
+				{
+					kind: "updateColumn",
+					moduleUuid: owner,
+					uuid,
+					column: { ...column, visibleInDetail: false },
+					visibilityPatch: { surface: "detail", visible: false },
+				},
+			]),
+		).toBe(false);
 	});
 
 	it("returns true when a column/option target's parent module/field was removed", () => {

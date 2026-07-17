@@ -54,8 +54,8 @@ interface PredicateCardEditorProps {
 	readonly caseTypes: readonly CaseType[];
 	/**
 	 * The originating case-type scope the predicate runs against.
-	 * For a case-list filter this is the module's case type; for a
-	 * search default filter it's the same. Inside an `exists.where`
+	 * For a module's always-on Cases available rule this is the module's
+	 * case type. Inside an `exists.where`
 	 * clause the editor automatically rebinds `currentCaseType` to
 	 * the relation walk's destination.
 	 */

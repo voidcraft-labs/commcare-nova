@@ -22,8 +22,10 @@ import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSelect from "@iconify-icons/tabler/select";
 import {
 	applicableSearchModes,
+	authorableCaseProperties,
 	type CaseProperty,
 	type CaseType,
+	canonicalCasePropertyName,
 	DEFAULT_SEARCH_MODE_KIND,
 	effectiveDataType,
 	exactMode,
@@ -302,7 +304,10 @@ export function resolveProperty(
 		currentCaseType,
 	);
 	const ct = caseTypes.find((c) => c.name === destinationCaseType);
-	return ct?.properties.find((p) => p.name === row.property);
+	const propertyName = canonicalCasePropertyName(row.property);
+	return authorableCaseProperties(ct?.properties ?? []).find(
+		(property) => property.name === propertyName,
+	);
 }
 
 /**

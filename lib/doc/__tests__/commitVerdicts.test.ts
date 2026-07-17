@@ -104,6 +104,7 @@ describe("mutationCommitVerdict", () => {
 				moduleUuid,
 				uuid: column.uuid,
 				column: { ...column, visibleInList: false },
+				visibilityPatch: { surface: "list", visible: false },
 			},
 		]);
 		expect(noResults.ok).toBe(false);
@@ -119,6 +120,7 @@ describe("mutationCommitVerdict", () => {
 				moduleUuid,
 				uuid: column.uuid,
 				column: { ...column, visibleInDetail: false },
+				visibilityPatch: { surface: "detail", visible: false },
 			},
 		]);
 		expect(noDetails.ok).toBe(true);

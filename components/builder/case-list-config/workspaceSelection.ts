@@ -28,7 +28,7 @@ export type WorkspaceSelection =
 	/** A directly arranged search input; selection opens its property/matching
 	 *  options without moving arrangement out of the canvas. */
 	| { readonly type: "input"; readonly uuid: string }
-	/** The filter editor reached from Results' human-readable Cases included
+	/** The filter editor reached from Search's human-readable Cases available
 	 *  sentence — the summary is not a duplicate editing surface. */
 	| { readonly type: "filter" }
 	/** Search-screen options with no draggable row: screen copy, button

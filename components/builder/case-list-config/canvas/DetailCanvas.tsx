@@ -7,7 +7,16 @@
 "use client";
 
 import { ContentFrame } from "@/components/builder/ContentFrame";
-import type { CaseListConfig, Column } from "@/lib/domain";
+import type {
+	CaseListConfig,
+	CaseProperty,
+	CaseType,
+	Column,
+} from "@/lib/domain";
+import {
+	representedColumnProperties,
+	unrepresentedColumnProperties,
+} from "../seeds";
 import { projectCaseWorkspaceColumns } from "../workspaceProjection";
 import type { WorkspaceSelection } from "../workspaceSelection";
 import { CanvasNotice } from "./canvasChrome";
@@ -18,10 +27,12 @@ import {
 
 export interface DetailCanvasProps {
 	readonly config: CaseListConfig;
+	readonly caseType: CaseType | undefined;
 	readonly brokenColumns: ReadonlySet<string>;
 	readonly selection: WorkspaceSelection | null;
 	readonly onSelect: (next: WorkspaceSelection) => void;
-	readonly onAddDetailField: () => void;
+	readonly onAddDetailField: (property: CaseProperty) => void;
+	readonly onAddCalculated: () => void;
 	readonly addDisabledReason: string | undefined;
 	readonly onMoveColumn: (uuid: Column["uuid"], toIndex: number) => void;
 	readonly onShowColumn: (column: Column) => void;
@@ -30,16 +41,20 @@ export interface DetailCanvasProps {
 
 export function DetailCanvas({
 	config,
+	caseType,
 	brokenColumns,
 	selection,
 	onSelect,
 	onAddDetailField,
+	onAddCalculated,
 	addDisabledReason,
 	onMoveColumn,
 	onShowColumn,
 	onRepairColumn,
 }: DetailCanvasProps) {
 	const projection = projectCaseWorkspaceColumns(config.columns);
+	const availableProperties = unrepresentedColumnProperties(config, caseType);
+	const repeatableProperties = representedColumnProperties(config, caseType);
 	const selectedColumnUuid =
 		selection?.type === "column" ? selection.uuid : null;
 
@@ -93,10 +108,13 @@ export function DetailCanvas({
 						<AddInformationControl
 							surface="detail"
 							columns={projection.detailHidden}
+							properties={availableProperties}
+							repeatableProperties={repeatableProperties}
 							brokenColumns={brokenColumns}
 							onShow={onShowColumn}
 							onRepair={onRepairColumn}
 							onCreate={onAddDetailField}
+							onCreateCalculated={onAddCalculated}
 							createDisabledReason={addDisabledReason}
 						/>
 					</div>

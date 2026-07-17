@@ -123,7 +123,7 @@ function SelectContent({
 					{...props}
 				>
 					<SelectScrollUpButton />
-					<SelectPrimitive.List className="py-1">
+					<SelectPrimitive.List className="p-1">
 						{children}
 					</SelectPrimitive.List>
 					<SelectScrollDownButton />
@@ -159,7 +159,7 @@ function SelectItem({
 			data-slot="select-item"
 			className={cn(
 				MENU_ITEM_CLS,
-				"relative pr-9 data-disabled:cursor-not-allowed data-disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+				"relative rounded-lg pr-9 data-disabled:cursor-not-allowed data-disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
 				className,
 			)}
 			{...props}

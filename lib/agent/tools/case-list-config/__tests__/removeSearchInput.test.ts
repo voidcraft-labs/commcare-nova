@@ -163,7 +163,9 @@ describe("removeSearchInput", () => {
 			result.newDoc.modules[MOD_A].caseListConfig?.searchInputs,
 		).toHaveLength(1);
 		if (!("error" in result.result)) throw new Error("expected rejection");
-		expect(result.result.error).toMatch(/nothing to search by/i);
+		expect(result.result.error).toMatch(
+			/neither available-case rules nor search fields/i,
+		);
 	});
 
 	it("returns an Elm-style error on out-of-range moduleIndex", async () => {

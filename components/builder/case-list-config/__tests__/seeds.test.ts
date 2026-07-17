@@ -1,7 +1,6 @@
-// Pins the smart-seed contract: a freshly-added search input or
-// column must WORK the moment it lands — bound to a real property,
-// labeled in human words, named legally and uniquely, widget matched
-// to the property's data type, and (text search) matching forgivingly.
+// Pins the creation contract: a freshly-added search field or display field
+// must work immediately. Search gets a useful automatic seed; display creation
+// builds from the exact property the author chose in the canvas.
 
 import { describe, expect, it } from "vitest";
 import type {
@@ -14,9 +13,13 @@ import { simpleSearchInputDef } from "@/lib/domain";
 import { eq, literal, prop as propertyTerm } from "@/lib/domain/predicate";
 import {
 	labelFromProperty,
+	representedColumnProperties,
+	seedCalculatedColumn,
 	seedColumn,
+	seedColumnForProperty,
 	seedSearchInput,
 	uniqueInputName,
+	unrepresentedColumnProperties,
 	widgetTypeForProperty,
 	xmlNameFromProperty,
 } from "../seeds";
@@ -123,14 +126,16 @@ describe("seedSearchInput", () => {
 		);
 	});
 
-	it("avoids a property already fixed by the Cases included rule", () => {
+	it("does not treat the always-on rule as occupying a search field", () => {
 		const seed = seedSearchInput(
 			config({
 				filter: eq(propertyTerm("client", "case_name"), literal("Alice")),
 			}),
 			CLIENT,
 		);
-		expect(seed && seed.kind === "simple" ? seed.property : "").toBe("age");
+		expect(seed && seed.kind === "simple" ? seed.property : "").toBe(
+			"case_name",
+		);
 	});
 
 	it("never seeds a second row from a CCHQ alias of an already-used value", () => {
@@ -278,5 +283,72 @@ describe("seedColumn", () => {
 
 	it("returns undefined for a propertyless case type", () => {
 		expect(seedColumn(config(), caseType("empty", []))).toBeUndefined();
+	});
+});
+
+describe("chooser-first display fields", () => {
+	it("builds the exact property selected by the author", () => {
+		const selected = prop("visit_date", "datetime");
+		expect(
+			seedColumnForProperty(selected, { visibleInList: false }),
+		).toMatchObject({
+			kind: "date",
+			field: "visit_date",
+			header: "Visit date",
+			visibleInList: false,
+		});
+	});
+
+	it("builds a valid calculated starting point without guessing a property", () => {
+		expect(seedCalculatedColumn({ visibleInDetail: false })).toMatchObject({
+			kind: "calculated",
+			header: "Calculated value",
+			expression: { kind: "term", term: { kind: "literal", value: "" } },
+			visibleInDetail: false,
+		});
+	});
+
+	it("offers only properties without an existing display definition", () => {
+		const result = unrepresentedColumnProperties(
+			config({
+				columns: [
+					{
+						uuid: newUuid(),
+						kind: "plain",
+						field: "name",
+						header: "Client",
+					},
+				],
+			}),
+			caseType("client", [
+				prop("name"),
+				prop("case_name"),
+				prop("phone_number"),
+			]),
+		);
+		expect(result.map((property) => property.name)).toEqual(["phone_number"]);
+	});
+
+	it("offers represented properties only through the second-view path", () => {
+		const appCaseType = caseType("client", [
+			prop("name"),
+			prop("case_name"),
+			prop("phone_number"),
+		]);
+		const current = config({
+			columns: [
+				{
+					uuid: newUuid(),
+					kind: "plain",
+					field: "name",
+					header: "Client",
+				},
+			],
+		});
+		expect(
+			representedColumnProperties(current, appCaseType).map(
+				(property) => property.name,
+			),
+		).toEqual(["case_name"]);
 	});
 });

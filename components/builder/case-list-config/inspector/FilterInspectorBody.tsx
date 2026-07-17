@@ -1,14 +1,12 @@
 // components/builder/case-list-config/inspector/FilterInspectorBody.tsx
 //
-// Properties for the case-list filter — what the canvas's filter
-// affordance selects. The structural predicate editor lives here; the
-// canvas keeps the filter as one human-language summary row.
+// Properties for Search's Cases available summary. The structural predicate
+// editor lives here; the canvas keeps the always-on rule as one human-language
+// summary row beneath the more common interactive search fields.
 //
-// The inspector panel's own header already names this surface
-// ("Filter"), so the body carries NO section header of its own — one
-// quiet hint line, then the condition editor directly on the rail
-// background. Boxing the editor again or re-titling it duplicates
-// chrome the user just read.
+// The inspector header already says Search / Cases available, so the body
+// carries no duplicate heading — one quiet hint line, then the condition
+// editor directly on the rail background.
 //
 // A match count rides beneath the editor so authors get immediate scope
 // feedback without turning edit mode into a one-record data preview.
@@ -103,7 +101,7 @@ export function FilterInspectorBody({
 		return (
 			<>
 				<InspectorHint>
-					Only cases that pass this condition show up in the list.
+					People can find only cases that pass this condition.
 				</InspectorHint>
 				<button
 					type="button"
@@ -125,7 +123,7 @@ export function FilterInspectorBody({
 	return (
 		<>
 			<InspectorHint>
-				Only cases that pass this condition show up in the list.
+				People can find only cases that pass this condition.
 			</InspectorHint>
 			<PredicateCardEditor
 				value={config.filter}
@@ -242,7 +240,7 @@ function MatchCount({
 				} else {
 					// Every non-rows arm (no cases yet, schema syncing, auth)
 					// degrades to "no count". The editor stays fully usable and
-					// Results continues to show the authored summary or its
+					// Search continues to show the authored summary or its
 					// findable Needs attention state.
 					setState({ kind: "unavailable" });
 				}

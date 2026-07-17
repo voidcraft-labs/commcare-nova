@@ -32,7 +32,7 @@ describe("action tense follows the call's status", () => {
 		expect(toolAction(pendingPart("addFields"))).toBe("Adding fields");
 		expect(toolAction(pendingPart("createModule"))).toBe("Creating module");
 		expect(toolAction(pendingPart("setCaseListFilter"))).toBe(
-			"Setting the case-list filter",
+			"Updating available cases",
 		);
 		expect(toolAction(pendingPart("updateApp"))).toBe("Updating app settings");
 	});

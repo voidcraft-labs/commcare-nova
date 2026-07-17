@@ -166,7 +166,7 @@ describe("caseListConfigVerdicts", () => {
 		expect(v.brokenColumns.size).toBe(0);
 	});
 
-	it("marks Cases included when its filter references an unknown property", () => {
+	it("marks Cases available on Search when its rule references an unknown property", () => {
 		const v = verdicts({
 			filter: {
 				kind: "eq",
@@ -174,7 +174,8 @@ describe("caseListConfigVerdicts", () => {
 				right: term(literal("x")),
 			},
 		});
-		expect(v.errorAreas.list).toBe(true);
+		expect(v.errorAreas.search).toBe(true);
+		expect(v.errorAreas.list).toBe(false);
 		expect(v.filterBroken).toBe(true);
 	});
 

@@ -8,7 +8,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerArrowsSort from "@iconify-icons/tabler/arrows-sort";
-import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
@@ -24,6 +23,8 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
@@ -42,6 +43,7 @@ import {
 import { effectiveDataType } from "@/lib/domain/casePropertyTypes";
 import { checkExpression } from "@/lib/domain/predicate";
 import { useCanEdit } from "@/lib/session/hooks";
+import { handleMenuSearchInputKeyDown } from "@/lib/ui/menuSearchInput";
 import { resolveSortedColumns } from "./sortPriority";
 
 export interface CaseOrderingComposerProps {
@@ -212,10 +214,7 @@ export function CaseOrderingComposer({
 	);
 
 	return (
-		<div
-			className="w-full border-t border-white/[0.07]"
-			data-case-ordering-composer
-		>
+		<div className="w-full" data-case-ordering-composer>
 			<div className="flex min-h-[72px] flex-wrap items-center gap-3 px-4 py-3">
 				<span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.035] text-nova-text-muted">
 					<Icon icon={tablerArrowsSort} width="16" height="16" />
@@ -359,7 +358,7 @@ export function CaseOrderingComposer({
 								</DropdownMenuTrigger>
 								<DropdownMenuContent
 									align="start"
-									className="flex max-h-[min(28rem,var(--available-height))] min-w-72 flex-col overflow-hidden py-0"
+									className="flex max-h-[min(28rem,var(--available-height))] min-w-72 flex-col overflow-hidden p-0"
 								>
 									<div className="shrink-0 border-b border-white/[0.06] p-2">
 										<label className="flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/55 px-3 focus-within:border-nova-violet/40">
@@ -376,18 +375,7 @@ export function CaseOrderingComposer({
 												type="search"
 												value={sortQuery}
 												onChange={(event) => setSortQuery(event.target.value)}
-												onKeyDown={(event) => {
-													if (
-														![
-															"ArrowDown",
-															"ArrowUp",
-															"Enter",
-															"Escape",
-															"Tab",
-														].includes(event.key)
-													)
-														event.stopPropagation();
-												}}
+												onKeyDown={handleMenuSearchInputKeyDown}
 												placeholder="Find information"
 												autoComplete="off"
 												data-1p-ignore
@@ -395,7 +383,7 @@ export function CaseOrderingComposer({
 											/>
 										</label>
 									</div>
-									<div className="min-h-0 flex-1 overflow-y-auto py-1">
+									<div className="min-h-0 flex-1 overflow-y-auto p-1">
 										{visibleUnsorted.map((column) => (
 											<DropdownMenuItem
 												key={column.uuid}
@@ -503,23 +491,23 @@ function CaseOrderingRuleRow({
 							<Icon icon={tablerChevronDown} width="14" height="14" />
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="end" className="min-w-44">
-							{options.map((option) => (
-								<DropdownMenuItem
-									key={option.value}
-									onClick={() => onDirectionChange(option.value)}
-									className="min-h-11"
-								>
-									<span>{option.label}</span>
-									{option.value === direction && (
-										<Icon
-											icon={tablerCheck}
-											width="14"
-											height="14"
-											className="ml-auto text-nova-violet-bright"
-										/>
-									)}
-								</DropdownMenuItem>
-							))}
+							<DropdownMenuRadioGroup
+								value={direction}
+								onValueChange={(value) =>
+									onDirectionChange(value as SortDirection)
+								}
+							>
+								{options.map((option) => (
+									<DropdownMenuRadioItem
+										key={option.value}
+										value={option.value}
+										closeOnClick
+										className="min-h-11"
+									>
+										<span>{option.label}</span>
+									</DropdownMenuRadioItem>
+								))}
+							</DropdownMenuRadioGroup>
 						</DropdownMenuContent>
 					</DropdownMenu>
 				) : (

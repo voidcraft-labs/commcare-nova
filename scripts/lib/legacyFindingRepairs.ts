@@ -243,9 +243,6 @@ export const REPAIR_JUDGMENTS: Readonly<
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: owner(
 		"the owner-id expression is content",
 	),
-	CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT: owner(
-		"which surface should own the property is a search-design decision",
-	),
 	CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE: owner(
 		"what the search screen should search on is content",
 	),

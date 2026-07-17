@@ -1,7 +1,6 @@
 // components/builder/case-list-config/__tests__/predicateSummary.test.ts
 //
-// Pins the human-language filter summary — the phrase the case-list
-// canvas stamps on its filter affordance. The contract under test:
+// Pins the human-language Cases available summary on Search. The contract:
 // worker-facing words, never AST jargon; vacuous predicates summarize
 // to nothing; exotic shapes degrade to honest generic phrases.
 

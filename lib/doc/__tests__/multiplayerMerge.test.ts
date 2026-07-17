@@ -12,6 +12,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { updateColumnMutation } from "@/lib/agent/blueprintHelpers";
 import { assembleFieldMutations } from "@/lib/agent/tools/shared/fieldAssembly";
 import { batchTargetsMissing } from "@/lib/db/commitGuard";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
@@ -44,6 +45,32 @@ import {
 function apply(doc: BlueprintDoc, ...batches: Mutation[][]): BlueprintDoc {
 	return produce(doc, (draft) => {
 		for (const batch of batches) applyMutations(draft, batch);
+	});
+}
+
+/** The pre-visibility-patch updateColumn reducer kept for rolling-deploy proof. */
+function applyWithLegacyColumnReducer(
+	doc: BlueprintDoc,
+	batch: Mutation[],
+): BlueprintDoc {
+	return produce(doc, (draft) => {
+		for (const mutation of batch) {
+			if (mutation.kind !== "updateColumn") {
+				throw new Error(`legacy receiver cannot dispatch ${mutation.kind}`);
+			}
+			const config = draft.modules[mutation.moduleUuid]?.caseListConfig;
+			const index = config?.columns.findIndex(
+				(column) => column.uuid === mutation.uuid,
+			);
+			if (!config || index === undefined || index < 0) continue;
+			const current = config.columns[index];
+			const replacement = { ...mutation.column, uuid: mutation.uuid };
+			for (const key of ["order", "listOrder", "detailOrder"] as const) {
+				if (current[key] === undefined) delete replacement[key];
+				else replacement[key] = current[key];
+			}
+			config.columns[index] = replacement;
+		}
 	});
 }
 
@@ -383,6 +410,226 @@ describe("disjoint collection edits merge", () => {
 		// Both edits survive — neither clobbers the other.
 		expect(headerByUuid.get(colA)).toBe("Patient name");
 		expect(headerByUuid.get(colB)).toBe("Years");
+	});
+
+	it("a Results hide and a stale inspector edit merge in either order", () => {
+		const { doc, moduleUuid, colA } = moduleWithTwoColumns();
+		const hidden = produce(doc, (draft) => {
+			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			);
+			if (column) column.visibleInList = false;
+		});
+		const formatted = produce(doc, (draft) => {
+			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			);
+			if (column) column.header = "Patient name";
+		});
+		const hideBatch = diffDocsToMutations(doc, hidden);
+		const formatBatch = diffDocsToMutations(doc, formatted);
+
+		expect(hideBatch).toContainEqual(
+			expect.objectContaining({
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: colA,
+				visibilityPatch: { surface: "list", visible: false },
+			}),
+		);
+		expect(
+			hideBatch.some(
+				(mutation) =>
+					mutation.kind === "updateColumn" &&
+					mutation.visibilityPatch === undefined,
+			),
+		).toBe(false);
+		expect(formatBatch).toContainEqual(
+			expect.objectContaining({
+				kind: "updateColumn",
+				preserveVisibility: true,
+			}),
+		);
+
+		for (const merged of [
+			apply(doc, hideBatch, formatBatch),
+			apply(doc, formatBatch, hideBatch),
+		]) {
+			const column = merged.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			);
+			expect(column?.header).toBe("Patient name");
+			expect(column?.visibleInList).toBe(false);
+		}
+	});
+
+	it("an SA/MCP visibility-only replacement omits stale column content", () => {
+		const { doc, moduleUuid, colA } = moduleWithTwoColumns();
+		const current = doc.modules[moduleUuid].caseListConfig?.columns.find(
+			(candidate) => candidate.uuid === colA,
+		);
+		if (!current) throw new Error("fixture column missing");
+		const visibilityPlan = updateColumnMutation(doc.modules[moduleUuid], colA, {
+			...current,
+			visibleInList: false,
+		});
+		if ("error" in visibilityPlan) throw new Error(visibilityPlan.error);
+		expect(visibilityPlan.mutations).toHaveLength(1);
+		expect(visibilityPlan.mutations[0]).toEqual(
+			expect.objectContaining({
+				kind: "updateColumn",
+				visibilityPatch: { surface: "list", visible: false },
+			}),
+		);
+
+		const formatted = produce(doc, (draft) => {
+			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			);
+			if (column) column.header = "Peer format";
+		});
+		const formatBatch = diffDocsToMutations(doc, formatted);
+		for (const merged of [
+			apply(doc, visibilityPlan.mutations, formatBatch),
+			apply(doc, formatBatch, visibilityPlan.mutations),
+		]) {
+			const column = merged.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			);
+			expect(column?.header).toBe("Peer format");
+			expect(column?.visibleInList).toBe(false);
+		}
+	});
+
+	it("a Results restore and a stale inspector edit merge in either order", () => {
+		const { doc, moduleUuid, colA } = moduleWithTwoColumns();
+		const hiddenDoc = produce(doc, (draft) => {
+			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			);
+			if (column) column.visibleInList = false;
+		});
+		const shown = produce(hiddenDoc, (draft) => {
+			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			);
+			if (column) delete column.visibleInList;
+		});
+		const formatted = produce(hiddenDoc, (draft) => {
+			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			);
+			if (column) column.header = "Patient name";
+		});
+		const showBatch = diffDocsToMutations(hiddenDoc, shown);
+		const formatBatch = diffDocsToMutations(hiddenDoc, formatted);
+
+		expect(showBatch).toContainEqual(
+			expect.objectContaining({
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: colA,
+				visibilityPatch: { surface: "list", visible: true },
+			}),
+		);
+		expect(
+			showBatch.some(
+				(mutation) =>
+					mutation.kind === "updateColumn" &&
+					mutation.visibilityPatch === undefined,
+			),
+		).toBe(false);
+		expect(formatBatch).toContainEqual(
+			expect.objectContaining({
+				kind: "updateColumn",
+				preserveVisibility: true,
+			}),
+		);
+
+		for (const merged of [
+			apply(hiddenDoc, showBatch, formatBatch),
+			apply(hiddenDoc, formatBatch, showBatch),
+		]) {
+			const column = merged.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			);
+			expect(column?.header).toBe("Patient name");
+			expect(column?.visibleInList).toBeUndefined();
+		}
+	});
+
+	it("unmarked updateColumn events retain legacy visibility semantics", () => {
+		const { doc, moduleUuid, colA } = moduleWithTwoColumns();
+		const current = doc.modules[moduleUuid].caseListConfig?.columns.find(
+			(candidate) => candidate.uuid === colA,
+		);
+		if (!current) throw new Error("fixture column missing");
+
+		const hidden = apply(doc, [
+			{
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: colA,
+				column: { ...current, visibleInList: false },
+			},
+		]);
+		expect(
+			hidden.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			)?.visibleInList,
+		).toBe(false);
+
+		const { visibleInList: _visibility, ...shownColumn } = current;
+		const shown = apply(hidden, [
+			{
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: colA,
+				column: shownColumn,
+			},
+		]);
+		expect(
+			shown.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			)?.visibleInList,
+		).toBeUndefined();
+	});
+
+	it("new visibility patches remain effective on a pre-deploy receiver", () => {
+		const { doc, moduleUuid, colA } = moduleWithTwoColumns();
+		const hiddenDoc = produce(doc, (draft) => {
+			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			);
+			if (column) column.visibleInList = false;
+		});
+		const hideBatch = diffDocsToMutations(doc, hiddenDoc);
+		expect(
+			hideBatch.every((mutation) => mutation.kind === "updateColumn"),
+		).toBe(true);
+		const legacyHidden = applyWithLegacyColumnReducer(doc, hideBatch);
+		expect(
+			legacyHidden.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			)?.visibleInList,
+		).toBe(false);
+
+		const shownDoc = produce(hiddenDoc, (draft) => {
+			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			);
+			if (column) delete column.visibleInList;
+		});
+		const showBatch = diffDocsToMutations(hiddenDoc, shownDoc);
+		expect(
+			showBatch.every((mutation) => mutation.kind === "updateColumn"),
+		).toBe(true);
+		const legacyShown = applyWithLegacyColumnReducer(legacyHidden, showBatch);
+		expect(
+			legacyShown.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			)?.visibleInList,
+		).toBeUndefined();
 	});
 
 	it("Results and Details reorders commute and survive a stale content edit", () => {

@@ -20,11 +20,18 @@ function PopoverContent({
 	alignOffset = 0,
 	side = "bottom",
 	sideOffset = 4,
+	collisionAvoidance,
+	collisionPadding,
 	...props
 }: PopoverPrimitive.Popup.Props &
 	Pick<
 		PopoverPrimitive.Positioner.Props,
-		"align" | "alignOffset" | "side" | "sideOffset"
+		| "align"
+		| "alignOffset"
+		| "side"
+		| "sideOffset"
+		| "collisionAvoidance"
+		| "collisionPadding"
 	>) {
 	return (
 		// Portals to document.body (Base UI default) and positions at `z-modal`,
@@ -44,6 +51,8 @@ function PopoverContent({
 				alignOffset={alignOffset}
 				side={side}
 				sideOffset={sideOffset}
+				collisionAvoidance={collisionAvoidance}
+				collisionPadding={collisionPadding}
 				className={cn("isolate", POPOVER_POSITIONER_GLASS_CLS, "z-modal")}
 			>
 				<PopoverPrimitive.Popup

@@ -1,11 +1,12 @@
 // components/builder/case-list-config/canvas/SearchCanvas.tsx
 //
-// The search tab's canvas: the search screen, rendered the way the
-// running app shows it. Config state lives in the artifact where it
-// manifests — a date-range field renders as two From/To boxes, a
-// choice list carries its chevron, a default shows pre-filled in the
-// field — and in the inspector where it doesn't (the match setting is
-// invisible on the screen, so it stays off the canvas).
+// Search owns the complete case-finding story: which cases are available at
+// all, then the fields people can use to narrow that set. The running search
+// screen stays recognizable without pretending edit-mode fields are live.
+// Config state lives in the artifact where it manifests — a date-range field
+// renders as two From/To boxes, a choice list carries its chevron, a default
+// shows pre-filled in the field — and in the inspector where it doesn't (the
+// match setting is invisible on the screen, so it stays off the canvas).
 //
 // Clicking a thing configures that thing: field rows select their
 // field, while Screen settings opens the screen-copy inspector. The
@@ -18,6 +19,7 @@ import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerBarcode from "@iconify-icons/tabler/barcode";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import tablerFilter from "@iconify-icons/tabler/filter";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerSearch from "@iconify-icons/tabler/search";
 import { useId, useMemo, useState } from "react";
@@ -34,9 +36,10 @@ import {
 	DEFAULT_CASE_SEARCH_TITLE,
 	type SearchInputDef,
 } from "@/lib/domain";
-import type { ValueExpression } from "@/lib/domain/predicate";
+import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { useCanEdit } from "@/lib/session/hooks";
+import { humanizeName, summarizeFilter } from "../predicateSummary";
 import {
 	resolveRows,
 	rowHasStructuralError,
@@ -50,6 +53,8 @@ export interface SearchCanvasProps {
 	readonly searchConfig: CaseSearchConfig | undefined;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
+	readonly filter: Predicate | undefined;
+	readonly filterBroken: boolean;
 	readonly selection: WorkspaceSelection | null;
 	readonly onSelect: (next: WorkspaceSelection) => void;
 	readonly onAddInput: () => void;
@@ -67,6 +72,8 @@ export function SearchCanvas({
 	searchConfig,
 	caseTypes,
 	currentCaseType,
+	filter,
+	filterBroken,
 	selection,
 	onSelect,
 	onAddInput,
@@ -79,8 +86,11 @@ export function SearchCanvas({
 	const containerKey = useId();
 	const [moveAnnouncement, setMoveAnnouncement] = useState("");
 	const panelSelected = selection?.type === "search-panel";
+	const filterSelected = selection?.type === "filter";
 	const selectedInputUuid = selection?.type === "input" ? selection.uuid : null;
 	const searchEnabled = hasSearchSurface ?? searchInputs.length > 0;
+	const filterPhrase = summarizeFilter(filter);
+	const caseTypeLabel = humanizeName(currentCaseType);
 
 	// DISPLAY order (`sort-by-(order, uuid)`), not array position — the render,
 	// the `resolved` parallel array, and the reorder drag's indices all key off
@@ -147,135 +157,219 @@ export function SearchCanvas({
 						Search
 					</h1>
 					<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
-						Choose how people narrow the case list.
+						Choose which cases people can find and how they narrow them.
 					</p>
 				</div>
 			</header>
 
-			<div
-				className={`rounded-2xl p-4 transition-colors border bg-nova-surface/25 ${
-					panelSelected ? "border-nova-violet" : "border-white/[0.08]"
-				}`}
-			>
-				<div className="flex min-h-16 flex-wrap items-center gap-3 px-1 pb-2">
-					<div className="flex min-w-0 flex-1 items-center gap-3">
-						<span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.035] text-nova-text-secondary">
-							<Icon icon={tablerSearch} width="17" height="17" />
+			<div className="space-y-10">
+				<section aria-labelledby="search-fields-heading">
+					<div className="mb-4">
+						<h2
+							id="search-fields-heading"
+							className="font-display text-[17px] font-semibold text-nova-text"
+						>
+							Ways to narrow
+						</h2>
+						<p className="mt-1 text-[12px] leading-relaxed text-nova-text-muted">
+							{searchEnabled
+								? "People can use any combination of these fields."
+								: "Add a field when people should narrow the available cases before Results."}
+						</p>
+					</div>
+
+					<div
+						className={`rounded-2xl p-4 transition-colors border bg-nova-surface/25 ${
+							panelSelected ? "border-nova-violet" : "border-white/[0.08]"
+						}`}
+					>
+						<div className="flex min-h-16 flex-wrap items-center gap-3 px-1 pb-2">
+							<div className="flex min-w-0 flex-1 items-center gap-3">
+								<span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.035] text-nova-text-secondary">
+									<Icon icon={tablerSearch} width="17" height="17" />
+								</span>
+								<div className="min-w-0 flex-1">
+									<h3 className="font-display text-[16px] font-semibold text-nova-text">
+										{title}
+									</h3>
+									{searchEnabled && subtitle !== undefined && (
+										<div className="mt-1 preview-markdown text-[12px] text-nova-text-muted">
+											<PreviewMarkdown>{subtitle}</PreviewMarkdown>
+										</div>
+									)}
+								</div>
+							</div>
+							{canEdit && searchEnabled ? (
+								<button
+									type="button"
+									onClick={() => onSelect({ type: "search-panel" })}
+									aria-expanded={panelSelected}
+									className="min-h-11 w-full shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+								>
+									Screen settings
+								</button>
+							) : canEdit &&
+								searchConfig !== undefined &&
+								hasAutomaticResultsFilter ? (
+								<button
+									type="button"
+									onClick={() => onSelect({ type: "search-panel" })}
+									aria-expanded={panelSelected}
+									className="min-h-11 w-full shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+								>
+									Search rules
+								</button>
+							) : null}
+						</div>
+
+						<p
+							role="status"
+							aria-live="polite"
+							aria-atomic="true"
+							className="sr-only"
+						>
+							{moveAnnouncement}
+						</p>
+
+						<div className="mt-2 space-y-1">
+							{orderedInputs.length === 0 && (
+								<p className="px-2 py-5 text-center text-[12px] text-nova-text-muted">
+									{hasAutomaticResultsFilter
+										? "People go straight to the available results. Add a field if they should narrow them first."
+										: "Add a search field when people need to narrow the list before choosing."}
+								</p>
+							)}
+							{orderedInputs.map((input, i) => {
+								const hasError =
+									resolved[i] !== undefined &&
+									rowHasStructuralError(resolved[i]);
+								return (
+									<ReorderableRow
+										key={input.uuid}
+										index={i}
+										itemKey={input.uuid}
+										containerKey={containerKey}
+										containerKind="search-canvas-inputs"
+										pendingDrop={pendingDrop}
+										preview={<InputDragPreview input={input} />}
+									>
+										{({
+											wrapperRef,
+											setHandleEl,
+											closestEdge,
+											previewPortal,
+											beingMoved,
+										}) => (
+											<div
+												ref={wrapperRef}
+												className={`relative ${beingMoved ? "opacity-50" : ""}`}
+											>
+												{closestEdge !== null && (
+													<div
+														aria-hidden="true"
+														className="absolute left-0 right-0 h-0.5 bg-nova-violet rounded-full z-10"
+														style={{
+															top: closestEdge === "top" ? -2 : undefined,
+															bottom: closestEdge === "bottom" ? -2 : undefined,
+														}}
+													/>
+												)}
+												<InputRow
+													input={input}
+													selected={selectedInputUuid === input.uuid}
+													hasError={hasError}
+													canEdit={canEdit}
+													position={i + 1}
+													total={orderedInputs.length}
+													setHandleEl={setHandleEl}
+													onMove={(key) => moveByKeyboard(i, key)}
+													onClick={() =>
+														onSelect({ type: "input", uuid: input.uuid })
+													}
+												/>
+												{previewPortal}
+											</div>
+										)}
+									</ReorderableRow>
+								);
+							})}
+						</div>
+
+						{canEdit && (
+							<AddGhostButton
+								label="Add search field"
+								onClick={onAddInput}
+								disabledReason={addInputDisabledReason}
+								className="w-full my-3"
+							/>
+						)}
+					</div>
+				</section>
+
+				<section aria-labelledby="available-cases-heading">
+					<div className="mb-4">
+						<h2
+							id="available-cases-heading"
+							className="font-display text-[17px] font-semibold text-nova-text"
+						>
+							Cases available
+						</h2>
+						<p className="mt-1 text-[12px] leading-relaxed text-nova-text-muted">
+							This rule always applies, before anyone searches.
+						</p>
+					</div>
+
+					<div
+						className={`flex min-h-[76px] flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 transition-colors ${
+							filterSelected
+								? "border-nova-violet bg-nova-violet/[0.08]"
+								: filterBroken
+									? "border-nova-rose/35 bg-nova-rose/[0.035]"
+									: "border-white/[0.08] bg-nova-surface/25 hover:border-nova-border-bright hover:bg-white/[0.018]"
+						}`}
+					>
+						<span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/[0.04] text-nova-text-secondary">
+							<Icon icon={tablerFilter} width="17" height="17" />
 						</span>
 						<div className="min-w-0 flex-1">
-							<h2 className="font-display text-[16px] font-semibold text-nova-text">
-								{title}
-							</h2>
-							{searchEnabled && subtitle !== undefined && (
-								<div className="mt-1 preview-markdown text-[12px] text-nova-text-muted">
-									<PreviewMarkdown>{subtitle}</PreviewMarkdown>
-								</div>
-							)}
-						</div>
-					</div>
-					{canEdit && searchEnabled ? (
-						<button
-							type="button"
-							onClick={() => onSelect({ type: "search-panel" })}
-							aria-expanded={panelSelected}
-							className="min-h-11 w-full shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
-						>
-							Screen settings
-						</button>
-					) : canEdit &&
-						searchConfig !== undefined &&
-						hasAutomaticResultsFilter ? (
-						<button
-							type="button"
-							onClick={() => onSelect({ type: "search-panel" })}
-							aria-expanded={panelSelected}
-							className="min-h-11 w-full shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
-						>
-							Search rules
-						</button>
-					) : null}
-				</div>
-
-				<p
-					role="status"
-					aria-live="polite"
-					aria-atomic="true"
-					className="sr-only"
-				>
-					{moveAnnouncement}
-				</p>
-
-				<div className="mt-2 space-y-1">
-					{orderedInputs.length === 0 && (
-						<p className="px-2 py-5 text-center text-[12px] text-nova-text-muted">
-							{hasAutomaticResultsFilter
-								? "The Cases included rule narrows what they see. Add a search field if people should narrow it further."
-								: "Add a search field when people need to narrow the list before choosing."}
-						</p>
-					)}
-					{orderedInputs.map((input, i) => {
-						const hasError =
-							resolved[i] !== undefined && rowHasStructuralError(resolved[i]);
-						return (
-							<ReorderableRow
-								key={input.uuid}
-								index={i}
-								itemKey={input.uuid}
-								containerKey={containerKey}
-								containerKind="search-canvas-inputs"
-								pendingDrop={pendingDrop}
-								preview={<InputDragPreview input={input} />}
-							>
-								{({
-									wrapperRef,
-									setHandleEl,
-									closestEdge,
-									previewPortal,
-									beingMoved,
-								}) => (
-									<div
-										ref={wrapperRef}
-										className={`relative ${beingMoved ? "opacity-50" : ""}`}
-									>
-										{closestEdge !== null && (
-											<div
-												aria-hidden="true"
-												className="absolute left-0 right-0 h-0.5 bg-nova-violet rounded-full z-10"
-												style={{
-													top: closestEdge === "top" ? -2 : undefined,
-													bottom: closestEdge === "bottom" ? -2 : undefined,
-												}}
-											/>
-										)}
-										<InputRow
-											input={input}
-											selected={selectedInputUuid === input.uuid}
-											hasError={hasError}
-											canEdit={canEdit}
-											position={i + 1}
-											total={orderedInputs.length}
-											setHandleEl={setHandleEl}
-											onMove={(key) => moveByKeyboard(i, key)}
-											onClick={() =>
-												onSelect({ type: "input", uuid: input.uuid })
-											}
-										/>
-										{previewPortal}
-									</div>
+							<div className="flex flex-wrap items-center gap-2">
+								<h3 className="text-[13px] font-semibold text-nova-text">
+									{filterPhrase === undefined
+										? `All ${caseTypeLabel} cases`
+										: "Only matching cases"}
+								</h3>
+								{filterBroken && (
+									<span className="inline-flex items-center gap-1 text-[11px] font-medium text-nova-rose">
+										<Icon icon={tablerAlertCircle} width="14" height="14" />
+										Needs attention
+									</span>
 								)}
-							</ReorderableRow>
-						);
-					})}
-				</div>
-
-				{canEdit && (
-					<AddGhostButton
-						label="Add search field"
-						onClick={onAddInput}
-						disabledReason={addInputDisabledReason}
-						className="w-full my-3"
-					/>
-				)}
+							</div>
+							<p className="mt-0.5 text-[12px] leading-relaxed text-nova-text-muted first-letter:uppercase">
+								{filterBroken
+									? "This rule needs a quick fix."
+									: filterPhrase === undefined
+										? `People can find any ${caseTypeLabel} case.`
+										: `Cases where ${filterPhrase}.`}
+							</p>
+						</div>
+						{canEdit && (
+							<button
+								type="button"
+								onClick={() => onSelect({ type: "filter" })}
+								aria-label={
+									filterBroken
+										? "Fix available cases"
+										: "Change available cases"
+								}
+								aria-pressed={filterSelected}
+								className="min-h-11 w-full shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+							>
+								{filterBroken ? "Fix" : "Change"}
+							</button>
+						)}
+					</div>
+				</section>
 			</div>
 		</ContentFrame>
 	);

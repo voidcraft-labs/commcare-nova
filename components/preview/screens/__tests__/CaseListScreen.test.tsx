@@ -373,7 +373,10 @@ describe("CaseListScreen — heading", () => {
 
 describe("CaseListScreen — empty case type", () => {
 	it("shows worker-facing registration guidance without builder data controls", async () => {
-		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "empty",
+			constraintSource: "unconstrained",
+		});
 		renderCaseListScreen({
 			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
 		});
@@ -387,6 +390,53 @@ describe("CaseListScreen — empty case type", () => {
 		expect(
 			screen.queryByRole("button", { name: /generate sample data/i }),
 		).toBeNull();
+	});
+
+	it("stays neutral when an older action cannot report whether the query was narrowed", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			filter: eq(prop("patient", "name"), literal("Nobody")),
+		});
+
+		expect(
+			await screen.findByText("No cases are available right now."),
+		).toBeDefined();
+		expect(screen.getByText("Try again in a moment.")).toBeDefined();
+		expect(screen.queryByText("No cases yet")).toBeNull();
+		expect(
+			screen.queryByText(
+				"No cases are available with the app's current rules.",
+			),
+		).toBeNull();
+	});
+
+	it("treats an empty baseline-filter result as constrained, not an empty case type", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "empty",
+			constraintSource: "authored-rules",
+		});
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			filter: eq(prop("patient", "name"), literal("Nobody")),
+		});
+
+		expect(
+			await screen.findByText(
+				"No cases are available with the app's current rules.",
+			),
+		).toBeDefined();
+		expect(
+			screen.getByText(
+				"Case availability may change when the app's data or rules change.",
+			),
+		).toBeDefined();
+		expect(
+			screen.queryByText(
+				"Check the spelling, clear a field, or try a broader search.",
+			),
+		).toBeNull();
+		expect(screen.queryByText("No cases yet")).toBeNull();
 	});
 });
 
@@ -687,13 +737,26 @@ function filterByNameInputValue(
 	// so the Server Action call stays plain JSON rather than multipart.
 	const typed = args.inputValues?.name;
 	if (typed === undefined || typed === "") {
-		return Promise.resolve({ kind: "rows", rows: [ALICE_ROW, BOB_ROW] });
+		return Promise.resolve({
+			kind: "rows",
+			rows: [ALICE_ROW, BOB_ROW],
+			constraintSource: "unconstrained",
+		});
 	}
 	const matched = [ALICE_ROW, BOB_ROW].filter(
 		(row) => (row.properties as Record<string, unknown>).name === typed,
 	);
-	if (matched.length === 0) return Promise.resolve({ kind: "empty" });
-	return Promise.resolve({ kind: "rows", rows: matched });
+	if (matched.length === 0) {
+		return Promise.resolve({
+			kind: "empty",
+			constraintSource: "worker-search",
+		});
+	}
+	return Promise.resolve({
+		kind: "rows",
+		rows: matched,
+		constraintSource: "worker-search",
+	});
 }
 
 describe("CaseListScreen — search-input form", () => {
@@ -843,6 +906,123 @@ describe("CaseListScreen — search-input form", () => {
 				}),
 			);
 		});
+	});
+
+	it("treats an all-blank search with active owner exclusions as constrained", async () => {
+		const excludedOwnerIds = term(sessionContext("userid"));
+		vi.mocked(loadCasesAction).mockImplementation((args) =>
+			Promise.resolve(
+				args.excludedOwnerIdsExpression === undefined
+					? {
+							kind: "rows",
+							rows: [ALICE_ROW],
+							constraintSource: "unconstrained",
+						}
+					: { kind: "empty", constraintSource: "authored-rules" },
+			),
+		);
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [searchInput],
+			excludedOwnerIds,
+		});
+
+		await screen.findByText("Alice");
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+		expect(
+			await screen.findByText(
+				"No cases are available with the app's current rules.",
+			),
+		).toBeDefined();
+		expect(
+			screen.queryByText(
+				"Check the spelling, clear a field, or try a broader search.",
+			),
+		).toBeNull();
+		expect(screen.queryByText("No cases yet")).toBeNull();
+	});
+
+	it("keeps an all-whitespace no-op search in the truly empty state", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "empty",
+			constraintSource: "unconstrained",
+		});
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [searchInput],
+		});
+
+		await screen.findByText("No cases yet");
+		fireEvent.change(screen.getByLabelText("Name"), {
+			target: { value: "   " },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+		expect(await screen.findByText("No cases yet")).toBeDefined();
+		expect(screen.queryByText("No cases match this search.")).toBeNull();
+	});
+
+	it("keeps an empty evaluated owner exclusion in the truly empty state", async () => {
+		const excludedOwnerIds = term(literal(""));
+		vi.mocked(loadCasesAction).mockImplementation((args) =>
+			Promise.resolve(
+				args.excludedOwnerIdsExpression === undefined
+					? {
+							kind: "rows",
+							rows: [ALICE_ROW],
+							constraintSource: "unconstrained",
+						}
+					: { kind: "empty", constraintSource: "unconstrained" },
+			),
+		);
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [searchInput],
+			excludedOwnerIds,
+		});
+
+		await screen.findByText("Alice");
+		fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+		expect(await screen.findByText("No cases yet")).toBeDefined();
+		expect(
+			screen.queryByText(
+				"No cases are available with the app's current rules.",
+			),
+		).toBeNull();
+	});
+
+	it("keeps the list-filter empty copy ahead of authored-rule guidance", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "rows",
+			rows: [ALICE_ROW],
+		});
+		renderCaseListScreen({
+			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
+			searchInputs: [searchInput],
+			filter: eq(prop("patient", "name"), literal("Alice")),
+		});
+
+		await screen.findByText("Alice");
+		fireEvent.change(screen.getByLabelText("Filter the list"), {
+			target: { value: "Nobody" },
+		});
+
+		expect(
+			screen.getByText(
+				"Nothing here matches the filter — clear it to see every result.",
+			),
+		).toBeDefined();
+		expect(
+			screen.queryByText(
+				"No cases are available with the app's current rules.",
+			),
+		).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Clear the filter" }),
+		).toBeDefined();
+		expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
 	});
 
 	it("applies ownership exclusions immediately for genuine filter-only search", async () => {

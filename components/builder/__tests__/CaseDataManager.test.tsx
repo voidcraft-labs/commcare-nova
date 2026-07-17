@@ -58,22 +58,24 @@ function renderManager(canEdit = true, hasLinkedChildren = false) {
 }
 
 describe("CaseDataManager", () => {
-	it("shows the explicit unfiltered count and creates samples only when empty", async () => {
+	it("shows the complete count and creates samples only when empty", async () => {
 		mocks.populate.mockResolvedValue({ kind: "ok", inserted: 30 });
 		renderManager();
 
 		const trigger = screen.getByRole("button", {
-			name: "Case data, 0 cases",
+			name: "Case data for Patient, 0 cases, shared across this app",
 		});
 		fireEvent.click(trigger);
 
+		const popover = within(screen.getByRole("dialog"));
 		expect(
-			within(screen.getByRole("dialog")).getByText("0 cases"),
+			popover.getByText(
+				(_content, element) =>
+					element?.tagName === "P" && element.textContent === "0 cases",
+			),
 		).toBeTruthy();
-		expect(screen.getByText(/This total is unfiltered/i)).toBeTruthy();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Create sample cases" }),
-		);
+		expect(screen.getByText(/No cases yet/i)).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Add sample cases" }));
 
 		await waitFor(() => expect(mocks.populate).toHaveBeenCalledTimes(1));
 		expect(mocks.reset).not.toHaveBeenCalled();
@@ -89,32 +91,68 @@ describe("CaseDataManager", () => {
 		mocks.reset.mockResolvedValue({ kind: "ok", inserted: 30 });
 		renderManager();
 
-		fireEvent.click(screen.getByRole("button", { name: "Case data, 7 cases" }));
 		fireEvent.click(
-			screen.getByRole("button", { name: "Replace all 7 cases…" }),
+			screen.getByRole("button", {
+				name: "Case data for Patient, 7 cases, shared across this app",
+			}),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Replace all 7 Patient cases…" }),
 		);
 
 		expect(mocks.reset).not.toHaveBeenCalled();
 		expect(
-			screen.getByRole("heading", { name: "Replace all 7 cases?" }),
+			screen.getByRole("heading", { name: "Replace all 7 Patient cases?" }),
 		).toBeTruthy();
 		expect(
 			screen.getByText(/including cases entered by hand or through Preview/i),
 		).toBeTruthy();
 		expect(screen.getByText(/This cannot be undone/i)).toBeTruthy();
 
-		fireEvent.click(screen.getByRole("button", { name: "Replace 7 cases" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Replace 7 Patient cases" }),
+		);
 		await waitFor(() => expect(mocks.reset).toHaveBeenCalledTimes(1));
 		expect(mocks.populate).not.toHaveBeenCalled();
+	});
+
+	it("names the app-wide case scope shared by every module", () => {
+		mocks.countState = { kind: "count", count: 7 };
+		renderManager();
+
+		const trigger = screen.getByRole("button", {
+			name: "Case data for Patient, 7 cases, shared across this app",
+		});
+		expect(trigger.textContent).toContain("Case data");
+		fireEvent.click(trigger);
+
+		expect(
+			screen.getByText(
+				"All Patient cases in this app. Every module that works with Patient cases shares this data in Preview.",
+			),
+		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Replace all 7 Patient cases…" }),
+		);
+
+		expect(
+			screen.getByText(
+				/Every module that works with Patient cases will see the replacement\./,
+			),
+		).toBeTruthy();
 	});
 
 	it("discloses that replacing parents clears links on surviving child cases", () => {
 		mocks.countState = { kind: "count", count: 7 };
 		renderManager(true, true);
 
-		fireEvent.click(screen.getByRole("button", { name: "Case data, 7 cases" }));
 		fireEvent.click(
-			screen.getByRole("button", { name: "Replace all 7 cases…" }),
+			screen.getByRole("button", {
+				name: "Case data for Patient, 7 cases, shared across this app",
+			}),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Replace all 7 Patient cases…" }),
 		);
 
 		expect(
@@ -129,14 +167,14 @@ describe("CaseDataManager", () => {
 		renderManager(false);
 
 		const trigger = screen.getByRole("button", {
-			name: "Case data, 12 cases",
+			name: "Case data for Patient, 12 cases, shared across this app",
 		});
 		fireEvent.click(trigger);
 		expect(
 			await screen.findByText("Only editors can create or replace case data."),
 		).toBeTruthy();
 		expect(
-			screen.queryByRole("button", { name: /Create sample cases/i }),
+			screen.queryByRole("button", { name: /Add sample cases/i }),
 		).toBeNull();
 		expect(screen.queryByRole("button", { name: /Replace all/i })).toBeNull();
 

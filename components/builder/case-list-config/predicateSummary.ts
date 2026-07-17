@@ -1,10 +1,9 @@
 // components/builder/case-list-config/predicateSummary.ts
 //
 // Human-language one-liner for a filter `Predicate` — "Status isn't
-// closed and Age is more than 5", never `status ≠ closed`. The case
-// list canvas stamps this on its filter affordance so config state
-// reads as a sentence on the artifact; the full structural editor
-// stays in the inspector.
+// closed and Age is more than 5", never `status ≠ closed`. Search stamps
+// this on its Cases available summary so the always-on rule reads as a
+// sentence; the full structural editor stays in the inspector.
 //
 // Best-effort by design: the AST is richer than any one-line sentence
 // (nested groups, relational quantifiers, calculated operands), so
@@ -20,10 +19,10 @@ import { propertyFallbackSentenceLabel } from "../shared/primitives/propertyDisp
 const MAX_CLAUSES = 2;
 
 /**
- * Summarize a filter predicate for the canvas affordance. Returns
+ * Summarize an always-on predicate for the Search summary. Returns
  * `undefined` for predicates that don't narrow anything (`match-all`,
  * the conjunction identity) so the caller can render its "Filter"
- * resting label instead of a vacuous sentence.
+ * all-cases state instead of a vacuous sentence.
  */
 export function summarizeFilter(
 	predicate: Predicate | undefined,

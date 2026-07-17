@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc, type Field } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	calculatedColumn,
+	type Field,
+} from "@/lib/domain";
+import { literal, term } from "@/lib/domain/predicate";
 import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
 import type { ValidationScope } from "../index";
 import { scopeOfMutations } from "../scopeOfMutations";
@@ -392,6 +398,33 @@ describe("scopeOfMutations", () => {
 		for (const mutation of fullKinds) {
 			expect(scopeOfMutations(doc, [mutation]), mutation.kind).toBe("full");
 		}
+	});
+
+	it("a calculated-column visibility patch keeps full validation scope", () => {
+		const doc = twoTypeDoc();
+		const moduleUuid = doc.moduleOrder[0];
+		const existing = doc.modules[moduleUuid].caseListConfig?.columns[0];
+		if (!existing) throw new Error("fixture column missing");
+		const calculated = calculatedColumn(
+			existing.uuid,
+			"Computed",
+			term(literal("value")),
+			{ visibleInList: false },
+		);
+		doc.modules[moduleUuid].caseListConfig?.columns.splice(0, 1, calculated);
+		const { visibleInList: _hidden, ...shown } = calculated;
+
+		expect(
+			scopeOfMutations(doc, [
+				{
+					kind: "updateColumn",
+					moduleUuid,
+					uuid: calculated.uuid,
+					column: shown,
+					visibilityPatch: { surface: "list", visible: true },
+				},
+			]),
+		).toBe("full");
 	});
 
 	it("setAppName / setAppLogo are app-rules-only (empty) scopes, not full", () => {

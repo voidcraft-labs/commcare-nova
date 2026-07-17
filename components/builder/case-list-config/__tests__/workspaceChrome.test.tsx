@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	asUuid,
+	type CaseProperty,
 	type CaseType,
 	type Column,
 	simpleSearchInputDef,
@@ -36,6 +37,16 @@ function column(uuidSuffix: string, field: string, header: string): Column {
 
 const NAME = column("1", "case_name", "Patient name");
 const DOB = column("2", "date_of_birth", "Date of birth");
+const DOB_PROPERTY: CaseProperty = {
+	name: "date_of_birth",
+	label: "Date of birth",
+	data_type: "date",
+};
+const AGE_PROPERTY: CaseProperty = {
+	name: "age",
+	label: "Age",
+	data_type: "int",
+};
 
 describe("case workspace chrome", () => {
 	beforeEach(() => {
@@ -90,10 +101,12 @@ describe("case workspace chrome", () => {
 		render(
 			<DetailCanvas
 				config={{ columns: [NAME], searchInputs: [] }}
+				caseType={undefined}
 				brokenColumns={new Set()}
 				selection={null}
 				onSelect={() => {}}
 				onAddDetailField={() => {}}
+				onAddCalculated={() => {}}
 				addDisabledReason={undefined}
 				onMoveColumn={() => {}}
 				onShowColumn={() => {}}
@@ -109,7 +122,7 @@ describe("case workspace chrome", () => {
 		expect(screen.queryByText(/example case|example value/i)).toBeNull();
 	});
 
-	it("names the two Results behavior actions by what they change", () => {
+	it("keeps Results focused on presentation and default order", () => {
 		const sortedName = {
 			...NAME,
 			sort: { direction: "asc" as const, priority: 0 },
@@ -119,10 +132,10 @@ describe("case workspace chrome", () => {
 				config={{ columns: [sortedName], searchInputs: [] }}
 				caseType={undefined}
 				brokenColumns={new Set()}
-				filterBroken={false}
 				selection={null}
 				onSelect={() => {}}
 				onAddColumn={() => {}}
+				onAddCalculated={() => {}}
 				addColumnDisabledReason={undefined}
 				onMoveColumn={() => {}}
 				onColumnsChange={() => {}}
@@ -133,60 +146,128 @@ describe("case workspace chrome", () => {
 		);
 
 		expect(
-			screen.getByRole("button", { name: "Change cases included" }),
-		).toBeDefined();
-		expect(
 			screen.getByRole("button", { name: "Change default order" }),
 		).toBeDefined();
-		expect(screen.getAllByText("Change")).toHaveLength(2);
+		expect(screen.getByText("Which cases appear first")).toBeDefined();
+		expect(screen.queryByText("Cases available")).toBeNull();
 	});
 
-	it("offers removed information only after the author asks to add", () => {
-		const hidden = column("3", "date_of_birth", "");
-		const onShow = vi.fn();
+	it("always asks which information to add instead of choosing a property", () => {
+		const onCreate = vi.fn();
 		render(
 			<AddInformationControl
-				surface="list"
-				columns={[hidden]}
+				surface="detail"
+				columns={[]}
+				properties={[DOB_PROPERTY]}
+				repeatableProperties={[]}
 				brokenColumns={new Set()}
-				onShow={onShow}
+				onShow={() => {}}
 				onRepair={() => {}}
-				onCreate={() => {}}
+				onCreate={onCreate}
+				onCreateCalculated={() => {}}
 				createDisabledReason={undefined}
 			/>,
 		);
 
-		expect(screen.queryByText("Date of birth")).toBeNull();
+		expect(onCreate).not.toHaveBeenCalled();
 		const addInformation = screen.getByRole("button", {
 			name: "Add information",
 		});
-		expect(addInformation.getAttribute("data-case-add")).toBe("list");
+		expect(addInformation.getAttribute("data-case-add")).toBe("detail");
 		fireEvent.click(addInformation);
-		fireEvent.click(screen.getByRole("menuitem", { name: "Date of birth" }));
-		expect(onShow).toHaveBeenCalledWith(hidden);
+		expect(onCreate).not.toHaveBeenCalled();
+		fireEvent.click(
+			screen.getByRole("button", { name: /date of birth.*date/i }),
+		);
+		expect(onCreate).toHaveBeenCalledWith(DOB_PROPERTY);
 		expect(screen.queryByText("date_of_birth")).toBeNull();
 	});
 
-	it("routes saved information that needs a fix to repair instead of revealing it", () => {
-		const hidden = column("33", "date_of_birth", "Date of birth");
+	it("clears a filtered primary choice before reopening Add information", () => {
+		const onCreate = vi.fn();
+		const { rerender } = render(
+			<AddInformationControl
+				surface="detail"
+				columns={[]}
+				properties={[DOB_PROPERTY, AGE_PROPERTY]}
+				repeatableProperties={[]}
+				brokenColumns={new Set()}
+				onShow={() => {}}
+				onRepair={() => {}}
+				onCreate={onCreate}
+				onCreateCalculated={() => {}}
+				createDisabledReason={undefined}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Add information" }));
+		fireEvent.change(
+			screen.getByRole("searchbox", { name: "Search case information" }),
+			{ target: { value: "date" } },
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: /date of birth.*date/i }),
+		);
+		expect(onCreate).toHaveBeenCalledWith(DOB_PROPERTY);
+
+		rerender(
+			<AddInformationControl
+				surface="detail"
+				columns={[]}
+				properties={[AGE_PROPERTY]}
+				repeatableProperties={[DOB_PROPERTY]}
+				brokenColumns={new Set()}
+				onShow={() => {}}
+				onRepair={() => {}}
+				onCreate={onCreate}
+				onCreateCalculated={() => {}}
+				createDisabledReason={undefined}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Add information" }));
+
+		expect(
+			(
+				screen.getByRole("searchbox", {
+					name: "Search case information",
+				}) as HTMLInputElement
+			).value,
+		).toBe("");
+		expect(screen.getByRole("button", { name: /^age\b/i })).toBeDefined();
+	});
+
+	it("keeps a Details-only repair quiet on Results until Add information opens", () => {
+		const hidden = {
+			...column("33", "date_of_birth", "Date of birth"),
+			visibleInList: false,
+			visibleInDetail: true,
+		};
 		const onShow = vi.fn();
 		const onRepair = vi.fn();
 		render(
 			<AddInformationControl
 				surface="list"
 				columns={[hidden]}
+				properties={[]}
+				repeatableProperties={[]}
 				brokenColumns={new Set([hidden.uuid])}
 				onShow={onShow}
 				onRepair={onRepair}
 				onCreate={() => {}}
+				onCreateCalculated={() => {}}
 				createDisabledReason={undefined}
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Add information" }));
+		const addInformation = screen.getByRole("button", {
+			name: "Add information",
+		});
+		expect(screen.queryByText("Needs a quick fix")).toBeNull();
+
+		fireEvent.click(addInformation);
 		fireEvent.click(
-			screen.getByRole("menuitem", {
-				name: /date of birth.*fix before adding/i,
+			screen.getByRole("button", {
+				name: /date of birth.*needs a quick fix/i,
 			}),
 		);
 
@@ -194,18 +275,22 @@ describe("case workspace chrome", () => {
 		expect(onShow).not.toHaveBeenCalled();
 	});
 
-	it("keeps a large recovery inventory searchable with creation outside its scroll region", async () => {
+	it("keeps a large saved inventory searchable without giving hidden fields their own section", async () => {
 		const hiddenColumns = Array.from({ length: 24 }, (_, index) =>
 			column(String(index + 100), `field_${index + 1}`, `Field ${index + 1}`),
 		);
+		const onShow = vi.fn();
 		render(
 			<AddInformationControl
 				surface="list"
 				columns={hiddenColumns}
+				properties={[]}
+				repeatableProperties={[]}
 				brokenColumns={new Set()}
-				onShow={() => {}}
+				onShow={onShow}
 				onRepair={() => {}}
 				onCreate={() => {}}
+				onCreateCalculated={() => {}}
 				createDisabledReason={undefined}
 			/>,
 		);
@@ -214,33 +299,160 @@ describe("case workspace chrome", () => {
 			name: "Add information",
 		});
 		fireEvent.click(addInformation);
-		expect(await screen.findAllByRole("menuitem")).toHaveLength(25);
+		expect(await screen.findByText("Common information")).toBeDefined();
+		expect(screen.queryByText("Ready to add")).toBeNull();
 
 		const scrollRegion = document.querySelector(
 			"[data-add-information-scroll-region]",
 		);
-		const footer = document.querySelector("[data-add-information-footer]");
-		const createItem = screen.getByRole("menuitem", {
-			name: "Create new information",
-		});
 		expect(scrollRegion).not.toBeNull();
-		expect(footer).not.toBeNull();
-		expect(scrollRegion?.contains(createItem)).toBe(false);
-		expect(footer?.contains(createItem)).toBe(true);
+		expect(scrollRegion?.querySelectorAll("button")).toHaveLength(25);
+		expect(screen.queryByText("Create new information")).toBeNull();
 
 		fireEvent.change(
-			screen.getByRole("searchbox", { name: "Find information" }),
+			screen.getByRole("searchbox", { name: "Search case information" }),
 			{
 				target: { value: "Field 23" },
 			},
 		);
-		expect(screen.getByRole("menuitem", { name: "Field 23" })).toBeDefined();
-		expect(screen.queryByRole("menuitem", { name: "Field 2" })).toBeNull();
+		const field23 = screen.getByRole("button", {
+			name: /field 23.*keeps its current format/i,
+		});
+		expect(field23).toBeDefined();
+		expect(
+			screen.queryByRole("button", {
+				name: /^field 2 .*keeps its current format$/i,
+			}),
+		).toBeNull();
+		fireEvent.click(field23);
+		expect(onShow).toHaveBeenCalledWith(hiddenColumns[22]);
 
-		// Close the floating inventory and let Base UI restore focus before
-		// the async-resource detector tears down the test.
+		await waitFor(() =>
+			expect(screen.queryByText("Common information")).toBeNull(),
+		);
+	});
+
+	it("keeps calculated values available as a quiet secondary choice", () => {
+		const onCreateCalculated = vi.fn();
+		render(
+			<AddInformationControl
+				surface="detail"
+				columns={[]}
+				properties={[DOB_PROPERTY]}
+				repeatableProperties={[]}
+				brokenColumns={new Set()}
+				onShow={() => {}}
+				onRepair={() => {}}
+				onCreate={() => {}}
+				onCreateCalculated={onCreateCalculated}
+				createDisabledReason={undefined}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Add information" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /calculated value.*combine or transform/i,
+			}),
+		);
+		expect(onCreateCalculated).toHaveBeenCalledTimes(1);
+	});
+
+	it("offers a deliberate second-view path without duplicating represented fields in the primary list", () => {
+		const onCreate = vi.fn();
+		render(
+			<AddInformationControl
+				surface="detail"
+				columns={[]}
+				properties={[]}
+				repeatableProperties={[DOB_PROPERTY]}
+				brokenColumns={new Set()}
+				onShow={() => {}}
+				onRepair={() => {}}
+				onCreate={onCreate}
+				onCreateCalculated={() => {}}
+				createDisabledReason={undefined}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Add information" }));
+		expect(screen.queryByRole("button", { name: /date of birth/i })).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /show information another way.*second view/i,
+			}),
+		);
+		expect(
+			screen.getByRole("heading", { name: "Show information another way" }),
+		).toBeDefined();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /date of birth.*second label or format/i,
+			}),
+		);
+		expect(onCreate).toHaveBeenCalledWith(DOB_PROPERTY);
+	});
+
+	it("returns from the alternate path to the primary picker when reopened", async () => {
+		const onCreate = vi.fn();
+		render(
+			<AddInformationControl
+				surface="detail"
+				columns={[]}
+				properties={[AGE_PROPERTY]}
+				repeatableProperties={[DOB_PROPERTY]}
+				brokenColumns={new Set()}
+				onShow={() => {}}
+				onRepair={() => {}}
+				onCreate={onCreate}
+				onCreateCalculated={() => {}}
+				createDisabledReason={undefined}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Add information" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /show information another way.*second view/i,
+			}),
+		);
+		fireEvent.change(
+			screen.getByRole("searchbox", {
+				name: "Search information already shown",
+			}),
+			{ target: { value: "date" } },
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /date of birth.*second label or format/i,
+			}),
+		);
+		expect(onCreate).toHaveBeenCalledWith(DOB_PROPERTY);
+
+		const addInformation = screen.getByRole("button", {
+			name: "Add information",
+		});
 		fireEvent.click(addInformation);
-		await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
+		expect(
+			await screen.findByRole("heading", { name: "Add information" }),
+		).toBeDefined();
+		expect(
+			(
+				screen.getByRole("searchbox", {
+					name: "Search case information",
+				}) as HTMLInputElement
+			).value,
+		).toBe("");
+
+		// `findByRole` lets Base UI's initial-focus microtask settle. Close through
+		// the trigger, then observe dismissal so its focus-restore task also drains
+		// before the leak detector tears the test down.
+		fireEvent.click(addInformation);
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("heading", { name: "Add information" }),
+			).toBeNull();
+		});
 	});
 
 	it("opens Search screen settings without depicting a submit button", () => {
@@ -269,6 +481,8 @@ describe("case workspace chrome", () => {
 					} as CaseType,
 				]}
 				currentCaseType="patient"
+				filter={undefined}
+				filterBroken={false}
 				selection={null}
 				onSelect={onSelect}
 				onAddInput={() => {}}
@@ -311,6 +525,8 @@ describe("case workspace chrome", () => {
 				searchConfig={undefined}
 				caseTypes={[]}
 				currentCaseType="patient"
+				filter={undefined}
+				filterBroken={false}
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
@@ -379,6 +595,8 @@ describe("case workspace chrome", () => {
 				searchConfig={undefined}
 				caseTypes={[]}
 				currentCaseType="patient"
+				filter={undefined}
+				filterBroken={false}
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
@@ -408,6 +626,8 @@ describe("case workspace chrome", () => {
 				searchConfig={undefined}
 				caseTypes={[]}
 				currentCaseType="patient"
+				filter={undefined}
+				filterBroken={false}
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
@@ -430,6 +650,8 @@ describe("case workspace chrome", () => {
 				searchConfig={{ searchScreenTitle: "Unused title" }}
 				caseTypes={[]}
 				currentCaseType="patient"
+				filter={undefined}
+				filterBroken={false}
 				selection={null}
 				onSelect={onSelect}
 				onAddInput={() => {}}
@@ -441,7 +663,9 @@ describe("case workspace chrome", () => {
 		);
 
 		expect(screen.getByText("People go straight to results")).toBeDefined();
-		expect(screen.getByText(/cases included rule narrows/i)).toBeDefined();
+		expect(
+			screen.getByText(/go straight to the available results/i),
+		).toBeDefined();
 		expect(screen.queryByText("Unused title")).toBeNull();
 		expect(
 			screen.queryByRole("button", { name: "Screen settings" }),
@@ -472,35 +696,43 @@ describe("case workspace chrome", () => {
 		expect(screen.getByText("Ownership exclusions")).toBeDefined();
 	});
 
-	it("keeps a filter problem findable when no result fields are shown", () => {
+	it("keeps the always-on rule and search fields together on Search", () => {
 		const onSelect = vi.fn();
 		render(
-			<CaseListCanvas
-				config={{ columns: [], searchInputs: [] }}
-				caseType={undefined}
-				brokenColumns={new Set()}
+			<SearchCanvas
+				searchInputs={[]}
+				searchConfig={undefined}
+				caseTypes={[]}
+				currentCaseType="patient"
+				filter={undefined}
 				filterBroken
 				selection={null}
 				onSelect={onSelect}
-				onAddColumn={() => {}}
-				addColumnDisabledReason={undefined}
-				onMoveColumn={() => {}}
-				onColumnsChange={() => {}}
-				onShowColumn={() => {}}
-				onRepairColumn={() => {}}
-				onOpenOptions={() => {}}
+				onAddInput={() => {}}
+				addInputDisabledReason={undefined}
+				onMoveInput={() => {}}
+				hasSearchSurface={false}
 			/>,
 		);
 
 		expect(screen.getByText("Needs attention")).toBeDefined();
 		expect(screen.getByText("This rule needs a quick fix.")).toBeDefined();
 		expect(
-			screen.getByRole("button", { name: "Fix cases included" }),
+			screen.getByRole("button", { name: "Fix available cases" }),
 		).toBeDefined();
-		fireEvent.click(screen.getByRole("button", { name: "Fix cases included" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Fix available cases" }),
+		);
 		expect(onSelect).toHaveBeenCalledWith({ type: "filter" });
-		expect(screen.getByRole("heading", { name: "Results" })).toBeDefined();
-		expect(screen.queryByText(/arrange fields/i)).toBeNull();
+		expect(
+			screen.getByRole("heading", { name: "Search", level: 1 }),
+		).toBeDefined();
+		expect(
+			screen.getByRole("heading", { name: "Cases available" }),
+		).toBeDefined();
+		expect(
+			screen.getByRole("heading", { name: "Ways to narrow" }),
+		).toBeDefined();
 		expect(screen.queryByText(/example result|example value/i)).toBeNull();
 	});
 });

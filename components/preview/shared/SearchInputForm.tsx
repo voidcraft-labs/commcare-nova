@@ -397,6 +397,7 @@ function TextRow({ name, label, value, onChange }: TextRowProps) {
 				type="text"
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
+				className="min-h-11"
 				autoComplete="off"
 				data-1p-ignore
 			/>
@@ -488,7 +489,7 @@ function DatePopoverField({
 						<Button
 							variant="outline"
 							size="sm"
-							className="w-full justify-between font-normal data-placeholder:text-muted-foreground"
+							className="min-h-11 w-full justify-between font-normal data-placeholder:text-muted-foreground"
 							data-placeholder={selected === undefined ? "" : undefined}
 						/>
 					}
@@ -634,7 +635,7 @@ function SelectRow({ name, label, options, value, onChange }: SelectRowProps) {
 				value={value}
 				onValueChange={(next) => onChange(next ?? "")}
 			>
-				<SelectTrigger id={id} className="w-full">
+				<SelectTrigger id={id} className="min-h-11 w-full">
 					<SelectValue placeholder="Select…" />
 				</SelectTrigger>
 				<SelectContent>

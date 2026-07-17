@@ -4352,9 +4352,8 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					"Name",
 				),
 			],
-			// Filter on `region` — distinct from the simple-arm input
-			// target so the filter/simple-input conflict rule admits
-			// the pair.
+			// The baseline region rule AND-composes with every advanced-arm
+			// predicate before emission.
 			filter: eq(prop("patient", "region"), literal("North")),
 			searchInputs: [
 				advancedSearchInputDef(
@@ -4562,8 +4561,8 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		// `region` is a plain case property; the reserved `status`
 		// case-attribute would prefix `@` in the on-device emission
 		// and obscure the per-slot composition assertion. The advanced
-		// arm gates against a different property (`age`) so the
-		// `filterSearchInputConflict` validator rule admits the pair.
+		// arm gates against a different property (`age`) so this fixture
+		// exercises several independent query clauses.
 		const doc = buildHqProjectionDoc(
 			{
 				columns: [

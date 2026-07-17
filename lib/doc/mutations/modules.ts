@@ -27,8 +27,10 @@ import { cascadeDeleteForm } from "./helpers";
  * The collection reducers key on the item uuid so two members editing
  * different columns / inputs merge. `add` is idempotent on uuid; a column
  * `update` replaces content but PRESERVES its current generic, Results, and
- * Details order keys (so a content edit never clobbers a concurrent reorder);
- * each move writes only its named order key and leaves membership untouched.
+ * Details order keys. New content emitters opt into preserving both visibility
+ * slots too (so a stale edit cannot clobber a concurrent hide/show); legacy
+ * events retain their historical full-body behavior. Each move or visibility
+ * edit writes only its named surface slot and leaves membership untouched.
  */
 export function applyModuleMutation(
 	draft: Draft<BlueprintDoc>,
@@ -160,15 +162,31 @@ export function applyModuleMutation(
 			if (!config) return;
 			const idx = config.columns.findIndex((c) => c.uuid === mut.uuid);
 			if (idx === -1) return;
-			// Preserve all CURRENT order keys so a content edit never clobbers a
-			// concurrent generic, Results, or Details reorder on the same item.
-			// Delete absent current keys too: the mutation payload may have been
-			// produced from a stale snapshot that still carried one.
 			const current = config.columns[idx];
+			if (mut.visibilityPatch) {
+				const key =
+					mut.visibilityPatch.surface === "list"
+						? "visibleInList"
+						: "visibleInDetail";
+				if (mut.visibilityPatch.visible) delete current[key];
+				else current[key] = false;
+				return;
+			}
+			// Always preserve CURRENT order keys. New emitters also mark content-only
+			// replacements to preserve CURRENT visibility; an unmarked event retains
+			// the pre-granular full-body behavior for persisted replay / old clients.
+			// Delete absent current keys too: a stale payload may still carry one.
 			const replacement = { ...mut.column, uuid: mut.uuid };
 			for (const key of ["order", "listOrder", "detailOrder"] as const) {
 				if (current[key] === undefined) delete replacement[key];
 				else replacement[key] = current[key];
+			}
+			if (mut.preserveVisibility) {
+				// Visibility true is canonicalized as absence by the dedicated mutation.
+				for (const key of ["visibleInList", "visibleInDetail"] as const) {
+					if (current[key] === undefined) delete replacement[key];
+					else replacement[key] = current[key];
+				}
 			}
 			config.columns[idx] = replacement;
 			return;

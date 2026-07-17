@@ -3,8 +3,7 @@
  * surface. Two pins:
  *
  *   1. A blueprint that violates each of the four type-check rules
- *      plus the `filter / simple-input` conflict rule surfaces every
- *      error simultaneously through `runValidation`.
+ *      surfaces every error simultaneously through `runValidation`.
  *   2. A structurally-clean blueprint exercising every covered slot
  *      (search-button display condition, excluded owner ids,
  *      simple-input default, advanced-input predicate, cross-walk
@@ -21,20 +20,17 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
-	ancestorPath,
 	eq,
 	gt,
 	literal,
 	prop,
-	relationStep,
 	toValueExpression,
 } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
 describe("case-search validator — cross-rule integration", () => {
 	it("surfaces every case-search rule's error simultaneously when each violates", () => {
-		// Single blueprint that structurally violates all five codes —
-		// four type-check rules + the filter/simple-input conflict rule:
+		// Single blueprint that structurally violates all four type-check codes:
 		//
 		//   1. searchButtonDisplayCondition: `eq` against unknown property
 		//      → CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR
@@ -45,8 +41,6 @@ describe("case-search validator — cross-rule integration", () => {
 		//      → CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR
 		//   4. searchInputs[1] (advanced).predicate: ill-typed
 		//      → CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR
-		//   5. filter + simple-arm input target same `(patient.region)`
-		//      runtime path → CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -144,9 +138,6 @@ describe("case-search validator — cross-rule integration", () => {
 				(e) => e.code === "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
 			),
 		).toBe(true);
-		expect(
-			errors.some((e) => e.code === "CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT"),
-		).toBe(true);
 	});
 
 	it("admits a fully-valid case-search-config + case-list-config without spurious firings", () => {
@@ -157,9 +148,8 @@ describe("case-search validator — cross-rule integration", () => {
 		//   - simple-arm input default resolves (text literal matches
 		//     the `text` widget's pinned expectedType)
 		//   - advanced-arm input predicate resolves
-		//   - cross-walk filter ref → distinct destination (parent's
-		//     `region`) from the simple input (patient's `region`),
-		//     so the conflict rule's via-aware dedup admits the pair
+		//   - the always-on filter and simple input intentionally narrow the
+		//     same property; their intersection is valid runtime behavior
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -168,16 +158,7 @@ describe("case-search validator — cross-rule integration", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						// Filter walks via `parent` to `household.region` — distinct
-						// runtime path from the simple input's `(patient.region)`.
-						filter: eq(
-							prop(
-								"patient",
-								"region",
-								ancestorPath(relationStep("parent", "household")),
-							),
-							literal("North"),
-						),
+						filter: eq(prop("patient", "region"), literal("North")),
 						searchInputs: [
 							// Simple input on patient's region (self-walk) with a
 							// text-typed default — `text`-widget expectedType pins
@@ -232,15 +213,10 @@ describe("case-search validator — cross-rule integration", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					parent_type: "household",
 					properties: [
 						{ name: "case_name", label: "Name", data_type: "text" },
 						{ name: "region", label: "Region", data_type: "text" },
 					],
-				},
-				{
-					name: "household",
-					properties: [{ name: "region", label: "Region", data_type: "text" }],
 				},
 			],
 		});
@@ -250,7 +226,6 @@ describe("case-search validator — cross-rule integration", () => {
 			"CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			"CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
 			"CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
-			"CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT",
 		]);
 		expect(errors.filter((e) => caseSearchCodes.has(e.code))).toEqual([]);
 	});

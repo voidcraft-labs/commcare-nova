@@ -120,7 +120,14 @@ describe("CaseOrderingComposer", () => {
 				name: /change direction for date of birth.*earliest first/i,
 			}),
 		);
-		fireEvent.click(screen.getByRole("menuitem", { name: "Latest first" }));
+		expect(
+			screen
+				.getByRole("menuitemradio", { name: "Earliest first" })
+				.getAttribute("aria-checked"),
+		).toBe("true");
+		fireEvent.click(
+			screen.getByRole("menuitemradio", { name: "Latest first" }),
+		);
 
 		expect(
 			onChange.mock.calls
@@ -400,5 +407,18 @@ describe("CaseOrderingComposer", () => {
 				name: /remove patient name from default order/i,
 			}),
 		).toBeNull();
+		expect(
+			screen.queryByRole("button", {
+				name: /change direction for patient name/i,
+			}),
+		).toBeNull();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Close default order details" }),
+		);
+		expect(screen.queryByText("Date of birth")).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "View full default order" }),
+		).toBeDefined();
 	});
 });

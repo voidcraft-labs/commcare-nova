@@ -348,8 +348,9 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 	// position is NOT authoritative. Search inputs use `sort-by-(order, uuid)`;
 	// columns additionally carry independent `listOrder` / `detailOrder` keys
 	// (each falling back to `order`). Every kind is keyed by the owning module
-	// uuid + item uuid, so concurrent edits merge. Column content updates preserve
-	// all three current order keys; each move changes only its named surface.
+	// uuid + item uuid, so concurrent edits merge. New column content updates
+	// preserve all three current order keys plus both current visibility slots;
+	// each move or visibility mutation changes only its named surface.
 	// A config's absent -> present transition is its own idempotent ensure:
 	// replaying a stale birth against a peer-populated config preserves that
 	// peer state, while still giving metadata-only / empty configs a concrete
@@ -363,12 +364,51 @@ export const mutationSchema = z.discriminatedUnion("kind", [
 		moduleUuid: uuidSchema,
 		column: columnSchema,
 	}),
-	z.object({
-		kind: z.literal("updateColumn"),
-		moduleUuid: uuidSchema,
-		uuid: uuidSchema,
-		column: columnSchema,
-	}),
+	z
+		.object({
+			kind: z.literal("updateColumn"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+			column: columnSchema,
+			// New content emitters opt into preserving the fresh slots;
+			// visibility-only emitters carry a single-surface patch. Both are
+			// optional extensions of the existing kind so pre-deploy clients keep
+			// recognizing streamed events. Absence retains legacy full-body behavior.
+			preserveVisibility: z.literal(true).optional(),
+			visibilityPatch: z
+				.object({
+					surface: z.enum(["list", "detail"]),
+					visible: z.boolean(),
+				})
+				.strict()
+				.optional(),
+		})
+		.superRefine((mutation, ctx) => {
+			if (mutation.visibilityPatch === undefined) return;
+			if (mutation.preserveVisibility) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["preserveVisibility"],
+					message:
+						"A visibility-only update cannot also be a content update that preserves visibility.",
+				});
+			}
+			const slot =
+				mutation.visibilityPatch.surface === "list"
+					? "visibleInList"
+					: "visibleInDetail";
+			if (
+				(mutation.column[slot] !== false) !==
+				mutation.visibilityPatch.visible
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["column", slot],
+					message:
+						"The fallback column visibility must agree with the visibility patch for pre-deploy receivers.",
+				});
+			}
+		}),
 	z.object({
 		kind: z.literal("removeColumn"),
 		moduleUuid: uuidSchema,

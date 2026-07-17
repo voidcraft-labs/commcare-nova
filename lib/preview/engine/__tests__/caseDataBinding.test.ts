@@ -63,17 +63,24 @@ import {
 	startsWithMode,
 } from "@/lib/domain";
 import {
+	and,
+	between,
+	dateLiteral,
 	eq,
 	gt,
+	ifExpr,
 	input,
 	isIn,
 	isNull,
 	literal,
+	matchAll,
+	matchNone,
 	not,
 	or,
 	prop,
 	sessionContext,
 	term,
+	whenInput,
 } from "@/lib/domain/predicate";
 import {
 	caseRowDisplayValue,
@@ -737,6 +744,71 @@ describe("readCases — running-app search-input composition", () => {
 		expect(result.rows[0]?.case_id).toBe(ALICE_CASE_ID);
 	});
 
+	it("binds a wrapped input in the always-on filter and neutralizes its absent gate", async () => {
+		const store = makeStore(OWNER_A);
+		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+		await seedSchema(store, blueprint, "patient");
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: ALICE_CASE_ID,
+				case_type: "patient",
+				case_name: "Alice",
+				status: "open",
+				properties: { name: "Alice", age: 30 },
+			},
+		});
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: BOB_CASE_ID,
+				case_type: "patient",
+				case_name: "Bob",
+				status: "open",
+				properties: { name: "Bob", age: 40 },
+			},
+		});
+		const caseListConfig: CaseListConfig = {
+			columns: [],
+			searchInputs: [
+				advancedSearchInputDef(
+					READCASES_ADVANCED_INPUT_UUID,
+					"name_filter",
+					"Name",
+					"text",
+					matchAll(),
+				),
+			],
+			filter: whenInput(
+				input("name_filter"),
+				eq(prop("patient", "name"), input("name_filter")),
+			),
+		};
+
+		const present = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig,
+			inputValues: new Map([["name_filter", "Alice"]]),
+		});
+		expect(present.kind).toBe("rows");
+		if (present.kind !== "rows") return;
+		expect(present.rows.map((row) => row.case_id)).toEqual([ALICE_CASE_ID]);
+		expect(present.constraintSource).toBe("worker-search");
+
+		const absent = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig,
+		});
+		expect(absent.kind).toBe("rows");
+		if (absent.kind !== "rows") return;
+		expect(absent.rows).toHaveLength(2);
+		expect(absent.constraintSource).toBe("unconstrained");
+	});
+
 	it("AND-composes multiple contributing inputs across simple-arm modes", async () => {
 		// Mixed-arm composition: a `select` exact match on `status`
 		// AND a `text` starts-with match on `name`. Each contributes
@@ -883,10 +955,10 @@ describe("readCases — running-app search-input composition", () => {
 		expect(result.rows[0]?.case_id).toBe(BOB_CASE_ID);
 	});
 
-	it("AND-composes the unified filter with the runtime contribution", async () => {
-		// Both halves contribute non-trivially. `caseListConfig.filter`
-		// narrows to `age > 30`; the simple-arm `name` input adds an
-		// equality clause. Only the row passing BOTH predicates lands.
+	it("intersects an always-on rule and a search input on the same property", async () => {
+		// Both halves deliberately target `name`. A compatible entered value
+		// keeps Bob; a disagreeing value returns zero rows. That is ordinary AND
+		// semantics, not an invalid configuration.
 		const store = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
@@ -896,7 +968,6 @@ describe("readCases — running-app search-input composition", () => {
 				case_id: ALICE_CASE_ID,
 				case_type: "patient",
 				case_name: "Alice",
-				// `age > 30` rejects Alice.
 				status: "open",
 				properties: { name: "Alice", age: 25 },
 			},
@@ -908,7 +979,6 @@ describe("readCases — running-app search-input composition", () => {
 				case_type: "patient",
 				case_name: "Bob",
 				status: "open",
-				// Bob clears `age > 30` AND matches `name = "Bob"`.
 				properties: { name: "Bob", age: 40 },
 			},
 		});
@@ -929,7 +999,7 @@ describe("readCases — running-app search-input composition", () => {
 						{ mode: exactMode() },
 					),
 				],
-				filter: gt(prop("patient", "age"), literal(30)),
+				filter: eq(prop("patient", "name"), literal("Bob")),
 			},
 			inputValues: new Map([["name", "Bob"]]),
 		});
@@ -937,6 +1007,31 @@ describe("readCases — running-app search-input composition", () => {
 		if (result.kind !== "rows") return;
 		expect(result.rows).toHaveLength(1);
 		expect(result.rows[0]?.case_id).toBe(BOB_CASE_ID);
+
+		const noMatch = await readCases(store, {
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			caseListConfig: {
+				columns: [],
+				searchInputs: [
+					simpleSearchInputDef(
+						READCASES_PRIMARY_INPUT_UUID,
+						"name",
+						"Name",
+						"text",
+						"name",
+						{ mode: exactMode() },
+					),
+				],
+				filter: eq(prop("patient", "name"), literal("Bob")),
+			},
+			inputValues: new Map([["name", "Alice"]]),
+		});
+		expect(noMatch).toEqual({
+			kind: "empty",
+			constraintSource: "worker-search",
+		});
 	});
 
 	it("AND-composes simple-arm multi-select-contains across a single property", async () => {
@@ -2727,7 +2822,10 @@ describe("loadCasesAction", () => {
 			caseType: "patient",
 			caseTypes: [PATIENT_CASE_TYPE],
 		});
-		expect(result).toEqual({ kind: "empty" });
+		expect(result).toEqual({
+			kind: "empty",
+			constraintSource: "unconstrained",
+		});
 		// The catalog is rebuilt into the `(name → CaseType)` map the SQL
 		// compiler reads — sourced from the wire arg, not a server read.
 		const queryArg = stubStore.query.mock.calls[0]?.[0];
@@ -2769,12 +2867,121 @@ describe("loadCasesAction", () => {
 			excludedOwnerIdsExpression: term(sessionContext("userid")),
 		});
 
-		expect(result).toEqual({ kind: "empty" });
+		expect(result).toEqual({
+			kind: "empty",
+			constraintSource: "authored-rules",
+		});
 		expect(stubStore.query).toHaveBeenCalledWith(
 			expect.objectContaining({
 				predicate: or(
 					isNull(prop("patient", "owner_id")),
 					not(isIn(prop("patient", "owner_id"), literal(OWNER_A))),
+				),
+			}),
+		);
+	});
+
+	it("reports an empty evaluated owner exclusion as unconstrained", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi.fn().mockResolvedValueOnce([]),
+			count: vi.fn(),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+
+		const { loadCasesAction } = await import("../caseDataBinding");
+		const result = await loadCasesAction({
+			appId: APP_ID,
+			caseType: "patient",
+			excludedOwnerIdsExpression: term(literal("")),
+		});
+
+		expect(result).toEqual({
+			kind: "empty",
+			constraintSource: "unconstrained",
+		});
+		expect(stubStore.query).toHaveBeenCalledWith(
+			expect.objectContaining({ predicate: undefined }),
+		);
+	});
+
+	it("binds a completed date range into excluded-owner expression evaluation", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: {
+				id: OWNER_A,
+				name: "Owner A",
+				email: "owner-a@example.org",
+			},
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const stubStore = {
+			query: vi.fn().mockResolvedValueOnce([]),
+			count: vi.fn(),
+			insert: vi.fn(),
+			insertWithChildren: vi.fn(),
+			update: vi.fn(),
+			close: vi.fn(),
+			traverse: vi.fn(),
+			applySchemaChange: vi.fn(),
+			dropSchema: vi.fn(),
+			generateSampleData: vi.fn(),
+			resetSampleData: vi.fn(),
+		} satisfies CaseStore;
+		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+
+		const rangeInput = simpleSearchInputDef(
+			asUuid("range-action"),
+			"visit_dates",
+			"Visit dates",
+			"date-range",
+			"date_opened",
+		);
+		const excludedOwnerIdsExpression = ifExpr(
+			not(whenInput(input("visit_dates"), matchNone())),
+			term(literal("range-owner")),
+			term(literal("")),
+		);
+		const { loadCasesAction } = await import("../caseDataBinding");
+		const result = await loadCasesAction({
+			appId: APP_ID,
+			caseType: "patient",
+			caseListConfig: { columns: [], searchInputs: [rangeInput] },
+			inputValues: {
+				"visit_dates:from": "2025-01-02",
+				"visit_dates:to": "2025-03-04",
+			},
+			excludedOwnerIdsExpression,
+		});
+
+		expect(result).toEqual({
+			kind: "empty",
+			constraintSource: "worker-search",
+		});
+		expect(stubStore.query).toHaveBeenCalledWith(
+			expect.objectContaining({
+				predicate: and(
+					between(prop("patient", "date_opened"), {
+						lower: dateLiteral("2025-01-02"),
+						upper: dateLiteral("2025-03-04"),
+					}),
+					or(
+						isNull(prop("patient", "owner_id")),
+						not(isIn(prop("patient", "owner_id"), literal("range-owner"))),
+					),
 				),
 			}),
 		);

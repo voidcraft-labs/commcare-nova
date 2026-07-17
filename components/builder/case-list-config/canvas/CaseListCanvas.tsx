@@ -10,13 +10,18 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerAdjustmentsHorizontal from "@iconify-icons/tabler/adjustments-horizontal";
-import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
-import tablerFilter from "@iconify-icons/tabler/filter";
 import { ContentFrame } from "@/components/builder/ContentFrame";
-import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
-import { useCanEdit } from "@/lib/session/hooks";
-import { humanizeName, summarizeFilter } from "../predicateSummary";
+import type {
+	CaseListConfig,
+	CaseProperty,
+	CaseType,
+	Column,
+} from "@/lib/domain";
 import { CaseOrderingComposer } from "../SortPriorityStack";
+import {
+	representedColumnProperties,
+	unrepresentedColumnProperties,
+} from "../seeds";
 import { projectCaseWorkspaceColumns } from "../workspaceProjection";
 import type { WorkspaceSelection } from "../workspaceSelection";
 import { CanvasNotice } from "./canvasChrome";
@@ -30,10 +35,10 @@ export interface CaseListCanvasProps {
 	readonly caseType: CaseType | undefined;
 	readonly caseTypes?: readonly CaseType[];
 	readonly brokenColumns: ReadonlySet<string>;
-	readonly filterBroken: boolean;
 	readonly selection: WorkspaceSelection | null;
 	readonly onSelect: (next: WorkspaceSelection) => void;
-	readonly onAddColumn: () => void;
+	readonly onAddColumn: (property: CaseProperty) => void;
+	readonly onAddCalculated: () => void;
 	readonly addColumnDisabledReason: string | undefined;
 	readonly onMoveColumn: (uuid: Column["uuid"], toIndex: number) => void;
 	readonly onColumnsChange: (next: readonly Column[]) => void;
@@ -48,10 +53,10 @@ export function CaseListCanvas({
 	caseType,
 	caseTypes,
 	brokenColumns,
-	filterBroken,
 	selection,
 	onSelect,
 	onAddColumn,
+	onAddCalculated,
 	addColumnDisabledReason,
 	onMoveColumn,
 	onColumnsChange,
@@ -60,15 +65,11 @@ export function CaseListCanvas({
 	onOpenOptions,
 	showMenuAppearance = false,
 }: CaseListCanvasProps) {
-	const canEdit = useCanEdit();
 	const projection = projectCaseWorkspaceColumns(config.columns);
+	const availableProperties = unrepresentedColumnProperties(config, caseType);
+	const repeatableProperties = representedColumnProperties(config, caseType);
 	const selectedColumnUuid =
 		selection?.type === "column" ? selection.uuid : null;
-	const filterPhrase = summarizeFilter(config.filter);
-	const filterSelected = selection?.type === "filter";
-	const allCasesLabel = caseType
-		? `All ${humanizeName(caseType.name)} cases.`
-		: "All cases.";
 
 	return (
 		<ContentFrame width="3xl" className="px-6 pb-24 pt-8">
@@ -132,80 +133,32 @@ export function CaseListCanvas({
 							<AddInformationControl
 								surface="list"
 								columns={projection.listHidden}
+								properties={availableProperties}
+								repeatableProperties={repeatableProperties}
 								brokenColumns={brokenColumns}
 								onShow={onShowColumn}
 								onRepair={onRepairColumn}
 								onCreate={onAddColumn}
+								onCreateCalculated={onAddCalculated}
 								createDisabledReason={addColumnDisabledReason}
 							/>
 						</div>
 					</section>
 
-					<section aria-labelledby="results-behavior-heading">
+					<section aria-labelledby="results-order-heading">
 						<div className="mb-4">
 							<h2
-								id="results-behavior-heading"
+								id="results-order-heading"
 								className="font-display text-[17px] font-semibold text-nova-text"
 							>
-								How results are chosen
+								Which cases appear first
 							</h2>
 							<p className="mt-1 text-[12px] leading-relaxed text-nova-text-muted">
-								Control which cases appear and what people see first.
+								Choose what people see first when Results opens.
 							</p>
 						</div>
 
 						<div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-nova-surface/20">
-							<div
-								className={`flex min-h-[72px] flex-wrap items-center gap-3 px-4 py-3 transition-colors ${
-									filterSelected
-										? "bg-nova-violet/[0.08] shadow-[inset_3px_0_0_var(--nova-violet)]"
-										: filterBroken
-											? "bg-nova-rose/[0.035]"
-											: "hover:bg-white/[0.018]"
-								}`}
-							>
-								<span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.035] text-nova-text-muted">
-									<Icon icon={tablerFilter} width="16" height="16" />
-								</span>
-								<div className="min-w-0 flex-1">
-									<div className="flex flex-wrap items-center gap-2">
-										<h3
-											id="included-cases-heading"
-											className="text-[13px] font-semibold text-nova-text"
-										>
-											Cases included
-										</h3>
-										{filterBroken && (
-											<span className="inline-flex items-center gap-1 text-[11px] text-nova-rose">
-												<Icon icon={tablerAlertCircle} width="14" height="14" />
-												Needs attention
-											</span>
-										)}
-									</div>
-									<p className="mt-0.5 text-[12px] leading-relaxed text-nova-text-muted first-letter:uppercase">
-										{filterBroken
-											? "This rule needs a quick fix."
-											: filterPhrase === undefined
-												? allCasesLabel
-												: `Cases where ${filterPhrase}.`}
-									</p>
-								</div>
-								{canEdit && (
-									<button
-										type="button"
-										onClick={() => onSelect({ type: "filter" })}
-										aria-label={
-											filterBroken
-												? "Fix cases included"
-												: "Change cases included"
-										}
-										className="min-h-11 w-full shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
-									>
-										{filterBroken ? "Fix" : "Change"}
-									</button>
-								)}
-							</div>
-
 							<CaseOrderingComposer
 								value={config.columns}
 								caseType={caseType}

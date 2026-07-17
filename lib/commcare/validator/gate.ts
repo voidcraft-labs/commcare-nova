@@ -136,7 +136,6 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	// ── Case-search-config rules ─────────────────────────────────────
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR: "soundness",
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: "soundness",
-	CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT: "soundness",
 	CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE: "completeness",
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: "soundness",
 	// ── Form-level ───────────────────────────────────────────────────
@@ -482,14 +481,6 @@ export function errorIdentity(err: ValidationError): string {
 		case "CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK":
 			parts.push(part("m", loc.moduleUuid), part("slot", det?.slot));
 			break;
-		case "CASE_SEARCH_FILTER_SEARCH_INPUT_CONFLICT":
-			parts.push(
-				part("m", loc.moduleUuid),
-				part("caseType", det?.destinationCaseType),
-				part("prop", det?.property),
-			);
-			break;
-
 		// Form-scope: a named case property / connect id / hashtag is the
 		// per-finding subject — add it so independent findings stay distinct.
 		case "RESERVED_CASE_PROPERTY":

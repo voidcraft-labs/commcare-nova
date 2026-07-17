@@ -107,6 +107,73 @@ describe("updateCaseListColumn", () => {
 		expect(cols[1]).toEqual(sibling);
 	});
 
+	it("emits a dedicated visibility delta when the replacement hides a surface", async () => {
+		const { ctx } = makeCaseListFixture();
+		const doc = fixtureWithColumn();
+
+		const result = await updateCaseListColumnTool.execute(
+			{
+				moduleIndex: 0,
+				columnUuid: TARGET_UUID,
+				column: {
+					kind: "plain",
+					field: "case_name",
+					header: "Patient",
+					visibleInList: false,
+				},
+			},
+			ctx,
+			doc,
+		);
+
+		expect(result.mutations).toHaveLength(1);
+		expect(result.mutations[0]).toEqual(
+			expect.objectContaining({
+				kind: "updateColumn",
+				moduleUuid: MOD_A,
+				uuid: TARGET_UUID,
+				visibilityPatch: { surface: "list", visible: false },
+			}),
+		);
+		expect(result.mutations[0]).not.toHaveProperty("preserveVisibility");
+		expect(
+			result.newDoc.modules[MOD_A]?.caseListConfig?.columns[0]?.visibleInList,
+		).toBe(false);
+	});
+
+	it("restores a surface by clearing its optional false flag", async () => {
+		const { ctx } = makeCaseListFixture();
+		const doc = fixtureWithColumn();
+		const target = doc.modules[MOD_A]?.caseListConfig?.columns[0];
+		if (!target) throw new Error("fixture target missing");
+		target.visibleInList = false;
+
+		const result = await updateCaseListColumnTool.execute(
+			{
+				moduleIndex: 0,
+				columnUuid: TARGET_UUID,
+				column: {
+					kind: "plain",
+					field: "case_name",
+					header: "Patient",
+				},
+			},
+			ctx,
+			doc,
+		);
+
+		expect(result.mutations).toHaveLength(1);
+		expect(result.mutations[0]).toEqual(
+			expect.objectContaining({
+				kind: "updateColumn",
+				visibilityPatch: { surface: "list", visible: true },
+			}),
+		);
+		expect(
+			result.newDoc.modules[MOD_A]?.caseListConfig?.columns[0]?.visibleInList,
+		).toBeUndefined();
+	});
+
 	it("surfaces the touched uuid in the structured result and the message", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithColumn();

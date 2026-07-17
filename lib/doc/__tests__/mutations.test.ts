@@ -247,6 +247,69 @@ describe("mutationSchema round-trip", () => {
 
 	describe("case-list column surface order", () => {
 		const columnUuid = asUuid("66666666-6666-6666-6666-666666666666");
+		const column = {
+			uuid: columnUuid,
+			kind: "plain" as const,
+			field: "case_name",
+			header: "Name",
+		};
+
+		it("updateColumn with the legacy full-body shape", () => {
+			expectRoundTrip({
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				column,
+			});
+		});
+
+		it("updateColumn with content visibility preservation", () => {
+			expectRoundTrip({
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				column,
+				preserveVisibility: true,
+			});
+		});
+
+		it("updateColumn with a backward-compatible visibility patch", () => {
+			expectRoundTrip({
+				kind: "updateColumn",
+				moduleUuid,
+				uuid: columnUuid,
+				column: { ...column, visibleInList: false },
+				visibilityPatch: { surface: "list", visible: false },
+			});
+		});
+
+		it("rejects a visibility patch combined with content preservation", () => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "updateColumn",
+					moduleUuid,
+					uuid: columnUuid,
+					column: { ...column, visibleInList: false },
+					preserveVisibility: true,
+					visibilityPatch: { surface: "list", visible: false },
+				}).success,
+			).toBe(false);
+		});
+
+		it.each([
+			"list",
+			"detail",
+		] as const)("rejects a %s visibility patch that contradicts its fallback column", (surface) => {
+			expect(
+				mutationSchema.safeParse({
+					kind: "updateColumn",
+					moduleUuid,
+					uuid: columnUuid,
+					column,
+					visibilityPatch: { surface, visible: false },
+				}).success,
+			).toBe(false);
+		});
 
 		it("moveColumnInList", () => {
 			expectRoundTrip({

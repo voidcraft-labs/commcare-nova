@@ -64,6 +64,7 @@ import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate/simplify";
 import { log } from "@/lib/logger";
 import type {
+	CaseQueryConstraintSource,
 	JsonObject,
 	LoadCaseDataResult,
 	LoadCasesResult,
@@ -73,8 +74,10 @@ import type {
 	SubmissionResult,
 } from "./caseDataBindingTypes";
 import {
+	bindSearchInputValuesInPredicate,
 	composeRuntimeFilter,
 	type SearchInputValues,
+	withSearchInputExpressionValues,
 } from "./runtimeBindings";
 
 /**
@@ -141,21 +144,31 @@ export async function readCases(
 		excludedOwnerIds?: readonly string[];
 	},
 ): Promise<LoadCasesResult> {
+	const composedQuery = composeQueryPredicate(
+		args.caseListConfig,
+		args.inputValues,
+		args.caseType,
+		args.excludedOwnerIds,
+	);
 	const rows = await store.query({
 		appId: args.appId,
 		caseType: args.caseType,
 		caseTypeSchemas: args.caseTypeSchemas,
-		predicate: composeQueryPredicate(
-			args.caseListConfig,
-			args.inputValues,
-			args.caseType,
-			args.excludedOwnerIds,
-		),
+		predicate: composedQuery.predicate,
 		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
 		calculated: args.caseListConfig?.columns.filter(isRuntimeCalculatedColumn),
 	});
-	if (rows.length === 0) return { kind: "empty" };
-	return { kind: "rows", rows };
+	if (rows.length === 0) {
+		return {
+			kind: "empty",
+			constraintSource: composedQuery.constraintSource,
+		};
+	}
+	return {
+		kind: "rows",
+		rows,
+		constraintSource: composedQuery.constraintSource,
+	};
 }
 
 /**
@@ -181,15 +194,65 @@ export async function readCases(
  * the same "match-all ≡ no filter" decision the wire emitters apply, so
  * preview and export agree on the effective filter.
  */
+interface ComposedCaseQuery {
+	readonly predicate: Predicate | undefined;
+	readonly constraintSource: CaseQueryConstraintSource;
+}
+
 function composeQueryPredicate(
 	caseListConfig: CaseListConfig | undefined,
 	inputValues: SearchInputValues | undefined,
 	caseType: string,
 	excludedOwnerIds: readonly string[] | undefined,
-): Predicate | undefined {
+): ComposedCaseQuery {
 	const clauses: Predicate[] = [];
-	const baseFilter = effectiveFilterForEmission(caseListConfig?.filter);
-	if (baseFilter !== undefined) clauses.push(baseFilter);
+	let hasAuthoredConstraint = false;
+	let hasWorkerConstraint = false;
+	const knownInputNames = new Set(
+		caseListConfig?.searchInputs.map((input) => input.name) ?? [],
+	);
+	const emptyExpressionInputValues =
+		caseListConfig === undefined
+			? undefined
+			: withSearchInputExpressionValues(caseListConfig.searchInputs, new Map());
+	const expressionInputValues =
+		caseListConfig !== undefined && inputValues !== undefined
+			? withSearchInputExpressionValues(
+					caseListConfig.searchInputs,
+					inputValues,
+				)
+			: emptyExpressionInputValues;
+	const authoredFilter =
+		caseListConfig?.filter !== undefined && expressionInputValues !== undefined
+			? bindSearchInputValuesInPredicate(
+					caseListConfig.filter,
+					expressionInputValues,
+					knownInputNames,
+				)
+			: caseListConfig?.filter;
+	const baseFilter = effectiveFilterForEmission(authoredFilter);
+	if (baseFilter !== undefined) {
+		clauses.push(baseFilter);
+		const filterWithoutWorkerValues =
+			caseListConfig?.filter !== undefined &&
+			emptyExpressionInputValues !== undefined
+				? bindSearchInputValuesInPredicate(
+						caseListConfig.filter,
+						emptyExpressionInputValues,
+						knownInputNames,
+					)
+				: caseListConfig?.filter;
+		const baseFilterWithoutWorkerValues = effectiveFilterForEmission(
+			filterWithoutWorkerValues,
+		);
+		// Predicate ASTs are canonical JSON-shaped values. A changed effective
+		// filter means submitted prompt values added narrowing the worker can
+		// remove; the empty-bound remainder is the always-authored contribution.
+		hasWorkerConstraint =
+			JSON.stringify(baseFilter) !==
+			JSON.stringify(baseFilterWithoutWorkerValues);
+		hasAuthoredConstraint = baseFilterWithoutWorkerValues !== undefined;
+	}
 
 	if (
 		caseListConfig !== undefined &&
@@ -199,7 +262,10 @@ function composeQueryPredicate(
 		const runtimeFilter = effectiveFilterForEmission(
 			composeRuntimeFilter(caseListConfig.searchInputs, inputValues, caseType),
 		);
-		if (runtimeFilter !== undefined) clauses.push(runtimeFilter);
+		if (runtimeFilter !== undefined) {
+			clauses.push(runtimeFilter);
+			hasWorkerConstraint = true;
+		}
 	}
 
 	const ownerIds = [
@@ -208,6 +274,7 @@ function composeQueryPredicate(
 		),
 	];
 	if (ownerIds.length > 0) {
+		hasAuthoredConstraint = true;
 		const [firstOwnerId, ...otherOwnerIds] = ownerIds;
 		clauses.push(
 			or(
@@ -223,12 +290,23 @@ function composeQueryPredicate(
 		);
 	}
 
-	if (clauses.length === 0) return undefined;
-	if (clauses.length === 1) return clauses[0];
-	return effectiveFilterForEmission({
-		kind: "and",
-		clauses: clauses as [Predicate, ...Predicate[]],
-	});
+	const predicate =
+		clauses.length === 0
+			? undefined
+			: clauses.length === 1
+				? clauses[0]
+				: effectiveFilterForEmission({
+						kind: "and",
+						clauses: clauses as [Predicate, ...Predicate[]],
+					});
+	return {
+		predicate,
+		constraintSource: hasWorkerConstraint
+			? "worker-search"
+			: hasAuthoredConstraint
+				? "authored-rules"
+				: "unconstrained",
+	};
 }
 
 /**

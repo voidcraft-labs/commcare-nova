@@ -39,7 +39,7 @@ import {
 	reduceAnd,
 	unhandledKindMessage,
 } from "@/lib/domain/predicate";
-import { walkExpressionTerms } from "@/lib/domain/predicate/walk";
+import { walkExpressionTerms, walkTerms } from "@/lib/domain/predicate/walk";
 
 /**
  * Wire-form date shape — the ISO `YYYY-MM-DD` pattern this module
@@ -87,6 +87,36 @@ export function searchInputValuesFromWire(
 }
 
 /**
+ * Add the scalar value CommCare exposes for a completed `daterange` prompt to
+ * expression-driven bindings. Nova keeps two independent UI/SQL keys
+ * (`<name>:from` / `<name>:to`), while CommCare's search-input instance stores
+ * one bare `<name>` value encoded as `__range__<from>__<to>`. Advanced input
+ * predicates and sibling expressions such as excluded-owner ids read that bare
+ * key, so they need the device-form projection in addition to the split bounds.
+ *
+ * A one-sided Nova range has no equivalent device scalar — CommCare's range
+ * picker commits a pair — so the bare key stays absent until both valid bounds
+ * exist. Delete any caller-supplied bare value first so stale state cannot make
+ * a partial range look complete.
+ */
+export function withSearchInputExpressionValues(
+	searchInputs: readonly SearchInputDef[],
+	inputValues: SearchInputValues,
+): SearchInputValues {
+	const expressionValues = new Map(inputValues);
+	for (const input of searchInputs) {
+		if (input.type !== "date-range") continue;
+		expressionValues.delete(input.name);
+		const from = validDateBound(inputValues.get(`${input.name}:from`));
+		const to = validDateBound(inputValues.get(`${input.name}:to`));
+		if (from !== undefined && to !== undefined) {
+			expressionValues.set(input.name, `__range__${from}__${to}`);
+		}
+	}
+	return expressionValues;
+}
+
+/**
  * Bind every `input(name)` leaf in a ValueExpression to the current running
  * search value. The preview XPath evaluator is scalar and intentionally does
  * not model the search-input XML nodeset, so substitution happens while the
@@ -109,6 +139,40 @@ export function bindSearchInputValuesInExpression(
 			bound,
 			name,
 			inputValues.get(name) ?? "",
+			true,
+		);
+	}
+	return bound;
+}
+
+/**
+ * Bind declared search-input refs in an authored Predicate and resolve each
+ * matching `when-input-present` gate from that input's own submitted value.
+ * Unknown refs deliberately stay structural: validation rejects them, and a
+ * bypassed invalid ref should not be silently rewritten as an empty answer.
+ *
+ * Callers must pass expression-projected values (see
+ * {@link withSearchInputExpressionValues}) so completed date ranges expose the
+ * same bare scalar that CommCare's search-input instance does.
+ */
+export function bindSearchInputValuesInPredicate(
+	predicate: Predicate,
+	inputValues: SearchInputValues,
+	knownInputNames: ReadonlySet<string>,
+): Predicate {
+	const referencedNames = new Set<string>();
+	walkTerms(predicate, (term) => {
+		if (term.kind === "input") referencedNames.add(term.name);
+	});
+
+	let bound = predicate;
+	for (const name of referencedNames) {
+		if (!knownInputNames.has(name)) continue;
+		bound = substituteInputInPredicate(
+			bound,
+			name,
+			inputValues.get(name)?.trim() ?? "",
+			true,
 		);
 	}
 	return bound;
@@ -130,9 +194,19 @@ export function composeRuntimeFilter(
 	inputValues: SearchInputValues,
 	caseType: string,
 ): Predicate {
+	const expressionValues = withSearchInputExpressionValues(
+		searchInputs,
+		inputValues,
+	);
+	const knownInputNames = new Set(searchInputs.map((input) => input.name));
 	const clauses: Predicate[] = [];
 	for (const input of searchInputs) {
-		const clause = clauseForInput(input, inputValues, caseType);
+		const clause = clauseForInput(
+			input,
+			expressionValues,
+			caseType,
+			knownInputNames,
+		);
 		if (clause !== undefined) clauses.push(clause);
 	}
 	const reduced = reduceAnd(clauses);
@@ -144,12 +218,13 @@ function clauseForInput(
 	input: SearchInputDef,
 	inputValues: SearchInputValues,
 	caseType: string,
+	knownInputNames: ReadonlySet<string>,
 ): Predicate | undefined {
 	switch (input.kind) {
 		case "simple":
 			return buildSimpleArmClause(input, inputValues, caseType);
 		case "advanced":
-			return buildAdvancedArmClause(input, inputValues);
+			return buildAdvancedArmClause(input, inputValues, knownInputNames);
 		default: {
 			const _exhaustive: never = input;
 			throw new Error(
@@ -267,10 +342,15 @@ function buildRangeClause(
  * AND-composes only valid clauses.
  */
 function parseDateBound(raw: string | undefined): Literal | undefined {
+	const value = validDateBound(raw);
+	return value === undefined ? undefined : dateLiteral(value);
+}
+
+function validDateBound(raw: string | undefined): string | undefined {
 	if (raw === undefined || raw === "") return undefined;
 	if (!ISO_DATE_PATTERN.test(raw)) return undefined;
 	if (!isValid(parseISO(raw))) return undefined;
-	return dateLiteral(raw);
+	return raw;
 }
 
 function defaultModeFor(type: SearchInputType): SearchInputMode {
@@ -278,21 +358,27 @@ function defaultModeFor(type: SearchInputType): SearchInputMode {
 }
 
 /**
- * Advanced-arm dispatch: when the value is non-empty, recurse into
- * `substituteInputInPredicate` to bind the input ref at every value-
- * position match. The walker functions below are the authoritative
- * site for arm-by-arm substitution semantics.
+ * Advanced-arm dispatch: when the owning value is non-empty, bind every
+ * declared input ref the predicate reads and resolve its matching presence
+ * gate. The walker functions below are the authoritative site for arm-by-arm
+ * substitution semantics.
  */
 function buildAdvancedArmClause(
 	input: Extract<SearchInputDef, { kind: "advanced" }>,
 	inputValues: SearchInputValues,
+	knownInputNames: ReadonlySet<string>,
 ): Predicate | undefined {
 	// Trim once at read so the value substituted into every
 	// `term(input(name))` slot is the normalized form — symmetric
 	// with `buildSimpleArmClause`'s trim-once contract.
 	const value = inputValues.get(input.name)?.trim();
 	if (value === undefined || value === "") return undefined;
-	return substituteInputInPredicate(input.predicate, input.name, value);
+
+	return bindSearchInputValuesInPredicate(
+		input.predicate,
+		inputValues,
+		knownInputNames,
+	);
 }
 
 // Recursive substitution over `Predicate` / `ValueExpression` /
@@ -306,6 +392,7 @@ function substituteInputInPredicate(
 	predicate: Predicate,
 	targetName: string,
 	value: string,
+	resolvePresence = false,
 ): Predicate {
 	switch (predicate.kind) {
 		case "match-all":
@@ -319,13 +406,28 @@ function substituteInputInPredicate(
 		case "lte":
 			return {
 				kind: predicate.kind,
-				left: substituteInputInExpression(predicate.left, targetName, value),
-				right: substituteInputInExpression(predicate.right, targetName, value),
+				left: substituteInputInExpression(
+					predicate.left,
+					targetName,
+					value,
+					resolvePresence,
+				),
+				right: substituteInputInExpression(
+					predicate.right,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			};
 		case "in":
 			return {
 				kind: "in",
-				left: substituteInputInExpression(predicate.left, targetName, value),
+				left: substituteInputInExpression(
+					predicate.left,
+					targetName,
+					value,
+					resolvePresence,
+				),
 				values: predicate.values,
 			};
 		case "within-distance":
@@ -336,6 +438,7 @@ function substituteInputInPredicate(
 					predicate.center,
 					targetName,
 					value,
+					resolvePresence,
 				),
 				distance: predicate.distance,
 				unit: predicate.unit,
@@ -344,7 +447,12 @@ function substituteInputInPredicate(
 			return {
 				kind: "match",
 				property: predicate.property,
-				value: substituteInputInExpression(predicate.value, targetName, value),
+				value: substituteInputInExpression(
+					predicate.value,
+					targetName,
+					value,
+					resolvePresence,
+				),
 				mode: predicate.mode,
 			};
 		case "multi-select-contains":
@@ -359,7 +467,12 @@ function substituteInputInPredicate(
 			// (Zod's `.optional()` strips absent keys on parse).
 			const next: Extract<Predicate, { kind: "between" }> = {
 				kind: "between",
-				left: substituteInputInExpression(predicate.left, targetName, value),
+				left: substituteInputInExpression(
+					predicate.left,
+					targetName,
+					value,
+					resolvePresence,
+				),
 				lowerInclusive: predicate.lowerInclusive,
 				upperInclusive: predicate.upperInclusive,
 			};
@@ -368,6 +481,7 @@ function substituteInputInPredicate(
 					predicate.lower,
 					targetName,
 					value,
+					resolvePresence,
 				);
 			}
 			if (predicate.upper !== undefined) {
@@ -375,6 +489,7 @@ function substituteInputInPredicate(
 					predicate.upper,
 					targetName,
 					value,
+					resolvePresence,
 				);
 			}
 			return next;
@@ -382,44 +497,73 @@ function substituteInputInPredicate(
 		case "is-null":
 			return {
 				kind: "is-null",
-				left: substituteInputInExpression(predicate.left, targetName, value),
+				left: substituteInputInExpression(
+					predicate.left,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			};
 		case "is-blank":
 			return {
 				kind: "is-blank",
-				left: substituteInputInExpression(predicate.left, targetName, value),
+				left: substituteInputInExpression(
+					predicate.left,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			};
 		case "and":
 			return {
 				kind: "and",
 				clauses: predicate.clauses.map((c) =>
-					substituteInputInPredicate(c, targetName, value),
+					substituteInputInPredicate(c, targetName, value, resolvePresence),
 				) as [Predicate, ...Predicate[]],
 			};
 		case "or":
 			return {
 				kind: "or",
 				clauses: predicate.clauses.map((c) =>
-					substituteInputInPredicate(c, targetName, value),
+					substituteInputInPredicate(c, targetName, value, resolvePresence),
 				) as [Predicate, ...Predicate[]],
 			};
 		case "not":
 			return {
 				kind: "not",
-				clause: substituteInputInPredicate(predicate.clause, targetName, value),
+				clause: substituteInputInPredicate(
+					predicate.clause,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			};
 		case "when-input-present":
-			// The trigger slot is a `SearchInputRef` discriminator, not
-			// a value-position term — substituting a literal would
-			// violate the schema's `input: searchInputRefSchema` shape.
-			// `buildAdvancedArmClause`'s empty-value short-circuit
-			// already gates the entire advanced-arm contribution on the
-			// trigger's runtime presence, so the wrap stays even when
-			// the trigger's name matches the target.
+			if (resolvePresence && predicate.input.name === targetName) {
+				/* Preview has no search-input XML instance at query/evaluation time.
+				 * Resolve the structural gate directly to the same two wire outcomes:
+				 * answered -> inner clause; unanswered -> match-all no-op. */
+				return value === ""
+					? { kind: "match-all" }
+					: substituteInputInPredicate(
+							predicate.clause,
+							targetName,
+							value,
+							resolvePresence,
+						);
+			}
+			// A gate for another input stays structural during this pass. The
+			// binding pass for that declared name resolves it from its own value;
+			// an unknown name remains intact for validation to reject.
 			return {
 				kind: "when-input-present",
 				input: predicate.input,
-				clause: substituteInputInPredicate(predicate.clause, targetName, value),
+				clause: substituteInputInPredicate(
+					predicate.clause,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			};
 		case "exists":
 			return predicate.where === undefined
@@ -431,6 +575,7 @@ function substituteInputInPredicate(
 							predicate.where,
 							targetName,
 							value,
+							resolvePresence,
 						),
 					};
 		case "missing":
@@ -443,6 +588,7 @@ function substituteInputInPredicate(
 							predicate.where,
 							targetName,
 							value,
+							resolvePresence,
 						),
 					};
 		default: {
@@ -485,6 +631,7 @@ function substituteInputInExpression(
 	expr: ValueExpression,
 	targetName: string,
 	value: string,
+	resolvePresence = false,
 ): ValueExpression {
 	switch (expr.kind) {
 		case "term":
@@ -495,63 +642,128 @@ function substituteInputInExpression(
 		case "date-add":
 			return {
 				kind: "date-add",
-				date: substituteInputInExpression(expr.date, targetName, value),
+				date: substituteInputInExpression(
+					expr.date,
+					targetName,
+					value,
+					resolvePresence,
+				),
 				interval: expr.interval,
-				quantity: substituteInputInExpression(expr.quantity, targetName, value),
+				quantity: substituteInputInExpression(
+					expr.quantity,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			};
 		case "date-coerce":
 			return {
 				kind: "date-coerce",
-				value: substituteInputInExpression(expr.value, targetName, value),
+				value: substituteInputInExpression(
+					expr.value,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			};
 		case "datetime-coerce":
 			return {
 				kind: "datetime-coerce",
-				value: substituteInputInExpression(expr.value, targetName, value),
+				value: substituteInputInExpression(
+					expr.value,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			};
 		case "double":
 			return {
 				kind: "double",
-				value: substituteInputInExpression(expr.value, targetName, value),
+				value: substituteInputInExpression(
+					expr.value,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			};
 		case "arith":
 			return {
 				kind: "arith",
 				op: expr.op,
-				left: substituteInputInExpression(expr.left, targetName, value),
-				right: substituteInputInExpression(expr.right, targetName, value),
+				left: substituteInputInExpression(
+					expr.left,
+					targetName,
+					value,
+					resolvePresence,
+				),
+				right: substituteInputInExpression(
+					expr.right,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			};
 		case "concat": {
 			const parts = expr.parts.map((part) =>
-				substituteInputInExpression(part, targetName, value),
+				substituteInputInExpression(part, targetName, value, resolvePresence),
 			) as [ValueExpression, ...ValueExpression[]];
 			return { kind: "concat", parts };
 		}
 		case "coalesce": {
 			const values = expr.values.map((v) =>
-				substituteInputInExpression(v, targetName, value),
+				substituteInputInExpression(v, targetName, value, resolvePresence),
 			) as [ValueExpression, ...ValueExpression[]];
 			return { kind: "coalesce", values };
 		}
 		case "if":
 			return {
 				kind: "if",
-				cond: substituteInputInPredicate(expr.cond, targetName, value),
+				cond: substituteInputInPredicate(
+					expr.cond,
+					targetName,
+					value,
+					resolvePresence,
+				),
 				// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `ifSchema`; `then` holds a ValueExpression object, never a callable. Full thenable-hazard analysis lives on `ifSchema` in `lib/domain/predicate/types.ts`.
-				then: substituteInputInExpression(expr.then, targetName, value),
-				else: substituteInputInExpression(expr.else, targetName, value),
+				then: substituteInputInExpression(
+					expr.then,
+					targetName,
+					value,
+					resolvePresence,
+				),
+				else: substituteInputInExpression(
+					expr.else,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			};
 		case "switch": {
 			const cases = expr.cases.map((c) => ({
 				when: c.when,
 				// biome-ignore lint/suspicious/noThenProperty: AST shape mirrors `switchCaseSchema`; `then` holds a ValueExpression object, never a callable.
-				then: substituteInputInExpression(c.then, targetName, value),
+				then: substituteInputInExpression(
+					c.then,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			})) as [SwitchCase, ...SwitchCase[]];
 			return {
 				kind: "switch",
-				on: substituteInputInExpression(expr.on, targetName, value),
+				on: substituteInputInExpression(
+					expr.on,
+					targetName,
+					value,
+					resolvePresence,
+				),
 				cases,
-				fallback: substituteInputInExpression(expr.fallback, targetName, value),
+				fallback: substituteInputInExpression(
+					expr.fallback,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			};
 		}
 		case "count":
@@ -560,17 +772,32 @@ function substituteInputInExpression(
 				: {
 						kind: "count",
 						via: expr.via,
-						where: substituteInputInPredicate(expr.where, targetName, value),
+						where: substituteInputInPredicate(
+							expr.where,
+							targetName,
+							value,
+							resolvePresence,
+						),
 					};
 		case "unwrap-list":
 			return {
 				kind: "unwrap-list",
-				value: substituteInputInExpression(expr.value, targetName, value),
+				value: substituteInputInExpression(
+					expr.value,
+					targetName,
+					value,
+					resolvePresence,
+				),
 			};
 		case "format-date":
 			return {
 				kind: "format-date",
-				date: substituteInputInExpression(expr.date, targetName, value),
+				date: substituteInputInExpression(
+					expr.date,
+					targetName,
+					value,
+					resolvePresence,
+				),
 				pattern: expr.pattern,
 			};
 		default: {

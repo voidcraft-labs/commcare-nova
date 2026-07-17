@@ -1270,7 +1270,7 @@ export type Module = z.infer<typeof moduleSchema>;
  * legacy documents that predate the explicit config marker receive Nova's
  * friendly defaults instead of showing search in the builder while silently
  * omitting it from preview/export. A case-list filter by itself does NOT turn
- * on search; it remains the always-on "Cases included" rule.
+ * on search; it remains the always-on "Cases available" rule.
  */
 export function effectiveCaseSearchConfig(
 	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,

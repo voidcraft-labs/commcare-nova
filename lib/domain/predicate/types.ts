@@ -2,9 +2,9 @@
 //
 // Two-family AST: the boolean-valued **Predicate** family and the
 // value-bearing **ValueExpression** family. Together they form the
-// authoring source of truth for every filter, sort key, calculated
-// column, search-input default, and default search filter in the case-
-// list and search system. Compiled to CommCare XPath/CSQL at HQ wire
+// authoring source of truth for every always-on case rule, sort key,
+// calculated column, and search-input default in the case-list and search
+// system. Compiled to CommCare XPath/CSQL at HQ wire
 // emission and to Kysely query-builder calls at runtime — never
 // round-tripped through strings.
 //

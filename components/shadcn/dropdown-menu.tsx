@@ -57,7 +57,7 @@ function DropdownMenuContent({
 					data-slot="dropdown-menu-content"
 					className={cn(
 						MENU_POPUP_CLS,
-						"max-h-(--available-height) min-w-36 overflow-x-hidden overflow-y-auto py-1 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+						"max-h-(--available-height) min-w-36 overflow-x-hidden overflow-y-auto p-1 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
 						className,
 					)}
 					{...props}
@@ -107,7 +107,7 @@ function DropdownMenuItem({
 			data-variant={variant}
 			className={cn(
 				MENU_ITEM_CLS,
-				"group/dropdown-menu-item relative data-inset:pl-9 data-disabled:cursor-not-allowed data-disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+				"group/dropdown-menu-item relative rounded-lg data-inset:pl-9 data-disabled:cursor-not-allowed data-disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 				variant === "destructive" &&
 					"text-nova-rose data-[highlighted]:bg-nova-rose/[0.08] data-[highlighted]:text-nova-rose *:[svg]:text-nova-rose",
 				className,
@@ -135,7 +135,7 @@ function DropdownMenuSubTrigger({
 			data-inset={inset}
 			className={cn(
 				MENU_ITEM_CLS,
-				"data-inset:pl-9 data-popup-open:bg-white/[0.06] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+				"rounded-lg data-inset:pl-9 data-popup-open:bg-white/[0.06] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 				className,
 			)}
 			{...props}
@@ -169,7 +169,7 @@ function DropdownMenuSubContent({
 					data-slot="dropdown-menu-sub-content"
 					className={cn(
 						MENU_POPUP_CLS,
-						"max-h-(--available-height) w-auto min-w-24 overflow-x-hidden overflow-y-auto py-1 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+						"max-h-(--available-height) w-auto min-w-24 overflow-x-hidden overflow-y-auto p-1 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
 						className,
 					)}
 					{...props}
@@ -194,7 +194,7 @@ function DropdownMenuCheckboxItem({
 			data-inset={inset}
 			className={cn(
 				MENU_ITEM_CLS,
-				"relative pr-9 data-inset:pl-9 data-disabled:cursor-not-allowed data-disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+				"relative rounded-lg pr-9 data-inset:pl-9 data-disabled:cursor-not-allowed data-disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 				className,
 			)}
 			checked={checked}
@@ -236,7 +236,7 @@ function DropdownMenuRadioItem({
 			data-inset={inset}
 			className={cn(
 				MENU_ITEM_CLS,
-				"relative pr-9 data-inset:pl-9 data-disabled:cursor-not-allowed data-disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+				"relative rounded-lg pr-9 data-inset:pl-9 data-disabled:cursor-not-allowed data-disabled:opacity-40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 				className,
 			)}
 			{...props}

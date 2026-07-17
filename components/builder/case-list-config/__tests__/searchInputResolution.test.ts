@@ -29,6 +29,8 @@ import {
 } from "@/lib/domain/predicate";
 import {
 	recoverAnchoredProperty,
+	resolveProperty,
+	resolveRows,
 	searchInputDecls,
 	seedCustomCondition,
 } from "../searchInputResolution";
@@ -156,6 +158,43 @@ describe("searchInputDecls", () => {
 				(d) => d.name,
 			),
 		).toEqual(["a"]);
+	});
+});
+
+describe("legacy standard-property resolution", () => {
+	it("uses canonical date_opened metadata instead of a stale date-opened declaration", () => {
+		const caseTypes: CaseType[] = [
+			{
+				name: "patient",
+				properties: [
+					{
+						name: "date-opened",
+						label: "Legacy date opened",
+						data_type: "text",
+					},
+					{
+						name: "date_opened",
+						label: "Date opened",
+						data_type: "datetime",
+					},
+				],
+			} as CaseType,
+		];
+		const row = simpleSearchInputDef(
+			asUuid("legacy-date-opened-search"),
+			"opened",
+			"Opened",
+			"date",
+			"date-opened",
+		);
+
+		expect(resolveProperty(caseTypes, row, "patient")).toMatchObject({
+			name: "date_opened",
+			data_type: "datetime",
+		});
+		expect(
+			resolveRows([row], caseTypes, "patient")[0]?.typeCouplingErrors,
+		).toEqual([]);
 	});
 });
 

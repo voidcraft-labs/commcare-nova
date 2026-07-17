@@ -72,6 +72,10 @@
 
 import { produce } from "immer";
 import {
+	columnContentEqualIgnoringGranularSlots,
+	columnVisibilityMutations,
+} from "@/lib/doc/caseListColumnMutations";
+import {
 	orderedFieldUuids,
 	orderedFormUuids,
 	orderedModuleUuids,
@@ -1034,14 +1038,16 @@ function diffColumns(
 			out.push({ kind: "addColumn", moduleUuid, column: cloneEntity(col) });
 			continue;
 		}
-		if (!contentEqualIgnoringOrder(p, col)) {
+		if (!columnContentEqualIgnoringGranularSlots(p, col)) {
 			out.push({
 				kind: "updateColumn",
 				moduleUuid,
 				uuid: col.uuid,
 				column: cloneEntity(col),
+				preserveVisibility: true,
 			});
 		}
+		out.push(...columnVisibilityMutations(p, col, moduleUuid));
 		if (col.order !== undefined && p.order !== col.order) {
 			out.push({
 				kind: "moveColumn",

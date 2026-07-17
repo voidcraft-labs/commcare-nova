@@ -45,6 +45,7 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
+import { handleMenuSearchInputKeyDown } from "@/lib/ui/menuSearchInput";
 import { usePredicateEditContext } from "../editorContext";
 import {
 	friendlyPropertyDisambiguator,
@@ -292,21 +293,7 @@ export function PropertyPicker({
 									type="search"
 									value={query}
 									onChange={(event) => setQuery(event.target.value)}
-									onKeyDown={(event) => {
-										/* Keep ordinary editing keys out of Menu's typeahead while
-										 * preserving Escape, navigation, Enter, and Tab behavior. */
-										if (
-											![
-												"ArrowDown",
-												"ArrowUp",
-												"Enter",
-												"Escape",
-												"Tab",
-											].includes(event.key)
-										) {
-											event.stopPropagation();
-										}
-									}}
+									onKeyDown={handleMenuSearchInputKeyDown}
 									placeholder="Search information…"
 									autoComplete="off"
 									data-1p-ignore

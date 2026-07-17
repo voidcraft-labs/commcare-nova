@@ -90,6 +90,7 @@ import {
 	MENU_POPUP_CLS,
 	MENU_POSITIONER_CLS,
 } from "@/lib/styles";
+import { handleMenuSearchInputKeyDown } from "@/lib/ui/menuSearchInput";
 import {
 	buildMode,
 	constraintForDefault,
@@ -99,6 +100,7 @@ import {
 	type ResolvedRow,
 	recoverAnchoredProperty,
 	resolveDestinationCaseType,
+	resolveProperty,
 	resolveRows,
 	SEARCH_INPUT_TYPE_DESCRIPTIONS,
 	SEARCH_INPUT_TYPE_ICONS,
@@ -419,14 +421,7 @@ export function SearchInputEditor({
 	 * pick into an error. */
 	const propertyDataType = useMemo<CasePropertyDataType | undefined>(() => {
 		if (value.kind !== "simple") return undefined;
-		const destination = resolveDestinationCaseType(
-			caseTypes,
-			value.via,
-			currentCaseType,
-		);
-		const def = caseTypes
-			.find((c) => c.name === destination)
-			?.properties.find((p) => p.name === value.property);
+		const def = resolveProperty(caseTypes, value, currentCaseType);
 		return def === undefined ? undefined : effectiveDataType(def);
 	}, [value, caseTypes, currentCaseType]);
 
@@ -828,18 +823,7 @@ function BindingPicker({
 									type="search"
 									value={query}
 									onChange={(event) => setQuery(event.target.value)}
-									onKeyDown={(event) => {
-										if (
-											![
-												"ArrowDown",
-												"ArrowUp",
-												"Enter",
-												"Escape",
-												"Tab",
-											].includes(event.key)
-										)
-											event.stopPropagation();
-									}}
+									onKeyDown={handleMenuSearchInputKeyDown}
 									placeholder="Search information…"
 									autoComplete="off"
 									data-1p-ignore

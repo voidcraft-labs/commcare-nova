@@ -20,6 +20,10 @@
  * server/client boundary.
  */
 
+import {
+	columnContentEqualIgnoringGranularSlots,
+	columnVisibilityMutations,
+} from "@/lib/doc/caseListColumnMutations";
 import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
 import {
 	buildFieldTree,
@@ -634,8 +638,9 @@ export function addColumnsMutation(
 
 /**
  * Replace one column on a module's case list, keyed by `columnUuid` — a
- * granular `updateColumn` (the reducer preserves the column's current
- * `order`).
+ * granular `updateColumn` plus any per-surface visibility deltas (the reducer
+ * preserves the column's current order + visibility slots while replaying the
+ * content replacement).
  *
  * Failure arm: columnUuid not in the module's columns array.
  */
@@ -651,16 +656,29 @@ export function updateColumnMutation(
 		"case list column",
 	);
 	if ("error" in op) return { error: op.error };
+	const current = mod.caseListConfig?.columns.find(
+		(column) => column.uuid === columnUuid,
+	);
+	if (!current) {
+		return {
+			error: `Tried to update case list column ${columnUuid}. Found no entry with that uuid in the module's case list. Look at getModule's projection or run searchBlueprint to surface the current uuids.`,
+		};
+	}
+	const nextColumn = { ...replacement, uuid: columnUuid };
+	const mutations: Mutation[] = [];
+	if (!columnContentEqualIgnoringGranularSlots(current, nextColumn)) {
+		mutations.push({
+			kind: "updateColumn",
+			moduleUuid: mod.uuid,
+			uuid: columnUuid,
+			column: nextColumn,
+			preserveVisibility: true,
+		});
+	}
+	mutations.push(...columnVisibilityMutations(current, nextColumn, mod.uuid));
 	return {
 		ok: true,
-		mutations: [
-			{
-				kind: "updateColumn",
-				moduleUuid: mod.uuid,
-				uuid: columnUuid,
-				column: { ...replacement, uuid: columnUuid },
-			},
-		],
+		mutations,
 	};
 }
 

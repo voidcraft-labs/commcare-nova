@@ -55,6 +55,7 @@ import { bySortKey } from "@/lib/doc/order/compare";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
 	type CaseListConfig,
+	type CaseProperty,
 	type CaseSearchConfig,
 	type Column,
 	type CommitOutcome,
@@ -82,7 +83,12 @@ import { ListPanelInspectorBody } from "./inspector/ListPanelInspectorBody";
 import { SearchInputEditor } from "./inspector/SearchInputEditor";
 import { SearchPanelInspectorBody } from "./inspector/SearchPanelInspectorBody";
 import { withPreservedIdentity } from "./preserveIdentity";
-import { labelFromProperty, seedColumn, seedSearchInput } from "./seeds";
+import {
+	labelFromProperty,
+	seedCalculatedColumn,
+	seedColumnForProperty,
+	seedSearchInput,
+} from "./seeds";
 import {
 	projectCaseWorkspaceColumns,
 	pruneStoppedSortOrphans,
@@ -345,19 +351,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 			},
 		});
 	};
-	const addColumn = (surface: ColumnSurface) => {
-		// Smart seed — bound to an unused property, human-worded header,
-		// date-formatted when the property is date-shaped. A blank seed
-		// would render "untitled" and demand three edits before the
-		// canvas looks right; this one is presentable as it lands.
-		const seed = seedColumn(
-			config,
-			ct,
-			surface === "list"
-				? { visibleInDetail: false }
-				: { visibleInList: false },
-		);
-		if (seed === undefined) return;
+	const addSeededColumn = (surface: ColumnSurface, seed: Column) => {
 		const seeded = {
 			...seed,
 			order: appendOrderKey(config.columns),
@@ -365,8 +359,39 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 				? { listOrder: appendSurfaceOrderKey(config.columns, "list") }
 				: { detailOrder: appendSurfaceOrderKey(config.columns, "detail") }),
 		} as Column;
-		updateConfig({ ...config, columns: [...config.columns, seeded] });
-		setSel({ type: "column", uuid: seeded.uuid });
+		const outcome = commitMany([
+			{ kind: "addColumn", moduleUuid, column: seeded },
+		]);
+		if (outcome.ok) {
+			setWorkspaceAnnouncement(
+				`${columnDisplayLabel(seeded)} added to ${surfaceDisplayName(surface)}.`,
+			);
+			setSel({ type: "column", uuid: seeded.uuid });
+		}
+	};
+	const addColumn = (surface: ColumnSurface, property: CaseProperty) => {
+		// The center-canvas chooser owns the property decision. Creation only
+		// turns that explicit choice into a working display definition; it never
+		// advances through system properties behind the author's back.
+		addSeededColumn(
+			surface,
+			seedColumnForProperty(
+				property,
+				surface === "list"
+					? { visibleInDetail: false }
+					: { visibleInList: false },
+			),
+		);
+	};
+	const addCalculatedColumn = (surface: ColumnSurface) => {
+		addSeededColumn(
+			surface,
+			seedCalculatedColumn(
+				surface === "list"
+					? { visibleInDetail: false }
+					: { visibleInList: false },
+			),
+		);
 	};
 	const moveColumn = (
 		surface: ColumnSurface,
@@ -390,6 +415,21 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		pendingCanvasFocusRef.current = surface;
 		setWorkspaceAnnouncement(
 			`${label} hidden from ${surface === "list" ? "results" : "details"}. You can add it again from Add information.`,
+		);
+		deselect();
+	};
+	const deleteColumn = (surface: ColumnSurface, column: Column) => {
+		const displayedOn = [
+			...(column.visibleInList !== false ? ["Results"] : []),
+			...(column.visibleInDetail !== false ? ["Details"] : []),
+		];
+		const outcome = commitMany([
+			{ kind: "removeColumn", moduleUuid, uuid: column.uuid },
+		]);
+		if (!outcome.ok) return;
+		pendingCanvasFocusRef.current = surface;
+		setWorkspaceAnnouncement(
+			`${columnDisplayLabel(column)} display setup deleted${displayedOn.length === 0 ? "" : ` from ${displayedOn.join(" and ")}`}. Case data was not deleted.`,
 		);
 		deselect();
 	};
@@ -475,8 +515,9 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 			{ kind: "setCaseSearchMarker", uuid: moduleUuid, enabled: true },
 			{ kind: "addSearchInput", moduleUuid, searchInput: seeded },
 		]);
-		// Never select an identity the gate refused to create. This matters when
-		// a concurrent filter edit makes a formerly-valid seed conflict.
+		// Never select an identity the gate refused to create. The gate can still
+		// reject a concurrent structural edit even though the seed was valid when
+		// this interaction began.
 		if (outcome.ok) setSel({ type: "input", uuid: seeded.uuid });
 	};
 	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) =>
@@ -536,6 +577,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		replaceColumn,
 		replaceInput,
 		onHideColumn: hideColumnFromSurface,
+		onDeleteColumn: deleteColumn,
 		onRemoveInput: removeInput,
 	});
 
@@ -580,6 +622,8 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					searchConfig={searchConfig}
 					caseTypes={caseTypes}
 					currentCaseType={caseType}
+					filter={config.filter}
+					filterBroken={filterBroken}
 					selection={sel}
 					onSelect={setSel}
 					onAddInput={addInput}
@@ -597,10 +641,10 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					caseType={ct}
 					caseTypes={caseTypes}
 					brokenColumns={brokenColumns}
-					filterBroken={filterBroken}
 					selection={sel}
 					onSelect={setSel}
-					onAddColumn={() => addColumn("list")}
+					onAddColumn={(property) => addColumn("list", property)}
+					onAddCalculated={() => addCalculatedColumn("list")}
 					addColumnDisabledReason={addDisabledReason}
 					onMoveColumn={(uuid, toIndex) => moveColumn("list", uuid, toIndex)}
 					onColumnsChange={updateColumns}
@@ -613,10 +657,12 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 			{tab === "detail" && (
 				<DetailCanvas
 					config={config}
+					caseType={ct}
 					brokenColumns={brokenColumns}
 					selection={sel}
 					onSelect={setSel}
-					onAddDetailField={() => addColumn("detail")}
+					onAddDetailField={(property) => addColumn("detail", property)}
+					onAddCalculated={() => addCalculatedColumn("detail")}
 					addDisabledReason={addDisabledReason}
 					onMoveColumn={(uuid, toIndex) => moveColumn("detail", uuid, toIndex)}
 					onShowColumn={(column) => showColumn("detail", column)}
@@ -657,6 +703,7 @@ interface ResolveInspectorArgs {
 	readonly replaceColumn: (uuid: string, next: Column) => void;
 	readonly replaceInput: (uuid: string, next: SearchInputDef) => void;
 	readonly onHideColumn: (surface: ColumnSurface, column: Column) => void;
+	readonly onDeleteColumn: (surface: ColumnSurface, column: Column) => void;
 	readonly onRemoveInput: (
 		uuid: SearchInputDef["uuid"],
 		options?: { readonly discardSearchSettings?: boolean },
@@ -709,11 +756,13 @@ function resolveInspector(args: ResolveInspectorArgs): {
 									? projection.listVisible.length
 									: projection.detailVisible.length
 							}
+							listVisibleCount={projection.listVisible.length}
 							caseTypes={args.caseTypes}
 							currentCaseType={args.caseType}
 							repairMessages={sel.reveal?.messages}
 							onChange={(next) => args.replaceColumn(column.uuid, next)}
 							onHide={() => args.onHideColumn(surface, column)}
+							onDelete={() => args.onDeleteColumn(surface, column)}
 						/>
 					),
 			};
@@ -755,8 +804,8 @@ function resolveInspector(args: ResolveInspectorArgs): {
 		}
 		case "filter":
 			return {
-				kicker: "Results",
-				title: "Cases included",
+				kicker: "Search",
+				title: "Cases available",
 				body: (
 					<FilterInspectorBody
 						config={config}
@@ -814,15 +863,18 @@ function ColumnInspectorBody({
 	column,
 	surface,
 	visibleCount,
+	listVisibleCount,
 	caseTypes,
 	currentCaseType,
 	repairMessages,
 	onChange,
 	onHide,
+	onDelete,
 }: {
 	readonly column: Column;
 	readonly surface: ColumnSurface;
 	readonly visibleCount: number;
+	readonly listVisibleCount: number;
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
 	readonly currentCaseType: string;
 	/** Defined (including an empty array) while this off-screen definition is
@@ -830,11 +882,23 @@ function ColumnInspectorBody({
 	readonly repairMessages: readonly string[] | undefined;
 	readonly onChange: (next: Column) => void;
 	readonly onHide: () => void;
+	readonly onDelete: () => void;
 }) {
+	const [confirmingDelete, setConfirmingDelete] = useState(false);
 	const screenName = surfaceDisplayName(surface);
 	const keepLastResult = surface === "list" && visibleCount <= 1;
+	const deleteWouldRemoveLastResult =
+		column.visibleInList !== false && listVisibleCount <= 1;
 	const repairing = repairMessages !== undefined;
 	const uniqueRepairMessages = [...new Set(repairMessages ?? [])];
+	const displayedOn = [
+		...(column.visibleInList !== false ? ["Results"] : []),
+		...(column.visibleInDetail !== false ? ["Details"] : []),
+	];
+	const deleteScope =
+		displayedOn.length === 0
+			? "this saved display setup"
+			: `this display setup from ${displayedOn.join(" and ")}`;
 	return (
 		<>
 			{repairing && (
@@ -881,6 +945,45 @@ function ColumnInspectorBody({
 					</p>
 				</div>
 			)}
+			<RemoveRow
+				label="Delete information…"
+				onClick={() => setConfirmingDelete(true)}
+				disabledReason={
+					deleteWouldRemoveLastResult
+						? "Add another result first. People need at least one piece of information to choose a case."
+						: undefined
+				}
+			/>
+			{!deleteWouldRemoveLastResult && (
+				<p className="-mt-1 text-[11px] leading-relaxed text-nova-text-muted">
+					Deletes only this display setup. Saved case data stays.
+				</p>
+			)}
+			<AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
+				<AlertDialogContent className="text-left">
+					<AlertDialogHeader>
+						<AlertDialogTitle className="font-display">
+							Delete {columnDisplayLabel(column)}?
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							This removes {deleteScope}
+							{column.sort !== undefined
+								? " and removes its Default order rule"
+								: ""}
+							. This does not delete any case property or saved case data.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Keep information</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={onDelete}
+							className="bg-nova-rose text-nova-void not-disabled:hover:bg-[color-mix(in_oklab,var(--nova-rose),black_14%)] focus-visible:ring-nova-rose/40"
+						>
+							Delete information
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</>
 	);
 }
