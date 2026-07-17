@@ -1324,8 +1324,21 @@ describe("readCaseData", () => {
 		const store = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
-		// `parent_case_id` carries no FK — a deleted parent leaves a
-		// dangling link, which must end the walk, not throw.
+		const deletedParentId = "40000000-0000-0000-0000-00000000dead";
+		/* Relationship writes now require a live, tenant-local parent. Create a
+		 * valid relationship first, then delete the parent below the store
+		 * boundary to reproduce a legacy/imported dangling edge. The read path
+		 * must remain defensive even though new writes are valid by construction. */
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: deletedParentId,
+				case_type: "patient",
+				case_name: "Deleted parent",
+				status: "open",
+				properties: { name: "Deleted parent", age: 60 },
+			},
+		});
 		await store.insert({
 			appId: APP_ID,
 			row: {
@@ -1333,10 +1346,14 @@ describe("readCaseData", () => {
 				case_type: "patient",
 				case_name: "Alice",
 				status: "open",
-				parent_case_id: "40000000-0000-0000-0000-00000000dead",
+				parent_case_id: deletedParentId,
 				properties: { name: "Alice", age: 30 },
 			},
 		});
+		await (dbHandle.db as unknown as Kysely<Database>)
+			.deleteFrom("cases")
+			.where("case_id", "=", deletedParentId)
+			.execute();
 
 		const result = await readCaseData(store, {
 			appId: APP_ID,

@@ -911,8 +911,16 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 		// editable fields; the submit row still mounts in test mode.
 		const formView = renderFormScreen(doc, CLOSE_FORM_UUID, caseId);
 
-		const submit = await screen.findByRole("button", {
-			name: /^submit$/i,
+		/* The button mounts disabled while the bound row preloads. Under a
+		 * loaded full-suite worker, finding the element can beat that preload;
+		 * clicking a disabled button is correctly ignored. Wait for the actual
+		 * worker-visible readiness state before exercising submit. */
+		const submit = await waitFor(() => {
+			const button = screen.getByRole("button", {
+				name: /^submit$/i,
+			}) as HTMLButtonElement;
+			expect(button.disabled).toBe(false);
+			return button;
 		});
 		fireEvent.click(submit);
 
