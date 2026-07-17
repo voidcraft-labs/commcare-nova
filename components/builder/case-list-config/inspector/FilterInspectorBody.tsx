@@ -23,6 +23,7 @@ import {
 	InspectorHint,
 	RemoveRow,
 } from "@/components/builder/inspector/inspectorChrome";
+import { comparisonDefault } from "@/components/builder/shared/cards/ComparisonCard";
 import { PredicateCardEditor } from "@/components/builder/shared/PredicateCardEditor";
 import {
 	AlertDialog,
@@ -38,7 +39,6 @@ import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { CaseListConfig, CaseType, CommitOutcome } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
-	matchAll,
 	type Predicate,
 } from "@/lib/domain/predicate";
 import { loadFilterPreviewAction } from "@/lib/preview/engine/caseDataBinding";
@@ -106,10 +106,19 @@ export function FilterInspectorBody({
 				<button
 					type="button"
 					onClick={() => {
-						// matchAll() seeds without a false-error state — the verb
-						// menu on the seeded row is the author's first real choice.
+						// A new rule starts as the common "Property is value"
+						// sentence. Reuse the predicate editor's own default factory
+						// so the first authorable property and its value are seeded
+						// with matching data types; Always true remains available in
+						// the verb menu when an author explicitly needs it.
 						setFilterValid(true);
-						handleFilterChange(matchAll());
+						handleFilterChange(
+							comparisonDefault("eq", {
+								caseTypes,
+								currentCaseType,
+								knownInputs: config.searchInputs,
+							}),
+						);
 					}}
 					className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
 				>

@@ -265,6 +265,29 @@ function FieldRow({
  * permanent canvas real estate; they appear only after the author asks to add
  * something.
  */
+const ADD_INFORMATION_SIDE_OFFSET = 6;
+const ADD_INFORMATION_COLLISION_PADDING = 6;
+const ADD_INFORMATION_EDGE_CLEARANCE =
+	ADD_INFORMATION_SIDE_OFFSET + ADD_INFORMATION_COLLISION_PADDING;
+// Header, search, and either one useful choice or the full recovery state.
+const ADD_INFORMATION_MIN_READABLE_SPACE = 248;
+
+function chooseAddInformationSide(
+	trigger: Pick<DOMRect, "top" | "bottom">,
+	viewportHeight: number,
+): "top" | "bottom" {
+	const spaceBelow =
+		viewportHeight - trigger.bottom - ADD_INFORMATION_EDGE_CLEARANCE;
+	const spaceAbove = trigger.top - ADD_INFORMATION_EDGE_CLEARANCE;
+	if (
+		spaceBelow >= ADD_INFORMATION_MIN_READABLE_SPACE ||
+		spaceBelow >= spaceAbove
+	) {
+		return "bottom";
+	}
+	return "top";
+}
+
 export function AddInformationControl({
 	surface,
 	columns,
@@ -295,11 +318,17 @@ export function AddInformationControl({
 	const [open, setOpen] = useState(false);
 	const [mode, setMode] = useState<"main" | "alternate">("main");
 	const [query, setQuery] = useState("");
+	const [pickerSide, setPickerSide] = useState<"top" | "bottom">("bottom");
+	const triggerRef = useRef<HTMLButtonElement>(null);
 	const searchInputRef = useRef<HTMLInputElement>(null);
 	const closePicker = () => {
 		setQuery("");
 		setMode("main");
 		setOpen(false);
+	};
+	const clearSearch = () => {
+		setQuery("");
+		searchInputRef.current?.focus({ preventScroll: true });
 	};
 	useEffect(() => {
 		if (open && searchInputRef.current?.dataset.addInformationMode === mode) {
@@ -391,6 +420,9 @@ export function AddInformationControl({
 		filteredProperties.length === 0 &&
 		!showCalculated &&
 		!showAlternate;
+	const noMatches =
+		(mode === "main" && noMainMatches) ||
+		(mode === "alternate" && filteredRepeatableProperties.length === 0);
 	if (!canEdit) return null;
 
 	if (!hasChoices) {
@@ -411,11 +443,19 @@ export function AddInformationControl({
 		<Popover
 			open={open}
 			onOpenChange={(nextOpen) => {
-				if (nextOpen) setOpen(true);
-				else closePicker();
+				if (!nextOpen) {
+					closePicker();
+					return;
+				}
+				const trigger = triggerRef.current?.getBoundingClientRect();
+				if (trigger !== undefined) {
+					setPickerSide(chooseAddInformationSide(trigger, window.innerHeight));
+				}
+				setOpen(true);
 			}}
 		>
 			<PopoverTrigger
+				ref={triggerRef}
 				type="button"
 				aria-label="Add information"
 				data-case-add={surface}
@@ -427,21 +467,20 @@ export function AddInformationControl({
 			</PopoverTrigger>
 			<PopoverContent
 				align="start"
-				sideOffset={6}
-				collisionPadding={6}
+				side={pickerSide}
+				sideOffset={ADD_INFORMATION_SIDE_OFFSET}
+				collisionPadding={ADD_INFORMATION_COLLISION_PADDING}
 				collisionAvoidance={{
-					// Never move along the bottom/top axis: the popup's max-height and
-					// internal scroll region absorb changing result height instead. Side
-					// shifting made a long menu jump hundreds of pixels when filtering
-					// shortened it. Alignment shifting still keeps the menu on-screen
-					// horizontally with both rails open.
+					// Choose the readable side once when the picker opens, then keep that
+					// side while filtering. Eager collision flipping can move the search
+					// field hundreds of pixels as the result list gets shorter.
 					side: "none",
 					align: "shift",
 					fallbackAxisSide: "none",
 				}}
-				className="max-h-[calc(var(--available-height)-0.5rem)] w-80 max-w-[calc(var(--available-width)-0.5rem)] gap-0 overflow-hidden p-0"
+				className="h-[min(22rem,calc(var(--available-height)-0.5rem))] w-80 max-w-[calc(var(--available-width)-0.5rem)] gap-0 overflow-hidden p-0"
 			>
-				<PopoverHeader className="gap-1 px-3 pb-2.5 pt-3">
+				<PopoverHeader className="shrink-0 gap-1 px-3 pb-2.5 pt-3">
 					<div className="flex items-start gap-2">
 						{mode === "alternate" && (
 							<button
@@ -501,7 +540,7 @@ export function AddInformationControl({
 					</label>
 				</div>
 				<div
-					className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5"
+					className={`min-h-0 flex-1 overflow-y-auto p-1.5 ${noMatches ? "" : "space-y-1"}`}
 					data-add-information-scroll-region
 				>
 					{mode === "main" ? (
@@ -593,15 +632,30 @@ export function AddInformationControl({
 							/>
 						</>
 					)}
-					{((mode === "main" && noMainMatches) ||
-						(mode === "alternate" &&
-							filteredRepeatableProperties.length === 0)) && (
-						<p
-							role="status"
-							className="px-3 py-7 text-center text-[12px] text-nova-text-muted"
+					{noMatches && (
+						<div
+							className="grid h-full min-h-24 place-items-center px-4 py-5 text-center"
+							data-add-information-empty
 						>
-							No information matches “{query}”.
-						</p>
+							<div>
+								<p
+									role="status"
+									className="text-[13px] font-medium text-nova-text"
+								>
+									No matching information
+								</p>
+								<p className="mt-1 text-[12px] text-nova-text-muted">
+									Try another word, or browse everything again.
+								</p>
+								<button
+									type="button"
+									onClick={clearSearch}
+									className="mt-3 min-h-11 rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet"
+								>
+									Clear search
+								</button>
+							</div>
+						</div>
 					)}
 				</div>
 			</PopoverContent>

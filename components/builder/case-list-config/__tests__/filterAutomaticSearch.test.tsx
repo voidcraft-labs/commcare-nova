@@ -3,7 +3,13 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseListConfig, CaseType } from "@/lib/domain";
-import { eq, literal, matchAll, prop } from "@/lib/domain/predicate";
+import {
+	checkPredicate,
+	eq,
+	literal,
+	matchAll,
+	prop,
+} from "@/lib/domain/predicate";
 import { FilterInspectorBody } from "../inspector/FilterInspectorBody";
 
 const docApi = vi.hoisted(() => ({ getState: () => ({}) }));
@@ -40,6 +46,67 @@ async function settleDialogTeardown(): Promise<void> {
 }
 
 describe("filter-only automatic search", () => {
+	it("starts a new filter as a visible, type-valid Is condition", async () => {
+		const onChange = vi.fn();
+		const onClearFilter = vi.fn(() => ({ ok: true }) as const);
+		const emptyConfig: CaseListConfig = {
+			columns: [],
+			searchInputs: [],
+		};
+		const { rerender } = render(
+			<FilterInspectorBody
+				config={emptyConfig}
+				onChange={onChange}
+				onClearFilter={onClearFilter}
+				stopsAutomaticSearch={false}
+				discardsAutomaticSearchSettings={false}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+				appId="app-1"
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Add a condition" }));
+
+		const nextConfig = onChange.mock.calls[0]?.[0] as CaseListConfig;
+		const seededFilter = nextConfig.filter;
+		expect(seededFilter).toEqual(eq(prop("patient", "region"), literal("")));
+		if (seededFilter === undefined) {
+			throw new Error("Add a condition did not seed a filter");
+		}
+		expect(
+			checkPredicate(seededFilter, {
+				caseTypes: CASE_TYPES,
+				currentCaseType: "patient",
+				knownInputs: [],
+			}).ok,
+		).toBe(true);
+
+		rerender(
+			<FilterInspectorBody
+				config={nextConfig}
+				onChange={onChange}
+				onClearFilter={onClearFilter}
+				stopsAutomaticSearch={false}
+				discardsAutomaticSearchSettings={false}
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+				appId="app-1"
+			/>,
+		);
+		expect(screen.getByRole("button", { name: "Condition: is" })).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: "Left operand: Region" }),
+		).toBeDefined();
+		const valueInput = screen.getByRole("textbox", {
+			name: "Literal text value",
+		}) as HTMLInputElement;
+		expect(valueInput.value).toBe("");
+		await waitFor(() =>
+			expect(screen.queryByText("Counting matches…")).toBeNull(),
+		);
+	});
+
 	it("confirms and delegates one atomic shutdown instead of clearing into an invalid marker", async () => {
 		const onChange = vi.fn();
 		const onClearFilter = vi.fn(() => ({ ok: true }) as const);

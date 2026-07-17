@@ -253,21 +253,31 @@ test.describe("authenticated builder", () => {
 		expect(waysBox.y).toBeLessThan(availableBox.y);
 
 		// Reproduce the exact old rejection path: an exact case-name search
-		// already exists, then the always-on rule changes from Always true to
-		// "is" (whose friendly default is Case name). This is a valid
-		// intersection and must commit without a gate-error toast.
+		// already exists, then a new always-on rule starts with the friendly
+		// default "Case name is …". This is a valid intersection and must
+		// commit without a gate-error toast.
 		await page.getByRole("button", { name: "Change available cases" }).click();
 		await page.getByRole("button", { name: "Add a condition" }).click();
-		await page.getByRole("button", { name: "Condition: Always true" }).click();
-		await page.getByText("is", { exact: true }).click();
 		await expect(
 			page.getByRole("button", { name: "Condition: is" }),
 		).toBeVisible();
+		await page.getByRole("button", { name: /^Left operand: / }).click();
+		await page.getByRole("menuitem", { name: /^Case name\b/i }).click();
+		await expect(
+			page.getByRole("button", { name: "Left operand: Case name" }),
+		).toBeVisible();
 		await expect(page.getByText(/filters on .* in both/i)).toHaveCount(0);
 
+		await page.setViewportSize({ width: 1280, height: 560 });
 		await page.goto(seed.caseWorkspace.routes.results);
 		await expect(
 			page.getByRole("heading", { name: "Results", level: 1 }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Collapse structure sidebar" }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Collapse chat sidebar" }),
 		).toBeVisible();
 		const addInformation = page.getByRole("button", {
 			name: "Add information",
@@ -279,7 +289,42 @@ test.describe("authenticated builder", () => {
 		const menu = page
 			.locator('[data-slot="popover-content"]')
 			.filter({ has: informationSearch });
-		const openMenuBox = await menu.boundingBox();
+		const menuPositioner = menu.locator("..");
+		await expect(menuPositioner).toHaveAttribute("data-side", "top");
+		await expect(
+			menu.getByRole("heading", { name: "Add information" }),
+		).toBeVisible();
+		const [openMenuBox, triggerBox] = await Promise.all([
+			menu.boundingBox(),
+			addInformation.boundingBox(),
+		]);
+		expect(openMenuBox).not.toBeNull();
+		expect(triggerBox).not.toBeNull();
+		if (openMenuBox === null || triggerBox === null) return;
+		expect(openMenuBox.y).toBeGreaterThanOrEqual(4);
+		expect(openMenuBox.y + openMenuBox.height).toBeLessThanOrEqual(
+			triggerBox.y - 4,
+		);
+		const openAnchorGap = triggerBox.y - (openMenuBox.y + openMenuBox.height);
+		const choiceScrollRegion = menu.locator(
+			"[data-add-information-scroll-region]",
+		);
+		const choiceScrollMetrics = await choiceScrollRegion.evaluate((element) => {
+			element.scrollTop = element.scrollHeight;
+			const metrics = {
+				clientHeight: element.clientHeight,
+				scrollHeight: element.scrollHeight,
+				scrollTop: element.scrollTop,
+				pageScrollY: window.scrollY,
+			};
+			element.scrollTop = 0;
+			return metrics;
+		});
+		expect(choiceScrollMetrics.scrollHeight).toBeGreaterThan(
+			choiceScrollMetrics.clientHeight,
+		);
+		expect(choiceScrollMetrics.scrollTop).toBeGreaterThan(0);
+		expect(choiceScrollMetrics.pageScrollY).toBe(0);
 		await informationSearch.fill("phone");
 		await expect(
 			page.getByRole("button", {
@@ -304,15 +349,79 @@ test.describe("authenticated builder", () => {
 			),
 		]);
 		expect(menuBox).not.toBeNull();
-		expect(openMenuBox).not.toBeNull();
 		expect(phoneBox).not.toBeNull();
-		if (menuBox === null || openMenuBox === null || phoneBox === null) return;
+		if (menuBox === null || phoneBox === null) return;
+		await expect(menuPositioner).toHaveAttribute("data-side", "top");
 		expect(Math.abs(menuBox.x - openMenuBox.x)).toBeLessThanOrEqual(8);
-		expect(Math.abs(menuBox.y - openMenuBox.y)).toBeLessThanOrEqual(8);
+		expect(
+			Math.abs(triggerBox.y - (menuBox.y + menuBox.height) - openAnchorGap),
+		).toBeLessThanOrEqual(8);
 		expect(phoneBox.x - menuBox.x).toBeGreaterThanOrEqual(4);
 		expect(phoneRadius).toBeGreaterThanOrEqual(8);
+		await informationSearch.fill("nothing-can-match-this-property");
+		const emptyStatus = menu.getByRole("status");
+		await expect(emptyStatus).toBeVisible();
+		await expect(emptyStatus).toHaveText("No matching information");
+		await expect(
+			menu.getByText("Try another word, or browse everything again."),
+		).toBeVisible();
+		const [emptyMenuBox, emptyStateBox, emptyScrollMetrics] = await Promise.all(
+			[
+				menu.boundingBox(),
+				menu.locator("[data-add-information-empty]").boundingBox(),
+				menu
+					.locator("[data-add-information-scroll-region]")
+					.evaluate((element) => ({
+						clientHeight: element.clientHeight,
+						scrollHeight: element.scrollHeight,
+					})),
+			],
+		);
+		expect(emptyMenuBox).not.toBeNull();
+		expect(emptyStateBox).not.toBeNull();
+		if (emptyMenuBox === null || emptyStateBox === null) return;
+		await expect(menuPositioner).toHaveAttribute("data-side", "top");
+		expect(
+			Math.abs(
+				triggerBox.y - (emptyMenuBox.y + emptyMenuBox.height) - openAnchorGap,
+			),
+		).toBeLessThanOrEqual(8);
+		expect(emptyMenuBox.y).toBeGreaterThanOrEqual(4);
+		expect(emptyStateBox.height).toBeGreaterThanOrEqual(96);
+		expect(emptyScrollMetrics.scrollHeight).toBeLessThanOrEqual(
+			emptyScrollMetrics.clientHeight + 1,
+		);
+		const clearSearch = menu.getByRole("button", { name: "Clear search" });
+		const clearSearchBox = await clearSearch.boundingBox();
+		expect(clearSearchBox).not.toBeNull();
+		if (clearSearchBox === null) return;
+		expect(clearSearchBox.height).toBeGreaterThanOrEqual(44);
+		await clearSearch.click();
+		await expect(informationSearch).toHaveValue("");
+		await expect(informationSearch).toBeFocused();
+		await expect(menu.getByText("Common information")).toBeVisible();
 		await informationSearch.press("Escape");
 		await expect(informationSearch).toHaveCount(0);
+		await expect(addInformation).toBeFocused();
+
+		// The same picker keeps its conventional below-trigger placement when
+		// there is enough room; the edge fix must not make every opening jump up.
+		await page.setViewportSize({ width: 1280, height: 720 });
+		await addInformation.click();
+		await expect(informationSearch).toBeVisible();
+		await expect(menuPositioner).toHaveAttribute("data-side", "bottom");
+		const [roomyMenuBox, roomyTriggerBox] = await Promise.all([
+			menu.boundingBox(),
+			addInformation.boundingBox(),
+		]);
+		expect(roomyMenuBox).not.toBeNull();
+		expect(roomyTriggerBox).not.toBeNull();
+		if (roomyMenuBox === null || roomyTriggerBox === null) return;
+		expect(roomyMenuBox.y).toBeGreaterThanOrEqual(
+			roomyTriggerBox.y + roomyTriggerBox.height + 4,
+		);
+		expect(roomyMenuBox.y + roomyMenuBox.height).toBeLessThanOrEqual(716);
+		await informationSearch.press("Escape");
 		await expect(addInformation).toBeFocused();
 
 		await page.getByRole("button", { name: /^Case data for / }).click();

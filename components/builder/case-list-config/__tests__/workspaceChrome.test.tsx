@@ -358,6 +358,43 @@ describe("case workspace chrome", () => {
 		expect(onCreateCalculated).toHaveBeenCalledTimes(1);
 	});
 
+	it("turns an empty information search into a clear recovery path", () => {
+		render(
+			<AddInformationControl
+				surface="detail"
+				columns={[]}
+				properties={[DOB_PROPERTY]}
+				repeatableProperties={[]}
+				brokenColumns={new Set()}
+				onShow={() => {}}
+				onRepair={() => {}}
+				onCreate={() => {}}
+				onCreateCalculated={() => {}}
+				createDisabledReason={undefined}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Add information" }));
+		const search = screen.getByRole("searchbox", {
+			name: "Search case information",
+		});
+		fireEvent.change(search, { target: { value: "nothing matches" } });
+
+		expect(screen.getByRole("status").textContent).toBe(
+			"No matching information",
+		);
+		expect(
+			screen.getByText("Try another word, or browse everything again."),
+		).toBeDefined();
+		fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+
+		expect((search as HTMLInputElement).value).toBe("");
+		expect(document.activeElement).toBe(search);
+		expect(
+			screen.getByRole("button", { name: /date of birth.*date/i }),
+		).toBeDefined();
+	});
+
 	it("offers a deliberate second-view path without duplicating represented fields in the primary list", () => {
 		const onCreate = vi.fn();
 		render(
