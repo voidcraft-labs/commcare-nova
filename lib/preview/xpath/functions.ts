@@ -4,6 +4,10 @@ import { XPathDate } from "./types";
 
 type XPathFn = (args: XPathValue[]) => XPathValue;
 
+export type XPathFunctionInvocation =
+	| { readonly kind: "handled"; readonly value: XPathValue }
+	| { readonly kind: "unsupported" };
+
 /** Registry of supported XPath/CommCare functions. */
 const registry = new Map<string, XPathFn>();
 
@@ -11,8 +15,23 @@ function register(name: string, fn: XPathFn) {
 	registry.set(name, fn);
 }
 
-export function getFunction(name: string): XPathFn | undefined {
-	return registry.get(name);
+/**
+ * Invoke only a function registered by this module.
+ *
+ * XPath text is user-authored, so the parsed function name is untrusted. Keep
+ * the membership and callable checks adjacent to invocation: an unknown name
+ * (including an Object prototype method) can never become a dynamic call.
+ */
+export function invokeFunction(
+	name: string,
+	args: XPathValue[],
+): XPathFunctionInvocation {
+	if (!registry.has(name)) return { kind: "unsupported" };
+
+	const fn = registry.get(name);
+	if (typeof fn !== "function") return { kind: "unsupported" };
+
+	return { kind: "handled", value: fn(args) };
 }
 
 // ── Boolean / Logic ──────────────────────────────────────────────────

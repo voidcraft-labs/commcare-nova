@@ -8,7 +8,7 @@ import {
 	toBoolean,
 	toNumber,
 } from "./coerce";
-import { getFunction } from "./functions";
+import { invokeFunction } from "./functions";
 import type { EvalContext, XPathValue } from "./types";
 
 // Pre-resolve all node types from the parser — zero string comparisons at runtime
@@ -342,8 +342,8 @@ function evalInvoke(
 	if (fnName === "position") return ctx.position;
 	if (fnName === "last") return ctx.size;
 
-	const fn = getFunction(fnName);
-	if (fn) return fn(args);
+	const invocation = invokeFunction(fnName, args);
+	if (invocation.kind === "handled") return invocation.value;
 
 	// Unknown function — return empty string
 	return "";

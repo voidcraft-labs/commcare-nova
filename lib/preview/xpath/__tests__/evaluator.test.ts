@@ -255,6 +255,12 @@ describe("XPath evaluator", () => {
 				"hello world",
 			);
 		});
+
+		it("does not dispatch unknown or prototype method names", () => {
+			expect(evaluate("unknownFunction()", makeCtx())).toBe("");
+			expect(evaluate("valueOf()", makeCtx())).toBe("");
+			expect(evaluate("hasOwnProperty()", makeCtx())).toBe("");
+		});
 	});
 
 	describe("date arithmetic", () => {
