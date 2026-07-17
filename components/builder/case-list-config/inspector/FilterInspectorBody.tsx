@@ -2,8 +2,7 @@
 //
 // Properties for the case-list filter — what the canvas's filter
 // affordance selects. The structural predicate editor lives here; the
-// canvas shows the filter only as a human-language phrase and a live
-// table that re-narrows as conditions change.
+// canvas keeps the filter as one human-language summary row.
 //
 // The inspector panel's own header already names this surface
 // ("Filter"), so the body carries NO section header of its own — one
@@ -11,11 +10,11 @@
 // background. Boxing the editor again or re-titling it duplicates
 // chrome the user just read.
 //
-// A match count rides beneath the editor (the canvas shows
-// the matching rows themselves, so the count is the one piece of
-// feedback that needs its own query — `loadFilterPreviewAction`
-// returns the total matching count, not just the sampled rows). It
-// renders as a plain sentence — a count is useful feedback, not console state.
+// A match count rides beneath the editor so authors get immediate scope
+// feedback without turning edit mode into a one-record data preview.
+// `loadFilterPreviewAction` returns the total matching count; its row sample
+// is intentionally ignored here. The count renders as a plain sentence —
+// useful feedback, not console state.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -49,8 +48,7 @@ import { pickBlueprintDoc } from "@/lib/preview/engine/caseDataBindingClient";
 
 export interface FilterInspectorBodyProps {
 	/** Full case-list config — the filter editor mutates the `filter`
-	 *  slot; the match-count query reads the whole config so sort /
-	 *  calculated projections stay consistent with the canvas. */
+	 *  slot; the match-count query uses its condition and property context. */
 	readonly config: CaseListConfig;
 	readonly onChange: (next: CaseListConfig) => void;
 	/** Atomic filter-clear + automatic-search shutdown owned by the workspace. */
@@ -242,10 +240,10 @@ function MatchCount({
 				if (result.kind === "rows") {
 					setState({ kind: "count", matching: result.totalCount });
 				} else {
-					// Every non-rows arm (no cases yet, schema syncing,
-					// auth) degrades to "no count" — the editor stays
-					// fully usable; the canvas table carries the
-					// user-facing explanation for those states.
+					// Every non-rows arm (no cases yet, schema syncing, auth)
+					// degrades to "no count". The editor stays fully usable and
+					// Results continues to show the authored summary or its
+					// findable Needs attention state.
 					setState({ kind: "unavailable" });
 				}
 			})

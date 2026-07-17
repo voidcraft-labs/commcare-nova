@@ -29,9 +29,7 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { Column } from "@/lib/domain";
-import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import { useCanEdit } from "@/lib/session/hooks";
-import { renderColumnCell } from "../columnCellRenderer";
 import { columnLabel } from "./ColumnInventory";
 import { AddGhostButton } from "./canvasChrome";
 
@@ -40,7 +38,6 @@ export type DisplaySurface = "list" | "detail";
 export interface DisplayFieldComposerProps {
 	readonly columns: readonly Column[];
 	readonly surface: DisplaySurface;
-	readonly sampleRow: CaseRowWithCalculated | undefined;
 	readonly selectedUuid: string | null;
 	readonly brokenColumns: ReadonlySet<string>;
 	readonly onSelect: (column: Column) => void;
@@ -50,7 +47,6 @@ export interface DisplayFieldComposerProps {
 export function DisplayFieldComposer({
 	columns,
 	surface,
-	sampleRow,
 	selectedUuid,
 	brokenColumns,
 	onSelect,
@@ -143,7 +139,6 @@ export function DisplayFieldComposer({
 							<FieldRow
 								column={column}
 								surface={surface}
-								sampleRow={sampleRow}
 								selected={selectedUuid === column.uuid}
 								broken={brokenColumns.has(column.uuid)}
 								canEdit={canEdit}
@@ -165,7 +160,6 @@ export function DisplayFieldComposer({
 function FieldRow({
 	column,
 	surface,
-	sampleRow,
 	selected,
 	broken,
 	canEdit,
@@ -177,7 +171,6 @@ function FieldRow({
 }: {
 	readonly column: Column;
 	readonly surface: DisplaySurface;
-	readonly sampleRow: CaseRowWithCalculated | undefined;
 	readonly selected: boolean;
 	readonly broken: boolean;
 	readonly canEdit: boolean;
@@ -189,14 +182,10 @@ function FieldRow({
 }) {
 	const label = columnLabel(column);
 	const screenName = surface === "list" ? "results" : "details";
-	const sample =
-		sampleRow === undefined
-			? "Example value"
-			: renderColumnCell(column, sampleRow);
 
 	return (
 		<div
-			className={`group/field flex min-h-[72px] items-stretch overflow-hidden rounded-xl border transition-colors ${
+			className={`group/field flex min-h-16 items-stretch overflow-hidden rounded-xl border transition-colors ${
 				selected
 					? "border-nova-violet bg-nova-violet/[0.08] shadow-[0_0_0_1px_color-mix(in_oklab,var(--nova-violet),transparent_55%)]"
 					: broken
@@ -237,11 +226,11 @@ function FieldRow({
 				onClick={onSelect}
 				disabled={!canEdit}
 				aria-pressed={selected}
-				className="grid min-w-0 flex-1 cursor-pointer grid-cols-1 items-center gap-1 px-3 py-3 text-left disabled:cursor-default @min-[34rem]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] @min-[34rem]:gap-5"
+				className="flex min-w-0 flex-1 cursor-pointer items-center px-4 py-3 text-left disabled:cursor-default"
 			>
-				<span className="min-w-0">
+				<span className="min-w-0 flex-1">
 					<span className="flex items-center gap-2">
-						<span className="truncate text-[13px] font-semibold text-nova-text">
+						<span className="truncate text-[14px] font-semibold text-nova-text">
 							{label}
 						</span>
 						{broken && (
@@ -251,15 +240,6 @@ function FieldRow({
 							</span>
 						)}
 					</span>
-				</span>
-				<span
-					className={`min-w-0 break-words text-[13px] leading-relaxed ${
-						sampleRow === undefined
-							? "text-nova-text-muted"
-							: "text-nova-text-secondary"
-					}`}
-				>
-					{sample}
 				</span>
 			</button>
 		</div>
@@ -291,9 +271,6 @@ export function AddInformationControl({
 }) {
 	const canEdit = useCanEdit();
 	const [query, setQuery] = useState("");
-	const hasBrokenRecovery = columns.some((column) =>
-		brokenColumns.has(column.uuid),
-	);
 	const filteredColumns = useMemo(() => {
 		const normalized = query.trim().toLocaleLowerCase();
 		if (normalized === "") return columns;
@@ -319,22 +296,12 @@ export function AddInformationControl({
 		<DropdownMenu onOpenChange={(open) => !open && setQuery("")}>
 			<DropdownMenuTrigger
 				type="button"
-				aria-label={
-					hasBrokenRecovery
-						? "Add information, one existing item needs attention"
-						: "Add information"
-				}
+				aria-label="Add information"
 				data-case-add={surface}
 				className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-nova-border-bright px-4 text-[13px] text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.06]"
 			>
 				<Icon icon={tablerPlus} width="14" height="14" />
 				<span>Add information</span>
-				{hasBrokenRecovery && (
-					<span
-						className="size-1.5 rounded-full bg-nova-rose"
-						aria-hidden="true"
-					/>
-				)}
 				<Icon icon={tablerChevronDown} width="14" height="14" />
 			</DropdownMenuTrigger>
 			<DropdownMenuContent

@@ -94,6 +94,12 @@ describe("CaseOrderingComposer", () => {
 			<ControlledComposer initial={[NAME, DOB, AGE]} onChange={onChange} />,
 		);
 
+		expect(
+			screen.queryByRole("button", { name: "Add another way to sort cases" }),
+		).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change default order" }),
+		);
 		fireEvent.click(
 			screen.getByRole("button", { name: "Add another way to sort cases" }),
 		);
@@ -137,6 +143,37 @@ describe("CaseOrderingComposer", () => {
 		await settleMenuAnimation();
 	});
 
+	it("opens and closes the first-use order editor from its summary", () => {
+		render(
+			<CaseOrderingComposer
+				value={[DOB]}
+				caseType={PATIENT}
+				onChange={() => {}}
+			/>,
+		);
+
+		expect(
+			screen.queryByRole("button", { name: "Add another way to sort cases" }),
+		).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Set default order" }));
+		expect(
+			screen.getByRole("button", { name: "Finish editing default order" }),
+		).toBeDefined();
+		expect(
+			screen.getByText(/choose what should decide which cases appear first/i),
+		).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: "Add another way to sort cases" }),
+		).toBeDefined();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Finish editing default order" }),
+		);
+		expect(
+			screen.queryByText(/choose what should decide which cases appear first/i),
+		).toBeNull();
+	});
+
 	it("uses First and Then copy and announces keyboard reordering", () => {
 		const onChange = vi.fn();
 		const dateSorted: Column = {
@@ -150,6 +187,9 @@ describe("CaseOrderingComposer", () => {
 			/>,
 		);
 
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change default order" }),
+		);
 		expect(screen.getByText("First")).toBeDefined();
 		expect(screen.getAllByText("Then")).toHaveLength(2);
 		expect(screen.getByText("A to Z")).toBeDefined();
@@ -224,6 +264,9 @@ describe("CaseOrderingComposer", () => {
 			/>,
 		);
 
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change default order" }),
+		);
 		expect(screen.getByText("Lowest first")).toBeDefined();
 		expect(screen.getByText("Latest first")).toBeDefined();
 		expect(screen.queryByText("A to Z")).toBeNull();
@@ -258,6 +301,9 @@ describe("CaseOrderingComposer", () => {
 			/>,
 		);
 
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change default order" }),
+		);
 		expect(screen.getByText("Case name")).toBeDefined();
 		expect(screen.getByText("External ID")).toBeDefined();
 		expect(screen.getByText("Date opened")).toBeDefined();
@@ -285,18 +331,62 @@ describe("CaseOrderingComposer", () => {
 		).toEqual([firstInResults.uuid, laterInResults.uuid]);
 	});
 
-	it("shows the ordering without edit affordances to viewers", () => {
-		session.canEdit = false;
+	it("keeps a complex default order scannable until the author opens it", () => {
+		const extras = [
+			column("201", "one", "First extra", "d", {
+				direction: "asc",
+				priority: 2,
+			}),
+			column("202", "two", "Second extra", "e", {
+				direction: "asc",
+				priority: 3,
+			}),
+			column("203", "three", "Third extra", "f", {
+				direction: "asc",
+				priority: 4,
+			}),
+		];
+
 		render(
 			<CaseOrderingComposer
-				value={[NAME, DOB, AGE]}
+				value={[NAME, AGE, ...extras]}
+				caseType={PATIENT}
+				onChange={() => {}}
+			/>,
+		);
+
+		expect(screen.getByText(/and 3 more\./)).toBeDefined();
+		expect(screen.queryByText("First extra")).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: /reorder first extra/i }),
+		).toBeNull();
+	});
+
+	it("shows the ordering without edit affordances to viewers", () => {
+		session.canEdit = false;
+		const viewerDate: Column = {
+			...DOB,
+			sort: { direction: "asc", priority: 2 },
+		};
+		render(
+			<CaseOrderingComposer
+				value={[NAME, AGE, viewerDate]}
 				caseType={PATIENT}
 				onChange={() => {}}
 			/>,
 		);
 
 		expect(screen.getByText("Default order")).toBeDefined();
-		expect(screen.getByText("A to Z")).toBeDefined();
+		expect(screen.getByText(/Patient name, A to Z/)).toBeDefined();
+		expect(screen.getByText(/then Age, Highest first/)).toBeDefined();
+		fireEvent.click(
+			screen.getByRole("button", { name: "View full default order" }),
+		);
+		expect(screen.getByText("Date of birth")).toBeDefined();
+		expect(screen.getByText("Earliest first")).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: "Close default order details" }),
+		).toBeDefined();
 		expect(
 			screen.queryByRole("button", {
 				name: "Add another way to sort cases",

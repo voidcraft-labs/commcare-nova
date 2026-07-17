@@ -26,7 +26,20 @@ interface SeedManifest {
 	olderThreadId: string;
 	olderThreadUserText: string;
 	olderThreadAssistantText: string;
+	caseWorkspace: {
+		routes: {
+			results: string;
+		};
+	};
 }
+
+type SecondaryHeaderName =
+	| "breadcrumb"
+	| "structure"
+	| "structure-rail"
+	| "chat"
+	| "chat-rail"
+	| "inspector";
 
 async function bottomGap(page: Page): Promise<number> {
 	return page
@@ -34,6 +47,64 @@ async function bottomGap(page: Page): Promise<number> {
 		.evaluate((el) =>
 			Math.abs(el.scrollHeight - el.clientHeight - el.scrollTop),
 		);
+}
+
+async function expectSecondaryHeadersAligned(
+	page: Page,
+	names: readonly SecondaryHeaderName[],
+): Promise<void> {
+	const bands = names.map((name) =>
+		page.locator(`[data-builder-secondary-header="${name}"]`),
+	);
+	for (const band of bands) {
+		await expect(band).toBeInViewport({ ratio: 0.9 });
+	}
+
+	// Sidebar transitions briefly produce intermediate geometry. Poll the real
+	// rendered boxes so this catches a stable mismatch without racing animation.
+	await expect
+		.poll(async () => {
+			const boxes = await Promise.all(bands.map((band) => band.boundingBox()));
+			if (boxes.some((box) => box === null)) return Number.POSITIVE_INFINITY;
+			const presentBoxes = boxes.filter((box) => box !== null);
+			const heights = presentBoxes.map((box) => box.height);
+			const bottoms = presentBoxes.map((box) => box.y + box.height);
+			return Math.max(
+				...heights.map((height) => Math.abs(height - 64)),
+				Math.max(...bottoms) - Math.min(...bottoms),
+			);
+		})
+		.toBeLessThanOrEqual(1);
+}
+
+async function expectCaseDataClearance(page: Page): Promise<void> {
+	const header = page.locator('[data-builder-secondary-header="breadcrumb"]');
+	const caseData = page.getByRole("button", { name: /^Case data,/ });
+	await expect(caseData).toBeInViewport({ ratio: 0.9 });
+
+	const geometry = async () => {
+		const [headerBox, buttonBox] = await Promise.all([
+			header.boundingBox(),
+			caseData.boundingBox(),
+		]);
+		if (headerBox === null || buttonBox === null) {
+			return { smallestGap: 0, asymmetry: Number.POSITIVE_INFINITY };
+		}
+		const topGap = buttonBox.y - headerBox.y;
+		const bottomGap =
+			headerBox.y + headerBox.height - (buttonBox.y + buttonBox.height);
+		return {
+			smallestGap: Math.min(topGap, bottomGap),
+			asymmetry: Math.abs(topGap - bottomGap),
+		};
+	};
+
+	await expect
+		.poll(async () => (await geometry()).smallestGap)
+		.toBeGreaterThanOrEqual(8);
+	await expect
+		.poll(async () => (await geometry()).asymmetry)
+		.toBeLessThanOrEqual(1);
 }
 
 // Loaded in beforeAll, NOT at module scope: Playwright imports every spec to
@@ -84,6 +155,72 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.getByRole("button", { name: "Sign in with Google" }),
 		).toHaveCount(0);
+	});
+
+	test("builder secondary headers stay aligned through sidebar and inspector states", async ({
+		page,
+	}) => {
+		await page.goto(seed.caseWorkspace.routes.results);
+		await expect(
+			page.getByRole("heading", { name: "Results", level: 1 }),
+		).toBeVisible({ timeout: 20_000 });
+
+		await test.step("wide editor keeps every open header aligned", async () => {
+			await expectSecondaryHeadersAligned(page, [
+				"structure",
+				"breadcrumb",
+				"chat",
+			]);
+			await expectCaseDataClearance(page);
+		});
+
+		await test.step("compact editor preserves the open-sidebar header contract", async () => {
+			await page.setViewportSize({ width: 1024, height: 768 });
+			await expectSecondaryHeadersAligned(page, [
+				"structure",
+				"breadcrumb",
+				"chat",
+			]);
+			await expectCaseDataClearance(page);
+		});
+
+		await test.step("collapsed rails use the same header band", async () => {
+			await page
+				.getByRole("button", { name: "Collapse structure sidebar" })
+				.click();
+			await page.getByRole("button", { name: "Collapse chat sidebar" }).click();
+			await expect(
+				page.getByRole("button", { name: "Expand structure sidebar" }),
+			).toBeInViewport({ ratio: 0.9 });
+			await expect(
+				page.getByRole("button", { name: "Expand chat sidebar" }),
+			).toBeInViewport({ ratio: 0.9 });
+			await expectSecondaryHeadersAligned(page, [
+				"structure-rail",
+				"breadcrumb",
+				"chat-rail",
+			]);
+			await expectCaseDataClearance(page);
+		});
+
+		await test.step("field inspector joins the shared header band", async () => {
+			await page
+				.getByRole("button", { name: "Expand structure sidebar" })
+				.click();
+			await page
+				.getByRole("region", { name: "Information shown" })
+				.getByRole("button", { name: "Patient ID", exact: true })
+				.click();
+			await expect(
+				page.getByRole("button", { name: "Close inspector" }),
+			).toBeInViewport({ ratio: 0.9 });
+			await expectSecondaryHeadersAligned(page, [
+				"structure",
+				"breadcrumb",
+				"inspector",
+			]);
+			await expectCaseDataClearance(page);
+		});
 	});
 
 	test("/build/new renders the new-app builder (no LLM)", async ({ page }) => {

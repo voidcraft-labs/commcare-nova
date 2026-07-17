@@ -22,8 +22,8 @@
 // projections + mappers reach here.
 //
 // Typed-error mappers live here too: `mapPopulateSampleCasesError`,
-// `mapCaseListPreviewError`, `mapFilterPreviewError`, and
-// `mapSubmitFormError` only inspect typed-error classes via
+// `mapFilterPreviewError`, and `mapSubmitFormError` only inspect
+// typed-error classes via
 // `instanceof` — no runtime dependency on the case-store's I/O
 // surface — so they're safe to ship to the client. The error
 // classes are pulled directly from `@/lib/case-store/errors` (the
@@ -49,7 +49,6 @@ import type {
 	CaseRow,
 	CaseRowWithCalculated,
 	JsonValue,
-	LoadCaseListPreviewResult,
 	LoadFilterPreviewResult,
 	PopulateSampleCasesResult,
 	SubmissionResult,
@@ -346,37 +345,10 @@ export function mapPopulateSampleCasesError(
 }
 
 /**
- * Map errors from `readCaseListPreview` to typed result arms. The
- * three typed errors get dedicated arms so the live-preview client
- * surface can re-resolve / await the sync rather than render an
- * undifferentiated error message. Generic Errors fall through to
- * the `error` arm.
- */
-export function mapCaseListPreviewError(
-	err: unknown,
-): LoadCaseListPreviewResult {
-	if (err instanceof CaseTypeNotInBlueprintError) {
-		return { kind: "missing-case-type", caseType: err.caseType };
-	}
-	if (err instanceof SchemaNotSyncedError) {
-		return { kind: "schema-not-synced", caseType: err.caseType };
-	}
-	return {
-		kind: "error",
-		message: err instanceof Error ? err.message : "Failed to load preview.",
-	};
-}
-
-/**
  * Map errors from `readFilterPreview` to typed `LoadFilterPreviewResult`
- * arms. `LoadFilterPreviewResult`'s error arms are a strict subset
- * of `LoadCaseListPreviewResult`'s (the only difference is the
- * paired `totalCount` on the success arms), so the mapping shape
- * is identical to `mapCaseListPreviewError` modulo the result
- * type. A separate function keeps the typed-result inference
- * tight at the call site — narrowing the union via a single
- * function with a polymorphic return would force the caller to
- * re-narrow.
+ * arms. The typed case-store errors get dedicated arms so the filter
+ * inspector can re-resolve or await schema sync instead of rendering an
+ * undifferentiated error message. Generic errors fall through to `error`.
  */
 export function mapFilterPreviewError(err: unknown): LoadFilterPreviewResult {
 	if (err instanceof CaseTypeNotInBlueprintError) {

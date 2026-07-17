@@ -180,7 +180,7 @@ Any future query change must keep the corpus green; that IS the definition of co
   hook is NEW work in this PR** — a monotonic stamp bumped inside the store's write
   methods / the submission transaction. (PR-04 deliberately shipped per-render evaluation
   with manual reload and no counter; do not go looking for an existing seam.)
-- **Application:** `readCases` / `readCaseListPreview` and the menu/display-condition
+- **Application:** `readCases` / `readFilterPreview` and the menu/display-condition
   residues gain a scope filter (`case_id ∈ scope`) when a persona is active. **Case search
   stays global** (search crosses ownership by design — ACA §2.4). No persona selected ⇒
   author-omniscient mode: today's unscoped behavior, explicitly labeled (PR-12 renders the

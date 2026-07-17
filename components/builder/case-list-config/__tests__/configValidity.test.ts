@@ -53,7 +53,7 @@ describe("caseListConfigVerdicts", () => {
 		const v = verdicts({});
 		expect(v.errorAreas).toEqual(CLEAN);
 		expect(v.brokenColumns.size).toBe(0);
-		expect(v.previewObstacle).toBeNull();
+		expect(v.filterBroken).toBe(false);
 	});
 
 	it("reports well-typed columns, filter, and inputs clean", () => {
@@ -78,10 +78,10 @@ describe("caseListConfigVerdicts", () => {
 			],
 		});
 		expect(v.errorAreas).toEqual(CLEAN);
-		expect(v.previewObstacle).toBeNull();
+		expect(v.filterBroken).toBe(false);
 	});
 
-	it("marks a kind-vs-property mismatch (date column on a DECLARED text property) without pausing the preview", () => {
+	it("marks a kind-vs-property mismatch on every screen that shows it", () => {
 		const v = verdicts({
 			columns: [dateColumn(asUuid("c1"), "name", "Name", "%d/%m/%Y")],
 		});
@@ -89,9 +89,6 @@ describe("caseListConfigVerdicts", () => {
 		expect(v.brokenColumns.has(asUuid("c1"))).toBe(true);
 		expect(v.errorAreas.list).toBe(true);
 		expect(v.errorAreas.detail).toBe(true);
-		// …but the live rows keep running: an applicability mismatch is a
-		// formatting concern, not an AST the SQL compiler would choke on.
-		expect(v.previewObstacle).toBeNull();
 	});
 
 	it("badges only Details for a broken Details-only field", () => {
@@ -137,7 +134,7 @@ describe("caseListConfigVerdicts", () => {
 		expect(v.brokenColumns.size).toBe(0);
 	});
 
-	it("pauses the preview for a calculated column whose expression fails its type check, naming it", () => {
+	it("marks a calculated column whose expression fails its type check", () => {
 		const v = verdicts({
 			columns: [
 				// References a property that doesn't exist on the case type.
@@ -149,8 +146,8 @@ describe("caseListConfigVerdicts", () => {
 			],
 		});
 		expect(v.brokenColumns.has(asUuid("c1"))).toBe(true);
-		expect(v.previewObstacle).toContain('the calculated column "Calc"');
-		expect(v.previewObstacle).toContain("has an error");
+		expect(v.errorAreas.list).toBe(true);
+		expect(v.errorAreas.detail).toBe(true);
 	});
 
 	it("ignores an unconsumed legacy hidden calculation until it is added back", () => {
@@ -167,10 +164,9 @@ describe("caseListConfigVerdicts", () => {
 
 		expect(v.errorAreas).toEqual(CLEAN);
 		expect(v.brokenColumns.size).toBe(0);
-		expect(v.previewObstacle).toBeNull();
 	});
 
-	it("pauses the preview for a filter that references an unknown property", () => {
+	it("marks Cases included when its filter references an unknown property", () => {
 		const v = verdicts({
 			filter: {
 				kind: "eq",
@@ -179,10 +175,10 @@ describe("caseListConfigVerdicts", () => {
 			},
 		});
 		expect(v.errorAreas.list).toBe(true);
-		expect(v.previewObstacle).toContain("the filter has an error");
+		expect(v.filterBroken).toBe(true);
 	});
 
-	it("pluralizes the obstacle across the filter and several calculated columns", () => {
+	it("reports the filter and several calculated columns independently", () => {
 		const v = verdicts({
 			columns: [
 				calculatedColumn(
@@ -202,12 +198,11 @@ describe("caseListConfigVerdicts", () => {
 				right: term(literal("x")),
 			},
 		});
-		expect(v.previewObstacle).toContain(
-			"the filter and 2 calculated columns have errors",
-		);
+		expect(v.filterBroken).toBe(true);
+		expect(v.brokenColumns).toEqual(new Set([asUuid("c1"), asUuid("c2")]));
 	});
 
-	it("flags structural search-input errors on the search tab only, without pausing", () => {
+	it("flags structural search-input errors on the search tab only", () => {
 		const v = verdicts({
 			searchInputs: [
 				simpleSearchInputDef(asUuid("s1"), "a", "", "text", "name"),
@@ -216,7 +211,6 @@ describe("caseListConfigVerdicts", () => {
 		});
 		expect(v.errorAreas.search).toBe(true);
 		expect(v.errorAreas.list).toBe(false);
-		expect(v.previewObstacle).toBeNull();
 	});
 
 	it("accepts an advanced input whose condition references its own input", () => {
@@ -241,6 +235,6 @@ describe("caseListConfigVerdicts", () => {
 	it("accepts a match-all filter (the empty-filter seed)", () => {
 		const v = verdicts({ filter: matchAll() });
 		expect(v.errorAreas).toEqual(CLEAN);
-		expect(v.previewObstacle).toBeNull();
+		expect(v.filterBroken).toBe(false);
 	});
 });

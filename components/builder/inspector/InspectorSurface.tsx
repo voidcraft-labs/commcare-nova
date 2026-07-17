@@ -71,7 +71,10 @@ export function InspectorSurface({
 
 	return createPortal(
 		<div className="flex-1 min-h-0 flex flex-col">
-			<div className="flex items-center gap-3 px-4 pt-3 pb-2.5 border-b border-nova-border shrink-0">
+			<div
+				className="flex h-16 shrink-0 items-center gap-3 border-b border-nova-border px-4"
+				data-builder-secondary-header="inspector"
+			>
 				<div className="min-w-0 flex-1">
 					<div className="mb-1 truncate text-[12px] font-medium leading-4 text-nova-text-secondary">
 						{kicker}

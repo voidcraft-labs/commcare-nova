@@ -1,25 +1,25 @@
 // components/builder/case-list-config/canvas/CaseListCanvas.tsx
 //
-// Results is a direct-manipulation composition surface. The author drags the
-// same spacious rows a worker will scan, while the selected row's formatting
-// stays in the properties rail. No table geometry, wire names, positional
-// badges, or hidden columns leak into the experience.
+// Results is a direct-manipulation composition surface. The author drags one
+// calm label-first row per information item, while actual case values stay in
+// the global Preview and the selected row's formatting stays in the properties
+// rail. No table geometry, wire names, positional badges, or hidden columns
+// leak into the experience.
 
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerAdjustmentsHorizontal from "@iconify-icons/tabler/adjustments-horizontal";
+import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerFilter from "@iconify-icons/tabler/filter";
-import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import type { CaseListConfig, CaseType, Column } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
-import { summarizeFilter } from "../predicateSummary";
+import { humanizeName, summarizeFilter } from "../predicateSummary";
 import { CaseOrderingComposer } from "../SortPriorityStack";
-import type { CaseListPreviewState } from "../useCaseListPreview";
 import { projectCaseWorkspaceColumns } from "../workspaceProjection";
 import type { WorkspaceSelection } from "../workspaceSelection";
-import { CanvasNotice, previewNotice } from "./canvasChrome";
+import { CanvasNotice } from "./canvasChrome";
 import {
 	AddInformationControl,
 	DisplayFieldComposer,
@@ -30,7 +30,7 @@ export interface CaseListCanvasProps {
 	readonly caseType: CaseType | undefined;
 	readonly caseTypes?: readonly CaseType[];
 	readonly brokenColumns: ReadonlySet<string>;
-	readonly preview: CaseListPreviewState;
+	readonly filterBroken: boolean;
 	readonly selection: WorkspaceSelection | null;
 	readonly onSelect: (next: WorkspaceSelection) => void;
 	readonly onAddColumn: () => void;
@@ -41,7 +41,6 @@ export interface CaseListCanvasProps {
 	readonly onRepairColumn: (column: Column) => void;
 	readonly onOpenOptions: () => void;
 	readonly showMenuAppearance?: boolean;
-	readonly refreshing?: boolean;
 }
 
 export function CaseListCanvas({
@@ -49,7 +48,7 @@ export function CaseListCanvas({
 	caseType,
 	caseTypes,
 	brokenColumns,
-	preview,
+	filterBroken,
 	selection,
 	onSelect,
 	onAddColumn,
@@ -60,27 +59,27 @@ export function CaseListCanvas({
 	onRepairColumn,
 	onOpenOptions,
 	showMenuAppearance = false,
-	refreshing = false,
 }: CaseListCanvasProps) {
 	const canEdit = useCanEdit();
 	const projection = projectCaseWorkspaceColumns(config.columns);
 	const selectedColumnUuid =
 		selection?.type === "column" ? selection.uuid : null;
-	const sampleRow = preview.kind === "rows" ? preview.rows[0] : undefined;
 	const filterPhrase = summarizeFilter(config.filter);
 	const filterSelected = selection?.type === "filter";
+	const allCasesLabel = caseType
+		? `All ${humanizeName(caseType.name)} cases.`
+		: "All cases.";
 
 	return (
 		<ContentFrame width="3xl" className="px-6 pb-24 pt-8">
 			<div data-case-list-layout>
-				<header className="mb-7 flex flex-col gap-4 @xl:flex-row @xl:items-start">
+				<header className="mb-9 flex flex-col gap-4 @min-[22rem]:flex-row @min-[22rem]:items-start">
 					<div className="min-w-0 flex-1">
 						<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
-							Design the results
+							Results
 						</h1>
 						<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
-							Drag the information into the order people should scan it. Select
-							a row to change what it shows or how it looks.
+							Choose what people scan before opening a case.
 						</p>
 					</div>
 					{showMenuAppearance && (
@@ -95,44 +94,31 @@ export function CaseListCanvas({
 					)}
 				</header>
 
-				<div className="space-y-5">
-					<section
-						className="overflow-hidden rounded-2xl border border-white/[0.08] bg-nova-surface/25 p-3"
-						aria-labelledby="example-result-heading"
-					>
-						<div className="flex items-start gap-3 px-2 pb-3 pt-1">
-							<div className="min-w-0 flex-1">
-								<h2
-									id="example-result-heading"
-									className="font-display text-[16px] font-semibold text-nova-text"
-								>
-									Example result
-								</h2>
-								<p className="mt-1 text-[12px] leading-relaxed text-nova-text-muted">
-									This is the information people will scan before choosing a
-									case.
-								</p>
-							</div>
-							{refreshing && (
-								<Icon
-									icon={tablerLoader2}
-									width="14"
-									height="14"
-									className="mt-1 shrink-0 animate-spin text-nova-text-muted"
-									aria-label="Updating example"
-								/>
-							)}
+				<div className="space-y-10">
+					<section aria-labelledby="results-information-heading">
+						<div className="mb-4">
+							<h2
+								id="results-information-heading"
+								className="font-display text-[17px] font-semibold text-nova-text"
+							>
+								Information shown
+							</h2>
+							<p className="mt-1 text-[12px] leading-relaxed text-nova-text-muted">
+								Drag to set the reading order. Select a row to change its label
+								or appearance.
+							</p>
 						</div>
 
 						{projection.listVisible.length === 0 ? (
-							<CanvasNotice tone="muted">
-								Use Add information to build the first result.
-							</CanvasNotice>
+							<div className="overflow-hidden rounded-xl border border-dashed border-nova-border-bright">
+								<CanvasNotice tone="muted">
+									Add the information people need to recognize a case.
+								</CanvasNotice>
+							</div>
 						) : (
 							<DisplayFieldComposer
 								columns={projection.listVisible}
 								surface="list"
-								sampleRow={sampleRow}
 								selectedUuid={selectedColumnUuid}
 								brokenColumns={brokenColumns}
 								onSelect={(column) =>
@@ -155,68 +141,81 @@ export function CaseListCanvas({
 						</div>
 					</section>
 
-					<PreviewIssue preview={preview} />
-
-					<section
-						className={`flex min-h-14 flex-wrap items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors ${
-							filterSelected
-								? "border-nova-violet bg-nova-violet/[0.08]"
-								: "border-white/[0.06] bg-white/[0.018]"
-						}`}
-						aria-labelledby="included-cases-heading"
-					>
-						<span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.035] text-nova-text-muted">
-							<Icon icon={tablerFilter} width="16" height="16" />
-						</span>
-						<div className="min-w-0 flex-1">
+					<section aria-labelledby="results-behavior-heading">
+						<div className="mb-4">
 							<h2
-								id="included-cases-heading"
-								className="text-[13px] font-medium text-nova-text-secondary"
+								id="results-behavior-heading"
+								className="font-display text-[17px] font-semibold text-nova-text"
 							>
-								Who appears in results
+								How results are chosen
 							</h2>
-							<p className="mt-0.5 text-[12px] leading-relaxed text-nova-text-muted first-letter:uppercase">
-								{filterPhrase === undefined
-									? "Everyone in this case type."
-									: `Cases where ${filterPhrase}.`}
+							<p className="mt-1 text-[12px] leading-relaxed text-nova-text-muted">
+								Control which cases appear and what people see first.
 							</p>
 						</div>
-						{canEdit && (
-							<button
-								type="button"
-								onClick={() => onSelect({ type: "filter" })}
-								className="min-h-11 w-full shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
-							>
-								Change
-							</button>
-						)}
-					</section>
 
-					<CaseOrderingComposer
-						value={config.columns}
-						caseType={caseType}
-						caseTypes={caseTypes}
-						onChange={onColumnsChange}
-					/>
+						<div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-nova-surface/20">
+							<div
+								className={`flex min-h-[72px] flex-wrap items-center gap-3 px-4 py-3 transition-colors ${
+									filterSelected
+										? "bg-nova-violet/[0.08] shadow-[inset_3px_0_0_var(--nova-violet)]"
+										: filterBroken
+											? "bg-nova-rose/[0.035]"
+											: "hover:bg-white/[0.018]"
+								}`}
+							>
+								<span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.035] text-nova-text-muted">
+									<Icon icon={tablerFilter} width="16" height="16" />
+								</span>
+								<div className="min-w-0 flex-1">
+									<div className="flex flex-wrap items-center gap-2">
+										<h3
+											id="included-cases-heading"
+											className="text-[13px] font-semibold text-nova-text"
+										>
+											Cases included
+										</h3>
+										{filterBroken && (
+											<span className="inline-flex items-center gap-1 text-[11px] text-nova-rose">
+												<Icon icon={tablerAlertCircle} width="14" height="14" />
+												Needs attention
+											</span>
+										)}
+									</div>
+									<p className="mt-0.5 text-[12px] leading-relaxed text-nova-text-muted first-letter:uppercase">
+										{filterBroken
+											? "This rule needs a quick fix."
+											: filterPhrase === undefined
+												? allCasesLabel
+												: `Cases where ${filterPhrase}.`}
+									</p>
+								</div>
+								{canEdit && (
+									<button
+										type="button"
+										onClick={() => onSelect({ type: "filter" })}
+										aria-label={
+											filterBroken
+												? "Fix cases included"
+												: "Change cases included"
+										}
+										className="min-h-11 w-full shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+									>
+										{filterBroken ? "Fix" : "Change"}
+									</button>
+								)}
+							</div>
+
+							<CaseOrderingComposer
+								value={config.columns}
+								caseType={caseType}
+								caseTypes={caseTypes}
+								onChange={onColumnsChange}
+							/>
+						</div>
+					</section>
 				</div>
 			</div>
 		</ContentFrame>
-	);
-}
-
-function PreviewIssue({ preview }: { readonly preview: CaseListPreviewState }) {
-	if (
-		preview.kind === "rows" ||
-		preview.kind === "empty" ||
-		preview.kind === "idle" ||
-		preview.kind === "loading"
-	) {
-		return null;
-	}
-	const notice = previewNotice(preview);
-	return (
-		<div className="overflow-hidden rounded-xl border border-nova-border">
-			<CanvasNotice tone={notice.tone}>{notice.text}</CanvasNotice>
-		</div>
 	);
 }

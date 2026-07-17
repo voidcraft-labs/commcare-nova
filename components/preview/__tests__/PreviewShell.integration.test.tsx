@@ -84,11 +84,9 @@ vi.mock("@/lib/session/hooks", async () => {
 	};
 });
 
-// Stub the case-store Server Actions the workspace's live preview
-// fires on mount — a vitest render has no session or case store.
-// The empty arm exercises the canvas's no-data notice path.
+// The filter inspector imports the authoring query module even when closed, so
+// keep its action inert in this routing test.
 vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
-	loadCaseListPreviewAction: vi.fn(async () => ({ kind: "empty" as const })),
 	loadFilterPreviewAction: vi.fn(async () => ({ kind: "empty" as const })),
 }));
 
@@ -156,10 +154,6 @@ describe("PreviewShell — case-list-authoring integration", () => {
 			kind: "cases",
 			moduleUuid: MODULE_UUID,
 		};
-		// The real workspace fires `loadCaseListPreviewAction` (stubbed) in a
-		// mount effect; its resolution sets state after the synchronous
-		// render. Render inside `act(async)` so that settle happens in scope —
-		// otherwise React warns the update was not wrapped in act(...).
 		await act(async () => {
 			renderShell();
 		});
@@ -172,9 +166,7 @@ describe("PreviewShell — case-list-authoring integration", () => {
 		// global toggle lives in the subheader, outside PreviewShell)…
 		expect(screen.queryByRole("button", { name: /Preview/ })).toBeNull();
 		// …and the direct-composition Results canvas is active.
-		expect(
-			screen.getByRole("heading", { name: "Design the results" }),
-		).toBeDefined();
+		expect(screen.getByRole("heading", { name: "Results" })).toBeDefined();
 	});
 
 	it("the Details tab fires navigate.openDetailConfig", async () => {
@@ -183,8 +175,6 @@ describe("PreviewShell — case-list-authoring integration", () => {
 			moduleUuid: MODULE_UUID,
 		};
 		navigateMock.openDetailConfig.mockClear();
-		// Settle the mount-effect preview load inside act() before
-		// interacting — see the sibling test above.
 		await act(async () => {
 			renderShell();
 		});

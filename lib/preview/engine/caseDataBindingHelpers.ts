@@ -66,7 +66,6 @@ import { log } from "@/lib/logger";
 import type {
 	JsonObject,
 	LoadCaseDataResult,
-	LoadCaseListPreviewResult,
 	LoadCasesResult,
 	LoadFilterPreviewResult,
 	PopulateSampleCasesResult,
@@ -233,76 +232,8 @@ function composeQueryPredicate(
 }
 
 /**
- * Default row count for the case-list authoring surface's live
- * preview. The preview is a "what does my list look like?" check
- * — it doesn't need to render every row, but it does need enough
- * to communicate the case-list's authored shape (sort order,
- * filter narrowing, calculated-column values per row). 30 mirrors
- * `SAMPLE_CASE_DEFAULT_COUNT` from the sample-data populate path
- * so the two surfaces feel cohesive when the user populates and
- * then previews.
- */
-export const PREVIEW_CASE_DEFAULT_LIMIT = 30;
-
-/**
- * Read case-list authoring-surface live-preview rows for the bound
- * tenant. Threads each `kind: "calculated"` column's expression
- * into `store.query` so it evaluates at the SQL layer rather than
- * reconstructed in TypeScript.
- *
- * `caseListConfig` collapses display, sort, calc, and visibility
- * onto a single `columns` array — calc-arm columns are the
- * calculated projection; per-column `sort` directives surface via
- * `buildCaseStoreSortKeys`; the optional `filter` slot threads
- * through verbatim. A host mounting both the Display section and
- * the Filters section gets predicate narrowing for free; the
- * Display-section preview alone passes the same config through
- * and the underlying query falls through unfiltered when `filter`
- * is undefined.
- *
- * `caseTypeSchemas` is the term compiler's data-type-resolution
- * dependency — the helper accepts the narrow shape directly so the
- * Server Action at `./caseDataBinding.ts` runs the
- * `BlueprintDoc → ReadonlyMap` conversion once at the request edge
- * via `buildCaseTypeMap`.
- *
- * Typed-error mapping mirrors `mapPopulateSampleCasesError` for
- * consistency: missing-case-type and schema-not-synced get
- * dedicated arms so the client surface can re-resolve / await the
- * sync rather than render a wrapped invariant message.
- */
-export async function readCaseListPreview(
-	store: CaseStore,
-	args: {
-		appId: string;
-		caseType: string;
-		caseTypeSchemas: ReadonlyMap<string, CaseType>;
-		caseListConfig: CaseListConfig;
-		limit?: number;
-	},
-): Promise<LoadCaseListPreviewResult> {
-	const limit = args.limit ?? PREVIEW_CASE_DEFAULT_LIMIT;
-	const rows = await store.query({
-		appId: args.appId,
-		caseType: args.caseType,
-		caseTypeSchemas: args.caseTypeSchemas,
-		calculated: args.caseListConfig.columns.filter(isRuntimeCalculatedColumn),
-		// Normalize so a `match-all`-reducing filter falls through to the
-		// unfiltered scan instead of a redundant `TRUE` operand — same
-		// "no effective filter" decision the wire emitters + `readCases`
-		// apply, so every preview surface agrees on the effective filter.
-		predicate: effectiveFilterForEmission(args.caseListConfig.filter),
-		sort: buildCaseStoreSortKeys(args.caseListConfig, args.caseType),
-		limit,
-	});
-	if (rows.length === 0) return { kind: "empty" };
-	return { kind: "rows", rows };
-}
-
-/**
  * Default row-sample limit for the Filters-section live preview.
- * Smaller than `PREVIEW_CASE_DEFAULT_LIMIT` because the Filters
- * section's preview is "what passes the filter, plus how many" —
+ * The filter preview is "what passes the filter, plus how many" —
  * the count surfaces totality, the row sample only needs to be
  * enough to show shape (column-rendering, sort order). Pinning to
  * 10 mirrors common "top results" UX conventions and keeps the
@@ -339,10 +270,8 @@ export const FILTER_PREVIEW_DEFAULT_LIMIT = 10;
  * `BlueprintDoc → ReadonlyMap` conversion once at the request edge
  * via `buildCaseTypeMap`.
  *
- * Typed-error mapping reuses the same shape as
- * `mapCaseListPreviewError` — `LoadFilterPreviewResult`'s error
- * arms mirror `LoadCaseListPreviewResult`'s, so the mapper logic
- * is identical.
+ * Missing case types and unsynced schemas are mapped to dedicated
+ * result arms at the Server Action boundary.
  */
 export async function readFilterPreview(
 	store: CaseStore,
@@ -364,8 +293,8 @@ export async function readFilterPreview(
 	// compile the identical WHERE clause.
 	const predicate = effectiveFilterForEmission(args.caseListConfig.filter);
 
-	// Row sample. The calc-arm projection mirrors the Display preview's
-	// shape so table cells render uniformly.
+	// Row sample. Calculated columns are projected by the case store so
+	// callers receive the same row shape as the running case list.
 	const rows = await store.query({
 		appId: args.appId,
 		caseType: args.caseType,

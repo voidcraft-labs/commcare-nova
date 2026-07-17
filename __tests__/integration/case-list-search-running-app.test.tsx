@@ -221,7 +221,6 @@ vi.mock("@/lib/preview/engine/caseDataBinding", () => ({
 	populateSampleCasesAction: vi.fn(),
 	resetSampleCasesAction: vi.fn(),
 	submitFormAction: vi.fn(),
-	loadCaseListPreviewAction: vi.fn(),
 	loadFilterPreviewAction: vi.fn(),
 }));
 

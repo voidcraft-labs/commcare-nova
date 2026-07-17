@@ -79,7 +79,6 @@ import {
 	caseRowDisplayValue,
 	caseRowsToFormPreloads,
 	caseRowToFormPreload,
-	mapCaseListPreviewError,
 	mapFilterPreviewError,
 	mapPopulateSampleCasesError,
 	mapSubmitFormError,
@@ -91,7 +90,6 @@ import {
 	applyRegistrationMutation,
 	applySurveyMutation,
 	readCaseData,
-	readCaseListPreview,
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
@@ -2000,17 +1998,6 @@ describe("mapPopulateSampleCasesError", () => {
 	});
 });
 
-// ---------------------------------------------------------------
-// `readCaseListPreview` + `mapCaseListPreviewError`
-// ---------------------------------------------------------------
-//
-// The case-list authoring-surface live-preview helpers route through
-// `caseStore.query` (with a `calculated` arg). The integration tests
-// here pin the discriminated-union return shapes the live preview's
-// UI dispatches on — the empty arm, the rows arm with calculated
-// projection, and the typed-error mapping (mirrors the
-// `mapPopulateSampleCasesError` pattern).
-
 /**
  * Build a v2 `CaseListConfig` snapshot. The schema collapses to
  * three slots — `columns` (carrying display + sort + calc +
@@ -2037,99 +2024,6 @@ function makeCaseListConfig(
  */
 const NAME_COLUMN_UUID = asUuid("50000000-0000-0000-0000-000000000001");
 const NOTE_CALC_COLUMN_UUID = asUuid("50000000-0000-0000-0000-000000000002");
-
-describe("readCaseListPreview", () => {
-	it("returns the empty arm when no rows exist", async () => {
-		const store = makeStore(OWNER_A);
-		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
-		await seedSchema(store, blueprint, "patient");
-		const result = await readCaseListPreview(store, {
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: makeCaseListConfig({
-				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
-			}),
-		});
-		expect(result.kind).toBe("empty");
-	});
-
-	it("returns the rows arm with the calculated map populated", async () => {
-		const store = makeStore(OWNER_A);
-		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
-		await seedSchema(store, blueprint, "patient");
-		await store.insert({
-			appId: APP_ID,
-			row: {
-				case_id: ALICE_CASE_ID,
-				case_type: "patient",
-				case_name: "Alice",
-				status: "open",
-				properties: { name: "Alice", age: 30 },
-			},
-		});
-		// Calculated column emits a literal — predictable shape that
-		// pins the rows-arm contract without exercising the AST
-		// compiler's per-arm semantics here (the SQL contract test
-		// covers that surface). v2 lifts calc into the `columns`
-		// union; the case-store keys each row's `calculated` map by
-		// the calc column's `uuid`, so the assertion reads the slot
-		// at `NOTE_CALC_COLUMN_UUID`.
-		const result = await readCaseListPreview(store, {
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: makeCaseListConfig({
-				columns: [
-					plainColumn(NAME_COLUMN_UUID, "name", "Name"),
-					calculatedColumn(
-						NOTE_CALC_COLUMN_UUID,
-						"Note",
-						term(literal("hello")),
-					),
-				],
-			}),
-		});
-		expect(result.kind).toBe("rows");
-		if (result.kind !== "rows") return;
-		expect(result.rows).toHaveLength(1);
-		expect(result.rows[0]?.calculated[NOTE_CALC_COLUMN_UUID]).toBe("hello");
-	});
-});
-
-describe("mapCaseListPreviewError", () => {
-	// Mirrors `mapPopulateSampleCasesError` shape — the helper is
-	// the catch-block delegate for the Server Action and translates
-	// case-store typed errors into the structured arm shape the live-
-	// preview consumer dispatches on.
-
-	it("maps CaseTypeNotInBlueprintError to the missing-case-type arm", () => {
-		const err = new CaseTypeNotInBlueprintError("app-1", "patient");
-		const result = mapCaseListPreviewError(err);
-		expect(result).toEqual({ kind: "missing-case-type", caseType: "patient" });
-	});
-
-	it("maps SchemaNotSyncedError to the schema-not-synced arm", () => {
-		const err = new SchemaNotSyncedError("app-1", "patient");
-		const result = mapCaseListPreviewError(err);
-		expect(result).toEqual({ kind: "schema-not-synced", caseType: "patient" });
-	});
-
-	it("falls through to the generic error arm for an unrelated Error", () => {
-		const err = new Error("connection refused");
-		const result = mapCaseListPreviewError(err);
-		expect(result.kind).toBe("error");
-		if (result.kind !== "error") return;
-		expect(result.message).toBe("connection refused");
-	});
-
-	it("falls through to the generic error arm with a default message for non-Error throws", () => {
-		const result = mapCaseListPreviewError("some string");
-		expect(result.kind).toBe("error");
-		if (result.kind !== "error") return;
-		expect(result.message).toBe("Failed to load preview.");
-	});
-});
 
 // ---------------------------------------------------------------
 // `applyRegistrationMutation`
@@ -3126,214 +3020,6 @@ describe("resetSampleCasesAction", () => {
 });
 
 // ---------------------------------------------------------------
-// `loadCaseListPreviewAction` (Server Action)
-// ---------------------------------------------------------------
-//
-// The action wraps `readCaseListPreview` with three responsibilities
-// the helper itself doesn't carry:
-//
-//   1. Wire-boundary parse via `caseListConfigSchema.safeParse(...)`.
-//      An unparseable config returns the `invalid-config` arm
-//      WITHOUT touching auth or the store.
-//   2. Session resolution + `withProjectContext` construction.
-//   3. Catch-and-map for case-store typed errors.
-//
-// This block pins (1) — the parse-failure path — since the helper
-// tests above bypass it by passing an already-typed
-// `CaseListConfig`.
-
-describe("loadCaseListPreviewAction", () => {
-	it("returns the invalid-config arm with a path-prefixed message when caseListConfig fails Zod parse", async () => {
-		// The action runs `getSession()` first (session-first matches
-		// every other action in this file), then
-		// `caseListConfigSchema.safeParse(...)`. Mock the session so
-		// the parse path is reachable; pass a config whose `columns`
-		// slot is a string instead of an array; the schema's
-		// `z.array(columnSchema)` rejects with a structural type
-		// mismatch.
-		const { getSession } = await import("@/lib/auth-utils");
-		vi.mocked(getSession).mockResolvedValueOnce({
-			user: { id: OWNER_A },
-		} as unknown as Awaited<ReturnType<typeof getSession>>);
-
-		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
-		// Cast through `unknown` because the bad shape intentionally
-		// violates the `CaseListConfig` type at the call site — the
-		// runtime parse is the structural defense.
-		const result = await loadCaseListPreviewAction({
-			appId: APP_ID,
-			caseType: "patient",
-			blueprint: buildBlueprint([PATIENT_CASE_TYPE]),
-			caseListConfig: {
-				columns: "not an array",
-				searchInputs: [],
-			} as unknown as Parameters<
-				typeof loadCaseListPreviewAction
-			>[0]["caseListConfig"],
-		});
-		expect(result.kind).toBe("invalid-config");
-		if (result.kind !== "invalid-config") return;
-		// The action prefixes the first Zod issue's path so the
-		// client surface dispatches on the structural cause rather
-		// than the wrapped invariant body. The path for `columns` is
-		// the literal string "columns".
-		expect(result.message).toMatch(/^columns:/);
-	});
-
-	it("returns the invalid-blueprint arm with a path-prefixed message when blueprint fails Zod parse", async () => {
-		// Symmetric to the `invalid-config` test above. After session
-		// resolution and the (passing) `caseListConfig` parse, the
-		// action runs `blueprintDocSchema.safeParse(...)`. Pass a
-		// blueprint whose `appId` is a number — the schema's
-		// `z.string()` rejects with a structural type mismatch.
-		const { getSession } = await import("@/lib/auth-utils");
-		vi.mocked(getSession).mockResolvedValueOnce({
-			user: { id: OWNER_A },
-		} as unknown as Awaited<ReturnType<typeof getSession>>);
-
-		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
-		// Cast through `unknown` because the bad shape intentionally
-		// violates the `BlueprintDoc` type at the call site — the
-		// runtime parse is the structural defense.
-		const result = await loadCaseListPreviewAction({
-			appId: APP_ID,
-			caseType: "patient",
-			blueprint: {
-				appId: 42,
-				appName: "Test app",
-				connectType: null,
-				caseTypes: [],
-				modules: {},
-				forms: {},
-				fields: {},
-				moduleOrder: [],
-				formOrder: {},
-				fieldOrder: {},
-				fieldParent: {},
-			} as unknown as Parameters<
-				typeof loadCaseListPreviewAction
-			>[0]["blueprint"],
-			caseListConfig: makeCaseListConfig(),
-		});
-		expect(result.kind).toBe("invalid-blueprint");
-		if (result.kind !== "invalid-blueprint") return;
-		// The path for `appId` is the literal string "appId".
-		expect(result.message).toMatch(/^appId:/);
-	});
-
-	it("returns the unauthenticated arm before parsing when the session is absent", async () => {
-		// Session-first ordering means an unauthenticated request
-		// short-circuits BEFORE the Zod parse. Pass a deliberately
-		// malformed `caseListConfig`; assert the result is
-		// `unauthenticated`, not `invalid-config`.
-		const { getSession } = await import("@/lib/auth-utils");
-		vi.mocked(getSession).mockResolvedValueOnce(null);
-
-		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
-		const result = await loadCaseListPreviewAction({
-			appId: APP_ID,
-			caseType: "patient",
-			blueprint: buildBlueprint([PATIENT_CASE_TYPE]),
-			caseListConfig: {
-				columns: "not an array",
-				searchInputs: [],
-			} as unknown as Parameters<
-				typeof loadCaseListPreviewAction
-			>[0]["caseListConfig"],
-		});
-		expect(result).toEqual({ kind: "unauthenticated" });
-	});
-
-	it("parses a case-list-preview blueprint carrying the in-memory fieldParent index instead of rejecting it as an unrecognized key", async () => {
-		// Regression for the live preview that never worked since the
-		// case-list/case-search feature landed. The authoring surface
-		// ships the doc-store snapshot through `pickBlueprintDoc`, which
-		// re-attaches the in-memory `fieldParent` reverse index.
-		// `blueprintDocSchema` is `.strict()` and doesn't declare
-		// `fieldParent`, so parsing the raw value rejected it with
-		// `Unrecognized key: "fieldParent"` and the preview rendered the
-		// "Blueprint is malformed" state. The action must strip the
-		// derived index before the trust-boundary parse so a real
-		// snapshot reaches the store rather than the `invalid-blueprint`
-		// arm. The other action tests in this block pass parse-failing
-		// shapes (`appId: 42`) whose type error masks the `fieldParent`
-		// key error — only a VALID-but-fieldParent-carrying doc exercises
-		// the strip.
-		const { getSession } = await import("@/lib/auth-utils");
-		const { withProjectContext } = await import("@/lib/case-store");
-		vi.mocked(getSession).mockResolvedValueOnce({
-			user: { id: OWNER_A },
-		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const stubStore = {
-			query: vi.fn().mockResolvedValueOnce([]),
-			count: vi.fn(),
-			insert: vi.fn(),
-			insertWithChildren: vi.fn(),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			dropSchema: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
-		} satisfies CaseStore;
-		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
-
-		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
-		const result = await loadCaseListPreviewAction({
-			appId: APP_ID,
-			caseType: "patient",
-			blueprint: {
-				...buildBlueprint([PATIENT_CASE_TYPE]),
-				// The populated reverse index `pickBlueprintDoc` ships on
-				// every live-preview call. A populated map makes the
-				// regression unmistakable; even `{}` trips strict mode.
-				fieldParent: {
-					[asUuid("70000000-0000-0000-0000-000000000001")]: asUuid(
-						"70000000-0000-0000-0000-000000000002",
-					),
-				},
-			},
-			caseListConfig: makeCaseListConfig({
-				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
-			}),
-		});
-		// Empty stub store → `empty`. The load-bearing assertion is the
-		// negative: the parse did NOT reject the fieldParent-carrying doc.
-		expect(result.kind).toBe("empty");
-		expect(stubStore.query).toHaveBeenCalledTimes(1);
-	});
-
-	it("returns the invalid-blueprint arm (not a thrown error) for a null blueprint over the wire", async () => {
-		// The strip runs BEFORE the trust-boundary parse, so it must not
-		// itself throw on a malformed wire payload — a `null`/`undefined`
-		// blueprint (a non-editor caller, the exact shape the parse exists
-		// to reject gracefully) must still land on the typed
-		// `invalid-blueprint` arm, not a raw destructure TypeError routed
-		// through the generic `error` arm. Session is mocked so the parse
-		// path is reachable; `withProjectContext` must never be constructed
-		// because the parse fails first.
-		const { getSession } = await import("@/lib/auth-utils");
-		const { withProjectContext } = await import("@/lib/case-store");
-		vi.mocked(getSession).mockResolvedValueOnce({
-			user: { id: OWNER_A },
-		} as unknown as Awaited<ReturnType<typeof getSession>>);
-
-		const { loadCaseListPreviewAction } = await import("../caseDataBinding");
-		const result = await loadCaseListPreviewAction({
-			appId: APP_ID,
-			caseType: "patient",
-			blueprint: null as unknown as Parameters<
-				typeof loadCaseListPreviewAction
-			>[0]["blueprint"],
-			caseListConfig: makeCaseListConfig(),
-		});
-		expect(result.kind).toBe("invalid-blueprint");
-		expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
-	});
-});
-
-// ---------------------------------------------------------------
 // `readFilterPreview` + `mapFilterPreviewError`
 // ---------------------------------------------------------------
 //
@@ -3448,10 +3134,9 @@ describe("readFilterPreview", () => {
 
 	it("populates calculated columns inline when the filter passes", async () => {
 		// Pins the cross-feature shape: filter narrowing AND
-		// calculated-column projection compose. The Filters preview
-		// surfaces the same column-rendering shape the Display
-		// section's preview uses, so calculated values must render
-		// per row alongside the filter narrowing.
+		// calculated-column projection compose. The structural query
+		// returns the same calculated row shape as the running Preview,
+		// so the two compiler paths cannot drift.
 		const store = makeStore(OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
@@ -3490,9 +3175,7 @@ describe("readFilterPreview", () => {
 });
 
 describe("mapFilterPreviewError", () => {
-	// Mirrors `mapCaseListPreviewError`'s shape — same typed errors,
-	// same arm structure (the only difference between the two result
-	// types is the paired `totalCount` on the success arms).
+	// Typed case-store errors get stable result arms for the inspector.
 
 	it("maps CaseTypeNotInBlueprintError to the missing-case-type arm", () => {
 		const err = new CaseTypeNotInBlueprintError("app-1", "patient");
@@ -3530,8 +3213,7 @@ describe("mapFilterPreviewError", () => {
 // `loadFilterPreviewAction` (Server Action)
 // ---------------------------------------------------------------
 //
-// Mirrors `loadCaseListPreviewAction`'s test block. Pins the wire-
-// boundary parse arms and the session-first ordering invariant.
+// Pins the wire-boundary parse arms and session-first ordering invariant.
 
 describe("loadFilterPreviewAction", () => {
 	it("returns the invalid-config arm with a path-prefixed message when caseListConfig fails Zod parse", async () => {
@@ -3592,8 +3274,7 @@ describe("loadFilterPreviewAction", () => {
 	it("returns the unauthenticated arm before parsing when the session is absent (session-first ordering)", async () => {
 		// Pins the session-first ordering: an unauthenticated
 		// request short-circuits BEFORE the Zod parse. The ordering
-		// matches `loadCaseListPreviewAction` and every other action
-		// in the file. Passing a deliberately malformed
+		// matches every other action in the file. Passing a deliberately malformed
 		// `caseListConfig` here would fail `invalid-config` if the
 		// parse ran first; the test asserts `unauthenticated` to
 		// confirm the session check beats the parse to the punch.
@@ -3616,8 +3297,7 @@ describe("loadFilterPreviewAction", () => {
 	});
 
 	it("parses a filter-preview blueprint carrying the in-memory fieldParent index instead of rejecting it as an unrecognized key", async () => {
-		// Sibling of the `loadCaseListPreviewAction` regression — the
-		// Filters-section live preview ships the same `pickBlueprintDoc`
+		// The Filters-section live preview ships a `pickBlueprintDoc`
 		// snapshot (with `fieldParent` re-attached) and runs the same
 		// strict `blueprintDocSchema.safeParse`, so it carried the same
 		// "Blueprint is malformed" failure. The action must strip the
@@ -3664,7 +3344,6 @@ describe("loadFilterPreviewAction", () => {
 	});
 
 	it("returns the invalid-blueprint arm (not a thrown error) for a null blueprint over the wire", async () => {
-		// Sibling of the `loadCaseListPreviewAction` null-blueprint guard.
 		// The pre-parse strip must not throw on a `null` wire payload — it
 		// must reach the typed `invalid-blueprint` arm, not a raw
 		// destructure TypeError surfaced through the generic `error` arm.

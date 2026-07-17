@@ -33,13 +33,8 @@
 //     them. Hidden recovery items never make an unrelated tab look broken.
 //   - `brokenColumns` — the per-column set behind the in-canvas
 //     error marks (a tab dot must point at something findable).
-//   - `previewObstacle` — why the live preview can't run, or `null`:
-//     ONLY the ASTs the case-store SQL compiler actually consumes
-//     (the filter + calculated-column expressions), where an invalid
-//     AST would throw at the SQL layer. An applicability mismatch or
-//     a search-input problem never blanks the live table — those
-//     rows still load and render fine; the marks + inspector carry
-//     the signal.
+//   - `filterBroken` — the one non-row Results finding, used to mark the
+//     Cases included summary directly so every tab dot leads somewhere.
 
 import {
 	type CaseListConfig,
@@ -77,7 +72,9 @@ export interface CaseListConfigErrorAreas {
 export interface CaseListConfigVerdicts {
 	readonly errorAreas: CaseListConfigErrorAreas;
 	readonly brokenColumns: ReadonlySet<Uuid>;
-	readonly previewObstacle: string | null;
+	/** The Results canvas marks its one filter summary row directly so a
+	 *  problem remains findable even when no result fields are visible. */
+	readonly filterBroken: boolean;
 }
 
 export function caseListConfigVerdicts(
@@ -92,10 +89,8 @@ export function caseListConfigVerdicts(
 		currentCaseType,
 	};
 
-	// ── Columns — one pass feeds the marks, the tab dots, AND the
-	// preview gate's calculated arm. ──
+	// ── Columns — one pass feeds the marks and tab dots. ──
 	const brokenColumns = new Set<Uuid>();
-	const brokenCalculated: Column[] = [];
 	let listColumnsBroken = false;
 	let detailColumnsBroken = false;
 	const markBrokenColumn = (column: Column) => {
@@ -110,7 +105,6 @@ export function caseListConfigVerdicts(
 		if (col.kind === "calculated") {
 			if (checkValueExpression(col.expression, bareCtx).ok) continue;
 			markBrokenColumn(col);
-			brokenCalculated.push(col);
 			continue;
 		}
 		const applicable = columnCardSchemas[col.kind].applicableForProperty(
@@ -184,28 +178,6 @@ export function caseListConfigVerdicts(
 			detail: detailColumnsBroken,
 		},
 		brokenColumns,
-		previewObstacle: composePreviewObstacle(filterIsBroken, brokenCalculated),
+		filterBroken: filterIsBroken,
 	};
-}
-
-/** The paused-preview notice, naming the thing to open. */
-function composePreviewObstacle(
-	filterIsBroken: boolean,
-	brokenCalculated: readonly Column[],
-): string | null {
-	const total = (filterIsBroken ? 1 : 0) + brokenCalculated.length;
-	if (total === 0) return null;
-
-	const parts: string[] = [];
-	if (filterIsBroken) parts.push("the filter");
-	if (brokenCalculated.length === 1) {
-		const header = brokenCalculated[0]?.header;
-		parts.push(
-			header ? `the calculated column "${header}"` : "a calculated column",
-		);
-	} else if (brokenCalculated.length > 1) {
-		parts.push(`${brokenCalculated.length} calculated columns`);
-	}
-	const verb = total === 1 ? "has an error" : "have errors";
-	return `Preview paused — ${parts.join(" and ")} ${verb} on this case list. Click the marked item to fix it.`;
 }

@@ -32,20 +32,27 @@ import {
 export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 	const moduleIds = useModuleIds();
 	return (
-		<aside className="w-14 shrink-0 h-full border-r border-nova-border-bright bg-nova-deep flex flex-col items-center gap-1 py-2 overflow-y-auto">
-			<SimpleTooltip content="Expand structure" side="right">
-				<button
-					type="button"
-					onClick={onExpand}
-					aria-label="Expand structure sidebar"
-					className="size-11 grid place-items-center rounded-lg text-nova-text-muted hover:text-nova-text hover:bg-white/[0.05] transition-colors cursor-pointer"
-				>
-					<Icon icon={tablerLayoutSidebarLeftExpand} width="18" height="18" />
-				</button>
-			</SimpleTooltip>
-			{moduleIds.map((moduleUuid) => (
-				<RailModuleGroup key={moduleUuid} moduleUuid={moduleUuid} />
-			))}
+		<aside className="flex h-full w-14 shrink-0 flex-col items-center border-r border-nova-border-bright bg-nova-deep">
+			<div
+				className="grid h-16 w-full shrink-0 place-items-center border-b border-nova-border"
+				data-builder-secondary-header="structure-rail"
+			>
+				<SimpleTooltip content="Expand structure" side="right">
+					<button
+						type="button"
+						onClick={onExpand}
+						aria-label="Expand structure sidebar"
+						className="grid size-11 cursor-pointer place-items-center rounded-lg text-nova-text-muted transition-colors hover:bg-white/[0.05] hover:text-nova-text"
+					>
+						<Icon icon={tablerLayoutSidebarLeftExpand} width="18" height="18" />
+					</button>
+				</SimpleTooltip>
+			</div>
+			<div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
+				{moduleIds.map((moduleUuid) => (
+					<RailModuleGroup key={moduleUuid} moduleUuid={moduleUuid} />
+				))}
+			</div>
 		</aside>
 	);
 }

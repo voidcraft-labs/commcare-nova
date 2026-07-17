@@ -1,8 +1,9 @@
 // components/builder/case-list-config/SortPriorityStack.tsx
 //
-// Friendly center-canvas composition for the order cases appear in. The
-// persisted representation remains sort priorities, but authors work with a
-// readable First / Then sentence instead of numbered implementation details.
+// Friendly center-canvas composition for the order cases appear in. A compact
+// readable summary stays visible; the First / Then drag editor expands in
+// place only when the author asks to change it. The persisted representation
+// remains sort priorities rather than leaking numbered implementation details.
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -51,10 +52,10 @@ export interface CaseOrderingComposerProps {
 }
 
 /**
- * Friendly, center-canvas editor for the order cases appear in. Sorting is a
- * relationship between fields, so the whole rule sequence belongs together
- * here instead of being split between per-field settings and numbered badges.
- * The visible language reads as a sentence: "First … Then …".
+ * Sorting is a relationship between fields, so its overview and full rule
+ * sequence belong together here instead of being split between per-field
+ * settings and numbered badges. The expanded language reads as a sentence:
+ * "First … Then …".
  */
 export function CaseOrderingComposer({
 	value,
@@ -64,6 +65,8 @@ export function CaseOrderingComposer({
 }: CaseOrderingComposerProps) {
 	const canEdit = useCanEdit();
 	const containerKey = useId();
+	const editorId = useId();
+	const [expanded, setExpanded] = useState(false);
 	const [moveAnnouncement, setMoveAnnouncement] = useState("");
 	const [sortQuery, setSortQuery] = useState("");
 	const sorted = useMemo(() => resolveSortedColumns(value), [value]);
@@ -80,6 +83,22 @@ export function CaseOrderingComposer({
 				.includes(normalized),
 		);
 	}, [caseType, sortQuery, unsorted]);
+	const orderSummary = useMemo(() => {
+		if (sorted.length === 0) return "No default order is set.";
+		const shown = sorted
+			.slice(0, 2)
+			.map((column) => {
+				const direction = column.sort?.direction ?? "asc";
+				const label =
+					directionOptions(column, caseType, caseTypes).find(
+						(option) => option.value === direction,
+					)?.label ?? "A to Z";
+				return `${friendlyColumnLabel(column, caseType)}, ${label}`;
+			})
+			.join("; then ");
+		const remaining = sorted.length - 2;
+		return `${shown}${remaining > 0 ? `; and ${remaining} more` : ""}.`;
+	}, [caseType, caseTypes, sorted]);
 
 	const applyRuleSequence = useCallback(
 		(nextRules: readonly Column[]) => {
@@ -193,166 +212,212 @@ export function CaseOrderingComposer({
 	);
 
 	return (
-		<section
-			className="w-full rounded-xl border border-nova-border bg-nova-surface/30 p-4"
+		<div
+			className="w-full border-t border-white/[0.07]"
 			data-case-ordering-composer
 		>
-			<div className="mb-4">
-				<h2 className="font-display text-base font-semibold text-nova-text">
-					Default order
-				</h2>
-				<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
-					{canEdit
-						? "Choose what matters first. If two cases are the same, the next choice decides."
-						: "Cases appear in this order. If two cases are the same, the next choice decides."}
-				</p>
+			<div className="flex min-h-[72px] flex-wrap items-center gap-3 px-4 py-3">
+				<span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.035] text-nova-text-muted">
+					<Icon icon={tablerArrowsSort} width="16" height="16" />
+				</span>
+				<div className="min-w-0 flex-1">
+					<h3 className="text-[13px] font-semibold text-nova-text">
+						Default order
+					</h3>
+					<p className="mt-0.5 text-[12px] leading-relaxed text-nova-text-muted">
+						{orderSummary}
+					</p>
+				</div>
+				{(canEdit || sorted.length > 0) && (
+					<button
+						type="button"
+						onClick={() => setExpanded((open) => !open)}
+						aria-expanded={expanded}
+						aria-controls={editorId}
+						aria-label={
+							expanded
+								? canEdit
+									? "Finish editing default order"
+									: "Close default order details"
+								: sorted.length === 0
+									? "Set default order"
+									: canEdit
+										? "Change default order"
+										: "View full default order"
+						}
+						className="min-h-11 w-full shrink-0 cursor-pointer rounded-lg px-3 text-[12px] font-medium text-nova-violet-bright transition-colors hover:bg-nova-violet/[0.08] @min-[28rem]:w-auto"
+					>
+						{expanded
+							? canEdit
+								? "Done"
+								: "Close"
+							: sorted.length === 0
+								? "Set order"
+								: canEdit
+									? "Change"
+									: "View"}
+					</button>
+				)}
 			</div>
 
-			<p
-				role="status"
-				aria-live="polite"
-				aria-atomic="true"
-				className="sr-only"
-			>
-				{moveAnnouncement}
-			</p>
+			{expanded && (
+				<div
+					id={editorId}
+					className="border-t border-white/[0.07] bg-nova-deep/20 px-4 pb-4 pt-3"
+				>
+					<p className="mb-3 text-xs leading-relaxed text-nova-text-muted">
+						{canEdit
+							? "Drag to decide what matters first. If two cases match, the next choice decides."
+							: "Cases are compared in this order. If two cases match, the next choice decides."}
+					</p>
 
-			{sorted.length === 0 ? (
-				<p className="rounded-lg border border-dashed border-nova-border-bright px-4 py-5 text-center text-xs leading-relaxed text-nova-text-muted">
-					{canEdit
-						? "No default order yet. Choose what should decide which cases appear first."
-						: "No default order is set."}
-				</p>
-			) : (
-				<div className="space-y-2" data-case-ordering-rules>
-					{sorted.map((column, index) => (
-						<ReorderableRow
-							key={column.uuid}
-							index={index}
-							itemKey={column.uuid}
-							containerKey={containerKey}
-							containerKind="case-default-order"
-							pendingDrop={pendingDrop}
-							preview={
-								<CaseOrderingDragPreview
-									label={friendlyColumnLabel(column, caseType)}
-								/>
-							}
-						>
-							{({
-								wrapperRef,
-								setHandleEl,
-								closestEdge,
-								previewPortal,
-								beingMoved,
-							}) => (
-								<div
-									ref={wrapperRef}
-									className={`relative ${beingMoved ? "opacity-50" : ""}`}
-								>
-									{closestEdge !== null && (
-										<div
-											aria-hidden="true"
-											className="absolute left-0 right-0 z-10 h-0.5 rounded-full bg-nova-violet"
-											style={{
-												top: closestEdge === "top" ? -5 : undefined,
-												bottom: closestEdge === "bottom" ? -5 : undefined,
-											}}
+					<p
+						role="status"
+						aria-live="polite"
+						aria-atomic="true"
+						className="sr-only"
+					>
+						{moveAnnouncement}
+					</p>
+
+					{sorted.length === 0 ? (
+						<p className="rounded-lg border border-dashed border-nova-border-bright px-4 py-5 text-center text-xs leading-relaxed text-nova-text-muted">
+							Choose what should decide which cases appear first.
+						</p>
+					) : (
+						<div className="space-y-2" data-case-ordering-rules>
+							{sorted.map((column, index) => (
+								<ReorderableRow
+									key={column.uuid}
+									index={index}
+									itemKey={column.uuid}
+									containerKey={containerKey}
+									containerKind="case-default-order"
+									pendingDrop={pendingDrop}
+									preview={
+										<CaseOrderingDragPreview
+											label={friendlyColumnLabel(column, caseType)}
 										/>
+									}
+								>
+									{({
+										wrapperRef,
+										setHandleEl,
+										closestEdge,
+										previewPortal,
+										beingMoved,
+									}) => (
+										<div
+											ref={wrapperRef}
+											className={`relative ${beingMoved ? "opacity-50" : ""}`}
+										>
+											{closestEdge !== null && (
+												<div
+													aria-hidden="true"
+													className="absolute left-0 right-0 z-10 h-0.5 rounded-full bg-nova-violet"
+													style={{
+														top: closestEdge === "top" ? -5 : undefined,
+														bottom: closestEdge === "bottom" ? -5 : undefined,
+													}}
+												/>
+											)}
+											<CaseOrderingRuleRow
+												column={column}
+												caseType={caseType}
+												caseTypes={caseTypes}
+												connector={index === 0 ? "First" : "Then"}
+												canEdit={canEdit}
+												setHandleEl={setHandleEl}
+												onMove={(key) => moveByKeyboard(index, key)}
+												onDirectionChange={(direction) =>
+													setDirection(column.uuid, direction)
+												}
+												onRemove={() => removeRule(column.uuid)}
+											/>
+											{previewPortal}
+										</div>
 									)}
-									<CaseOrderingRuleRow
-										column={column}
-										caseType={caseType}
-										caseTypes={caseTypes}
-										connector={index === 0 ? "First" : "Then"}
-										canEdit={canEdit}
-										setHandleEl={setHandleEl}
-										onMove={(key) => moveByKeyboard(index, key)}
-										onDirectionChange={(direction) =>
-											setDirection(column.uuid, direction)
-										}
-										onRemove={() => removeRule(column.uuid)}
-									/>
-									{previewPortal}
-								</div>
-							)}
-						</ReorderableRow>
-					))}
-				</div>
-			)}
+								</ReorderableRow>
+							))}
+						</div>
+					)}
 
-			{canEdit && (
-				<div className="mt-3">
-					<DropdownMenu onOpenChange={(open) => !open && setSortQuery("")}>
-						<DropdownMenuTrigger
-							type="button"
-							disabled={unsorted.length === 0}
-							aria-label="Add another way to sort cases"
-							className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-nova-border-bright px-4 text-[13px] font-medium text-nova-violet-bright transition-colors not-disabled:hover:bg-nova-violet/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
-						>
-							<Icon icon={tablerPlus} width="15" height="15" />
-							{unsorted.length === 0
-								? "All available information is used"
-								: "Add another way to sort"}
-							<Icon icon={tablerChevronDown} width="14" height="14" />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent
-							align="start"
-							className="flex max-h-[min(28rem,var(--available-height))] min-w-72 flex-col overflow-hidden py-0"
-						>
-							<div className="shrink-0 border-b border-white/[0.06] p-2">
-								<label className="flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/55 px-3 focus-within:border-nova-violet/40">
-									<Icon
-										icon={tablerSearch}
-										width="14"
-										height="14"
-										className="shrink-0 text-nova-text-muted"
-									/>
-									<span className="sr-only">Find information to sort by</span>
-									<input
-										type="search"
-										value={sortQuery}
-										onChange={(event) => setSortQuery(event.target.value)}
-										onKeyDown={(event) => {
-											if (
-												![
-													"ArrowDown",
-													"ArrowUp",
-													"Enter",
-													"Escape",
-													"Tab",
-												].includes(event.key)
-											)
-												event.stopPropagation();
-										}}
-										placeholder="Find information"
-										autoComplete="off"
-										data-1p-ignore
-										className="min-w-0 flex-1 bg-transparent text-[13px] text-nova-text outline-none placeholder:text-nova-text-muted"
-									/>
-								</label>
-							</div>
-							<div className="min-h-0 flex-1 overflow-y-auto py-1">
-								{visibleUnsorted.map((column) => (
-									<DropdownMenuItem
-										key={column.uuid}
-										onClick={() => addRule(column)}
-										className="min-h-11"
-									>
-										{friendlyColumnLabel(column, caseType)}
-									</DropdownMenuItem>
-								))}
-								{visibleUnsorted.length === 0 && (
-									<p className="px-3 py-4 text-center text-[12px] text-nova-text-muted">
-										No information matches “{sortQuery}”.
-									</p>
-								)}
-							</div>
-						</DropdownMenuContent>
-					</DropdownMenu>
+					{canEdit && (
+						<div className="mt-3">
+							<DropdownMenu onOpenChange={(open) => !open && setSortQuery("")}>
+								<DropdownMenuTrigger
+									type="button"
+									disabled={unsorted.length === 0}
+									aria-label="Add another way to sort cases"
+									className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-nova-border-bright px-4 text-[13px] font-medium text-nova-violet-bright transition-colors not-disabled:hover:bg-nova-violet/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+								>
+									<Icon icon={tablerPlus} width="15" height="15" />
+									{unsorted.length === 0
+										? "All available information is used"
+										: "Add another way to sort"}
+									<Icon icon={tablerChevronDown} width="14" height="14" />
+								</DropdownMenuTrigger>
+								<DropdownMenuContent
+									align="start"
+									className="flex max-h-[min(28rem,var(--available-height))] min-w-72 flex-col overflow-hidden py-0"
+								>
+									<div className="shrink-0 border-b border-white/[0.06] p-2">
+										<label className="flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/55 px-3 focus-within:border-nova-violet/40">
+											<Icon
+												icon={tablerSearch}
+												width="14"
+												height="14"
+												className="shrink-0 text-nova-text-muted"
+											/>
+											<span className="sr-only">
+												Find information to sort by
+											</span>
+											<input
+												type="search"
+												value={sortQuery}
+												onChange={(event) => setSortQuery(event.target.value)}
+												onKeyDown={(event) => {
+													if (
+														![
+															"ArrowDown",
+															"ArrowUp",
+															"Enter",
+															"Escape",
+															"Tab",
+														].includes(event.key)
+													)
+														event.stopPropagation();
+												}}
+												placeholder="Find information"
+												autoComplete="off"
+												data-1p-ignore
+												className="min-w-0 flex-1 bg-transparent text-[13px] text-nova-text outline-none placeholder:text-nova-text-muted"
+											/>
+										</label>
+									</div>
+									<div className="min-h-0 flex-1 overflow-y-auto py-1">
+										{visibleUnsorted.map((column) => (
+											<DropdownMenuItem
+												key={column.uuid}
+												onClick={() => addRule(column)}
+												className="min-h-11"
+											>
+												{friendlyColumnLabel(column, caseType)}
+											</DropdownMenuItem>
+										))}
+										{visibleUnsorted.length === 0 && (
+											<p className="px-3 py-4 text-center text-[12px] text-nova-text-muted">
+												No information matches “{sortQuery}”.
+											</p>
+										)}
+									</div>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</div>
+					)}
 				</div>
 			)}
-		</section>
+		</div>
 	);
 }
 

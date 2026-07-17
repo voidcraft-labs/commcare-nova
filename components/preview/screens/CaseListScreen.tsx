@@ -100,10 +100,9 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const navigate = useNavigate();
 	/* The MATERIALIZABLE case-type view — derived property types
 	 * included, implicit standard entries excluded. The same shape the
-	 * authoring preview compiles against and the stored insert schema
-	 * is derived from, so the running-app list sorts/filters with the
-	 * same casts and the sample generator emits keys the row
-	 * validation accepts. */
+	 * running-app query compiler and stored insert schema derive from,
+	 * so the list sorts/filters with the same casts and the sample
+	 * generator emits keys the row validation accepts. */
 	const caseTypes = useMaterializableCaseTypes();
 	const appId = useAppId() ?? "";
 
@@ -128,8 +127,8 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	 *     the module menu): `previewCaseTarget` names that form, and we go
 	 *     straight to it. This is the mixed-module path (registration + a
 	 *     case-loading form), where the form is chosen before the case.
-	 *   - Case-first entry (an all-case-loading module's landing, or the
-	 *     workspace case-list preview): no form was chosen yet. With exactly
+	 *   - Case-first entry (an all-case-loading module's landing, or Preview
+	 *     entered from the case workspace): no form was chosen yet. With exactly
 	 *     one case-loading form we go straight to it; with more than one, the
 	 *     app shows a FORM MENU after the case is picked (CommCare hoists the
 	 *     shared case datum, then asks which form — see `isCaseFirstModule`),

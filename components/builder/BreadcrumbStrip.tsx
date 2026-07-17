@@ -161,7 +161,10 @@ export function BreadcrumbStrip() {
 	}, [hasData, effectiveBreadcrumbs, breadcrumbHandlers]);
 
 	return (
-		<div className="shrink-0 h-12 border-b border-nova-border bg-pv-bg">
+		<div
+			className="h-16 shrink-0 border-b border-nova-border bg-pv-bg"
+			data-builder-secondary-header="breadcrumb"
+		>
 			<ContentFrame
 				width="5xl"
 				className="flex items-center gap-2 min-w-0 h-full px-6"

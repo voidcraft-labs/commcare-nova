@@ -1,19 +1,17 @@
 // components/builder/case-list-config/columnCellRenderer.tsx
 //
-// Shared per-cell render helpers for both case-list authoring-
-// surface previews. The Display section's preview AND the Filters
-// section's preview render the same column shapes against the
-// same `CaseRow`/`CalculatedValue` data; centralizing the
-// per-kind switch keeps the two previews visually consistent and
-// avoids the kind-by-kind drift that copy-paste would invite.
+// Shared per-cell render helpers for the running case-list Preview. Edit mode
+// composes labels and reading order without inventing a sample row; real case
+// values reach this renderer only in Preview, where their full row context is
+// available.
 //
 // Each column kind has its own render path. The runtime / wire-
 // emit layers handle the same logic against the live engine; the
-// preview reads off the already-loaded `CaseRow` and applies a
+// renderer reads off the already-loaded `CaseRow` and applies a
 // best-effort formatter that mirrors the runtime's intent.
 // Date / phone / id-mapping / interval formatting is intentionally
 // simple here — the goal is "what does this look like", not
-// "exact wire parity". The preview pins the column's authored
+// "exact wire parity". Preview pins the column's authored
 // shape; small format drift against CCHQ's runtime is acceptable
 // for an authoring-time preview.
 //
@@ -60,7 +58,7 @@ export function renderColumnCell(
 		}
 		case "phone": {
 			// Phone column renders as a tappable link in the runtime.
-			// The preview shows the raw value with monospace styling
+			// Preview shows the raw value with monospace styling
 			// to communicate "this is a phone-typed column" without
 			// pretending to format an arbitrary international number.
 			const raw = caseRowDisplayValue(row, column.field);
@@ -68,7 +66,7 @@ export function renderColumnCell(
 		}
 		case "date": {
 			// The runtime applies the column's `pattern` via CCHQ's
-			// format-date function. The preview tries an ISO parse
+			// format-date function. Preview tries an ISO parse
 			// and renders the JS-formatted local date as a best-
 			// effort fallback; un-parseable values show raw.
 			const raw = caseRowDisplayValue(row, column.field);
@@ -142,7 +140,7 @@ export function renderCalculatedCell(
 		// Date-typed columns lose the time component on the wire
 		// boundary; the resulting Date in JS lands at midnight UTC,
 		// so trimming `T...Z` gives the calendar-date display the
-		// authoring preview wants. Datetime-typed columns keep the
+		// running Preview wants. Datetime-typed columns keep the
 		// full ISO string so the user sees the time component too.
 		const iso = value.toISOString();
 		// Heuristic: midnight UTC means a date-shaped value (the wire
@@ -156,7 +154,7 @@ export function renderCalculatedCell(
 		return <span>{String(value)}</span>;
 	}
 	// Arrays / objects — JSONB columns. Stringify for inspection;
-	// the preview's calculated-column cell is monospace by default
+	// the running Preview's calculated-column cell is monospace by default
 	// so the JSON shape stays readable.
 	return <span>{JSON.stringify(value)}</span>;
 }

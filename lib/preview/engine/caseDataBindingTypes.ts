@@ -27,9 +27,9 @@ import type {
 
 // `CaseRow` re-exported as a barrel surface so consumers have one
 // import path for the binding's types. `CaseRowWithCalculated`
-// rides the same surface for the case-list live-preview path
-// (`loadCaseListPreviewAction`). `CalculatedValue`, `JsonValue`,
-// and `JsonObject` ride the same surface so client-bundle-bound
+// rides the same surface for the running case list and filter-count
+// preview paths. `CalculatedValue`, `JsonValue`, and `JsonObject`
+// ride the same surface so client-bundle-bound
 // consumers + the server-only helpers can type-import them from
 // this leaf without touching the case-store barrel — the barrel
 // value-exports `withOwnerContext`, which pulls the Postgres
@@ -68,56 +68,13 @@ export type LoadCaseCountResult =
 	| { kind: "error"; message: string };
 
 /**
- * Result of loading the case-list authoring-surface live preview.
- * Mirrors `LoadCasesResult` but the `rows` arm carries
- * `CaseRowWithCalculated` so per-row evaluated calculated columns
- * surface in the preview's table cells.
- *
- * `empty` and `error` arms keep the same shape as `LoadCasesResult`
- * so the client renderer dispatches uniformly across both paths.
- * The authoring surface treats `empty` as "no cases yet, hint to
- * generate sample data via the running-app view" — the live preview
- * does NOT expose the sample-data populate action itself; that
- * action lives only on the running-app authoring surface, so
- * duplicating it here would fork UX.
- */
-export type LoadCaseListPreviewResult =
-	| { kind: "rows"; rows: ReadonlyArray<CaseRowWithCalculated> }
-	| { kind: "empty" }
-	| { kind: "missing-case-type"; caseType: string }
-	| { kind: "schema-not-synced"; caseType: string }
-	/**
-	 * The Server Action's input failed `caseListConfigSchema`
-	 * validation at the trust boundary. The action is the wire
-	 * boundary; an unparseable config arriving over the wire
-	 * indicates either a stale client or a malicious caller, and
-	 * the action surfaces a typed arm rather than letting the
-	 * downstream `compileExpression` invariant message leak through
-	 * the catchall `error` arm.
-	 */
-	| { kind: "invalid-config"; message: string }
-	/**
-	 * The Server Action's input failed `blueprintDocSchema`
-	 * validation. Same trust-boundary argument as `invalid-config`
-	 * — the action is the wire boundary and the blueprint AST
-	 * flows directly into the case-store's compiler stack via
-	 * `caseStore.query`. A separate arm (rather than reusing
-	 * `invalid-config`) keeps the structural cause discriminable
-	 * for the client surface.
-	 */
-	| { kind: "invalid-blueprint"; message: string }
-	| { kind: "unauthenticated" }
-	| { kind: "error"; message: string };
-
-/**
  * Result of loading the Filters-section live-preview rows + count.
  * The Filters-section preview pairs a limited row sample (top ~10
  * rows passing the filter) with the full matching count so the
  * author sees both "what passes" and "how many pass" without
  * paying for a full row fetch.
  *
- * Shape mirrors `LoadCaseListPreviewResult` plus a `totalCount`
- * field on the `rows` arm — `totalCount` is the row population
+ * `totalCount` is the row population
  * matching the predicate (NOT the row sample's `rows.length`).
  * The renderer uses both numbers to surface "Showing N of M cases
  * that pass this filter".
@@ -131,9 +88,8 @@ export type LoadCaseListPreviewResult =
  * shape keeps the count value honest and lets the renderer decide
  * how to format the rows-empty case from the same arm.
  *
- * Missing / schema / trust-boundary arms have the same shape as
- * `LoadCaseListPreviewResult`. The `paused` arm is NOT part of
- * this shape because the Server Action never returns it — the
+ * The `paused` arm is NOT part of this shape because the Server Action
+ * never returns it — the
  * client component renders the paused state locally when its
  * `filterValid` prop is `false` and never fires the action.
  */
@@ -148,8 +104,7 @@ export type LoadFilterPreviewResult =
 	/**
 	 * The Server Action's input failed `caseListConfigSchema`
 	 * validation at the trust boundary. Same shape as
-	 * `LoadCaseListPreviewResult`'s `invalid-config` arm — the
-	 * action is the wire boundary; an unparseable config arriving
+	 * The action is the wire boundary; an unparseable config arriving
 	 * over the wire surfaces as a typed arm rather than letting
 	 * the downstream `compilePredicate` invariant message leak
 	 * through the catchall `error` arm.

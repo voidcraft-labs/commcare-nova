@@ -8,7 +8,7 @@
 // promise, callers can await it to learn when the fresh data is on screen,
 // not merely when the fetch returned.
 //
-// The case-list preview surfaces (`useCases`, `useCaseListPreview`) share
+// The case-data hooks (`useCases`, `useCaseCount`, and `useCaseData`) share
 // this one primitive rather than each hand-rolling the same concurrency
 // machinery — duplicated last-write-wins logic is the kind that silently
 // diverges when only one copy gets a fix.

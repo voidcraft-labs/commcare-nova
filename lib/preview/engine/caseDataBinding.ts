@@ -26,7 +26,6 @@ import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import {
-	mapCaseListPreviewError,
 	mapFilterPreviewError,
 	mapPopulateSampleCasesError,
 	mapSubmitFormError,
@@ -38,7 +37,6 @@ import {
 	applySurveyMutation,
 	gatedCaseStore,
 	readCaseData,
-	readCaseListPreview,
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
@@ -48,7 +46,6 @@ import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
 import type {
 	LoadCaseCountResult,
 	LoadCaseDataResult,
-	LoadCaseListPreviewResult,
 	LoadCasesResult,
 	LoadFilterPreviewResult,
 	PopulateSampleCasesResult,
@@ -337,133 +334,6 @@ export async function resetSampleCasesAction(
 }
 
 /**
- * Load case-list authoring-surface live-preview rows. Resolves the
- * request's session, constructs a Project-scoped `CaseStore` via
- * `gatedCaseStore` (view), and delegates to
- * `readCaseListPreview` which routes through
- * `caseStore.query` so calculated columns evaluate at the SQL layer.
- *
- * The action accepts the full `CaseListConfig` so a host mounting
- * both the Display section and the Filters section gets predicate
- * narrowing for free without a parallel call site. Display-section-
- * only callers pass a config whose `filter` slot is undefined.
- *
- * Trust-boundary parse: the action is the wire boundary. Both
- * `caseListConfig` AND `blueprint` carry arbitrary AST shapes
- * (`caseListConfig` carries 15 ValueExpression arms + 12+ Predicate
- * arms + Term operands + relation paths; `blueprint` carries the
- * full module / form / field / case-type tree the case-store
- * compiler stack reads property data types from). Either shape
- * arriving malformed over the wire would otherwise reach
- * `compileExpression` / `compilePredicate` / `compileTerm` and
- * surface the compiler's invariant message through the catchall
- * `error` arm. Routing both through `safeParse(...)` traps shape
- * failures as typed `invalid-config` / `invalid-blueprint` arms so
- * the client surface dispatches on the structural cause rather
- * than on a wrapped invariant body. Trusted callers (the Display
- * section's own client component) pass the same shapes the editor
- * + doc-store produce, so both parses are no-ops there; defense-
- * in-depth covers programmatic surfaces, fixtures, and the SA
- * tool path.
- *
- * Action ordering: session-first matches every other action in
- * this file (`loadCasesAction`, `loadCaseDataAction`,
- * `populateSampleCasesAction`, `submitFormAction`). The Zod parse
- * runs after session resolution but before the store call —
- * unauthenticated requests short-circuit on the session check;
- * authenticated requests with malformed payloads short-circuit on
- * the parse before the case-store contacts Postgres. Both
- * `getSession` and `safeParse` are cheap, so the auth-first
- * ordering is stylistic consistency rather than a perf decision.
- *
- * Authoring-surface contract: the caller MUST suppress the action
- * while any sub-editor reports `valid: false`. An invalid AST
- * reaching `compileExpression` would throw at the SQL layer; the
- * editor's aggregated validity gate is the primary defense, and
- * the typed-error arms surface only the structural failures the
- * gate cannot catch (missing case type after a stale blueprint
- * snapshot, schema-not-synced after a chat completion in flight,
- * invalid-config / invalid-blueprint from a wire-boundary parse
- * failure).
- */
-export async function loadCaseListPreviewAction(args: {
-	appId: string;
-	caseType: string;
-	blueprint: BlueprintDoc;
-	caseListConfig: CaseListConfig;
-	limit?: number;
-}): Promise<LoadCaseListPreviewResult> {
-	try {
-		// Session resolution first — matches every other action in
-		// this file. Unauthenticated requests short-circuit before
-		// the parse work runs.
-		const session = await getSession();
-		if (!session) return { kind: "unauthenticated" };
-
-		// Wire-boundary parse. `safeParse` returns a discriminated
-		// result; the `success: false` arm surfaces the Zod issue's
-		// first message as the user-facing detail.
-		//
-		// `caseListConfig` first because its parse is structurally
-		// independent of the blueprint (no cross-references); a
-		// malformed config reports its own arm rather than masking
-		// under the blueprint arm.
-		const parsedConfig = caseListConfigSchema.safeParse(args.caseListConfig);
-		if (!parsedConfig.success) {
-			const firstIssue = parsedConfig.error.issues[0];
-			const message =
-				firstIssue !== undefined
-					? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}`
-					: "Case-list configuration is malformed.";
-			return { kind: "invalid-config", message };
-		}
-		// Strip the in-memory `fieldParent` index `pickBlueprintDoc`
-		// re-attaches before the strict parse — `blueprintDocSchema` is
-		// `.strict()` and would reject the undeclared key. The helper is
-		// null-safe so a malformed wire payload still surfaces as the
-		// typed `invalid-blueprint` arm; the re-attach below restores
-		// `fieldParent` for `buildCaseTypeMap`'s type.
-		const parsedBlueprint = blueprintDocSchema.safeParse(
-			stripDerivedFieldParent(args.blueprint),
-		);
-		if (!parsedBlueprint.success) {
-			const firstIssue = parsedBlueprint.error.issues[0];
-			const message =
-				firstIssue !== undefined
-					? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}`
-					: "Blueprint is malformed.";
-			return { kind: "invalid-blueprint", message };
-		}
-
-		const store = await gatedCaseStore(args.appId, session.user.id, "view");
-		// Resolve the `name → CaseType` map once at the request edge —
-		// `readCaseListPreview` accepts the case-store's schema-resolution
-		// dependency directly so the helper stays decoupled from the full
-		// blueprint shape. `buildCaseTypeMap` reads only `caseTypes`, so
-		// the parsed persistable shape is passed verbatim (the stripped
-		// `fieldParent` index is not load-bearing here).
-		return await readCaseListPreview(store, {
-			appId: args.appId,
-			caseType: args.caseType,
-			limit: args.limit,
-			caseListConfig: parsedConfig.data,
-			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
-		});
-	} catch (err) {
-		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
-		// is expected, not a fault: collapse it to the IDOR-safe not-found
-		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
-		if (err instanceof AppAccessError)
-			return { kind: "error", message: "App not found." };
-		reportUnexpectedActionError("loadCaseListPreview", err, {
-			appId: args.appId,
-			caseType: args.caseType,
-		});
-		return mapCaseListPreviewError(err);
-	}
-}
-
-/**
  * Load Filters-section authoring-surface live-preview rows + the
  * full matching count. Resolves the request's session, constructs
  * a Project-scoped `CaseStore` via `gatedCaseStore` (view),
@@ -472,14 +342,10 @@ export async function loadCaseListPreviewAction(args: {
  * (totality figure) — both compile the same predicate through the
  * same stack so the count + row-list pair is internally consistent.
  *
- * Trust-boundary parse + session-first ordering match
- * `loadCaseListPreviewAction`'s shape verbatim — the action is
- * structurally a sibling of the case-list preview action with a
- * different result shape (rows + totalCount, vs rows alone). Both
- * actions read the same `caseListConfig` shape; the only divergence
- * is which slot of the config they treat as load-bearing
- * (`calculatedColumns` + `sort` for the case-list preview;
- * `filter` for the Filters-section preview).
+ * At the wire boundary, both the case-list config and blueprint are
+ * parsed before they reach the predicate compiler. Session resolution
+ * happens first, matching every other action in this file, so an expired
+ * session returns `unauthenticated` without doing parse or store work.
  *
  * Authoring-surface contract: the caller MUST suppress the action
  * while the filter editor reports `valid: false`. An invalid
@@ -502,10 +368,8 @@ export async function loadFilterPreviewAction(args: {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
 
-		// Wire-boundary parse — same shape as
-		// `loadCaseListPreviewAction`. `caseListConfig` first because
-		// its parse is structurally independent of the blueprint;
-		// blueprint second.
+		// Wire-boundary parse. `caseListConfig` comes first because its
+		// shape is structurally independent of the blueprint.
 		const parsedConfig = caseListConfigSchema.safeParse(args.caseListConfig);
 		if (!parsedConfig.success) {
 			const firstIssue = parsedConfig.error.issues[0];
@@ -516,7 +380,7 @@ export async function loadFilterPreviewAction(args: {
 			return { kind: "invalid-config", message };
 		}
 		// Strip the in-memory `fieldParent` index before the strict
-		// parse — mirrors `loadCaseListPreviewAction`. The helper is
+		// parse. The helper is
 		// null-safe so a malformed wire payload surfaces as the typed
 		// `invalid-blueprint` arm rather than a thrown destructure.
 		const parsedBlueprint = blueprintDocSchema.safeParse(
@@ -533,8 +397,7 @@ export async function loadFilterPreviewAction(args: {
 
 		const store = await gatedCaseStore(args.appId, session.user.id, "view");
 		// `buildCaseTypeMap` reads only `caseTypes`, so the parsed
-		// persistable shape goes through directly — same as
-		// `loadCaseListPreviewAction`.
+		// persistable shape goes through directly.
 		return await readFilterPreview(store, {
 			appId: args.appId,
 			caseType: args.caseType,

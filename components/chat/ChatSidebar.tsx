@@ -617,7 +617,10 @@ export function ChatSidebar({
 				 *  ambiguous icon-only controls in this title bar. */}
 				{!centered && !docked && (
 					<>
-						<div className="flex items-center gap-2 pl-4 pr-2 h-12 border-b border-nova-border shrink-0">
+						<div
+							className="flex h-16 shrink-0 items-center gap-2 border-b border-nova-border pl-4 pr-2"
+							data-builder-secondary-header="chat"
+						>
 							<span className="flex-1 min-w-0 text-sm font-medium text-nova-text">
 								{listVisible ? "Conversations" : "Chat"}
 							</span>

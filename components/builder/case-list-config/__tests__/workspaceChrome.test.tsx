@@ -10,6 +10,7 @@ import {
 } from "@/lib/domain";
 import { ancestorPath, relationStep } from "@/lib/domain/predicate";
 import { CaseListCanvas } from "../canvas/CaseListCanvas";
+import { DetailCanvas } from "../canvas/DetailCanvas";
 import {
 	AddInformationControl,
 	DisplayFieldComposer,
@@ -47,7 +48,6 @@ describe("case workspace chrome", () => {
 			<DisplayFieldComposer
 				columns={[NAME, DOB]}
 				surface="list"
-				sampleRow={undefined}
 				selectedUuid={null}
 				brokenColumns={new Set()}
 				onSelect={() => {}}
@@ -73,7 +73,6 @@ describe("case workspace chrome", () => {
 			<DisplayFieldComposer
 				columns={[NAME]}
 				surface="list"
-				sampleRow={undefined}
 				selectedUuid={null}
 				brokenColumns={new Set()}
 				onSelect={onSelect}
@@ -82,10 +81,64 @@ describe("case workspace chrome", () => {
 		);
 
 		expect(screen.queryByRole("button", { name: /more options/i })).toBeNull();
-		fireEvent.click(
-			screen.getByRole("button", { name: /patient name example value/i }),
-		);
+		expect(screen.queryByText(/example value/i)).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Patient name" }));
 		expect(onSelect).toHaveBeenCalledWith(NAME);
+	});
+
+	it("keeps Details focused on composition instead of an arbitrary case", () => {
+		render(
+			<DetailCanvas
+				config={{ columns: [NAME], searchInputs: [] }}
+				brokenColumns={new Set()}
+				selection={null}
+				onSelect={() => {}}
+				onAddDetailField={() => {}}
+				addDisabledReason={undefined}
+				onMoveColumn={() => {}}
+				onShowColumn={() => {}}
+				onRepairColumn={() => {}}
+			/>,
+		);
+
+		expect(screen.getByRole("heading", { name: "Details" })).toBeDefined();
+		expect(
+			screen.getByRole("heading", { name: "Information shown" }),
+		).toBeDefined();
+		expect(screen.getByRole("button", { name: "Patient name" })).toBeDefined();
+		expect(screen.queryByText(/example case|example value/i)).toBeNull();
+	});
+
+	it("names the two Results behavior actions by what they change", () => {
+		const sortedName = {
+			...NAME,
+			sort: { direction: "asc" as const, priority: 0 },
+		};
+		render(
+			<CaseListCanvas
+				config={{ columns: [sortedName], searchInputs: [] }}
+				caseType={undefined}
+				brokenColumns={new Set()}
+				filterBroken={false}
+				selection={null}
+				onSelect={() => {}}
+				onAddColumn={() => {}}
+				addColumnDisabledReason={undefined}
+				onMoveColumn={() => {}}
+				onColumnsChange={() => {}}
+				onShowColumn={() => {}}
+				onRepairColumn={() => {}}
+				onOpenOptions={() => {}}
+			/>,
+		);
+
+		expect(
+			screen.getByRole("button", { name: "Change cases included" }),
+		).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: "Change default order" }),
+		).toBeDefined();
+		expect(screen.getAllByText("Change")).toHaveLength(2);
 	});
 
 	it("offers removed information only after the author asks to add", () => {
@@ -130,11 +183,7 @@ describe("case workspace chrome", () => {
 			/>,
 		);
 
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Add information, one existing item needs attention",
-			}),
-		);
+		fireEvent.click(screen.getByRole("button", { name: "Add information" }));
 		fireEvent.click(
 			screen.getByRole("menuitem", {
 				name: /date of birth.*fix before adding/i,
@@ -424,16 +473,15 @@ describe("case workspace chrome", () => {
 	});
 
 	it("keeps a filter problem findable when no result fields are shown", () => {
-		const message = "Open Cases included and repair its condition.";
-
+		const onSelect = vi.fn();
 		render(
 			<CaseListCanvas
 				config={{ columns: [], searchInputs: [] }}
 				caseType={undefined}
 				brokenColumns={new Set()}
-				preview={{ kind: "paused", message }}
+				filterBroken
 				selection={null}
-				onSelect={() => {}}
+				onSelect={onSelect}
 				onAddColumn={() => {}}
 				addColumnDisabledReason={undefined}
 				onMoveColumn={() => {}}
@@ -444,10 +492,15 @@ describe("case workspace chrome", () => {
 			/>,
 		);
 
-		expect(screen.getByText(message)).toBeDefined();
+		expect(screen.getByText("Needs attention")).toBeDefined();
+		expect(screen.getByText("This rule needs a quick fix.")).toBeDefined();
 		expect(
-			screen.getByRole("heading", { name: "Design the results" }),
+			screen.getByRole("button", { name: "Fix cases included" }),
 		).toBeDefined();
+		fireEvent.click(screen.getByRole("button", { name: "Fix cases included" }));
+		expect(onSelect).toHaveBeenCalledWith({ type: "filter" });
+		expect(screen.getByRole("heading", { name: "Results" })).toBeDefined();
 		expect(screen.queryByText(/arrange fields/i)).toBeNull();
+		expect(screen.queryByText(/example result|example value/i)).toBeNull();
 	});
 });

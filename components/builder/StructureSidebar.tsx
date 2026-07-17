@@ -26,7 +26,10 @@ export function StructureSidebar() {
 	return (
 		<div className="w-full border-r border-nova-border-bright bg-nova-deep flex flex-col shrink-0 h-full">
 			{/* App row */}
-			<div className="flex items-center gap-1 pl-3 pr-1 h-12 border-b border-nova-border shrink-0">
+			<div
+				className="flex h-16 shrink-0 items-center gap-1 border-b border-nova-border pl-3 pr-1"
+				data-builder-secondary-header="structure"
+			>
 				<button
 					type="button"
 					onClick={() => setSidebarOpen("structure", false)}

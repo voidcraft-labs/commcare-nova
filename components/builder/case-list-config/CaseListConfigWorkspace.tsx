@@ -83,7 +83,6 @@ import { SearchInputEditor } from "./inspector/SearchInputEditor";
 import { SearchPanelInspectorBody } from "./inspector/SearchPanelInspectorBody";
 import { withPreservedIdentity } from "./preserveIdentity";
 import { labelFromProperty, seedColumn, seedSearchInput } from "./seeds";
-import { useCaseListPreview } from "./useCaseListPreview";
 import {
 	projectCaseWorkspaceColumns,
 	pruneStoppedSortOrphans,
@@ -118,7 +117,7 @@ const EMPTY_CONFIG: CaseListConfig = { columns: [], searchInputs: [] };
 const EMPTY_VERDICTS = {
 	errorAreas: { search: false, list: false, detail: false },
 	brokenColumns: new Set<string>(),
-	previewObstacle: null,
+	filterBroken: false,
 } as const;
 
 /** Append to the active surface's resolved sequence, including legacy columns
@@ -233,22 +232,16 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		),
 	);
 
-	// ── Live preview (one load feeds the list + detail canvases) ──
-	// One walk answers the tab dots, the in-canvas marks, and the
-	// preview gate (see `configValidity.ts` for what gates what).
-	const { errorAreas, brokenColumns, previewObstacle } = useMemo(
+	// One whole-config walk answers the tab dots and the findable marks in the
+	// active canvas. Real case data belongs to the global Preview; authoring
+	// stays focused on composing the screen instead of sampling one arbitrary row.
+	const { errorAreas, brokenColumns, filterBroken } = useMemo(
 		() =>
 			caseType !== undefined
 				? caseListConfigVerdicts(config, caseTypes, caseType)
 				: EMPTY_VERDICTS,
 		[config, caseTypes, caseType],
 	);
-	const { state: preview, fetching: previewFetching } = useCaseListPreview({
-		appId,
-		caseListConfig: config,
-		currentCaseType: caseType ?? "",
-		previewObstacle,
-	});
 
 	// ── Mutators ──
 
@@ -604,8 +597,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 					caseType={ct}
 					caseTypes={caseTypes}
 					brokenColumns={brokenColumns}
-					preview={preview}
-					refreshing={previewFetching}
+					filterBroken={filterBroken}
 					selection={sel}
 					onSelect={setSel}
 					onAddColumn={() => addColumn("list")}
@@ -622,7 +614,6 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 				<DetailCanvas
 					config={config}
 					brokenColumns={brokenColumns}
-					preview={preview}
 					selection={sel}
 					onSelect={setSel}
 					onAddDetailField={() => addColumn("detail")}
