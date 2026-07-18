@@ -25,11 +25,22 @@
 // the same discipline `lib/domain/predicate/__tests__/builders.test.ts`
 // uses on the construction-side surface.
 
+import {
+	DummyDriver,
+	Kysely,
+	PostgresAdapter,
+	PostgresIntrospector,
+	PostgresQueryCompiler,
+} from "kysely";
 import { describe, expect, it } from "vitest";
+import { compilePredicate, type Database } from "@/lib/case-store/sql";
+import { composeXPathQueryEmission } from "@/lib/commcare/suite/case-search/xpathQuery";
 import {
 	APPLICABLE_SEARCH_MODES,
 	advancedSearchInputDef,
 	asUuid,
+	type CaseListConfig,
+	type CaseType,
 	exactMode,
 	fuzzyDateMode,
 	fuzzyMode,
@@ -51,17 +62,20 @@ import {
 	dateCoerce,
 	dateLiteral,
 	datetimeCoerce,
+	datetimeLiteral,
 	double,
 	eq,
 	exists,
 	formatDate,
 	gt,
+	gte,
 	ifExpr,
 	input,
 	isBlank,
 	isIn,
 	isNull,
 	literal,
+	lt,
 	match,
 	matchAll,
 	matchNone,
@@ -83,6 +97,13 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate";
+import {
+	DATE_RANGE_CONFIGURATION_MESSAGE,
+	DATE_RANGE_INVALID_MESSAGE,
+	DATE_RANGE_ORDER_MESSAGE,
+	DATE_RANGE_PAIR_REQUIRED_MESSAGE,
+	SearchInputValuesError,
+} from "../dateRangeInputValidation";
 import {
 	bindSearchInputValuesInPredicate,
 	composeRuntimeFilter,
@@ -161,6 +182,29 @@ describe("searchInputValues wire bridge", () => {
 });
 
 const PATIENT = "patient";
+
+const SQL_DB = new Kysely<Database>({
+	dialect: {
+		createAdapter: () => new PostgresAdapter(),
+		createDriver: () => new DummyDriver(),
+		createIntrospector: (db) => new PostgresIntrospector(db),
+		createQueryCompiler: () => new PostgresQueryCompiler(),
+	},
+});
+
+const CASE_TYPE_SCHEMAS = new Map<string, CaseType>([
+	[
+		PATIENT,
+		{
+			name: PATIENT,
+			properties: [
+				{ name: "dob", label: "Date of birth", data_type: "date" },
+				{ name: "visit_date", label: "Visit date", data_type: "date" },
+				{ name: "field", label: "Field", data_type: "date" },
+			],
+		},
+	],
+]);
 
 describe("bindSearchInputValuesInPredicate", () => {
 	const wrappedFilter = whenInput(
@@ -268,6 +312,207 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		);
 		const expected = eq(prop(PATIENT, "name"), literal("alice"));
 		expect(result).toEqual(expected);
+		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+
+	it("uses date-shaped whole-day bounds for an exact date property", () => {
+		const inputs = [
+			simpleSearchInputDef(
+				asUuid("day"),
+				"visit_date",
+				"Visit date",
+				"date",
+				"visit_date",
+			),
+		];
+		const day = term(dateLiteral("2025-01-02"));
+		const caseTypes = new Map([
+			[
+				PATIENT,
+				{
+					name: PATIENT,
+					properties: [
+						{
+							name: "visit_date",
+							label: "Visit date",
+							data_type: "date" as const,
+						},
+					],
+				},
+			],
+		]);
+		const result = composeRuntimeFilter(
+			inputs,
+			new Map([["visit_date", "2025-01-02"]]),
+			PATIENT,
+			caseTypes,
+		);
+
+		expect(result).toEqual(
+			and(
+				gte(prop(PATIENT, "visit_date"), dateCoerce(day)),
+				lt(
+					prop(PATIENT, "visit_date"),
+					dateAdd(dateCoerce(day), "days", term(literal(1))),
+				),
+			),
+		);
+		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+
+	it("uses UTC datetime whole-day bounds for an exact custom datetime property", () => {
+		const inputs = [
+			simpleSearchInputDef(
+				asUuid("day"),
+				"last_seen",
+				"Last seen",
+				"date",
+				"last_seen",
+			),
+		];
+		const day = term(dateLiteral("2025-01-02"));
+		const caseTypes = new Map([
+			[
+				PATIENT,
+				{
+					name: PATIENT,
+					properties: [
+						{
+							name: "last_seen",
+							label: "Last seen",
+							data_type: "datetime" as const,
+						},
+					],
+				},
+			],
+		]);
+		const result = composeRuntimeFilter(
+			inputs,
+			new Map([["last_seen", "2025-01-02"]]),
+			PATIENT,
+			caseTypes,
+		);
+
+		expect(result).toEqual(
+			and(
+				gte(prop(PATIENT, "last_seen"), datetimeCoerce(day)),
+				lt(
+					prop(PATIENT, "last_seen"),
+					datetimeCoerce(dateAdd(dateCoerce(day), "days", term(literal(1)))),
+				),
+			),
+		);
+		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+
+	it("uses the same UTC datetime bounds for indexed date_opened metadata", () => {
+		const inputs = [
+			simpleSearchInputDef(
+				asUuid("day"),
+				"date_opened",
+				"Date opened",
+				"date",
+				"date_opened",
+			),
+		];
+		const day = term(dateLiteral("2025-01-02"));
+		// Indexed metadata is an implicit runtime property and is absent from
+		// the materializable custom-property schema passed to Preview.
+		const caseTypes = new Map([[PATIENT, { name: PATIENT, properties: [] }]]);
+		const result = composeRuntimeFilter(
+			inputs,
+			new Map([["date_opened", "2025-01-02"]]),
+			PATIENT,
+			caseTypes,
+		);
+
+		expect(result).toEqual(
+			and(
+				gte(prop(PATIENT, "date_opened"), datetimeCoerce(day)),
+				lt(
+					prop(PATIENT, "date_opened"),
+					datetimeCoerce(dateAdd(dateCoerce(day), "days", term(literal(1)))),
+				),
+			),
+		);
+		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+
+	it("drops a calendar-invalid exact date instead of querying with it", () => {
+		const inputs = [
+			simpleSearchInputDef(
+				asUuid("day"),
+				"last_seen",
+				"Last seen",
+				"date",
+				"last_seen",
+			),
+		];
+
+		expect(
+			composeRuntimeFilter(
+				inputs,
+				new Map([["last_seen", "2025-02-31"]]),
+				PATIENT,
+			),
+		).toEqual(matchAll());
+	});
+
+	it("keeps both exact-date bounds inside one related-case quantifier", () => {
+		const via = ancestorPath(relationStep("parent"));
+		const inputs = [
+			simpleSearchInputDef(
+				asUuid("day"),
+				"household_visit",
+				"Household visit",
+				"date",
+				"last_seen",
+				{ via },
+			),
+		];
+		const day = term(dateLiteral("2025-01-02"));
+		const caseTypes = new Map([
+			[
+				PATIENT,
+				{
+					name: PATIENT,
+					parent_type: "household",
+					properties: [],
+				},
+			],
+			[
+				"household",
+				{
+					name: "household",
+					properties: [
+						{
+							name: "last_seen",
+							label: "Last seen",
+							data_type: "datetime" as const,
+						},
+					],
+				},
+			],
+		]);
+
+		const result = composeRuntimeFilter(
+			inputs,
+			new Map([["household_visit", "2025-01-02"]]),
+			PATIENT,
+			caseTypes,
+		);
+		expect(result).toEqual(
+			exists(
+				via,
+				and(
+					gte(prop("household", "last_seen"), datetimeCoerce(day)),
+					lt(
+						prop("household", "last_seen"),
+						datetimeCoerce(dateAdd(dateCoerce(day), "days", term(literal(1)))),
+					),
+				),
+			),
+		);
 		expect(predicateSchema.parse(result)).toEqual(result);
 	});
 
@@ -477,11 +722,59 @@ describe("composeRuntimeFilter — multi-select-contains mode", () => {
 });
 
 describe("composeRuntimeFilter — range mode", () => {
-	it("reads `:from` and `:to` keys for an explicit `range` mode on a `date` input", () => {
+	it("rejects range mode paired with the one-date widget before composition", () => {
+		const input = simpleSearchInputDef(
+			asUuid("range-on-date"),
+			"visit_date",
+			"Visit date",
+			"date",
+			"visit_date",
+			{ mode: { kind: "range" } },
+		);
+
+		expect(() =>
+			composeRuntimeFilter(
+				[input],
+				new Map([["visit_date", "2025-01-02"]]),
+				PATIENT,
+				CASE_TYPE_SCHEMAS,
+			),
+		).toThrowError(DATE_RANGE_CONFIGURATION_MESSAGE);
+	});
+
+	it("rejects a date-range widget paired with a one-value mode", () => {
+		const input = simpleSearchInputDef(
+			asUuid("exact-on-range"),
+			"visit_date",
+			"Visit date",
+			"date-range",
+			"visit_date",
+			{ mode: { kind: "exact" } },
+		);
+
+		expect(() =>
+			composeRuntimeFilter(
+				[input],
+				new Map([
+					["visit_date:from", "2025-01-01"],
+					["visit_date:to", "2025-01-02"],
+				]),
+				PATIENT,
+				CASE_TYPE_SCHEMAS,
+			),
+		).toThrowError(DATE_RANGE_CONFIGURATION_MESSAGE);
+	});
+
+	it("reads `:from` and `:to` keys for an explicit `range` mode on a date-range input", () => {
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "dob", "Date of Birth", "date", "dob", {
-				mode: rangeMode(),
-			}),
+			simpleSearchInputDef(
+				asUuid("a"),
+				"dob",
+				"Date of Birth",
+				"date-range",
+				"dob",
+				{ mode: rangeMode() },
+			),
 		];
 		const result = composeRuntimeFilter(
 			inputs,
@@ -492,6 +785,7 @@ describe("composeRuntimeFilter — range mode", () => {
 				}),
 			),
 			PATIENT,
+			CASE_TYPE_SCHEMAS,
 		);
 		expect(result).toMatchObject({
 			kind: "between",
@@ -528,6 +822,7 @@ describe("composeRuntimeFilter — range mode", () => {
 				}),
 			),
 			PATIENT,
+			CASE_TYPE_SCHEMAS,
 		);
 		expect(result).toMatchObject({
 			kind: "between",
@@ -542,39 +837,58 @@ describe("composeRuntimeFilter — range mode", () => {
 		});
 	});
 
-	it("emits a lower-only `between` when only `:from` is set", () => {
+	it("includes the complete final UTC day when the range targets datetime", () => {
 		const inputs = [
 			simpleSearchInputDef(
 				asUuid("a"),
-				"visit_dates",
-				"Visit Dates",
+				"visit_window",
+				"Visit window",
 				"date-range",
-				"visit_date",
+				"visit_at",
 			),
 		];
+		const datetimeSchemas = new Map<string, CaseType>([
+			[
+				PATIENT,
+				{
+					name: PATIENT,
+					properties: [
+						{
+							name: "visit_at",
+							label: "Visit at",
+							data_type: "datetime",
+						},
+					],
+				},
+			],
+		]);
+		const lowerDay = term(dateLiteral("2025-01-01"));
+		const upperDay = term(dateLiteral("2025-06-30"));
 		const result = composeRuntimeFilter(
 			inputs,
-			new Map(Object.entries({ "visit_dates:from": "2025-01-01" })),
+			new Map([
+				["visit_window:from", "2025-01-01"],
+				["visit_window:to", "2025-06-30"],
+			]),
 			PATIENT,
+			datetimeSchemas,
 		);
-		expect(result).toMatchObject({
-			kind: "between",
-			lower: {
-				kind: "term",
-				term: { kind: "literal", value: "2025-01-01", data_type: "date" },
-			},
-		});
-		// Round-trip parse confirms the at-least-one-bound `.refine(...)`
-		// admits the lower-only shape.
+
+		expect(result).toEqual(
+			and(
+				gte(prop(PATIENT, "visit_at"), datetimeCoerce(lowerDay)),
+				lt(
+					prop(PATIENT, "visit_at"),
+					datetimeCoerce(
+						dateAdd(dateCoerce(upperDay), "days", term(literal(1))),
+					),
+				),
+			),
+		);
 		expect(predicateSchema.parse(result)).toEqual(result);
-		// `upper` key is structurally absent (Zod's `.optional()` strip)
-		// rather than `upper: undefined`.
-		if (result.kind === "between") {
-			expect("upper" in result).toBe(false);
-		}
 	});
 
-	it("emits an upper-only `between` when only `:to` is set", () => {
+	it("rejects a lower-only draft because CommCare daterange requires a pair", () => {
 		const inputs = [
 			simpleSearchInputDef(
 				asUuid("a"),
@@ -584,22 +898,38 @@ describe("composeRuntimeFilter — range mode", () => {
 				"visit_date",
 			),
 		];
-		const result = composeRuntimeFilter(
-			inputs,
-			new Map(Object.entries({ "visit_dates:to": "2025-06-30" })),
-			PATIENT,
+		expect(() =>
+			composeRuntimeFilter(
+				inputs,
+				new Map(Object.entries({ "visit_dates:from": "2025-01-01" })),
+				PATIENT,
+				CASE_TYPE_SCHEMAS,
+			),
+		).toThrowError(
+			new SearchInputValuesError(
+				new Map([["visit_dates", DATE_RANGE_PAIR_REQUIRED_MESSAGE]]),
+			),
 		);
-		expect(result).toMatchObject({
-			kind: "between",
-			upper: {
-				kind: "term",
-				term: { kind: "literal", value: "2025-06-30", data_type: "date" },
-			},
-		});
-		expect(predicateSchema.parse(result)).toEqual(result);
-		if (result.kind === "between") {
-			expect("lower" in result).toBe(false);
-		}
+	});
+
+	it("rejects an upper-only draft because CommCare daterange requires a pair", () => {
+		const inputs = [
+			simpleSearchInputDef(
+				asUuid("a"),
+				"visit_dates",
+				"Visit Dates",
+				"date-range",
+				"visit_date",
+			),
+		];
+		expect(() =>
+			composeRuntimeFilter(
+				inputs,
+				new Map(Object.entries({ "visit_dates:to": "2025-06-30" })),
+				PATIENT,
+				CASE_TYPE_SCHEMAS,
+			),
+		).toThrowError(DATE_RANGE_PAIR_REQUIRED_MESSAGE);
 	});
 
 	it("returns matchAll() when both `:from` and `:to` are absent", () => {
@@ -617,7 +947,7 @@ describe("composeRuntimeFilter — range mode", () => {
 		).toEqual(matchAll());
 	});
 
-	it("treats malformed date bounds as absent (mid-edit value safety)", () => {
+	it("rejects malformed submitted bounds before they reach SQL", () => {
 		const inputs = [
 			simpleSearchInputDef(
 				asUuid("a"),
@@ -627,10 +957,10 @@ describe("composeRuntimeFilter — range mode", () => {
 				"visit_date",
 			),
 		];
-		// `2025-` is partially-typed; `xx` is non-date. The input
-		// contributes nothing rather than crashing the SQL layer with a
-		// malformed `dateLiteral`.
-		expect(
+		// `2025-` is partially typed; `xx` is non-date. The editable form keeps
+		// drafts, while the submission boundary rejects instead of silently
+		// widening the query or crashing the SQL cast.
+		expect(() =>
 			composeRuntimeFilter(
 				inputs,
 				new Map(
@@ -640,11 +970,12 @@ describe("composeRuntimeFilter — range mode", () => {
 					}),
 				),
 				PATIENT,
+				CASE_TYPE_SCHEMAS,
 			),
-		).toEqual(matchAll());
+		).toThrowError(DATE_RANGE_INVALID_MESSAGE);
 	});
 
-	it("treats calendar-invalid bounds as absent (`2024-13-45` is rejected by `isValid`)", () => {
+	it("rejects calendar-invalid bounds (`2024-13-45` is not a real day)", () => {
 		const inputs = [
 			simpleSearchInputDef(
 				asUuid("a"),
@@ -655,12 +986,9 @@ describe("composeRuntimeFilter — range mode", () => {
 			),
 		];
 		// `2024-13-45` matches the `YYYY-MM-DD` shape but has month
-		// 13 + day 45 — `parseISO` returns Invalid Date. Without the
-		// calendar-correctness gate the binding layer would hand the
-		// raw string to `dateLiteral` and the Postgres `date` cast
-		// would reject it at execution time, surfacing as an opaque
-		// SQL error instead of a clean no-contribution short-circuit.
-		expect(
+		// 13 + day 45. The calendar-correctness gate produces a repairable
+		// input error before Postgres can surface an opaque cast failure.
+		expect(() =>
 			composeRuntimeFilter(
 				inputs,
 				new Map(
@@ -670,11 +998,12 @@ describe("composeRuntimeFilter — range mode", () => {
 					}),
 				),
 				PATIENT,
+				CASE_TYPE_SCHEMAS,
 			),
-		).toEqual(matchAll());
+		).toThrowError(DATE_RANGE_INVALID_MESSAGE);
 	});
 
-	it("treats one malformed bound as absent while the other contributes", () => {
+	it("rejects a completed pair when one bound is malformed", () => {
 		const inputs = [
 			simpleSearchInputDef(
 				asUuid("a"),
@@ -684,30 +1013,188 @@ describe("composeRuntimeFilter — range mode", () => {
 				"visit_date",
 			),
 		];
-		const result = composeRuntimeFilter(
-			inputs,
-			new Map(
-				Object.entries({
-					"visit_dates:from": "2025-01-01",
-					"visit_dates:to": "junk",
-				}),
+		expect(() =>
+			composeRuntimeFilter(
+				inputs,
+				new Map(
+					Object.entries({
+						"visit_dates:from": "2025-01-01",
+						"visit_dates:to": "junk",
+					}),
+				),
+				PATIENT,
+				CASE_TYPE_SCHEMAS,
 			),
-			PATIENT,
-		);
-		expect(result).toMatchObject({
-			kind: "between",
-			lower: {
-				kind: "term",
-				term: { kind: "literal", value: "2025-01-01", data_type: "date" },
-			},
-		});
-		if (result.kind === "between") {
-			expect("upper" in result).toBe(false);
-		}
+		).toThrowError(DATE_RANGE_INVALID_MESSAGE);
+	});
+
+	it("rejects a reversed pair instead of returning a mysterious empty list", () => {
+		const inputs = [
+			simpleSearchInputDef(
+				asUuid("a"),
+				"visit_dates",
+				"Visit Dates",
+				"date-range",
+				"visit_date",
+			),
+		];
+		expect(() =>
+			composeRuntimeFilter(
+				inputs,
+				new Map(
+					Object.entries({
+						"visit_dates:from": "2025-07-01",
+						"visit_dates:to": "2025-06-30",
+					}),
+				),
+				PATIENT,
+				CASE_TYPE_SCHEMAS,
+			),
+		).toThrowError(DATE_RANGE_ORDER_MESSAGE);
 	});
 });
 
 describe("composeRuntimeFilter — advanced arm substitution", () => {
+	it.each([
+		{
+			label: "date result",
+			left: dateAdd(term(input("visit_day")), "days", term(literal(1))),
+			right: term(dateLiteral("2026-07-18")),
+			expectsTimestamp: false,
+		},
+		{
+			label: "explicit datetime result",
+			left: dateAdd(
+				datetimeCoerce(term(input("visit_day"))),
+				"days",
+				term(literal(1)),
+			),
+			right: term(datetimeLiteral("2026-07-18T00:00:00Z")),
+			expectsTimestamp: true,
+		},
+	] as const)("preserves a date widget through production binding and SQL compilation for a $label", ({
+		left,
+		right,
+		expectsTimestamp,
+	}) => {
+		const dateInput = advancedSearchInputDef(
+			asUuid("visit-day"),
+			"visit_day",
+			"Visit day",
+			"date",
+			eq(left, right),
+		);
+		const bound = composeRuntimeFilter(
+			[dateInput],
+			new Map([["visit_day", "2026-07-17"]]),
+			PATIENT,
+			CASE_TYPE_SCHEMAS,
+		);
+
+		if (bound.kind !== "eq") {
+			throw new Error(`Expected an equality predicate, received ${bound.kind}`);
+		}
+		expect(bound.left).toMatchObject({
+			kind: "date-add",
+			date: expectsTimestamp
+				? {
+						kind: "datetime-coerce",
+						value: {
+							kind: "term",
+							term: {
+								kind: "literal",
+								value: "2026-07-17",
+								data_type: "date",
+							},
+						},
+					}
+				: {
+						kind: "term",
+						term: {
+							kind: "literal",
+							value: "2026-07-17",
+							data_type: "date",
+						},
+					},
+		});
+
+		const compiled = SQL_DB.selectFrom("cases as c")
+			.selectAll()
+			.where(
+				compilePredicate(bound, {
+					db: SQL_DB,
+					appId: "app-runtime-binding",
+					projectId: "project-runtime-binding",
+					anchorAlias: "c",
+					caseTypeSchemas: CASE_TYPE_SCHEMAS,
+					bindings: {},
+				}),
+			)
+			.compile();
+
+		expect(compiled.sql).toContain("make_interval(");
+		expect(compiled.sql.includes("as timestamptz")).toBe(expectsTimestamp);
+		if (!expectsTimestamp) expect(compiled.sql).toContain("as date");
+	});
+
+	it("keeps zero-ref advanced predicates present in both Preview and wire", () => {
+		const advanced = advancedSearchInputDef(
+			asUuid("constant"),
+			"unused_prompt",
+			"Optional prompt",
+			"text",
+			eq(prop(PATIENT, "status"), literal("active")),
+		);
+		const config = {
+			columns: [],
+			searchInputs: [advanced],
+		} satisfies CaseListConfig;
+
+		expect(composeRuntimeFilter([advanced], new Map(), PATIENT)).toEqual(
+			eq(prop(PATIENT, "status"), literal("active")),
+		);
+		const wire = composeXPathQueryEmission(config, PATIENT)?.wrapper;
+		expect(wire).toContain("status = 'active'");
+		expect(wire).not.toContain("unused_prompt");
+	});
+
+	it("uses the authored sibling gate in both Preview and wire, never the owner", () => {
+		const advanced = advancedSearchInputDef(
+			asUuid("sibling"),
+			"unused_prompt",
+			"Optional prompt",
+			"text",
+			whenInput(input("region"), eq(prop(PATIENT, "name"), input("region"))),
+		);
+		const region = simpleSearchInputDef(
+			asUuid("region"),
+			"region",
+			"Region",
+			"text",
+			"region",
+		);
+		const config = {
+			columns: [],
+			searchInputs: [advanced, region],
+		} satisfies CaseListConfig;
+
+		expect(
+			composeRuntimeFilter(
+				[advanced, region],
+				new Map([["region", "north"]]),
+				PATIENT,
+			),
+		).toEqual(
+			and(
+				eq(prop(PATIENT, "name"), literal("north")),
+				eq(prop(PATIENT, "region"), literal("north")),
+			),
+		);
+		const wire = composeXPathQueryEmission(config, PATIENT)?.wrapper;
+		expect(wire).toContain("@name='region'");
+		expect(wire).not.toContain("unused_prompt");
+	});
+
 	it("binds a wrapped completed date range with CommCare's scalar token", () => {
 		const advanced = advancedSearchInputDef(
 			asUuid("range"),
@@ -1048,7 +1535,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 	});
 
-	it("returns matchAll() for an advanced arm whose value is empty", () => {
+	it("binds an unanswered advanced input as empty instead of inventing an owner gate", () => {
 		const advanced = advancedSearchInputDef(
 			asUuid("a"),
 			"q",
@@ -1058,7 +1545,51 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		);
 		expect(
 			composeRuntimeFilter([advanced], new Map(Object.entries({})), PATIENT),
-		).toEqual(matchAll());
+		).toEqual(eq(prop(PATIENT, "name"), literal("")));
+	});
+
+	it("always evaluates a zero-ref advanced predicate", () => {
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"q",
+			"Query",
+			"text",
+			eq(prop(PATIENT, "status"), literal("active")),
+		);
+
+		expect(
+			composeRuntimeFilter([advanced], new Map(Object.entries({})), PATIENT),
+		).toEqual(eq(prop(PATIENT, "status"), literal("active")));
+	});
+
+	it("evaluates an advanced predicate from a populated sibling when its owner is empty", () => {
+		const advanced = advancedSearchInputDef(
+			asUuid("a"),
+			"q",
+			"Query",
+			"text",
+			whenInput(input("region"), eq(prop(PATIENT, "name"), input("region"))),
+		);
+		const region = simpleSearchInputDef(
+			asUuid("region"),
+			"region",
+			"Region",
+			"text",
+			"region",
+		);
+
+		expect(
+			composeRuntimeFilter(
+				[advanced, region],
+				new Map(Object.entries({ region: "north" })),
+				PATIENT,
+			),
+		).toEqual(
+			and(
+				eq(prop(PATIENT, "name"), literal("north")),
+				eq(prop(PATIENT, "region"), literal("north")),
+			),
+		);
 	});
 
 	it("substitutes through `is-blank.left` (advanced arm)", () => {
@@ -1372,6 +1903,7 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 				}),
 			),
 			PATIENT,
+			CASE_TYPE_SCHEMAS,
 		);
 		// The range arm contributes a between; the advanced arm
 		// contributes an eq with the substituted literal. The two
@@ -1457,6 +1989,7 @@ describe("composeRuntimeFilter — round-trip + builder reuse", () => {
 				}),
 			),
 			PATIENT,
+			CASE_TYPE_SCHEMAS,
 		);
 		// The exact AST shape isn't asserted here — the test above
 		// already pins per-arm correctness — but the round-trip parse
@@ -1507,6 +2040,7 @@ describe("composeRuntimeFilter — round-trip + builder reuse", () => {
 				}),
 			),
 			PATIENT,
+			CASE_TYPE_SCHEMAS,
 		);
 		if (result.kind === "between") {
 			expect(result.lower).toEqual(term(dateLiteral("2025-01-01")));
@@ -1654,7 +2188,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 		// the rewriter only substitutes for the target input's name.
 		expect(result).toEqual(
 			eq(
-				dateAdd(term(literal("2025-01-01")), "days", term(input("offset"))),
+				dateAdd(term(dateLiteral("2025-01-01")), "days", term(input("offset"))),
 				literal("2025-01-15"),
 			),
 		);
@@ -1837,15 +2371,42 @@ describe("composeRuntimeFilter — default-mode table contract", () => {
 								"field:to": "2025-12-31",
 							}),
 						)
-					: new Map(Object.entries({ field: "value" }));
-			const result = composeRuntimeFilter(inputs, inputValues, PATIENT);
+					: new Map(
+							Object.entries({
+								field: type === "date" ? "2025-01-01" : "value",
+							}),
+						);
+			const caseTypes =
+				type === "date" || type === "date-range"
+					? new Map([
+							[
+								PATIENT,
+								{
+									name: PATIENT,
+									properties: [
+										{
+											name: "field",
+											label: "Field",
+											data_type: "date" as const,
+										},
+									],
+								},
+							],
+						])
+					: undefined;
+			const result = composeRuntimeFilter(
+				inputs,
+				inputValues,
+				PATIENT,
+				caseTypes,
+			);
 			// Confirm the expected wire shape per the head-of-tuple
 			// expected mode. The Postgres compiler / wire emitters
 			// downstream branch on this kind, so getting it wrong here
 			// silently produces wrong wire output.
 			switch (expected) {
 				case "exact":
-					expect(result.kind).toBe("eq");
+					expect(result.kind).toBe(type === "date" ? "and" : "eq");
 					break;
 				case "range":
 					expect(result.kind).toBe("between");

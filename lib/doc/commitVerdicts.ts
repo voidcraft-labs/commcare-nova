@@ -31,15 +31,153 @@
  */
 
 import { produce } from "immer";
+import {
+	type CsqlRepresentabilityIssue,
+	checkCsqlRepresentability,
+} from "@/lib/commcare/predicate";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
 import {
 	evaluateBoundary,
 	evaluateCommit,
 } from "@/lib/commcare/validator/gate";
+import { MODULE_RULES } from "@/lib/commcare/validator/rules/module";
 import { scopeOfMutations } from "@/lib/commcare/validator/scopeOfMutations";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation, MutationResult } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { Predicate } from "@/lib/domain/predicate";
+
+export type PredicateEditVerdict =
+	| { readonly ok: true }
+	| { readonly ok: false; readonly reason: string };
+
+function representabilityIssueKey(issue: CsqlRepresentabilityIssue): string {
+	return `${issue.reason}\0${issue.path.map(String).join("\0")}`;
+}
+
+function predicateEditIssueReason(issue: CsqlRepresentabilityIssue): string {
+	if (issue.reason === "case-property-on-value-side") {
+		return "This condition already uses case information. Choose a value, search answer, app information, user information, or a calculation instead.";
+	}
+	if (issue.reason === "comparison-needs-case-property") {
+		return "Choose case information for one side of this condition.";
+	}
+	return issue.message;
+}
+
+/**
+ * Decide whether one in-place edit may be offered inside a case-search rule.
+ *
+ * The builder deliberately asks this domain-facing question instead of
+ * importing or re-implementing CommCare's CSQL grammar. Comparing the current
+ * and candidate trees is load-bearing for recovery: an imported rule may
+ * already contain a finding, and changing a different value must remain
+ * possible as long as that edit introduces nothing new. This mirrors the
+ * commit gate's delta semantics while giving a picker a concise reason before
+ * the author chooses an unsupported value source.
+ */
+export function caseSearchPredicateEditVerdict(
+	current: Predicate,
+	candidate: Predicate,
+): PredicateEditVerdict {
+	const existing = new Set(
+		checkCsqlRepresentability(current).map(representabilityIssueKey),
+	);
+	const introduced = checkCsqlRepresentability(candidate).find(
+		(issue) => !existing.has(representabilityIssueKey(issue)),
+	);
+	return introduced === undefined
+		? { ok: true }
+		: { ok: false, reason: predicateEditIssueReason(introduced) };
+}
+
+/** Absolute readiness verdict for a predicate that will execute as a remote
+ * case-search query. Whole-config status surfaces use this to mark an imported
+ * unsupported rule before the author touches it; edit menus use the delta
+ * verdict above so that same rule remains repairable. */
+export function caseSearchPredicateVerdict(
+	predicate: Predicate,
+): PredicateEditVerdict {
+	const issue = checkCsqlRepresentability(predicate)[0];
+	return issue === undefined
+		? { ok: true }
+		: { ok: false, reason: predicateEditIssueReason(issue) };
+}
+
+/** Absolute validator projection for the case-list workspace. The commit gate
+ * is deliberately delta-based, while workspace status must expose existing
+ * imported findings. Running the actual module rules keeps that status aligned
+ * with every type, wire, and on-device constraint without recreating their
+ * private walkers in React code. */
+export interface CaseWorkspaceBoundaryVerdicts {
+	readonly filterBroken: boolean;
+	readonly searchInputsBroken: boolean;
+	readonly searchButtonConditionBroken: boolean;
+	readonly excludedOwnerIdsBroken: boolean;
+	readonly brokenColumnUuids: readonly Uuid[];
+}
+
+const CLEAN_CASE_WORKSPACE_BOUNDARY: CaseWorkspaceBoundaryVerdicts = {
+	filterBroken: false,
+	searchInputsBroken: false,
+	searchButtonConditionBroken: false,
+	excludedOwnerIdsBroken: false,
+	brokenColumnUuids: [],
+};
+
+/** Run the same module-rule inventory as the commit/export boundary and retain
+ * only findings owned by a case-workspace AST slot. */
+export function caseWorkspaceBoundaryVerdicts(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): CaseWorkspaceBoundaryVerdicts {
+	const mod = doc.modules[moduleUuid];
+	if (mod === undefined) return CLEAN_CASE_WORKSPACE_BOUNDARY;
+
+	let filterBroken = false;
+	let searchInputsBroken = false;
+	let searchButtonConditionBroken = false;
+	let excludedOwnerIdsBroken = false;
+	const brokenColumnUuids = new Set<Uuid>();
+
+	for (const rule of MODULE_RULES) {
+		for (const finding of rule(mod, moduleUuid, doc)) {
+			const slot =
+				typeof finding.details?.slot === "string"
+					? finding.details.slot
+					: undefined;
+			if (slot === "caseListConfig.filter") {
+				filterBroken = true;
+				continue;
+			}
+			if (slot?.startsWith("caseListConfig.searchInputs[") === true) {
+				searchInputsBroken = true;
+				continue;
+			}
+			if (slot === "caseSearchConfig.searchButtonDisplayCondition") {
+				searchButtonConditionBroken = true;
+				continue;
+			}
+			if (slot === "caseSearchConfig.excludedOwnerIds") {
+				excludedOwnerIdsBroken = true;
+				continue;
+			}
+			if (slot?.startsWith("caseListConfig.columns[") !== true) continue;
+			const columnUuid = finding.details?.columnUuid;
+			if (typeof columnUuid === "string") {
+				brokenColumnUuids.add(columnUuid as Uuid);
+			}
+		}
+	}
+
+	return {
+		filterBroken,
+		searchInputsBroken,
+		searchButtonConditionBroken,
+		excludedOwnerIdsBroken,
+		brokenColumnUuids: [...brokenColumnUuids],
+	};
+}
 
 /**
  * The verdict shape every commit surface consumes. `nextDoc` is always

@@ -1,9 +1,11 @@
 /**
  * Rule: every `input(...)` Term reachable from a wire-emission-bound
- * predicate or value expression is either rejected outright or
- * enclosed in a `when-input-present` envelope keyed to the same
- * input name — depending on whether the slot's wire-eval context
- * has access to the user's typed search-input values.
+ * predicate or value expression is either rejected outright or enclosed in a
+ * `when-input-present` envelope keyed to the same input name — depending on
+ * whether the slot's wire-eval context has access to the user's typed
+ * search-input values. The assigned-case exclusion is the one value-slot
+ * exception: blank means "exclude nobody" there, so a direct Search answer is
+ * safe and useful.
  *
  * **Why the gate is load-bearing.** CCHQ's CSQL runtime resolves an
  * unset search-input ref to the empty string, not to absent / null
@@ -29,9 +31,8 @@
  *   - `"requires-envelope"` — input refs are valid IFF wrapped in a
  *     `when-input-present` envelope keyed to the matching name. The
  *     slot's wire-eval context binds search inputs at evaluation
- *     time. Covers `caseListConfig.filter`,
- *     `caseListConfig.searchInputs[i].predicate` (advanced arm),
- *     and `caseSearchConfig.excludedOwnerIds`.
+ *     time. Covers `caseListConfig.filter` and
+ *     `caseListConfig.searchInputs[i].predicate` (advanced arm).
  *
  *   - `"forbids-input-ref"` — any input ref (bare or wrapped) is a
  *     structural authoring error. The slot's wire-eval context fires
@@ -41,6 +42,14 @@
  *     Covers `caseListConfig.searchInputs[i].default`,
  *     `caseSearchConfig.searchButtonDisplayCondition`, and
  *     `caseListConfig.columns[i].expression` (calculated columns).
+ *
+ * `caseSearchConfig.excludedOwnerIds` is intentionally in neither mode. The
+ * expression resolves at Search fire time and blank is its identity value:
+ * Preview parses it as an empty exclusion list, remote Search receives no ids,
+ * and the ordinary-list nodeset explicitly short-circuits on
+ * `normalize-space(value) = ''`. Requiring a predicate envelope around a value
+ * branch cannot express that contract and would reject every useful
+ * `input(...)` return value.
  *
  * **Walker contract.** The rule walks the AST top-down maintaining
  * a set of input names "currently gated by an enclosing
@@ -190,29 +199,6 @@ export function searchInputRefUsesWhenInputPresent(
 					mode: "forbids-input-ref",
 					slot: "caseSearchConfig.searchButtonDisplayCondition",
 					adviceSlotName: "the search-button display condition",
-				}),
-			);
-		}
-	}
-
-	// Slot: excluded owner ids — wire-emitted to `<data>` on
-	// `<query>`. Wraps validly when envelope-gated; bare refs are
-	// footguns. CCHQ resolves `instance('search-input:results')`
-	// values at search-fire time.
-	if (searchConfig?.excludedOwnerIds !== undefined) {
-		const refs = findExpressionInputRefs(
-			searchConfig.excludedOwnerIds,
-			"requires-envelope",
-		);
-		for (const ref of refs) {
-			errors.push(
-				buildError({
-					mod,
-					moduleUuid,
-					ref,
-					mode: "requires-envelope",
-					slot: "caseSearchConfig.excludedOwnerIds",
-					adviceSlotName: "the excluded-owner-ids expression",
 				}),
 			);
 		}

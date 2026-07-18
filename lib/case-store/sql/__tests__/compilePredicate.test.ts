@@ -56,6 +56,7 @@ import {
 	anyRelationPath,
 	arith,
 	between,
+	concat,
 	count,
 	eq,
 	exists,
@@ -280,14 +281,15 @@ describe("compilePredicate — comparison operators", () => {
 // ---------------------------------------------------------------
 
 describe("compilePredicate — in", () => {
-	it("emits IN with one literal value", () => {
+	it("collapses one membership value to one equality", () => {
 		const pred = isIn(prop("patient", "nickname"), literal("Alice"));
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
-		expect(compiled.sql.toLowerCase()).toContain(" in (");
+		expect(compiled.sql).toContain(" = ");
+		expect(compiled.sql.toLowerCase()).not.toContain(" or ");
 		expect(compiled.parameters).toContain("Alice");
 	});
 
-	it("emits IN with multiple literal values", () => {
+	it("emits multiple membership values as OR-composed equalities", () => {
 		const pred = isIn(
 			prop("patient", "nickname"),
 			literal("Alice"),
@@ -295,7 +297,8 @@ describe("compilePredicate — in", () => {
 			literal("Carol"),
 		);
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
-		expect(compiled.sql.toLowerCase()).toContain(" in (");
+		expect(compiled.sql.match(/ = /g)).toHaveLength(3);
+		expect(compiled.sql.match(/ or /gi)).toHaveLength(2);
 		expect(compiled.parameters).toContain("Alice");
 		expect(compiled.parameters).toContain("Bob");
 		expect(compiled.parameters).toContain("Carol");
@@ -449,6 +452,21 @@ describe("compilePredicate — multi-select-contains", () => {
 // ---------------------------------------------------------------
 
 describe("compilePredicate — match", () => {
+	it.each([
+		"starts-with",
+		"fuzzy",
+		"phonetic",
+	] as const)("compiles a computed ValueExpression for %s mode", (mode) => {
+		const pred = match(
+			prop("patient", "nickname"),
+			concat(term(literal("Ali")), term(literal("ce"))),
+			mode,
+		);
+		const compiled = compileWith(compilePredicate(pred, makeCtx()));
+		expect(compiled.sql.toLowerCase()).toContain("concat(");
+		expect(compiled.parameters).toEqual(expect.arrayContaining(["Ali", "ce"]));
+	});
+
 	it("emits starts_with for starts-with mode", () => {
 		const pred = match(prop("patient", "nickname"), "Ali", "starts-with");
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
@@ -519,6 +537,27 @@ describe("compilePredicate — match", () => {
 	it("rejects fuzzy-date with a malformed value", () => {
 		const pred = match(prop("patient", "dob"), "not-a-date", "fuzzy-date");
 		expect(() => compilePredicate(pred, makeCtx())).toThrow(/YYYY-MM-DD/);
+	});
+
+	it("rejects year zero like HQ's Python datetime parser", () => {
+		const pred = match(prop("patient", "dob"), "0000-01-01", "fuzzy-date");
+		expect(() => compilePredicate(pred, makeCtx())).toThrow(/YYYY-MM-DD/);
+	});
+
+	it("compiles runtime date permutations for a computed fuzzy-date value", () => {
+		const pred = match(
+			prop("patient", "dob"),
+			concat(term(literal("2024-12")), term(literal("-03"))),
+			"fuzzy-date",
+		);
+		const compiled = compileWith(compilePredicate(pred, makeCtx()));
+		const sql = compiled.sql.toLowerCase();
+		expect(sql).toContain("concat(");
+		expect(sql).toContain("substr(");
+		expect(sql).toContain("case");
+		expect(compiled.parameters).toEqual(
+			expect.arrayContaining(["2024-12", "-03"]),
+		);
 	});
 });
 
@@ -885,7 +924,7 @@ describe("compilePredicate — non-term ValueExpression operand dispatch", () =>
 		expect(compiled.parameters).toContain(2);
 	});
 
-	it("dispatches arith on in.left through the expression compiler", () => {
+	it("dispatches arith on in.left through each membership equality", () => {
 		// `isIn(prop.age + 1, 10, 20, 30)` — arithmetic on the LHS
 		// of an IN list. The dispatch routes through
 		// compileExpression and emits a typed arith expression.
@@ -897,7 +936,8 @@ describe("compilePredicate — non-term ValueExpression operand dispatch", () =>
 		);
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
 		expect(compiled.sql).toContain("+");
-		expect(compiled.sql.toLowerCase()).toContain(" in (");
+		expect(compiled.sql.match(/ = /g)).toHaveLength(3);
+		expect(compiled.sql.match(/ or /gi)).toHaveLength(2);
 		expect(compiled.parameters).toContain(10);
 		expect(compiled.parameters).toContain(30);
 	});

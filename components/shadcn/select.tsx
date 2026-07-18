@@ -38,17 +38,23 @@ function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
 function SelectTrigger({
 	className,
 	size = "default",
+	wrapValue = false,
 	children,
 	...props
 }: SelectPrimitive.Trigger.Props & {
 	size?: "sm" | "default";
+	/** Allow an authored value to use multiple lines instead of clipping it. */
+	wrapValue?: boolean;
 }) {
 	return (
 		<SelectPrimitive.Trigger
 			data-slot="select-trigger"
 			data-size={size}
 			className={cn(
-				"flex w-fit items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:bg-input/30 dark:not-disabled:hover:bg-input/50 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+				"flex w-fit justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-40 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:flex *:data-[slot=select-value]:gap-1.5 dark:bg-input/30 dark:not-disabled:hover:bg-input/50 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+				wrapValue
+					? "items-start whitespace-normal data-[size=default]:h-auto data-[size=sm]:h-auto *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:min-w-0 *:data-[slot=select-value]:items-start *:data-[slot=select-value]:break-words *:data-[slot=select-value]:whitespace-normal *:data-[slot=select-value]:[overflow-wrap:anywhere]"
+					: "items-center whitespace-nowrap data-[size=default]:h-8 data-[size=sm]:h-7 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:items-center",
 				className,
 			)}
 			{...props}
@@ -74,11 +80,17 @@ function SelectContent({
 	align = "center",
 	alignOffset = 0,
 	alignItemWithTrigger = false,
+	collisionPadding = 8,
 	...props
 }: SelectPrimitive.Popup.Props &
 	Pick<
 		SelectPrimitive.Positioner.Props,
-		"align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
+		| "align"
+		| "alignOffset"
+		| "side"
+		| "sideOffset"
+		| "alignItemWithTrigger"
+		| "collisionPadding"
 	>) {
 	return (
 		// The popup portals to document.body (Base UI's default) — escaping
@@ -103,6 +115,7 @@ function SelectContent({
 				align={align}
 				alignOffset={alignOffset}
 				alignItemWithTrigger={alignItemWithTrigger}
+				collisionPadding={collisionPadding}
 				className={cn("isolate", MENU_POSITIONER_CLS, "z-modal")}
 			>
 				<SelectPrimitive.Popup
@@ -117,7 +130,7 @@ function SelectContent({
 					 * item content lands symmetric to the popup's left/right edges. */
 					className={cn(
 						MENU_POPUP_CLS,
-						"relative max-h-(--available-height) w-(--anchor-width) min-w-36 overflow-x-hidden overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden data-[align-trigger=true]:animate-none",
+						"relative max-h-(--available-height) w-(--anchor-width) min-w-[min(9rem,var(--available-width))] max-w-(--available-width) overflow-x-hidden overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden data-[align-trigger=true]:animate-none",
 						className,
 					)}
 					{...props}
@@ -152,8 +165,12 @@ function SelectLabel({
 function SelectItem({
 	className,
 	children,
+	wrap = false,
 	...props
-}: SelectPrimitive.Item.Props) {
+}: SelectPrimitive.Item.Props & {
+	/** Wrap authored labels, including long values without natural breaks. */
+	wrap?: boolean;
+}) {
 	return (
 		<SelectPrimitive.Item
 			data-slot="select-item"
@@ -164,12 +181,25 @@ function SelectItem({
 			)}
 			{...props}
 		>
-			<SelectPrimitive.ItemText className="flex flex-1 shrink-0 gap-2 whitespace-nowrap">
+			<SelectPrimitive.ItemText
+				data-slot="select-item-text"
+				className={cn(
+					"flex flex-1 gap-2",
+					wrap
+						? "min-w-0 shrink whitespace-normal break-words [overflow-wrap:anywhere]"
+						: "shrink-0 whitespace-nowrap",
+				)}
+			>
 				{children}
 			</SelectPrimitive.ItemText>
 			<SelectPrimitive.ItemIndicator
 				render={
-					<span className="pointer-events-none absolute right-3 flex size-4 items-center justify-center" />
+					<span
+						className={cn(
+							"pointer-events-none absolute right-3 flex size-4 items-center justify-center",
+							wrap && "top-3",
+						)}
+					/>
 				}
 			>
 				<Icon icon={tablerCheck} className="pointer-events-none" />

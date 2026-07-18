@@ -697,19 +697,6 @@ const GUARD_COVERAGE = {
 	},
 
 	// ── Case-list collections ────────────────────────────────────────
-	ensureCaseListConfig: {
-		neverGates:
-			"births only the empty collection container; rules already treat absence as empty, and substantive edits follow as granular mutations",
-		build: () => {
-			const doc = structuredClone(richDoc()) as BlueprintDoc;
-			const moduleUuid = asUuid("mod-patients");
-			delete doc.modules[moduleUuid].caseListConfig;
-			return {
-				doc,
-				batch: [{ kind: "ensureCaseListConfig", uuid: moduleUuid }],
-			};
-		},
-	},
 	addColumn: {
 		build: () => {
 			const doc = richDoc();
@@ -775,7 +762,7 @@ const GUARD_COVERAGE = {
 	},
 	moveColumn: {
 		neverGates:
-			"reorders a case-list column (order-key only) — no rule reads column position",
+			"reorders a case-list column (generic or one-surface order key only) — no rule reads column position",
 		build: () => {
 			const doc = richDoc();
 			const col = patientsColumn(doc);
@@ -787,44 +774,7 @@ const GUARD_COVERAGE = {
 						moduleUuid: asUuid("mod-patients"),
 						uuid: col.uuid,
 						order: "V",
-					},
-				],
-			};
-		},
-	},
-	moveColumnInList: {
-		neverGates:
-			"reorders a case-list column on the Results surface only — no rule reads column position",
-		build: () => {
-			const doc = richDoc();
-			const col = patientsColumn(doc);
-			return {
-				doc,
-				batch: [
-					{
-						kind: "moveColumnInList",
-						moduleUuid: asUuid("mod-patients"),
-						uuid: col.uuid,
-						order: "V",
-					},
-				],
-			};
-		},
-	},
-	moveColumnInDetail: {
-		neverGates:
-			"reorders a case-list column on the Details surface only — no rule reads column position",
-		build: () => {
-			const doc = richDoc();
-			const col = patientsColumn(doc);
-			return {
-				doc,
-				batch: [
-					{
-						kind: "moveColumnInDetail",
-						moduleUuid: asUuid("mod-patients"),
-						uuid: col.uuid,
-						order: "V",
+						surfaceOrderPatch: { surface: "list", order: "V" },
 					},
 				],
 			};
@@ -866,22 +816,6 @@ const GUARD_COVERAGE = {
 	moveSearchInput: {
 		neverGates:
 			"reorders a search input (order-key only) — no rule reads search-input position",
-	},
-	setCaseSearchMarker: {
-		build: () => {
-			const doc = richDoc();
-			return {
-				doc,
-				batch: [
-					{
-						kind: "setCaseSearchMarker",
-						uuid: asUuid("mod-patients"),
-						enabled: true,
-					},
-				],
-			};
-		},
-		expectCodes: ["CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE"],
 	},
 	setCaseListMeta: {
 		neverGates:

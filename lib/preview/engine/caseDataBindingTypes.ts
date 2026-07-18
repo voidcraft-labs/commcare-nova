@@ -57,11 +57,12 @@ export type CaseQueryConstraintSource =
 export type CaseQueryConstraintContext = CaseQueryConstraintSource | "unknown";
 
 /**
- * Result of loading every case row for a case type. The success arms carry the
- * effective query's constraint source alongside their data so empty-state copy
- * describes the query that actually reached the case store, not merely the
- * presence of an authored expression or a raw submitted string. The `rows` arm
- * carries `CaseRowWithCalculated` so calc-arm columns surface their
+ * Result of loading case rows for a case type, optionally as a bounded window.
+ * The success arms carry the effective query's constraint source alongside
+ * their data so empty-state copy describes the query that actually reached the
+ * case store, not merely the presence of an authored expression or a raw
+ * submitted string. The `rows` arm carries `CaseRowWithCalculated` so calc-arm
+ * columns surface their
  * SQL-projected values on `row.calculated[uuid]` — `evaluateColumnValue`
  * reads the slot directly. Callers without a `caseListConfig` (raw-
  * row consumers) get an empty `calculated: {}` map per row.
@@ -70,13 +71,36 @@ export type LoadCasesResult =
 	| {
 			kind: "rows";
 			rows: ReadonlyArray<CaseRowWithCalculated>;
+			/** Full population matching the authored + worker query. Present for
+			 * bounded running-list reads; optional during rolling deploys and for
+			 * legacy unpaged callers. */
+			totalCount?: number;
+			/** Effective bounded window returned by the server. The server may
+			 * clamp an offset past the final page after concurrent deletion. */
+			pageOffset?: number;
+			pageSize?: number;
 			/** Optional only for rolling-deploy compatibility with an older action. */
 			constraintSource?: CaseQueryConstraintSource;
 	  }
 	| {
 			kind: "empty";
+			/** When a worker Search and authored availability are both active,
+			 * this count isolates the authored-only population. Zero proves that
+			 * clearing Search cannot reveal a case; a positive value proves that
+			 * Search itself narrowed the authored population to zero. */
+			authoredMatchingCount?: number;
 			/** Optional only for rolling-deploy compatibility with an older action. */
 			constraintSource?: CaseQueryConstraintSource;
+	  }
+	/** A safe, deterministic Search-value rejection. Unlike `error`, retrying
+	 * unchanged input cannot help, so consumers show the cause beside Search
+	 * and never offer a transport-style retry button. */
+	| {
+			kind: "invalid-search";
+			message: string;
+			/** Whether the worker can repair a submitted prompt or the authored
+			 * Search/session expression itself needs an editor. */
+			repair: "inputs" | "settings";
 	  }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
@@ -145,8 +169,15 @@ export type LoadFilterPreviewResult =
 
 /**
  * Result of loading a single case by id (the case-loading form
- * path for followup / close). `missing` covers absent-id AND
- * cross-tenant — equivalent under the case-store contract.
+ * path for followup / close, and the URL-backed Details path).
+ * `missing` covers absent-id AND cross-tenant — equivalent under
+ * the case-store contract.
+ *
+ * The row always uses the case-store's projected shape. Raw form
+ * loads receive `calculated: {}`; Details can supply the live case-list
+ * configuration and catalog so calculated display values are projected
+ * for an off-page/deep-linked row without applying the Results filter,
+ * sort, or page window.
  *
  * `ancestors` is the bound case's parent chain, nearest-first
  * (parent, grandparent, …), walked server-side through the case
@@ -156,7 +187,11 @@ export type LoadFilterPreviewResult =
  * walk. Empty for a root case.
  */
 export type LoadCaseDataResult =
-	| { kind: "row"; row: CaseRow; ancestors: ReadonlyArray<CaseRow> }
+	| {
+			kind: "row";
+			row: CaseRowWithCalculated;
+			ancestors: ReadonlyArray<CaseRow>;
+	  }
 	| { kind: "missing" }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };

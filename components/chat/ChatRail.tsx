@@ -12,6 +12,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerLayoutSidebarRightExpand from "@iconify-icons/tabler/layout-sidebar-right-expand";
 import tablerMessageChatbot from "@iconify-icons/tabler/message-chatbot";
+import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 
 export function ChatRail({ onExpand }: { onExpand: () => void }) {
@@ -22,30 +23,36 @@ export function ChatRail({ onExpand }: { onExpand: () => void }) {
 				data-builder-secondary-header="chat-rail"
 			>
 				<SimpleTooltip content="Expand chat" side="left">
-					<button
+					<Button
 						type="button"
+						variant="ghost"
+						size="icon-lg"
 						onClick={onExpand}
 						aria-label="Expand chat sidebar"
-						className="grid size-11 cursor-pointer place-items-center rounded-lg text-nova-text-muted transition-colors hover:bg-white/[0.05] hover:text-nova-text"
+						data-builder-sidebar-toggle="expand-chat"
+						className="size-11 text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text"
 					>
 						<Icon
 							icon={tablerLayoutSidebarRightExpand}
 							width="18"
 							height="18"
 						/>
-					</button>
+					</Button>
 				</SimpleTooltip>
 			</div>
 			<div className="flex flex-col items-center gap-1 py-2">
 				<SimpleTooltip content="Chat with Nova" side="left">
-					<button
+					<Button
 						type="button"
+						variant="ghost"
+						size="icon-lg"
 						onClick={onExpand}
 						aria-label="Open chat"
-						className="grid size-11 cursor-pointer place-items-center rounded-lg text-nova-text-muted transition-colors hover:bg-white/[0.05] hover:text-nova-text-secondary"
+						data-builder-sidebar-toggle="expand-chat"
+						className="size-11 text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-text-secondary"
 					>
 						<Icon icon={tablerMessageChatbot} width="17" height="17" />
-					</button>
+					</Button>
 				</SimpleTooltip>
 			</div>
 		</aside>

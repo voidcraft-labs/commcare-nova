@@ -17,6 +17,10 @@
 // per-prompt fuzzy flag) and the preview runtime (pg_trgm) — with Exact one
 // click away in the Match picker.
 
+import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
+import { appendOrderKey } from "@/lib/doc/order/append";
+import type { ColumnSurface } from "@/lib/doc/order/columnSurface";
+import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
 	authorableCaseProperties,
 	type CaseListConfig,
@@ -32,6 +36,7 @@ import {
 	SEARCH_MODE_PROPERTY_TYPES,
 	type SearchInputDef,
 	type SearchInputType,
+	type SimpleSearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
@@ -40,6 +45,40 @@ import {
 	propertyFallbackDisplayLabel,
 } from "../shared/primitives/propertyDisplay";
 import { newUuid } from "./uuid";
+
+/**
+ * Center-canvas display-field add. The working column gets both its generic
+ * append key and the active screen's append key, then the shared mutation
+ * encoder moves the new surface key out of the strict legacy nested fallback.
+ */
+export function seededColumnAddMutation(
+	moduleUuid: Uuid,
+	config: CaseListConfig,
+	surface: ColumnSurface,
+	seed: Column,
+): Extract<Mutation, { kind: "addColumn" }> {
+	const visible = config.columns.filter((column) =>
+		surface === "list"
+			? column.visibleInList !== false
+			: column.visibleInDetail !== false,
+	);
+	const surfaceOrder = appendOrderKey(
+		visible.map((column) => ({
+			uuid: column.uuid,
+			order:
+				surface === "list"
+					? (column.listOrder ?? column.order)
+					: (column.detailOrder ?? column.order),
+		})),
+	);
+	return columnAddMutation(moduleUuid, {
+		...seed,
+		order: appendOrderKey(config.columns),
+		...(surface === "list"
+			? { listOrder: surfaceOrder }
+			: { detailOrder: surfaceOrder }),
+	});
+}
 
 // ── Naming helpers ────────────────────────────────────────────────
 
@@ -134,21 +173,40 @@ export function seedSearchInput(
 	);
 	const property = pickSeedProperty(caseType, used);
 	if (property === undefined) return undefined;
+	return seedSearchInputForProperty(config, property);
+}
 
-	const type = widgetTypeForProperty(property);
+/**
+ * Build a working search field for the case property the author explicitly
+ * chose on the Search canvas. The explicit choice owns intent; this helper
+ * owns only the mechanical defaults that keep a fresh field useful.
+ */
+export function seedSearchInputForProperty(
+	config: CaseListConfig,
+	property: CaseProperty,
+): SimpleSearchInputDef {
+	const canonicalProperty = {
+		...property,
+		name: canonicalCasePropertyName(property.name),
+	};
+	const type = widgetTypeForProperty(canonicalProperty);
 	// Text searches fuzzily by default; date / select widgets
 	// keep the per-type default (exact pick-a-value). Fuzzy is gated on
 	// the property's data type too — a number property also renders as
 	// a text widget, but fuzzy is text-only and would seed an invalid row.
 	const fuzzyAdmitted =
-		SEARCH_MODE_PROPERTY_TYPES.fuzzy?.includes(effectiveDataType(property)) ??
-		true;
+		SEARCH_MODE_PROPERTY_TYPES.fuzzy?.includes(
+			effectiveDataType(canonicalProperty),
+		) ?? true;
 	return simpleSearchInputDef(
 		newUuid(),
-		uniqueInputName(xmlNameFromProperty(property.name), config.searchInputs),
-		propertyDisplayLabel(property),
+		uniqueInputName(
+			xmlNameFromProperty(canonicalProperty.name),
+			config.searchInputs,
+		),
+		propertyDisplayLabel(canonicalProperty),
 		type,
-		property.name,
+		canonicalProperty.name,
 		type === "text" && fuzzyAdmitted ? { mode: fuzzyMode() } : {},
 	);
 }

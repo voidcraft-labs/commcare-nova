@@ -59,7 +59,12 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import { byDetailColumnOrder } from "@/lib/doc/order/compare";
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	effectiveCaseTypes,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { buildColumnField } from "./columns";
 import type { ResolvedSortDirective } from "./sortKeys";
@@ -129,11 +134,17 @@ export function buildLongDetail(args: {
 	}
 
 	const config = mod.caseListConfig;
+	const caseProperties =
+		effectiveCaseTypes(args.doc).find((type) => type.name === mod.caseType)
+			?.properties ?? [];
 	const ctx: CaseListEmitContext = {
 		moduleIndex,
 		sortByUuid: EMPTY_SORT_DIRECTIVES,
 		detailKind: "long",
 		target,
+		caseProperties,
+		caseTypes: effectiveCaseTypes(args.doc),
+		currentCaseType: mod.caseType,
 		...(args.assets && { assets: args.assets }),
 	};
 

@@ -5,8 +5,9 @@
 // what it starts with. The internal reference name is still available
 // behind one quiet Advanced disclosure; storage vocabulary should not
 // compete with the worker-facing choices in the normal flow. Writing a
-// custom matching rule remains the last choice in the Match picker, and
-// picking any standard match brings the standard controls back.
+// custom condition remains the last choice in the Match picker. The rail
+// summarizes it and opens the center workbench; picking any standard match
+// brings the standard controls back here.
 //
 // Under the hood the schema still splits into two arms (`simple`
 // carries `(property, mode, via)`; `advanced` carries a predicate
@@ -14,8 +15,8 @@
 // picker is the only place the two arms meet:
 //
 //   - picking "Custom condition" converts to the advanced arm,
-//     seeding `property = typed value` so the author edits the
-//     behavior they already had;
+//     seeds `property = typed value`, and opens the center workbench so the
+//     author edits the behavior they already had;
 //   - picking a standard match converts back, recovering the
 //     property the condition was anchored on when it still has the
 //     round-trip shape.
@@ -27,27 +28,24 @@
 // read, so the three surfaces can't disagree.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
-import tablerCheck from "@iconify-icons/tabler/check";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerExclamationCircle from "@iconify-icons/tabler/exclamation-circle";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import tablerSearch from "@iconify-icons/tabler/search";
 import tablerWand from "@iconify-icons/tabler/wand";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useMemo, useRef, useState } from "react";
 import {
-	CONSOLE_MENU_ITEM_MIN,
-	CONSOLE_TRIGGER_CLS,
-	SegmentedRow,
-} from "@/components/builder/inspector/inspectorChrome";
+	type SearchableChoice,
+	SearchableChoiceCombobox,
+} from "@/components/builder/case-list-config/SearchableChoiceCombobox";
+import { SegmentedRow } from "@/components/builder/inspector/inspectorChrome";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import {
 	buildValidityIndex,
 	PredicateEditProvider,
 } from "@/components/builder/shared/editorContext";
-import { PredicateCardEditor } from "@/components/builder/shared/PredicateCardEditor";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
 import {
@@ -57,6 +55,30 @@ import {
 	propertyFallbackDisplayLabel,
 	propertyTypeLabel,
 } from "@/components/builder/shared/primitives/propertyDisplay";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/shadcn/alert-dialog";
+import { Button } from "@/components/shadcn/button";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/shadcn/collapsible";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import {
 	advancedSearchInputDef,
 	applicableSearchModes,
@@ -78,21 +100,17 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
+	acceptsType,
 	ancestorPath,
-	type Predicate,
+	checkExpression,
 	type RelationPath,
 	relationStep,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import {
-	MENU_ITEM_BASE,
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
-import { handleMenuSearchInputKeyDown } from "@/lib/ui/menuSearchInput";
+import { summarizeFilter } from "../predicateSummary";
 import {
 	buildMode,
+	canSeedCustomConditionFaithfully,
 	constraintForDefault,
 	effectiveModeKind,
 	NO_SEARCH_INPUTS,
@@ -102,6 +120,7 @@ import {
 	resolveDestinationCaseType,
 	resolveProperty,
 	resolveRows,
+	type ScalarDefaultSearchInputType,
 	SEARCH_INPUT_TYPE_DESCRIPTIONS,
 	SEARCH_INPUT_TYPE_ICONS,
 	SEARCH_INPUT_TYPE_LABELS,
@@ -134,11 +153,34 @@ export interface SearchInputEditorProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly onChange: (next: SearchInputDef) => void;
+	/** Opens this field's custom condition in the center-canvas workbench. */
+	readonly onEditCondition: () => void;
 }
 
 /** Where a simple row's property lives — this case, the parent case,
  *  or a non-canonical relation walk authored elsewhere (chat, MCP). */
 type BindingScope = "self" | "parent" | "custom";
+
+type TransitionFocus = "binding" | "type" | "match";
+
+interface PendingInputTransition {
+	readonly source: SearchInputDef;
+	readonly next: SearchInputDef;
+	readonly focus: TransitionFocus;
+	readonly title: string;
+	readonly description: string;
+}
+
+interface PendingStandardReplacement {
+	readonly source: SearchInputDef;
+	readonly next: SimpleSearchInputDef;
+	readonly resultingMode: SearchInputMode["kind"];
+	readonly modeAdjustment?: string;
+	readonly meaningfulDefaultRemoved: boolean;
+}
+
+const PICKER_TRIGGER_CLS =
+	"flex h-auto min-h-11 w-full cursor-pointer items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/30 px-3 py-2 text-[14px] text-nova-text-secondary whitespace-normal transition-colors outline-none not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.04] focus-visible:border-nova-violet/50 focus-visible:ring-2 focus-visible:ring-nova-violet/20";
 
 function classifyVia(via: RelationPath | undefined): BindingScope {
 	if (via === undefined || via.kind === "self") return "self";
@@ -163,7 +205,18 @@ export function SearchInputEditor({
 	caseTypes,
 	currentCaseType,
 	onChange,
+	onEditCondition,
 }: SearchInputEditorProps) {
+	const [pendingStandardReplacement, setPendingStandardReplacement] =
+		useState<PendingStandardReplacement | null>(null);
+	const [pendingInputTransition, setPendingInputTransition] =
+		useState<PendingInputTransition | null>(null);
+	const [pendingCustomConversion, setPendingCustomConversion] =
+		useState<SimpleSearchInputDef | null>(null);
+	const bindingTriggerRef = useRef<HTMLButtonElement>(null);
+	const typeTriggerRef = useRef<HTMLButtonElement>(null);
+	const matchTriggerRef = useRef<HTMLButtonElement>(null);
+	const transitionFocusRef = useRef<TransitionFocus>("type");
 	const resolved: ResolvedRow = useMemo(() => {
 		const rows = resolveRows(siblings, caseTypes, currentCaseType);
 		return (
@@ -181,33 +234,72 @@ export function SearchInputEditor({
 	// envelope `seedCustomCondition` produces, so the row must resolve
 	// its own `input(name)`. Matches the validator's full-list
 	// `moduleTypeContext`; see `searchInputDecls`.
-	const knownInputs = useMemo(
-		() => searchInputDecls(siblings, caseTypes, currentCaseType),
-		[siblings, caseTypes, currentCaseType],
-	);
+	const knownInputs = useMemo(() => searchInputDecls(siblings), [siblings]);
 
 	// ── Common-slot mutators ──
 
 	const setName = (name: string) => onChange(rebuildRow(value, { name }));
 	const setLabel = (label: string) => onChange(rebuildRow(value, { label }));
-	const setType = (type: SearchInputType) => {
-		// Only the simple arm carries a `mode`. When type changes on
-		// the simple arm and the new type narrows the admitted modes
-		// past the current one, drop the mode so the saved doc stays
-		// admissible against `applicableSearchModes(type)`.
-		if (value.kind === "simple") {
-			const applicable = applicableSearchModes(type);
-			const keepMode =
-				value.mode !== undefined && applicable.includes(value.mode.kind);
-			onChange(
-				rebuildRow(value, {
-					type,
-					...(keepMode ? {} : { mode: undefined }),
-				}),
-			);
+	const requestInputTransition = (
+		next: SearchInputDef,
+		focus: TransitionFocus,
+		targetDescription: string,
+	) => {
+		if (searchInputsMatch(value, next)) return;
+		const modeChanged =
+			value.kind === "simple" &&
+			next.kind === "simple" &&
+			value.mode !== undefined &&
+			!searchModesMatch(value.mode, next.mode);
+		const meaningfulDefaultRemoved =
+			value.default !== undefined &&
+			next.default === undefined &&
+			expressionHasMeaningfulContent(value.default);
+		if (!modeChanged && !meaningfulDefaultRemoved) {
+			onChange(next);
 			return;
 		}
-		onChange(rebuildRow(value, { type }));
+		transitionFocusRef.current = focus;
+
+		const title =
+			modeChanged && meaningfulDefaultRemoved
+				? "The saved match will change and the starting value will be removed"
+				: modeChanged
+					? "The saved match will change"
+					: "The starting value will be removed";
+		const consequences: string[] = [];
+		if (modeChanged && value.kind === "simple" && next.kind === "simple") {
+			consequences.push(
+				`“${searchModeDescription(value.mode, value.type)}” will become “${searchModeDescription(next.mode, next.type)}”`,
+			);
+		}
+		if (meaningfulDefaultRemoved) {
+			consequences.push("the starting value will be removed");
+		}
+		setPendingInputTransition({
+			source: value,
+			next,
+			focus,
+			title,
+			description: `${capitalizeFirst(joinConsequences(consequences))}. ${targetDescription} can’t use those saved settings.`,
+		});
+	};
+
+	const setType = (type: SearchInputType) => {
+		if (type === value.type) return;
+		const keepMode =
+			value.kind !== "simple" ||
+			value.mode === undefined ||
+			applicableSearchModes(type).includes(value.mode.kind);
+		const keepDefault =
+			value.default === undefined ||
+			defaultFitsInputType(value.default, type, caseTypes, currentCaseType);
+		const next = rebuildRow(value, {
+			type,
+			...(keepMode ? {} : { mode: undefined }),
+			...(keepDefault ? {} : { default: undefined }),
+		});
+		requestInputTransition(next, "type", SEARCH_INPUT_TYPE_LABELS[type]);
 	};
 	const setDefault = (next: ValueExpression | undefined) =>
 		onChange(rebuildRow(value, { default: next }));
@@ -238,9 +330,11 @@ export function SearchInputEditor({
 			via: RelationPath | undefined;
 			type?: SearchInputType;
 			mode?: SearchInputMode | undefined;
+			default?: ValueExpression | undefined;
 			label?: string;
 			name?: string;
 		} = { property: canonicalProperty, via };
+		let nextType = value.type;
 
 		const destination = resolveDestinationCaseType(
 			caseTypes,
@@ -255,9 +349,7 @@ export function SearchInputEditor({
 			const typeAllowed =
 				SEARCH_INPUT_TYPE_PROPERTY_TYPES[value.type]?.includes(dataType) ??
 				true;
-			const nextType = typeAllowed
-				? value.type
-				: widgetTypeForProperty(propertyDef);
+			nextType = typeAllowed ? value.type : widgetTypeForProperty(propertyDef);
 			if (nextType !== value.type) patch.type = nextType;
 			const modeAllowed =
 				value.mode === undefined ||
@@ -270,6 +362,12 @@ export function SearchInputEditor({
 				patch.mode =
 					nextType === "text" && fuzzyAdmitted ? buildMode("fuzzy") : undefined;
 			}
+		}
+		if (
+			value.default !== undefined &&
+			!defaultFitsInputType(value.default, nextType, caseTypes, currentCaseType)
+		) {
+			patch.default = undefined;
 		}
 
 		if (
@@ -295,7 +393,12 @@ export function SearchInputEditor({
 			);
 		}
 
-		onChange(rebuildRow(value, patch));
+		const next = rebuildRow(value, patch);
+		const targetLabel =
+			propertyDef === undefined
+				? propertyFallbackDisplayLabel(canonicalProperty)
+				: propertyDisplayLabel(propertyDef);
+		requestInputTransition(next, "binding", targetLabel);
 	};
 
 	/** Store the picked match. The type's own default stores as an
@@ -303,6 +406,19 @@ export function SearchInputEditor({
 	 *  stores explicitly. */
 	const setModeKind = (kind: SearchInputMode["kind"]) => {
 		if (value.kind !== "simple") return;
+		// Between dates consumes the date-range widget's paired answer. Keep
+		// that coupling structural: choosing the match behavior changes the
+		// widget in the same row replacement instead of saving a date+range
+		// combination that Preview and CommCare interpret differently.
+		if (kind === "range" && value.type !== "date-range") {
+			const next = rebuildRow(value, {
+				type: "date-range",
+				mode: undefined,
+				default: undefined,
+			});
+			requestInputTransition(next, "match", SEARCH_MODE_LABELS.range);
+			return;
+		}
 		const isParameterless = kind !== "multi-select-contains";
 		const mode =
 			isParameterless && kind === DEFAULT_SEARCH_MODE_KIND[value.type]
@@ -319,22 +435,6 @@ export function SearchInputEditor({
 		);
 	};
 
-	// ── Advanced-arm mutator ──
-
-	const setPredicate = (next: Predicate) => {
-		if (value.kind !== "advanced") return;
-		onChange(
-			advancedSearchInputDef(
-				value.uuid,
-				value.name,
-				value.label,
-				value.type,
-				next,
-				{ default: value.default },
-			),
-		);
-	};
-
 	// ── Match-picker arm conversion ──
 	//
 	// "Custom condition" replaces the row with the advanced arm,
@@ -347,22 +447,39 @@ export function SearchInputEditor({
 	// recovering the property when the condition is still anchored on
 	// a self property (the round-trip shape the seed produces).
 
-	const toCustomCondition = () => {
-		if (value.kind !== "simple") return;
+	const applyCustomConversion = (source: SimpleSearchInputDef) => {
+		if (!searchInputsMatch(source, value)) return;
 		onChange(
 			advancedSearchInputDef(
-				value.uuid,
-				value.name,
-				value.label,
-				value.type,
-				seedCustomCondition(value, currentCaseType),
-				{ default: value.default },
+				source.uuid,
+				source.name,
+				source.label,
+				source.type,
+				seedCustomCondition(source, currentCaseType),
+				{
+					default: source.type === "date-range" ? undefined : source.default,
+				},
 			),
 		);
+		onEditCondition();
 	};
 
-	const toStandardMode = (kind: SearchInputMode["kind"]) => {
-		if (value.kind !== "advanced") return;
+	const toCustomCondition = () => {
+		if (value.kind === "advanced") {
+			onEditCondition();
+			return;
+		}
+		if (!canSeedCustomConditionFaithfully(value)) {
+			setPendingCustomConversion(value);
+			return;
+		}
+		applyCustomConversion(value);
+	};
+
+	const buildStandardReplacement = (
+		kind: SearchInputMode["kind"],
+	): PendingStandardReplacement | null => {
+		if (value.kind !== "advanced") return null;
 		// Land a WORKING row, same bar as the add seed — an unbound
 		// row matches nothing at runtime. Recover the condition's
 		// anchor property when it has the round-trip shape; otherwise
@@ -385,12 +502,17 @@ export function SearchInputEditor({
 			(recovered !== undefined
 				? authorableProperties.find((p) => p.name === recovered)
 				: undefined) ?? pickSeedProperty(ct, used);
-		const type =
+		const inferredType =
 			propertyDef !== undefined
 				? widgetTypeForProperty(propertyDef)
 				: value.type;
 		const dataType =
 			propertyDef !== undefined ? effectiveDataType(propertyDef) : undefined;
+		const type =
+			kind === "range" &&
+			(dataType === undefined || dataType === "date" || dataType === "datetime")
+				? "date-range"
+				: inferredType;
 		const kindAdmitted =
 			applicableSearchModes(type).includes(kind) &&
 			(dataType === undefined ||
@@ -401,16 +523,46 @@ export function SearchInputEditor({
 			: isParameterless && kind === DEFAULT_SEARCH_MODE_KIND[type]
 				? undefined
 				: buildMode(kind);
-		onChange(
-			simpleSearchInputDef(
-				value.uuid,
-				value.name,
-				value.label,
-				type,
-				canonicalCasePropertyName(propertyDef?.name ?? recovered ?? ""),
-				{ default: value.default, ...(mode !== undefined ? { mode } : {}) },
-			),
+		const keepDefault =
+			value.default === undefined ||
+			defaultFitsInputType(value.default, type, caseTypes, currentCaseType);
+		const next = simpleSearchInputDef(
+			value.uuid,
+			value.name,
+			value.label,
+			type,
+			canonicalCasePropertyName(propertyDef?.name ?? recovered ?? ""),
+			{
+				default: keepDefault ? value.default : undefined,
+				...(mode !== undefined ? { mode } : {}),
+			},
 		);
+		const resultingMode = effectiveModeKind(next);
+		const targetPropertyLabel =
+			propertyDef !== undefined
+				? propertyDisplayLabel(propertyDef)
+				: next.property === ""
+					? "the replacement information"
+					: propertyFallbackDisplayLabel(next.property);
+		return {
+			source: value,
+			next,
+			resultingMode,
+			...(resultingMode === kind
+				? {}
+				: {
+						modeAdjustment: `“${SEARCH_MODE_LABELS[kind]}” can’t search ${targetPropertyLabel}, so the replacement will use “${SEARCH_MODE_LABELS[resultingMode]}”.`,
+					}),
+			meaningfulDefaultRemoved:
+				!keepDefault &&
+				value.default !== undefined &&
+				expressionHasMeaningfulContent(value.default),
+		};
+	};
+
+	const requestStandardMode = (kind: SearchInputMode["kind"]) => {
+		const pending = buildStandardReplacement(kind);
+		if (pending !== null) setPendingStandardReplacement(pending);
 	};
 
 	const emptyValidityIndex = useMemo(() => buildValidityIndex([]), []);
@@ -438,26 +590,24 @@ export function SearchInputEditor({
 			validityIndex={emptyValidityIndex}
 		>
 			<div className="space-y-5">
-				<FieldRow label="Label" hint="Shown above the field.">
+				<FieldRow label="Label" hint="Shown above the field">
 					<BlurCommitTextInput
 						value={value.label}
 						onCommit={setLabel}
-						placeholder="Client name"
 						ariaLabel={`Search field ${index + 1} label`}
 					/>
-					{resolved.labelEmpty && (
-						<InlineError errors={["Give the field a label."]} />
-					)}
+					{resolved.labelEmpty && <InlineError errors={["Enter a label"]} />}
 				</FieldRow>
 
 				{value.kind === "simple" && (
-					<FieldRow label="Searches">
+					<FieldRow label="Case information">
 						<BindingPicker
 							row={value}
 							caseTypes={caseTypes}
 							currentCaseType={currentCaseType}
 							onPick={setBinding}
 							rowIndex={index}
+							triggerRef={bindingTriggerRef}
 						/>
 						<InlineError errors={propertyErrors(resolved.propertyState)} />
 					</FieldRow>
@@ -469,14 +619,15 @@ export function SearchInputEditor({
 						onChange={setType}
 						propertyDataType={propertyDataType}
 						rowIndex={index}
+						triggerRef={typeTriggerRef}
 					/>
 				</FieldRow>
 
 				<FieldRow
-					label="Match"
+					label="How it matches"
 					hint={
 						value.kind === "advanced"
-							? "The condition below decides which cases match."
+							? "The condition below decides which cases match"
 							: SEARCH_MODE_DESCRIPTIONS[effectiveModeKind(value)]
 					}
 				>
@@ -485,7 +636,10 @@ export function SearchInputEditor({
 						propertyDataType={propertyDataType}
 						invalid={resolved.typeCouplingErrors.length > 0}
 						rowIndex={index}
-						onPickMode={value.kind === "simple" ? setModeKind : toStandardMode}
+						triggerRef={matchTriggerRef}
+						onPickMode={
+							value.kind === "simple" ? setModeKind : requestStandardMode
+						}
 						onPickCustom={toCustomCondition}
 					/>
 					{value.kind === "simple" &&
@@ -504,57 +658,188 @@ export function SearchInputEditor({
 
 				{value.kind === "advanced" && (
 					<FieldRow
-						label="Condition"
-						hint="The typed value is available to the condition as this field."
+						label="Custom condition"
+						hint="Use what the person enters to decide which cases match"
 					>
-						<div className="rounded-lg border border-white/[0.04] bg-nova-deep/30 p-2.5">
-							<PredicateCardEditor
-								value={value.predicate}
-								onChange={setPredicate}
-								caseTypes={caseTypes}
-								currentCaseType={currentCaseType}
-								knownInputs={knownInputs}
-							/>
+						<div className="rounded-xl border border-white/[0.07] bg-nova-deep/30 p-3">
+							<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+								{summarizeFilter(value.predicate, {
+									caseTypes,
+									currentCaseType,
+									knownInputs,
+								}) ?? "Every case matches"}
+							</p>
+							<Button
+								data-search-condition-origin
+								type="button"
+								variant="outline"
+								size="xl"
+								onClick={onEditCondition}
+								className="mt-3 w-full border-white/[0.08] bg-transparent text-[14px] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
+							>
+								Edit condition
+							</Button>
 						</div>
 					</FieldRow>
 				)}
 
 				<InlineError errors={resolved.typeCouplingErrors} />
 
-				<DefaultValueSlot
-					value={value.default}
-					inputType={value.type}
-					caseTypes={caseTypes}
-					currentCaseType={currentCaseType}
-					rowIndex={index}
-					onChange={setDefault}
-				/>
+				{value.type === "date-range" ? (
+					value.default !== undefined ? (
+						<LegacyDateRangeDefaultRepair
+							rowIndex={index}
+							onRemove={() => setDefault(undefined)}
+						/>
+					) : null
+				) : (
+					<DefaultValueSlot
+						value={value.default}
+						inputType={value.type}
+						caseTypes={caseTypes}
+						currentCaseType={currentCaseType}
+						rowIndex={index}
+						onChange={setDefault}
+					/>
+				)}
 
 				<AdvancedInputSettings active={resolved.nameState.kind !== "ok"}>
 					<FieldRow
-						label="Reference name"
-						hint="Used when conditions or other search fields refer to this one."
+						label="Name used in other conditions"
+						hint="A unique name for this search answer"
 					>
 						<BlurCommitTextInput
 							value={value.name}
 							onCommit={setName}
-							placeholder="client_name"
-							ariaLabel={`Search field ${index + 1} reference name`}
-							monospace
+							ariaLabel={`Search field ${index + 1} name used in other conditions`}
 						/>
 						{resolved.nameState.kind === "empty" && (
-							<InlineError errors={["Give the field a reference name."]} />
+							<InlineError errors={["Enter a name used in other conditions"]} />
 						)}
 						{duplicateOf !== undefined && (
 							<InlineError
 								errors={[
-									`Already used by “${duplicateOf.label || duplicateOf.name}” — names must be unique.`,
+									`That name is already used by “${duplicateOf.label || duplicateOf.name}”. Choose another name`,
 								]}
 							/>
 						)}
 					</FieldRow>
 				</AdvancedInputSettings>
 			</div>
+			<AlertDialog
+				open={pendingStandardReplacement !== null}
+				onOpenChange={(open) => {
+					if (open) return;
+					setPendingStandardReplacement(null);
+				}}
+			>
+				<AlertDialogContent finalFocus={matchTriggerRef} className="text-left">
+					<AlertDialogHeader>
+						<AlertDialogTitle className="font-display">
+							{pendingStandardReplacement === null
+								? "The custom condition will be replaced"
+								: `The custom condition will be replaced with ${SEARCH_MODE_LABELS[pendingStandardReplacement.resultingMode]}`}
+						</AlertDialogTitle>
+						<AlertDialogDescription className="text-left">
+							{standardReplacementConsequence(pendingStandardReplacement)}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							onClick={() => {
+								const pending = pendingStandardReplacement;
+								setPendingStandardReplacement(null);
+								if (
+									pending !== null &&
+									searchInputsMatch(pending.source, value)
+								) {
+									onChange(pending.next);
+								}
+							}}
+						>
+							Replace
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+			<AlertDialog
+				open={pendingCustomConversion !== null}
+				onOpenChange={(open) => {
+					if (open) return;
+					setPendingCustomConversion(null);
+				}}
+			>
+				<AlertDialogContent finalFocus={matchTriggerRef} className="text-left">
+					<AlertDialogHeader>
+						<AlertDialogTitle>
+							{pendingCustomConversion === null
+								? "The saved match will be replaced with a custom condition"
+								: `${customConversionModeLabel(pendingCustomConversion)} will be replaced with a custom condition`}
+						</AlertDialogTitle>
+						<AlertDialogDescription className="text-left">
+							{customConversionConsequence(pendingCustomConversion)}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							onClick={() => {
+								const pending = pendingCustomConversion;
+								setPendingCustomConversion(null);
+								if (pending !== null) applyCustomConversion(pending);
+							}}
+						>
+							Replace
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+			<AlertDialog
+				open={pendingInputTransition !== null}
+				onOpenChange={(open) => {
+					if (open) return;
+					setPendingInputTransition(null);
+				}}
+			>
+				<AlertDialogContent
+					finalFocus={
+						transitionFocusRef.current === "binding"
+							? bindingTriggerRef
+							: transitionFocusRef.current === "match"
+								? matchTriggerRef
+								: typeTriggerRef
+					}
+					className="text-left"
+				>
+					<AlertDialogHeader>
+						<AlertDialogTitle>{pendingInputTransition?.title}</AlertDialogTitle>
+						<AlertDialogDescription className="text-left">
+							{pendingInputTransition?.description}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							onClick={() => {
+								const pending = pendingInputTransition;
+								setPendingInputTransition(null);
+								if (
+									pending !== null &&
+									searchInputsMatch(pending.source, value)
+								) {
+									onChange(pending.next);
+								}
+							}}
+						>
+							Change
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</PredicateEditProvider>
 	);
 }
@@ -570,28 +855,41 @@ function AdvancedInputSettings({
 	const open = opened || active;
 	return (
 		<section className="border-t border-white/[0.06] pt-1">
-			<button
-				type="button"
-				onClick={() => setOpened((current) => !current)}
-				aria-expanded={open}
-				className="group flex min-h-11 w-full cursor-pointer items-center gap-2 text-left"
+			<Collapsible
+				open={open}
+				onOpenChange={(nextOpen) => {
+					if (!active) setOpened(nextOpen);
+				}}
 			>
-				<Icon
-					icon={tablerChevronRight}
-					width="13"
-					height="13"
-					className={`shrink-0 text-nova-text-muted transition-transform ${open ? "rotate-90" : ""}`}
-				/>
-				<span className="text-[12px] font-medium text-nova-text-secondary transition-colors group-hover:text-nova-text">
-					Advanced
-				</span>
-				{active && (
-					<span className="ml-auto text-[11px] text-nova-rose">
-						Needs attention
+				<CollapsibleTrigger
+					render={
+						<Button
+							type="button"
+							variant="ghost"
+							size="xl"
+							className="group w-full justify-start gap-2 px-0 text-left not-disabled:hover:bg-transparent"
+						/>
+					}
+				>
+					<Icon
+						icon={tablerChevronRight}
+						width="13"
+						height="13"
+						className="shrink-0 text-nova-text-muted transition-transform group-data-[panel-open]:rotate-90"
+					/>
+					<span className="text-[14px] font-medium text-nova-text-secondary transition-colors group-hover:text-nova-text">
+						More settings
 					</span>
-				)}
-			</button>
-			{open && <div className="pb-1 pt-2">{children}</div>}
+					{active && (
+						<span className="ml-auto text-[12px] text-nova-rose">
+							Needs attention
+						</span>
+					)}
+				</CollapsibleTrigger>
+				<CollapsibleContent className="pb-1 pt-2">
+					{children}
+				</CollapsibleContent>
+			</Collapsible>
 		</section>
 	);
 }
@@ -610,12 +908,12 @@ function FieldRow({
 }) {
 	return (
 		<div className="space-y-2">
-			<div className="text-[12px] font-medium leading-5 text-nova-text-secondary">
+			<div className="text-[13px] font-medium leading-5 text-nova-text-secondary">
 				{label}
 			</div>
 			{children}
 			{hint !== undefined && (
-				<p className="text-[11px] leading-relaxed text-nova-text-muted">
+				<p className="text-[13px] leading-relaxed text-nova-text-muted">
 					{hint}
 				</p>
 			)}
@@ -630,9 +928,13 @@ function propertyErrors(state: PropertyState): readonly string[] {
 		case "ok":
 			return [];
 		case "empty":
-			return ["Pick a property — until then, this field matches nothing."];
+			return [
+				"Choose information to search. Until then, this field matches nothing.",
+			];
 		case "dangling":
-			return ["That information is no longer available — choose another item."];
+			return [
+				"That information is no longer available. Choose something else.",
+			];
 	}
 }
 
@@ -644,6 +946,7 @@ interface BindingPickerProps {
 	readonly currentCaseType: string;
 	readonly onPick: (property: string, scope: "self" | "parent") => void;
 	readonly rowIndex: number;
+	readonly triggerRef: RefObject<HTMLButtonElement | null>;
 }
 
 /**
@@ -662,15 +965,8 @@ function BindingPicker({
 	currentCaseType,
 	onPick,
 	rowIndex,
+	triggerRef,
 }: BindingPickerProps) {
-	const triggerRef = useRef<HTMLButtonElement>(null);
-	const searchRef = useRef<HTMLInputElement>(null);
-	const [open, setOpen] = useState(false);
-	const [query, setQuery] = useState("");
-	useLayoutEffect(() => {
-		if (!open) return;
-		queueMicrotask(() => searchRef.current?.focus({ preventScroll: true }));
-	}, [open]);
 	const scope = classifyVia(row.via);
 	const ct = caseTypes.find((c) => c.name === currentCaseType);
 	const parentCt =
@@ -678,275 +974,252 @@ function BindingPicker({
 			? caseTypes.find((c) => c.name === ct.parent_type)
 			: undefined;
 
-	if (scope === "custom") {
-		const readableProperty =
-			row.property.trim() === ""
-				? "Unavailable information"
-				: propertyFallbackDisplayLabel(row.property);
-		return (
-			<div className="flex items-center gap-3 w-full min-h-11 px-3 py-2 rounded-lg border border-white/[0.06] bg-nova-deep/30">
-				<span className="flex-1 min-w-0">
-					<span className="block truncate text-[13px] text-nova-text">
-						{readableProperty}
-					</span>
-					<span className="block text-[11px] text-nova-text-muted">
-						On a linked case, through a custom connection.
-					</span>
-				</span>
-				<button
-					type="button"
-					onClick={() => onPick(row.property, "self")}
-					className="shrink-0 px-3 min-h-11 text-xs rounded-lg border border-white/[0.08] text-nova-text-secondary hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-				>
-					Search this case instead
-				</button>
-			</div>
-		);
-	}
-
 	const thisCaseProperties = authorableCaseProperties(ct?.properties ?? []);
 	const parentCaseProperties = authorableCaseProperties(
 		parentCt?.properties ?? [],
 	);
-	const matchesQuery = (
-		property: CaseProperty,
-		peers: readonly CaseProperty[],
-	) => {
-		const normalized = query.trim().toLocaleLowerCase();
-		if (normalized === "") return true;
-		return [
-			property.name,
-			property.label,
-			propertyDisplayLabel(property),
-			friendlyPropertyDisambiguator(property, peers),
-			propertyTypeLabel(property),
-		]
-			.filter((part): part is string => typeof part === "string")
-			.join(" ")
-			.toLocaleLowerCase()
-			.includes(normalized);
-	};
-	const visibleThisCaseProperties = thisCaseProperties.filter((property) =>
-		matchesQuery(property, thisCaseProperties),
-	);
-	const visibleParentCaseProperties = parentCaseProperties.filter((property) =>
-		matchesQuery(property, parentCaseProperties),
-	);
 	const hasAnyProperties =
 		thisCaseProperties.length + parentCaseProperties.length > 0;
-	const hasVisibleProperties =
-		visibleThisCaseProperties.length + visibleParentCaseProperties.length > 0;
 	const destinationProperties =
 		scope === "parent" ? parentCaseProperties : thisCaseProperties;
 	const selectedDef = destinationProperties.find(
 		(p) => p.name === canonicalCasePropertyName(row.property),
 	);
 	const selectedPropertyName = canonicalCasePropertyName(row.property);
-	const scopeLabel = scope === "parent" ? "Parent case" : "This case";
 	const selectedLabel =
-		selectedDef === undefined
+		scope === "custom"
 			? row.property.trim() === ""
 				? "Unavailable information"
-				: propertyDisplayLabelForName(row.property, destinationProperties)
-			: propertyDisplayLabel(selectedDef);
+				: propertyFallbackDisplayLabel(row.property)
+			: selectedDef === undefined
+				? row.property.trim() === ""
+					? "Unavailable information"
+					: propertyDisplayLabelForName(row.property, destinationProperties)
+				: propertyDisplayLabel(selectedDef);
 	const selectedQualifier =
-		selectedDef === undefined
+		scope === "custom" || selectedDef === undefined
 			? undefined
 			: friendlyPropertyDisambiguator(selectedDef, destinationProperties);
+	const sourceLabel =
+		scope === "custom"
+			? "Linked case"
+			: scope === "parent"
+				? "Parent case"
+				: "This case";
+	const choices = useMemo<
+		readonly SearchableChoice<{
+			readonly property: CaseProperty;
+			readonly scope: "self" | "parent";
+		}>[]
+	>(
+		() => [
+			...thisCaseProperties.map((property) => ({
+				id: `self:${canonicalCasePropertyName(property.name)}`,
+				label: propertyDisplayLabel(property),
+				detail: [
+					friendlyPropertyDisambiguator(property, thisCaseProperties),
+					propertyTypeLabel(property),
+				]
+					.filter((part): part is string => part !== undefined)
+					.join(" · "),
+				group: "This case",
+				icon: tablerDatabase,
+				searchText: property.name,
+				value: { property, scope: "self" as const },
+			})),
+			...parentCaseProperties.map((property) => ({
+				id: `parent:${canonicalCasePropertyName(property.name)}`,
+				label: propertyDisplayLabel(property),
+				detail: [
+					friendlyPropertyDisambiguator(property, parentCaseProperties),
+					propertyTypeLabel(property),
+				]
+					.filter((part): part is string => part !== undefined)
+					.join(" · "),
+				group: "Parent case",
+				icon: tablerDatabase,
+				searchText: property.name,
+				value: { property, scope: "parent" as const },
+			})),
+		],
+		[thisCaseProperties, parentCaseProperties],
+	);
+	const selectedId =
+		scope === "self" || scope === "parent"
+			? `${scope}:${selectedPropertyName}`
+			: undefined;
 
 	return (
-		<Menu.Root
-			open={open}
-			onOpenChange={(nextOpen) => {
-				setOpen(nextOpen);
-				if (!nextOpen) setQuery("");
-			}}
-		>
-			<Menu.Trigger
-				ref={triggerRef}
-				aria-label={`Search field ${rowIndex + 1} property`}
-				className={CONSOLE_TRIGGER_CLS}
-			>
-				<Icon
-					icon={tablerDatabase}
-					width="16"
-					height="16"
-					className="text-nova-violet-bright shrink-0"
+		<SearchableChoiceCombobox
+			choices={choices}
+			onChoose={(choice) =>
+				onPick(choice.value.property.name, choice.value.scope)
+			}
+			selectedId={selectedId}
+			trigger={
+				<Button
+					ref={triggerRef}
+					type="button"
+					variant="outline"
+					size="xl"
+					className={PICKER_TRIGGER_CLS}
 				/>
-				<span className="flex-1 min-w-0 text-left">
-					{row.property === "" ? (
-						<span className="block text-nova-text-muted">Pick a property</span>
-					) : (
-						<>
-							<span className="block truncate font-medium text-nova-text">
-								{selectedLabel}
+			}
+			triggerLabel={`Search field ${rowIndex + 1} information`}
+			triggerContent={
+				<>
+					<Icon
+						icon={tablerDatabase}
+						width="16"
+						height="16"
+						className="text-nova-violet-bright shrink-0"
+					/>
+					<span className="flex-1 min-w-0 text-left">
+						{row.property === "" ? (
+							<span className="block text-nova-text-muted">
+								Choose information
 							</span>
-							<span className="block text-[11px] text-nova-text-muted truncate">
-								{[
-									scopeLabel,
-									selectedQualifier,
-									selectedDef === undefined
-										? undefined
-										: propertyTypeLabel(selectedDef),
-								]
-									.filter(Boolean)
-									.join(" · ")}
-							</span>
-						</>
-					)}
-				</span>
-				<Chevron />
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
-					align="start"
-					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-					style={{ minWidth: "var(--anchor-width)" }}
-				>
-					<Menu.Popup
-						className={`${MENU_POPUP_CLS} flex max-h-80 min-w-[16rem] flex-col`}
-					>
-						<div className="shrink-0 border-b border-white/[0.06] p-2">
-							<label className="flex min-h-11 items-center gap-2 rounded-lg border border-white/[0.08] bg-nova-deep/70 px-3 focus-within:border-nova-violet/40">
-								<Icon
-									icon={tablerSearch}
-									width="15"
-									height="15"
-									className="shrink-0 text-nova-text-muted"
-								/>
-								<span className="sr-only">Search information</span>
-								<input
-									ref={searchRef}
-									type="search"
-									value={query}
-									onChange={(event) => setQuery(event.target.value)}
-									onKeyDown={handleMenuSearchInputKeyDown}
-									placeholder="Search information…"
-									autoComplete="off"
-									data-1p-ignore
-									className="min-w-0 flex-1 bg-transparent text-[13px] text-nova-text outline-none placeholder:text-nova-text-muted"
-								/>
-							</label>
-						</div>
-						<div className="min-h-0 flex-1 overflow-y-auto p-1">
-							{!hasAnyProperties ? (
-								<p className="px-3 py-4 text-center text-[12px] text-nova-text-muted">
-									No information is available yet.
-								</p>
-							) : !hasVisibleProperties ? (
-								<p className="px-3 py-4 text-center text-[12px] text-nova-text-muted">
-									No information matches “{query.trim()}”.
-								</p>
-							) : (
-								<>
-									{visibleThisCaseProperties.length > 0 && (
-										<PropertyGroup
-											heading="This case"
-											properties={visibleThisCaseProperties}
-											allProperties={thisCaseProperties}
-											isSelected={(p) =>
-												scope === "self" && p.name === selectedPropertyName
-											}
-											onPick={(p) => onPick(p.name, "self")}
-											roundTop
-											roundBottom={
-												parentCt === undefined ||
-												visibleParentCaseProperties.length === 0
-											}
-										/>
-									)}
-									{visibleParentCaseProperties.length > 0 && (
-										<PropertyGroup
-											heading="Parent case"
-											properties={visibleParentCaseProperties}
-											allProperties={parentCaseProperties}
-											isSelected={(p) =>
-												scope === "parent" && p.name === selectedPropertyName
-											}
-											onPick={(p) => onPick(p.name, "parent")}
-											roundTop={visibleThisCaseProperties.length === 0}
-											roundBottom
-										/>
-									)}
-								</>
-							)}
-						</div>
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+						) : (
+							<>
+								<span className="block break-words font-medium text-nova-text">
+									{selectedLabel}
+								</span>
+								<span className="block break-words text-[12px] text-nova-text-muted">
+									{[
+										sourceLabel,
+										selectedQualifier,
+										scope === "custom" || selectedDef === undefined
+											? undefined
+											: propertyTypeLabel(selectedDef),
+									]
+										.filter(Boolean)
+										.join(" · ")}
+								</span>
+							</>
+						)}
+					</span>
+				</>
+			}
+			heading="Choose information"
+			description="Choose what this field searches"
+			searchLabel="Search information"
+			searchPlaceholder="Search information"
+			emptyTitle={
+				hasAnyProperties ? "No matching information" : "No case information yet"
+			}
+			emptyDescription={
+				hasAnyProperties
+					? "Try a different search"
+					: "Add case information before choosing what this field searches"
+			}
+			contentClassName="max-h-[min(20rem,var(--available-height))]"
+		/>
 	);
 }
 
-function PropertyGroup({
-	heading,
-	properties,
-	allProperties,
-	isSelected,
-	onPick,
-	roundTop,
-	roundBottom,
-}: {
-	readonly heading: string;
-	readonly properties: readonly CaseProperty[];
-	readonly allProperties: readonly CaseProperty[];
-	readonly isSelected: (p: CaseProperty) => boolean;
-	readonly onPick: (p: CaseProperty) => void;
-	readonly roundTop: boolean;
-	readonly roundBottom: boolean;
-}) {
-	return (
-		<Menu.Group>
-			<Menu.GroupLabel
-				className={`px-3 pb-1 pt-2.5 text-[12px] font-medium leading-5 text-nova-text-secondary ${roundTop ? "rounded-t-xl" : ""}`}
-			>
-				{heading}
-			</Menu.GroupLabel>
-			{properties.length === 0 && (
-				<div className={`${MENU_ITEM_BASE} text-nova-text-muted italic`}>
-					No properties yet
-				</div>
-			)}
-			{properties.map((p, i) => {
-				const active = isSelected(p);
-				const isLast = roundBottom && i === properties.length - 1;
-				const disambiguator = friendlyPropertyDisambiguator(p, allProperties);
-				return (
-					<Menu.Item
-						key={p.name}
-						onClick={() => onPick(p)}
-						className={`${isLast ? "rounded-b-xl" : ""} ${MENU_ITEM_CLS} ${CONSOLE_MENU_ITEM_MIN} ${
-							active ? "text-nova-violet-bright bg-nova-violet/10" : ""
-						}`}
-					>
-						<span className="min-w-0 flex-1 text-left">
-							<span className="block truncate">{propertyDisplayLabel(p)}</span>
-							<span
-								className={`block truncate text-[10px] ${
-									active ? "text-nova-violet-bright" : "text-nova-text-muted"
-								}`}
-							>
-								{[disambiguator, propertyTypeLabel(p)]
-									.filter(Boolean)
-									.join(" · ")}
-							</span>
-						</span>
-						{active && (
-							<Icon
-								icon={tablerCheck}
-								width="14"
-								height="14"
-								className="text-nova-violet-bright"
-							/>
-						)}
-					</Menu.Item>
-				);
-			})}
-		</Menu.Group>
+function searchInputsMatch(
+	left: SearchInputDef,
+	right: SearchInputDef,
+): boolean {
+	if (left === right) return true;
+	return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function searchModesMatch(
+	left: SearchInputMode | undefined,
+	right: SearchInputMode | undefined,
+): boolean {
+	if (left === right) return true;
+	return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function expressionHasMeaningfulContent(value: ValueExpression): boolean {
+	if (value.kind !== "term") return true;
+	switch (value.term.kind) {
+		case "literal":
+			return typeof value.term.value === "string"
+				? value.term.value.length > 0
+				: true;
+		case "prop":
+			return value.term.property.length > 0 || value.term.via !== undefined;
+		case "input":
+			return value.term.name.length > 0;
+		case "session-context":
+			return true;
+		case "session-user":
+			return value.term.field.length > 0;
+	}
+}
+
+function defaultFitsInputType(
+	value: ValueExpression,
+	type: SearchInputType,
+	caseTypes: readonly CaseType[],
+	currentCaseType: string,
+): boolean {
+	if (type === "date-range") return false;
+	const resolved = checkExpression(
+		value,
+		{
+			caseTypes: [...caseTypes],
+			knownInputs: [],
+			currentCaseType,
+		},
+		[],
+		[],
 	);
+	if (resolved === undefined) return false;
+	const constraint = constraintForDefault(type);
+	return constraint.accepts === "any" || acceptsType(constraint, resolved);
+}
+
+function searchModeDescription(
+	mode: SearchInputMode | undefined,
+	type: SearchInputType,
+): string {
+	const kind = mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[type];
+	if (kind === "multi-select-contains") {
+		return mode?.kind === "multi-select-contains" && mode.quantifier === "all"
+			? "All chosen options"
+			: "Any chosen option";
+	}
+	return SEARCH_MODE_LABELS[kind];
+}
+
+function joinConsequences(consequences: readonly string[]): string {
+	if (consequences.length <= 1) return consequences[0] ?? "changes this field";
+	return `${consequences.slice(0, -1).join(", ")} and ${consequences.at(-1)}`;
+}
+
+function capitalizeFirst(value: string): string {
+	return value.length === 0
+		? value
+		: `${value[0]?.toUpperCase()}${value.slice(1)}`;
+}
+
+function customConversionModeLabel(row: SimpleSearchInputDef | null): string {
+	if (row === null) return "saved match";
+	return `“${searchModeDescription(row.mode, row.type)}”`;
+}
+
+function standardReplacementConsequence(
+	pending: PendingStandardReplacement | null,
+): string {
+	if (pending === null) return "The custom condition will be replaced";
+	const match = SEARCH_MODE_LABELS[pending.resultingMode];
+	const modeAdjustment = pending.modeAdjustment ?? "";
+	const defaultConsequence = pending.meaningfulDefaultRemoved
+		? ` The starting value will also be removed because ${SEARCH_INPUT_TYPE_LABELS[pending.next.type]} can’t use it.`
+		: "";
+	return `${modeAdjustment}${modeAdjustment === "" ? "" : " "}Parts of the custom condition that “${match}” can’t represent will be removed.${defaultConsequence} The custom condition won’t be recoverable after replacement.`;
+}
+
+function customConversionConsequence(row: SimpleSearchInputDef | null): string {
+	if (row === null) return "The saved match will be replaced";
+	if (effectiveModeKind(row) === "range") {
+		return "“Between dates” will become “Exact value”. A custom condition can’t read both ends of this range yet. You can edit the new condition next.";
+	}
+	return `${customConversionModeLabel(row)} will become “Exact value”. A custom condition can’t read this field’s list of chosen options yet. You can edit the new condition next.`;
 }
 
 // ── Row rebuild helper ────────────────────────────────────────────
@@ -1003,6 +1276,7 @@ interface TypePickerProps {
 	 *  gates nothing, matching the validator's skip. */
 	readonly propertyDataType: CasePropertyDataType | undefined;
 	readonly rowIndex: number;
+	readonly triggerRef: RefObject<HTMLButtonElement | null>;
 }
 
 function TypePicker({
@@ -1010,14 +1284,22 @@ function TypePicker({
 	onChange,
 	propertyDataType,
 	rowIndex,
+	triggerRef,
 }: TypePickerProps) {
-	const triggerRef = useRef<HTMLButtonElement>(null);
+	// Choice lists are not emitted as a real choice widget today. Keep them out
+	// of normal creation; only a saved legacy row sees the disabled current type
+	// so it can understand the repair and choose a supported replacement.
+	const visibleTypes =
+		value === "select"
+			? SEARCH_INPUT_TYPES
+			: SEARCH_INPUT_TYPES.filter((type) => type !== "select");
 	return (
-		<Menu.Root>
-			<Menu.Trigger
+		<DropdownMenu>
+			<DropdownMenuTrigger
 				ref={triggerRef}
+				render={<Button type="button" variant="outline" size="xl" />}
 				aria-label={`Search field ${rowIndex + 1} type: ${SEARCH_INPUT_TYPE_LABELS[value]}`}
-				className={CONSOLE_TRIGGER_CLS}
+				className={PICKER_TRIGGER_CLS}
 			>
 				<Icon
 					icon={SEARCH_INPUT_TYPE_ICONS[value]}
@@ -1029,100 +1311,82 @@ function TypePicker({
 					<span className="block text-nova-text">
 						{SEARCH_INPUT_TYPE_LABELS[value]}
 					</span>
-					<span className="block text-[11px] text-nova-text-muted truncate">
+					<span className="block break-words text-[13px] text-nova-text-muted">
 						{SEARCH_INPUT_TYPE_DESCRIPTIONS[value]}
 					</span>
 				</span>
-				<Chevron />
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
-					align="start"
-					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-					style={{ minWidth: "var(--anchor-width)" }}
+				<Icon
+					icon={tablerChevronDown}
+					width="15"
+					height="15"
+					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="start" preferredMinWidth="16rem">
+				<DropdownMenuRadioGroup
+					value={value}
+					onValueChange={(next) => onChange(next as SearchInputType)}
 				>
-					<Menu.Popup className={`${MENU_POPUP_CLS} min-w-[13rem]`}>
-						{SEARCH_INPUT_TYPES.map((t, i) => {
-							const isActive = t === value;
-							// Wire-level gate — the wire prompt carries no itemset
-							// slot, so a `select` input renders as plain text at
-							// runtime and the commit gate rejects it
-							// (`searchInputSelectWidgetNotSupported`). Disabled
-							// with the reason, never selectable into a rejection.
-							const wireSupported = t !== "select";
-							// Property-level gate — a field the bound property's
-							// data type can't run (a calendar over a text
-							// property, say) is disabled with the reason rather
-							// than selectable into a validation error.
-							const admitted =
-								wireSupported &&
-								(propertyDataType === undefined ||
-									(SEARCH_INPUT_TYPE_PROPERTY_TYPES[t]?.includes(
-										propertyDataType,
-									) ??
-										true));
-							const last = SEARCH_INPUT_TYPES.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
-							return (
-								<Menu.Item
-									key={t}
-									disabled={!admitted}
-									onClick={() => onChange(t)}
-									className={`${corners} ${MENU_ITEM_CLS} ${CONSOLE_MENU_ITEM_MIN} ${
-										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									} ${admitted ? "" : "opacity-45"}`}
-								>
-									<Icon
-										icon={SEARCH_INPUT_TYPE_ICONS[t]}
-										width="15"
-										height="15"
-										className={
+					{visibleTypes.map((t) => {
+						const isActive = t === value;
+						// Wire-level gate — the wire prompt carries no itemset
+						// slot, so a `select` input renders as plain text at
+						// runtime and the commit gate rejects it
+						// (`searchInputSelectWidgetNotSupported`). Disabled
+						// with the reason, never selectable into a rejection.
+						const wireSupported = t !== "select";
+						// Property-level gate — a field the bound property's
+						// data type can't run (a calendar over a text
+						// property, say) is disabled with the reason rather
+						// than selectable into a validation error.
+						const admitted =
+							wireSupported &&
+							(propertyDataType === undefined ||
+								(SEARCH_INPUT_TYPE_PROPERTY_TYPES[t]?.includes(
+									propertyDataType,
+								) ??
+									true));
+						return (
+							<DropdownMenuRadioItem
+								key={t}
+								value={t}
+								disabled={!admitted}
+								className={`min-h-11 items-start py-2 ${
+									isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
+								}`}
+							>
+								<Icon
+									icon={SEARCH_INPUT_TYPE_ICONS[t]}
+									width="15"
+									height="15"
+									className={
+										isActive
+											? "text-nova-violet-bright"
+											: "text-nova-text-muted"
+									}
+								/>
+								<span className="flex-1 text-left">
+									<div>{SEARCH_INPUT_TYPE_LABELS[t]}</div>
+									<div
+										className={`text-[13px] leading-relaxed ${
 											isActive
 												? "text-nova-violet-bright"
 												: "text-nova-text-muted"
-										}
-									/>
-									<span className="flex-1 text-left">
-										<div>{SEARCH_INPUT_TYPE_LABELS[t]}</div>
-										<div
-											className={`text-[11px] ${
-												isActive
-													? "text-nova-violet-bright"
-													: "text-nova-text-muted"
-											}`}
-										>
-											{admitted
-												? SEARCH_INPUT_TYPE_DESCRIPTIONS[t]
-												: wireSupported
-													? `Not available for ${propertyDataType} properties.`
-													: "Not supported by the app runtime yet — a text field filters these values."}
-										</div>
-									</span>
-									{isActive && (
-										<Icon
-											icon={tablerCheck}
-											width="14"
-											height="14"
-											className="text-nova-violet-bright"
-										/>
-									)}
-								</Menu.Item>
-							);
-						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+										}`}
+									>
+										{admitted
+											? SEARCH_INPUT_TYPE_DESCRIPTIONS[t]
+											: wireSupported
+												? "This field type doesn’t work with this information"
+												: "Choose another type because this saved field isn’t supported"}
+									</div>
+								</span>
+							</DropdownMenuRadioItem>
+						);
+					})}
+				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 
@@ -1136,6 +1400,7 @@ interface MatchPickerProps {
 	readonly propertyDataType: CasePropertyDataType | undefined;
 	readonly invalid: boolean;
 	readonly rowIndex: number;
+	readonly triggerRef: RefObject<HTMLButtonElement | null>;
 	readonly onPickMode: (kind: SearchInputMode["kind"]) => void;
 	readonly onPickCustom: () => void;
 }
@@ -1145,24 +1410,27 @@ function MatchPicker({
 	propertyDataType,
 	invalid,
 	rowIndex,
+	triggerRef,
 	onPickMode,
 	onPickCustom,
 }: MatchPickerProps) {
-	const triggerRef = useRef<HTMLButtonElement>(null);
 	const isCustom = value.kind === "advanced";
 	const applicable = applicableSearchModes(value.type);
+	const choices =
+		value.type === "date" ? ([...applicable, "range"] as const) : applicable;
 	const effectiveKind =
 		value.kind === "simple" ? effectiveModeKind(value) : null;
 	const triggerLabel = isCustom
-		? "Custom Condition"
+		? "Custom condition"
 		: SEARCH_MODE_LABELS[effectiveKind ?? "exact"];
 
 	return (
-		<Menu.Root>
-			<Menu.Trigger
+		<DropdownMenu>
+			<DropdownMenuTrigger
 				ref={triggerRef}
+				render={<Button type="button" variant="outline" size="xl" />}
 				aria-label={`Search field ${rowIndex + 1} match: ${triggerLabel}`}
-				className={`${CONSOLE_TRIGGER_CLS} ${
+				className={`${PICKER_TRIGGER_CLS} ${
 					invalid ? "border-nova-rose/40 hover:border-nova-rose/60" : ""
 				}`}
 			>
@@ -1180,102 +1448,86 @@ function MatchPicker({
 						/>
 					)}
 				</span>
-				<Chevron />
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
-					align="start"
-					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-					style={{ minWidth: "var(--anchor-width)" }}
+				<Icon
+					icon={tablerChevronDown}
+					width="15"
+					height="15"
+					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="start" preferredMinWidth="17rem">
+				<DropdownMenuRadioGroup
+					value={isCustom ? "custom" : (effectiveKind ?? "exact")}
+					onValueChange={(next) => {
+						if (next === "custom") onPickCustom();
+						else onPickMode(next as SearchInputMode["kind"]);
+					}}
 				>
-					<Menu.Popup className={`${MENU_POPUP_CLS} min-w-[16rem]`}>
-						{applicable.map((kind, i) => {
-							const isActive = !isCustom && effectiveKind === kind;
-							// Property-level gate — picking a match the bound
-							// property's data type can't run would only land the
-							// row in a validation error, so the item is disabled
-							// and says why instead.
-							const admitted =
-								propertyDataType === undefined ||
-								(SEARCH_MODE_PROPERTY_TYPES[kind]?.includes(propertyDataType) ??
-									true);
-							return (
-								<Menu.Item
-									key={kind}
-									disabled={!admitted}
-									onClick={() => onPickMode(kind)}
-									className={`${i === 0 ? "rounded-t-xl" : ""} ${MENU_ITEM_CLS} ${CONSOLE_MENU_ITEM_MIN} ${
-										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									} ${admitted ? "" : "opacity-45"}`}
-								>
-									<span className="flex-1 text-left">
-										<div>{SEARCH_MODE_LABELS[kind]}</div>
-										<div
-											className={`text-[11px] ${
-												isActive
-													? "text-nova-violet-bright"
-													: "text-nova-text-muted"
-											}`}
-										>
-											{admitted
-												? SEARCH_MODE_DESCRIPTIONS[kind]
-												: `Not available for ${propertyDataType} properties.`}
-										</div>
-									</span>
-									{isActive && (
-										<Icon
-											icon={tablerCheck}
-											width="14"
-											height="14"
-											className="text-nova-violet-bright"
-										/>
-									)}
-								</Menu.Item>
-							);
-						})}
-						<Menu.Item
-							onClick={onPickCustom}
-							className={`rounded-b-xl border-t border-white/[0.06] ${MENU_ITEM_CLS} ${CONSOLE_MENU_ITEM_MIN} ${
-								isCustom ? "text-nova-violet-bright bg-nova-violet/10" : ""
-							}`}
-						>
-							<Icon
-								icon={tablerWand}
-								width="15"
-								height="15"
-								className={
+					{choices.map((kind) => {
+						const isActive = !isCustom && effectiveKind === kind;
+						// Property-level gate — picking a match the bound
+						// property's data type can't run would only land the
+						// row in a validation error, so the item is disabled
+						// and says why instead.
+						const admitted =
+							propertyDataType === undefined ||
+							(SEARCH_MODE_PROPERTY_TYPES[kind]?.includes(propertyDataType) ??
+								true);
+						return (
+							<DropdownMenuRadioItem
+								key={kind}
+								value={kind}
+								disabled={!admitted}
+								className={`min-h-11 items-start py-2 ${
+									isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
+								}`}
+							>
+								<span className="flex-1 text-left">
+									<div>{SEARCH_MODE_LABELS[kind]}</div>
+									<div
+										className={`text-[13px] leading-relaxed ${
+											isActive
+												? "text-nova-violet-bright"
+												: "text-nova-text-muted"
+										}`}
+									>
+										{admitted
+											? SEARCH_MODE_DESCRIPTIONS[kind]
+											: "This match doesn’t work with this information"}
+									</div>
+								</span>
+							</DropdownMenuRadioItem>
+						);
+					})}
+					<DropdownMenuSeparator />
+					<DropdownMenuRadioItem
+						value="custom"
+						className={`min-h-11 items-start py-2 ${
+							isCustom ? "text-nova-violet-bright bg-nova-violet/10" : ""
+						}`}
+					>
+						<Icon
+							icon={tablerWand}
+							width="15"
+							height="15"
+							className={
+								isCustom ? "text-nova-violet-bright" : "text-nova-text-muted"
+							}
+						/>
+						<span className="flex-1 text-left">
+							<div>Custom condition</div>
+							<div
+								className={`text-[13px] leading-relaxed ${
 									isCustom ? "text-nova-violet-bright" : "text-nova-text-muted"
-								}
-							/>
-							<span className="flex-1 text-left">
-								<div>Custom Condition</div>
-								<div
-									className={`text-[11px] ${
-										isCustom
-											? "text-nova-violet-bright"
-											: "text-nova-text-muted"
-									}`}
-								>
-									Write the matching logic yourself — any properties, any
-									comparison.
-								</div>
-							</span>
-							{isCustom && (
-								<Icon
-									icon={tablerCheck}
-									width="14"
-									height="14"
-									className="text-nova-violet-bright"
-								/>
-							)}
-						</Menu.Item>
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+								}`}
+							>
+								Combine case information to decide what matches
+							</div>
+						</span>
+					</DropdownMenuRadioItem>
+				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 
@@ -1283,11 +1535,37 @@ function MatchPicker({
 
 interface DefaultValueSlotProps {
 	readonly value: ValueExpression | undefined;
-	readonly inputType: SearchInputType;
+	readonly inputType: ScalarDefaultSearchInputType;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly rowIndex: number;
 	readonly onChange: (next: ValueExpression | undefined) => void;
+}
+
+function LegacyDateRangeDefaultRepair({
+	rowIndex,
+	onRemove,
+}: {
+	readonly rowIndex: number;
+	readonly onRemove: () => void;
+}) {
+	return (
+		<FieldRow
+			label="Starting value needs attention"
+			hint="This older setting contains one date, but a date range needs both dates"
+		>
+			<Button
+				type="button"
+				onClick={onRemove}
+				variant="outline"
+				size="xl"
+				className="w-full border-nova-rose/30 bg-transparent px-3 text-[14px] text-nova-rose not-disabled:hover:border-nova-rose/50 not-disabled:hover:bg-nova-rose/[0.05] dark:bg-transparent dark:not-disabled:hover:bg-nova-rose/[0.05]"
+				aria-label={`Remove the incompatible starting value from search field ${rowIndex + 1}`}
+			>
+				Remove starting value
+			</Button>
+		</FieldRow>
+	);
 }
 
 function DefaultValueSlot({
@@ -1299,67 +1577,47 @@ function DefaultValueSlot({
 	onChange,
 }: DefaultValueSlotProps) {
 	const constraint = constraintForDefault(inputType);
-	if (value === undefined) {
-		return (
-			<button
-				type="button"
-				onClick={() => onChange(seedDefaultExpression(inputType))}
-				className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-				aria-label={`Add a default value for search field ${rowIndex + 1}`}
-			>
-				<Icon icon={tablerPlus} width="13" height="13" />
-				<span>Add a Default Value</span>
-			</button>
-		);
-	}
 	return (
 		<FieldRow
-			label="Default value"
-			hint="The field starts out filled with this — anyone can change it."
+			label="Starting value"
+			hint="Pre-fills the field, and people can change it before searching"
 		>
-			<div className="rounded-lg border border-white/[0.04] bg-nova-deep/30 p-2.5 space-y-2">
-				{/* Forbids input refs — the default fills the field before
-				    the search screen opens. See NO_SEARCH_INPUTS. */}
-				<ExpressionCardEditor
-					value={value}
-					onChange={onChange}
-					caseTypes={caseTypes}
-					currentCaseType={currentCaseType}
-					knownInputs={NO_SEARCH_INPUTS}
-					constraint={constraint}
-				/>
-				<button
+			{value === undefined ? (
+				<Button
 					type="button"
-					onClick={() => onChange(undefined)}
-					className="w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-muted hover:text-nova-rose hover:border-nova-rose/40 transition-colors cursor-pointer"
-					aria-label={`Remove the default value for search field ${rowIndex + 1}`}
+					onClick={() => onChange(seedDefaultExpression(inputType))}
+					variant="outline"
+					size="xl"
+					className="w-full border-dashed border-white/[0.10] bg-transparent px-3 text-[14px] text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-transparent"
+					aria-label={`Add a starting value for search field ${rowIndex + 1}`}
 				>
-					Remove Default Value
-				</button>
-			</div>
+					<Icon icon={tablerPlus} width="13" height="13" />
+					<span>Add starting value</span>
+				</Button>
+			) : (
+				<div className="space-y-3 rounded-xl border border-white/[0.06] bg-nova-deep/30 p-3">
+					{/* Forbids input refs — the default fills the field before
+				    the search screen opens. See NO_SEARCH_INPUTS. */}
+					<ExpressionCardEditor
+						value={value}
+						onChange={onChange}
+						caseTypes={caseTypes}
+						currentCaseType={currentCaseType}
+						knownInputs={NO_SEARCH_INPUTS}
+						constraint={constraint}
+					/>
+					<Button
+						type="button"
+						onClick={() => onChange(undefined)}
+						variant="outline"
+						size="xl"
+						className="w-full border-white/[0.06] bg-transparent px-3 text-[14px] text-nova-text-muted not-disabled:hover:border-nova-rose/40 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-rose dark:bg-transparent dark:not-disabled:hover:bg-transparent"
+						aria-label={`Remove the starting value for search field ${rowIndex + 1}`}
+					>
+						Remove starting value
+					</Button>
+				</div>
+			)}
 		</FieldRow>
-	);
-}
-
-// ── Helpers ───────────────────────────────────────────────────────
-
-function Chevron() {
-	return (
-		<svg
-			aria-hidden="true"
-			width="10"
-			height="10"
-			viewBox="0 0 10 10"
-			className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-		>
-			<path
-				d="M2 3.5L5 6.5L8 3.5"
-				stroke="currentColor"
-				strokeWidth="1.2"
-				fill="none"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-		</svg>
 	);
 }

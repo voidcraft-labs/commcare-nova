@@ -18,6 +18,7 @@ import tablerTable from "@iconify-icons/tabler/table";
 import { memo } from "react";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
 import { mediaSrc } from "@/components/builder/media/mediaClient";
+import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useFormIds, useModuleIds } from "@/lib/doc/hooks/useModuleIds";
@@ -38,14 +39,17 @@ export function AppTreeRail({ onExpand }: { onExpand: () => void }) {
 				data-builder-secondary-header="structure-rail"
 			>
 				<SimpleTooltip content="Expand structure" side="right">
-					<button
+					<Button
 						type="button"
+						variant="ghost"
+						size="icon-lg"
 						onClick={onExpand}
 						aria-label="Expand structure sidebar"
-						className="grid size-11 cursor-pointer place-items-center rounded-lg text-nova-text-muted transition-colors hover:bg-white/[0.05] hover:text-nova-text"
+						data-builder-sidebar-toggle="expand-structure"
+						className="size-11 text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
 					>
 						<Icon icon={tablerLayoutSidebarLeftExpand} width="18" height="18" />
-					</button>
+					</Button>
 				</SimpleTooltip>
 			</div>
 			<div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
@@ -95,7 +99,7 @@ const RailModuleGroup = memo(function RailModuleGroup({
 			</RailButton>
 			{mod.caseType && (
 				<RailButton
-					label={`${mod.name} — Case List & Search`}
+					label={`${mod.name}, case list and search`}
 					active={isCaseListSelected}
 					onClick={() => onSelect({ kind: "cases", moduleUuid })}
 				>
@@ -157,18 +161,20 @@ function RailButton({
 }) {
 	return (
 		<SimpleTooltip content={label} side="right">
-			<button
+			<Button
 				type="button"
+				variant="ghost"
+				size="icon-lg"
 				onClick={onClick}
 				aria-label={label}
-				className={`size-11 grid place-items-center rounded-lg transition-colors cursor-pointer ${
+				className={`size-11 ${
 					active
 						? "bg-nova-violet/[0.15] text-nova-violet-bright shadow-[inset_0_0_0_1px_rgba(139,92,246,0.35)]"
 						: "text-nova-text-muted hover:text-nova-text-secondary hover:bg-white/[0.05]"
 				}`}
 			>
 				{children}
-			</button>
+			</Button>
 		</SimpleTooltip>
 	);
 }

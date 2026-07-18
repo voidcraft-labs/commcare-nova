@@ -39,18 +39,19 @@
 
 "use client";
 
-import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerPaperclip from "@iconify-icons/tabler/paperclip";
 import tablerReplace from "@iconify-icons/tabler/replace";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/shadcn/tooltip";
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/shadcn/popover";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import type { IconSlotKind } from "@/lib/domain/builtinIcons";
 import {
 	isMediaKind,
@@ -64,10 +65,6 @@ import {
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import type { StagedUpload } from "@/lib/session/types";
-import {
-	POPOVER_POPUP_CLS,
-	POPOVER_POSITIONER_ELEVATED_CLS,
-} from "@/lib/styles";
 import { showToast } from "@/lib/ui/toastStore";
 import { ASSET_KIND_META } from "./assetKindMeta";
 import { MediaPickerDialog } from "./MediaPickerDialog";
@@ -355,14 +352,15 @@ function AttachButton({
 	onClick: () => void;
 }) {
 	return (
-		<button
+		<Button
 			type="button"
+			variant="outline"
 			onClick={onClick}
-			className="flex items-center gap-1.5 self-start rounded-md border border-dashed border-nova-border px-2 py-1 text-xs text-nova-text-muted transition-colors hover:border-nova-violet hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+			className="h-11 self-start border-dashed px-3 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet not-disabled:hover:text-nova-text"
 		>
-			<Icon icon={tablerPaperclip} className="size-3.5" />
+			<Icon icon={tablerPaperclip} className="size-4" />
 			{label}
-		</button>
+		</Button>
 	);
 }
 
@@ -373,7 +371,8 @@ function AttachButton({
  * doc, which is exactly the contract — the doc gets the reference only
  * when the upload confirms.
  */
-function StagedUploadChip({
+/** @internal Exported for focused state/accessibility coverage. */
+export function StagedUploadChip({
 	upload,
 	onCancel,
 	onDismiss,
@@ -387,19 +386,23 @@ function StagedUploadChip({
 	const failed = status.state === "error";
 	return (
 		<div
-			role="status"
-			className={`flex max-w-64 items-center gap-2 self-start rounded-md border bg-nova-surface p-1 pr-2 ${
+			role={failed ? "alert" : "status"}
+			aria-live={failed ? undefined : "polite"}
+			aria-atomic="true"
+			className={`flex min-h-11 gap-2 self-start rounded-lg border bg-nova-surface p-1 ${
 				failed ? "border-nova-rose/40" : "border-nova-border"
-			}`}
+			} ${failed ? "max-w-md items-start" : "max-w-72 items-center"}`}
 		>
-			<span className="flex size-7 shrink-0 items-center justify-center rounded bg-nova-deep">
+			<span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-nova-deep">
 				<Icon
 					icon={meta.icon}
 					className={`size-4 ${failed ? "text-nova-rose" : "text-nova-text-muted"}`}
 				/>
 			</span>
 			<div className="min-w-0 flex-1">
-				<p className="truncate text-xs text-nova-text">{upload.filename}</p>
+				<p className="text-[13px] leading-snug text-nova-text [overflow-wrap:anywhere]">
+					{upload.filename}
+				</p>
 				{status.state === "uploading" ? (
 					<div
 						role="progressbar"
@@ -415,32 +418,29 @@ function StagedUploadChip({
 						/>
 					</div>
 				) : (
-					// The chip is narrow, so the message truncates — the tooltip
-					// carries the full Elm-shaped error.
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<p className="truncate text-[11px] leading-tight text-nova-rose">
-									{status.message}
-								</p>
-							}
-						/>
-						<TooltipContent>{status.message}</TooltipContent>
-					</Tooltip>
+					// The complete actionable error stays visible inline. A tooltip-only
+					// message is unavailable to touch users and easy to miss by keyboard.
+					<p className="mt-1 text-sm leading-snug text-nova-rose">
+						{status.message}
+					</p>
 				)}
 			</div>
-			<button
-				type="button"
-				onClick={failed ? onDismiss : onCancel}
-				aria-label={
-					failed
-						? `Dismiss failed upload of ${upload.filename}`
-						: `Cancel upload of ${upload.filename}`
-				}
-				className="shrink-0 rounded p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-rose focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
-			>
-				<Icon icon={tablerX} className="size-3.5" />
-			</button>
+			<SimpleTooltip content={failed ? "Dismiss" : "Cancel upload"}>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon"
+					onClick={failed ? onDismiss : onCancel}
+					aria-label={
+						failed
+							? `Dismiss failed upload of ${upload.filename}`
+							: `Cancel upload of ${upload.filename}`
+					}
+					className="size-11 shrink-0 text-nova-text-muted not-disabled:hover:text-nova-rose"
+				>
+					<Icon icon={tablerX} className="size-4" />
+				</Button>
+			</SimpleTooltip>
 		</div>
 	);
 }
@@ -462,49 +462,58 @@ function AssetChip({
 	// supplies which slot, so "Remove image" needs no slot context inline.
 	const noun = meta.label.toLowerCase();
 	return (
-		<div className="flex items-center gap-2 self-start rounded-md border border-nova-border bg-nova-surface p-1 pr-2">
-			<Popover.Root>
-				<Popover.Trigger
-					className="flex items-center gap-2 rounded outline-none focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
+		<div className="flex min-h-11 items-center gap-1 self-start rounded-lg border border-nova-border bg-nova-surface p-1">
+			<Popover>
+				<PopoverTrigger
+					render={
+						<Button
+							variant="ghost"
+							className="h-11 gap-2 px-1.5 text-nova-text-secondary"
+						/>
+					}
 					aria-label={`Preview ${noun}`}
 				>
 					<ThumbBox kind={kind} assetId={assetId} />
-					<span className="text-xs text-nova-text-muted">{meta.label}</span>
-				</Popover.Trigger>
-				<Popover.Portal>
-					<Popover.Positioner
-						side="top"
-						sideOffset={6}
-						className={POPOVER_POSITIONER_ELEVATED_CLS}
-					>
-						<Popover.Popup className={`${POPOVER_POPUP_CLS} max-w-xs p-3`}>
-							<AssetPreview kind={kind} assetId={assetId} />
-						</Popover.Popup>
-					</Popover.Positioner>
-				</Popover.Portal>
-			</Popover.Root>
+					<span className="text-[13px]">{meta.label}</span>
+				</PopoverTrigger>
+				<PopoverContent
+					side="top"
+					sideOffset={6}
+					className="w-auto max-w-xs p-3"
+				>
+					<AssetPreview kind={kind} assetId={assetId} />
+				</PopoverContent>
+			</Popover>
 
-			<button
-				type="button"
-				onClick={onReplace}
-				aria-label={`Replace ${noun}`}
-				className="rounded p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
-			>
-				<Icon icon={tablerReplace} className="size-3.5" />
-			</button>
-			<button
-				type="button"
-				onClick={onRemove}
-				aria-label={`Remove ${noun}`}
-				className="rounded p-1 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-rose focus-visible:outline-1 focus-visible:outline-nova-violet-bright"
-			>
-				<Icon icon={tablerTrash} className="size-3.5" />
-			</button>
+			<SimpleTooltip content={`Replace ${noun}`}>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon"
+					onClick={onReplace}
+					aria-label={`Replace ${noun}`}
+					className="size-11 text-nova-text-muted"
+				>
+					<Icon icon={tablerReplace} className="size-4" />
+				</Button>
+			</SimpleTooltip>
+			<SimpleTooltip content={`Remove ${noun}`}>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon"
+					onClick={onRemove}
+					aria-label={`Remove ${noun}`}
+					className="size-11 text-nova-text-muted not-disabled:hover:text-nova-rose"
+				>
+					<Icon icon={tablerTrash} className="size-4" />
+				</Button>
+			</SimpleTooltip>
 		</div>
 	);
 }
 
-/** 28px thumbnail — image bitmap, or a kind glyph for audio/video. */
+/** Compact thumbnail: image bitmap, or a kind glyph for audio/video. */
 function ThumbBox({ kind, assetId }: { kind: MediaKind; assetId: string }) {
 	if (kind === "image") {
 		return (
@@ -512,12 +521,12 @@ function ThumbBox({ kind, assetId }: { kind: MediaKind; assetId: string }) {
 			<img
 				src={mediaSrc(assetId)}
 				alt=""
-				className="size-7 rounded object-cover"
+				className="size-9 rounded-md object-cover"
 			/>
 		);
 	}
 	return (
-		<span className="flex size-7 items-center justify-center rounded bg-nova-deep">
+		<span className="flex size-9 items-center justify-center rounded-md bg-nova-deep">
 			<Icon
 				icon={ASSET_KIND_META[kind].icon}
 				className="size-4 text-nova-text-muted"

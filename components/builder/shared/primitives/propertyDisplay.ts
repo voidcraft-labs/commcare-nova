@@ -106,6 +106,13 @@ export function friendlyPropertyDisambiguator(
 	);
 	if (peers.length < 2) return undefined;
 	const humanizedName = humanizeId(property.name) || "Stored information";
+	// A parenthetical must add information. Canonical/system properties often
+	// have a friendly label that is already the readable form of their stored
+	// name (for example, "Case name"). Repeating that as "Case name (Case
+	// name)" exposes implementation scaffolding without resolving ambiguity.
+	if (normalizedDisplayLabel(humanizedName) === normalizedDisplayLabel(label)) {
+		return undefined;
+	}
 	const sameNamePeers = peers.filter(
 		(candidate) =>
 			normalizedDisplayLabel(humanizeId(candidate.name)) ===

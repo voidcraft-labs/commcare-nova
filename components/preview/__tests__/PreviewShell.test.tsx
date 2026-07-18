@@ -206,6 +206,16 @@ const WORKSPACE_LOCATIONS: ReadonlyArray<{
 ];
 
 describe("PreviewShell — case-list workspace dispatch", () => {
+	it("uses its real scroll surface as the single main landmark", () => {
+		editModeMock.mockReturnValue("edit");
+		locationMock.mockReturnValue({ kind: "cases", moduleUuid: MODULE_UUID });
+		const { container, getByRole } = renderShell();
+
+		const main = getByRole("main");
+		expect(main.hasAttribute("data-preview-scroll-container")).toBe(true);
+		expect(container.querySelectorAll("main")).toHaveLength(1);
+	});
+
 	for (const { location, tab } of WORKSPACE_LOCATIONS) {
 		it(`edit mode at ${location.kind} → workspace visible with tab="${tab}"; CaseListScreen hidden`, () => {
 			editModeMock.mockReturnValue("edit");

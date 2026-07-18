@@ -1,6 +1,6 @@
 /**
- * Term-collecting AST walkers over the `Predicate` and
- * `ValueExpression` discriminated unions.
+ * Structural AST walkers over the `Predicate` and `ValueExpression`
+ * discriminated unions.
  *
  * The type checker (`./typeChecker`) walks the same shapes for type
  * resolution and per-operator semantic rules; consumers that need
@@ -30,7 +30,14 @@
  * the visitor as a `prop`-kinded Term so consumers don't have to
  * inspect non-Term slots separately.
  *
- * The visitor is invoked for side effects — it returns `void`. Pure
+ * `walkPredicateNodes` follows the same cross-family recursion but
+ * fires for every `Predicate` node, including predicates embedded in
+ * `ValueExpression` carriers such as `if.cond` and `count.where`.
+ * Keeping both visitor families on one dispatcher prevents a
+ * validator from accidentally treating comparison operands as
+ * predicate-free leaves.
+ *
+ * Visitors are invoked for side effects — they return `void`. Pure
  * (no I/O); the caller closes over its own accumulator.
  */
 
@@ -59,7 +66,7 @@ export function walkTerms(
 	predicate: Predicate,
 	visit: (term: Term) => void,
 ): void {
-	walkPredicate(predicate, visit);
+	walkPredicate(predicate, { visitTerm: visit }, []);
 }
 
 /**
@@ -74,7 +81,99 @@ export function walkExpressionTerms(
 	expression: ValueExpression,
 	visit: (term: Term) => void,
 ): void {
-	walkValueExpression(expression, visit);
+	walkValueExpression(expression, { visitTerm: visit }, []);
+}
+
+/**
+ * Visit every `Predicate` node reachable from `predicate`, including
+ * the root. Traversal crosses into every `ValueExpression` operand so
+ * predicate-bearing expression arms (`if.cond`, `count.where`) are not
+ * skipped. Nodes are visited pre-order.
+ */
+export function walkPredicateNodes(
+	predicate: Predicate,
+	visit: (predicate: Predicate) => void,
+): void {
+	walkPredicate(predicate, { visitPredicate: visit }, []);
+}
+
+/**
+ * Visit every `Predicate` node reachable from an expression-rooted
+ * AST. This is the expression-rooted counterpart to
+ * `walkPredicateNodes`; it is useful for wire slots whose outer value
+ * is a `ValueExpression` but whose descendants can still carry
+ * predicates.
+ */
+export function walkExpressionPredicateNodes(
+	expression: ValueExpression,
+	visit: (predicate: Predicate) => void,
+): void {
+	walkValueExpression(expression, { visitPredicate: visit }, []);
+}
+
+/**
+ * Visit every `ValueExpression` node reachable from `predicate`, including
+ * expressions nested inside predicate operands and expressions reached again
+ * through cross-family carriers such as `if.cond` and `count.where`. Nodes are
+ * visited pre-order.
+ *
+ * This is the predicate-rooted counterpart to `walkExpressionNodes`. Wire
+ * compatibility rules use it when an unsupported value operator can appear at
+ * any depth inside a boolean slot.
+ */
+export function walkPredicateExpressionNodes(
+	predicate: Predicate,
+	visit: (expression: ValueExpression) => void,
+): void {
+	walkPredicate(predicate, { visitExpression: visit }, []);
+}
+
+/**
+ * Visit every `ValueExpression` node reachable from `expression`, including
+ * the root. Traversal crosses predicates carried by `if` and `count`, then
+ * continues into any value operands nested inside those predicates. Nodes are
+ * visited pre-order.
+ */
+export function walkExpressionNodes(
+	expression: ValueExpression,
+	visit: (expression: ValueExpression) => void,
+): void {
+	walkValueExpression(expression, { visitExpression: visit }, []);
+}
+
+/** Structural path shared with the type checker and predicate workbench. */
+export type PredicateAstPath = readonly (string | number)[];
+
+/** Visit every Search-input reference with its exact authoring path. */
+export function walkInputRefsWithPaths(
+	predicate: Predicate,
+	visit: (ref: SearchInputRef, path: PredicateAstPath) => void,
+): void {
+	walkPredicate(
+		predicate,
+		{
+			visitTerm: (term, path) => {
+				if (term.kind === "input") visit(term, path);
+			},
+		},
+		[],
+	);
+}
+
+/** Expression-rooted counterpart to `walkInputRefsWithPaths`. */
+export function walkExpressionInputRefsWithPaths(
+	expression: ValueExpression,
+	visit: (ref: SearchInputRef, path: PredicateAstPath) => void,
+): void {
+	walkValueExpression(
+		expression,
+		{
+			visitTerm: (term, path) => {
+				if (term.kind === "input") visit(term, path);
+			},
+		},
+		[],
+	);
 }
 
 /**
@@ -91,6 +190,60 @@ export function walkInputRefs(
 	walkTerms(predicate, (term) => {
 		if (term.kind === "input") visit(term);
 	});
+}
+
+/** Whether a predicate reads the named Search input anywhere in its AST. */
+export function predicateReferencesSearchInput(
+	predicate: Predicate,
+	name: string,
+): boolean {
+	let found = false;
+	walkInputRefs(predicate, (ref) => {
+		if (ref.name === name) found = true;
+	});
+	return found;
+}
+
+/** Expression-rooted counterpart to `predicateReferencesSearchInput`. */
+export function expressionReferencesSearchInput(
+	expression: ValueExpression,
+	name: string,
+): boolean {
+	let found = false;
+	walkExpressionTerms(expression, (term) => {
+		if (term.kind === "input" && term.name === name) found = true;
+	});
+	return found;
+}
+
+/** Structurally rename every matching Search-input leaf in a predicate. */
+export function renameSearchInputInPredicate(
+	predicate: Predicate,
+	oldName: string,
+	newName: string,
+): number {
+	let changed = 0;
+	walkInputRefs(predicate, (ref) => {
+		if (ref.name !== oldName) return;
+		ref.name = newName;
+		changed++;
+	});
+	return changed;
+}
+
+/** Structurally rename every matching Search-input leaf in an expression. */
+export function renameSearchInputInExpression(
+	expression: ValueExpression,
+	oldName: string,
+	newName: string,
+): number {
+	let changed = 0;
+	walkExpressionTerms(expression, (term) => {
+		if (term.kind !== "input" || term.name !== oldName) return;
+		term.name = newName;
+		changed++;
+	});
+	return changed;
 }
 
 /**
@@ -110,6 +263,18 @@ export function walkPropertyRefs(
 
 // ── Internal recursion ────────────────────────────────────────────
 
+interface AstVisitor {
+	readonly visitTerm?: (term: Term, path: PredicateAstPath) => void;
+	readonly visitPredicate?: (
+		predicate: Predicate,
+		path: PredicateAstPath,
+	) => void;
+	readonly visitExpression?: (
+		expression: ValueExpression,
+		path: PredicateAstPath,
+	) => void;
+}
+
 /**
  * Recursive descent over the `Predicate` union. Every operator arm
  * either dispatches to its operand walks (`walkValueExpression` for
@@ -121,8 +286,10 @@ export function walkPropertyRefs(
  */
 function walkPredicate(
 	predicate: Predicate,
-	visit: (term: Term) => void,
+	visitor: AstVisitor,
+	path: PredicateAstPath,
 ): void {
+	visitor.visitPredicate?.(predicate, path);
 	switch (predicate.kind) {
 		case "match-all":
 		case "match-none":
@@ -133,23 +300,25 @@ function walkPredicate(
 		case "gte":
 		case "lt":
 		case "lte":
-			walkValueExpression(predicate.left, visit);
-			walkValueExpression(predicate.right, visit);
+			walkValueExpression(predicate.left, visitor, [...path, "left"]);
+			walkValueExpression(predicate.right, visitor, [...path, "right"]);
 			return;
 		case "in":
-			walkValueExpression(predicate.left, visit);
+			walkValueExpression(predicate.left, visitor, [...path, "left"]);
 			// `in.values` is `[Literal, ...Literal[]]` — literal Terms
 			// surface to the visitor uniformly with every other Term leaf.
-			for (const lit of predicate.values) visit(lit);
+			for (let i = 0; i < predicate.values.length; i++) {
+				visitor.visitTerm?.(predicate.values[i], [...path, "values", i]);
+			}
 			return;
 		case "within-distance":
 			// `property` is a `PropertyRef` slot, structurally identical
 			// to a `prop`-kinded Term — surface it through the same path.
-			visit(predicate.property);
-			walkValueExpression(predicate.center, visit);
+			visitor.visitTerm?.(predicate.property, [...path, "property"]);
+			walkValueExpression(predicate.center, visitor, [...path, "center"]);
 			return;
 		case "match":
-			visit(predicate.property);
+			visitor.visitTerm?.(predicate.property, [...path, "property"]);
 			// `match.value` is a `ValueExpression` (per `matchSchema`),
 			// not a bare literal — the type checker admits term-arm
 			// shapes including `term(input(...))` / `term(session-*(...))`,
@@ -159,41 +328,62 @@ function walkPredicate(
 			// starts-with / fuzzy-date modes. Walking the value here
 			// surfaces every Term ref a consumer (instance accumulator,
 			// validator, defense-in-depth assertion) needs to see.
-			walkValueExpression(predicate.value, visit);
+			walkValueExpression(predicate.value, visitor, [...path, "value"]);
 			return;
 		case "multi-select-contains":
-			visit(predicate.property);
-			for (const lit of predicate.values) visit(lit);
+			visitor.visitTerm?.(predicate.property, [...path, "property"]);
+			for (let i = 0; i < predicate.values.length; i++) {
+				visitor.visitTerm?.(predicate.values[i], [...path, "values", i]);
+			}
 			return;
 		case "is-null":
 		case "is-blank":
-			walkValueExpression(predicate.left, visit);
+			walkValueExpression(predicate.left, visitor, [...path, "left"]);
 			return;
 		case "between":
-			walkValueExpression(predicate.left, visit);
+			walkValueExpression(predicate.left, visitor, [...path, "left"]);
 			if (predicate.lower !== undefined)
-				walkValueExpression(predicate.lower, visit);
+				walkValueExpression(predicate.lower, visitor, [...path, "lower"]);
 			if (predicate.upper !== undefined)
-				walkValueExpression(predicate.upper, visit);
+				walkValueExpression(predicate.upper, visitor, [...path, "upper"]);
 			return;
 		case "and":
 		case "or":
-			for (const clause of predicate.clauses) walkPredicate(clause, visit);
+			for (let i = 0; i < predicate.clauses.length; i++) {
+				walkPredicate(predicate.clauses[i], visitor, [
+					...path,
+					predicate.kind,
+					i,
+				]);
+			}
 			return;
 		case "not":
-			walkPredicate(predicate.clause, visit);
+			walkPredicate(predicate.clause, visitor, [
+				...path,
+				predicate.kind,
+				"clause",
+			]);
 			return;
 		case "when-input-present":
 			// The trigger ref is itself a Term (specifically a
 			// `SearchInputRef`); fire the visitor on it so consumers see
 			// every input ref the predicate carries, including the
 			// trigger.
-			visit(predicate.input);
-			walkPredicate(predicate.clause, visit);
+			visitor.visitTerm?.(predicate.input, [...path, predicate.kind, "input"]);
+			walkPredicate(predicate.clause, visitor, [
+				...path,
+				predicate.kind,
+				"clause",
+			]);
 			return;
 		case "exists":
 		case "missing":
-			if (predicate.where !== undefined) walkPredicate(predicate.where, visit);
+			if (predicate.where !== undefined)
+				walkPredicate(predicate.where, visitor, [
+					...path,
+					predicate.kind,
+					"where",
+				]);
 			return;
 		default: {
 			const _exhaustive: never = predicate;
@@ -211,50 +401,69 @@ function walkPredicate(
  */
 function walkValueExpression(
 	expr: ValueExpression,
-	visit: (term: Term) => void,
+	visitor: AstVisitor,
+	path: PredicateAstPath,
 ): void {
+	visitor.visitExpression?.(expr, path);
 	switch (expr.kind) {
 		case "term":
-			visit(expr.term);
+			visitor.visitTerm?.(expr.term, path);
 			return;
 		case "today":
 		case "now":
 			return;
 		case "date-add":
-			walkValueExpression(expr.date, visit);
-			walkValueExpression(expr.quantity, visit);
+			walkValueExpression(expr.date, visitor, [...path, "date"]);
+			walkValueExpression(expr.quantity, visitor, [...path, "quantity"]);
 			return;
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
 		case "unwrap-list":
-			walkValueExpression(expr.value, visit);
+			walkValueExpression(expr.value, visitor, [...path, "value"]);
 			return;
 		case "format-date":
-			walkValueExpression(expr.date, visit);
+			walkValueExpression(expr.date, visitor, [...path, "date"]);
 			return;
 		case "arith":
-			walkValueExpression(expr.left, visit);
-			walkValueExpression(expr.right, visit);
+			walkValueExpression(expr.left, visitor, [...path, "left"]);
+			walkValueExpression(expr.right, visitor, [...path, "right"]);
 			return;
 		case "concat":
-			for (const part of expr.parts) walkValueExpression(part, visit);
+			for (let i = 0; i < expr.parts.length; i++) {
+				walkValueExpression(expr.parts[i], visitor, [...path, "parts", i]);
+			}
 			return;
 		case "coalesce":
-			for (const v of expr.values) walkValueExpression(v, visit);
+			for (let i = 0; i < expr.values.length; i++) {
+				walkValueExpression(expr.values[i], visitor, [...path, "values", i]);
+			}
 			return;
 		case "if":
-			walkPredicate(expr.cond, visit);
-			walkValueExpression(expr.then, visit);
-			walkValueExpression(expr.else, visit);
+			walkPredicate(expr.cond, visitor, [...path, "if", "cond"]);
+			walkValueExpression(expr.then, visitor, [...path, "if", "then"]);
+			walkValueExpression(expr.else, visitor, [...path, "if", "else"]);
 			return;
 		case "switch":
-			walkValueExpression(expr.on, visit);
-			for (const c of expr.cases) walkValueExpression(c.then, visit);
-			walkValueExpression(expr.fallback, visit);
+			walkValueExpression(expr.on, visitor, [...path, "switch", "on"]);
+			for (let i = 0; i < expr.cases.length; i++) {
+				walkValueExpression(expr.cases[i].then, visitor, [
+					...path,
+					"switch",
+					"cases",
+					i,
+					"then",
+				]);
+			}
+			walkValueExpression(expr.fallback, visitor, [
+				...path,
+				"switch",
+				"fallback",
+			]);
 			return;
 		case "count":
-			if (expr.where !== undefined) walkPredicate(expr.where, visit);
+			if (expr.where !== undefined)
+				walkPredicate(expr.where, visitor, [...path, "count", "where"]);
 			return;
 		default: {
 			const _exhaustive: never = expr;

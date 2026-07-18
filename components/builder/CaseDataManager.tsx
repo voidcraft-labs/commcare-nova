@@ -11,8 +11,7 @@ import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
-import { useState } from "react";
-import { describePopulateError } from "@/components/preview/shared/sampleData";
+import { useCallback, useRef, useState } from "react";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -26,6 +25,7 @@ import {
 import { Button } from "@/components/shadcn/button";
 import {
 	Popover,
+	PopoverClose,
 	PopoverContent,
 	PopoverDescription,
 	PopoverHeader,
@@ -33,6 +33,7 @@ import {
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
 import { type CaseType, humanizeId } from "@/lib/domain";
+import type { PopulateSampleCasesResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
 	useCaseCount,
 	usePopulateSampleCases,
@@ -42,22 +43,34 @@ import { showToast } from "@/lib/ui/toastStore";
 
 type Operation = "create" | "replace" | null;
 
+/** Sample generation can fail with detailed case-store or schema diagnostics.
+ * Those details remain in server observability; this builder surface explains
+ * the consequence and next action without exposing implementation language. */
+function sampleCaseError(
+	result: Exclude<PopulateSampleCasesResult, { kind: "ok" }>,
+	operation: Exclude<Operation, null>,
+): string {
+	if (result.kind === "unauthenticated") {
+		return "You're signed out. Reload the page to sign in again, then try again.";
+	}
+	if (result.kind === "missing-case-type") {
+		return "These cases are no longer part of the app. Refresh the page, then try again.";
+	}
+	if (result.kind === "schema-not-synced") {
+		return "Case data isn't ready yet. Wait a moment, then try again.";
+	}
+	if (result.kind === "validation-failure") {
+		return operation === "replace"
+			? "Your current cases weren't changed. Check the case fields, then try replacing the case data again."
+			: "Sample cases weren't added. Check the case fields, then try again.";
+	}
+	return operation === "replace"
+		? "Your current cases weren't changed. Nova couldn't replace the case data. Try again."
+		: "Nova couldn't add sample cases. Try again.";
+}
+
 function caseLabel(count: number): string {
 	return `${count.toLocaleString()} ${count === 1 ? "case" : "cases"}`;
-}
-
-/** Person-facing case wording for a domain name without exposing the stored
- * identifier or producing awkward phrases such as "Patient case cases". */
-function caseTypeLabel(caseTypeName: string, plural: boolean): string {
-	const displayName = humanizeId(caseTypeName) || "Case";
-	const singular = /\bcase$/i.test(displayName)
-		? displayName
-		: `${displayName} case`;
-	return plural ? `${singular}s` : singular;
-}
-
-function typedCaseLabel(count: number, caseTypeName: string): string {
-	return `${count.toLocaleString()} ${caseTypeLabel(caseTypeName, count !== 1)}`;
 }
 
 export function CaseDataManager({
@@ -71,7 +84,11 @@ export function CaseDataManager({
 	readonly canEdit: boolean;
 	readonly hasLinkedChildren: boolean;
 }) {
-	const { state: countState, fetching } = useCaseCount({
+	const {
+		state: countState,
+		fetching,
+		reload: reloadCount,
+	} = useCaseCount({
 		appId,
 		caseType: caseType.name,
 	});
@@ -81,17 +98,89 @@ export function CaseDataManager({
 	const [confirmOpen, setConfirmOpen] = useState(false);
 	const [operation, setOperation] = useState<Operation>(null);
 	const [error, setError] = useState<string | null>(null);
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const popoverTitleRef = useRef<HTMLHeadingElement>(null);
+	const confirmTitleRef = useRef<HTMLHeadingElement>(null);
+	const pendingFocusFrameRef = useRef<number | null>(null);
+	const cancelPendingFocusFrame = useCallback(() => {
+		if (pendingFocusFrameRef.current === null) return;
+		cancelAnimationFrame(pendingFocusFrameRef.current);
+		pendingFocusFrameRef.current = null;
+	}, []);
+	const refocusPendingSurface = useCallback(
+		(target: HTMLElement | null) => {
+			cancelPendingFocusFrame();
+			target?.focus();
+			pendingFocusFrameRef.current = requestAnimationFrame(() => {
+				pendingFocusFrameRef.current = null;
+				target?.focus();
+			});
+		},
+		[cancelPendingFocusFrame],
+	);
+	const registerPendingFocus = useCallback(
+		(surface: HTMLElement, title: HTMLElement | null) => {
+			// Base UI resolves its focus target after the pending state disables the
+			// pressed action. The callback ref runs with that DOM committed, so focus
+			// lands on the explanation instead of the popup or a focus guard.
+			refocusPendingSurface(title);
+			const keepPendingFocusInside = (event: PointerEvent) => {
+				if (surface.contains(event.target as Node)) return;
+				// A pointer sequence can blur after Base UI has issued and Nova has
+				// cancelled its close request. Recover after that sequence completes.
+				refocusPendingSurface(title);
+			};
+			document.addEventListener("pointerdown", keepPendingFocusInside, true);
+			return () => {
+				document.removeEventListener(
+					"pointerdown",
+					keepPendingFocusInside,
+					true,
+				);
+				cancelPendingFocusFrame();
+			};
+		},
+		[cancelPendingFocusFrame, refocusPendingSurface],
+	);
+	const pendingPopoverContentRef = useCallback(
+		(surface: HTMLDivElement | null) => {
+			if (surface === null || operation !== "create") return;
+			return registerPendingFocus(surface, popoverTitleRef.current);
+		},
+		[operation, registerPendingFocus],
+	);
+	const pendingConfirmContentRef = useCallback(
+		(surface: HTMLDivElement | null) => {
+			if (surface === null || operation !== "replace") return;
+			return registerPendingFocus(surface, confirmTitleRef.current);
+		},
+		[operation, registerPendingFocus],
+	);
+	const restoreTriggerFocus = () => {
+		requestAnimationFrame(() => triggerRef.current?.focus());
+	};
+	const retryCount = async () => {
+		const pending = reloadCount();
+		requestAnimationFrame(() => popoverTitleRef.current?.focus());
+		await pending;
+		requestAnimationFrame(() => popoverTitleRef.current?.focus());
+	};
 
 	const count = countState.kind === "count" ? countState.count : undefined;
 	const caseTypeDisplayName = humanizeId(caseType.name) || "Case";
-	const caseTypeCases = caseTypeLabel(caseType.name, true);
 	const triggerSummary =
 		count !== undefined
 			? caseLabel(count)
 			: countState.kind === "error" || countState.kind === "unauthenticated"
 				? "Unavailable"
 				: "Loading…";
-	const triggerLabel = `Case data for ${caseTypeDisplayName}, ${triggerSummary}${fetching && count !== undefined ? ", refreshing" : ""}, shared across this app`;
+	const triggerCountStatus =
+		count !== undefined
+			? `${caseLabel(count)}${fetching ? ", refreshing" : ""}`
+			: countState.kind === "error" || countState.kind === "unauthenticated"
+				? "Case count unavailable"
+				: "Case count loading";
+	const triggerLabel = `Case data for ${caseTypeDisplayName}. ${triggerCountStatus}. Case data is shared throughout your app`;
 
 	const createSamples = async () => {
 		setOperation("create");
@@ -99,17 +188,17 @@ export function CaseDataManager({
 		try {
 			const result = await populate();
 			if (result.kind !== "ok") {
-				setError(describePopulateError(result, "Generate"));
+				setError(sampleCaseError(result, "create"));
 				return;
 			}
 			setPopoverOpen(false);
 			showToast(
 				"info",
 				"Sample cases created",
-				`${caseLabel(result.inserted)} are ready to use in Preview.`,
+				`${caseLabel(result.inserted)} ${result.inserted === 1 ? "is" : "are"} ready to use in Preview`,
 			);
 		} catch {
-			setError("Could not create sample cases. Try again.");
+			setError("Nova couldn't add sample cases. Try again.");
 		} finally {
 			setOperation(null);
 		}
@@ -121,17 +210,20 @@ export function CaseDataManager({
 		try {
 			const result = await reset();
 			if (result.kind !== "ok") {
-				setError(describePopulateError(result, "Reset"));
+				setError(sampleCaseError(result, "replace"));
 				return;
 			}
 			setConfirmOpen(false);
+			restoreTriggerFocus();
 			showToast(
 				"info",
 				"Case data replaced",
-				`${caseLabel(result.inserted)} are ready to use in Preview.`,
+				`${caseLabel(result.inserted)} ${result.inserted === 1 ? "is" : "are"} ready to use in Preview`,
 			);
 		} catch {
-			setError("Could not replace these cases. Try again.");
+			setError(
+				"Your current cases weren't changed. Nova couldn't replace the case data. Try again.",
+			);
 		} finally {
 			setOperation(null);
 		}
@@ -141,53 +233,105 @@ export function CaseDataManager({
 
 	return (
 		<>
-			<Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+			<Popover
+				open={popoverOpen}
+				modal={operation === "create" ? "trap-focus" : false}
+				onOpenChange={(nextOpen, eventDetails) => {
+					// The write continues once it starts. Keep its progress and any
+					// failure feedback perceivable instead of letting Escape, an outside
+					// press, or a second trigger press dismiss the only status surface.
+					if (!nextOpen && loading) {
+						eventDetails.cancel();
+						refocusPendingSurface(popoverTitleRef.current);
+						return;
+					}
+					setPopoverOpen(nextOpen);
+				}}
+			>
 				<PopoverTrigger
+					ref={triggerRef}
+					render={<Button type="button" variant="outline" size="xl" />}
 					aria-label={triggerLabel}
-					className="inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-nova-border bg-nova-surface/70 px-2.5 text-sm text-nova-text-secondary transition-colors hover:border-nova-violet/45 hover:bg-nova-elevated hover:text-nova-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nova-violet-bright/60 xl:px-3"
+					className="min-h-11 shrink-0 gap-2 rounded-lg border-nova-border bg-nova-surface/70 px-2.5 text-sm text-nova-text-secondary not-disabled:hover:border-nova-violet/45 not-disabled:hover:bg-nova-elevated not-disabled:hover:text-nova-text xl:px-3"
 				>
 					<Icon icon={tablerDatabase} width="16" height="16" />
-					<span className="hidden items-center gap-2 xl:inline-flex">
+					<span className="inline-flex items-center gap-2">
 						<span>Case data</span>
-						<span className="text-nova-text-muted" aria-hidden="true">
+						<span
+							className="hidden text-nova-text-muted sm:inline"
+							aria-hidden="true"
+						>
 							·
 						</span>
 					</span>
-					<span className="text-nova-text">{triggerSummary}</span>
+					<span className="hidden text-nova-text sm:inline">
+						{triggerSummary}
+					</span>
 					{fetching && count !== undefined && (
 						<Icon
 							icon={tablerLoader2}
 							width="14"
 							height="14"
 							className="animate-spin text-nova-text-muted"
-							aria-label="Refreshing case count"
+							aria-label="Refreshing case count…"
 						/>
 					)}
 				</PopoverTrigger>
 				<PopoverContent
+					ref={pendingPopoverContentRef}
 					align="end"
 					sideOffset={8}
+					initialFocus={popoverTitleRef}
 					className="max-h-[calc(var(--available-height)-0.5rem)] w-80 max-w-[calc(var(--available-width)-0.5rem)] gap-0 overflow-x-hidden overflow-y-auto p-0"
 				>
-					<PopoverHeader className="gap-1 px-4 pb-3 pt-4">
-						<PopoverTitle className="font-display text-base font-semibold text-nova-text">
+					{/* Base UI enables modal Popover focus containment only when a Close
+					 * part is registered. The write cannot be cancelled, so this technical
+					 * close part stays hidden and unavailable while the pending title is
+					 * the one honest keyboard stop. */}
+					{operation === "create" && (
+						<PopoverClose
+							disabled
+							aria-hidden="true"
+							tabIndex={-1}
+							className="sr-only"
+						>
+							Close case data
+						</PopoverClose>
+					)}
+					<PopoverHeader className="gap-1.5 px-4 pb-4 pt-4">
+						<PopoverTitle
+							ref={popoverTitleRef}
+							tabIndex={operation === "create" ? 0 : -1}
+							className="font-display text-base font-semibold text-nova-text outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-nova-violet-bright/75 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-deep"
+						>
 							Case data
 						</PopoverTitle>
-						<PopoverDescription className="text-xs leading-relaxed text-nova-text-secondary">
-							All {caseTypeCases} in this app. Every module that works with{" "}
-							{caseTypeCases} shares this data in Preview.
+						<PopoverDescription className="text-sm leading-relaxed text-nova-text-secondary">
+							{canEdit
+								? `Add or replace ${caseTypeDisplayName} case data used throughout your app and in Preview`
+								: `View ${caseTypeDisplayName} case data used throughout your app and in Preview`}
 						</PopoverDescription>
 					</PopoverHeader>
+					{operation === "create" && (
+						<p
+							role="status"
+							aria-live="polite"
+							aria-atomic="true"
+							className="sr-only"
+						>
+							Adding sample cases…
+						</p>
+					)}
 
-					<div className="border-t border-white/[0.07] px-4 pb-4 pt-3.5">
+					<div className="border-t border-nova-border px-4 pb-4 pt-4">
 						<p className="sr-only" aria-live="polite" aria-atomic="true">
 							{fetching && count !== undefined
-								? `Refreshing. ${caseLabel(count)} currently available.`
+								? `Refreshing case count… ${caseLabel(count)} ${count === 1 ? "is" : "are"} currently available.`
 								: countState.kind === "count"
-									? `${caseLabel(countState.count)} available.`
+									? `${caseLabel(countState.count)} available`
 									: countState.kind === "loading"
-										? "Loading case data."
-										: "Case data is unavailable."}
+										? "Loading case data…"
+										: "Case data isn't available"}
 						</p>
 						{countState.kind === "count" ? (
 							<div>
@@ -200,16 +344,18 @@ export function CaseDataManager({
 											<span className="text-2xl font-semibold text-nova-text">
 												{countState.count.toLocaleString()}
 											</span>{" "}
-											<span className="text-xs font-medium text-nova-text-secondary">
+											<span className="text-sm font-medium text-nova-text-secondary">
 												{countState.count === 1 ? "case" : "cases"}
 											</span>
 										</p>
 									</div>
 								</div>
-								<p className="mt-3 text-xs leading-relaxed text-nova-text-muted">
+								<p className="mt-3 text-sm leading-relaxed text-nova-text-secondary">
 									{countState.count === 0
-										? "No cases yet. Add a realistic set to try the complete Search, Results, and Details flow."
-										: "This is the complete set, before search rules are applied."}
+										? canEdit
+											? "Add sample cases to try Search, Results, and Details"
+											: "No case data is available for Search, Results, or Details"
+										: "Your Search and Results settings may show fewer cases than this total"}
 								</p>
 								{canEdit ? (
 									countState.count === 0 ? (
@@ -231,7 +377,7 @@ export function CaseDataManager({
 												}
 											/>
 											{operation === "create"
-												? "Adding sample cases…"
+												? "Adding sample cases"
 												: "Add sample cases"}
 										</Button>
 									) : (
@@ -247,24 +393,52 @@ export function CaseDataManager({
 											}}
 										>
 											<Icon icon={tablerRefresh} />
-											Replace all{" "}
-											{typedCaseLabel(countState.count, caseType.name)}…
+											Replace case data
 										</Button>
 									)
 								) : (
-									<p className="mt-4 rounded-lg bg-white/[0.04] px-3 py-2.5 text-xs leading-relaxed text-nova-text-muted">
-										Only editors can create or replace case data.
+									<p className="mt-4 rounded-lg bg-nova-elevated px-3 py-2.5 text-sm leading-relaxed text-nova-text-secondary">
+										You can view case data, but you can’t add or replace it
 									</p>
 								)}
 							</div>
 						) : countState.kind === "error" ? (
-							<p className="text-xs leading-relaxed text-nova-rose">
-								{countState.message}
-							</p>
+							<div
+								role="alert"
+								className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3"
+							>
+								<p className="font-medium text-nova-text">
+									Case data didn’t load
+								</p>
+								<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
+									Try again to view case data
+								</p>
+								<Button
+									type="button"
+									variant="outline"
+									className="mt-3 min-h-11"
+									onClick={() => void retryCount()}
+								>
+									<Icon icon={tablerRefresh} />
+									Try again
+								</Button>
+							</div>
 						) : countState.kind === "unauthenticated" ? (
-							<p className="text-xs leading-relaxed text-nova-text-secondary">
-								Sign in again to view case data.
-							</p>
+							<div className="rounded-lg border border-nova-border bg-nova-elevated p-3">
+								<p className="font-medium text-nova-text">You’re signed out</p>
+								<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
+									Reload the page to sign in again and view case data
+								</p>
+								<Button
+									type="button"
+									variant="outline"
+									className="mt-3 min-h-11"
+									onClick={() => window.location.reload()}
+								>
+									<Icon icon={tablerRefresh} />
+									Reload
+								</Button>
+							</div>
 						) : (
 							<p className="flex min-h-16 items-center gap-2 text-sm text-nova-text-secondary">
 								<Icon icon={tablerLoader2} className="animate-spin" />
@@ -275,7 +449,7 @@ export function CaseDataManager({
 						{error && (
 							<p
 								role="alert"
-								className="mt-3 whitespace-pre-line text-xs leading-relaxed text-nova-rose"
+								className="mt-3 rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3 text-sm leading-relaxed text-nova-rose"
 							>
 								{error}
 							</p>
@@ -284,51 +458,80 @@ export function CaseDataManager({
 				</PopoverContent>
 			</Popover>
 
-			<AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-				<AlertDialogContent className="text-left">
+			<AlertDialog
+				open={confirmOpen}
+				onOpenChange={(nextOpen, eventDetails) => {
+					// AlertDialog already blocks outside presses, but Escape remains a
+					// valid Base UI close reason. Once replacement starts, keep the
+					// confirmation mounted until its success or failure is visible.
+					if (!nextOpen && loading) {
+						// Cancelling the Base UI event is distinct from merely retaining the
+						// controlled `open` prop: it also prevents close-time focus restoration
+						// from moving focus behind this still-mounted modal.
+						eventDetails.cancel();
+						refocusPendingSurface(confirmTitleRef.current);
+						return;
+					}
+					setConfirmOpen(nextOpen);
+					if (!nextOpen) restoreTriggerFocus();
+				}}
+			>
+				<AlertDialogContent
+					ref={pendingConfirmContentRef}
+					className="text-left"
+					aria-busy={loading}
+				>
 					<AlertDialogHeader>
-						<AlertDialogTitle className="font-display">
-							Replace all {typedCaseLabel(count ?? 0, caseType.name)}?
+						<AlertDialogTitle
+							ref={confirmTitleRef}
+							tabIndex={operation === "replace" ? 0 : -1}
+							className="font-display outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-nova-violet-bright/75 focus-visible:ring-offset-2 focus-visible:ring-offset-nova-deep"
+						>
+							Replacing case data deletes {caseLabel(count ?? 0)}
 						</AlertDialogTitle>
 						<AlertDialogDescription className="text-left text-pretty">
-							This deletes all {caseTypeCases} in this app—including cases
-							entered by hand or through Preview—and replaces them with a new
-							sample set. Every module that works with {caseTypeCases} will see
-							the replacement.
+							This deletes all case data for {caseTypeDisplayName} in this app,
+							including cases you added by hand or through Preview. New sample
+							cases will take their place throughout your app.
 							{hasLinkedChildren && (
 								<>
 									{" "}
-									Cases elsewhere in this app that are linked to these cases
-									will be kept, but those links will be cleared.
+									Linked cases will stay, but they’ll lose their links to the
+									cases you’re replacing.
 								</>
 							)}{" "}
-							This cannot be undone.
+							You can't undo this.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
+					{operation === "replace" && (
+						<p
+							role="status"
+							aria-live="polite"
+							aria-atomic="true"
+							className="sr-only"
+						>
+							Replacing case data…
+						</p>
+					)}
 					{error && (
 						<p
 							role="alert"
-							className="whitespace-pre-line text-xs leading-relaxed text-nova-rose"
+							className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3 text-sm leading-relaxed text-nova-rose"
 						>
 							{error}
 						</p>
 					)}
 					<AlertDialogFooter>
-						<AlertDialogCancel size="xl" disabled={loading}>
-							Keep current cases
-						</AlertDialogCancel>
+						<AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
 						<AlertDialogAction
 							variant="destructive"
-							size="xl"
 							disabled={loading}
 							onClick={() => void replaceSamples()}
 						>
 							{operation === "replace" && (
 								<Icon icon={tablerLoader2} className="animate-spin" />
 							)}
-							{operation === "replace"
-								? "Replacing cases…"
-								: `Replace ${typedCaseLabel(count ?? 0, caseType.name)}`}
+							{operation === "replace" ? "Replacing" : "Replace"}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>

@@ -3,13 +3,14 @@
 // builds from the exact property the author chose in the canvas.
 
 import { describe, expect, it } from "vitest";
+import { mutationSchema } from "@/lib/doc/types";
 import type {
 	CaseListConfig,
 	CaseProperty,
 	CaseType,
 	SearchInputDef,
 } from "@/lib/domain";
-import { simpleSearchInputDef } from "@/lib/domain";
+import { asUuid, simpleSearchInputDef } from "@/lib/domain";
 import { eq, literal, prop as propertyTerm } from "@/lib/domain/predicate";
 import {
 	labelFromProperty,
@@ -17,6 +18,7 @@ import {
 	seedCalculatedColumn,
 	seedColumn,
 	seedColumnForProperty,
+	seededColumnAddMutation,
 	seedSearchInput,
 	uniqueInputName,
 	unrepresentedColumnProperties,
@@ -287,6 +289,37 @@ describe("seedColumn", () => {
 });
 
 describe("chooser-first display fields", () => {
+	it.each([
+		["list", "listOrder"],
+		["detail", "detailOrder"],
+	] as const)("encodes a center-canvas %s add outside the strict nested fallback", (surface, orderKey) => {
+		const moduleUuid = asUuid("10000000-0000-4000-8000-000000000000");
+		const seed = seedColumnForProperty(prop("case_name"));
+		const mutation = seededColumnAddMutation(
+			moduleUuid,
+			config({
+				columns: [
+					{
+						uuid: asUuid("20000000-0000-4000-8000-000000000000"),
+						kind: "plain",
+						field: "external_id",
+						header: "External ID",
+						order: "generic-a",
+						listOrder: "list-a",
+						detailOrder: "detail-a",
+					},
+				],
+			}),
+			surface,
+			seed,
+		);
+
+		expect(mutation.column).not.toHaveProperty("listOrder");
+		expect(mutation.column).not.toHaveProperty("detailOrder");
+		expect(mutation.surfaceOrders?.[orderKey]).toEqual(expect.any(String));
+		expect(mutationSchema.safeParse(mutation).success).toBe(true);
+	});
+
 	it("builds the exact property selected by the author", () => {
 		const selected = prop("visit_date", "datetime");
 		expect(

@@ -28,13 +28,14 @@ export type WorkspaceSelection =
 	/** A directly arranged search input; selection opens its property/matching
 	 *  options without moving arrangement out of the canvas. */
 	| { readonly type: "input"; readonly uuid: string }
-	/** The filter editor reached from Search's human-readable Cases available
-	 *  sentence — the summary is not a duplicate editing surface. */
-	| { readonly type: "filter" }
+	/** A complex Search condition is edited in the roomy center canvas, never
+	 *  duplicated inside the inspector. The target remembers where Back returns. */
+	| {
+			readonly type: "search-condition";
+			readonly target:
+				| { readonly kind: "input"; readonly uuid: string }
+				| { readonly kind: "search-button" };
+	  }
 	/** Search-screen options with no draggable row: screen copy, button
 	 *  visibility, and owner exclusions. */
-	| { readonly type: "search-panel" }
-	/** Secondary Results options only (sample data and standalone menu-link
-	 *  appearance). Membership, screen arrangement, and Default order stay in the
-	 *  center canvas. */
-	| { readonly type: "list-panel" };
+	| { readonly type: "search-panel" };

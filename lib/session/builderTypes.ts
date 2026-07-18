@@ -13,8 +13,8 @@ export enum BuilderPhase {
 	Idle = "idle",
 	Loading = "loading",
 	Generating = "generating",
-	/** Transient celebration phase — a generation or edit just finished successfully.
-	 *  Auto-decays to Ready after the signal grid's done animation settles. */
+	/** Transient confirmation phase — a generation or edit just finished
+	 *  successfully. Auto-decays to Ready after the confirmation is readable. */
 	Completed = "completed",
 	Ready = "ready",
 }

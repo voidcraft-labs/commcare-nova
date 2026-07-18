@@ -30,7 +30,9 @@ import {
 	count,
 	dateAdd,
 	dateCoerce,
+	dateLiteral,
 	datetimeCoerce,
+	datetimeLiteral,
 	double,
 	formatDate,
 	ifExpr,
@@ -39,6 +41,8 @@ import {
 	matchAll,
 	now,
 	prop,
+	sessionContext,
+	sessionUser,
 	subcasePath,
 	switchCase,
 	switchExpr,
@@ -46,7 +50,54 @@ import {
 	today,
 	unwrapList,
 } from "@/lib/domain/predicate/builders";
+import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import type { CsqlSegment } from "../../predicate/csqlSegment";
+import { quoteRuntimeCsqlValue } from "../../predicate/termEmitter";
+import { parser } from "../../xpath/parser";
 import { emitCsqlExpressionSegments } from "../csqlEmitter";
+
+const TEMPORAL_CONTEXT: TypeContext = {
+	caseTypes: [
+		{
+			name: "p",
+			properties: [
+				{ name: "birth_date", label: "Birth date", data_type: "date" },
+				{
+					name: "seen_at",
+					label: "Seen at",
+					data_type: "datetime",
+				},
+			],
+		},
+	],
+	knownInputs: [
+		{ name: "base_date", data_type: "date" },
+		{ name: "base_datetime", data_type: "datetime" },
+	],
+};
+
+function materializeSegments(
+	segments: readonly CsqlSegment[],
+	runtimeValues: ReadonlyMap<string, string>,
+): string {
+	return segments
+		.map((segment) =>
+			segment.kind === "constant"
+				? segment.text
+				: (runtimeValues.get(segment.xpath) ?? segment.xpath),
+		)
+		.join("");
+}
+
+function expectCleanCsqlParse(source: string): void {
+	let hasError = false;
+	parser.parse(source).iterate({
+		enter(node) {
+			if (node.type.isError) hasError = true;
+		},
+	});
+	expect(hasError, source).toBe(false);
+}
 
 // ============================================================
 // SHELL 1 — whitelist arms emit cleanly
@@ -67,22 +118,57 @@ describe("emitCsqlExpressionSegments — discriminator-only constants", () => {
 });
 
 describe("emitCsqlExpressionSegments — coercion functions", () => {
-	// The expression emitter emits in function-call-argument position
-	// — the wire form inside a CSQL value function (`date(<value>)`,
-	// `double(<value>)`, etc.) accepts the runtime XPath result as a
-	// raw value, NOT wrapped in CSQL double-quote brackets. Per-arm
-	// emitters return raw segment lists; the wrap layer collapses
-	// adjacent constants downstream.
+	// Runtime XPath reads resolve before CCHQ parses the generated CSQL.
+	// They therefore need CSQL string-literal brackets even inside a
+	// native function call; raw interpolation turns an ISO date into an
+	// arithmetic AST (`date(2024-01-02)`) and a session id into a Step.
 	it("emits date(<value>) for date-coerce, splicing in a runtime ref segment", () => {
 		const expr = dateCoerce(term(input("dob_text")));
+		const xpath = `instance('search-input:results')/input/field[@name='dob_text']`;
 		expect(emitCsqlExpressionSegments(expr)).toEqual([
 			{ kind: "constant", text: "date(" },
-			{
-				kind: "runtime",
-				xpath: `instance('search-input:results')/input/field[@name='dob_text']`,
-			},
+			...quoteRuntimeCsqlValue(xpath, "double", ["dob_text"]),
 			{ kind: "constant", text: ")" },
 		]);
+	});
+
+	it("quotes a session-context scalar nested in datetime()", () => {
+		const expr = datetimeCoerce(term(sessionContext("appversion")));
+		const xpath = "instance('commcaresession')/session/context/appversion";
+		expect(emitCsqlExpressionSegments(expr)).toEqual([
+			{ kind: "constant", text: "datetime(" },
+			...quoteRuntimeCsqlValue(xpath),
+			{ kind: "constant", text: ")" },
+		]);
+	});
+
+	it("quotes a session-user scalar nested in double()", () => {
+		const expr = double(term(sessionUser("score")));
+		const xpath = "instance('commcaresession')/session/user/data/score";
+		expect(emitCsqlExpressionSegments(expr)).toEqual([
+			{ kind: "constant", text: "double(" },
+			...quoteRuntimeCsqlValue(xpath),
+			{ kind: "constant", text: ")" },
+		]);
+	});
+
+	it("inlines non-native wrappers as one safely quoted runtime function argument", () => {
+		const dateExpr = dateCoerce(
+			concat(term(input("year")), term(literal("-01-01"))),
+		);
+		const doubleExpr = double(
+			ifExpr(matchAll(), term(input("score")), term(literal(0))),
+		);
+		const dateSegments = emitCsqlExpressionSegments(dateExpr);
+		const doubleSegments = emitCsqlExpressionSegments(doubleExpr);
+		expect(dateSegments[0]).toEqual({ kind: "constant", text: "date(" });
+		expect(dateSegments[1]?.kind).toBe("runtime");
+		expect(dateSegments.at(-1)).toEqual({ kind: "constant", text: ")" });
+		expect(doubleSegments[0]).toEqual({ kind: "constant", text: "double(" });
+		expect(doubleSegments[1]?.kind).toBe("runtime");
+		expect(doubleSegments.at(-1)).toEqual({ kind: "constant", text: ")" });
+		expectCleanCsqlParse(`date("2024-01-01")`);
+		expectCleanCsqlParse(`double("19")`);
 	});
 
 	it("emits date(<literal>) for a literal value, leaving merging to the wrap layer", () => {
@@ -140,23 +226,115 @@ describe("emitCsqlExpressionSegments — date-add", () => {
 		]);
 	});
 
-	it("splices a runtime-ref date segment unwrapped (function-call argument position)", () => {
-		// In function-call argument position, CCHQ's CSQL grammar accepts
-		// the runtime XPath result as a value directly — the surrounding
-		// `date-add(`/`)` parens scope the argument, no double-quote wrap
-		// needed. The comparison-operand wrap rule applies only to the
-		// outermost runtime ref in `<prop> = "<value>"` shape.
+	it("quotes a typed runtime date and keeps date-add", () => {
 		const expr = dateAdd(term(input("base_date")), "days", term(literal(7)));
-		expect(emitCsqlExpressionSegments(expr)).toEqual([
+		const xpath = `instance('search-input:results')/input/field[@name='base_date']`;
+		expect(emitCsqlExpressionSegments(expr, TEMPORAL_CONTEXT)).toEqual([
 			{ kind: "constant", text: "date-add(" },
-			{
-				kind: "runtime",
-				xpath: `instance('search-input:results')/input/field[@name='base_date']`,
-			},
+			...quoteRuntimeCsqlValue(xpath, "double", ["base_date"]),
 			{ kind: "constant", text: ", 'days', " },
 			{ kind: "constant", text: "7" },
 			{ kind: "constant", text: ")" },
 		]);
+	});
+
+	it("emits datetime-add for now() and preserves it through nested date-add wrappers", () => {
+		const inner = dateAdd(now(), "hours", term(literal(2)));
+		const expr = dateAdd(inner, "minutes", term(literal(30)));
+		expect(emitCsqlExpressionSegments(expr)).toEqual([
+			{ kind: "constant", text: "datetime-add(" },
+			{ kind: "constant", text: "datetime-add(" },
+			{ kind: "constant", text: "now()" },
+			{ kind: "constant", text: ", 'hours', " },
+			{ kind: "constant", text: "2" },
+			{ kind: "constant", text: ")" },
+			{ kind: "constant", text: ", 'minutes', " },
+			{ kind: "constant", text: "30" },
+			{ kind: "constant", text: ")" },
+		]);
+	});
+
+	it("uses explicit coercion wrappers as a sound standalone discriminator", () => {
+		const dateExpr = dateAdd(
+			dateCoerce(term(input("base_date"))),
+			"days",
+			term(literal(1)),
+		);
+		const datetimeExpr = dateAdd(
+			datetimeCoerce(term(input("base_datetime"))),
+			"hours",
+			term(literal(1)),
+		);
+		const dateInput = `instance('search-input:results')/input/field[@name='base_date']`;
+		const datetimeInput = `instance('search-input:results')/input/field[@name='base_datetime']`;
+		expect(emitCsqlExpressionSegments(dateExpr)).toEqual([
+			{ kind: "constant", text: "date-add(" },
+			{ kind: "constant", text: "date(" },
+			...quoteRuntimeCsqlValue(dateInput, "double", ["base_date"]),
+			{ kind: "constant", text: ")" },
+			{ kind: "constant", text: ", 'days', " },
+			{ kind: "constant", text: "1" },
+			{ kind: "constant", text: ")" },
+		]);
+		expect(emitCsqlExpressionSegments(datetimeExpr)).toEqual([
+			{ kind: "constant", text: "datetime-add(" },
+			{ kind: "constant", text: "datetime(" },
+			...quoteRuntimeCsqlValue(datetimeInput, "double", ["base_datetime"]),
+			{ kind: "constant", text: ")" },
+			{ kind: "constant", text: ", 'hours', " },
+			{ kind: "constant", text: "1" },
+			{ kind: "constant", text: ")" },
+		]);
+		expectCleanCsqlParse(`date-add(date("2024-05-01"), 'days', 1)`);
+		expectCleanCsqlParse(
+			`datetime-add(datetime("2024-05-01T10:30:00Z"), 'hours', 1)`,
+		);
+	});
+
+	it("uses typed literals and null-neutral wrappers without a context", () => {
+		const dateExpr = dateAdd(
+			term(dateLiteral("2024-05-01")),
+			"days",
+			term(literal(1)),
+		);
+		const datetimeExpr = dateAdd(
+			ifExpr(
+				matchAll(),
+				term(literal(null)),
+				term(datetimeLiteral("2024-05-01T10:30:00Z")),
+			),
+			"hours",
+			term(literal(1)),
+		);
+		expect(
+			materializeSegments(emitCsqlExpressionSegments(dateExpr), new Map()),
+		).toBe(`date-add('2024-05-01', 'days', 1)`);
+		const datetimeSegments = emitCsqlExpressionSegments(datetimeExpr);
+		expect(datetimeSegments[0]).toEqual({
+			kind: "constant",
+			text: "datetime-add(",
+		});
+		expect(datetimeSegments[1]?.kind).toBe("runtime");
+		expectCleanCsqlParse(`datetime-add("2024-05-01T10:30:00Z", 'hours', 1)`);
+	});
+
+	it("rejects an ambiguous input or property when no canonical type context is supplied", () => {
+		const inputExpr = dateAdd(
+			term(input("base_date")),
+			"days",
+			term(literal(1)),
+		);
+		const propertyExpr = dateAdd(
+			term(prop("p", "birth_date")),
+			"days",
+			term(literal(1)),
+		);
+		expect(() => emitCsqlExpressionSegments(inputExpr)).toThrow(
+			/cannot choose between/i,
+		);
+		expect(() => emitCsqlExpressionSegments(propertyExpr)).toThrow(
+			/cannot choose between/i,
+		);
 	});
 });
 
@@ -168,6 +346,25 @@ describe("emitCsqlExpressionSegments — unwrap-list", () => {
 			{ kind: "constant", text: "tags" },
 			{ kind: "constant", text: ")" },
 		]);
+	});
+
+	it("single-quotes runtime JSON so its required double quotes remain valid", () => {
+		const expr = unwrapList(term(input("selected_values")));
+		const segments = emitCsqlExpressionSegments(expr);
+		const xpath = `instance('search-input:results')/input/field[@name='selected_values']`;
+		const materialized = materializeSegments(
+			// `quoteRuntimeCsqlValue` is asserted structurally below; this
+			// representative server-side result pins the parser round trip.
+			[{ kind: "constant", text: 'unwrap-list(\'["north","south"]\')' }],
+			new Map(),
+		);
+		expect(materialized).toBe(`unwrap-list('["north","south"]')`);
+		expect(segments).toEqual([
+			{ kind: "constant", text: "unwrap-list(" },
+			...quoteRuntimeCsqlValue(xpath, "single", ["selected_values"]),
+			{ kind: "constant", text: ")" },
+		]);
+		expectCleanCsqlParse(materialized);
 	});
 });
 
@@ -190,18 +387,11 @@ describe("emitCsqlExpressionSegments — term arm structural lifter", () => {
 		]);
 	});
 
-	it("emits a runtime-resolved input ref unwrapped (function-call argument position)", () => {
-		// In function-call argument position, the runtime XPath result
-		// is the value — no surrounding double-quote wrap. The
-		// comparison-operand wrap rule applies only at the predicate-
-		// emitter level when a term-arm operand sits in `<prop> =
-		// "<value>"` position.
-		expect(emitCsqlExpressionSegments(term(input("phone_query")))).toEqual([
-			{
-				kind: "runtime",
-				xpath: `instance('search-input:results')/input/field[@name='phone_query']`,
-			},
-		]);
+	it("emits a runtime-resolved input as a quoted CSQL scalar", () => {
+		const xpath = `instance('search-input:results')/input/field[@name='phone_query']`;
+		expect(emitCsqlExpressionSegments(term(input("phone_query")))).toEqual(
+			quoteRuntimeCsqlValue(xpath, "double", ["phone_query"]),
+		);
 	});
 });
 

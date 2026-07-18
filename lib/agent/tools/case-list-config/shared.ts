@@ -35,6 +35,7 @@ import {
 	type Column,
 	canonicalCasePropertyName,
 	columnSchema,
+	DEFAULT_SEARCH_MODE_KIND,
 	type SearchInputDef,
 	type SearchInputType,
 	searchInputDefSchema,
@@ -157,14 +158,39 @@ const saSearchInputType = z
  * and the `type` enum narrowed to the SA-authorable widget kinds.
  * Mirrors `columnInputSchema` for the search-input add / update tools.
  */
-export const searchInputDefInputSchema = z.discriminatedUnion("kind", [
-	simpleSearchInputArm
-		.omit({ uuid: true, order: true })
-		.extend({ type: saSearchInputType }),
-	advancedSearchInputArm
-		.omit({ uuid: true, order: true })
-		.extend({ type: saSearchInputType }),
-]);
+export const searchInputDefInputSchema = z
+	.discriminatedUnion("kind", [
+		simpleSearchInputArm
+			.omit({ uuid: true, order: true })
+			.extend({ type: saSearchInputType }),
+		advancedSearchInputArm
+			.omit({ uuid: true, order: true })
+			.extend({ type: saSearchInputType }),
+	])
+	.superRefine((input, ctx) => {
+		if (input.kind === "simple") {
+			const modeKind = input.mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[input.type];
+			const coherentRangeWidget =
+				(modeKind === "range") === (input.type === "date-range");
+			if (!coherentRangeWidget) {
+				ctx.addIssue({
+					code: "custom",
+					path: input.mode === undefined ? ["type"] : ["mode"],
+					message:
+						modeKind === "range"
+							? 'Use `type: "date-range"` with range mode. A one-date field cannot collect both bounds.'
+							: "A `date-range` field must use range mode. Choose a single-date field for a one-value match.",
+				});
+			}
+		}
+		if (input.type !== "date-range" || input.default === undefined) return;
+		ctx.addIssue({
+			code: "custom",
+			path: ["default"],
+			message:
+				"Leave `default` out for a date-range input. A date range requires both a start and an end, while this slot can express only one value.",
+		});
+	});
 export type SearchInputDefInput = z.infer<typeof searchInputDefInputSchema>;
 
 // ── Uuid stamp helpers ──────────────────────────────────────────────

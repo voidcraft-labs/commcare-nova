@@ -43,6 +43,7 @@ import { describe } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
+	anyRelationPath,
 	arith,
 	coalesce,
 	concat,
@@ -53,16 +54,20 @@ import {
 	double,
 	formatDate,
 	ifExpr,
+	input,
 	literal,
 	now,
 	prop,
 	relationStep,
+	selfPath,
 	switchCase,
 	switchExpr,
 	term,
 	today,
 } from "@/lib/domain/predicate/builders";
 import type { DateAddInterval } from "@/lib/domain/predicate/types";
+import { evaluate } from "@/lib/preview/xpath/evaluator";
+import type { EvalContext } from "@/lib/preview/xpath/types";
 import {
 	compileExpression,
 	type ExpressionCompileContext,
@@ -79,6 +84,7 @@ const OWNER_ID = "owner-expression-compiler";
 const PATIENT_CASE_ID = "30000000-0000-0000-0000-000000000001";
 const HOUSEHOLD_CASE_ID = "30000000-0000-0000-0000-000000000002";
 const SECOND_HOUSEHOLD_CASE_ID = "30000000-0000-0000-0000-000000000003";
+const GUARDIAN_CASE_ID = "30000000-0000-0000-0000-000000000004";
 
 const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
@@ -95,9 +101,15 @@ const HOUSEHOLD_SCHEMA: CaseType = {
 	properties: [{ name: "size", label: "Size", data_type: "int" }],
 };
 
+const GUARDIAN_SCHEMA: CaseType = {
+	name: "guardian",
+	properties: [{ name: "rating", label: "Rating", data_type: "int" }],
+};
+
 const SCHEMAS = new Map<string, CaseType>([
 	["patient", PATIENT_SCHEMA],
 	["household", HOUSEHOLD_SCHEMA],
+	["guardian", GUARDIAN_SCHEMA],
 ]);
 
 function makeCtx(
@@ -109,6 +121,7 @@ function makeCtx(
 		appId: APP_ID,
 		projectId: OWNER_ID,
 		anchorAlias: "c",
+		currentCaseType: "patient",
 		caseTypeSchemas: SCHEMAS,
 		bindings: {},
 		...overrides,
@@ -177,6 +190,49 @@ describe("compileExpression — round-trip — coercion arms", () => {
 			.selectFrom(sql`(values (1))`.as("v"))
 			.select(
 				sql<boolean>`${expr} = timestamptz '2026-01-01 12:00:00+00'`.as(
+					"matches",
+				),
+			)
+			.execute();
+		expect(rows).toEqual([{ matches: true }]);
+	});
+
+	test("datetime-coerce treats a date-only value as UTC midnight in a non-UTC session", async ({
+		db,
+		pgClient,
+	}) => {
+		// CCHQ's CSQL `datetime('2026-01-01')` is explicitly UTC. A bare
+		// Postgres text→timestamptz cast would instead use this session zone
+		// and shift the instant to 08:00Z.
+		await pgClient.query("SET LOCAL TIME ZONE 'America/Los_Angeles'");
+		const expr = compileExpression(
+			datetimeCoerce(term(literal("2026-01-01"))),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(
+				sql<boolean>`${expr} = timestamptz '2026-01-01 00:00:00+00'`.as(
+					"matches",
+				),
+			)
+			.execute();
+		expect(rows).toEqual([{ matches: true }]);
+	});
+
+	test("datetime-coerce preserves an explicit datetime offset in a non-UTC session", async ({
+		db,
+		pgClient,
+	}) => {
+		await pgClient.query("SET LOCAL TIME ZONE 'America/Los_Angeles'");
+		const expr = compileExpression(
+			datetimeCoerce(term(literal("2026-01-01T12:00:00-05:00"))),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(
+				sql<boolean>`${expr} = timestamptz '2026-01-01 17:00:00+00'`.as(
 					"matches",
 				),
 			)
@@ -317,12 +373,24 @@ describe("compileExpression — round-trip — arith arm", () => {
 // ---------------------------------------------------------------
 
 describe("compileExpression — round-trip — concat arm", () => {
+	test("single bare literal part executes with an inferred text parameter type", async ({
+		db,
+	}) => {
+		// This is the exact default shape authored by Combined text before the
+		// user fills its first part. PostgreSQL cannot infer the type of a lone
+		// prepared parameter in `concat($1)`; the compiler must emit the AST's
+		// declared per-part text cast rather than requiring UI-authored literals
+		// to carry a redundant data_type annotation.
+		const expr = compileExpression(concat(term(literal(""))), makeCtx(db));
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(sql<string>`${expr}`.as("v"))
+			.execute();
+
+		expect(rows).toEqual([{ v: "" }]);
+	});
+
 	test("concat joins string parts in order", async ({ db }) => {
-		// Cast each literal to `text` at the AST layer so the
-		// resulting parameter bindings carry an explicit Postgres
-		// type — bare `$1` parameters in a tableless SELECT are
-		// structurally untypeable per Postgres's overload-resolution
-		// rules. Same defense as the `arith` arm above.
 		const expr = compileExpression(
 			concat(
 				term({ kind: "literal", value: "Hello, ", data_type: "text" }),
@@ -496,29 +564,49 @@ describe("compileExpression — round-trip — format-date arm", () => {
 		expect(rows[0].v).toBe("May 2, 2026");
 	});
 
-	test("format-date renders a custom Postgres pattern verbatim", async ({
+	test("a custom JavaRosa pattern renders identically in Preview and Postgres", async ({
 		db,
+		pgClient,
 	}) => {
-		// Free-form patterns pass through to `to_char`. Authors target
-		// Postgres's pattern vocabulary on Nova-runtime apps.
+		await pgClient.query("SET LOCAL TIME ZONE 'UTC'");
+		const pattern =
+			"%Y|%y|%m|%n|%B|%b|%d|%e|%H|%h|%M|%S|%3|%A|%a|%w|%Z|%%|Day DD";
 		const expr = compileExpression(
-			formatDate(
-				datetimeCoerce(term(literal(FIXTURE_DATETIME))),
-				"FMDay, FMDD-Mon-YYYY",
-			),
+			formatDate(datetimeCoerce(term(literal(FIXTURE_DATETIME))), pattern),
 			makeCtx(db),
 		);
 		const rows = await db
 			.selectFrom(sql`(values (1))`.as("v"))
 			.select(sql<string>`${expr}`.as("v"))
 			.execute();
-		// `FMDay` strips trailing whitespace; `FMDD` strips leading
-		// zeros. The exact rendering depends on Postgres's locale, but
-		// the day-of-week string in the en-US locale is "Saturday" for
-		// 2026-05-02.
-		expect(rows[0].v).toMatch(/^Saturday, 2-May-2026$/);
+		const previousTimeZone = process.env.TZ;
+		process.env.TZ = "UTC";
+		try {
+			const previewValue = evaluate(
+				`format-date('${FIXTURE_DATETIME}', '${pattern}')`,
+				EMPTY_PREVIEW_CONTEXT,
+			);
+			expect(rows[0].v).toBe(previewValue);
+			expect(rows[0].v).toBe(
+				"2026|26|05|5|May|May|02|2|12|12|00|00|000|Saturday|Sat|6|Z|%|Day DD",
+			);
+		} finally {
+			if (previousTimeZone === undefined) {
+				delete process.env.TZ;
+			} else {
+				process.env.TZ = previousTimeZone;
+			}
+		}
 	});
 });
+
+const EMPTY_PREVIEW_CONTEXT: EvalContext = {
+	getValue: () => undefined,
+	resolveHashtag: () => "",
+	contextPath: "/data/current",
+	position: 1,
+	size: 1,
+};
 
 // ---------------------------------------------------------------
 // `date-add` arm — every interval
@@ -581,6 +669,126 @@ describe("compileExpression — round-trip — date-add arm", () => {
 			.execute();
 		expect(rows).toEqual([{ matches: true }]);
 	});
+
+	test("date-add keeps a date result and floors a negative fractional day", async ({
+		db,
+	}) => {
+		const expr = compileExpression(
+			dateAdd(
+				dateCoerce(term(literal("2026-05-02"))),
+				"days",
+				term(literal(-0.5)),
+			),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select([
+				sql<boolean>`${expr} = date '2026-05-01'`.as("matches"),
+				sql<boolean>`pg_typeof(${expr}) = 'date'::regtype`.as("is_date"),
+			])
+			.execute();
+		expect(rows).toEqual([{ matches: true, is_date: true }]);
+	});
+
+	test("date-add scales fractional fixed-duration units without promoting a date", async ({
+		db,
+	}) => {
+		const expr = compileExpression(
+			dateAdd(
+				dateCoerce(term(literal("1969-12-31"))),
+				"hours",
+				term(literal(12)),
+			),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(sql<boolean>`${expr} = date '1969-12-31'`.as("matches"))
+			.execute();
+		expect(rows).toEqual([{ matches: true }]);
+	});
+
+	test("date-add keeps a datetime result and its time of day", async ({
+		db,
+	}) => {
+		const expr = compileExpression(
+			dateAdd(
+				datetimeCoerce(term(literal("2026-05-02T12:30:00Z"))),
+				"minutes",
+				term(literal(30)),
+			),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select([
+				sql<boolean>`${expr} = timestamptz '2026-05-02T13:00:00Z'`.as(
+					"matches",
+				),
+				sql<boolean>`pg_typeof(${expr}) = 'timestamp with time zone'::regtype`.as(
+					"is_datetime",
+				),
+			])
+			.execute();
+		expect(rows).toEqual([{ matches: true, is_datetime: true }]);
+	});
+
+	for (const [interval, expected] of [
+		["months", "2024-02-29T12:30:00Z"],
+		["years", "2025-01-31T12:30:00Z"],
+	] as const) {
+		test(`date-add accepts an integral decimal runtime binding for ${interval}`, async ({
+			db,
+		}) => {
+			const expr = compileExpression(
+				dateAdd(
+					datetimeCoerce(term(literal("2024-01-31T12:30:00Z"))),
+					interval,
+					double(term(input("calendar_quantity"))),
+				),
+				makeCtx(db, {
+					bindings: {
+						searchInputs: new Map([["calendar_quantity", "1.0"]]),
+					},
+				}),
+			);
+			const rows = await db
+				.selectFrom(sql`(values (1))`.as("v"))
+				.select(
+					sql<boolean>`${expr} = timestamptz '${sql.raw(expected)}'`.as(
+						"matches",
+					),
+				)
+				.execute();
+			expect(rows).toEqual([{ matches: true }]);
+		});
+	}
+
+	for (const interval of ["months", "years"] as const) {
+		test(`date-add rejects a non-integral decimal runtime binding for ${interval}`, async ({
+			db,
+		}) => {
+			const expr = compileExpression(
+				dateAdd(
+					datetimeCoerce(term(literal("2024-01-31T12:30:00Z"))),
+					interval,
+					double(term(input("calendar_quantity"))),
+				),
+				makeCtx(db, {
+					bindings: {
+						searchInputs: new Map([["calendar_quantity", "1.5"]]),
+					},
+				}),
+			);
+			await expect(
+				db
+					.selectFrom(sql`(values (1))`.as("v"))
+					.select(expr.as("shifted"))
+					.execute(),
+			).rejects.toThrow(/invalid input syntax for type integer/i);
+		});
+	}
 });
 
 // ---------------------------------------------------------------
@@ -588,6 +796,31 @@ describe("compileExpression — round-trip — date-add arm", () => {
 // ---------------------------------------------------------------
 
 describe("compileExpression — round-trip — count arm", () => {
+	test("count(self) is one and its where clause gates that one row", async ({
+		db,
+	}) => {
+		const one = compileExpression(count(selfPath()), makeCtx(db));
+		const falseCount = compileExpression(
+			count(selfPath(), { kind: "match-all" }),
+			makeCtx(db, { compilePredicate: () => sql`(false)` }),
+		);
+		const trueCount = compileExpression(
+			count(selfPath(), { kind: "match-all" }),
+			makeCtx(db, { compilePredicate: () => sql`(true)` }),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select([
+				sql<number>`${one}`.as("one"),
+				sql<number>`${falseCount}`.as("zero"),
+				sql<number>`${trueCount}`.as("filtered_one"),
+			])
+			.execute();
+		expect(Number(rows[0].one)).toBe(1);
+		expect(Number(rows[0].zero)).toBe(0);
+		expect(Number(rows[0].filtered_one)).toBe(1);
+	});
+
 	test("count returns the cardinality of the ancestor walk", async ({ db }) => {
 		// Graph: patient --[parent]--> household. Insert one ancestor
 		// edge; the count should return 1.
@@ -746,6 +979,106 @@ describe("compileExpression — round-trip — count arm", () => {
 			.select(sql<number>`${expr}`.as("v"))
 			.execute();
 		expect(Number(rows[0].v)).toBe(1);
+	});
+});
+
+// ---------------------------------------------------------------
+// Relational property reads used by calculated columns / sort keys
+// ---------------------------------------------------------------
+
+describe("compileExpression — round-trip — relational term arm", () => {
+	test("an unqualified either-direction read resolves its unique parent", async ({
+		db,
+	}) => {
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+				}),
+				makeCaseRow({
+					case_id: HOUSEHOLD_CASE_ID,
+					case_type: "household",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({ size: 7 }),
+				}),
+			])
+			.execute();
+		await db
+			.insertInto("case_indices")
+			.values({
+				case_id: PATIENT_CASE_ID,
+				ancestor_id: HOUSEHOLD_CASE_ID,
+				identifier: "parent",
+				relationship: "child",
+				depth: 1,
+			})
+			.execute();
+
+		const expression = compileExpression(
+			term(prop("patient", "size", anyRelationPath("parent"))),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom("cases as c")
+			.where("c.case_id", "=", PATIENT_CASE_ID)
+			.select(sql<number>`${expression}`.as("v"))
+			.execute();
+		expect(Number(rows[0].v)).toBe(7);
+	});
+
+	test("a custom ancestor read uses its explicit destination instead of the parent graph", async ({
+		db,
+	}) => {
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+				}),
+				makeCaseRow({
+					case_id: GUARDIAN_CASE_ID,
+					case_type: "guardian",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({ rating: 9 }),
+				}),
+			])
+			.execute();
+		await db
+			.insertInto("case_indices")
+			.values({
+				case_id: PATIENT_CASE_ID,
+				ancestor_id: GUARDIAN_CASE_ID,
+				identifier: "guardian_link",
+				relationship: "child",
+				depth: 1,
+			})
+			.execute();
+
+		const expression = compileExpression(
+			term(
+				prop(
+					"patient",
+					"rating",
+					ancestorPath(relationStep("guardian_link", "guardian")),
+				),
+			),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom("cases as c")
+			.where("c.case_id", "=", PATIENT_CASE_ID)
+			.select(sql<number>`${expression}`.as("v"))
+			.execute();
+		expect(Number(rows[0].v)).toBe(9);
 	});
 });
 

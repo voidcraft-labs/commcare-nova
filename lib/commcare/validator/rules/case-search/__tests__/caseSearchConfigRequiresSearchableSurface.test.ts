@@ -36,7 +36,7 @@ const standardCaseTypes = [
 ];
 
 describe("caseSearchConfigRequiresSearchableSurface", () => {
-	it("fires when caseSearchConfig is present but filter and searchInputs are both empty", () => {
+	it("allows an explicit zero-input manual Search action", () => {
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -56,14 +56,7 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 			caseTypes: standardCaseTypes,
 		});
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
-		expect(hits).toHaveLength(1);
-		// Person-facing copy names all three remediation paths without leaking
-		// the document's storage slots into the builder.
-		expect(hits[0].message).toContain("Add a search field");
-		expect(hits[0].message).toContain("narrow the available cases");
-		expect(hits[0].message).toContain(
-			"remove the unused search-screen settings",
-		);
+		expect(hits).toHaveLength(0);
 	});
 
 	it("is silent when caseSearchConfig is absent (no search button to render)", () => {
@@ -137,7 +130,7 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 		expect(hits).toHaveLength(0);
 	});
 
-	it("still fires when filter is match-all (no narrowing effect)", () => {
+	it("allows explicit manual Search when the availability rule is match-all", () => {
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -156,10 +149,10 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 			caseTypes: standardCaseTypes,
 		});
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
-		expect(hits).toHaveLength(1);
+		expect(hits).toHaveLength(0);
 	});
 
-	it("still fires when filter REDUCES to match-all (and(match-all, match-all))", () => {
+	it("allows explicit manual Search when the availability rule reduces to match-all", () => {
 		// The gate must agree with emission: a filter whose `kind` is
 		// `and` but which normalizes to match-all narrows nothing and
 		// emits no query, so it is not a searchable surface. A shallow
@@ -182,6 +175,57 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 			caseTypes: standardCaseTypes,
 		});
 		const hits = runValidation(doc).filter((e) => e.code === CODE);
+		expect(hits).toHaveLength(0);
+	});
+
+	it("rejects stale no-action provenance beside Search-action settings", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [],
+					},
+					caseSearchConfig: {
+						searchActionEnabled: false,
+						searchButtonLabel: "Find cases",
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		const hits = runValidation(doc).filter((e) => e.code === CODE);
 		expect(hits).toHaveLength(1);
+		expect(hits[0].message).toContain("enable the Search action");
+	});
+
+	it("allows an owner-only no-action config", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [],
+					},
+					caseSearchConfig: {
+						searchActionEnabled: false,
+						excludedOwnerIds: {
+							kind: "term",
+							term: { kind: "literal", value: "owner-a" },
+						},
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes: standardCaseTypes,
+		});
+		expect(runValidation(doc).filter((e) => e.code === CODE)).toHaveLength(0);
 	});
 });

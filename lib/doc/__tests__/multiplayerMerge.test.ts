@@ -15,6 +15,20 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { updateColumnMutation } from "@/lib/agent/blueprintHelpers";
 import { assembleFieldMutations } from "@/lib/agent/tools/shared/fieldAssembly";
 import { batchTargetsMissing } from "@/lib/db/commitGuard";
+import {
+	columnSnapshotMutations,
+	legacyCompatibleColumnSnapshot,
+} from "@/lib/doc/caseListColumnMutations";
+import {
+	cleanupCaseSearchAfterFinalInputMutation,
+	disableUnusedCaseSearchMutation,
+	enableCaseSearchMutation,
+	setOwnerOnlyCaseSearchMutation,
+} from "@/lib/doc/caseSearchConfigMutations";
+import {
+	caseSearchConfigPatchMutations,
+	clearCaseSearchConfigSettingsMutations,
+} from "@/lib/doc/caseSearchConfigPatchMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
@@ -31,14 +45,24 @@ import {
 	declareCaseTypeForField,
 	formScaffoldMutations,
 } from "@/lib/doc/scaffolds";
+import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
 	asUuid,
 	type BlueprintDoc,
+	calculatedColumn,
 	type Field,
 	type Module,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import {
+	eq,
+	expressionReferencesSearchInput,
+	input,
+	literal,
+	predicateReferencesSearchInput,
+	term,
+} from "@/lib/domain/predicate";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -65,10 +89,8 @@ function applyWithLegacyColumnReducer(
 			if (!config || index === undefined || index < 0) continue;
 			const current = config.columns[index];
 			const replacement = { ...mutation.column, uuid: mutation.uuid };
-			for (const key of ["order", "listOrder", "detailOrder"] as const) {
-				if (current[key] === undefined) delete replacement[key];
-				else replacement[key] = current[key];
-			}
+			if (current.order === undefined) delete replacement.order;
+			else replacement.order = current.order;
 			config.columns[index] = replacement;
 		}
 	});
@@ -558,6 +580,45 @@ describe("disjoint collection edits merge", () => {
 		}
 	});
 
+	it("sort and column-content edits commute without restoring stale slots", () => {
+		const { doc, moduleUuid, colA } = moduleWithTwoColumns();
+		const current = doc.modules[moduleUuid].caseListConfig?.columns.find(
+			(candidate) => candidate.uuid === colA,
+		);
+		if (!current) throw new Error("fixture column missing");
+		const sorted = {
+			...current,
+			sort: { direction: "desc" as const, priority: 0 },
+		};
+		const formatted = { ...current, header: "Peer patient name" };
+		const sortBatch = columnSnapshotMutations(moduleUuid, current, sorted);
+		const formatBatch = columnSnapshotMutations(moduleUuid, current, formatted);
+
+		expect(sortBatch).toEqual([
+			expect.objectContaining({
+				kind: "updateColumn",
+				sortPatch: { direction: "desc", priority: 0 },
+			}),
+		]);
+		expect(formatBatch).toEqual([
+			expect.objectContaining({
+				kind: "updateColumn",
+				preserveSort: true,
+			}),
+		]);
+
+		for (const merged of [
+			apply(doc, sortBatch, formatBatch),
+			apply(doc, formatBatch, sortBatch),
+		]) {
+			const column = merged.modules[moduleUuid].caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === colA,
+			);
+			expect(column?.header).toBe("Peer patient name");
+			expect(column?.sort).toEqual({ direction: "desc", priority: 0 });
+		}
+	});
+
 	it("unmarked updateColumn events retain legacy visibility semantics", () => {
 		const { doc, moduleUuid, colA } = moduleWithTwoColumns();
 		const current = doc.modules[moduleUuid].caseListConfig?.columns.find(
@@ -641,18 +702,20 @@ describe("disjoint collection edits merge", () => {
 
 		const moveList: Mutation[] = [
 			{
-				kind: "moveColumnInList",
+				kind: "moveColumn",
 				moduleUuid,
 				uuid: colA,
 				order: "list-z",
+				surfaceOrderPatch: { surface: "list", order: "list-z" },
 			},
 		];
 		const moveDetail: Mutation[] = [
 			{
-				kind: "moveColumnInDetail",
+				kind: "moveColumn",
 				moduleUuid,
 				uuid: colA,
 				order: "detail-a",
+				surfaceOrderPatch: { surface: "detail", order: "detail-a" },
 			},
 		];
 		const staleContentEdit: Mutation[] = [
@@ -661,7 +724,10 @@ describe("disjoint collection edits merge", () => {
 				moduleUuid,
 				uuid: colA,
 				// Captured before either reorder: it carries neither new surface key.
-				column: { ...original, header: "Patient" },
+				column: legacyCompatibleColumnSnapshot({
+					...original,
+					header: "Patient",
+				}),
 			},
 		];
 
@@ -701,8 +767,16 @@ describe("disjoint collection edits merge", () => {
 
 		// This is the regression: the old workspace resequenced BOTH rows for
 		// either gesture, so each autosave batch overwrote its peer's order key.
-		expect(moveA).toMatchObject({ kind: "moveColumnInList", uuid: colA });
-		expect(moveB).toMatchObject({ kind: "moveColumnInList", uuid: colB });
+		expect(moveA).toMatchObject({
+			kind: "moveColumn",
+			uuid: colA,
+			surfaceOrderPatch: { surface: "list" },
+		});
+		expect(moveB).toMatchObject({
+			kind: "moveColumn",
+			uuid: colB,
+			surfaceOrderPatch: { surface: "list" },
+		});
 
 		const aThenB = apply(doc, [moveA], [moveB]);
 		const bThenA = apply(doc, [moveB], [moveA]);
@@ -802,8 +876,18 @@ describe("disjoint collection edits merge", () => {
 		});
 
 		const diff = diffDocsToMutations(doc, next);
-		expect(diff.filter((m) => m.kind === "moveColumnInList")).toHaveLength(1);
-		expect(diff.filter((m) => m.kind === "moveColumnInDetail")).toHaveLength(1);
+		expect(
+			diff.filter(
+				(m) =>
+					m.kind === "moveColumn" && m.surfaceOrderPatch?.surface === "list",
+			),
+		).toHaveLength(1);
+		expect(
+			diff.filter(
+				(m) =>
+					m.kind === "moveColumn" && m.surfaceOrderPatch?.surface === "detail",
+			),
+		).toHaveLength(1);
 		expect(diff.some((m) => m.kind === "updateColumn")).toBe(false);
 
 		const replayed = apply(doc, diff);
@@ -826,12 +910,20 @@ describe("disjoint collection edits merge", () => {
 			}
 		});
 		const resetDiff = diffDocsToMutations(next, reset);
-		expect(resetDiff.find((m) => m.kind === "moveColumnInList")).toMatchObject({
-			order: null,
+		expect(
+			resetDiff.find(
+				(m) =>
+					m.kind === "moveColumn" && m.surfaceOrderPatch?.surface === "list",
+			),
+		).toMatchObject({
+			surfaceOrderPatch: { order: null },
 		});
 		expect(
-			resetDiff.find((m) => m.kind === "moveColumnInDetail"),
-		).toMatchObject({ order: null });
+			resetDiff.find(
+				(m) =>
+					m.kind === "moveColumn" && m.surfaceOrderPatch?.surface === "detail",
+			),
+		).toMatchObject({ surfaceOrderPatch: { order: null } });
 		const resetReplayed = apply(next, resetDiff);
 		const resetColumn = resetReplayed.modules[
 			moduleUuid
@@ -1055,8 +1147,10 @@ describe("setCaseListMeta on a peer-removed config", () => {
 		]);
 		const rebirth: Mutation[] = [
 			{
-				kind: "ensureCaseListConfig",
+				kind: "updateModule",
 				uuid: moduleUuid,
+				patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				ensureCaseListConfig: true,
 			},
 			{
 				kind: "addColumn",
@@ -1092,15 +1186,11 @@ describe("diff — case-list presence transition", () => {
 		});
 		const diff = diffDocsToMutations(prev, next);
 		expect(diff).toContainEqual({
-			kind: "ensureCaseListConfig",
+			kind: "updateModule",
 			uuid: moduleUuid,
+			patch: { caseListConfig: { columns: [], searchInputs: [] } },
+			ensureCaseListConfig: true,
 		});
-		expect(
-			diff.some(
-				(m) =>
-					m.kind === "updateModule" && Object.hasOwn(m.patch, "caseListConfig"),
-			),
-		).toBe(false);
 		expect(apply(prev, diff).modules[moduleUuid].caseListConfig).toEqual(
 			next.modules[moduleUuid].caseListConfig,
 		);
@@ -1131,15 +1221,11 @@ describe("diff — case-list presence transition", () => {
 		});
 		const localBatch = diffDocsToMutations(prev, next);
 		expect(localBatch).toContainEqual({
-			kind: "ensureCaseListConfig",
+			kind: "updateModule",
 			uuid: moduleUuid,
+			patch: { caseListConfig: { columns: [], searchInputs: [] } },
+			ensureCaseListConfig: true,
 		});
-		expect(
-			localBatch.some(
-				(m) =>
-					m.kind === "updateModule" && Object.hasOwn(m.patch, "caseListConfig"),
-			),
-		).toBe(false);
 
 		const peerFresh = apply(prev, [
 			{
@@ -1525,11 +1611,467 @@ describe("case-search marker merges", () => {
 			},
 		];
 		const staleEnable: Mutation[] = [
-			{ kind: "setCaseSearchMarker", uuid: moduleUuid, enabled: true },
+			enableCaseSearchMutation(moduleUuid, undefined),
 		];
 		const merged = apply(markerless, peerBatch, staleEnable);
 		expect(merged.modules[moduleUuid].caseSearchConfig).toEqual({
 			searchScreenTitle: "Find a patient",
+		});
+	});
+
+	it("different enabled Search settings commute as independent slots", () => {
+		const { doc, moduleUuid } = searchDoc();
+		const titleBatch = caseSearchConfigPatchMutations(
+			moduleUuid,
+			{},
+			{
+				searchScreenTitle: "Find a patient",
+			},
+		);
+		const buttonBatch = caseSearchConfigPatchMutations(
+			moduleUuid,
+			{},
+			{
+				searchButtonLabel: "Search now",
+			},
+		);
+		expect(titleBatch).toEqual([
+			expect.objectContaining({
+				caseSearchConfigPatch: { searchScreenTitle: "Find a patient" },
+			}),
+		]);
+		expect(buttonBatch).toEqual([
+			expect.objectContaining({
+				caseSearchConfigPatch: { searchButtonLabel: "Search now" },
+			}),
+		]);
+
+		const titleThenButton = apply(doc, titleBatch, buttonBatch);
+		const buttonThenTitle = apply(doc, buttonBatch, titleBatch);
+		expect(titleThenButton).toEqual(buttonThenTitle);
+		expect(titleThenButton.modules[moduleUuid].caseSearchConfig).toEqual({
+			searchScreenTitle: "Find a patient",
+			searchButtonLabel: "Search now",
+		});
+	});
+
+	it("a clear-only Search patch does not resurrect an absent config", () => {
+		const { doc, moduleUuid } = searchDoc();
+		const ownerOnly = produce(doc, (draft) => {
+			draft.modules[moduleUuid].caseListConfig?.searchInputs.splice(0);
+			draft.modules[moduleUuid].caseSearchConfig = {
+				searchActionEnabled: false,
+				excludedOwnerIds: term(literal("owner-a")),
+			};
+		});
+		const clearBatch = clearCaseSearchConfigSettingsMutations(
+			moduleUuid,
+			ownerOnly.modules[moduleUuid].caseSearchConfig,
+		);
+		expect(clearBatch).toContainEqual(
+			expect.objectContaining({
+				patch: { caseSearchConfig: null },
+				caseSearchConfigPatch: { excludedOwnerIds: null },
+			}),
+		);
+		expect(clearBatch).toContainEqual(
+			expect.objectContaining({
+				patch: { caseSearchConfig: null },
+				caseSearchConfigOperation: "remove-if-no-authored-settings",
+			}),
+		);
+
+		const alreadyAbsent = produce(ownerOnly, (draft) => {
+			delete draft.modules[moduleUuid].caseSearchConfig;
+		});
+		expect(
+			apply(alreadyAbsent, clearBatch).modules[moduleUuid].caseSearchConfig,
+		).toBeUndefined();
+	});
+
+	it("clearing a stale owner-only rule preserves a peer-authored Search title", () => {
+		const { doc, moduleUuid } = searchDoc();
+		const ownerOnly = produce(doc, (draft) => {
+			draft.modules[moduleUuid].caseListConfig?.searchInputs.splice(0);
+			draft.modules[moduleUuid].caseSearchConfig = {
+				searchActionEnabled: false,
+				excludedOwnerIds: term(literal("owner-a")),
+			};
+		});
+		const staleClear = clearCaseSearchConfigSettingsMutations(
+			moduleUuid,
+			ownerOnly.modules[moduleUuid].caseSearchConfig,
+		);
+		const peerEnabled = produce(ownerOnly, (draft) => {
+			draft.modules[moduleUuid].caseSearchConfig = {
+				searchScreenTitle: "Peer title",
+				excludedOwnerIds: term(literal("owner-a")),
+			};
+		});
+
+		expect(
+			apply(peerEnabled, staleClear).modules[moduleUuid].caseSearchConfig,
+		).toEqual({ searchScreenTitle: "Peer title" });
+	});
+
+	it("whole-doc reconciliation keeps an owner-only clear granular", () => {
+		const { doc, moduleUuid } = searchDoc();
+		const ownerOnly = produce(doc, (draft) => {
+			draft.modules[moduleUuid].caseListConfig?.searchInputs.splice(0);
+			draft.modules[moduleUuid].caseSearchConfig = {
+				searchActionEnabled: false,
+				excludedOwnerIds: term(literal("owner-a")),
+			};
+		});
+		const locallyCleared = produce(ownerOnly, (draft) => {
+			delete draft.modules[moduleUuid].caseSearchConfig;
+		});
+		// Autosave/reconciliation regenerates the persisted batch from the two
+		// whole documents; it must retain the UI helper's per-setting semantics.
+		const reconciledBatch = diffDocsToMutations(ownerOnly, locallyCleared);
+		expect(reconciledBatch).toContainEqual(
+			expect.objectContaining({
+				kind: "updateModule",
+				patch: { caseSearchConfig: null },
+				caseSearchConfigPatch: { excludedOwnerIds: null },
+			}),
+		);
+		expect(reconciledBatch).toContainEqual(
+			expect.objectContaining({
+				caseSearchConfigOperation: "remove-if-no-authored-settings",
+			}),
+		);
+		expect(
+			reconciledBatch.some(
+				(mutation) =>
+					mutation.kind === "updateModule" &&
+					Object.hasOwn(mutation.patch, "caseSearchConfig") &&
+					mutation.caseSearchConfigPatch === undefined &&
+					mutation.caseSearchConfigOperation === undefined,
+			),
+		).toBe(false);
+
+		const peerEnabled = produce(ownerOnly, (draft) => {
+			draft.modules[moduleUuid].caseSearchConfig = {
+				searchScreenTitle: "Peer title",
+				searchButtonLabel: "Peer action",
+				excludedOwnerIds: term(literal("owner-a")),
+			};
+		});
+		expect(
+			apply(peerEnabled, reconciledBatch).modules[moduleUuid].caseSearchConfig,
+		).toEqual({
+			searchScreenTitle: "Peer title",
+			searchButtonLabel: "Peer action",
+		});
+	});
+
+	it("whole-doc reconciliation removes ordinary settings only after fresh clears", () => {
+		const { doc, moduleUuid } = searchDoc();
+		const withSettings = produce(doc, (draft) => {
+			draft.modules[moduleUuid].caseSearchConfig = {
+				searchScreenTitle: "Local title",
+				searchButtonLabel: "Local action",
+			};
+		});
+		const locallyAbsent = produce(withSettings, (draft) => {
+			delete draft.modules[moduleUuid].caseSearchConfig;
+		});
+		const reconciledBatch = diffDocsToMutations(withSettings, locallyAbsent);
+		expect(reconciledBatch).toContainEqual(
+			expect.objectContaining({
+				caseSearchConfigPatch: {
+					searchScreenTitle: null,
+					searchButtonLabel: null,
+				},
+			}),
+		);
+		expect(reconciledBatch).toContainEqual(
+			expect.objectContaining({
+				caseSearchConfigOperation: "remove-if-no-authored-settings",
+			}),
+		);
+		expect(
+			apply(withSettings, reconciledBatch).modules[moduleUuid].caseSearchConfig,
+		).toBeUndefined();
+
+		const peerOwnerRule = produce(withSettings, (draft) => {
+			draft.modules[moduleUuid].caseSearchConfig = {
+				...draft.modules[moduleUuid].caseSearchConfig,
+				excludedOwnerIds: term(literal("peer-owner")),
+			};
+		});
+		expect(
+			apply(peerOwnerRule, reconciledBatch).modules[moduleUuid]
+				.caseSearchConfig,
+		).toEqual({ excludedOwnerIds: term(literal("peer-owner")) });
+	});
+
+	it("removes an inputs-present empty marker and later cleanup keeps it absent", () => {
+		const { doc, moduleUuid, inputUuid } = searchDoc();
+		const markerAbsent = produce(doc, (draft) => {
+			delete draft.modules[moduleUuid].caseSearchConfig;
+		});
+		const markerRemoval = diffDocsToMutations(doc, markerAbsent);
+		expect(markerRemoval).toEqual([
+			expect.objectContaining({
+				caseSearchConfigOperation: "remove-if-no-authored-settings",
+			}),
+		]);
+		const withoutMarker = apply(doc, markerRemoval);
+		expect(withoutMarker.modules[moduleUuid].caseSearchConfig).toBeUndefined();
+
+		const laterFinalInputCleanup: Mutation[] = [
+			{ kind: "removeSearchInput", moduleUuid, uuid: inputUuid },
+			cleanupCaseSearchAfterFinalInputMutation({
+				uuid: moduleUuid,
+				config: undefined,
+				hasCasesAvailableCondition: false,
+			}),
+		];
+		const cleaned = apply(withoutMarker, laterFinalInputCleanup);
+		expect(cleaned.modules[moduleUuid].caseListConfig?.searchInputs).toEqual(
+			[],
+		);
+		expect(cleaned.modules[moduleUuid].caseSearchConfig).toBeUndefined();
+	});
+
+	it("slot patches preserve raw authored match-none conditions", () => {
+		const { doc, moduleUuid } = searchDoc();
+		const rawOwnerRule = produce(doc, (draft) => {
+			draft.modules[moduleUuid].caseSearchConfig = {
+				excludedOwnerIds: term(literal("owner-a")),
+				searchButtonDisplayCondition: { kind: "match-none" },
+			};
+		});
+		const rawConfig = rawOwnerRule.modules[moduleUuid].caseSearchConfig;
+		if (rawConfig === undefined) throw new Error("missing raw Search config");
+		const ownerBatch = caseSearchConfigPatchMutations(moduleUuid, rawConfig, {
+			...rawConfig,
+			excludedOwnerIds: term(literal("owner-b")),
+		});
+		expect(ownerBatch).toEqual([
+			expect.objectContaining({
+				caseSearchConfigPatch: {
+					excludedOwnerIds: term(literal("owner-b")),
+				},
+			}),
+		]);
+		expect(
+			apply(rawOwnerRule, ownerBatch).modules[moduleUuid].caseSearchConfig,
+		).toEqual({
+			excludedOwnerIds: term(literal("owner-b")),
+			searchButtonDisplayCondition: { kind: "match-none" },
+		});
+
+		const localTitleBatch = caseSearchConfigPatchMutations(
+			moduleUuid,
+			{},
+			{
+				searchScreenTitle: "Local title",
+			},
+		);
+		expect(
+			apply(rawOwnerRule, localTitleBatch).modules[moduleUuid].caseSearchConfig,
+		).toEqual({
+			excludedOwnerIds: term(literal("owner-a")),
+			searchButtonDisplayCondition: { kind: "match-none" },
+			searchScreenTitle: "Local title",
+		});
+	});
+
+	it("an explicit enable clears only owner-only no-action provenance", () => {
+		const { doc, moduleUuid } = searchDoc();
+		const ownerOnly = produce(doc, (draft) => {
+			draft.modules[moduleUuid].caseListConfig?.searchInputs.splice(0);
+			draft.modules[moduleUuid].caseSearchConfig = {
+				searchActionEnabled: false,
+				excludedOwnerIds: {
+					kind: "term",
+					term: { kind: "literal", value: "owner-a" },
+				},
+			};
+		});
+		const enabled = apply(ownerOnly, [
+			enableCaseSearchMutation(
+				moduleUuid,
+				ownerOnly.modules[moduleUuid].caseSearchConfig,
+			),
+		]);
+		expect(enabled.modules[moduleUuid].caseSearchConfig).toEqual({
+			excludedOwnerIds: {
+				kind: "term",
+				term: { kind: "literal", value: "owner-a" },
+			},
+		});
+	});
+
+	it("does not diff owner-only no-action provenance as an enabled marker", () => {
+		const { doc, moduleUuid } = searchDoc();
+		const markerless = produce(doc, (draft) => {
+			draft.modules[moduleUuid].caseListConfig?.searchInputs.splice(0);
+			delete draft.modules[moduleUuid].caseSearchConfig;
+		});
+		const ownerOnly = produce(markerless, (draft) => {
+			draft.modules[moduleUuid].caseSearchConfig = {
+				searchActionEnabled: false,
+				excludedOwnerIds: {
+					kind: "term",
+					term: { kind: "literal", value: "owner-a" },
+				},
+			};
+		});
+		const diff = diffDocsToMutations(markerless, ownerOnly);
+		expect(diff).toContainEqual(
+			setOwnerOnlyCaseSearchMutation(
+				moduleUuid,
+				ownerOnly.modules[moduleUuid].caseSearchConfig ?? {},
+			),
+		);
+		expect(
+			diff.some(
+				(mutation) =>
+					mutation.kind === "updateModule" &&
+					mutation.caseSearchConfigOperation === "enable",
+			),
+		).toBe(false);
+	});
+
+	it("a stale owner-only edit preserves a peer-enabled Search action and settings", () => {
+		const { doc, moduleUuid } = searchDoc();
+		const markerless = produce(doc, (draft) => {
+			draft.modules[moduleUuid].caseListConfig?.searchInputs.splice(0);
+			delete draft.modules[moduleUuid].caseSearchConfig;
+		});
+		const localOwner = {
+			searchActionEnabled: false as const,
+			excludedOwnerIds: {
+				kind: "term" as const,
+				term: { kind: "literal" as const, value: "owner-a" },
+			},
+		};
+		const peerEnabled = produce(markerless, (draft) => {
+			draft.modules[moduleUuid].caseSearchConfig = {
+				searchScreenTitle: "Find a client",
+				searchButtonLabel: "Look up",
+				excludedOwnerIds: {
+					kind: "term",
+					term: { kind: "literal", value: "owner-b" },
+				},
+			};
+		});
+		const merged = apply(peerEnabled, [
+			setOwnerOnlyCaseSearchMutation(moduleUuid, localOwner),
+		]);
+		expect(merged.modules[moduleUuid].caseSearchConfig).toEqual({
+			searchScreenTitle: "Find a client",
+			searchButtonLabel: "Look up",
+			excludedOwnerIds: localOwner.excludedOwnerIds,
+		});
+	});
+
+	it("diffs owner-only Search enable semantically and preserves a peer owner edit", () => {
+		const { doc, moduleUuid } = searchDoc();
+		const ownerOnly = produce(doc, (draft) => {
+			draft.modules[moduleUuid].caseListConfig?.searchInputs.splice(0);
+			draft.modules[moduleUuid].caseSearchConfig = {
+				searchActionEnabled: false,
+				excludedOwnerIds: {
+					kind: "term",
+					term: { kind: "literal", value: "owner-a" },
+				},
+			};
+		});
+		const locallyEnabled = produce(ownerOnly, (draft) => {
+			const config = draft.modules[moduleUuid].caseSearchConfig;
+			if (config !== undefined) delete config.searchActionEnabled;
+		});
+		const localBatch = diffDocsToMutations(ownerOnly, locallyEnabled);
+		expect(localBatch).toEqual([
+			enableCaseSearchMutation(
+				moduleUuid,
+				locallyEnabled.modules[moduleUuid].caseSearchConfig,
+			),
+		]);
+
+		const peerEdited = produce(ownerOnly, (draft) => {
+			const config = draft.modules[moduleUuid].caseSearchConfig;
+			if (config === undefined) throw new Error("missing owner rule");
+			config.excludedOwnerIds = {
+				kind: "term",
+				term: { kind: "literal", value: "owner-b" },
+			};
+		});
+		const merged = apply(peerEdited, localBatch);
+		expect(merged.modules[moduleUuid].caseSearchConfig).toEqual({
+			excludedOwnerIds: {
+				kind: "term",
+				term: { kind: "literal", value: "owner-b" },
+			},
+		});
+	});
+
+	it("derives conditional final-input cleanup that preserves peer action and owner settings", () => {
+		const { doc, moduleUuid, inputUuid } = searchDoc();
+		const base = produce(doc, (draft) => {
+			draft.modules[moduleUuid].caseSearchConfig = {
+				searchScreenTitle: "Find a patient",
+				searchScreenSubtitle: "Use known information",
+				excludedOwnerIds: {
+					kind: "term",
+					term: { kind: "literal", value: "owner-a" },
+				},
+			};
+		});
+		const localNext = produce(base, (draft) => {
+			draft.modules[moduleUuid].caseListConfig?.searchInputs.splice(0);
+			draft.modules[moduleUuid].caseSearchConfig = {
+				searchActionEnabled: false,
+				excludedOwnerIds: {
+					kind: "term",
+					term: { kind: "literal", value: "owner-a" },
+				},
+			};
+		});
+		const localBatch = diffDocsToMutations(base, localNext);
+		expect(localBatch).toContainEqual({
+			kind: "removeSearchInput",
+			moduleUuid,
+			uuid: inputUuid,
+		});
+		expect(localBatch).toContainEqual({
+			...cleanupCaseSearchAfterFinalInputMutation({
+				uuid: moduleUuid,
+				config: base.modules[moduleUuid].caseSearchConfig,
+				hasCasesAvailableCondition: false,
+			}),
+		});
+		expect(
+			localBatch.some(
+				(mutation) =>
+					mutation.kind === "updateModule" &&
+					mutation.caseSearchConfigOperation === undefined &&
+					Object.hasOwn(mutation.patch, "caseSearchConfig"),
+			),
+		).toBe(false);
+
+		const peerEdited = produce(base, (draft) => {
+			const config = draft.modules[moduleUuid].caseSearchConfig;
+			if (config === undefined) throw new Error("missing Search config");
+			config.searchButtonLabel = "Peer search";
+			config.excludedOwnerIds = {
+				kind: "term",
+				term: { kind: "literal", value: "owner-b" },
+			};
+		});
+		const merged = apply(peerEdited, localBatch);
+		expect(merged.modules[moduleUuid].caseListConfig?.searchInputs).toEqual([]);
+		expect(merged.modules[moduleUuid].caseSearchConfig).toEqual({
+			searchButtonLabel: "Peer search",
+			excludedOwnerIds: {
+				kind: "term",
+				term: { kind: "literal", value: "owner-b" },
+			},
 		});
 	});
 
@@ -1557,7 +2099,7 @@ describe("case-search marker merges", () => {
 		];
 		const staleDisable: Mutation[] = [
 			{ kind: "removeSearchInput", moduleUuid, uuid: inputUuid },
-			{ kind: "setCaseSearchMarker", uuid: moduleUuid, enabled: false },
+			disableUnusedCaseSearchMutation(moduleUuid),
 		];
 		const merged = apply(doc, peerBatch, staleDisable);
 		expect(merged.modules[moduleUuid].caseSearchConfig).toEqual({
@@ -1579,9 +2121,10 @@ describe("case-search marker merges", () => {
 			delete draft.modules[moduleUuid].caseSearchConfig;
 		});
 		expect(diffDocsToMutations(markerless, doc)).toContainEqual({
-			kind: "setCaseSearchMarker",
-			uuid: moduleUuid,
-			enabled: true,
+			...enableCaseSearchMutation(
+				moduleUuid,
+				doc.modules[moduleUuid].caseSearchConfig,
+			),
 		});
 
 		const disabled = produce(doc, (draft) => {
@@ -1595,17 +2138,376 @@ describe("case-search marker merges", () => {
 			uuid: inputUuid,
 		});
 		expect(diff).toContainEqual({
-			kind: "setCaseSearchMarker",
-			uuid: moduleUuid,
-			enabled: false,
+			...cleanupCaseSearchAfterFinalInputMutation({
+				uuid: moduleUuid,
+				config: doc.modules[moduleUuid].caseSearchConfig,
+				hasCasesAvailableCondition: false,
+			}),
 		});
 		expect(
 			diff.some(
 				(m) =>
 					m.kind === "updateModule" &&
+					m.caseSearchConfigOperation === undefined &&
 					Object.hasOwn(m.patch, "caseSearchConfig"),
 			),
 		).toBe(false);
+	});
+});
+
+describe("Search-input rename merges", () => {
+	function renameDoc(): {
+		doc: BlueprintDoc;
+		moduleUuid: Uuid;
+		inputUuid: Uuid;
+	} {
+		const inputUuid = asUuid("00000000-0000-4000-8000-000000000061");
+		const siblingUuid = asUuid("00000000-0000-4000-8000-000000000062");
+		const advancedSiblingUuid = asUuid("00000000-0000-4000-8000-000000000063");
+		const calculatedUuid = asUuid("00000000-0000-4000-8000-000000000064");
+		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+		config.columns.push(
+			calculatedColumn(
+				calculatedUuid,
+				"Copied answer",
+				term(input("old_name")),
+			),
+		);
+		config.searchInputs = [
+			{
+				uuid: inputUuid,
+				kind: "advanced",
+				name: "old_name",
+				label: "Original",
+				type: "text",
+				predicate: eq(input("old_name"), literal("self")),
+			},
+			{
+				...simpleSearchInputDef(
+					siblingUuid,
+					"other_name",
+					"Other name",
+					"text",
+					"case_name",
+				),
+				default: term(input("old_name")),
+			},
+			{
+				uuid: advancedSiblingUuid,
+				kind: "advanced",
+				name: "advanced_other",
+				label: "Advanced other",
+				type: "text",
+				predicate: eq(input("old_name"), literal("sibling")),
+			},
+		];
+		config.filter = eq(input("old_name"), literal("filter"));
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListOnly: true,
+					caseListConfig: config,
+					caseSearchConfig: {
+						searchButtonDisplayCondition: eq(
+							input("old_name"),
+							literal("button"),
+						),
+						excludedOwnerIds: term(input("old_name")),
+					},
+				},
+			],
+		});
+		return { doc, moduleUuid: doc.moduleOrder[0], inputUuid };
+	}
+
+	function expectEveryReferenceRenamed(
+		doc: BlueprintDoc,
+		moduleUuid: Uuid,
+		desiredName: string,
+		staleNames: readonly string[],
+	): void {
+		const mod = doc.modules[moduleUuid];
+		const config = mod.caseListConfig;
+		if (config === undefined) throw new Error("missing Search config fixture");
+		const calculated = config.columns.find(
+			(column) => column.kind === "calculated",
+		);
+		const target = config.searchInputs[0];
+		const sibling = config.searchInputs[1];
+		const advancedSibling = config.searchInputs[2];
+		if (
+			calculated?.kind !== "calculated" ||
+			target?.kind !== "advanced" ||
+			sibling === undefined ||
+			advancedSibling?.kind !== "advanced" ||
+			config.filter === undefined ||
+			mod.caseSearchConfig?.searchButtonDisplayCondition === undefined ||
+			mod.caseSearchConfig.excludedOwnerIds === undefined
+		) {
+			throw new Error("incomplete Search rename fixture");
+		}
+
+		expect(target.name).toBe(desiredName);
+		expect(
+			expressionReferencesSearchInput(calculated.expression, desiredName),
+		).toBe(true);
+		expect(predicateReferencesSearchInput(config.filter, desiredName)).toBe(
+			true,
+		);
+		expect(predicateReferencesSearchInput(target.predicate, desiredName)).toBe(
+			true,
+		);
+		expect(
+			sibling.default !== undefined &&
+				expressionReferencesSearchInput(sibling.default, desiredName),
+		).toBe(true);
+		expect(
+			predicateReferencesSearchInput(advancedSibling.predicate, desiredName),
+		).toBe(true);
+		expect(
+			predicateReferencesSearchInput(
+				mod.caseSearchConfig.searchButtonDisplayCondition,
+				desiredName,
+			),
+		).toBe(true);
+		expect(
+			expressionReferencesSearchInput(
+				mod.caseSearchConfig.excludedOwnerIds,
+				desiredName,
+			),
+		).toBe(true);
+		for (const staleName of staleNames) {
+			expect(JSON.stringify(mod)).not.toContain(`"name":"${staleName}"`);
+		}
+	}
+
+	function withReusedOldName(
+		doc: BlueprintDoc,
+		moduleUuid: Uuid,
+	): BlueprintDoc {
+		return produce(doc, (draft) => {
+			const mod = draft.modules[moduleUuid];
+			const config = mod.caseListConfig;
+			if (config === undefined)
+				throw new Error("missing Search config fixture");
+			config.searchInputs.push(
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000000065"),
+					"old_name",
+					"Reused old name",
+					"text",
+					"case_name",
+				),
+			);
+			const sibling = config.searchInputs[1];
+			if (sibling === undefined) throw new Error("missing sibling input");
+			sibling.default = term(input("old_name"));
+			config.filter = eq(input("old_name"), literal("peer-filter"));
+			mod.caseSearchConfig ??= {};
+			mod.caseSearchConfig.excludedOwnerIds = term(input("old_name"));
+		});
+	}
+
+	function expectReusedNameOwnership(
+		doc: BlueprintDoc,
+		moduleUuid: Uuid,
+		targetName: string,
+	): void {
+		const mod = doc.modules[moduleUuid];
+		const config = mod.caseListConfig;
+		if (
+			config === undefined ||
+			config.filter === undefined ||
+			mod.caseSearchConfig?.excludedOwnerIds === undefined
+		) {
+			throw new Error("missing reused-name fixture");
+		}
+		const target = config.searchInputs[0];
+		const sibling = config.searchInputs[1];
+		const reused = config.searchInputs.find(
+			(candidate) => candidate.name === "old_name",
+		);
+		const calculated = config.columns.find(
+			(column) => column.kind === "calculated",
+		);
+		if (
+			target?.kind !== "advanced" ||
+			sibling?.default === undefined ||
+			reused === undefined ||
+			calculated?.kind !== "calculated"
+		) {
+			throw new Error("incomplete reused-name fixture");
+		}
+		expect(target.name).toBe(targetName);
+		expect(predicateReferencesSearchInput(target.predicate, targetName)).toBe(
+			true,
+		);
+		expect(
+			expressionReferencesSearchInput(calculated.expression, targetName),
+		).toBe(true);
+		expect(predicateReferencesSearchInput(config.filter, "old_name")).toBe(
+			true,
+		);
+		expect(expressionReferencesSearchInput(sibling.default, "old_name")).toBe(
+			true,
+		);
+		expect(
+			expressionReferencesSearchInput(
+				mod.caseSearchConfig.excludedOwnerIds,
+				"old_name",
+			),
+		).toBe(true);
+		expect(reused.label).toBe("Reused old name");
+	}
+
+	it("rewrites every registered module slot, including self and sibling refs", () => {
+		const { doc, moduleUuid, inputUuid } = renameDoc();
+		const current = doc.modules[moduleUuid].caseListConfig?.searchInputs[0];
+		if (current === undefined) throw new Error("missing target input");
+		const rename = searchInputUpdateMutation(moduleUuid, current, {
+			...current,
+			name: "new_name",
+			label: "Renamed",
+		});
+		const renamed = apply(doc, [rename]);
+		expect(
+			renamed.modules[moduleUuid].caseListConfig?.searchInputs.find(
+				(candidate) => candidate.uuid === inputUuid,
+			)?.label,
+		).toBe("Renamed");
+		expectEveryReferenceRenamed(renamed, moduleUuid, "new_name", ["old_name"]);
+	});
+
+	it("rebases a stale rename over a peer rename of the same row", () => {
+		const { doc, moduleUuid } = renameDoc();
+		const original = doc.modules[moduleUuid].caseListConfig?.searchInputs[0];
+		if (original === undefined) throw new Error("missing target input");
+		const peerRename = searchInputUpdateMutation(moduleUuid, original, {
+			...original,
+			name: "peer_name",
+			label: "Peer rename",
+		});
+		const staleLocalRename = searchInputUpdateMutation(moduleUuid, original, {
+			...original,
+			name: "local_name",
+			label: "Local rename",
+		});
+		const rebased = apply(doc, [peerRename], [staleLocalRename]);
+		expectEveryReferenceRenamed(rebased, moduleUuid, "local_name", [
+			"old_name",
+			"peer_name",
+		]);
+	});
+
+	it("does not steal refs when a peer reuses the target's freed old name", () => {
+		const { doc, moduleUuid } = renameDoc();
+		const original = doc.modules[moduleUuid].caseListConfig?.searchInputs[0];
+		if (original === undefined) throw new Error("missing target input");
+		const peerRename = searchInputUpdateMutation(moduleUuid, original, {
+			...original,
+			name: "peer_name",
+		});
+		const staleLocalRename = searchInputUpdateMutation(moduleUuid, original, {
+			...original,
+			name: "local_name",
+		});
+
+		const peerFirst = withReusedOldName(apply(doc, [peerRename]), moduleUuid);
+		const staleReplayed = apply(peerFirst, [staleLocalRename]);
+		expectReusedNameOwnership(staleReplayed, moduleUuid, "local_name");
+
+		// Reverse the two same-row rename events while adding/referencing the
+		// newly-free A only after the final rename. Same-row names are last-writer-
+		// wins, but the new A identity and its refs remain intact in either valid
+		// event ordering.
+		const localFirst = apply(doc, [staleLocalRename], [peerRename]);
+		const peerLastWithReuse = withReusedOldName(localFirst, moduleUuid);
+		expectReusedNameOwnership(peerLastWithReuse, moduleUuid, "peer_name");
+	});
+
+	it("the commit gate atomically rejects a stale rename into a peer-owned desired name", () => {
+		const { doc, moduleUuid, inputUuid } = renameDoc();
+		const original = doc.modules[moduleUuid].caseListConfig?.searchInputs[0];
+		if (original === undefined) throw new Error("missing target input");
+		const staleRename = searchInputUpdateMutation(moduleUuid, original, {
+			...original,
+			name: "new_name",
+		});
+		const current = produce(doc, (draft) => {
+			draft.modules[moduleUuid].caseListConfig?.searchInputs.push(
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000000066"),
+					"new_name",
+					"Peer-owned desired name",
+					"text",
+					"case_name",
+				),
+			);
+		});
+		expect(
+			current.modules[moduleUuid].caseListConfig?.searchInputs.find(
+				(candidate) => candidate.uuid === inputUuid,
+			)?.name,
+		).toBe("old_name");
+		expect(
+			current.modules[moduleUuid].caseListConfig?.searchInputs.filter(
+				(candidate) => candidate.name === "new_name",
+			),
+		).toHaveLength(1);
+		expect(
+			predicateReferencesSearchInput(
+				current.modules[moduleUuid].caseListConfig?.filter ?? {
+					kind: "match-none",
+				},
+				"old_name",
+			),
+		).toBe(true);
+
+		const verdict = mutationCommitVerdict(current, [staleRename]);
+		expect(verdict.ok).toBe(false);
+		if (verdict.ok) throw new Error("expected duplicate-name rejection");
+		expect(
+			verdict.introduced.some(
+				(finding) => finding.code === "CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME",
+			),
+		).toBe(true);
+		// The gate exposes the rejected candidate for diagnostics: it contains the
+		// duplicate and rewritten refs, while the current document remains byte-for-
+		// byte untouched because callers discard this candidate atomically.
+		expect(
+			verdict.nextDoc.modules[moduleUuid].caseListConfig?.searchInputs.filter(
+				(candidate) => candidate.name === "new_name",
+			),
+		).toHaveLength(2);
+		expect(
+			predicateReferencesSearchInput(
+				verdict.nextDoc.modules[moduleUuid].caseListConfig?.filter ?? {
+					kind: "match-none",
+				},
+				"new_name",
+			),
+		).toBe(true);
+		expect(
+			current.modules[moduleUuid].caseListConfig?.searchInputs.find(
+				(candidate) => candidate.uuid === inputUuid,
+			)?.name,
+		).toBe("old_name");
+		expect(
+			predicateReferencesSearchInput(
+				current.modules[moduleUuid].caseListConfig?.filter ?? {
+					kind: "match-none",
+				},
+				"old_name",
+			),
+		).toBe(true);
 	});
 });
 

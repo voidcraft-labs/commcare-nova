@@ -65,6 +65,7 @@ import type {
 } from "@/lib/domain";
 import {
 	ANY_TYPE,
+	type CheckError,
 	checkExpression,
 	type ResolvedType,
 	type ValueExpression,
@@ -295,7 +296,7 @@ function resolveCalculatedSortType(
 	doc: BlueprintDoc,
 ): SortType {
 	const ctx = moduleTypeContext(mod, doc);
-	const errors: { path: (string | number)[]; message: string }[] = [];
+	const errors: CheckError[] = [];
 	const resolved = checkExpression(expression, ctx, errors, []);
 	if (resolved === undefined) return "plain";
 	if (resolved === ANY_TYPE) return "plain";
@@ -400,6 +401,7 @@ export function buildSortDirectives(
 ): ReadonlyMap<Uuid, ResolvedSortDirective> {
 	const config = mod.caseListConfig;
 	if (!config) return new Map();
+	const emissionTypeContext = moduleTypeContext(mod, doc);
 
 	// Phase 1 — collect sortable columns with their Results index
 	// (`listOrder ?? order`, then uuid — the same sequence the short-detail
@@ -446,7 +448,11 @@ export function buildSortDirectives(
 		const order = i + 1;
 		const type = resolveColumnSortType(column, mod, doc);
 		if (column.kind === "calculated") {
-			const calcXpath = emitOnDeviceExpression(column.expression);
+			const calcXpath = emitOnDeviceExpression(
+				column.expression,
+				undefined,
+				emissionTypeContext,
+			);
 			out.set(column.uuid, {
 				kind: "calculated",
 				order,

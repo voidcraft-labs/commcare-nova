@@ -51,10 +51,11 @@
 // `unwrap-list` / `format-date`.
 //
 // Distance constraint trade-off: `within`'s `distance` is plain
-// `number`. TypeScript can't cheaply express "non-negative number" (it
+// `number`. TypeScript can't cheaply express "positive finite-converting number" (it
 // requires a branded subtype with a runtime guard at every
 // constructor), so the structural defense lives at the schema layer
-// (`z.number().nonnegative()`) rather than here. A negative radius
+// (`z.number().positive()` plus unit conversion refinement) rather than here. A
+// zero, negative, or meter-overflowing radius
 // reaches a runtime parse failure when the AST is later validated;
 // that's the same failure mode every other illegal-but-typeable
 // payload produces, so leaving it at the schema is consistent.
@@ -672,7 +673,8 @@ export function not(clause: Predicate): Predicate {
  * but `center` is a full term so a search-input geopoint or a
  * session user location can drive the query.
  *
- * `distance` is plain `number`; the schema enforces non-negative at
+ * `distance` is plain `number`; the schema enforces positive and
+ * finite-after-unit-conversion at
  * parse time. See the file-level comment for why the constraint
  * doesn't surface in this signature.
  */
@@ -1139,10 +1141,12 @@ export function now(): Extract<ValueExpression, { kind: "now" }> {
  * `date-add` value expression: `date + (interval × quantity)`. CCHQ
  * wire form on CSQL: `date-add(date, interval, quantity)` per the
  * value-function dispatch table. On-device support is interval-
- * limited — the representability checker rejects non-`days`
- * intervals for case-list-filter / post-ES dialects, and the
- * on-device emitter falls back to XPath operator arithmetic
- * (`date(...) + N`) for `days`-only emissions.
+ * limited — the portability validator admits a date-typed base with a fixed
+ * interval from seconds through weeks in on-device slots. The emitter scales
+ * that quantity to epoch days and lowers it through
+ * `date(floor(base + scaledQuantity))`. Calendar months/years and datetime
+ * bases remain valid for native CSQL but are rejected from an on-device slot
+ * because Core would lose calendar or time-of-day semantics.
  *
  * The signature: `date` (the date or datetime base), `interval`
  * (the unit name from `DATE_ADD_INTERVALS`), `quantity` (the

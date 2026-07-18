@@ -24,6 +24,8 @@ import { AddModulePopover } from "@/components/builder/appTree/insertion/AddModu
 import { interleaveInsertions } from "@/components/builder/appTree/insertion/interleaveInsertions";
 import { ModuleCard } from "@/components/builder/appTree/ModuleCard";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
+import { Button } from "@/components/shadcn/button";
+import { Input } from "@/components/shadcn/input";
 import { useModuleIds } from "@/lib/doc/hooks/useModuleIds";
 import { useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
 import { BuilderPhase } from "@/lib/session/builderTypes";
@@ -58,7 +60,7 @@ export function AppTree() {
 	if (!moduleOrder || moduleOrder.length === 0) {
 		return (
 			<div className="h-full flex items-center justify-center text-nova-text-muted text-sm">
-				Waiting for generation...
+				Building your app…
 			</div>
 		);
 	}
@@ -69,19 +71,19 @@ export function AppTree() {
 			 * for insertion-intent arming; hits in portalled popups don't. */}
 			<div className="h-full flex flex-col" data-insertion-surface>
 				{/* Search input */}
-				<div
-					className={`px-3 py-3 shrink-0 ${locked ? "pointer-events-none opacity-40" : ""}`}
-				>
+				<div className="shrink-0 px-3 py-3">
 					<div className="relative">
 						<Icon
 							icon={tablerSearch}
-							width="14"
-							height="14"
+							width="16"
+							height="16"
 							className="absolute left-2.5 top-1/2 -translate-y-1/2 text-nova-text-muted pointer-events-none"
 						/>
-						<input
+						<Input
 							type="text"
 							value={searchQuery}
+							disabled={locked}
+							aria-label="Find in app"
 							onChange={(e) => setSearchQuery(e.target.value)}
 							onKeyDown={(e) => {
 								if (e.key === "Escape") {
@@ -89,19 +91,23 @@ export function AppTree() {
 									else (e.target as HTMLInputElement).blur();
 								}
 							}}
-							placeholder="Filter fields..."
+							placeholder="Find in app"
 							autoComplete="off"
 							data-1p-ignore
-							className="w-full pl-8 pr-7 py-1.5 text-xs bg-nova-surface border border-nova-border rounded-lg text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:border-nova-violet transition-colors"
+							className="h-11 bg-nova-surface pl-9 pr-11 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:border-nova-violet focus-visible:ring-nova-violet/30 dark:bg-nova-surface"
 						/>
 						{searchQuery && (
-							<button
+							<Button
 								type="button"
+								variant="ghost"
+								size="icon-lg"
+								disabled={locked}
+								aria-label="Clear search"
 								onClick={() => setSearchQuery("")}
-								className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
+								className="absolute right-0 top-1/2 size-11 -translate-y-1/2 text-nova-text-muted not-disabled:hover:text-nova-text"
 							>
-								<Icon icon={tablerX} width="12" height="12" />
-							</button>
+								<Icon icon={tablerX} />
+							</Button>
 						)}
 					</div>
 				</div>
@@ -109,11 +115,11 @@ export function AppTree() {
 				{/* Scrollable module cards */}
 				<div className="flex-1 overflow-auto">
 					{searchResult && searchResult.visibleModuleIndices.size === 0 ? (
-						<div className="flex items-center justify-center py-8 text-nova-text-muted text-xs">
-							No matches
+						<div className="flex items-center justify-center px-4 py-8 text-center text-sm text-nova-text-muted">
+							No matches in your app
 						</div>
 					) : (
-						<div>
+						<ul aria-label="App structure" className="m-0 list-none p-0">
 							<AnimatePresence mode="sync">
 								{/* Insertion points interleave between modules so new
 								 *  modules can be added at any position — hidden while
@@ -136,11 +142,15 @@ export function AppTree() {
 											/>
 										),
 									renderInsertion: (atIndex, key) => (
-										<AddModulePopover key={key} atIndex={atIndex} />
+										<AddModulePopover
+											key={key}
+											atIndex={atIndex}
+											prominent={atIndex === moduleOrder.length}
+										/>
 									),
 								})}
 							</AnimatePresence>
-						</div>
+						</ul>
 					)}
 				</div>
 			</div>

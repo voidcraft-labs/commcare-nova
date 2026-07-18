@@ -11,7 +11,7 @@
 // relying on CCHQ-side flags or behaviours the prompt slot does not
 // carry.
 //
-// Three reasons drive the redirection:
+// Four reasons drive the redirection:
 //
 //   1. CCHQ's `CaseSearchProperty` (the wire shape of one
 //      `<prompt>`) has no per-property matcher-strategy slot. The
@@ -51,11 +51,17 @@
 //      value is still bound to `instance('search-input:results')/input/field[@name='<input.name>']`,
 //      so the explicit predicate referencing it resolves correctly.
 //
-// The shape that rides on the bare `<prompt>` slot alone is `exact`
-// (or `range`) with self-walk / absent `via` AND `name === property`
-// — CCHQ's runtime default does the exact comparison against the
-// current case's property, and the property name matches the prompt
-// key. Every other combination needs `_xpath_query` routing plus
+//   4. A date search input contributes one calendar day. Exact string
+//      equality is faithful for neither datetime targets (it matches only
+//      midnight) nor Nova's whole-day meaning. Every exact date input routes
+//      through one canonical half-open predicate: date boundaries for date
+//      properties, and UTC datetime boundaries for datetime properties.
+//
+// The shape that rides on the bare `<prompt>` slot alone is a NON-DATE
+// `exact` input (or `range`) with self-walk / absent `via` AND
+// `name === property` — CCHQ's runtime default does the exact comparison
+// against the current case's property, and the property name matches the
+// prompt key. Every other combination needs `_xpath_query` routing plus
 // `exclude="true()"` to silence the auto-match.
 //
 // Mode coverage. The helper handles `exact` / `fuzzy` /
@@ -86,11 +92,21 @@
 import {
 	canonicalCasePropertyName,
 	DEFAULT_SEARCH_MODE_KIND,
+	effectiveSimpleSearchModeKind,
 	type SearchInputMode,
 	type SimpleSearchInputDef,
+	simpleSearchInputHasCoherentRangeWidget,
 } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
-import { eq, input, match, prop, whenInput } from "@/lib/domain/predicate";
+import type { Predicate, TypeContext } from "@/lib/domain/predicate";
+import {
+	eq,
+	exactDateSearchPredicate,
+	input,
+	match,
+	prop,
+	term,
+	whenInput,
+} from "@/lib/domain/predicate";
 import { emitCasePropertyWirePath } from "../../casePropertyWire";
 
 /**
@@ -104,21 +120,29 @@ import { emitCasePropertyWirePath } from "../../casePropertyWire";
  * doesn't append the bogus auto-match alongside the explicit
  * predicate.
  *
- * Three CCHQ-runtime defaults make a wire-shape decision per input:
+ * These CCHQ-runtime defaults and Nova's whole-day contract make a
+ * wire-shape decision per input:
  *
- *   - **`exact` (self-walk / absent via, `name === property`)** —
+ *   - **non-date `exact` (self-walk / absent via,
+ *     `name === property`)** —
  *     bare prompt slot. CCHQ's runtime defaults a
  *     `case_property_query` to full-string exact match on the
  *     property named by the prompt key, which IS the authored
  *     intent. No routing.
  *
- *   - **`exact` (non-self via, OR `name !== property`)** —
+ *   - **non-date `exact` (non-self via, OR `name !== property`)** —
  *     `_xpath_query`. The prompt binds one runtime value but
  *     carries no relation-walk metadata, and CCHQ's auto-match keys
  *     on the prompt key (not the authored target). The explicit
  *     comparison `<property> = <input(name)>` lives in the
  *     predicate; the prompt rides `exclude="true()"` so the
  *     auto-match doesn't fire on a property that may not exist.
+ *
+ *   - **date `exact` (every shape)** — `_xpath_query`. The selected
+ *     value means a whole calendar day. The shared lowering emits a
+ *     half-open interval with date boundaries for date properties and UTC
+ *     datetime boundaries for datetime properties; one relation `exists`
+ *     contains both bounds for a non-self target.
  *
  *   - **`range` (self-walk / absent via, `name === property`)** —
  *     bare prompt slot. CCHQ's `daterange` widget reads two bindings
@@ -143,9 +167,10 @@ import { emitCasePropertyWirePath } from "../../casePropertyWire";
  *
  * In short: the bare prompt is correct only when CCHQ's
  * `case_property_query(<prompt key>, <typed value>)` IS the authored
- * comparison — `exact` (or `range`-as-daterange) AND self-walk /
- * absent `via` AND `name === property`. Anything else routes through
- * `_xpath_query` and the prompt rides `exclude="true()"`.
+ * comparison — non-date `exact` (or `range`-as-daterange) AND
+ * self-walk / absent `via` AND `name === property`. Date exact and
+ * every other shape route through `_xpath_query`, and the prompt rides
+ * `exclude="true()"`.
  *
  * Blank-property inputs ride the bare prompt slot as well. The schema
  * admits `property === ""` as the "row added, not yet picked"
@@ -160,6 +185,11 @@ import { emitCasePropertyWirePath } from "../../casePropertyWire";
 export function simpleArmNeedsXPathQueryEmission(
 	authored: SimpleSearchInputDef,
 ): boolean {
+	if (!simpleSearchInputHasCoherentRangeWidget(authored)) {
+		throw new Error(
+			`Cannot emit search input "${authored.name}": mode "${effectiveSimpleSearchModeKind(authored)}" and widget "${authored.type}" do not collect the same value shape. Range mode requires the date-range widget, and the date-range widget requires range mode. Run validation and repair the imported input before wire emission.`,
+		);
+	}
 	if (authored.property === "") return false;
 	const modeKind = authored.mode?.kind ?? defaultModeKind(authored.type);
 	const via = authored.via;
@@ -167,6 +197,11 @@ export function simpleArmNeedsXPathQueryEmission(
 	const nameMatchesProperty =
 		authored.name === canonicalCasePropertyName(authored.property);
 	if (modeKind === "exact") {
+		// A calendar-day prompt cannot faithfully ride CCHQ's implicit exact
+		// matcher. Date properties need an explicit typed comparison, while a
+		// datetime property would otherwise match only values exactly at midnight.
+		// Both lower through the canonical half-open same-day predicate.
+		if (authored.type === "date") return true;
 		// Bare prompt is faithful only when CCHQ's auto-match against
 		// `<prompt key>` IS the authored comparison: self-walk on the
 		// current case AND the prompt key names the same property the
@@ -221,14 +256,18 @@ export function simpleArmNeedsXPathQueryEmission(
  * A self-walk / absent `via` collapses to an unqualified `prop(...)`
  * (no relation walk in the derived predicate) — the leaf emitter
  * reads the property directly off the current case at runtime. The
- * `exact` arm covers two shapes at one site: the cross-walk case
- * (non-self `via`, predicate carries the relation walk) AND the
- * self-walk + `name !== property` case (predicate names the targeted
- * property explicitly against the user-typed input).
+ * For non-date inputs, the `exact` arm covers two shapes at one site:
+ * the cross-walk case (non-self `via`, predicate carries the relation
+ * walk) AND the self-walk + `name !== property` case (predicate names
+ * the targeted property explicitly against the user-typed input).
+ * Date exact always reaches this helper and delegates to the shared
+ * whole-day lowering, because the target property's resolved type decides
+ * whether its bounds are date-shaped or UTC-datetime-shaped.
  */
 export function deriveSimpleArmPredicate(
 	authored: SimpleSearchInputDef,
 	caseType: string,
+	typeContext?: TypeContext,
 ): Predicate {
 	if (!simpleArmNeedsXPathQueryEmission(authored)) {
 		throw new Error(
@@ -254,8 +293,26 @@ export function deriveSimpleArmPredicate(
 	// AND-identity — so the predicate has no effect until the user
 	// types a value.
 	switch (modeKind) {
-		case "exact":
+		case "exact": {
+			if (authored.type === "date") {
+				if (typeContext === undefined) {
+					throw new Error(
+						`Cannot derive the exact calendar-day search input "${authored.name}" without the module TypeContext. Date and datetime targets use different half-open boundary types; pass the validated module case-type catalog to the wire composer instead of guessing from the widget alone.`,
+					);
+				}
+				return whenInput(
+					inputRef,
+					exactDateSearchPredicate({
+						caseType,
+						property: authored.property,
+						via: viaForRef,
+						day: term(inputRef),
+						typeContext,
+					}),
+				);
+			}
 			return whenInput(inputRef, eq(propertyRef, inputRef));
+		}
 		case "fuzzy":
 			return whenInput(inputRef, match(propertyRef, inputRef, "fuzzy"));
 		case "starts-with":

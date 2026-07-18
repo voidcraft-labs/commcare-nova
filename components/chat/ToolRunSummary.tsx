@@ -135,7 +135,7 @@ function ValidateErrors({ errors }: { errors: string[] }) {
  * A run of ONE renders that row plainly — no "N changes" header to read as a
  * redundant echo of the single line beneath it, and nothing to disclose since
  * the row already shows everything. Defaults closed for the many-call case: the
- * live canvas already reflects the changes and the signal grid shows activity,
+ * live canvas already reflects the changes and the chat status shows activity,
  * so this is an on-demand audit trail, not the primary feedback.
  */
 export function ToolRunSummary({ parts }: { parts: ToolUIPart[] }) {

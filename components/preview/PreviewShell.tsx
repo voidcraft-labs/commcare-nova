@@ -239,7 +239,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	 * `screen.type` — otherwise navigating Form A → Module → Form B would
 	 * incorrectly restore Form A's scroll position for Form B. */
 	const scrollPositions = useRef(new Map<string, number>());
-	const scrollContainerRef = useRef<HTMLDivElement>(null);
+	const scrollContainerRef = useRef<HTMLElement>(null);
 	const prevScreenKeyRef = useRef(screenKey(screen));
 
 	useEffect(() => {
@@ -266,7 +266,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			{/* No header here — wayfinding (back/up + breadcrumb trail) is the
 			 *  builder's own `BreadcrumbStrip`, mounted above the canvas column,
 			 *  so the trail has a single source of truth. */}
-			<div
+			<main
 				ref={scrollContainerRef}
 				data-preview-scroll-container
 				className="flex-1 overflow-y-auto overflow-x-hidden bg-pv-bg [overflow-anchor:none]"
@@ -362,7 +362,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						<FormScreen screen={formScreenRef.current} onBack={handleBack} />
 					</Activity>
 				)}
-			</div>
+			</main>
 		</div>
 	);
 }

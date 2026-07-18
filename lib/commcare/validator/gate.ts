@@ -131,10 +131,15 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE: "soundness",
 	CASE_LIST_SEARCH_INPUT_SELECT_WIDGET_NOT_SUPPORTED: "soundness",
 	CASE_LIST_MATCH_MODE_NOT_ON_DEVICE: "soundness",
+	CASE_LIST_DATE_ADD_NOT_ON_DEVICE: "soundness",
+	CASE_LIST_EXPRESSION_NOT_ON_DEVICE: "soundness",
+	CASE_LIST_STRICT_NULL_NOT_PORTABLE: "soundness",
+	CASE_LIST_CSQL_NOT_REPRESENTABLE: "soundness",
 	FIELD_KIND_PROPERTY_TYPE_MISMATCH: "soundness",
 	FIELD_KIND_WRITERS_DISAGREE: "soundness",
 	// ── Case-search-config rules ─────────────────────────────────────
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR: "soundness",
+	CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE: "soundness",
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: "soundness",
 	CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE: "completeness",
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: "soundness",
@@ -392,6 +397,8 @@ function part(tag: string, value: string | undefined): string {
  *   - Case-list/search findings add the stable sub-entity uuid the error's
  *     `details` carry (columnUuid / inputUuid), or the value key for
  *     duplicate findings (input name, sort priority, image-map value).
+ *     CSQL-representability findings use the stable surface + input uuid +
+ *     reason; their diagnostic slot/path may contain a reorderable index.
  *     AST `path`s and row/entry indices are excluded: both shift when a
  *     SIBLING finding is fixed, which would make a strict improvement look
  *     like an introduction.
@@ -471,15 +478,41 @@ export function errorIdentity(err: ValidationError): string {
 			);
 			break;
 		case "CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE":
-		case "CASE_LIST_MATCH_MODE_NOT_ON_DEVICE":
 			parts.push(
 				part("m", loc.moduleUuid),
 				part("slot", det?.slot),
 				part("prop", det?.property),
 			);
 			break;
+		case "CASE_LIST_MATCH_MODE_NOT_ON_DEVICE":
+		case "CASE_LIST_DATE_ADD_NOT_ON_DEVICE":
+		case "CASE_LIST_EXPRESSION_NOT_ON_DEVICE":
+			parts.push(
+				part("m", loc.moduleUuid),
+				part("surface", det?.surface),
+				part("input", det?.inputUuid),
+				part("column", det?.columnUuid),
+				part("reason", det?.reason),
+			);
+			break;
+		case "CASE_LIST_STRICT_NULL_NOT_PORTABLE":
+			parts.push(
+				part("m", loc.moduleUuid),
+				part("surface", det?.surface),
+				part("input", det?.inputUuid),
+				part("column", det?.columnUuid),
+			);
+			break;
 		case "CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK":
 			parts.push(part("m", loc.moduleUuid), part("slot", det?.slot));
+			break;
+		case "CASE_LIST_CSQL_NOT_REPRESENTABLE":
+			parts.push(
+				part("m", loc.moduleUuid),
+				part("surface", det?.surface),
+				part("input", det?.inputUuid),
+				part("reason", det?.reason),
+			);
 			break;
 		// Form-scope: a named case property / connect id / hashtag is the
 		// per-finding subject — add it so independent findings stay distinct.

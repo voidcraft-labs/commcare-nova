@@ -17,6 +17,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerEdit from "@iconify-icons/tabler/edit";
 import tablerPlayerPlay from "@iconify-icons/tabler/player-play";
 import { usePreviewModeTransition } from "@/components/builder/usePreviewModeTransition";
+import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { usePreviewing } from "@/lib/session/hooks";
 
@@ -35,13 +36,15 @@ export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {
 			}
 			side="bottom"
 		>
-			<button
+			<Button
 				type="button"
+				variant={previewing ? "default" : "outline"}
+				size="xl"
 				onClick={() => transitionPreview(!previewing)}
-				className={`inline-flex items-center gap-2 px-4 min-h-11 rounded-lg text-[13px] font-semibold whitespace-nowrap cursor-pointer border transition-all ${
+				className={`rounded-lg px-4 text-[13px] font-semibold ${
 					previewing
 						? "bg-nova-action border-nova-action text-white shadow-[0_0_16px_rgba(79,70,229,0.4)]"
-						: "bg-nova-violet/[0.12] border-nova-border-bright text-nova-violet-bright hover:bg-nova-violet/[0.2]"
+						: "border-nova-border-bright bg-nova-violet/[0.12] text-nova-violet-bright hover:bg-nova-violet/[0.2] hover:text-nova-violet-bright dark:bg-nova-violet/[0.12] dark:hover:bg-nova-violet/[0.2]"
 				}`}
 			>
 				{/* Preview is a destination, not a media transport. Once inside,
@@ -52,7 +55,7 @@ export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {
 					height="17"
 				/>
 				{previewing ? "Back to edit" : "Preview"}
-			</button>
+			</Button>
 		</SimpleTooltip>
 	);
 }

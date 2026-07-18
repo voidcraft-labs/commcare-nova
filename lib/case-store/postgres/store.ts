@@ -266,6 +266,7 @@ export class PostgresCaseStore implements CaseStore {
 			appId: args.appId,
 			caseType: args.caseType,
 			schemas: args.caseTypeSchemas ?? new Map(),
+			bindings: args.bindings ?? {},
 		});
 		const exprCtx = expressionContextFor(ctx);
 
@@ -478,6 +479,7 @@ export class PostgresCaseStore implements CaseStore {
 			appId: args.appId,
 			caseType: args.caseType,
 			schemas: args.caseTypeSchemas ?? new Map(),
+			bindings: args.bindings ?? {},
 		});
 
 		// `eb.fn.countAll<string>()` matches the existing usage at
@@ -1827,14 +1829,16 @@ export class PostgresCaseStore implements CaseStore {
 		appId: string;
 		caseType: string;
 		schemas: ReadonlyMap<string, CaseType>;
+		bindings: PredicateCompileContext["bindings"];
 	}): PredicateCompileContext {
 		return {
 			db: args.db,
 			appId: args.appId,
 			projectId: this.requireProjectId(),
 			anchorAlias: "c",
+			currentCaseType: args.caseType,
 			caseTypeSchemas: args.schemas,
-			bindings: {},
+			bindings: args.bindings,
 		};
 	}
 

@@ -37,14 +37,14 @@ beforeEach(() => {
 });
 
 describe("PreviewToggle", () => {
-	it("leaves a running record for the Results authoring canvas", () => {
+	it("leaves a running record for the Details authoring canvas", () => {
 		const setPreviewing = vi.fn();
 		render(<PreviewToggle onSetPreviewing={setPreviewing} />);
 
 		fireEvent.click(screen.getByRole("button", { name: "Back to edit" }));
 
 		expect(mocks.replace).toHaveBeenCalledWith({
-			kind: "cases",
+			kind: "detail-config",
 			moduleUuid: "module-1",
 		});
 		expect(setPreviewing).toHaveBeenCalledWith(false);

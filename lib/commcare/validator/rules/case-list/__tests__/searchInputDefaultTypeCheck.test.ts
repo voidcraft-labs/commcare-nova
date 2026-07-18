@@ -252,6 +252,65 @@ describe("searchInputDefaultTypeCheck", () => {
 		).toBe(false);
 	});
 
+	it("rejects a legacy scalar default on a date-range input with one repair", () => {
+		const doc = buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-range"),
+								"visit_window",
+								"Visit window",
+								"date-range",
+								"visit_date",
+								{ default: today() },
+							),
+						],
+					},
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									case_property_on: "patient",
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name", data_type: "text" },
+						{ name: "visit_date", label: "Visit", data_type: "date" },
+					],
+				},
+			],
+		});
+
+		const hits = runValidation(doc).filter(
+			(error) => error.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
+		);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].details).toMatchObject({
+			inputName: "visit_window",
+			reason: "date-range-default-unsupported",
+		});
+		expect(hits[0].message).toContain("needs both a start and an end");
+		expect(hits[0].message).toContain("Remove the starting value");
+	});
+
 	it("short-circuits per-input when the `default` slot is absent", () => {
 		// No `default` on either input — the rule has nothing to check.
 		const doc = buildDoc({

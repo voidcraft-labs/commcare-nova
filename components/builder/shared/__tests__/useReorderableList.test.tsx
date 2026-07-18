@@ -36,7 +36,7 @@ vi.mock("@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge", () => ({
 	extractClosestEdge: () => null,
 }));
 
-import { useReorderableList } from "../useReorderableList";
+import { reorderByKeyboard, useReorderableList } from "../useReorderableList";
 
 interface Item {
 	readonly id: string;
@@ -56,7 +56,7 @@ describe("useReorderableList", () => {
 					containerKey: "the-list",
 					containerKind: "test-items",
 					items,
-					getItemKey: (item) => item.id,
+					itemKeys: items.map((item) => item.id),
 					onReorder,
 				}),
 			{ initialProps: { items: [a, b, c, d] } },
@@ -101,5 +101,27 @@ describe("useReorderableList", () => {
 			fromIndex: 3,
 			toIndex: 2,
 		});
+	});
+});
+
+describe("reorderByKeyboard", () => {
+	const items = ["first", "second", "third"] as const;
+
+	it("moves one place or directly to a boundary", () => {
+		expect(reorderByKeyboard(items, 1, "ArrowUp")?.items).toEqual([
+			"second",
+			"first",
+			"third",
+		]);
+		expect(reorderByKeyboard(items, 1, "End")?.items).toEqual([
+			"first",
+			"third",
+			"second",
+		]);
+	});
+
+	it("does not emit a mutation beyond a list boundary", () => {
+		expect(reorderByKeyboard(items, 0, "ArrowUp")).toBeUndefined();
+		expect(reorderByKeyboard(items, 2, "End")).toBeUndefined();
 	});
 });

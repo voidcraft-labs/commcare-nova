@@ -22,7 +22,7 @@ import {
 	type Module,
 	plainColumn,
 } from "@/lib/domain";
-import { matchAll } from "@/lib/domain/predicate";
+import { literal, matchAll, term } from "@/lib/domain/predicate";
 import { addSearchInputsTool } from "../addSearchInputs";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
@@ -99,10 +99,14 @@ describe("addSearchInputs", () => {
 		// makes the search surface real on export, followed by one granular add
 		// per input.
 		expect(result.mutations.map((mutation) => mutation.kind)).toEqual([
-			"setCaseSearchMarker",
+			"updateModule",
 			"addSearchInput",
 			"addSearchInput",
 		]);
+		expect(result.mutations[0]).toMatchObject({
+			caseSearchConfigOperation: "enable",
+			patch: { caseSearchConfig: {} },
+		});
 		const inputs =
 			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
 		expect(inputs.map((i) => i.kind)).toEqual(["simple", "advanced"]);
@@ -210,6 +214,47 @@ describe("addSearchInputs", () => {
 		const final = result.newDoc.modules[MOD_A]?.caseListConfig;
 		expect(final?.columns).toEqual([seededColumn]);
 		expect(final?.filter).toEqual(seededFilter);
+	});
+
+	it("enables Search while preserving a fresh owner-only availability rule", async () => {
+		const { doc: baseDoc, ctx } = makeCaseListFixture();
+		const owner = term(literal("owner-a"));
+		const ownerOnlyDoc: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				[MOD_A]: {
+					...baseDoc.modules[MOD_A],
+					caseListConfig: { columns: [], searchInputs: [] },
+					caseSearchConfig: {
+						searchActionEnabled: false,
+						excludedOwnerIds: owner,
+					},
+				},
+			},
+		};
+		const result = await addSearchInputsTool.execute(
+			{
+				moduleIndex: 0,
+				searchInputs: [
+					{
+						kind: "simple",
+						name: "name_search",
+						label: "Name",
+						type: "text",
+						property: "case_name",
+					},
+				],
+			},
+			ctx,
+			ownerOnlyDoc,
+		);
+		expect(result.mutations[0]).toMatchObject({
+			kind: "updateModule",
+			caseSearchConfigOperation: "enable",
+		});
+		expect(result.newDoc.modules[MOD_A]?.caseSearchConfig).toEqual({
+			excludedOwnerIds: owner,
+		});
 	});
 
 	it("returns an Elm-style error on out-of-range moduleIndex", async () => {

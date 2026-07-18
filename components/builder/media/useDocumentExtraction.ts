@@ -53,14 +53,12 @@ export function useDocumentExtraction(
 	 *  on failure too (not just success). */
 	onExtracted?: (extract: ExtractMeta) => void,
 	/** Live read-progress: fires per streamed output chunk with its character count
-	 *  while the model runs. The composer passes this to pulse the signal grid with
-	 *  real progress; the file-manager omits it (the chat grid shouldn't react to
-	 *  library browsing). */
+	 *  while the model runs. Omit it when the caller only needs the outcome. */
 	onProgress?: (deltaChars: number) => void,
 	/** An EXTERNAL (build-scoped) abort signal that owns the in-flight read. The
-	 *  composer passes this so the read SURVIVES the chip unmounting the instant the
-	 *  user sends — the doc is still streaming into the grid, and only that original
-	 *  request carries the tokens — while still aborting when the whole build goes
+	 *  composer passes this so the read survives the chip unmounting the instant the
+	 *  user sends. Only that original request carries the tokens, while the signal
+	 *  still aborts the read when the whole build goes
 	 *  away (so one build's extraction can't bleed energy into another's grid). When
 	 *  absent, the hook owns a per-mount controller and aborts on unmount (the
 	 *  file-manager case, where the read should stop when its row goes). */
@@ -84,9 +82,9 @@ export function useDocumentExtraction(
 	const pollTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const pollCountRef = useRef(0);
 	// Own an abort controller ONLY when no external (build-scoped) signal is given.
-	// With an external signal the read must OUTLIVE this component — a composer chip
-	// unmounts the moment the user sends, yet the doc is still streaming into the
-	// grid — so we never abort it here; the build owner aborts on teardown. Either
+	// With an external signal the read must outlive this component. A composer chip
+	// unmounts the moment the user sends, so we never abort it here; the build owner
+	// aborts on teardown. Either
 	// way `cancelledRef` stops OUR state writes once this instance is gone.
 	const abortRef = useRef<AbortController | undefined>(undefined);
 	useEffect(() => {

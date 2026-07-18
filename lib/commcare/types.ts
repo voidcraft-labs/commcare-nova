@@ -243,6 +243,11 @@ export interface DetailPair {
  * prompt key (which would query a property by the wrong name) and
  * defers to the explicit predicate in the `_xpath_query` slot.
  */
+export interface CaseSearchAssertion {
+	test: string;
+	text: LocalizedString;
+}
+
 export interface CaseSearchProperty {
 	name: string;
 	label: LocalizedString;
@@ -256,6 +261,7 @@ export interface CaseSearchProperty {
 	hidden?: boolean;
 	allow_blank_value?: boolean;
 	exclude?: boolean;
+	validations?: CaseSearchAssertion[];
 	is_group?: boolean;
 	group_key?: string;
 }

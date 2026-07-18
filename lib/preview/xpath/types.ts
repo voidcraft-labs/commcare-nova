@@ -53,8 +53,21 @@ export class XPathDate {
 		 * non-padded literal is legal on-device and must parse here too. */
 		const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(trimmed);
 		if (!m) return null;
-		const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+		const year = +m[1];
+		const monthIndex = +m[2] - 1;
+		const day = +m[3];
+		const d = new Date(Date.UTC(year, monthIndex, day));
 		if (Number.isNaN(d.getTime())) return null;
+		// `Date.UTC` normalizes invalid calendar input (February 31 → March 3),
+		// while JavaRosa's `DateFields.check()` rejects it. Compare the parsed
+		// components so Preview does not quietly display a different date.
+		if (
+			d.getUTCFullYear() !== year ||
+			d.getUTCMonth() !== monthIndex ||
+			d.getUTCDate() !== day
+		) {
+			return null;
+		}
 		return XPathDate.fromDays(daysSinceEpoch(d));
 	}
 

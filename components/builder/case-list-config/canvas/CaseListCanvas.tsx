@@ -8,15 +8,17 @@
 
 "use client";
 
-import { Icon } from "@iconify/react/offline";
-import tablerAdjustmentsHorizontal from "@iconify-icons/tabler/adjustments-horizontal";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import type {
 	CaseListConfig,
 	CaseProperty,
+	CaseSearchConfig,
 	CaseType,
 	Column,
+	CommitOutcome,
 } from "@/lib/domain";
+import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import { useCanEdit } from "@/lib/session/hooks";
 import { CaseOrderingComposer } from "../SortPriorityStack";
 import {
 	representedColumnProperties,
@@ -24,6 +26,10 @@ import {
 } from "../seeds";
 import { projectCaseWorkspaceColumns } from "../workspaceProjection";
 import type { WorkspaceSelection } from "../workspaceSelection";
+import {
+	CaseAvailabilityComposer,
+	type CaseAvailabilityComposerProps,
+} from "./CaseAvailabilityComposer";
 import { CanvasNotice } from "./canvasChrome";
 import {
 	AddInformationControl,
@@ -44,8 +50,18 @@ export interface CaseListCanvasProps {
 	readonly onColumnsChange: (next: readonly Column[]) => void;
 	readonly onShowColumn: (column: Column) => void;
 	readonly onRepairColumn: (column: Column) => void;
-	readonly onOpenOptions: () => void;
-	readonly showMenuAppearance?: boolean;
+	readonly filterBroken: boolean;
+	readonly excludedOwnerIdsBroken?: boolean;
+	readonly onFilterChange: (next: Predicate | undefined) => CommitOutcome;
+	readonly onClearFilter: (next: Predicate | undefined) => CommitOutcome;
+	readonly searchConfig: CaseSearchConfig | undefined;
+	readonly caseSearchEnabled: boolean;
+	readonly onExcludedOwnerIdsChange: (
+		next: ValueExpression | undefined,
+	) => void;
+	readonly appId: string;
+	readonly dependencyReview?: CaseAvailabilityComposerProps["dependencyReview"];
+	readonly onReturnToSearchField?: () => void;
 }
 
 export function CaseListCanvas({
@@ -62,9 +78,18 @@ export function CaseListCanvas({
 	onColumnsChange,
 	onShowColumn,
 	onRepairColumn,
-	onOpenOptions,
-	showMenuAppearance = false,
+	filterBroken,
+	excludedOwnerIdsBroken = false,
+	onFilterChange,
+	onClearFilter,
+	searchConfig,
+	caseSearchEnabled,
+	onExcludedOwnerIdsChange,
+	appId,
+	dependencyReview,
+	onReturnToSearchField,
 }: CaseListCanvasProps) {
+	const canEdit = useCanEdit();
 	const projection = projectCaseWorkspaceColumns(config.columns);
 	const availableProperties = unrepresentedColumnProperties(config, caseType);
 	const repeatableProperties = representedColumnProperties(config, caseType);
@@ -74,25 +99,17 @@ export function CaseListCanvas({
 	return (
 		<ContentFrame width="3xl" className="px-6 pb-24 pt-8">
 			<div data-case-list-layout>
-				<header className="mb-9 flex flex-col gap-4 @min-[22rem]:flex-row @min-[22rem]:items-start">
+				<header className="mb-9">
 					<div className="min-w-0 flex-1">
 						<h1 className="font-display text-2xl font-semibold tracking-tight text-nova-text">
 							Results
 						</h1>
 						<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
-							Choose what people scan before opening a case.
+							{canEdit
+								? "Choose how people recognize and compare cases"
+								: "People recognize and compare cases here"}
 						</p>
 					</div>
-					{showMenuAppearance && (
-						<button
-							type="button"
-							onClick={onOpenOptions}
-							className="inline-flex min-h-11 shrink-0 self-start cursor-pointer items-center gap-2 rounded-xl border border-white/[0.08] px-3 text-[12px] text-nova-text-secondary transition-colors hover:border-nova-violet/30 hover:bg-nova-violet/[0.06] hover:text-nova-text"
-						>
-							<Icon icon={tablerAdjustmentsHorizontal} width="15" height="15" />
-							Menu appearance
-						</button>
-					)}
 				</header>
 
 				<div className="space-y-10">
@@ -104,16 +121,19 @@ export function CaseListCanvas({
 							>
 								Information shown
 							</h2>
-							<p className="mt-1 text-[12px] leading-relaxed text-nova-text-muted">
-								Drag to set the reading order. Select a row to change its label
-								or appearance.
+							<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
+								{canEdit
+									? "Drag to reorder. Select an item to change its label or appearance."
+									: "People use this information to compare cases"}
 							</p>
 						</div>
 
 						{projection.listVisible.length === 0 ? (
 							<div className="overflow-hidden rounded-xl border border-dashed border-nova-border-bright">
-								<CanvasNotice tone="muted">
-									Add the information people need to recognize a case.
+								<CanvasNotice tone="muted" title="No case information is shown">
+									{canEdit
+										? "Add the information people need to recognize a case"
+										: "People can’t recognize a case from this screen. Ask someone who can edit the app to add information."}
 								</CanvasNotice>
 							</div>
 						) : (
@@ -145,16 +165,50 @@ export function CaseListCanvas({
 						</div>
 					</section>
 
+					<section aria-labelledby="results-availability-heading">
+						<div className="mb-4">
+							<h2
+								id="results-availability-heading"
+								className="font-display text-[17px] font-semibold text-nova-text"
+							>
+								Cases available
+							</h2>
+							<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
+								{canEdit
+									? "Choose which cases can appear in Results"
+									: "Your app’s rules determine which cases can appear in Results"}
+							</p>
+						</div>
+
+						<CaseAvailabilityComposer
+							config={config}
+							filterBroken={filterBroken}
+							excludedOwnerIdsBroken={excludedOwnerIdsBroken}
+							onFilterChange={onFilterChange}
+							onClearFilter={onClearFilter}
+							searchConfig={searchConfig}
+							caseSearchEnabled={caseSearchEnabled}
+							onExcludedOwnerIdsChange={onExcludedOwnerIdsChange}
+							caseTypes={caseTypes ?? []}
+							currentCaseType={caseType?.name ?? ""}
+							appId={appId}
+							dependencyReview={dependencyReview}
+							onReturnToSearchField={onReturnToSearchField}
+						/>
+					</section>
+
 					<section aria-labelledby="results-order-heading">
 						<div className="mb-4">
 							<h2
 								id="results-order-heading"
 								className="font-display text-[17px] font-semibold text-nova-text"
 							>
-								Which cases appear first
+								Default order
 							</h2>
-							<p className="mt-1 text-[12px] leading-relaxed text-nova-text-muted">
-								Choose what people see first when Results opens.
+							<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
+								{canEdit
+									? "Choose which cases appear first in Results"
+									: "This order determines which cases appear first in Results"}
 							</p>
 						</div>
 

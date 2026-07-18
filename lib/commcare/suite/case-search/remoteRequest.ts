@@ -17,6 +17,7 @@ import {
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	type Module,
 } from "@/lib/domain";
+import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { instanceSourceFor } from "../../predicate";
 import { buildClaimPost, SEARCH_CASE_ID_REF } from "./claim";
 import { compileForPlatform } from "./compileForPlatform";
@@ -73,6 +74,7 @@ export function buildRemoteRequest(args: {
 	readonly module: Module;
 	readonly moduleIndex: number;
 	readonly platformContext?: PlatformContext;
+	readonly typeContext?: TypeContext;
 }): RemoteRequestBuild {
 	const { module: mod, moduleIndex } = args;
 	const platformContext = args.platformContext ?? DEFAULT_PLATFORM_CONTEXT;
@@ -130,6 +132,7 @@ export function buildRemoteRequest(args: {
 		hasDetailScreen: caseListConfig.columns.some(
 			(column) => column.visibleInDetail !== false,
 		),
+		typeContext: args.typeContext,
 	});
 
 	// Instance declarations — sort the accumulated id set so the wire
@@ -178,6 +181,7 @@ export function emitRemoteRequest(args: {
 	readonly module: Module;
 	readonly moduleIndex: number;
 	readonly platformContext?: PlatformContext;
+	readonly typeContext?: TypeContext;
 }): RemoteRequestEmission {
 	const { element, strings, wire } = buildRemoteRequest(args);
 	return { xml: render(element, RENDER_OPTS), strings, wire };

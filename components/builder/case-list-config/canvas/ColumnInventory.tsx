@@ -7,6 +7,6 @@ import { propertyFallbackDisplayLabel } from "../../shared/primitives/propertyDi
 
 export function columnLabel(column: Column): string {
 	if (column.header.trim() !== "") return column.header;
-	if (column.kind === "calculated") return "Untitled field";
+	if (column.kind === "calculated") return "Calculated value";
 	return propertyFallbackDisplayLabel(column.field);
 }

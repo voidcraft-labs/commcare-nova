@@ -29,9 +29,12 @@
 // this.
 
 "use client";
+import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
+import { usePredicateEditContext } from "@/components/builder/shared/editorContext";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
 import { PropertyPicker } from "@/components/builder/shared/primitives/PropertyPicker";
+import { propertyDisplayLabelForName } from "@/components/builder/shared/primitives/propertyDisplay";
 import type { CaseProperty } from "@/lib/domain";
 
 interface ColumnFieldRowProps {
@@ -70,30 +73,37 @@ export function ColumnFieldRow({
 	errors,
 }: ColumnFieldRowProps) {
 	const fieldInvalid = errors !== undefined && errors.length > 0;
+	const { caseTypes, currentCaseType } = usePredicateEditContext();
+	const properties =
+		caseTypes.find((caseType) => caseType.name === currentCaseType)
+			?.properties ?? [];
+	const inheritedHeader = propertyDisplayLabelForName(field, properties);
+	const usesInheritedHeader = header.trim() === "";
 	return (
-		<div className="space-y-2">
+		<div className="space-y-4 [&_button]:!text-[14px] [&_input]:!text-[14px]">
 			<div>
-				<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
-					Information from
-				</div>
+				<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Information from</div>
 				<PropertyPicker
 					value={field === "" ? undefined : field}
 					onChange={onFieldChange}
 					filter={propertyFilter}
 					invalid={fieldInvalid}
-					displayLabels
 					ariaLabel="Information from"
 				/>
 				<InlineError errors={errors ?? []} />
 			</div>
 			<div>
-				<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
-					Label
+				<div className="mb-2 flex items-baseline justify-between gap-3">
+					<div className={INSPECTOR_LABEL_CLS}>Label</div>
+					{usesInheritedHeader ? (
+						<span className="text-right text-[12px] leading-4 text-nova-text-muted">
+							Uses information label
+						</span>
+					) : null}
 				</div>
 				<BlurCommitTextInput
-					value={header}
+					value={usesInheritedHeader ? inheritedHeader : header}
 					onCommit={onHeaderChange}
-					placeholder="Label shown in the app"
 					ariaLabel="Display label"
 				/>
 			</div>

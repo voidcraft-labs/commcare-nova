@@ -209,6 +209,39 @@ describe("setCaseSearchDisplay", () => {
 		expect(config?.searchScreenTitle).toBe("Find patients");
 	});
 
+	it("turns an owner-only config into explicit Search when action copy is set", async () => {
+		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
+		const owner = term({ kind: "literal", value: "owner-a" });
+		const ownerOnlyDoc: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				[MOD_A]: {
+					...baseDoc.modules[MOD_A],
+					caseListConfig: { columns: [], searchInputs: [] },
+					caseSearchConfig: {
+						searchActionEnabled: false,
+						excludedOwnerIds: owner,
+					},
+				},
+			},
+		};
+		const result = await setCaseSearchDisplayTool.execute(
+			{
+				moduleIndex: 0,
+				searchScreenTitle: null,
+				searchScreenSubtitle: null,
+				searchButtonLabel: "Refresh cases",
+				searchButtonDisplayCondition: null,
+			},
+			ctx,
+			ownerOnlyDoc,
+		);
+		expect(result.newDoc.modules[MOD_A]?.caseSearchConfig).toEqual({
+			excludedOwnerIds: owner,
+			searchButtonLabel: "Refresh cases",
+		});
+	});
+
 	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchDisplayTool.execute(

@@ -14,30 +14,84 @@
 // control disables with the reason rather than letting the gate reject after.
 
 "use client";
-import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
-import { useMemo, useRef, useState } from "react";
+import { type Ref, useId, useMemo, useState } from "react";
+import { Button } from "@/components/shadcn/button";
+import { Input } from "@/components/shadcn/input";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/shadcn/popover";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { caseTypeNameVerdict } from "@/lib/doc/identifierVerdicts";
-import {
-	POPOVER_POPUP_CLS,
-	POPOVER_POSITIONER_ELEVATED_CLS,
-} from "@/lib/styles";
+import { humanizeId, slugifyId } from "@/lib/domain";
 
 const ROW_BASE =
-	"w-full flex items-center gap-2 px-3 min-h-11 text-[13px] rounded-lg cursor-pointer transition-colors text-left";
+	"h-auto min-h-11 w-full justify-start gap-2 rounded-lg px-3 py-2.5 text-left text-sm whitespace-normal";
+
+interface CaseTypeDisplay {
+	readonly label: string;
+	readonly needsDisambiguation: boolean;
+}
+
+/**
+ * Case types are stored as identifiers but read as concepts in the builder.
+ * Only legacy identifiers that collapse to the same friendly label need their
+ * stored value exposed so a person can tell them apart.
+ */
+function caseTypeDisplays(
+	names: readonly string[],
+): ReadonlyMap<string, CaseTypeDisplay> {
+	const labels = names.map((name) => ({ name, label: humanizeId(name) }));
+	const labelCounts = new Map<string, number>();
+	for (const { label } of labels) {
+		const key = label.toLowerCase();
+		labelCounts.set(key, (labelCounts.get(key) ?? 0) + 1);
+	}
+
+	return new Map(
+		labels.map(({ name, label }) => [
+			name,
+			{
+				label,
+				needsDisambiguation: (labelCounts.get(label.toLowerCase()) ?? 0) > 1,
+			},
+		]),
+	);
+}
+
+function creationErrorMessage(
+	verdict: ReturnType<typeof caseTypeNameVerdict>,
+	candidate: string,
+): string | null {
+	if (verdict.ok) return null;
+
+	switch (verdict.code) {
+		case "empty":
+			return "Use at least one letter or number";
+		case "illegal_format":
+			return "Start the name with a word, not a number";
+		case "reserved":
+			return `Choose a more specific name, such as ${humanizeId(candidate)} record`;
+		case "too_long":
+			return "Use a shorter name";
+		case "duplicate":
+			return `${humanizeId(candidate)} already exists. Choose it above.`;
+	}
+}
 
 interface CaseTypePickerContentProps {
 	/** The currently-bound case type, highlighted in the list. */
 	readonly value?: string;
 	/** Fired when a case type is chosen (existing) or created (new). */
 	readonly onChange: (name: string) => void;
-	/** When provided, a "Clear case type" row shows (settings only). */
+	/** When provided, a consequence-labeled removal row shows (settings only). */
 	readonly onClear?: () => void;
 }
 
@@ -52,14 +106,21 @@ export function CaseTypePickerContent({
 }: CaseTypePickerContentProps) {
 	const caseTypes = useCaseTypes();
 	const [draft, setDraft] = useState("");
+	const inputId = useId();
+	const errorId = `${inputId}-error`;
 
 	const existingNames = useMemo(
 		() => new Set(caseTypes.map((c) => c.name)),
 		[caseTypes],
 	);
+	const displays = useMemo(
+		() => caseTypeDisplays(caseTypes.map((caseType) => caseType.name)),
+		[caseTypes],
+	);
+	const candidate = useMemo(() => slugifyId(draft, ""), [draft]);
 	const verdict = useMemo(
-		() => caseTypeNameVerdict(draft, existingNames),
-		[draft, existingNames],
+		() => caseTypeNameVerdict(candidate, existingNames),
+		[candidate, existingNames],
 	);
 	// Only surface the reason once the user has typed something — an empty
 	// field shouldn't read as an error before they start.
@@ -67,32 +128,45 @@ export function CaseTypePickerContent({
 
 	const commitNew = () => {
 		if (!verdict.ok) return;
-		onChange(draft.trim());
+		onChange(candidate);
+		setDraft("");
 	};
 
 	return (
-		<div className="w-64 p-1.5">
-			<div className="px-2 pt-1 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-nova-text-muted">
-				Case type
+		<div className="flex max-h-[min(24rem,var(--available-height,24rem))] w-72 max-w-full flex-col p-1.5">
+			<div className="shrink-0 px-2 pb-1.5 pt-1 text-xs font-medium text-nova-text-muted">
+				Case types
 			</div>
 
 			{caseTypes.length === 0 ? (
-				<div className="px-3 py-2 text-xs text-nova-text-muted italic">
-					No case types yet — create one below.
+				<div className="px-3 py-2 text-[13px] leading-relaxed text-nova-text-muted">
+					<p>No case types yet</p>
+					<p className="mt-0.5">Create one below</p>
 				</div>
 			) : (
-				<div className="max-h-56 overflow-y-auto">
+				<div className="min-h-0 max-h-56 flex-1 overflow-y-auto overscroll-contain">
 					{caseTypes.map((ct) => {
 						const active = ct.name === value;
+						const display = displays.get(ct.name) ?? {
+							label: humanizeId(ct.name),
+							needsDisambiguation: false,
+						};
 						return (
-							<button
+							<Button
 								key={ct.name}
 								type="button"
+								variant="ghost"
 								onClick={() => onChange(ct.name)}
+								aria-pressed={active}
+								aria-label={
+									display.needsDisambiguation
+										? `${display.label}, saved as ${ct.name}`
+										: display.label
+								}
 								className={`${ROW_BASE} ${
 									active
-										? "text-nova-violet-bright bg-nova-violet/10"
-										: "text-nova-text hover:bg-white/[0.06]"
+										? "bg-nova-violet/10 text-nova-violet-bright not-disabled:hover:bg-nova-violet/15"
+										: "text-nova-text not-disabled:hover:bg-white/[0.06]"
 								}`}
 							>
 								<Icon
@@ -103,7 +177,14 @@ export function CaseTypePickerContent({
 										active ? "text-nova-violet-bright" : "text-nova-text-muted"
 									}
 								/>
-								<span className="flex-1 font-mono truncate">{ct.name}</span>
+								<span className="min-w-0 flex-1">
+									<span className="block break-words">{display.label}</span>
+									{display.needsDisambiguation && (
+										<span className="mt-0.5 block break-words text-xs font-normal text-nova-text-muted">
+											Saved as {ct.name}
+										</span>
+									)}
+								</span>
 								{active && (
 									<Icon
 										icon={tablerCheck}
@@ -112,18 +193,25 @@ export function CaseTypePickerContent({
 										className="text-nova-violet-bright shrink-0"
 									/>
 								)}
-							</button>
+							</Button>
 						);
 					})}
 				</div>
 			)}
 
-			<div className="my-1.5 h-px bg-white/[0.06]" />
+			<div className="my-1.5 h-px shrink-0 bg-white/[0.06]" />
 
 			{/* Create new */}
-			<div className="px-1.5 pb-0.5">
-				<div className="flex items-center gap-1.5">
-					<input
+			<div className="shrink-0 px-1.5 pb-0.5">
+				<label
+					htmlFor={inputId}
+					className="mb-2 block text-xs font-medium text-nova-text-muted"
+				>
+					Create case type
+				</label>
+				<div className="space-y-2">
+					<Input
+						id={inputId}
 						type="text"
 						value={draft}
 						onChange={(e) => setDraft(e.target.value)}
@@ -133,45 +221,51 @@ export function CaseTypePickerContent({
 								commitNew();
 							}
 						}}
-						placeholder="New case type…"
+						placeholder="For example, Follow-up visit"
 						autoComplete="off"
 						data-1p-ignore
-						aria-label="New case type name"
 						aria-invalid={showError}
-						className={`flex-1 min-w-0 px-2.5 min-h-11 text-[13px] font-mono rounded-lg bg-nova-deep/50 border text-nova-text placeholder:text-nova-text-muted placeholder:font-sans focus:outline-none transition-colors ${
+						aria-describedby={showError ? errorId : undefined}
+						className={`min-h-11 bg-nova-deep/50 px-2.5 text-sm text-nova-text placeholder:text-nova-text-muted ${
 							showError
-								? "border-nova-rose/50 focus:border-nova-rose"
-								: "border-white/[0.06] focus:border-nova-violet"
+								? "border-nova-rose/50 focus-visible:border-nova-rose focus-visible:ring-nova-rose/20"
+								: "border-white/[0.06] focus-visible:border-nova-violet"
 						}`}
 					/>
-					<button
+					<Button
 						type="button"
+						variant="ghost"
 						onClick={commitNew}
 						disabled={!verdict.ok}
-						className="shrink-0 min-h-11 flex items-center gap-1 px-3 rounded-lg text-[13px] font-medium bg-nova-violet/15 text-nova-violet-bright not-disabled:hover:bg-nova-violet/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+						className="min-h-11 w-full gap-1 bg-nova-violet/15 px-3 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/25"
 					>
 						<Icon icon={tablerPlus} width="15" height="15" />
 						Create
-					</button>
+					</Button>
 				</div>
 				{showError && !verdict.ok && (
-					<p className="mt-1 px-0.5 text-[11px] text-nova-rose">
-						{verdict.userMessage}
+					<p
+						id={errorId}
+						role="alert"
+						className="mt-1 px-0.5 text-xs text-nova-rose"
+					>
+						{creationErrorMessage(verdict, candidate)}
 					</p>
 				)}
 			</div>
 
 			{onClear && value && (
 				<>
-					<div className="my-1.5 h-px bg-white/[0.06]" />
-					<button
+					<div className="my-1.5 h-px shrink-0 bg-white/[0.06]" />
+					<Button
 						type="button"
+						variant="ghost"
 						onClick={onClear}
-						className={`${ROW_BASE} text-nova-text-muted hover:bg-white/[0.06] hover:text-nova-text`}
+						className={`${ROW_BASE} text-nova-text-muted not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text`}
 					>
 						<Icon icon={tablerX} width="14" height="14" />
-						<span className="flex-1">Clear case type</span>
-					</button>
+						<span className="flex-1">Stop managing cases</span>
+					</Button>
 				</>
 			)}
 		</div>
@@ -183,6 +277,8 @@ interface CaseTypePickerProps extends CaseTypePickerContentProps {
 	readonly placeholder?: string;
 	/** Accessible label for the trigger. */
 	readonly ariaLabel?: string;
+	/** Lets a parent confirmation return focus after the popover choice unmounts. */
+	readonly triggerRef?: Ref<HTMLButtonElement>;
 }
 
 /**
@@ -196,30 +292,55 @@ export function CaseTypePicker({
 	onClear,
 	placeholder = "Pick a case type",
 	ariaLabel = "Case type",
+	triggerRef,
 }: CaseTypePickerProps) {
+	const caseTypes = useCaseTypes();
 	const [open, setOpen] = useState(false);
-	const triggerRef = useRef<HTMLButtonElement>(null);
+	const displays = useMemo(
+		() => caseTypeDisplays(caseTypes.map((caseType) => caseType.name)),
+		[caseTypes],
+	);
+	const selectedDisplay = value
+		? (displays.get(value) ?? {
+				label: humanizeId(value),
+				needsDisambiguation: false,
+			})
+		: null;
+	const triggerLabel = selectedDisplay?.label ?? placeholder;
+	const storedValueHint =
+		value && selectedDisplay?.needsDisambiguation ? value : null;
 
 	return (
-		<Popover.Root open={open} onOpenChange={setOpen}>
-			<Popover.Trigger
+		<Popover open={open} onOpenChange={setOpen}>
+			<PopoverTrigger
 				ref={triggerRef}
-				aria-label={`${ariaLabel}: ${value ?? placeholder}`}
-				className="group w-full flex items-center justify-between gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] hover:border-nova-violet/30 bg-nova-deep/50 text-nova-text transition-colors cursor-pointer"
+				render={<Button type="button" variant="outline" />}
+				aria-label={`${ariaLabel}: ${triggerLabel}${storedValueHint ? `, saved as ${storedValueHint}` : ""}`}
+				className="group h-auto min-h-11 w-full justify-between gap-2 whitespace-normal border-white/[0.06] bg-nova-deep/50 px-3 py-2 text-sm text-nova-text not-disabled:hover:border-nova-violet/30"
 			>
-				<span className="flex items-center gap-1.5 min-w-0">
+				<span className="flex min-w-0 flex-1 items-start gap-1.5 text-left">
 					<Icon
 						icon={tablerDatabase}
 						width="14"
 						height="14"
-						className={
+						className={`mt-0.5 shrink-0 ${
 							value ? "text-nova-violet-bright" : "text-nova-text-muted"
-						}
+						}`}
 					/>
-					<span
-						className={`truncate font-mono ${value ? "text-nova-text" : "text-nova-text-muted"}`}
-					>
-						{value ?? placeholder}
+					<span className="min-w-0 flex-1">
+						<span
+							className={`block break-words ${value ? "text-nova-text" : "text-nova-text-muted"}`}
+						>
+							{triggerLabel}
+						</span>
+						{storedValueHint && (
+							<span
+								aria-hidden="true"
+								className="mt-0.5 block break-words text-xs font-normal text-nova-text-muted"
+							>
+								Saved as {storedValueHint}
+							</span>
+						)}
 					</span>
 				</span>
 				<Icon
@@ -228,32 +349,28 @@ export function CaseTypePicker({
 					height="14"
 					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
 				/>
-			</Popover.Trigger>
-			<Popover.Portal>
-				<Popover.Positioner
-					side="bottom"
-					align="start"
-					sideOffset={6}
-					anchor={triggerRef}
-					className={POPOVER_POSITIONER_ELEVATED_CLS}
-				>
-					<Popover.Popup className={POPOVER_POPUP_CLS}>
-						<CaseTypePickerContent
-							value={value}
-							onChange={(name) => {
-								onChange(name);
-								setOpen(false);
-							}}
-							{...(onClear && {
-								onClear: () => {
-									onClear();
-									setOpen(false);
-								},
-							})}
-						/>
-					</Popover.Popup>
-				</Popover.Positioner>
-			</Popover.Portal>
-		</Popover.Root>
+			</PopoverTrigger>
+			<PopoverContent
+				side="bottom"
+				align="start"
+				sideOffset={6}
+				collisionPadding={8}
+				className="max-h-[min(24rem,var(--available-height,24rem))] w-72 max-w-[calc(var(--available-width)-0.5rem)] gap-0 overflow-hidden p-0"
+			>
+				<CaseTypePickerContent
+					value={value}
+					onChange={(name) => {
+						onChange(name);
+						setOpen(false);
+					}}
+					{...(onClear && {
+						onClear: () => {
+							onClear();
+							setOpen(false);
+						},
+					})}
+				/>
+			</PopoverContent>
+		</Popover>
 	);
 }

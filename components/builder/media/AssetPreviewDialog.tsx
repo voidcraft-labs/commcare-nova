@@ -29,17 +29,13 @@ import {
 	DialogContent,
 	DialogTitle,
 } from "@/components/shadcn/dialog";
+import { Spinner } from "@/components/shadcn/spinner";
 import {
 	Tabs,
 	TabsContent,
 	TabsList,
 	TabsTrigger,
 } from "@/components/shadcn/tabs";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/shadcn/tooltip";
 import { type AssetKind, isDocumentKind } from "@/lib/domain/multimedia";
 import { ChatMarkdown } from "@/lib/markdown";
 import { ASSET_KIND_META } from "./assetKindMeta";
@@ -83,7 +79,7 @@ export function AssetPreviewDialog({
 		<Dialog open={target !== null} onOpenChange={onOpenChange}>
 			<DialogContent
 				showCloseButton={false}
-				className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-3xl"
+				className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
 			>
 				{target && <PreviewBody target={target} />}
 			</DialogContent>
@@ -120,7 +116,7 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 
 	return (
 		<>
-			<header className="flex items-start justify-between gap-3 border-b border-nova-border px-4 py-3">
+			<header className="flex shrink-0 items-start justify-between gap-4 border-b border-nova-border px-5 py-4">
 				<div className="flex min-w-0 flex-col gap-0.5">
 					{/* The human title leads (the meaningful name); the raw filename
 					 *  drops to a small subline aligned under it. Without an extracted
@@ -131,32 +127,26 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 							icon={ASSET_KIND_META[target.kind].icon}
 							className="size-4 shrink-0 text-nova-text-muted"
 						/>
-						<span className="truncate">{title ?? name}</span>
+						<span className="min-w-0 [overflow-wrap:anywhere]">
+							{title ?? name}
+						</span>
 					</DialogTitle>
 					{title && (
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<p className="truncate pl-6 text-xs text-nova-text-muted">
-										{name}
-									</p>
-								}
-							/>
-							<TooltipContent>{name}</TooltipContent>
-						</Tooltip>
+						<p className="pl-6 text-xs leading-snug text-nova-text-muted [overflow-wrap:anywhere]">
+							{name}
+						</p>
 					)}
 				</div>
 				<DialogClose
 					render={
 						<Button
 							variant="ghost"
-							size="icon-sm"
-							className="shrink-0 text-nova-text-muted"
+							className="h-11 shrink-0 px-3 text-nova-text-secondary"
 						/>
 					}
-					aria-label="Close"
 				>
 					<Icon icon={tablerX} className="size-4" />
+					Close
 				</DialogClose>
 			</header>
 
@@ -172,17 +162,24 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 			)}
 
 			{isDocument ? (
-				<Tabs defaultValue="extract" className="min-h-0 flex-1 gap-0 p-4 pt-3">
-					<TabsList variant="line" className="mb-3">
+				<Tabs
+					defaultValue="extract"
+					className="min-h-0 flex-1 gap-0 overflow-hidden p-5 pt-3"
+				>
+					<TabsList variant="line" className="mb-3 h-12 shrink-0">
 						{/* "What Nova reads" leads — it's what the SA actually sees, and
 						 *  the only view office/text docs have (the Document tab just
 						 *  offers a download). The explainer sits beside the tab it
 						 *  describes, not in the picker header. */}
-						<TabsTrigger value="extract">What Nova reads</TabsTrigger>
+						<TabsTrigger value="extract" className="min-h-11 px-3">
+							What Nova reads
+						</TabsTrigger>
 						<span className="flex items-center">
 							<ExtractionInfoPopover />
 						</span>
-						<TabsTrigger value="document">Document</TabsTrigger>
+						<TabsTrigger value="document" className="min-h-11 px-3">
+							Document
+						</TabsTrigger>
 					</TabsList>
 					<TabsContent value="extract" className="min-h-0 overflow-auto">
 						<ExtractView assetId={target.id} />
@@ -192,7 +189,7 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
 					</TabsContent>
 				</Tabs>
 			) : (
-				<div className="min-h-0 flex-1 overflow-auto p-4">
+				<div className="min-h-0 flex-1 overflow-auto p-5">
 					<DocumentView target={target} />
 				</div>
 			)}
@@ -282,20 +279,20 @@ function DownloadOriginal({
 				icon={ASSET_KIND_META[kind].icon}
 				className="size-10 text-nova-text-muted"
 			/>
-			<p className="text-sm text-nova-text-secondary">
-				Nova doesn't preview {ASSET_KIND_META[kind].label} files here — download
+			<p className="max-w-lg text-sm text-nova-text-secondary">
+				Nova doesn't preview {ASSET_KIND_META[kind].label} files here. Download
 				the original to open it, or switch to{" "}
 				<span className="text-nova-text">What Nova reads</span> to see what Nova
 				extracted.
 			</p>
-			<a
-				href={src}
-				download={name}
-				className="inline-flex items-center gap-1.5 rounded-md bg-nova-action px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nova-violet-bright"
+			<Button
+				nativeButton={false}
+				render={<a href={src} download={name} />}
+				className="h-11 px-4"
 			>
 				<Icon icon={tablerDownload} className="size-4" />
 				Download original
-			</a>
+			</Button>
 		</div>
 	);
 }
@@ -312,7 +309,7 @@ function AssetUnavailable({ kind }: { kind: AssetKind }) {
 				className="size-10 text-nova-text-muted"
 			/>
 			<p className="text-sm text-nova-text-secondary">
-				This file is no longer available — it may have been deleted from your
+				This file is no longer available. It may have been deleted from your
 				library.
 			</p>
 		</div>
@@ -328,8 +325,12 @@ type ExtractState =
 /** The "What Nova reads" panel — fetches the stored extract for the document. */
 function ExtractView({ assetId }: { assetId: string }) {
 	const [extract, setExtract] = useState<ExtractState>({ state: "loading" });
+	const [attempt, setAttempt] = useState(0);
 
 	useEffect(() => {
+		// `attempt` is an intentional retry key: changing it reruns this request even
+		// when the asset itself has not changed.
+		void attempt;
 		let cancelled = false;
 		setExtract({ state: "loading" });
 		fetchAssetExtract(assetId)
@@ -344,19 +345,22 @@ function ExtractView({ assetId }: { assetId: string }) {
 				setExtract({
 					state: "error",
 					message:
-						err instanceof Error ? err.message : "Couldn't load the extract.",
+						err instanceof Error
+							? err.message
+							: "Couldn't load what Nova reads",
 				});
 			});
 		return () => {
 			cancelled = true;
 		};
-	}, [assetId]);
+	}, [assetId, attempt]);
 
 	if (extract.state === "loading") {
 		return (
-			<p className="py-8 text-center text-sm text-nova-text-muted">
+			<div className="flex min-h-44 flex-col items-center justify-center gap-3 text-sm text-nova-text-secondary">
+				<Spinner className="size-5" aria-label="Loading what Nova reads" />
 				Loading what Nova reads…
-			</p>
+			</div>
 		);
 	}
 	if (extract.state === "absent") {
@@ -365,17 +369,23 @@ function ExtractView({ assetId }: { assetId: string }) {
 		// apart, so the copy honestly covers both rather than asserting "not read
 		// yet" over a file that no longer exists.
 		return (
-			<p className="py-8 text-center text-sm text-nova-text-muted">
-				No extract to show — the document may still be processing, or it's no
-				longer in your library.
-			</p>
+			<ExtractStatePanel
+				title="Nothing to show yet"
+				description="Nova may still be reading this document, or the file may no longer be available"
+				action="Check again"
+				onAction={() => setAttempt((current) => current + 1)}
+			/>
 		);
 	}
 	if (extract.state === "error") {
 		return (
-			<p className="py-8 text-center text-sm text-nova-rose">
-				{extract.message}
-			</p>
+			<ExtractStatePanel
+				title="What Nova reads couldn't be loaded"
+				description={extract.message}
+				action="Retry"
+				onAction={() => setAttempt((current) => current + 1)}
+				error
+			/>
 		);
 	}
 	// Render the extract as markdown inside a quiet frame. The extract is built
@@ -387,6 +397,48 @@ function ExtractView({ assetId }: { assetId: string }) {
 	return (
 		<div className="chat-markdown break-words rounded-md border border-nova-border bg-nova-surface p-4 text-sm text-nova-text-secondary">
 			<ChatMarkdown>{extract.text}</ChatMarkdown>
+		</div>
+	);
+}
+
+function ExtractStatePanel({
+	title,
+	description,
+	action,
+	onAction,
+	error = false,
+}: {
+	title: string;
+	description: string;
+	action: string;
+	onAction: () => void;
+	error?: boolean;
+}) {
+	return (
+		<div
+			role={error ? "alert" : undefined}
+			className="flex min-h-44 flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-nova-border px-5 py-8 text-center"
+		>
+			<div className="space-y-1">
+				<p className="text-base font-medium text-nova-text">{title}</p>
+				<p
+					className={
+						error
+							? "text-sm text-nova-rose"
+							: "text-sm text-nova-text-secondary"
+					}
+				>
+					{description}
+				</p>
+			</div>
+			<Button
+				type="button"
+				variant="outline"
+				className="h-11 px-4"
+				onClick={onAction}
+			>
+				{action}
+			</Button>
 		</div>
 	);
 }

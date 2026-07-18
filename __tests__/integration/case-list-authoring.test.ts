@@ -10,8 +10,8 @@
 //     into subsequent `update` / `remove` / `reorder` calls verbatim.
 //   - Wire emission: per-column `<sort>` blocks, calc-column inline-
 //     variable templates, visibility filtering, comparator-type
-//     fallback shapes (`undefined` / `ANY_TYPE` / unmapped
-//     `ResolvedType`).
+//     fallback shapes (`undefined` / `ANY_TYPE`) and rejection of an
+//     unsupported server-side-only sequence expression.
 //   - Validator: column-uuid not found, orphan search-input
 //     references inside the predicate filter, search-input mode-vs-
 //     property-type mismatches.
@@ -145,7 +145,7 @@ const COL_AGE_UUID = asUuid("00000000-0000-4000-8000-000000000005");
 const COL_AGE_NEXT_UUID = asUuid("00000000-0000-4000-8000-000000000006");
 
 const SI_NAME_UUID = asUuid("00000000-0000-4000-8000-000000000010");
-const SI_AGE_UUID = asUuid("00000000-0000-4000-8000-000000000011");
+const SI_VISIT_RANGE_UUID = asUuid("00000000-0000-4000-8000-000000000011");
 
 /**
  * Construct the well-formed v2 case-list configuration. Single
@@ -197,17 +197,19 @@ function buildWellFormedCaseListConfig(): CaseListConfig {
 				"text",
 				"name",
 			),
-			// Range mode on a numeric property — admitted by the
-			// `(text-input, int-property, range-mode)` matrix at
-			// `SEARCH_MODE_PROPERTY_TYPES`. Prompt key matches the
-			// targeted property so CCHQ's runtime auto-match against
-			// the prompt key IS the authored comparison, and the
-			// validator's `searchInputViaModeCompatibility` admits the
-			// shape (the only `range` shape the bare prompt slot
-			// carries faithfully).
-			simpleSearchInputDef(SI_AGE_UUID, "age", "Age range", "text", "age", {
-				mode: rangeMode(),
-			}),
+			// CommCare's range prompt carries one inseparable start/end
+			// answer, so Nova pairs it only with the date-range widget.
+			// Keeping that invariant in the shared well-formed fixture
+			// means the validator, HQ JSON, and suite emitters all exercise
+			// the same value shape.
+			simpleSearchInputDef(
+				SI_VISIT_RANGE_UUID,
+				"last_visit",
+				"Visit dates",
+				"date-range",
+				"last_visit",
+				{ mode: rangeMode() },
+			),
 		],
 	};
 }
@@ -690,11 +692,9 @@ describe("wire emission", () => {
 });
 
 // =================================================================
-// 4. Calc-column comparator-type fallback — three separate tests,
-//    one per failure shape. Three failure shapes route to comparator
-//    type `plain` (`undefined`, `ANY_TYPE`, and a `ResolvedType`
-//    with no comparator mapping); pinning each shape with its own
-//    test prevents an implementation that collapses them.
+// 4. Calc-column comparator safety — unresolved and null-shaped
+//    values defensively fall back to `plain`, while expressions Core
+//    cannot evaluate on-device fail closed at the wire boundary.
 // =================================================================
 
 describe("calc-column comparator-type fallback", () => {
@@ -758,16 +758,16 @@ describe("calc-column comparator-type fallback", () => {
 		expect(dir.type).toBe("plain");
 	});
 
-	it("falls back to plain when checkExpression returns SEQUENCE_TYPE (unmapped ResolvedType)", () => {
-		// `unwrap-list` returns the `SEQUENCE_TYPE` sentinel — no
-		// `SortType` mapping exists. The defensive fallback routes
-		// through `plain` so an in-flight edit state doesn't crash
-		// the build.
+	it("rejects SEQUENCE_TYPE instead of emitting unsupported on-device XPath", () => {
+		// `unwrap-list` is a CCHQ server-side CSQL function. Although
+		// the type checker represents its result with `SEQUENCE_TYPE`,
+		// CommCare Core cannot evaluate that function in a calculated
+		// sort expression. Imported invalid state therefore fails at
+		// the wire boundary rather than silently becoming a broken sort.
 		const { mod, doc } = buildCalcModule(unwrapList(term(literal("any"))));
-		const directives = buildSortDirectives(mod, doc);
-		const dir = directives.get(calcUuid);
-		if (!dir) throw new Error("missing directive on calc column");
-		expect(dir.type).toBe("plain");
+		expect(() => buildSortDirectives(mod, doc)).toThrow(
+			/unwrap-list.*server-side case-search function/i,
+		);
 	});
 });
 

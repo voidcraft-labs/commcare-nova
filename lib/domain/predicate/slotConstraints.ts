@@ -17,6 +17,9 @@
 
 import {
 	ALL_RESOLVED_TYPES,
+	ANY_TYPE,
+	comparisonObjectTypesFor,
+	comparisonOperatorsFor,
 	compatibleTypesFor,
 	isDateOrDatetime,
 	isNumeric,
@@ -26,7 +29,7 @@ import {
 	type ValueExpressionResultClass,
 	valueExpressionKindResultClass,
 } from "./typeChecker";
-import type { MatchMode, ValueExpression } from "./types";
+import type { ComparisonKind, MatchMode, ValueExpression } from "./types";
 
 // ── The descriptor ────────────────────────────────────────────────
 
@@ -42,11 +45,18 @@ import type { MatchMode, ValueExpression } from "./types";
  *   - `termOnly` — only a `term`-arm value is admissible, no computed
  *     expression kind (`match.value`: the wire match emitter consumes
  *     terms only).
+ *   - `forbidDirectLiteral` — the slot may contain every otherwise-
+ *     admissible expression except a literal directly at this node.
+ *     Descendants of a calculated expression remain unrestricted. This
+ *     mirrors the absence operators' exact checker rule: `is-blank(5)` is
+ *     meaningless, while `is-blank(if(..., 5, ...))` is a runtime read whose
+ *     result can genuinely be absent.
  */
 export interface SlotConstraint {
 	readonly accepts: ReadonlySet<ResolvedType> | "any";
 	readonly nonEmpty?: boolean;
 	readonly termOnly?: boolean;
+	readonly forbidDirectLiteral?: boolean;
 }
 
 /** The unconstrained slot — the additive default while plumbing, and
@@ -68,6 +78,7 @@ const TEXT_OR_DATE_TYPES: ReadonlySet<ResolvedType> = new Set([
 const DATE_TYPES: ReadonlySet<ResolvedType> = new Set(
 	ALL_RESOLVED_TYPES.filter(isDateOrDatetime),
 );
+const DATE_OPERAND_CONSTRAINT: SlotConstraint = { accepts: DATE_TYPES };
 /** Anything `double` reads — a text-shaped string or an already-numeric
  *  value (mirrors `checkExpression`'s `double` arm). */
 const TEXT_OR_NUMERIC_TYPES: ReadonlySet<ResolvedType> = new Set<ResolvedType>([
@@ -75,18 +86,108 @@ const TEXT_OR_NUMERIC_TYPES: ReadonlySet<ResolvedType> = new Set<ResolvedType>([
 	...NUMERIC_TYPES,
 ]);
 
+/** Scalar result types that have at least one compatible counterpart under
+ * the checker's own `typesCompatible` table. This excludes only the sequence
+ * sentinel today, without maintaining a second editor-side type list. */
+const COMPARABLE_SUBJECT_TYPES: ReadonlySet<ResolvedType> = new Set(
+	ALL_RESOLVED_TYPES.filter((type) => compatibleTypesFor(type).size > 0),
+);
+
+/** Result types the editor can author as a non-null literal. Select values
+ * author through their text representation, while a geopoint has no literal
+ * control (only a property/input read can produce one). Membership requires
+ * at least one non-null value at the schema layer, so a subject whose only
+ * literal-compatible value is null must not be offered by the editor. */
+const AUTHORABLE_NON_NULL_LITERAL_TYPES: ReadonlySet<ResolvedType> = new Set([
+	"text",
+	"int",
+	"decimal",
+	"date",
+	"datetime",
+	"time",
+]);
+
+const IN_SUBJECT_TYPES: ReadonlySet<ResolvedType> = new Set(
+	ALL_RESOLVED_TYPES.filter((subjectType) => {
+		const compatible = compatibleTypesFor(subjectType);
+		return [...AUTHORABLE_NON_NULL_LITERAL_TYPES].some((literalType) =>
+			compatible.has(literalType),
+		);
+	}),
+);
+
+function comparisonSubjectTypes(
+	kind: ComparisonKind,
+): ReadonlySet<ResolvedType> {
+	return new Set(
+		ALL_RESOLVED_TYPES.filter(
+			(type) =>
+				COMPARABLE_SUBJECT_TYPES.has(type) &&
+				comparisonOperatorsFor(type).has(kind),
+		),
+	);
+}
+
+/** Stable descriptors keep picker memoization intact across renders. */
+const COMPARISON_SUBJECT_CONSTRAINTS: Readonly<
+	Record<ComparisonKind, SlotConstraint>
+> = {
+	eq: { accepts: comparisonSubjectTypes("eq") },
+	neq: { accepts: comparisonSubjectTypes("neq") },
+	gt: { accepts: comparisonSubjectTypes("gt") },
+	gte: { accepts: comparisonSubjectTypes("gte") },
+	lt: { accepts: comparisonSubjectTypes("lt") },
+	lte: { accepts: comparisonSubjectTypes("lte") },
+};
+
+const IN_SUBJECT_CONSTRAINT: SlotConstraint = {
+	accepts: IN_SUBJECT_TYPES,
+};
+const ABSENCE_SUBJECT_CONSTRAINT: SlotConstraint = {
+	accepts: "any",
+	forbidDirectLiteral: true,
+};
+
 // ── Per-slot constraint factories ─────────────────────────────────
 //
 // One per typed slot family. Each delegates its accept-set to the
 // checker's forward rules; the structural flags encode the per-operator
 // shape rules the checker enforces.
 
+/** A comparison's subject slot (`left`). The allowed result types are the
+ * exact inverse of `checkComparison`: the operator must admit the type, and
+ * that type must have at least one compatible value on the other side. */
+export function comparisonSubjectConstraint(
+	kind: ComparisonKind,
+): SlotConstraint {
+	return COMPARISON_SUBJECT_CONSTRAINTS[kind];
+}
+
+/** An `in` subject must be scalar-comparable with at least one literal type. */
+export function inSubjectConstraint(): SlotConstraint {
+	return IN_SUBJECT_CONSTRAINT;
+}
+
+/** A `between` subject follows the same ordered-type rule as the four
+ * ordering comparisons. Deriving through the comparison inverse keeps the
+ * two authoring surfaces locked to the checker. */
+export function betweenSubjectConstraint(): SlotConstraint {
+	return COMPARISON_SUBJECT_CONSTRAINTS.gte;
+}
+
+/** Absence checks accept every resolved expression type, but the checker
+ * rejects a literal placed directly in `left`. */
+export function absenceSubjectConstraint(): SlotConstraint {
+	return ABSENCE_SUBJECT_CONSTRAINT;
+}
+
 /** A comparison's object slot (`eq`/`neq`/`gt`/… right): any value type
  *  compatible with the subject. */
 export function comparisonObjectConstraint(
+	kind: ComparisonKind,
 	subjectType: ResolvedType | undefined,
 ): SlotConstraint {
-	return { accepts: compatibleTypesFor(subjectType) };
+	return { accepts: comparisonObjectTypesFor(kind, subjectType) };
 }
 
 /** A `between` bound (`lower`/`upper`): compatible with the ordered
@@ -141,7 +242,80 @@ export function concatPartConstraint(): SlotConstraint {
 
 /** A `date-add` / `format-date` date operand: date or datetime. */
 export function dateOperandConstraint(): SlotConstraint {
-	return { accepts: DATE_TYPES };
+	return DATE_OPERAND_CONSTRAINT;
+}
+
+/**
+ * The date operand of `date-add`, narrowed by the slot that consumes the
+ * whole expression.
+ *
+ * `date-add` returns exactly the type of its date operand. A generic date
+ * operand constraint therefore is not enough when the parent accepts only
+ * `date` or only `datetime`: offering the other temporal arm would construct
+ * an invalid result. This helper is the inverse of that result-following rule
+ * in `checkExpression` — intersect the parent result set with the two legal
+ * operand types. Structural flags belong to the outer slot and deliberately
+ * do not flow into the calculated expression's child.
+ */
+export function dateAddOperandConstraint(
+	resultConstraint: SlotConstraint,
+): SlotConstraint {
+	if (resultConstraint.accepts === "any") return DATE_OPERAND_CONSTRAINT;
+	const acceptedResults: ReadonlySet<ResolvedType> = resultConstraint.accepts;
+	return {
+		accepts: new Set(
+			[...DATE_TYPES].filter((type) => acceptedResults.has(type)),
+		),
+	};
+}
+
+/**
+ * Narrow one branch slot by the types already established by its siblings.
+ *
+ * `if`, `switch`, and `coalesce` all use the type checker's same branch
+ * agreement rule: concrete sibling results must be mutually compatible, and
+ * a null (`_any`) sibling adds no restriction. The editor can pass every
+ * sibling's resolved type here and give the returned constraint to the branch
+ * picker, preventing a new branch from disagreeing with either the parent
+ * result slot or its peers.
+ *
+ * `undefined` (an unresolved sibling) and `_any` (a null-only sibling) are
+ * neutral. Structural flags stay attached to the returned descriptor because
+ * they describe the branch slot itself. If already-concrete siblings disagree,
+ * or no type satisfies both parent and sibling constraints, `accepts` is the
+ * empty set — there is no replacement of this branch that can make the other
+ * saved branches agree.
+ */
+export function branchConstraint(
+	resultConstraint: SlotConstraint,
+	...siblingTypes: readonly (ResolvedType | undefined)[]
+): SlotConstraint {
+	const concreteSiblingTypes = siblingTypes.filter(
+		(type): type is ResolvedType => type !== undefined && type !== ANY_TYPE,
+	);
+	if (concreteSiblingTypes.length === 0) return resultConstraint;
+
+	const established = concreteSiblingTypes[0];
+	if (
+		concreteSiblingTypes.some(
+			(type) => !compatibleTypesFor(established).has(type),
+		)
+	) {
+		return { ...resultConstraint, accepts: new Set<ResolvedType>() };
+	}
+
+	const siblingCompatible = compatibleTypesFor(established);
+	if (resultConstraint.accepts === "any") {
+		return { ...resultConstraint, accepts: siblingCompatible };
+	}
+	return {
+		...resultConstraint,
+		accepts: new Set(
+			[...resultConstraint.accepts].filter((type) =>
+				siblingCompatible.has(type),
+			),
+		),
+	};
 }
 
 /** A `date-coerce` / `datetime-coerce` operand: a text-shaped value,
@@ -192,7 +366,7 @@ export function admitsValueExpressionKind(
 	c: SlotConstraint,
 ): { admitted: boolean; reason?: string } {
 	if (c.termOnly && kind !== "term") {
-		return { admitted: false, reason: "This spot takes a single value." };
+		return { admitted: false, reason: "This spot takes a single value" };
 	}
 	const cls = valueExpressionKindResultClass(kind);
 	if (cls === "depends") return { admitted: true };
@@ -217,7 +391,7 @@ const FRIENDLY_TYPE: Partial<Record<ResolvedType, string>> = {
 	single_select: "text",
 	multi_select: "text",
 	date: "a date",
-	datetime: "a date & time",
+	datetime: "a date and time",
 	time: "a time",
 	geopoint: "a place",
 };
@@ -225,17 +399,17 @@ const FRIENDLY_TYPE: Partial<Record<ResolvedType, string>> = {
 /** A short "needs X" phrase from a constraint's accept-set, for a
  *  disabled choice. `"any"` (unconstrained) returns a generic line. */
 export function reasonFor(c: SlotConstraint): string {
-	if (c.accepts === "any") return "Not available here.";
+	if (c.accepts === "any") return "Not available here";
 	const names = new Set<string>();
 	for (const t of c.accepts) {
 		const friendly = FRIENDLY_TYPE[t];
 		if (friendly) names.add(friendly);
 	}
-	if (names.size === 0) return "Not available here.";
+	if (names.size === 0) return "Not available here";
 	const list = [...names];
 	const phrase =
 		list.length === 1
 			? list[0]
 			: `${list.slice(0, -1).join(", ")} or ${list[list.length - 1]}`;
-	return `Needs ${phrase} to match what it's compared with.`;
+	return `Needs ${phrase} to match what it's compared with`;
 }

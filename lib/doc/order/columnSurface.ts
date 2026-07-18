@@ -39,6 +39,37 @@ export function orderedColumnsOnSurface(
 }
 
 /**
+ * Encode a surface-key write on the pre-deploy `moveColumn` discriminator.
+ *
+ * `order` is the semantic surface value (`null` clears the override). The
+ * top-level `order` is a legacy fallback in an origin/main-known slot: old
+ * parsers strip `surfaceOrderPatch` and old reducers move the shared generic
+ * sequence instead of throwing. New reducers ignore that fallback and touch
+ * only the named surface. Hydration guarantees every column has the generic
+ * key needed to represent a clear to an old receiver.
+ */
+export function columnSurfaceOrderMutation(args: {
+	readonly moduleUuid: Uuid;
+	readonly column: Column;
+	readonly surface: ColumnSurface;
+	readonly order: string | null;
+}): Mutation {
+	const fallbackOrder = args.order ?? args.column.order;
+	if (fallbackOrder === undefined) {
+		throw new Error(
+			"Cannot clear a column surface order before generic order-key hydration.",
+		);
+	}
+	return {
+		kind: "moveColumn",
+		moduleUuid: args.moduleUuid,
+		uuid: args.column.uuid,
+		order: fallbackOrder,
+		surfaceOrderPatch: { surface: args.surface, order: args.order },
+	};
+}
+
+/**
  * Plan one direct-manipulation row move as one granular mutation.
  *
  * `toIndex` is the row's desired FINAL index in the visible surface sequence.
@@ -77,7 +108,14 @@ export function columnSurfaceMoveMutation(args: {
 		.filter((order): order is string => order !== undefined).length;
 	const order = keysForSlot(siblingKeys, keySlot, 1)[0];
 
-	return surface === "list"
-		? { kind: "moveColumnInList", moduleUuid, uuid, order }
-		: { kind: "moveColumnInDetail", moduleUuid, uuid, order };
+	const moved = ordered[fromIndex];
+	if (moved === undefined) {
+		throw new Error("Column surface move lost its resolved source row.");
+	}
+	return columnSurfaceOrderMutation({
+		moduleUuid,
+		column: moved,
+		surface,
+		order,
+	});
 }

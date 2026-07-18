@@ -9,16 +9,15 @@
 // within-distance `property`, between `left`, in `left`, is-null /
 // is-blank `left`, etc.
 //
-// Implementation: Base UI Menu primitive (matches the inspector's
-// `CasePropertyDropdown` pattern). Optional filter narrows the
+// Implementation: Nova's shadcn dropdown-menu primitive. Optional filter narrows the
 // shown properties to a subset by data type — comparison cards
 // for ordering operators (gt/lt/...) restrict to ordered types,
 // multi-select-contains restricts to multi_select, etc.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
-import { Icon } from "@iconify/react/offline";
+import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerExclamationCircle from "@iconify-icons/tabler/exclamation-circle";
 import tablerPlus from "@iconify-icons/tabler/plus";
@@ -31,6 +30,16 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { Button } from "@/components/shadcn/button";
+import {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuPopup,
+	DropdownMenuPortal,
+	DropdownMenuPositioner,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
+import { Input } from "@/components/shadcn/input";
 import {
 	authorableCaseProperties,
 	type CaseProperty,
@@ -39,14 +48,11 @@ import {
 	effectiveDataType,
 } from "@/lib/domain";
 import { humanizeId } from "@/lib/domain/idSlug";
-import {
-	MENU_ITEM_BASE,
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
 import { handleMenuSearchInputKeyDown } from "@/lib/ui/menuSearchInput";
-import { usePredicateEditContext } from "../editorContext";
+import {
+	type ExpressionChangeAdmission,
+	usePredicateEditContext,
+} from "../editorContext";
 import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
@@ -72,8 +78,12 @@ interface PropertyPickerProps {
 	 * card. Cards that don't restrict (e.g. `eq`) pass `undefined`.
 	 */
 	readonly filter?: (property: CaseProperty) => boolean;
+	/** Optional whole-rule admission for a concrete property choice. The active
+	 * saved choice remains available for legacy repair even when the oracle
+	 * reports that authoring the same shape from a clean rule is unsupported. */
+	readonly admit?: (property: CaseProperty) => ExpressionChangeAdmission;
 	/**
-	 * Optional accessibility label override. Defaults to "Property"
+	 * Optional accessibility label override. Defaults to "Case information"
 	 * — cards that have multiple property slots (none today, but
 	 * the contract is forward-looking) can disambiguate via the
 	 * override.
@@ -81,26 +91,31 @@ interface PropertyPickerProps {
 	readonly ariaLabel?: string;
 	/** Whether the surrounding card is reporting an error on this slot. */
 	readonly invalid?: boolean;
-	/** Use the authored human label instead of exposing the stored property
-	 * name. Low-code authoring surfaces set this even when the persisted value is
-	 * an expression reference; the stored name remains an implementation detail. */
-	readonly displayLabels?: boolean;
 	/** Optional create flow supplied by the owning surface. Property catalogs are
 	 * derived from authored fields, so the picker never invents a mutation itself.
 	 * When present, the action stays fixed below the scrolling choices. */
 	readonly onCreateNew?: () => void;
 	/** Friendly label for the optional fixed create action. */
 	readonly createNewLabel?: string;
+	/** Optional progressive action fixed below the property choices. Use this
+	 * for a related setting that should stay out of the ordinary selection path
+	 * while remaining discoverable from the same information picker. */
+	readonly footerAction?: {
+		readonly label: string;
+		readonly description?: string;
+		readonly icon: IconifyIcon;
+		readonly onSelect: () => void;
+	};
 }
 
 /**
  * Searchable case-property picker. Reads the editor context to
  * resolve the active case type (or accepts an override via
  * `caseType`), filters the property list per the optional
- * predicate, and surfaces selection through the Base UI Menu
- * primitive.
+ * predicate, and surfaces selection through Nova's shared shadcn
+ * dropdown primitive.
  *
- * Renders an "(unknown)" placeholder when `value` names a property
+ * Renders a friendly unavailable state when `value` names a property
  * that's no longer declared on the case type — keeps the editor
  * non-destructive against doc edits that remove properties out
  * from under a saved predicate.
@@ -110,11 +125,12 @@ export function PropertyPicker({
 	onChange,
 	caseType,
 	filter,
-	ariaLabel = "Property",
+	admit,
+	ariaLabel = "Case information",
 	invalid = false,
-	displayLabels = false,
 	onCreateNew,
 	createNewLabel = "Create new information",
+	footerAction,
 }: PropertyPickerProps) {
 	const ctx = usePredicateEditContext();
 	const triggerId = useId();
@@ -148,9 +164,9 @@ export function PropertyPicker({
 		[properties, selectedName],
 	);
 	const selectedDisambiguator =
-		displayLabels && selectedProperty !== undefined
-			? friendlyPropertyDisambiguator(selectedProperty, properties)
-			: undefined;
+		selectedProperty === undefined
+			? undefined
+			: friendlyPropertyDisambiguator(selectedProperty, properties);
 	const visibleProperties = useMemo(() => {
 		const normalizedQuery = query.trim().toLocaleLowerCase();
 		if (normalizedQuery === "") return properties;
@@ -194,7 +210,7 @@ export function PropertyPicker({
 	}, [open]);
 
 	const triggerClass = [
-		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
+		"group flex h-auto min-h-11 w-full items-center justify-between rounded-lg border bg-nova-deep/50 px-3 py-2.5 text-[14px] text-nova-text whitespace-normal transition-colors cursor-pointer",
 		invalid
 			? "border-nova-rose/40 hover:border-nova-rose/60"
 			: "border-white/[0.06] hover:border-nova-violet/30",
@@ -202,43 +218,44 @@ export function PropertyPicker({
 
 	const displayLabel =
 		value === undefined
-			? displayLabels
-				? "Choose information"
-				: "Pick a property"
-			: displayLabels
-				? selectedProperty === undefined
-					? humanizeId(value) || "Unavailable information"
-					: propertyDisplayLabel(selectedProperty)
-				: value;
+			? "Choose information"
+			: selectedProperty === undefined
+				? "Unavailable information"
+				: propertyDisplayLabel(selectedProperty);
 	const accessibleDisplayLabel =
 		selectedDisambiguator === undefined
 			? displayLabel
 			: `${displayLabel}, ${selectedDisambiguator}`;
 
 	return (
-		<Menu.Root open={open} onOpenChange={handleOpenChange}>
-			<Menu.Trigger
+		<DropdownMenu open={open} onOpenChange={handleOpenChange}>
+			<DropdownMenuTrigger
 				ref={triggerRef}
 				id={triggerId}
 				aria-label={`${ariaLabel}: ${accessibleDisplayLabel}`}
-				className={triggerClass}
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className={triggerClass}
+					/>
+				}
 			>
-				<span className="flex items-center gap-1.5 min-w-0">
+				<span className="flex min-w-0 flex-1 items-start gap-1.5 text-left">
 					<Icon
 						icon={tablerDatabase}
 						width="14"
 						height="14"
-						className={
+						className={`mt-0.5 shrink-0 ${
 							value && selectedKnown
 								? "text-nova-violet-bright"
 								: "text-nova-text-muted"
-						}
+						}`}
 					/>
-					<span className="min-w-0 text-left">
+					<span className="min-w-0 flex-1 text-left">
 						<span
-							className={`block truncate ${
-								!displayLabels ? "font-mono" : "font-medium"
-							} ${
+							className={`block break-words font-medium ${
 								value && selectedKnown
 									? "text-nova-violet-bright"
 									: "text-nova-text-muted"
@@ -247,7 +264,7 @@ export function PropertyPicker({
 							{displayLabel}
 						</span>
 						{selectedDisambiguator !== undefined ? (
-							<span className="block truncate text-[10px] font-normal text-nova-text-secondary">
+							<span className="block break-words text-[12px] font-normal leading-4 text-nova-text-secondary">
 								{selectedDisambiguator}
 							</span>
 						) : null}
@@ -257,25 +274,22 @@ export function PropertyPicker({
 							icon={tablerExclamationCircle}
 							width="14"
 							height="14"
-							className="text-nova-rose"
-							aria-label="Property is not declared on this case type"
+							className="mt-0.5 shrink-0 text-nova-rose"
+							aria-label="This information is no longer available"
 						/>
 					)}
 				</span>
 				<Chevron />
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
 					side="bottom"
 					align="start"
 					sideOffset={4}
 					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
 					style={{ minWidth: "var(--anchor-width)", maxHeight: 360 }}
 				>
-					<Menu.Popup
-						className={`${MENU_POPUP_CLS} flex max-h-[22rem] min-w-[16rem] flex-col`}
-					>
+					<DropdownMenuPopup className="flex max-h-[min(22rem,var(--available-height))] min-w-0 flex-col overflow-hidden p-0">
 						<div className="shrink-0 border-b border-white/[0.06] p-2">
 							<label htmlFor={`${triggerId}-search`} className="sr-only">
 								Search information
@@ -287,17 +301,17 @@ export function PropertyPicker({
 									height="15"
 									className="shrink-0 text-nova-text-muted"
 								/>
-								<input
+								<Input
 									ref={searchInputRef}
 									id={`${triggerId}-search`}
 									type="search"
 									value={query}
 									onChange={(event) => setQuery(event.target.value)}
 									onKeyDown={handleMenuSearchInputKeyDown}
-									placeholder="Search information…"
+									placeholder="Search information"
 									autoComplete="off"
 									data-1p-ignore
-									className="min-w-0 flex-1 bg-transparent text-[13px] text-nova-text outline-none placeholder:text-nova-text-muted"
+									className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[14px] text-nova-text shadow-none outline-none placeholder:text-nova-text-muted focus-visible:border-transparent focus-visible:ring-0 md:text-[14px] dark:bg-transparent"
 								/>
 							</div>
 						</div>
@@ -307,36 +321,40 @@ export function PropertyPicker({
 							style={{ scrollbarGutter: "stable" }}
 						>
 							{properties.length === 0 ? (
-								<div className="px-3 py-4 text-center text-[12px] leading-relaxed text-nova-text-muted">
-									No information is available yet.
+								<div className="px-3 py-4 text-center text-[13px] leading-5 text-nova-text-muted">
+									No information is available yet
 								</div>
 							) : visibleProperties.length === 0 ? (
-								<div className="px-3 py-4 text-center text-[12px] leading-relaxed text-nova-text-muted">
-									No information matches “{query.trim()}”.
+								<div
+									role="status"
+									aria-live="polite"
+									className="px-3 py-5 text-center"
+								>
+									<p className="text-sm font-medium text-nova-text">
+										No matching information
+									</p>
+									<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
+										Try a different search
+									</p>
 								</div>
 							) : (
-								visibleProperties.map((p, i) => {
+								visibleProperties.map((p) => {
 									const isActive = p.name === selectedName;
-									const disambiguator = displayLabels
-										? friendlyPropertyDisambiguator(p, properties)
-										: undefined;
-									const last = visibleProperties.length - 1;
-									const corners =
-										i === 0 && i === last
-											? "rounded-lg"
-											: i === 0
-												? "rounded-t-lg"
-												: i === last
-													? "rounded-b-lg"
-													: "";
+									const verdict = admit?.(p) ?? { admitted: true as const };
+									const admitted = isActive || verdict.admitted;
+									const disambiguator = friendlyPropertyDisambiguator(
+										p,
+										properties,
+									);
 									return (
-										<Menu.Item
+										<DropdownMenuItem
 											key={p.name}
+											disabled={!admitted}
 											onClick={() => handleSelect(p.name)}
-											className={`${corners} ${
+											className={`h-auto min-h-11 items-start whitespace-normal py-2 ${
 												isActive
-													? `${MENU_ITEM_BASE} text-nova-violet-bright bg-nova-violet/10 cursor-pointer`
-													: MENU_ITEM_CLS
+													? "bg-nova-violet/10 text-nova-violet-bright"
+													: ""
 											}`}
 										>
 											<Icon
@@ -350,26 +368,25 @@ export function PropertyPicker({
 												}
 											/>
 											<span className="flex-1 text-left min-w-0">
-												<div
-													className={
-														displayLabels ? "truncate" : "font-mono truncate"
-													}
-												>
-													{displayLabels ? propertyDisplayLabel(p) : p.name}
+												<div className="break-words">
+													{propertyDisplayLabel(p)}
 												</div>
 												<div
-													className={`text-[10px] ${
+													className={`text-[12px] leading-4 ${
 														isActive
 															? "text-nova-violet-bright"
 															: "text-nova-text-muted"
 													}`}
 												>
-													{displayLabels
-														? [disambiguator, propertyTypeLabel(p)]
-																.filter(Boolean)
-																.join(" · ")
-														: effectiveDataType(p)}
+													{[disambiguator, propertyTypeLabel(p)]
+														.filter(Boolean)
+														.join(" · ")}
 												</div>
+												{!admitted && verdict.admitted === false ? (
+													<div className="mt-0.5 break-words text-[12px] leading-4 text-nova-text-muted">
+														{verdict.reason}
+													</div>
+												) : null}
 											</span>
 											{isActive && (
 												<Icon
@@ -379,53 +396,68 @@ export function PropertyPicker({
 													className="shrink-0 text-nova-violet-bright"
 												/>
 											)}
-										</Menu.Item>
+										</DropdownMenuItem>
 									);
 								})
 							)}
 						</div>
 
-						{onCreateNew !== undefined && (
+						{(footerAction !== undefined || onCreateNew !== undefined) && (
 							<div className="shrink-0 border-t border-white/[0.06] p-1">
-								<Menu.Item
-									onClick={onCreateNew}
-									className={`${MENU_ITEM_CLS} min-h-11 rounded-lg font-medium text-nova-violet-bright`}
-								>
-									<Icon
-										icon={tablerPlus}
-										width="15"
-										height="15"
-										className="shrink-0"
-									/>
-									<span>{createNewLabel}</span>
-								</Menu.Item>
+								{footerAction !== undefined && (
+									<DropdownMenuItem
+										onClick={footerAction.onSelect}
+										className="h-auto min-h-11 items-start whitespace-normal py-2"
+									>
+										<Icon
+											icon={footerAction.icon}
+											width="15"
+											className="mt-0.5 shrink-0 text-nova-text-muted"
+										/>
+										<span className="min-w-0 flex-1 text-left">
+											<span className="block break-words font-medium">
+												{footerAction.label}
+											</span>
+											{footerAction.description !== undefined && (
+												<span className="mt-0.5 block break-words text-xs leading-relaxed text-nova-text-muted">
+													{footerAction.description}
+												</span>
+											)}
+										</span>
+									</DropdownMenuItem>
+								)}
+								{onCreateNew !== undefined && (
+									<DropdownMenuItem
+										onClick={onCreateNew}
+										className="min-h-11 font-medium text-nova-violet-bright"
+									>
+										<Icon
+											icon={tablerPlus}
+											width="15"
+											height="15"
+											className="shrink-0"
+										/>
+										<span>{createNewLabel}</span>
+									</DropdownMenuItem>
+								)}
 							</div>
 						)}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
 	);
 }
 
 function Chevron() {
 	return (
-		<svg
+		<Icon
+			icon={tablerChevronDown}
 			aria-hidden="true"
-			width="10"
-			height="10"
-			viewBox="0 0 10 10"
+			width="14"
+			height="14"
 			className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-		>
-			<path
-				d="M2 3.5L5 6.5L8 3.5"
-				stroke="currentColor"
-				strokeWidth="1.2"
-				fill="none"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-		</svg>
+		/>
 	);
 }
 

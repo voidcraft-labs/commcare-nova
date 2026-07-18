@@ -501,7 +501,7 @@ describe("emitRemoteRequest — Nova-shaped end-to-end composition", () => {
 		// attribute values.
 		expect(xml).toContain(`<data key="case_type" ref="&apos;patient&apos;"/>`);
 		expect(xml).toContain(
-			`<data key="commcare_blacklisted_owner_ids" ref="&apos;owner-x&apos;"/>`,
+			`<data key="commcare_blacklisted_owner_ids" ref="normalize-space(&apos;owner-x&apos;)"/>`,
 		);
 		expect(xml).toContain(`<data key="_xpath_query"`);
 

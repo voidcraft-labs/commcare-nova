@@ -25,6 +25,15 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import {
+	concat,
+	count,
+	input,
+	literal,
+	prop,
+	sessionContext,
+	term,
+} from "@/lib/domain/predicate";
 import { setCaseSearchAdvancedTool } from "../setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "../setCaseSearchDisplay";
 
@@ -94,6 +103,45 @@ describe("case-search-config tool schemas — 8-optional ceiling contract", () =
 		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
 			moduleIndex: 0,
 			excludedOwnerIds: null,
+		});
+		expect(result.success).toBe(true);
+	});
+
+	it.each([
+		{
+			name: "case property",
+			expression: term(prop("patient", "owner_id")),
+		},
+		{
+			name: "relationship count",
+			expression: count({
+				kind: "subcase" as const,
+				identifier: "parent",
+				ofCaseType: "visit",
+			}),
+		},
+	])("setCaseSearchAdvanced: rejects a $name read before tool execution", ({
+		expression,
+	}) => {
+		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			excludedOwnerIds: expression,
+		});
+		expect(result.success).toBe(false);
+		if (result.success) return;
+		expect(result.error.issues[0]?.message).toContain(
+			"before a case is selected",
+		);
+	});
+
+	it("setCaseSearchAdvanced: accepts pure calculations over session and Search values", () => {
+		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
+			moduleIndex: 0,
+			excludedOwnerIds: concat(
+				term(sessionContext("userid")),
+				term(literal(" ")),
+				term(input("owner_ids")),
+			),
 		});
 		expect(result.success).toBe(true);
 	});

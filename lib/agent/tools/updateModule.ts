@@ -16,13 +16,13 @@
  * authoring lives on the typed case-list-config tools (`addCaseListColumns` /
  * `updateCaseListColumn` / `removeCaseListColumn` /
  * `reorderCaseListColumns`, the matching search-input family, and the
- * wholesale `setCaseListFilter`) — those preserve the typed `Column`
+ * slot-specific `setCaseListFilter`) — those preserve the typed `Column`
  * and `SearchInputDef` discriminated unions end-to-end. Case-search
  * authoring lives on the parallel case-search-config family
  * (`setCaseSearchDisplay` for the display cluster + `setCaseSearchAdvanced`
- * for the advanced cluster) — wholesale-replace tools rather than
- * atomic ops, since `caseSearchConfig` is a settings bag, not an
- * addressable list.
+ * for the advanced cluster). Those tools accept complete cluster projections
+ * at the model boundary but persist each changed Search setting independently;
+ * their full config snapshot is only the rolling-deploy fallback.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface.
@@ -37,6 +37,7 @@
  */
 
 import { z } from "zod";
+import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
 import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
 import { sequenceOrderKeys } from "@/lib/doc/order/append";
 import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
@@ -184,13 +185,10 @@ export const updateModuleTool = {
 				...updateModuleMutations(mod, {
 					...(name != null && { name }),
 					...(case_type != null && { caseType: case_type }),
-					...(seedColumns && {
-						caseListConfig: {
-							...(mod.caseListConfig ?? { searchInputs: [] }),
-							columns: seedColumns,
-						},
-					}),
 				}),
+				...(seedColumns ?? []).map((column) =>
+					columnAddMutation(moduleUuid, column),
+				),
 			];
 			const commit = await guardedMutate(
 				ctx,

@@ -38,6 +38,7 @@ import {
 	columnSchema,
 	dateColumn,
 	effectiveCaseSearchConfig,
+	excludedOwnerIdsReadsCaseData,
 	idMappingColumn,
 	idMappingEntry,
 	intervalColumn,
@@ -48,7 +49,17 @@ import {
 	searchInputDefSchema,
 	simpleSearchInputDef,
 } from "../modules";
-import { literal, term } from "../predicate";
+import {
+	concat,
+	count,
+	exists,
+	ifExpr,
+	input,
+	literal,
+	prop,
+	sessionContext,
+	term,
+} from "../predicate";
 import { asUuid, type Uuid } from "../uuid";
 
 // Sample uuids — sequential nibbles so test failure diffs are easy
@@ -293,16 +304,28 @@ describe("columnSchema — six discriminated arms", () => {
 	});
 
 	it("rejects a date column with an empty pattern", () => {
-		// Schema constraint: `dateColumnSchema.pattern` is
-		// `z.string().min(1)` — symmetric with `formatDateSchema.pattern`
-		// on the ValueExpression side. An empty pattern would render
-		// the property's raw ISO string at the wire boundary.
+		// Schema constraint: both column and ValueExpression patterns reject
+		// empty input before any runtime compiler sees it.
 		const parsed = columnSchema.safeParse({
 			uuid: u(1),
 			kind: "date",
 			field: "opened_on",
 			header: "Opened",
 			pattern: "",
+		});
+		expect(parsed.success).toBe(false);
+	});
+
+	it.each([
+		"%Q",
+		"Date %",
+	])("rejects a date column pattern JavaRosa cannot evaluate: %s", (pattern) => {
+		const parsed = columnSchema.safeParse({
+			uuid: u(1),
+			kind: "date",
+			field: "opened_on",
+			header: "Opened",
+			pattern,
 		});
 		expect(parsed.success).toBe(false);
 	});
@@ -880,6 +903,14 @@ describe("caseSearchConfigSchema — display labels + advanced cluster", () => {
 		if (parsed.success) expect(parsed.data).toEqual(config);
 	});
 
+	it("round-trips the false-only owner-rule provenance marker", () => {
+		const config: CaseSearchConfig = { searchActionEnabled: false };
+		expect(caseSearchConfigSchema.parse(config)).toEqual(config);
+		expect(() =>
+			caseSearchConfigSchema.parse({ searchActionEnabled: true }),
+		).toThrow();
+	});
+
 	it("rejects unknown top-level keys (.strict())", () => {
 		// `.strict()` rejects unknown keys at parse rather than
 		// stripping them silently. The contract holds for any unknown
@@ -908,6 +939,50 @@ describe("caseSearchConfigSchema — display labels + advanced cluster", () => {
 		if (parsed.success) {
 			expect(parsed.data.excludedOwnerIds).toBeUndefined();
 		}
+	});
+});
+
+describe("excludedOwnerIdsReadsCaseData", () => {
+	it("detects case reads at any expression depth", () => {
+		expect(
+			excludedOwnerIdsReadsCaseData(
+				concat(term(literal("owner-")), term(prop("patient", "owner_id"))),
+			),
+		).toBe(true);
+		expect(
+			excludedOwnerIdsReadsCaseData(
+				count({
+					kind: "subcase",
+					identifier: "parent",
+					ofCaseType: "visit",
+				}),
+			),
+		).toBe(true);
+		expect(
+			excludedOwnerIdsReadsCaseData(
+				ifExpr(
+					exists({
+						kind: "subcase",
+						identifier: "parent",
+						ofCaseType: "visit",
+					}),
+					term(literal("owner-a")),
+					term(literal("")),
+				),
+			),
+		).toBe(true);
+	});
+
+	it("keeps global session, Search, and literal expressions available", () => {
+		expect(
+			excludedOwnerIdsReadsCaseData(
+				concat(
+					term(sessionContext("userid")),
+					term(literal(" ")),
+					term(input("owner_ids")),
+				),
+			),
+		).toBe(false);
 	});
 });
 
@@ -985,6 +1060,67 @@ describe("effectiveCaseSearchConfig", () => {
 			}),
 		).toBe(config);
 	});
+
+	it("does not invent Search for an owner-only config born without an action", () => {
+		expect(
+			effectiveCaseSearchConfig({
+				caseListConfig: { columns: [], searchInputs: [] },
+				caseSearchConfig: {
+					searchActionEnabled: false,
+					excludedOwnerIds: term(literal("owner-a")),
+				},
+			}),
+		).toBeUndefined();
+	});
+
+	it("does not resurrect Search from an owner-only rolling-deploy fallback", () => {
+		expect(
+			effectiveCaseSearchConfig({
+				caseListConfig: { columns: [], searchInputs: [] },
+				caseSearchConfig: {
+					excludedOwnerIds: term(literal("owner-a")),
+					searchButtonDisplayCondition: { kind: "match-none" },
+				},
+			}),
+		).toBeUndefined();
+	});
+
+	it("lets inputs override and strip stale no-action provenance", () => {
+		expect(
+			effectiveCaseSearchConfig({
+				caseListConfig: {
+					columns: [],
+					searchInputs: [
+						simpleSearchInputDef(u(41), "name", "Name", "text", "case_name"),
+					],
+				},
+				caseSearchConfig: {
+					searchActionEnabled: false,
+					excludedOwnerIds: term(literal("owner-a")),
+				},
+			}),
+		).toEqual({ excludedOwnerIds: term(literal("owner-a")) });
+	});
+
+	it("preserves an authored Never condition when inputs make Search explicit", () => {
+		expect(
+			effectiveCaseSearchConfig({
+				caseListConfig: {
+					columns: [],
+					searchInputs: [
+						simpleSearchInputDef(u(42), "name", "Name", "text", "case_name"),
+					],
+				},
+				caseSearchConfig: {
+					excludedOwnerIds: term(literal("owner-a")),
+					searchButtonDisplayCondition: { kind: "match-none" },
+				},
+			}),
+		).toEqual({
+			excludedOwnerIds: term(literal("owner-a")),
+			searchButtonDisplayCondition: { kind: "match-none" },
+		});
+	});
 });
 
 describe("caseSearchConfigHasAuthoredSettings", () => {
@@ -994,6 +1130,12 @@ describe("caseSearchConfigHasAuthoredSettings", () => {
 				searchScreenTitle: undefined,
 				excludedOwnerIds: undefined,
 			}),
+		).toBe(false);
+	});
+
+	it("does not treat internal no-action provenance as an authored setting", () => {
+		expect(
+			caseSearchConfigHasAuthoredSettings({ searchActionEnabled: false }),
 		).toBe(false);
 	});
 

@@ -93,6 +93,7 @@ export default function RejectionTestPage() {
 					<EditableTitle
 						value="Clinic Intake"
 						onSave={alwaysReject(APP_NAME_REQUIRED)}
+						ariaLabel="Application name"
 					/>
 				</Section>
 

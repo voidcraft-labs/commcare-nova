@@ -34,6 +34,8 @@ import {
 	relationDestinationCaseType,
 	renameCasePropertyInExpression,
 	renameCasePropertyInPredicate,
+	renameSearchInputInExpression,
+	renameSearchInputInPredicate,
 } from "@/lib/domain/predicate";
 import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 
@@ -318,4 +320,96 @@ export function rewriteModuleCaseRefs(
 		}
 	}
 	return { columnsRewritten, astRefsRewritten };
+}
+
+/**
+ * Structurally rename one module-local Search-input declaration everywhere its
+ * runtime name can be referenced. The module registry is the coverage source:
+ * every predicate/expression slot is handled, including slots whose current
+ * gate rules make an input reference invalid. Rewriting those defensive slots
+ * keeps imported/legacy documents and replay total instead of preserving a
+ * stale name merely because a newer authoring surface would reject it.
+ */
+export function rewriteModuleSearchInputRefs(
+	mod: Module,
+	oldName: string,
+	newName: string,
+): number {
+	if (oldName === newName) return 0;
+	let rewritten = 0;
+	for (const slot of MODULE_REFERENCE_SLOTS) {
+		switch (slot.slot) {
+			case "case_type":
+			case "case_list_column_field":
+			case "search_input_property":
+			case "search_input_via":
+				// Case-type/property declarations and relation walks do not name a
+				// Search input.
+				break;
+			case "case_list_column_expression":
+				for (const column of mod.caseListConfig?.columns ?? []) {
+					if (column.kind !== "calculated") continue;
+					rewritten += renameSearchInputInExpression(
+						column.expression,
+						oldName,
+						newName,
+					);
+				}
+				break;
+			case "case_list_filter": {
+				const filter = mod.caseListConfig?.filter;
+				if (filter !== undefined) {
+					rewritten += renameSearchInputInPredicate(filter, oldName, newName);
+				}
+				break;
+			}
+			case "search_input_default":
+				for (const input of mod.caseListConfig?.searchInputs ?? []) {
+					if (input.default === undefined) continue;
+					rewritten += renameSearchInputInExpression(
+						input.default,
+						oldName,
+						newName,
+					);
+				}
+				break;
+			case "search_input_predicate":
+				for (const input of mod.caseListConfig?.searchInputs ?? []) {
+					if (input.kind !== "advanced") continue;
+					rewritten += renameSearchInputInPredicate(
+						input.predicate,
+						oldName,
+						newName,
+					);
+				}
+				break;
+			case "search_button_display_condition": {
+				const condition = mod.caseSearchConfig?.searchButtonDisplayCondition;
+				if (condition !== undefined) {
+					rewritten += renameSearchInputInPredicate(
+						condition,
+						oldName,
+						newName,
+					);
+				}
+				break;
+			}
+			case "excluded_owner_ids": {
+				const expression = mod.caseSearchConfig?.excludedOwnerIds;
+				if (expression !== undefined) {
+					rewritten += renameSearchInputInExpression(
+						expression,
+						oldName,
+						newName,
+					);
+				}
+				break;
+			}
+			default: {
+				const _exhaustive: never = slot;
+				break;
+			}
+		}
+	}
+	return rewritten;
 }

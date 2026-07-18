@@ -256,6 +256,23 @@ describe("XPath evaluator", () => {
 			);
 		});
 
+		it("replace() keeps dollar substitution tokens literal like Core", () => {
+			expect(evaluate(`replace('abc', '(b)', '$1')`, makeCtx())).toBe("a$1c");
+			expect(evaluate(`replace('abc', 'b', '$&')`, makeCtx())).toBe("a$&c");
+		});
+
+		it("translates only unescaped Java whitespace shorthands", () => {
+			expect(evaluate(String.raw`regex(' ', '\s')`, makeCtx())).toBe(true);
+			expect(evaluate(String.raw`regex(' ', '\s')`, makeCtx())).toBe(false);
+			// Two backslashes make `\\s` a literal backslash followed by `s` in
+			// Java's Pattern grammar; Preview must not rewrite the second slash.
+			expect(evaluate(String.raw`regex('\s', '\\s')`, makeCtx())).toBe(true);
+			expect(evaluate(String.raw`regex(' ', '\\s')`, makeCtx())).toBe(false);
+			expect(evaluate(String.raw`replace('a\sb', '\\s', 'X')`, makeCtx())).toBe(
+				"aXb",
+			);
+		});
+
 		it("does not dispatch unknown or prototype method names", () => {
 			expect(evaluate("unknownFunction()", makeCtx())).toBe("");
 			expect(evaluate("valueOf()", makeCtx())).toBe("");
@@ -334,6 +351,12 @@ describe("XPath evaluator", () => {
 		it("format-date works with XPathDate from today()", () => {
 			const result = evaluate("format-date(today(), '%Y')", makeCtx());
 			expect(result).toBe(String(new Date().getUTCFullYear()));
+		});
+
+		it("format-date preserves the original value for an unsupported pattern", () => {
+			expect(evaluate("format-date('2026-07-14', '%Q')", makeCtx())).toBe(
+				"2026-07-14",
+			);
 		});
 
 		it("number(date('2008-09-05')) returns days since epoch", () => {

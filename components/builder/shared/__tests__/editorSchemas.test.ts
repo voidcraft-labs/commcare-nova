@@ -20,12 +20,17 @@
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
+	ancestorPath,
+	checkPredicate,
 	type Predicate,
 	predicateSchema,
+	relationStep,
 	type SearchInputDecl,
+	subcasePath,
 	walkTerms,
 } from "@/lib/domain/predicate";
 import {
+	isAuthorablePredicateKind,
 	type PredicateEditContext,
 	predicateCardSchemas,
 } from "../editorSchemas";
@@ -91,12 +96,21 @@ describe("predicateCardSchemas — registry exhaustivity", () => {
 		) as Predicate["kind"][]) {
 			const entry = predicateCardSchemas[kind];
 			expect(entry.kind).toBe(kind);
+			expect(["authorable", "roundTripOnly"]).toContain(entry.authoring);
 			expect(entry.label).toBeTruthy();
 			expect(entry.icon).toBeTruthy();
 			expect(typeof entry.component).toBe("function");
 			expect(typeof entry.defaultValue).toBe("function");
 			expect(typeof entry.applicable).toBe("function");
 		}
+	});
+});
+
+describe("predicateCardSchemas — authoring boundary", () => {
+	it("keeps strict absence editable for round-trip recovery but never authorable", () => {
+		expect(predicateCardSchemas["is-null"].authoring).toBe("roundTripOnly");
+		expect(isAuthorablePredicateKind("is-null")).toBe(false);
+		expect(isAuthorablePredicateKind("is-blank")).toBe(true);
 	});
 });
 
@@ -158,6 +172,23 @@ describe("predicateCardSchemas — applicable predicates", () => {
 		).toBe(false);
 	});
 
+	it("does not offer membership when every property is a geopoint", () => {
+		const geopointOnly: PredicateEditContext = {
+			caseTypes: [
+				{
+					name: "geo",
+					properties: [
+						{ name: "location", label: "Location", data_type: "geopoint" },
+					],
+				},
+			],
+			currentCaseType: "geo",
+			knownInputs: [],
+		};
+
+		expect(predicateCardSchemas.in.applicable(geopointOnly)).toBe(false);
+	});
+
 	it("within-distance is applicable when a geopoint property exists", () => {
 		expect(predicateCardSchemas["within-distance"].applicable(ctx)).toBe(true);
 	});
@@ -182,17 +213,25 @@ describe("predicateCardSchemas — applicable predicates", () => {
 		expect(predicateCardSchemas.neq.applicable(noOrdered)).toBe(true);
 	});
 
-	it("when-input-present is applicable only when search inputs exist", () => {
+	it("when-input-present requires a search input and a valid child condition", () => {
 		const noInputs: PredicateEditContext = { ...ctx, knownInputs: [] };
+		const noConditionSeed: PredicateEditContext = {
+			caseTypes: [{ name: "patient", properties: [] }],
+			currentCaseType: "patient",
+			knownInputs: KNOWN_INPUTS,
+		};
 		expect(
 			predicateCardSchemas["when-input-present"].applicable(noInputs),
+		).toBe(false);
+		expect(
+			predicateCardSchemas["when-input-present"].applicable(noConditionSeed),
 		).toBe(false);
 		expect(predicateCardSchemas["when-input-present"].applicable(ctx)).toBe(
 			true,
 		);
 	});
 
-	it("sentinels and logical groups apply unconditionally", () => {
+	it("sentinels remain available but empty logical groups do not invent properties", () => {
 		const empty: PredicateEditContext = {
 			caseTypes: [{ name: "patient", properties: [] }],
 			currentCaseType: "patient",
@@ -200,8 +239,89 @@ describe("predicateCardSchemas — applicable predicates", () => {
 		};
 		expect(predicateCardSchemas["match-all"].applicable(empty)).toBe(true);
 		expect(predicateCardSchemas["match-none"].applicable(empty)).toBe(true);
-		expect(predicateCardSchemas.and.applicable(empty)).toBe(true);
-		expect(predicateCardSchemas.or.applicable(empty)).toBe(true);
-		expect(predicateCardSchemas.not.applicable(empty)).toBe(true);
+		expect(predicateCardSchemas.and.applicable(empty)).toBe(false);
+		expect(predicateCardSchemas.or.applicable(empty)).toBe(false);
+		expect(predicateCardSchemas.not.applicable(empty)).toBe(false);
+
+		for (const kind of ["and", "or", "not"] as const) {
+			const seed = predicateCardSchemas[kind].defaultValue(empty);
+			const result = checkPredicate(seed, {
+				caseTypes: [...empty.caseTypes],
+				knownInputs: [...empty.knownInputs],
+				currentCaseType: empty.currentCaseType,
+			});
+			expect(result.ok, `${kind} direct factory remains valid`).toBe(true);
+		}
+	});
+
+	it("related-case defaults prefer a declared parent", () => {
+		const parentContext: PredicateEditContext = {
+			caseTypes: [
+				{ name: "household", properties: [] },
+				{ name: "patient", parent_type: "household", properties: [] },
+			],
+			currentCaseType: "patient",
+			knownInputs: [],
+		};
+
+		expect(predicateCardSchemas.exists.applicable(parentContext)).toBe(true);
+		expect(predicateCardSchemas.missing.applicable(parentContext)).toBe(true);
+		expect(predicateCardSchemas.exists.defaultValue(parentContext).via).toEqual(
+			ancestorPath(relationStep("parent")),
+		);
+	});
+
+	it("related-case defaults use the first declared child when there is no parent", () => {
+		const childOnlyContext: PredicateEditContext = {
+			caseTypes: [
+				{ name: "household", properties: [] },
+				{ name: "patient", parent_type: "household", properties: [] },
+			],
+			currentCaseType: "household",
+			knownInputs: [],
+		};
+
+		const seed = predicateCardSchemas.exists.defaultValue(childOnlyContext);
+		expect(seed.via).toEqual(subcasePath("parent", "patient"));
+		const result = checkPredicate(seed, {
+			caseTypes: [...childOnlyContext.caseTypes],
+			knownInputs: [],
+			currentCaseType: childOnlyContext.currentCaseType,
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	it("related-case choices are unavailable when the catalog has no connection", () => {
+		const noRelation: PredicateEditContext = {
+			caseTypes: [{ name: "patient", properties: [] }],
+			currentCaseType: "patient",
+			knownInputs: [],
+		};
+		expect(predicateCardSchemas.exists.applicable(noRelation)).toBe(false);
+		expect(predicateCardSchemas.missing.applicable(noRelation)).toBe(false);
+	});
+
+	it("relation-only scopes seed valid logical and search-answer conditions", () => {
+		const relationOnly: PredicateEditContext = {
+			caseTypes: [
+				{ name: "household", properties: [] },
+				{ name: "patient", parent_type: "household", properties: [] },
+			],
+			currentCaseType: "household",
+			knownInputs: KNOWN_INPUTS,
+		};
+
+		for (const kind of ["and", "or", "not", "when-input-present"] as const) {
+			expect(predicateCardSchemas[kind].applicable(relationOnly)).toBe(true);
+			const result = checkPredicate(
+				predicateCardSchemas[kind].defaultValue(relationOnly),
+				{
+					caseTypes: [...relationOnly.caseTypes],
+					knownInputs: [...relationOnly.knownInputs],
+					currentCaseType: relationOnly.currentCaseType,
+				},
+			);
+			expect(result.ok, `${kind} relation-only seed`).toBe(true);
+		}
 	});
 });

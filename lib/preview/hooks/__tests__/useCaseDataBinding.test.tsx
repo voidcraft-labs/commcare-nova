@@ -21,7 +21,8 @@
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CaseType } from "@/lib/domain";
+import type { CaseListConfig, CaseType } from "@/lib/domain";
+import { literal, matchAll, term } from "@/lib/domain/predicate";
 
 // The hook imports a Server Action from a `"use server"` module.
 // Vitest's `vi.mock` is hoisted above every import, so the mocked
@@ -196,6 +197,304 @@ describe("useCases query constraints", () => {
 		expect(hook.result.current.state).toEqual({ kind: "empty" });
 		expect(hook.result.current.queryConstraintSource).toBe("unknown");
 	});
+
+	it("forwards a bounded page and treats a page change as a request identity boundary", async () => {
+		let resolveNext:
+			| ((value: {
+					kind: "rows";
+					rows: [];
+					totalCount: number;
+					pageOffset: number;
+					pageSize: number;
+			  }) => void)
+			| undefined;
+		vi.mocked(loadCasesAction)
+			.mockResolvedValueOnce({
+				kind: "rows",
+				rows: [],
+				totalCount: 75,
+				pageOffset: 0,
+				pageSize: 50,
+			})
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveNext = resolve;
+					}),
+			);
+		let page = { offset: 0, limit: 50 };
+		const hook = renderHook(() =>
+			useCases({ appId: APP_ID, caseType: PATIENT.name, page }),
+		);
+
+		await waitFor(() => expect(hook.result.current.state.kind).toBe("rows"));
+		expect(loadCasesAction).toHaveBeenLastCalledWith(
+			expect.objectContaining({ page: { offset: 0, limit: 50 } }),
+		);
+
+		page = { offset: 50, limit: 50 };
+		hook.rerender();
+		expect(hook.result.current.state).toEqual({ kind: "loading" });
+		expect(loadCasesAction).toHaveBeenLastCalledWith(
+			expect.objectContaining({ page: { offset: 50, limit: 50 } }),
+		);
+
+		await act(async () =>
+			resolveNext?.({
+				kind: "rows",
+				rows: [],
+				totalCount: 75,
+				pageOffset: 50,
+				pageSize: 50,
+			}),
+		);
+		await waitFor(() =>
+			expect(hook.result.current.state).toMatchObject({
+				kind: "rows",
+				pageOffset: 50,
+			}),
+		);
+	});
+
+	it("keeps reload dependencies fixed-length when pagination appears", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "empty",
+			constraintSource: "unconstrained",
+		});
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		let page: { offset: number; limit: number } | undefined;
+		try {
+			const hook = renderHook(() =>
+				useCases({ appId: APP_ID, caseType: PATIENT.name, page }),
+			);
+			await waitFor(() => expect(hook.result.current.state.kind).toBe("empty"));
+
+			page = { offset: 0, limit: 50 };
+			hook.rerender();
+			await waitFor(() => expect(hook.result.current.state.kind).toBe("empty"));
+
+			expect(
+				consoleError.mock.calls.some((call) =>
+					call.some(
+						(value) =>
+							typeof value === "string" &&
+							value.includes("changed size between renders"),
+					),
+				),
+			).toBe(false);
+		} finally {
+			consoleError.mockRestore();
+		}
+	});
+
+	it("keeps the reload effect fixed-length when Results rules hydrate after mount", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "empty",
+			constraintSource: "unconstrained",
+		});
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		let caseListConfig: CaseListConfig | undefined;
+		let excludedOwnerIdsExpression: ReturnType<typeof term> | undefined;
+		let caseTypes: readonly CaseType[] | undefined;
+		try {
+			const hook = renderHook(() =>
+				useCases({
+					appId: APP_ID,
+					caseType: PATIENT.name,
+					caseListConfig,
+					excludedOwnerIdsExpression,
+					caseTypes,
+				}),
+			);
+			await waitFor(() => expect(loadCasesAction).toHaveBeenCalledTimes(1));
+
+			caseListConfig = {
+				columns: [],
+				searchInputs: [],
+				filter: matchAll(),
+			};
+			excludedOwnerIdsExpression = term(literal("owner-a"));
+			caseTypes = [PATIENT];
+			hook.rerender();
+
+			await waitFor(() => expect(loadCasesAction).toHaveBeenCalledTimes(2));
+			expect(loadCasesAction).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					caseListConfig,
+					excludedOwnerIdsExpression,
+					caseTypes,
+				}),
+			);
+			expect(
+				consoleError.mock.calls.some((call) =>
+					call.some(
+						(value) =>
+							typeof value === "string" &&
+							value.includes("changed size between renders"),
+					),
+				),
+			).toBe(false);
+		} finally {
+			consoleError.mockRestore();
+		}
+	});
+
+	it("does not reload for a fresh page object with unchanged primitive values", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			kind: "empty",
+			constraintSource: "unconstrained",
+		});
+		const hook = renderHook(() =>
+			useCases({
+				appId: APP_ID,
+				caseType: PATIENT.name,
+				page: { offset: 0, limit: 50 },
+			}),
+		);
+
+		await waitFor(() => expect(hook.result.current.state.kind).toBe("empty"));
+		expect(loadCasesAction).toHaveBeenCalledTimes(1);
+		hook.rerender();
+		await Promise.resolve();
+		expect(loadCasesAction).toHaveBeenCalledTimes(1);
+	});
+
+	it("hides rows synchronously when the app or case type changes", async () => {
+		let resolveNext:
+			| ((value: { kind: "empty"; constraintSource: "unconstrained" }) => void)
+			| undefined;
+		vi.mocked(loadCasesAction)
+			.mockResolvedValueOnce({
+				kind: "rows",
+				rows: [],
+				constraintSource: "unconstrained",
+			})
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveNext = resolve;
+					}),
+			);
+		let identity = { appId: APP_ID, caseType: PATIENT.name };
+		const hook = renderHook(() => useCases(identity));
+
+		await waitFor(() => expect(hook.result.current.state.kind).toBe("rows"));
+		identity = { appId: "other-app", caseType: "visit" };
+		hook.rerender();
+
+		expect(hook.result.current.state).toEqual({ kind: "loading" });
+		expect(hook.result.current.queryConstraintSource).toBe("unconstrained");
+
+		await act(async () =>
+			resolveNext?.({ kind: "empty", constraintSource: "unconstrained" }),
+		);
+		await waitFor(() => expect(hook.result.current.state.kind).toBe("empty"));
+	});
+
+	it("does not carry rows between modules that share a case type", async () => {
+		let resolveNext:
+			| ((value: { kind: "empty"; constraintSource: "authored-rules" }) => void)
+			| undefined;
+		vi.mocked(loadCasesAction)
+			.mockResolvedValueOnce({
+				kind: "rows",
+				rows: [],
+				constraintSource: "unconstrained",
+			})
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveNext = resolve;
+					}),
+			);
+		let requestScopeKey = "module-a";
+		const hook = renderHook(() =>
+			useCases({
+				appId: APP_ID,
+				caseType: PATIENT.name,
+				requestScopeKey,
+			}),
+		);
+
+		await waitFor(() => expect(hook.result.current.state.kind).toBe("rows"));
+		requestScopeKey = "module-b";
+		hook.rerender();
+		expect(hook.result.current.state).toEqual({ kind: "loading" });
+
+		await act(async () =>
+			resolveNext?.({ kind: "empty", constraintSource: "authored-rules" }),
+		);
+		await waitFor(() => expect(hook.result.current.state.kind).toBe("empty"));
+	});
+
+	it("hides deleted rows synchronously after a population replacement", async () => {
+		let resolveNext:
+			| ((value: { kind: "empty"; constraintSource: "unconstrained" }) => void)
+			| undefined;
+		vi.mocked(loadCasesAction)
+			.mockResolvedValueOnce({
+				kind: "rows",
+				rows: [],
+				constraintSource: "unconstrained",
+			})
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveNext = resolve;
+					}),
+			);
+		const hook = renderHook(() =>
+			useCases({
+				appId: APP_ID,
+				caseType: PATIENT.name,
+				requestScopeKey: "module-a",
+			}),
+		);
+
+		await waitFor(() => expect(hook.result.current.state.kind).toBe("rows"));
+		act(() => invalidateCaseData(APP_ID, PATIENT.name, "replacement"));
+		expect(hook.result.current.state).toEqual({ kind: "loading" });
+
+		await act(async () =>
+			resolveNext?.({ kind: "empty", constraintSource: "unconstrained" }),
+		);
+		await waitFor(() => expect(hook.result.current.state.kind).toBe("empty"));
+	});
+});
+
+describe("useCaseCount request identity", () => {
+	it("hides the prior count synchronously when the case type changes", async () => {
+		let resolveNext:
+			| ((value: { kind: "count"; count: number }) => void)
+			| undefined;
+		vi.mocked(loadCaseCountAction)
+			.mockResolvedValueOnce({ kind: "count", count: 30 })
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveNext = resolve;
+					}),
+			);
+		let caseType = PATIENT.name;
+		const hook = renderHook(() => useCaseCount({ appId: APP_ID, caseType }));
+
+		await waitFor(() =>
+			expect(hook.result.current.state).toEqual({ kind: "count", count: 30 }),
+		);
+		caseType = "visit";
+		hook.rerender();
+
+		expect(hook.result.current.state).toEqual({ kind: "loading" });
+
+		await act(async () => resolveNext?.({ kind: "count", count: 2 }));
+		await waitFor(() =>
+			expect(hook.result.current.state).toEqual({ kind: "count", count: 2 }),
+		);
+	});
 });
 
 describe("case-data invalidation", () => {
@@ -217,6 +516,7 @@ describe("case-data invalidation", () => {
 					external_id: null,
 					parent_case_id: null,
 					properties: {},
+					calculated: {},
 				},
 				ancestors: [],
 			})

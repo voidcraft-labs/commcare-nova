@@ -32,37 +32,122 @@ function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
 	return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />;
 }
 
+const MENU_VIEWPORT_WIDTH_CAP =
+	"max(0px, calc(var(--available-width) - 0.5rem))";
+
+function cssLength(value: React.CSSProperties["width"]): string | undefined {
+	if (value === undefined || value === null) return undefined;
+	return typeof value === "number" ? `${value}px` : value;
+}
+
+function viewportSafePositionerStyle(
+	style: React.CSSProperties | undefined,
+): React.CSSProperties {
+	const {
+		minWidth: requestedMinWidth,
+		maxWidth: requestedMaxWidth,
+		...positionerStyle
+	} = style ?? {};
+	const minimum = cssLength(requestedMinWidth);
+	const maximum = cssLength(requestedMaxWidth);
+
+	return {
+		...positionerStyle,
+		minWidth:
+			minimum === undefined
+				? undefined
+				: `min(${minimum}, ${MENU_VIEWPORT_WIDTH_CAP})`,
+		maxWidth:
+			maximum === undefined
+				? MENU_VIEWPORT_WIDTH_CAP
+				: `min(${maximum}, ${MENU_VIEWPORT_WIDTH_CAP})`,
+	};
+}
+
+/**
+ * The positioned glass layer for menus that need a richer internal layout than
+ * `DropdownMenuContent` provides (for example, a searchable picker with a
+ * frozen search field). Keeping this wrapper public lets those composites stay
+ * on the shared shadcn primitive without reaching into Base UI directly.
+ *
+ * Base UI exposes the collision-safe width as `--available-width`. Cap both a
+ * requested minimum and maximum against it: CSS otherwise lets `min-width` win
+ * over `max-width`, which is how a roomy desktop menu can escape a narrow
+ * builder canvas or mobile viewport.
+ */
+function DropdownMenuPositioner({
+	className,
+	style,
+	surface = "glass",
+	...props
+}: MenuPrimitive.Positioner.Props & {
+	readonly surface?: "glass" | "elevated";
+}) {
+	return (
+		<MenuPrimitive.Positioner
+			data-slot="dropdown-menu-positioner"
+			className={cn(
+				"isolate",
+				surface === "elevated"
+					? MENU_SUBMENU_POSITIONER_CLS
+					: MENU_POSITIONER_CLS,
+				className,
+			)}
+			style={
+				typeof style === "function"
+					? (state) => viewportSafePositionerStyle(style(state))
+					: viewportSafePositionerStyle(style)
+			}
+			{...props}
+		/>
+	);
+}
+
+/** Shared popup chrome for rich menus composed inside a positioner. */
+function DropdownMenuPopup({ className, ...props }: MenuPrimitive.Popup.Props) {
+	return (
+		<MenuPrimitive.Popup
+			data-slot="dropdown-menu-popup"
+			className={cn(
+				MENU_POPUP_CLS,
+				"max-h-(--available-height) max-w-full overflow-x-hidden overflow-y-auto p-1 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
 function DropdownMenuContent({
 	align = "start",
 	alignOffset = 0,
 	side = "bottom",
 	sideOffset = 4,
+	preferredMinWidth = "9rem",
 	className,
 	...props
 }: MenuPrimitive.Popup.Props &
 	Pick<
 		MenuPrimitive.Positioner.Props,
 		"align" | "alignOffset" | "side" | "sideOffset"
-	>) {
+	> & {
+		readonly preferredMinWidth?: React.CSSProperties["minWidth"];
+	}) {
 	return (
 		<MenuPrimitive.Portal>
-			<MenuPrimitive.Positioner
-				className={cn("isolate", MENU_POSITIONER_CLS)}
+			<DropdownMenuPositioner
 				align={align}
 				alignOffset={alignOffset}
 				side={side}
 				sideOffset={sideOffset}
+				style={{ minWidth: preferredMinWidth }}
 			>
-				<MenuPrimitive.Popup
+				<DropdownMenuPopup
 					data-slot="dropdown-menu-content"
-					className={cn(
-						MENU_POPUP_CLS,
-						"max-h-(--available-height) min-w-36 overflow-x-hidden overflow-y-auto p-1 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-						className,
-					)}
+					className={cn("min-w-0", className)}
 					{...props}
 				/>
-			</MenuPrimitive.Positioner>
+			</DropdownMenuPositioner>
 		</MenuPrimitive.Portal>
 	);
 }
@@ -151,30 +236,30 @@ function DropdownMenuSubContent({
 	alignOffset = -3,
 	side = "right",
 	sideOffset = 0,
+	preferredMinWidth = "6rem",
 	className,
 	...props
-}: React.ComponentProps<typeof DropdownMenuContent>) {
+}: React.ComponentProps<typeof DropdownMenuContent> & {
+	readonly preferredMinWidth?: React.CSSProperties["minWidth"];
+}) {
 	return (
 		// Submenus stack ABOVE a glass parent, so they take the near-opaque
 		// elevated tier — glass-on-glass loses the backdrop blur.
 		<MenuPrimitive.Portal>
-			<MenuPrimitive.Positioner
-				className={cn("isolate", MENU_SUBMENU_POSITIONER_CLS)}
+			<DropdownMenuPositioner
+				surface="elevated"
 				align={align}
 				alignOffset={alignOffset}
 				side={side}
 				sideOffset={sideOffset}
+				style={{ minWidth: preferredMinWidth }}
 			>
-				<MenuPrimitive.Popup
+				<DropdownMenuPopup
 					data-slot="dropdown-menu-sub-content"
-					className={cn(
-						MENU_POPUP_CLS,
-						"max-h-(--available-height) w-auto min-w-24 overflow-x-hidden overflow-y-auto p-1 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-						className,
-					)}
+					className={cn("w-auto min-w-0", className)}
 					{...props}
 				/>
-			</MenuPrimitive.Positioner>
+			</DropdownMenuPositioner>
 		</MenuPrimitive.Portal>
 	);
 }
@@ -290,7 +375,9 @@ export {
 	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuLabel,
+	DropdownMenuPopup,
 	DropdownMenuPortal,
+	DropdownMenuPositioner,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
 	DropdownMenuSeparator,

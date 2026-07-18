@@ -168,7 +168,49 @@ export type TypeContext = {
  * a top-level `gt` failing the ordered check carries `path: []`.
  */
 export type CheckPath = (string | number)[];
-export type CheckError = { path: CheckPath; message: string };
+
+/**
+ * Stable diagnostic categories for presentation boundaries.
+ *
+ * `message` stays the precise developer / agent explanation. Builder
+ * surfaces must dispatch on this code (plus `path`) instead of parsing
+ * implementation prose, so improving a checker explanation can never
+ * silently change what a person sees in the editor.
+ */
+export type CheckErrorCode =
+	| "unknown-property"
+	| "unknown-search-input"
+	| "unknown-case-type"
+	| "property-scope"
+	| "incompatible-values"
+	| "ordered-values"
+	| "location-value"
+	| "match-value"
+	| "match-value-empty"
+	| "multi-select-property"
+	| "runtime-value"
+	| "range-order"
+	| "relation-origin"
+	| "relation-self"
+	| "relation-path"
+	| "relation-destination"
+	| "relation-ambiguous"
+	| "date-value"
+	| "number-value"
+	| "text-or-date-value"
+	| "text-or-number-value"
+	| "branch-values"
+	| "text-value"
+	| "expected-value"
+	| "constraint-value";
+
+export type CheckError = {
+	path: CheckPath;
+	/** Stable category consumed by user-facing presentation layers. */
+	code: CheckErrorCode;
+	/** Detailed checker explanation retained for agents, logs, and tests. */
+	message: string;
+};
 
 export type CheckResult = { ok: true } | { ok: false; errors: CheckError[] };
 
@@ -556,6 +598,7 @@ function checkComparison(
 		if (!leftOrdered || !rightOrdered) {
 			errors.push({
 				path,
+				code: "ordered-values",
 				message: `Operator '${kind}' requires ordered types (int, decimal, date, datetime, time); got '${describe(leftType)}' and '${describe(rightType)}'. Strings are not ordered.`,
 			});
 			return;
@@ -565,13 +608,14 @@ function checkComparison(
 	if (!typesCompatible(leftType, rightType)) {
 		errors.push({
 			path,
+			code: "incompatible-values",
 			message: `Type mismatch: '${describe(leftType)}' and '${describe(rightType)}' are not comparable.`,
 		});
 	}
 }
 
 /**
- * Render a `ResolvedType` for inclusion in a user-facing error message.
+ * Render a `ResolvedType` for inclusion in detailed checker diagnostics.
  * Hides the internal sentinels — `_any` (null) and `_sequence` (the
  * `unwrap-list`-produced sequence) appear under their friendly names
  * (`"null"` / `"sequence"`) since the internal underscored names
@@ -630,6 +674,7 @@ function checkIn(
 		if (!typesCompatible(leftType, valType)) {
 			errors.push({
 				path: [...path, "values", i],
+				code: "incompatible-values",
 				message: `Type mismatch: literal '${describe(valType)}' is not comparable with property type '${describe(leftType)}'.`,
 			});
 		}
@@ -673,6 +718,7 @@ function checkWithinDistance(
 	if (propType !== undefined && propType !== "geopoint") {
 		errors.push({
 			path: [...path, "property"],
+			code: "location-value",
 			message: `within-distance requires a geopoint property; got '${describe(propType)}'.`,
 		});
 	}
@@ -691,6 +737,7 @@ function checkWithinDistance(
 	) {
 		errors.push({
 			path: [...path, "center"],
+			code: "location-value",
 			message: `within-distance center must resolve to a geopoint or a text-encoded coordinate string; got '${describe(centerType)}'.`,
 		});
 	}
@@ -754,44 +801,36 @@ function checkMatch(
 		const allowed = [...allowList].sort().join(", ");
 		errors.push({
 			path: [...path, "property"],
+			code: "match-value",
 			message: `match mode='${p.mode}' requires a property of type ${allowed}; got '${describe(propType)}'.`,
 		});
 	}
-	// `value` is a widened `ValueExpression` (per `matchSchema` in
-	// `types.ts`) so search-input refs / session refs / typed literals
-	// can drive runtime match values. The type checker restricts the
-	// shape to a `term`-arm ValueExpression — every wire target's
-	// match emission consumes terms via the shared term-emission
-	// infrastructure. Non-term ValueExpression arms (`arith`, `if`,
-	// `count`, `format-date`, etc.) lack semantic meaning at a match
-	// value position; reject them at construction so the wire-emission
-	// layer never sees them.
-	if (p.value.kind !== "term") {
-		errors.push({
-			path: [...path, "value"],
-			message: `match value must be a term-arm ValueExpression (literal / property ref / search input / session ref); got '${p.value.kind}'.`,
-		});
-		return;
-	}
+	// `value` is a ValueExpression so authors can derive a runtime search
+	// value (for example, normalize an entered prefix with `concat` or pick
+	// a value with `if`). Both CCHQ emitters can evaluate those expressions
+	// before constructing the query function call. The CSQL representability
+	// rule separately rejects expressions that read case-row data in this
+	// value slot, because the remote-request screen has no current case row.
 	// Reject empty-string literals — every CCHQ match mode collapses
 	// an empty value to a non-match per the schema JSDoc.
-	if (p.value.term.kind === "literal" && p.value.term.value === "") {
+	if (
+		p.value.kind === "term" &&
+		p.value.term.kind === "literal" &&
+		p.value.term.value === ""
+	) {
 		errors.push({
 			path: [...path, "value"],
+			code: "match-value-empty",
 			message: `match value cannot be the empty string — every match mode collapses an empty value to a non-match (see matchSchema JSDoc). Use is-null(prop) for strict-absent or is-blank(prop) for absent-or-empty.`,
 		});
 	}
-	// Type-check the value via the term resolver and verify its
+	// Type-check the whole value expression and verify its
 	// resolved type is text-coercible for the chosen mode. text /
 	// single_select / multi_select coerce naturally; `fuzzy-date`
 	// additionally accepts date / datetime values (which the wire
 	// layer renders as ISO strings). ANY_TYPE bypasses (null literal
 	// compatibility).
-	const valueType = resolveTermType(p.value.term, ctx, errors, [
-		...path,
-		"value",
-		"term",
-	]);
+	const valueType = checkExpression(p.value, ctx, errors, [...path, "value"]);
 	if (
 		valueType !== undefined &&
 		valueType !== ANY_TYPE &&
@@ -800,6 +839,7 @@ function checkMatch(
 		const allowed = [...allowList].sort().join(", ");
 		errors.push({
 			path: [...path, "value"],
+			code: "match-value",
 			message: `match mode='${p.mode}' requires a value resolving to ${allowed}; got '${describe(valueType)}'.`,
 		});
 	}
@@ -853,6 +893,7 @@ function checkMultiSelectContains(
 	) {
 		errors.push({
 			path: [...path, "property"],
+			code: "multi-select-property",
 			message: `multi-select-contains requires a multi_select-typed property; got '${describe(propType)}'.`,
 		});
 		// Property-rule rejection short-circuits the per-value
@@ -869,6 +910,7 @@ function checkMultiSelectContains(
 		if (!typesCompatible(propType, valType)) {
 			errors.push({
 				path: [...path, "values", i],
+				code: "incompatible-values",
 				message: `Type mismatch: literal '${describe(valType)}' is not comparable with property type '${describe(propType)}'.`,
 			});
 		}
@@ -928,6 +970,7 @@ function checkAbsenceOperator(
 	if (p.left.kind === "term" && p.left.term.kind === "literal") {
 		errors.push({
 			path: [...path, "left"],
+			code: "runtime-value",
 			message: `Operator '${p.kind}' cannot be applied to a literal — a literal is the value itself, not a runtime read whose presence is in question. Use a property / input / session reference in 'left'.`,
 		});
 		return;
@@ -985,6 +1028,7 @@ function checkBetween(
 	if (leftType !== ANY_TYPE && !ORDERED_TYPES.has(leftType)) {
 		errors.push({
 			path,
+			code: "ordered-values",
 			message: `Operator 'between' requires an ordered left operand (int, decimal, date, datetime, time); got '${describe(leftType)}'. Strings are not ordered.`,
 		});
 		return;
@@ -1000,6 +1044,7 @@ function checkBetween(
 		if (lowerType !== undefined && !typesCompatible(leftType, lowerType)) {
 			errors.push({
 				path: [...path, "lower"],
+				code: "incompatible-values",
 				message: `Type mismatch: lower bound '${describe(lowerType)}' is not comparable with left operand type '${describe(leftType)}'.`,
 			});
 		}
@@ -1009,6 +1054,7 @@ function checkBetween(
 		if (upperType !== undefined && !typesCompatible(leftType, upperType)) {
 			errors.push({
 				path: [...path, "upper"],
+				code: "incompatible-values",
 				message: `Type mismatch: upper bound '${describe(upperType)}' is not comparable with left operand type '${describe(leftType)}'.`,
 			});
 		}
@@ -1049,6 +1095,7 @@ function checkBetween(
 	) {
 		errors.push({
 			path,
+			code: "range-order",
 			message: `Operator 'between' has lower bound '${String(lowerLit.value)}' greater than upper bound '${String(upperLit.value)}'; the interval is empty.`,
 		});
 	}
@@ -1080,14 +1127,14 @@ function unwrapLiteralOperand(
  * mirroring `resolveTermType`'s short-circuit pattern so callers don't
  * have to handle resolution-failure cascades.
  *
- * The four kinds — three reachable from caller sites (`ancestor` /
- * `subcase` / `any-relation`), one structurally unreachable (`self`):
+ * The four kinds — three resolved here (`ancestor` / `subcase` /
+ * `any-relation`) and one handled directly by callers (`self`):
  *
  *   - `self` — `checkRelationalQuantifier` rejects standalone
- *     `via.kind === "self"` before invoking this helper, and
- *     `resolveTermType`'s `prop` arm short-circuits absent / `self`
- *     `via` to the originating-scope branch without touching this
- *     helper. The arm exists in the switch only for `RelationPath`
+ *     `via.kind === "self"` before invoking this helper;
+ *     `resolveTermType`'s `prop` arm and `checkExpression`'s count arm
+ *     short-circuit self to the originating scope without touching
+ *     this helper. The arm exists in the switch only for `RelationPath`
  *     discriminated-union exhaustiveness — adding a new kind without
  *     a parallel arm here is a TypeScript compile error rather than
  *     a silent fall-through. The runtime body throws to surface the
@@ -1119,33 +1166,19 @@ function unwrapLiteralOperand(
  *     at `_extract_subcase_query_parts` — this matches the schema's
  *     uniformly-optional `where` shape.
  *
- *   - `any-relation` — direction-agnostic. The current `CaseType`
- *     schema models only one direction (a child names its
- *     `parent_type`), so the resolution semantics mirror `subcase`:
- *     find case types whose `parent_type` matches the origin. The
- *     directional-agnosticism is meaningful only when the underlying
- *     schema carries both directions, which is foundation work for a
- *     future `CaseType` extension. The kind exists in the AST today
- *     because the persisted-shape contract has to settle now; the
- *     representability checker rejects it for CCHQ wire targets
- *     where direction-specific operators are the only choice.
+ *   - `any-relation` — direction-agnostic over the graph represented by
+ *     `parent_type`: candidates are the origin's parent plus every child
+ *     that names the origin as its parent. `ofCaseType` may select either
+ *     direction. An omitted qualifier is inferred only when that union has
+ *     one unique type; otherwise the author must disambiguate.
  *
- * **Principled narrowing — identifier→relationship matching:** the
- * current `CaseType` schema doesn't carry named relationships (no
- * `relationships` array; `parent_type` is a single nullable string,
- * `relationship` is a single nullable enum). The walk's `identifier`
- * field on each step is validated as XML-element-name vocabulary at
- * the schema layer (`relationStepSchema` in `types.ts`) but is not
- * matched against any case-type record here — the current schema has
- * no named-relationship surface to match against. Authors writing
- * `relationStep("parent")` and `relationStep("custom_index")` reach
- * the same destination via the same `parent_type` lookup; the
- * identifier rounds out the wire form (CCHQ emits the identifier
- * literally as the index name) but doesn't constrain destination
- * resolution at type-check time. Named relationships aren't
- * supported by the path resolver today; when the `CaseType` schema
- * grows them, this helper widens to consult the named-relationship
- * table.
+ * **Identifier→relationship boundary:** `parent` is the only identifier the
+ * current `CaseType.parent_type` graph can prove. It may infer and validate
+ * destinations from that graph. A custom index name has no corresponding
+ * relationship metadata in the domain, so it MUST carry an explicit
+ * `throughCaseType` / `ofCaseType`; that declared destination only needs to
+ * exist. Pretending a custom identifier follows `parent_type` would let wire
+ * canonicalization add a false type filter and silently remove valid rows.
  */
 export function checkRelationPath(
 	relationPath: RelationPath,
@@ -1158,9 +1191,9 @@ export function checkRelationPath(
 		case "self":
 			// Upstream callers short-circuit `self` before recursing:
 			// `checkRelationalQuantifier` rejects `via.kind === "self"`
-			// at the operator boundary, and `resolveTermType`'s `prop`
-			// arm routes self / absent vias through the originating-
-			// scope branch. The arm is retained here for `RelationPath`
+			// at the operator boundary; `resolveTermType`'s `prop` arm and
+			// `checkExpression`'s count arm route self through the
+			// originating-scope branch. The arm is retained here for `RelationPath`
 			// discriminated-union exhaustiveness; the uniform top-level
 			// rejection of `exists(via: self)` is defensible because
 			// the shape (`exists(self, w)` reduces to `w(currentScope)`)
@@ -1173,8 +1206,8 @@ export function checkRelationPath(
 					"",
 					"`self` walks have no destination distinct from the originating scope, so",
 					"the relation-path-bearing arms (`exists(self)` / `missing(self)` /",
-					"`count(self)` / `prop(via: self)`) are reduced or rejected at the",
-					"operator-level checker before recursing into `checkRelationPath`. Reaching",
+					"`count(self)` / `prop(via: self)`) are rejected or handled directly at",
+					"the operator-level checker before recursing into `checkRelationPath`. Reaching",
 					"this throw means a new caller bypassed that short-circuit — either fix",
 					"the caller, or document why `self` should now be a recursive case here.",
 				].join("\n"),
@@ -1193,10 +1226,31 @@ export function checkRelationPath(
 			let current = originCaseType;
 			for (let i = 0; i < relationPath.via.length; i++) {
 				const step = relationPath.via[i];
+				if (step.identifier !== "parent") {
+					if (step.throughCaseType === undefined) {
+						errors.push({
+							path,
+							code: "relation-destination",
+							message: `Custom relation '${step.identifier}' requires throughCaseType because Nova has no case-type metadata for that index.`,
+						});
+						return undefined;
+					}
+					if (!ctx.caseTypes.some((c) => c.name === step.throughCaseType)) {
+						errors.push({
+							path,
+							code: "relation-destination",
+							message: `Unknown case type '${step.throughCaseType}' on custom relation '${step.identifier}'.`,
+						});
+						return undefined;
+					}
+					current = step.throughCaseType;
+					continue;
+				}
 				const ct = ctx.caseTypes.find((c) => c.name === current);
 				if (!ct) {
 					errors.push({
 						path,
+						code: "relation-path",
 						message:
 							i === 0
 								? `Unknown originating case type '${current}' on relation walk.`
@@ -1207,6 +1261,7 @@ export function checkRelationPath(
 				if (!ct.parent_type) {
 					errors.push({
 						path,
+						code: "relation-path",
 						message: `Ancestor walk failed: case type '${current}' has no parent_type.`,
 					});
 					return undefined;
@@ -1217,6 +1272,7 @@ export function checkRelationPath(
 				) {
 					errors.push({
 						path,
+						code: "relation-path",
 						message: `throughCaseType '${step.throughCaseType}' on ancestor step does not match the actual parent_type '${ct.parent_type}' of '${current}'.`,
 					});
 					return undefined;
@@ -1230,6 +1286,7 @@ export function checkRelationPath(
 			if (!ctx.caseTypes.some((c) => c.name === current)) {
 				errors.push({
 					path,
+					code: "relation-destination",
 					message: `Ancestor walk's destination case type '${current}' is not declared.`,
 				});
 				return undefined;
@@ -1237,14 +1294,27 @@ export function checkRelationPath(
 			return current;
 		}
 
-		case "subcase":
-		case "any-relation": {
+		case "subcase": {
+			if (relationPath.identifier !== "parent") {
+				if (relationPath.ofCaseType === undefined) {
+					errors.push({
+						path,
+						code: "relation-destination",
+						message: `Custom relation '${relationPath.identifier}' requires ofCaseType because Nova has no case-type metadata for that index.`,
+					});
+					return undefined;
+				}
+				if (!ctx.caseTypes.some((c) => c.name === relationPath.ofCaseType)) {
+					errors.push({
+						path,
+						code: "relation-destination",
+						message: `Unknown case type '${relationPath.ofCaseType}' on custom relation '${relationPath.identifier}'.`,
+					});
+					return undefined;
+				}
+				return relationPath.ofCaseType;
+			}
 			// Find case types whose `parent_type` matches the origin.
-			// `subcase` and `any-relation` share resolution semantics
-			// because the current `CaseType` schema models only one
-			// direction (see the helper's JSDoc); they diverge at the
-			// wire layer (per-dialect representability), not at
-			// type-check time.
 			const candidates = ctx.caseTypes.filter(
 				(c) => c.parent_type === originCaseType,
 			);
@@ -1253,14 +1323,15 @@ export function checkRelationPath(
 				// it must name a declared case type (otherwise the
 				// destination scope is unknowable) and that case type
 				// must in fact be a subcase of the origin. The two
-				// arms produce distinct messages so the editor can
-				// route the user-facing fix correctly.
+				// arms produce distinct stable codes so presentation
+				// layers can route the user-facing fix correctly.
 				const named = ctx.caseTypes.find(
 					(c) => c.name === relationPath.ofCaseType,
 				);
 				if (!named) {
 					errors.push({
 						path,
+						code: "relation-destination",
 						message: `Unknown case type '${relationPath.ofCaseType}' on '${relationPath.kind}' walk.`,
 					});
 					return undefined;
@@ -1268,6 +1339,7 @@ export function checkRelationPath(
 				if (named.parent_type !== originCaseType) {
 					errors.push({
 						path,
+						code: "relation-destination",
 						message: `Case type '${relationPath.ofCaseType}' is not a subcase of '${originCaseType}' (its parent_type is '${named.parent_type ?? "<none>"}').`,
 					});
 					return undefined;
@@ -1281,6 +1353,7 @@ export function checkRelationPath(
 			if (candidates.length === 0) {
 				errors.push({
 					path,
+					code: "relation-destination",
 					message: `'${relationPath.kind}' walk failed: no case type declares '${originCaseType}' as its parent_type.`,
 				});
 				return undefined;
@@ -1288,11 +1361,94 @@ export function checkRelationPath(
 			if (candidates.length > 1) {
 				errors.push({
 					path,
+					code: "relation-ambiguous",
 					message: `'${relationPath.kind}' walk is ambiguous: multiple case types (${candidates.map((c) => `'${c.name}'`).join(", ")}) declare '${originCaseType}' as their parent_type. Add 'ofCaseType' to disambiguate.`,
 				});
 				return undefined;
 			}
 			return candidates[0].name;
+		}
+
+		case "any-relation": {
+			if (relationPath.identifier !== "parent") {
+				if (relationPath.ofCaseType === undefined) {
+					errors.push({
+						path,
+						code: "relation-destination",
+						message: `Custom relation '${relationPath.identifier}' requires ofCaseType because Nova has no case-type metadata for that index.`,
+					});
+					return undefined;
+				}
+				if (!ctx.caseTypes.some((c) => c.name === relationPath.ofCaseType)) {
+					errors.push({
+						path,
+						code: "relation-destination",
+						message: `Unknown case type '${relationPath.ofCaseType}' on custom relation '${relationPath.identifier}'.`,
+					});
+					return undefined;
+				}
+				return relationPath.ofCaseType;
+			}
+			const origin = ctx.caseTypes.find((c) => c.name === originCaseType);
+			if (origin === undefined) {
+				errors.push({
+					path,
+					code: "relation-path",
+					message: `Unknown originating case type '${originCaseType}' on relation walk.`,
+				});
+				return undefined;
+			}
+			const candidateNames = new Set<string>();
+			if (origin.parent_type !== undefined) {
+				candidateNames.add(origin.parent_type);
+			}
+			for (const candidate of ctx.caseTypes) {
+				if (candidate.parent_type === originCaseType) {
+					candidateNames.add(candidate.name);
+				}
+			}
+
+			if (relationPath.ofCaseType !== undefined) {
+				const named = ctx.caseTypes.find(
+					(c) => c.name === relationPath.ofCaseType,
+				);
+				if (named === undefined) {
+					errors.push({
+						path,
+						code: "relation-destination",
+						message: `Unknown case type '${relationPath.ofCaseType}' on 'any-relation' walk.`,
+					});
+					return undefined;
+				}
+				if (!candidateNames.has(named.name)) {
+					errors.push({
+						path,
+						code: "relation-destination",
+						message: `Case type '${named.name}' is neither a parent nor a child of '${originCaseType}'.`,
+					});
+					return undefined;
+				}
+				return named.name;
+			}
+
+			const candidates = [...candidateNames];
+			if (candidates.length === 0) {
+				errors.push({
+					path,
+					code: "relation-destination",
+					message: `'any-relation' walk failed: case type '${originCaseType}' has no parent or child case type.`,
+				});
+				return undefined;
+			}
+			if (candidates.length > 1) {
+				errors.push({
+					path,
+					code: "relation-ambiguous",
+					message: `'any-relation' walk is ambiguous: '${originCaseType}' is related to multiple case types (${candidates.map((name) => `'${name}'`).join(", ")}). Add 'ofCaseType' to disambiguate.`,
+				});
+				return undefined;
+			}
+			return candidates[0];
 		}
 
 		default: {
@@ -1379,6 +1535,7 @@ function checkRelationalQuantifier(
 	if (ctx.currentCaseType === undefined) {
 		errors.push({
 			path,
+			code: "relation-origin",
 			message: `'${p.kind}' requires an originating case type to anchor the relation walk; supply 'currentCaseType' on the type-checker context.`,
 		});
 		return;
@@ -1392,6 +1549,7 @@ function checkRelationalQuantifier(
 		// the outer position with `self`. Reject loudly.
 		errors.push({
 			path,
+			code: "relation-self",
 			message: `'${p.kind}' with 'via: self' is meaningless: every case has itself, so the predicate is identically true. Use 'self' inside a 'where' clause to express "no further traversal."`,
 		});
 		return;
@@ -1459,6 +1617,7 @@ export function resolveTermType(
 			) {
 				errors.push({
 					path,
+					code: "property-scope",
 					message: `Property reference originating scope '${term.caseType}' must equal the current scope '${ctx.currentCaseType}'.`,
 				});
 				return undefined;
@@ -1485,6 +1644,7 @@ export function resolveTermType(
 			if (!ct) {
 				errors.push({
 					path,
+					code: "unknown-case-type",
 					message: `Unknown case type '${lookupCaseType}'.`,
 				});
 				return undefined;
@@ -1493,6 +1653,7 @@ export function resolveTermType(
 			if (!property) {
 				errors.push({
 					path,
+					code: "unknown-property",
 					message: `Unknown property '${term.property}' on case type '${lookupCaseType}'.`,
 				});
 				return undefined;
@@ -1504,6 +1665,7 @@ export function resolveTermType(
 			if (!decl) {
 				errors.push({
 					path,
+					code: "unknown-search-input",
 					message: `Unknown search input '${term.name}'.`,
 				});
 				return undefined;
@@ -1695,12 +1857,14 @@ export function checkExpression(
 			if (dateType !== undefined && !isDateOrDatetime(dateType)) {
 				errors.push({
 					path: [...path, "date"],
+					code: "date-value",
 					message: `date-add requires a date or datetime; got '${describe(dateType)}'.`,
 				});
 			}
 			if (quantityType !== undefined && !isNumeric(quantityType)) {
 				errors.push({
 					path: [...path, "quantity"],
+					code: "number-value",
 					message: `date-add requires a numeric quantity (int or decimal); got '${describe(quantityType)}'.`,
 				});
 			}
@@ -1747,6 +1911,7 @@ export function checkExpression(
 			) {
 				errors.push({
 					path: [...path, "value"],
+					code: "text-or-date-value",
 					message: `${expr.kind} requires a text-shaped or date-shaped operand (text / single_select / multi_select / date / datetime); got '${describe(inner)}'.`,
 				});
 			}
@@ -1772,6 +1937,7 @@ export function checkExpression(
 			) {
 				errors.push({
 					path: [...path, "value"],
+					code: "text-or-number-value",
 					message: `double requires a text-shaped or numeric operand; got '${describe(inner)}'.`,
 				});
 			}
@@ -1801,6 +1967,7 @@ export function checkExpression(
 			) {
 				errors.push({
 					path: [...path, "left"],
+					code: "number-value",
 					message: `arith requires numeric operands; left got '${describe(leftType)}'.`,
 				});
 			}
@@ -1811,6 +1978,7 @@ export function checkExpression(
 			) {
 				errors.push({
 					path: [...path, "right"],
+					code: "number-value",
 					message: `arith requires numeric operands; right got '${describe(rightType)}'.`,
 				});
 			}
@@ -1921,6 +2089,7 @@ export function checkExpression(
 				if (onType !== undefined && !typesCompatible(onType, whenType)) {
 					errors.push({
 						path: [...path, "switch", "cases", i, "when"],
+						code: "incompatible-values",
 						message: `switch case 'when' literal '${describe(whenType)}' is not comparable with switch.on type '${describe(onType)}'.`,
 					});
 				}
@@ -1971,6 +2140,7 @@ export function checkExpression(
 			if (origin === undefined) {
 				errors.push({
 					path: [...path, "count"],
+					code: "relation-origin",
 					message:
 						"count requires a current case-type scope; the originating scope must be set on the type-check context.",
 				});
@@ -2015,6 +2185,7 @@ export function checkExpression(
 			) {
 				errors.push({
 					path: [...path, "value"],
+					code: "text-value",
 					message: `unwrap-list requires a text-shaped operand; got '${describe(inner)}'.`,
 				});
 			}
@@ -2029,6 +2200,7 @@ export function checkExpression(
 			if (inner !== undefined && !isDateOrDatetime(inner)) {
 				errors.push({
 					path: [...path, "date"],
+					code: "date-value",
 					message: `format-date requires a date or datetime; got '${describe(inner)}'.`,
 				});
 			}
@@ -2116,6 +2288,7 @@ export function checkValueExpression(
 	) {
 		errors.push({
 			path: [],
+			code: "expected-value",
 			message: `Expected '${describe(expectedType)}'; expression resolves to '${describe(resolvedType)}'.`,
 		});
 	}
@@ -2183,7 +2356,7 @@ export const TEXT_SHAPED_TYPES: ReadonlySet<ResolvedType> =
  *
  * Used by every multi-branch arm in `checkExpression` so the helper
  * is the single place to update if the agreement-rule policy
- * changes. The error message takes a per-call `errorPrefix` so the
+ * changes. The detailed message takes a per-call `errorPrefix` so the
  * operator-context is named at the callsite (e.g. "coalesce values
  * must agree on type") and the helper appends the standard
  * "<candidate>' is not comparable with the established '<agreed>'"
@@ -2205,6 +2378,7 @@ function accumulateBranchType(
 	if (typesCompatible(agreed, candidate)) return agreed;
 	errors.push({
 		path: errorPath,
+		code: "branch-values",
 		message: `${errorPrefix}; '${describe(candidate)}' is not comparable with the established '${describe(agreed)}'.`,
 	});
 	return agreed;
@@ -2365,6 +2539,27 @@ export function compatibleTypesFor(
 }
 
 /**
+ * Every result type the RIGHT side of comparison `kind` may have for
+ * subject type `t`. Equality uses the ordinary compatibility inverse;
+ * ordered comparisons additionally apply the exact ordered-operand rule
+ * from `checkComparison` to the object side. Keeping that second half here
+ * matters when the subject is unresolved or `_any`: compatibility alone
+ * would otherwise admit text even though `gt(_any, text)` is rejected.
+ */
+export function comparisonObjectTypesFor(
+	kind: ComparisonKind,
+	t: ResolvedType | undefined,
+): ReadonlySet<ResolvedType> {
+	const compatible = compatibleTypesFor(t);
+	if (kind === "eq" || kind === "neq") return compatible;
+	return new Set(
+		[...compatible].filter(
+			(type) => type === ANY_TYPE || ORDERED_TYPES.has(type),
+		),
+	);
+}
+
+/**
  * The comparison operators a subject of type `t` can take. `eq` / `neq`
  * apply to every type; the ordering operators (`gt` / `gte` / `lt` /
  * `lte`) only to `ORDERED_TYPES` — the exact set `checkComparison`'s
@@ -2428,13 +2623,19 @@ export function valueExpressionKindResultClass(
 			return "date";
 		case "now":
 			return "datetime";
-		// `date-add`'s result follows its `date` operand and the coerce
-		// pair are structural twins — all three are offerable at either
-		// temporal slot, matching the registry's `applicableForDateOrDatetime`.
+		// `date-add`'s result follows its `date` operand, so it can be
+		// adapted to either temporal result slot. The coercion arms are
+		// fixed-result operators: `date-coerce` always returns `date`, while
+		// `datetime-coerce` always returns `datetime`. Keeping those classes
+		// exact is load-bearing for valid-by-construction kind admission — a
+		// date coercion offered in a datetime-only slot would be invalid before
+		// the author changed a single child value.
 		case "date-add":
-		case "date-coerce":
-		case "datetime-coerce":
 			return "date-or-datetime";
+		case "date-coerce":
+			return "date";
+		case "datetime-coerce":
+			return "datetime";
 		case "count":
 			return "int";
 		case "unwrap-list":

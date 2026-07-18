@@ -2,7 +2,7 @@
  * Cross-rule integration tests for the case-search-config validator
  * surface. Two pins:
  *
- *   1. A blueprint that violates each of the four type-check rules
+ *   1. A blueprint that violates each of the four Search/config rules
  *      surfaces every error simultaneously through `runValidation`.
  *   2. A structurally-clean blueprint exercising every covered slot
  *      (search-button display condition, excluded owner ids,
@@ -30,13 +30,12 @@ import { runValidation } from "../../../runner";
 
 describe("case-search validator — cross-rule integration", () => {
 	it("surfaces every case-search rule's error simultaneously when each violates", () => {
-		// Single blueprint that structurally violates all four type-check codes:
+		// Single blueprint that structurally violates all four rule slots:
 		//
 		//   1. searchButtonDisplayCondition: `eq` against unknown property
 		//      → CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR
-		//   2. excludedOwnerIds: ill-typed value (prop reference to
-		//      unknown property)
-		//      → CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR
+		//   2. excludedOwnerIds: case-property read before a row exists
+		//      → CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE
 		//   3. searchInputs[0].default: ill-typed value
 		//      → CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR
 		//   4. searchInputs[1] (advanced).predicate: ill-typed
@@ -125,7 +124,8 @@ describe("case-search validator — cross-rule integration", () => {
 		).toBe(true);
 		expect(
 			errors.some(
-				(e) => e.code === "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
+				(e) =>
+					e.code === "CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE",
 			),
 		).toBe(true);
 		expect(
@@ -223,6 +223,7 @@ describe("case-search validator — cross-rule integration", () => {
 		const errors = runValidation(doc);
 		const caseSearchCodes = new Set([
 			"CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR",
+			"CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE",
 			"CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR",
 			"CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR",
 			"CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",

@@ -1,6 +1,13 @@
 // @vitest-environment happy-dom
 
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -83,6 +90,14 @@ async function settleMenuAnimation() {
 	);
 }
 
+/** Happy DOM does not synthesize a button's browser-owned click from Enter. */
+function pressFocusedButtonWithEnter(button: HTMLElement): void {
+	button.focus();
+	fireEvent.keyDown(button, { key: "Enter", code: "Enter" });
+	fireEvent.click(button, { detail: 0 });
+	fireEvent.keyUp(button, { key: "Enter", code: "Enter" });
+}
+
 describe("CaseOrderingComposer", () => {
 	beforeEach(() => {
 		session.canEdit = true;
@@ -95,15 +110,15 @@ describe("CaseOrderingComposer", () => {
 		);
 
 		expect(
-			screen.queryByRole("button", { name: "Add another way to sort cases" }),
+			screen.queryByRole("combobox", { name: "Add to default order" }),
 		).toBeNull();
 		fireEvent.click(
 			screen.getByRole("button", { name: "Change default order" }),
 		);
 		fireEvent.click(
-			screen.getByRole("button", { name: "Add another way to sort cases" }),
+			screen.getByRole("combobox", { name: "Add to default order" }),
 		);
-		fireEvent.click(screen.getByRole("menuitem", { name: "Date of birth" }));
+		fireEvent.click(screen.getByRole("option", { name: "Date of birth" }));
 
 		const dateRule = screen
 			.getByRole("button", {
@@ -150,7 +165,36 @@ describe("CaseOrderingComposer", () => {
 		await settleMenuAnimation();
 	});
 
-	it("opens and closes the first-use order editor from its summary", () => {
+	it("sorts by case information without adding it to Results or Details", () => {
+		const onChange = vi.fn();
+		render(<ControlledComposer initial={[NAME]} onChange={onChange} />);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change default order" }),
+		);
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Add to default order" }),
+		);
+		expect(screen.queryByText(/hidden|column/i)).toBeNull();
+		fireEvent.click(screen.getByRole("option", { name: "Age" }));
+
+		const next = onChange.mock.calls.at(-1)?.[0] as readonly Column[];
+		const age = next.find((entry) =>
+			entry.kind === "calculated" ? false : entry.field === "age",
+		);
+		expect(age).toMatchObject({
+			kind: "plain",
+			field: "age",
+			header: "Age",
+			visibleInList: false,
+			visibleInDetail: false,
+			sort: { direction: "asc", priority: 1 },
+		});
+		expect(age?.order).toEqual(expect.any(String));
+		expect(next).toHaveLength(2);
+	});
+
+	it("opens and closes the first-use order editor from its keyboard trigger", () => {
 		render(
 			<CaseOrderingComposer
 				value={[DOB]}
@@ -160,24 +204,37 @@ describe("CaseOrderingComposer", () => {
 		);
 
 		expect(
-			screen.queryByRole("button", { name: "Add another way to sort cases" }),
+			screen.queryByRole("combobox", { name: "Add to default order" }),
 		).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Set default order" }));
-		expect(
-			screen.getByRole("button", { name: "Finish editing default order" }),
-		).toBeDefined();
-		expect(
-			screen.getByText(/choose what should decide which cases appear first/i),
-		).toBeDefined();
-		expect(
-			screen.getByRole("button", { name: "Add another way to sort cases" }),
-		).toBeDefined();
+		const trigger = screen.getByRole("button", { name: "Set default order" });
+		expect(trigger.tagName).toBe("BUTTON");
+		expect(trigger.getAttribute("data-slot")).toBe("collapsible-trigger");
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
 
-		fireEvent.click(
-			screen.getByRole("button", { name: "Finish editing default order" }),
+		pressFocusedButtonWithEnter(trigger);
+
+		expect(trigger.getAttribute("aria-expanded")).toBe("true");
+		expect(document.activeElement).toBe(trigger);
+		expect(trigger.getAttribute("aria-label")).toBe(
+			"Finish editing default order",
 		);
 		expect(
-			screen.queryByText(/choose what should decide which cases appear first/i),
+			screen.getByText(/choose what decides which cases appear first/i),
+		).toBeDefined();
+		expect(
+			screen
+				.getByText(/choose what decides which cases appear first/i)
+				.closest('[data-slot="collapsible-content"]'),
+		).not.toBeNull();
+		expect(
+			screen.getByRole("combobox", { name: "Add to default order" }),
+		).toBeDefined();
+
+		pressFocusedButtonWithEnter(trigger);
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		expect(document.activeElement).toBe(trigger);
+		expect(
+			screen.queryByText(/choose what decides which cases appear first/i),
 		).toBeNull();
 	});
 
@@ -204,7 +261,7 @@ describe("CaseOrderingComposer", () => {
 		expect(screen.getByText("Earliest first")).toBeDefined();
 
 		fireEvent.keyDown(
-			screen.getByRole("button", { name: /reorder patient name/i }),
+			screen.getByRole("button", { name: /^move patient name\./i }),
 			{ key: "ArrowDown" },
 		);
 
@@ -216,32 +273,109 @@ describe("CaseOrderingComposer", () => {
 				.map((entry) => entry.uuid),
 		).toEqual([AGE.uuid, NAME.uuid, DOB.uuid]);
 		expect(screen.getByRole("status").textContent).toBe(
-			"Patient name now comes after Age.",
+			"Patient name now comes after Age",
 		);
 
 		fireEvent.keyDown(
-			screen.getByRole("button", { name: /reorder patient name/i }),
+			screen.getByRole("button", { name: /^move patient name\./i }),
 			{ key: "Home" },
 		);
 		expect(screen.getByRole("status").textContent).toBe(
-			"Patient name now comes first.",
+			"Patient name now comes first",
 		);
 
 		fireEvent.keyDown(
-			screen.getByRole("button", { name: /reorder patient name/i }),
+			screen.getByRole("button", { name: /^move patient name\./i }),
 			{ key: "End" },
 		);
 		expect(screen.getByRole("status").textContent).toBe(
-			"Patient name now comes after Date of birth.",
+			"Patient name now comes after Date of birth",
 		);
 
 		fireEvent.keyDown(
-			screen.getByRole("button", { name: /reorder patient name/i }),
+			screen.getByRole("button", { name: /^move patient name\./i }),
 			{ key: "ArrowUp" },
 		);
 		expect(screen.getByRole("status").textContent).toBe(
-			"Patient name now comes after Age.",
+			"Patient name now comes after Age",
 		);
+	});
+
+	it("groups expanded default-order rules as one named ordered list", () => {
+		render(
+			<CaseOrderingComposer
+				value={[NAME, AGE]}
+				caseType={PATIENT}
+				onChange={() => {}}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change default order" }),
+		);
+		const list = screen.getByRole("list", { name: "Default order" });
+		const items = within(list).getAllByRole("listitem");
+		expect(list.tagName).toBe("OL");
+		expect(items).toHaveLength(2);
+		expect(Array.from(list.children)).toEqual(items);
+		expect(within(items[0]).getByText("First")).toBeDefined();
+		expect(within(items[0]).getByText("Patient name")).toBeDefined();
+		expect(within(items[1]).getByText("Then")).toBeDefined();
+		expect(within(items[1]).getByText("Age")).toBeDefined();
+	});
+
+	it("stacks each order rule before its container has room for one line", () => {
+		const { container } = render(
+			<CaseOrderingComposer
+				value={[NAME, AGE]}
+				caseType={PATIENT}
+				onChange={() => {}}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change default order" }),
+		);
+		const bodies = container.querySelectorAll<HTMLElement>(
+			"[data-case-ordering-rule-body]",
+		);
+		expect(bodies).toHaveLength(2);
+		for (const body of bodies) {
+			expect(body.classList.contains("flex-col")).toBe(true);
+			expect(body.classList.contains("@min-[28rem]:flex-row")).toBe(true);
+		}
+		for (const direction of container.querySelectorAll<HTMLElement>(
+			"[data-case-ordering-direction]",
+		)) {
+			expect(direction.classList.contains("w-full")).toBe(true);
+			expect(direction.classList.contains("@min-[28rem]:w-auto")).toBe(true);
+		}
+	});
+
+	it("moves focus to the adjacent rule, then Add to order, after removal", async () => {
+		render(
+			<ControlledComposer initial={[NAME, AGE, DOB]} onChange={() => {}} />,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change default order" }),
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Remove Patient name from default order",
+			}),
+		);
+
+		const ageHandle = screen.getByRole("button", { name: /^move age\./i });
+		await waitFor(() => expect(document.activeElement).toBe(ageHandle));
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Remove Age from default order" }),
+		);
+		const addToOrder = screen.getByRole("combobox", {
+			name: "Add to default order",
+		});
+		await waitFor(() => expect(document.activeElement).toBe(addToOrder));
 	});
 
 	it("uses the calculated result type for friendly directions", () => {
@@ -362,14 +496,101 @@ describe("CaseOrderingComposer", () => {
 			/>,
 		);
 
-		expect(screen.getByText(/and 3 more\./)).toBeDefined();
+		expect(screen.getByText(/3 more items break ties\.$/)).toBeDefined();
 		expect(screen.queryByText("First extra")).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: /reorder first extra/i }),
+			screen.queryByRole("button", { name: /move first extra/i }),
 		).toBeNull();
 	});
 
-	it("shows the ordering without edit affordances to viewers", () => {
+	it("wraps essential field names in the expanded order", () => {
+		const longLabel =
+			"Preferred client name as recorded during the most recent household visit";
+		render(
+			<CaseOrderingComposer
+				value={[{ ...NAME, header: longLabel }]}
+				caseType={PATIENT}
+				onChange={() => {}}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change default order" }),
+		);
+		const label = screen.getByText(longLabel);
+		expect(label.className).toContain("break-words");
+		expect(label.className).toContain("whitespace-normal");
+		expect(label.className).not.toContain("truncate");
+	});
+
+	it("contains long authored names and search feedback inside the Add menu", async () => {
+		const longLabel =
+			"Preferred client name as recorded during the most recent household visit and follow-up";
+		const longQuery = "uninterrupted-search-text-".repeat(24);
+		render(
+			<CaseOrderingComposer
+				value={[NAME, { ...DOB, header: longLabel }]}
+				caseType={PATIENT}
+				onChange={() => {}}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change default order" }),
+		);
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Add to default order" }),
+		);
+
+		const option = screen.getByRole("option", { name: longLabel });
+		const optionLabel = within(option).getByText(longLabel);
+		expect(option.className).toContain("min-w-0");
+		expect(option.className).toContain("whitespace-normal");
+		expect(optionLabel.className).toContain("break-words");
+		expect(optionLabel.className).toContain("whitespace-normal");
+
+		const search = screen.getByRole("combobox", {
+			name: "Search case information",
+		});
+		fireEvent.change(search, { target: { value: longQuery } });
+		expect(screen.getByText("No matching information")).toBeDefined();
+		expect(screen.getByText("Try a different search")).toBeDefined();
+		expect(screen.queryByText(new RegExp(longQuery.slice(0, 32)))).toBeNull();
+
+		fireEvent.keyDown(search, { key: "Escape" });
+		await settleMenuAnimation();
+	});
+
+	it("keeps the add action label stable when every result is already used", async () => {
+		const dateSorted: Column = {
+			...DOB,
+			sort: { direction: "asc", priority: 2 },
+		};
+		render(
+			<CaseOrderingComposer
+				value={[NAME, AGE, dateSorted]}
+				caseType={PATIENT}
+				onChange={() => {}}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change default order" }),
+		);
+		const add = screen.getByRole("combobox", {
+			name: "Add to default order",
+		});
+		expect(add.textContent).toContain("Add to order");
+		expect(add.hasAttribute("disabled")).toBe(true);
+		expect(
+			screen.getByText(
+				"All available case information is already in the default order",
+			),
+		).toBeDefined();
+		await settleMenuAnimation();
+	});
+
+	it("shows the ordering without edit affordances to viewers", async () => {
 		session.canEdit = false;
 		const viewerDate: Column = {
 			...DOB,
@@ -383,9 +604,12 @@ describe("CaseOrderingComposer", () => {
 			/>,
 		);
 
-		expect(screen.getByText("Default order")).toBeDefined();
-		expect(screen.getByText(/Patient name, A to Z/)).toBeDefined();
-		expect(screen.getByText(/then Age, Highest first/)).toBeDefined();
+		expect(screen.queryByText("Default order")).toBeNull();
+		expect(
+			screen.getByText(
+				/Cases are sorted first by Patient name from A to Z, then by Age with the highest value first/,
+			),
+		).toBeDefined();
 		fireEvent.click(
 			screen.getByRole("button", { name: "View full default order" }),
 		);
@@ -395,12 +619,10 @@ describe("CaseOrderingComposer", () => {
 			screen.getByRole("button", { name: "Close default order details" }),
 		).toBeDefined();
 		expect(
-			screen.queryByRole("button", {
-				name: "Add another way to sort cases",
-			}),
+			screen.queryByRole("combobox", { name: "Add to default order" }),
 		).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: /reorder patient name/i }),
+			screen.queryByRole("button", { name: /move patient name/i }),
 		).toBeNull();
 		expect(
 			screen.queryByRole("button", {
@@ -420,5 +642,6 @@ describe("CaseOrderingComposer", () => {
 		expect(
 			screen.getByRole("button", { name: "View full default order" }),
 		).toBeDefined();
+		await settleMenuAnimation();
 	});
 });

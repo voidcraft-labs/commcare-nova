@@ -232,6 +232,8 @@ body {
 .overflow-y-auto,
 .overflow-y-scroll {
 	scrollbar-gutter: stable;
+	scrollbar-color: var(--nova-border-bright) transparent;
+	scrollbar-width: thin;
 }
 ::-webkit-scrollbar {
 	width: 6px;
@@ -1129,5 +1131,28 @@ html.dark {
 	}
 	body {
 		@apply bg-background text-foreground;
+	}
+}
+
+/* Respect the operating system's reduced-motion preference across Nova's
+ * CSS-driven transitions and progress indicators. Keep a near-zero duration
+ * instead of removing transitions entirely so Base UI still receives the
+ * completion events it uses to finish popup and dialog lifecycles. Motion's
+ * JavaScript-driven builder glides are handled by `useReducedMotion` in the
+ * shared builder frame and layout. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		/* biome-ignore lint/complexity/noImportantStyles: the OS accessibility preference must override every authored scroll behavior */
+		scroll-behavior: auto !important;
+		/* biome-ignore lint/complexity/noImportantStyles: the OS accessibility preference must override component and utility animations */
+		animation-duration: 0.01ms !important;
+		/* biome-ignore lint/complexity/noImportantStyles: a single near-zero pass preserves lifecycle completion without repeated motion */
+		animation-iteration-count: 1 !important;
+		/* biome-ignore lint/complexity/noImportantStyles: the OS accessibility preference must override component and utility transitions */
+		transition-duration: 0.01ms !important;
+		/* biome-ignore lint/complexity/noImportantStyles: reduced motion must not retain authored transition delays */
+		transition-delay: 0ms !important;
 	}
 }

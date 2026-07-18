@@ -91,9 +91,10 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 		const diff = diffDocsToMutations(before, after);
 		expect(diff).toHaveLength(1);
 		expect(diff[0]).toMatchObject({
-			kind: "moveColumnInList",
+			kind: "moveColumn",
 			moduleUuid,
 			uuid: movedUuid,
+			surfaceOrderPatch: { surface: "list" },
 		});
 
 		const afterColumns =

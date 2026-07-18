@@ -19,13 +19,15 @@
 // Each operation routes through `idMappingColumn(...)` so the
 // emitted Column always parses through `columnSchema`.
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { asUuid } from "@/lib/doc/types";
 import {
 	type CaseType,
 	type Column,
 	columnSchema,
+	type IdMappingEntry,
 	idMappingColumn,
 } from "@/lib/domain";
 import { ColumnEditor } from "../../../ColumnEditor";
@@ -53,7 +55,46 @@ function lastEmittedColumn(onChange: ReturnType<typeof vi.fn>): Column {
 	return last;
 }
 
+function StatefulMappingEditor({ entries }: { entries: IdMappingEntry[] }) {
+	const [value, setValue] = useState<Column>(
+		idMappingColumn(TEST_UUID, "status", "Status", entries),
+	);
+	return (
+		<ColumnEditor
+			value={value}
+			onChange={setValue}
+			caseTypes={[PATIENT]}
+			currentCaseType="patient"
+		/>
+	);
+}
+
 describe("IdMappingCard — table mutations", () => {
+	it("uses semantic labels without visible row numbers or code styling", () => {
+		const value = idMappingColumn(TEST_UUID, "status", "Status", [
+			{ value: "active", label: "Active" },
+		]);
+		render(
+			<ColumnEditor
+				value={value}
+				onChange={() => {}}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		expect(screen.getByRole("group", { name: "Value 1" })).toBeDefined();
+		expect(screen.getByText("Value 1").className).toContain("sr-only");
+		expect(screen.getByText("Saved value").className).toContain("text-[13px]");
+		expect(screen.getByText("Label shown").className).toContain("text-[13px]");
+		expect(
+			screen.getByLabelText("Value 1 saved value").className,
+		).not.toContain("font-mono");
+		expect(
+			screen.getByRole("button", { name: "Add value" }).className,
+		).toContain("text-[14px]");
+	});
+
 	it("Add mapping appends an empty entry", () => {
 		const value = idMappingColumn(TEST_UUID, "status", "Status", [
 			{ value: "active", label: "Active" },
@@ -67,7 +108,7 @@ describe("IdMappingCard — table mutations", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		fireEvent.click(screen.getByRole("button", { name: /add value rule/i }));
+		fireEvent.click(screen.getByRole("button", { name: /add value/i }));
 		const next = lastEmittedColumn(onChange);
 		expect(next.kind).toBe("id-mapping");
 		if (next.kind !== "id-mapping") throw new Error("expected id-mapping");
@@ -93,7 +134,7 @@ describe("IdMappingCard — table mutations", () => {
 		// Two move-down buttons rendered (one per entry); the last
 		// row's button is disabled. Pick the first.
 		const moveDownButtons = screen.getAllByRole("button", {
-			name: /move rule .* later/i,
+			name: /move value .* later/i,
 		});
 		expect((moveDownButtons[1] as HTMLButtonElement).disabled).toBe(true);
 		fireEvent.click(moveDownButtons[0]);
@@ -120,7 +161,7 @@ describe("IdMappingCard — table mutations", () => {
 			/>,
 		);
 		const moveUpButtons = screen.getAllByRole("button", {
-			name: /move rule .* earlier/i,
+			name: /move value .* earlier/i,
 		});
 		// First entry's up-button disabled; second entry's enabled.
 		expect((moveUpButtons[0] as HTMLButtonElement).disabled).toBe(true);
@@ -148,12 +189,59 @@ describe("IdMappingCard — table mutations", () => {
 			/>,
 		);
 		const removeButtons = screen.getAllByRole("button", {
-			name: /remove rule/i,
+			name: /remove value/i,
 		});
 		fireEvent.click(removeButtons[0]);
 		const next = lastEmittedColumn(onChange);
 		if (next.kind !== "id-mapping") throw new Error("expected id-mapping");
 		expect(next.mapping).toEqual([{ value: "b", label: "Beta" }]);
+	});
+
+	it("moves focus to the next value, previous value, then Add as rows are removed", async () => {
+		render(
+			<StatefulMappingEditor
+				entries={[
+					{ value: "a", label: "Alpha" },
+					{ value: "b", label: "Beta" },
+				]}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getAllByRole("button", { name: /remove value/i })[0],
+		);
+		await waitFor(() => {
+			expect(document.activeElement).toBe(
+				screen.getByLabelText("Value 1 saved value"),
+			);
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: /remove value/i }));
+		await waitFor(() => {
+			expect(document.activeElement).toBe(
+				screen.getByRole("button", { name: "Add value" }),
+			);
+		});
+	});
+
+	it("moves focus to the previous value when the final row is removed", async () => {
+		render(
+			<StatefulMappingEditor
+				entries={[
+					{ value: "a", label: "Alpha" },
+					{ value: "b", label: "Beta" },
+				]}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getAllByRole("button", { name: /remove value/i })[1],
+		);
+		await waitFor(() => {
+			expect(document.activeElement).toBe(
+				screen.getByLabelText("Value 1 saved value"),
+			);
+		});
 	});
 
 	it("Empty mapping table renders the no-entries hint", () => {
@@ -166,7 +254,7 @@ describe("IdMappingCard — table mutations", () => {
 				currentCaseType="patient"
 			/>,
 		);
-		expect(container.textContent).toMatch(/no entries/i);
+		expect(container.textContent).toMatch(/without replacements/i);
 	});
 
 	it("Editing a value commits on blur", () => {
@@ -183,7 +271,7 @@ describe("IdMappingCard — table mutations", () => {
 			/>,
 		);
 		const valueInput = screen.getByLabelText(
-			"Value rule 1 saved value",
+			"Value 1 saved value",
 		) as HTMLInputElement;
 		// Focus the input first — the commit re-sync effect inside
 		// the input checks `document.activeElement === inputRef.current`
@@ -212,7 +300,7 @@ describe("IdMappingCard — table mutations", () => {
 			/>,
 		);
 		const labelInput = screen.getByLabelText(
-			"Value rule 1 display label",
+			"Value 1 display label",
 		) as HTMLInputElement;
 		labelInput.focus();
 		fireEvent.change(labelInput, { target: { value: "New label" } });

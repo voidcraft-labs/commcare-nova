@@ -17,11 +17,19 @@
 "use server";
 
 import { getSession } from "@/lib/auth-utils";
-import { buildCaseTypeMap } from "@/lib/case-store";
+import { buildCaseTypeMap, type TermBindings } from "@/lib/case-store";
 import { AppAccessError } from "@/lib/db/appAccess";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import type { BlueprintDoc, CaseListConfig, CaseType } from "@/lib/domain";
-import { caseListConfigSchema } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CaseListConfig,
+	CaseType,
+	SearchInputDef,
+} from "@/lib/domain";
+import {
+	caseListConfigSchema,
+	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+} from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
@@ -52,16 +60,23 @@ import type {
 	SubmissionMutation,
 	SubmissionResult,
 } from "./caseDataBindingTypes";
+import { SearchInputValuesError } from "./dateRangeInputValidation";
 import {
+	type SearchInputValues,
 	type SearchInputValuesWire,
 	searchInputValuesFromWire,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
 import {
 	evaluatePreviewSearchExpression,
+	type PreviewSearchSessionValues,
 	parseExcludedOwnerIds,
 	previewSearchSessionValues,
 } from "./searchExpressionEvaluation";
+import {
+	searchInputRuntimeGlobalError,
+	searchInputSubmissionErrors,
+} from "./searchInputValidation";
 
 // Errors thrown by the case-store layer are caught and mapped to
 // the `{ kind: "error" }` arm so an unhandled throw never tears
@@ -82,6 +97,36 @@ function stripDerivedFieldParent(blueprint: unknown): unknown {
 	return typeof blueprint === "object" && blueprint !== null
 		? toPersistableDoc(blueprint as BlueprintDoc)
 		: blueprint;
+}
+
+/**
+ * Project the authenticated Preview session into the case-store compiler's
+ * runtime binding vocabulary. Search-input expressions read the submitted
+ * value (or CommCare's blank value for an unanswered known prompt); closed
+ * session-context fields read the authenticated worker; absent open-namespace
+ * user-data fields deliberately fall back to blank, matching device XPath.
+ */
+function previewCaseStoreBindings(
+	session: PreviewSearchSessionValues,
+	searchInputs: readonly SearchInputDef[] = [],
+	inputValues: SearchInputValues = new Map(),
+): TermBindings {
+	const boundInputs = new Map(inputValues);
+	for (const input of searchInputs) {
+		if (!boundInputs.has(input.name)) boundInputs.set(input.name, "");
+	}
+
+	const sessionContext = new Map<string, string>();
+	for (const [field, value] of Object.entries(session.context)) {
+		if (value !== undefined) sessionContext.set(field, value);
+	}
+
+	return {
+		searchInputs: boundInputs,
+		sessionContext,
+		sessionUser: new Map(Object.entries(session.user)),
+		sessionUserFallback: "",
+	};
 }
 
 /**
@@ -135,6 +180,8 @@ export async function loadCasesAction(args: {
 	inputValues?: SearchInputValuesWire;
 	excludedOwnerIdsExpression?: ValueExpression;
 	caseTypes?: readonly CaseType[];
+	/** Bounded Results window. Omitted by raw-row/legacy callers. */
+	page?: { offset: number; limit: number };
 }): Promise<LoadCasesResult> {
 	try {
 		const session = await getSession();
@@ -146,6 +193,54 @@ export async function loadCasesAction(args: {
 		const inputValues = args.inputValues
 			? searchInputValuesFromWire(args.inputValues)
 			: undefined;
+		const searchSession = previewSearchSessionValues(session.user);
+		if (args.caseListConfig !== undefined) {
+			const globalRuntimeError = searchInputRuntimeGlobalError(
+				args.caseListConfig,
+				args.caseType,
+				inputValues ?? new Map(),
+				searchSession,
+				{
+					caseTypes: [...(args.caseTypes ?? [])],
+					knownInputs: args.caseListConfig.searchInputs.map((input) => ({
+						name: input.name,
+						data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+					})),
+					currentCaseType: args.caseType,
+				},
+			);
+			if (globalRuntimeError !== undefined) {
+				return {
+					kind: "invalid-search",
+					message: globalRuntimeError,
+					repair: "settings",
+				};
+			}
+		}
+		if (inputValues !== undefined && args.caseListConfig !== undefined) {
+			const runtimeErrors = searchInputSubmissionErrors(
+				args.caseListConfig,
+				args.caseType,
+				inputValues,
+				searchSession,
+				{
+					caseTypes: [...(args.caseTypes ?? [])],
+					knownInputs: args.caseListConfig.searchInputs.map((input) => ({
+						name: input.name,
+						data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+					})),
+					currentCaseType: args.caseType,
+				},
+			);
+			const firstError = runtimeErrors.values().next().value;
+			if (firstError !== undefined) {
+				return {
+					kind: "invalid-search",
+					message: firstError,
+					repair: "inputs",
+				};
+			}
+		}
 		const expressionInputValues =
 			inputValues === undefined || args.caseListConfig === undefined
 				? inputValues
@@ -153,14 +248,36 @@ export async function loadCasesAction(args: {
 						args.caseListConfig.searchInputs,
 						inputValues,
 					);
+		const bindings = previewCaseStoreBindings(
+			searchSession,
+			args.caseListConfig?.searchInputs,
+			expressionInputValues,
+		);
 		const excludedOwnerIds =
 			args.excludedOwnerIdsExpression === undefined
 				? undefined
 				: parseExcludedOwnerIds(
 						evaluatePreviewSearchExpression(
 							args.excludedOwnerIdsExpression,
-							previewSearchSessionValues(session.user),
+							searchSession,
 							expressionInputValues,
+							args.caseListConfig?.searchInputs ?? [],
+						),
+					);
+		const authoredExcludedOwnerIds =
+			args.excludedOwnerIdsExpression === undefined
+				? undefined
+				: parseExcludedOwnerIds(
+						evaluatePreviewSearchExpression(
+							args.excludedOwnerIdsExpression,
+							searchSession,
+							args.caseListConfig === undefined
+								? undefined
+								: withSearchInputExpressionValues(
+										args.caseListConfig.searchInputs,
+										new Map(),
+									),
+							args.caseListConfig?.searchInputs ?? [],
 						),
 					);
 		const store = await gatedCaseStore(args.appId, session.user.id, "view");
@@ -170,7 +287,14 @@ export async function loadCasesAction(args: {
 			caseTypeSchemas,
 			caseListConfig: args.caseListConfig,
 			inputValues,
+			bindings,
 			excludedOwnerIds,
+			authoredExcludedOwnerIds,
+			// Omitted is the pre-pagination action shape. Keep it unpaged so an
+			// already-open old client (which has no pager) does not silently lose
+			// every row after 50 during a rolling deploy. Explicit new-client page
+			// bags are still normalized and capped inside `readCases`.
+			page: args.page,
 		});
 	} catch (err) {
 		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
@@ -178,6 +302,16 @@ export async function loadCasesAction(args: {
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
 		if (err instanceof AppAccessError)
 			return { kind: "error", message: "App not found." };
+		// Editable date-range drafts are validated in the running form, but the
+		// action repeats the gate for stale/tampered callers. This is a repairable
+		// input error, not an observability fault.
+		if (err instanceof SearchInputValuesError) {
+			return {
+				kind: "invalid-search",
+				message: err.message,
+				repair: "inputs",
+			};
+		}
 		reportUnexpectedActionError("loadCases", err, {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -223,26 +357,51 @@ export async function loadCaseCountAction(args: {
 
 /**
  * Load a single case row plus its ancestor chain for a case-loading
- * form. `ancestorDepth` is the form's reachable-chain depth
+ * form or URL-backed Details screen. `ancestorDepth` is the form's reachable-chain depth
  * (`reachableCaseTypes(...).length - 1`) — how many parent hops any
  * `#<type>/<prop>` ref on the form can address. Client-supplied, so
  * `walkAncestors` clamps it server-side.
+ *
+ * Details may additionally send the live `caseListConfig` and the small
+ * `caseTypes` catalog. Those values project calculated display columns for
+ * this one identity-loaded row; they never apply the Results filter, sort,
+ * or page. Form callers omit both and keep the raw-row path.
  */
 export async function loadCaseDataAction(
 	appId: string,
 	caseType: string,
 	caseId: string,
 	ancestorDepth: number,
+	caseListConfig?: CaseListConfig,
+	caseTypes?: readonly CaseType[],
 ): Promise<LoadCaseDataResult> {
 	try {
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
 		const store = await gatedCaseStore(appId, session.user.id, "view");
+		const searchSession = previewSearchSessionValues(session.user);
+		const expressionInputValues =
+			caseListConfig === undefined
+				? undefined
+				: withSearchInputExpressionValues(
+						caseListConfig.searchInputs,
+						new Map(),
+					);
 		return await readCaseData(store, {
 			appId,
 			caseType,
 			caseId,
 			ancestorDepth,
+			caseListConfig,
+			bindings: previewCaseStoreBindings(
+				searchSession,
+				caseListConfig?.searchInputs,
+				expressionInputValues,
+			),
+			caseTypeSchemas:
+				caseTypes && caseTypes.length > 0
+					? new Map(caseTypes.map((entry) => [entry.name, entry]))
+					: undefined,
 		});
 	} catch (err) {
 		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
@@ -367,6 +526,7 @@ export async function loadFilterPreviewAction(args: {
 	caseType: string;
 	blueprint: BlueprintDoc;
 	caseListConfig: CaseListConfig;
+	excludedOwnerIdsExpression?: ValueExpression;
 	limit?: number;
 }): Promise<LoadFilterPreviewResult> {
 	try {
@@ -404,6 +564,16 @@ export async function loadFilterPreviewAction(args: {
 		}
 
 		const store = await gatedCaseStore(args.appId, session.user.id, "view");
+		const searchSession = previewSearchSessionValues(session.user);
+		const excludedOwnerIds =
+			args.excludedOwnerIdsExpression === undefined
+				? undefined
+				: parseExcludedOwnerIds(
+						evaluatePreviewSearchExpression(
+							args.excludedOwnerIdsExpression,
+							searchSession,
+						),
+					);
 		// `buildCaseTypeMap` reads only `caseTypes`, so the parsed
 		// persistable shape goes through directly.
 		return await readFilterPreview(store, {
@@ -411,6 +581,15 @@ export async function loadFilterPreviewAction(args: {
 			caseType: args.caseType,
 			limit: args.limit,
 			caseListConfig: parsedConfig.data,
+			bindings: previewCaseStoreBindings(
+				searchSession,
+				parsedConfig.data.searchInputs,
+				withSearchInputExpressionValues(
+					parsedConfig.data.searchInputs,
+					new Map(),
+				),
+			),
+			excludedOwnerIds,
 			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
 		});
 	} catch (err) {

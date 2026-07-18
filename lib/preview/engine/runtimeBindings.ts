@@ -12,15 +12,15 @@
 // import one composition site without dragging the case-store's
 // Cloud SQL graph through the client bundle.
 
-import { isValid, parseISO } from "date-fns";
 import {
+	type CaseType,
 	DEFAULT_SEARCH_MODE_KIND,
+	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputType,
 } from "@/lib/domain";
 import type {
-	Literal,
 	Predicate,
 	PropertyRef,
 	SwitchCase,
@@ -28,18 +28,27 @@ import type {
 	ValueExpression,
 } from "@/lib/domain/predicate";
 import {
-	between,
 	dateLiteral,
+	dateRangeSearchPredicate,
 	eq,
+	exactDateSearchPredicate,
 	literal,
 	match,
 	multiSelectAll,
 	multiSelectAny,
 	prop,
+	qualifiedLiteral,
 	reduceAnd,
+	term,
 	unhandledKindMessage,
 } from "@/lib/domain/predicate";
 import { walkExpressionTerms, walkTerms } from "@/lib/domain/predicate/walk";
+import {
+	dateRangeInputErrors,
+	ISO_DATE_PATTERN,
+	isValidCalendarDate,
+	SearchInputValuesError,
+} from "./dateRangeInputValidation";
 
 /**
  * Wire-form date shape — the ISO `YYYY-MM-DD` pattern this module
@@ -49,7 +58,7 @@ import { walkExpressionTerms, walkTerms } from "@/lib/domain/predicate/walk";
  * `parseISO`, keeping both surfaces honoring one definition rather
  * than maintaining a parallel regex by comment.
  */
-export const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+export { ISO_DATE_PATTERN };
 
 /**
  * Search-input value bag. `<name>:from` / `<name>:to` for range
@@ -57,6 +66,14 @@ export const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
  * contributes nothing.
  */
 export type SearchInputValues = ReadonlyMap<string, string>;
+
+type SearchInputRuntimeValueType =
+	(typeof SEARCH_INPUT_RUNTIME_VALUE_TYPES)[SearchInputDef["type"]];
+
+interface RuntimeInputBinding {
+	readonly name: string;
+	readonly runtimeValueType?: SearchInputRuntimeValueType;
+}
 
 /**
  * Wire form of {@link SearchInputValues} — a plain object, NOT a `Map`.
@@ -109,7 +126,7 @@ export function withSearchInputExpressionValues(
 		expressionValues.delete(input.name);
 		const from = validDateBound(inputValues.get(`${input.name}:from`));
 		const to = validDateBound(inputValues.get(`${input.name}:to`));
-		if (from !== undefined && to !== undefined) {
+		if (from !== undefined && to !== undefined && from <= to) {
 			expressionValues.set(input.name, `__range__${from}__${to}`);
 		}
 	}
@@ -127,7 +144,9 @@ export function withSearchInputExpressionValues(
 export function bindSearchInputValuesInExpression(
 	expression: ValueExpression,
 	inputValues: SearchInputValues,
+	searchInputs: readonly SearchInputDef[] = [],
 ): ValueExpression {
+	const runtimeValueTypes = searchInputRuntimeValueTypes(searchInputs);
 	const names = new Set<string>();
 	walkExpressionTerms(expression, (term) => {
 		if (term.kind === "input") names.add(term.name);
@@ -137,7 +156,7 @@ export function bindSearchInputValuesInExpression(
 	for (const name of names) {
 		bound = substituteInputInExpression(
 			bound,
-			name,
+			{ name, runtimeValueType: runtimeValueTypes.get(name) },
 			inputValues.get(name) ?? "",
 			true,
 		);
@@ -159,7 +178,9 @@ export function bindSearchInputValuesInPredicate(
 	predicate: Predicate,
 	inputValues: SearchInputValues,
 	knownInputNames: ReadonlySet<string>,
+	searchInputs: readonly SearchInputDef[] = [],
 ): Predicate {
+	const runtimeValueTypes = searchInputRuntimeValueTypes(searchInputs);
 	const referencedNames = new Set<string>();
 	walkTerms(predicate, (term) => {
 		if (term.kind === "input") referencedNames.add(term.name);
@@ -170,7 +191,7 @@ export function bindSearchInputValuesInPredicate(
 		if (!knownInputNames.has(name)) continue;
 		bound = substituteInputInPredicate(
 			bound,
-			name,
+			{ name, runtimeValueType: runtimeValueTypes.get(name) },
 			inputValues.get(name)?.trim() ?? "",
 			true,
 		);
@@ -181,9 +202,11 @@ export function bindSearchInputValuesInPredicate(
 /**
  * Compose every contributing search-input's runtime predicate into
  * one Predicate representing the input-driven contribution. Empty /
- * absent input values short-circuit per-input. Zero-input or all-
- * empty input returns `match-all` so the caller can AND-compose
- * unconditionally.
+ * absent simple inputs short-circuit per-input. Advanced predicates
+ * always contribute: their authored `when-input-present` nodes are
+ * the sole source of input-presence gating, matching wire emission.
+ * Zero-input or all-empty simple input returns `match-all` so the
+ * caller can AND-compose unconditionally.
  *
  * `caseType` threads to every `prop(caseType, property, via?)` Term
  * construction so the predicate compiler can resolve the property's
@@ -193,7 +216,11 @@ export function composeRuntimeFilter(
 	searchInputs: ReadonlyArray<SearchInputDef>,
 	inputValues: SearchInputValues,
 	caseType: string,
+	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
 ): Predicate {
+	const rangeErrors = dateRangeInputErrors(searchInputs, inputValues);
+	if (rangeErrors.size > 0) throw new SearchInputValuesError(rangeErrors);
+
 	const expressionValues = withSearchInputExpressionValues(
 		searchInputs,
 		inputValues,
@@ -206,6 +233,8 @@ export function composeRuntimeFilter(
 			expressionValues,
 			caseType,
 			knownInputNames,
+			searchInputs,
+			caseTypeSchemas,
 		);
 		if (clause !== undefined) clauses.push(clause);
 	}
@@ -219,12 +248,24 @@ function clauseForInput(
 	inputValues: SearchInputValues,
 	caseType: string,
 	knownInputNames: ReadonlySet<string>,
+	searchInputs: readonly SearchInputDef[],
+	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
 ): Predicate | undefined {
 	switch (input.kind) {
 		case "simple":
-			return buildSimpleArmClause(input, inputValues, caseType);
+			return buildSimpleArmClause(
+				input,
+				inputValues,
+				caseType,
+				caseTypeSchemas,
+			);
 		case "advanced":
-			return buildAdvancedArmClause(input, inputValues, knownInputNames);
+			return buildAdvancedArmClause(
+				input,
+				inputValues,
+				knownInputNames,
+				searchInputs,
+			);
 		default: {
 			const _exhaustive: never = input;
 			throw new Error(
@@ -250,10 +291,11 @@ function buildSimpleArmClause(
 	input: Extract<SearchInputDef, { kind: "simple" }>,
 	inputValues: SearchInputValues,
 	caseType: string,
+	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
 ): Predicate | undefined {
 	const mode = input.mode ?? defaultModeFor(input.type);
 	if (mode.kind === "range") {
-		return buildRangeClause(input, inputValues, caseType);
+		return buildRangeClause(input, inputValues, caseType, caseTypeSchemas);
 	}
 
 	// Trim once at read so downstream `literal(value)` calls see the
@@ -264,8 +306,29 @@ function buildSimpleArmClause(
 
 	const property = prop(caseType, input.property, input.via);
 	switch (mode.kind) {
-		case "exact":
+		case "exact": {
+			if (input.type === "date") {
+				const day = validDateBound(value);
+				if (day === undefined) return undefined;
+				if (caseTypeSchemas === undefined) {
+					throw new Error(
+						`Cannot bind the exact calendar-day search input "${input.name}" without case-type schemas. Date and datetime targets use different half-open boundary types; pass the live blueprint schema map instead of guessing from the widget alone.`,
+					);
+				}
+				return exactDateSearchPredicate({
+					caseType,
+					property: input.property,
+					via: input.via,
+					day: term(dateLiteral(day)),
+					typeContext: {
+						caseTypes: [...caseTypeSchemas.values()],
+						currentCaseType: caseType,
+						knownInputs: [],
+					},
+				});
+			}
 			return eq(property, literal(value));
+		}
 		case "fuzzy":
 			return match(property, literal(value), "fuzzy");
 		case "starts-with":
@@ -323,11 +386,36 @@ function buildRangeClause(
 	input: Extract<SearchInputDef, { kind: "simple" }>,
 	inputValues: SearchInputValues,
 	caseType: string,
+	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
 ): Predicate | undefined {
-	const lower = parseDateBound(inputValues.get(`${input.name}:from`));
-	const upper = parseDateBound(inputValues.get(`${input.name}:to`));
+	const lower = validDateBound(inputValues.get(`${input.name}:from`));
+	const upper = validDateBound(inputValues.get(`${input.name}:to`));
 	if (lower === undefined && upper === undefined) return undefined;
-	return between(prop(caseType, input.property, input.via), { lower, upper });
+	// `composeRuntimeFilter` validates the complete pair before dispatch. Keep
+	// this private helper defensive so a future direct caller cannot silently
+	// resurrect Preview-only one-sided daterange semantics.
+	if (lower === undefined || upper === undefined) {
+		throw new Error(
+			`Cannot bind date-range input "${input.name}" without both bounds. CommCare serializes daterange as one start/end pair; validate the submitted values before composing the runtime predicate.`,
+		);
+	}
+	if (caseTypeSchemas === undefined) {
+		throw new Error(
+			`Cannot bind date-range input "${input.name}" without case-type schemas. Date and datetime targets use different final-day boundaries; pass the live blueprint schema map instead of guessing from the widget.`,
+		);
+	}
+	return dateRangeSearchPredicate({
+		caseType,
+		property: input.property,
+		via: input.via,
+		lowerDay: term(dateLiteral(lower)),
+		upperDay: term(dateLiteral(upper)),
+		typeContext: {
+			caseTypes: [...caseTypeSchemas.values()],
+			currentCaseType: caseType,
+			knownInputs: [],
+		},
+	});
 }
 
 /**
@@ -341,16 +429,10 @@ function buildRangeClause(
  * Either failure drops the bound entirely so the binding layer
  * AND-composes only valid clauses.
  */
-function parseDateBound(raw: string | undefined): Literal | undefined {
-	const value = validDateBound(raw);
-	return value === undefined ? undefined : dateLiteral(value);
-}
-
 function validDateBound(raw: string | undefined): string | undefined {
-	if (raw === undefined || raw === "") return undefined;
-	if (!ISO_DATE_PATTERN.test(raw)) return undefined;
-	if (!isValid(parseISO(raw))) return undefined;
-	return raw;
+	const value = raw?.trim();
+	if (value === undefined || value === "") return undefined;
+	return isValidCalendarDate(value) ? value : undefined;
 }
 
 function defaultModeFor(type: SearchInputType): SearchInputMode {
@@ -358,26 +440,43 @@ function defaultModeFor(type: SearchInputType): SearchInputMode {
 }
 
 /**
- * Advanced-arm dispatch: when the owning value is non-empty, bind every
- * declared input ref the predicate reads and resolve its matching presence
- * gate. The walker functions below are the authoritative site for arm-by-arm
- * substitution semantics.
+ * Advanced-arm dispatch: bind every declared input ref the predicate reads
+ * and resolve its matching presence gate. The input whose metadata owns this
+ * predicate is not an implicit gate: an advanced predicate may be constant,
+ * may depend only on sibling inputs, or may describe its own presence behavior
+ * explicitly with `when-input-present`. This mirrors the emitted `_xpath_query`,
+ * which always includes the authored predicate.
  */
 function buildAdvancedArmClause(
 	input: Extract<SearchInputDef, { kind: "advanced" }>,
 	inputValues: SearchInputValues,
 	knownInputNames: ReadonlySet<string>,
-): Predicate | undefined {
-	// Trim once at read so the value substituted into every
-	// `term(input(name))` slot is the normalized form — symmetric
-	// with `buildSimpleArmClause`'s trim-once contract.
-	const value = inputValues.get(input.name)?.trim();
-	if (value === undefined || value === "") return undefined;
-
+	searchInputs: readonly SearchInputDef[],
+): Predicate {
 	return bindSearchInputValuesInPredicate(
 		input.predicate,
 		inputValues,
 		knownInputNames,
+		searchInputs,
+	);
+}
+
+/**
+ * Resolve the semantic scalar a prompt contributes when an `input(name)` leaf
+ * is replaced with its submitted value. The widget is the authority: a date
+ * prompt still binds a date when its simple arm targets a datetime property,
+ * while a date-range prompt binds CCHQ's encoded range string. Keeping this
+ * projection beside substitution prevents the SQL compiler from having to
+ * guess a temporal type from a string after the input leaf has disappeared.
+ */
+function searchInputRuntimeValueTypes(
+	searchInputs: readonly SearchInputDef[],
+): ReadonlyMap<string, SearchInputRuntimeValueType> {
+	return new Map(
+		searchInputs.map((input) => [
+			input.name,
+			SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+		]),
 	);
 }
 
@@ -390,7 +489,7 @@ function buildAdvancedArmClause(
 
 function substituteInputInPredicate(
 	predicate: Predicate,
-	targetName: string,
+	targetName: RuntimeInputBinding,
 	value: string,
 	resolvePresence = false,
 ): Predicate {
@@ -539,7 +638,7 @@ function substituteInputInPredicate(
 				),
 			};
 		case "when-input-present":
-			if (resolvePresence && predicate.input.name === targetName) {
+			if (resolvePresence && predicate.input.name === targetName.name) {
 				/* Preview has no search-input XML instance at query/evaluation time.
 				 * Resolve the structural gate directly to the same two wire outcomes:
 				 * answered -> inner clause; unanswered -> match-all no-op. */
@@ -629,7 +728,7 @@ function substituteInputInPredicate(
 
 function substituteInputInExpression(
 	expr: ValueExpression,
-	targetName: string,
+	targetName: RuntimeInputBinding,
 	value: string,
 	resolvePresence = false,
 ): ValueExpression {
@@ -832,13 +931,18 @@ function substituteInputInExpression(
 
 function substituteInputInTerm(
 	node: Term,
-	targetName: string,
+	targetName: RuntimeInputBinding,
 	value: string,
 ): ValueExpression {
 	switch (node.kind) {
 		case "input":
-			if (node.name === targetName) {
-				return { kind: "term", term: { kind: "literal", value } };
+			if (node.name === targetName.name) {
+				const replacement =
+					targetName.runtimeValueType === undefined ||
+					targetName.runtimeValueType === "text"
+						? literal(value)
+						: qualifiedLiteral(value, targetName.runtimeValueType);
+				return { kind: "term", term: replacement };
 			}
 			return { kind: "term", term: node };
 		case "prop":

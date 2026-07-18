@@ -37,6 +37,7 @@ import type {
 	RelationPath,
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
+import type { TermBindings } from "./sql/compileTerm";
 import type { CasesTable, JsonObject, JsonValue } from "./sql/database";
 
 /**
@@ -150,6 +151,8 @@ export interface QueryArgs {
 	appId: string;
 	caseType: string;
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>;
+	/** Runtime values for input/session terms used by predicates, sort keys, or calculated projections. */
+	bindings?: TermBindings;
 	predicate?: Predicate;
 	sort?: SortKey[];
 	calculated?: ReadonlyArray<CalculatedColumn>;
@@ -174,6 +177,8 @@ export interface CountArgs {
 	appId: string;
 	caseType: string;
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>;
+	/** Runtime values for input/session terms used by the predicate. */
+	bindings?: TermBindings;
 	predicate?: Predicate;
 }
 

@@ -1,9 +1,8 @@
 // components/builder/shared/cards/IsNullCard.tsx
 //
-// Renders the `is-null` predicate (strict-absent). Property picker
-// only — the AST schema accepts any non-literal Term (property
-// ref, search-input ref, session ref); this card narrows authoring
-// to property refs as the dominant case-list authoring shape.
+// Renders the `is-null` predicate (strict-absent). The common property
+// subject stays compact, while every checker-valid runtime expression
+// remains directly editable through the recursive expression editor.
 //
 // `is-null` is the strict-absent operator (key not present in the
 // JSONB document). `is-blank` is the wider absent-or-empty operator
@@ -12,12 +11,15 @@
 
 "use client";
 import { canonicalCasePropertyName } from "@/lib/domain";
-import { isNull, type Predicate, prop } from "@/lib/domain/predicate";
-import { useEditorErrorsAt } from "../editorContext";
+import {
+	absenceSubjectConstraint,
+	isNull,
+	type Predicate,
+	prop,
+} from "@/lib/domain/predicate";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
-import { InlineError } from "../primitives/CardShell";
-import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 export function isNullDefault(
@@ -36,26 +38,22 @@ interface IsNullCardProps {
 }
 
 export function IsNullCard({ value, onChange, path }: IsNullCardProps) {
-	const leftErrors = useEditorErrorsAt(appendSlot(path, "left"));
-
 	return (
 		<div className="space-y-2">
 			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto] gap-2 items-start">
-				<div>
-					<PropertyRefPicker
-						mode="left"
-						value={value.left}
-						onChange={(left) => onChange(isNull(left))}
-						invalid={leftErrors.length > 0}
-						ariaLabel="Property"
-					/>
-					<InlineError errors={leftErrors} />
-				</div>
+				<ExpressionPicker
+					value={value.left}
+					onChange={(left) => onChange(isNull(left))}
+					path={appendSlot(path, "left")}
+					constraint={absenceSubjectConstraint()}
+					presentation="subject"
+					variant="nested"
+				/>
 				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
-			<div className="text-[11px] text-nova-text-muted leading-snug">
-				Matches only when the property has never been written. The empty string
-				is treated as a value, not absence.
+			<div className="text-[13px] leading-relaxed text-nova-text-muted">
+				Matches only when this information has never been recorded. A blank
+				value still counts as recorded
 			</div>
 		</div>
 	);

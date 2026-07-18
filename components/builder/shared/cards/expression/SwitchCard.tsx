@@ -29,10 +29,12 @@ import { Icon } from "@iconify/react/offline";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useMemo } from "react";
+import { useId, useMemo, useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import {
 	ANY_CONSTRAINT,
+	branchConstraint,
 	compatibleTypesFor,
 	type Literal,
 	literal,
@@ -52,7 +54,7 @@ import {
 } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { expressionCardSchemas } from "../../expressionEditorSchemas";
-import { nodeId } from "../../nodeIdentity";
+import { removeAndRestoreFocus } from "../../focusAfterRemoval";
 import {
 	appendKindIndexSlot,
 	appendKindSlot,
@@ -61,8 +63,18 @@ import {
 import { InlineError } from "../../primitives/CardShell";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 import { LiteralValueInput } from "../../primitives/LiteralValueInput";
-import { ReorderableRow, useReorderableList } from "../../useReorderableList";
-import { reseedLiteralForConstraint, resolveExpressionType } from "../reseed";
+import {
+	ReorderableRow,
+	type ReorderKeyboardKey,
+	reorderByKeyboard,
+	useReorderableList,
+} from "../../useReorderableList";
+import { useStableListIdentity } from "../../useStableListIdentity";
+import {
+	reseedLiteralForConstraint,
+	reseedValueForConstraint,
+	resolveExpressionType,
+} from "../reseed";
 
 /** Default `switch` — `switch(literal(""), [{ when: "", then: "" }],
  *  fallback: "")`. The single-case seed satisfies the schema's
@@ -109,8 +121,10 @@ export function SwitchCard({
 	// "switch", "cases", i, "when"]` errors fall on the inner `when`
 	// literal input (which has no shell of its own), so the per-row
 	// `InlineError` for `whenErrors` STAYS in `CaseRow`.
-	const containerKey = nodeId(value);
+	const containerKey = useId();
 	const ctx = usePredicateEditContext();
+	const [moveAnnouncement, setMoveAnnouncement] = useState("");
+	const rowIdentity = useStableListIdentity(value.cases);
 
 	// Each `case.when` literal must be comparable with `on`'s resolved
 	// type — the when input is typed against this accept-set, and a
@@ -118,6 +132,15 @@ export function SwitchCard({
 	// onChange so the committed switch is never transiently type-wrong.
 	const onType = useResolvedType(value.on);
 	const whenAccepts = useMemo(() => compatibleTypesFor(onType), [onType]);
+	const branchTypes = useMemo(
+		() => value.cases.map((item) => resolveExpressionType(item.then, ctx)),
+		[value.cases, ctx],
+	);
+	const fallbackType = useMemo(
+		() => resolveExpressionType(value.fallback, ctx),
+		[value.fallback, ctx],
+	);
+	const fallbackConstraint = branchConstraint(constraint, ...branchTypes);
 
 	const apply = (
 		cases: readonly SwitchCase[],
@@ -132,12 +155,16 @@ export function SwitchCard({
 
 	const setOn = (next: ValueExpression) => {
 		const nextAccepts = compatibleTypesFor(resolveExpressionType(next, ctx));
-		const reseeded = value.cases.map((c) =>
-			whenLiteralAccepted(c.when, nextAccepts)
-				? c
-				: switchCase(reseedLiteralForConstraint(c.when, nextAccepts), c.then),
+		const reseeded = value.cases.map((item) =>
+			whenLiteralAccepted(item.when, nextAccepts)
+				? item
+				: switchCase(
+						reseedLiteralForConstraint(item.when, nextAccepts),
+						item.then,
+					),
 		);
 		const [first, ...rest] = reseeded;
+		rowIdentity.stage(reseeded, { kind: "replace" });
 		onChange(switchExpr(next, [first, ...rest], value.fallback));
 	};
 
@@ -146,7 +173,10 @@ export function SwitchCard({
 	};
 
 	const updateCase = (index: number, next: SwitchCase) => {
-		const updated = value.cases.map((c, i) => (i === index ? next : c));
+		const updated = value.cases.map((item, itemIndex) =>
+			itemIndex === index ? next : item,
+		);
+		rowIdentity.stage(updated, { kind: "replace" });
 		onChange(apply(updated));
 	};
 
@@ -154,27 +184,84 @@ export function SwitchCard({
 		// Schema requires non-empty; refuse the last case's removal.
 		if (value.cases.length === 1) return;
 		const filtered = value.cases.filter((_, i) => i !== index);
+		rowIdentity.stage(filtered, {
+			kind: "splice",
+			index,
+			deleteCount: 1,
+			insertCount: 0,
+		});
 		onChange(apply(filtered));
 	};
 
 	const appendCase = () => {
-		const next = [...value.cases, switchCase(literal(""), term(literal("")))];
+		const whenSeed = reseedLiteralForConstraint(literal(""), whenAccepts);
+		const resultConstraint = branchConstraint(
+			constraint,
+			fallbackType,
+			...branchTypes,
+		);
+		const thenSeed =
+			resultConstraint.accepts === "any"
+				? term(literal(null))
+				: reseedValueForConstraint(term(literal("")), resultConstraint.accepts);
+		const next = [...value.cases, switchCase(whenSeed, thenSeed)];
+		rowIdentity.stage(next, {
+			kind: "splice",
+			index: value.cases.length,
+			deleteCount: 0,
+			insertCount: 1,
+		});
 		onChange(apply(next));
+	};
+
+	const moveCase = (index: number, key: ReorderKeyboardKey) => {
+		const result = reorderByKeyboard(value.cases, index, key);
+		const towardStart = key === "ArrowUp" || key === "Home";
+		if (result === undefined) {
+			setMoveAnnouncement(
+				`Choice ${index + 1} is already at the ${towardStart ? "beginning" : "end"}`,
+			);
+			return;
+		}
+		rowIdentity.stage(result.items, {
+			kind: "move",
+			fromIndex: result.move.fromIndex,
+			toIndex: result.move.toIndex,
+		});
+		onChange(apply(result.items));
+		setMoveAnnouncement(
+			`Choice ${index + 1} moved ${towardStart ? "earlier" : "later"}`,
+		);
 	};
 
 	const { pendingDrop } = useReorderableList({
 		containerKey,
 		containerKind: "switch",
 		items: value.cases,
-		getItemKey: nodeId,
-		onReorder: (next) => onChange(apply(next)),
+		itemKeys: rowIdentity.keys,
+		onReorder: (next, move) => {
+			rowIdentity.stage(next, {
+				kind: "move",
+				fromIndex: move.fromIndex,
+				toIndex: move.toIndex,
+			});
+			onChange(apply(next));
+		},
 	});
 
 	return (
-		<div className="space-y-2">
+		<div className="space-y-3">
+			<p
+				role="status"
+				aria-live="polite"
+				aria-atomic="true"
+				className="sr-only"
+			>
+				{moveAnnouncement}
+			</p>
 			<div>
-				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-					Match against
+				<div className="mb-1.5 text-[13px] font-medium text-nova-text-secondary">
+					Compare this value
 				</div>
 				<ExpressionPicker
 					value={value.on}
@@ -184,19 +271,19 @@ export function SwitchCard({
 				/>
 			</div>
 
-			<div className="space-y-1.5">
-				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted">
-					Cases
+			<div className="space-y-2">
+				<div className="text-[13px] font-medium text-nova-text-secondary">
+					Matching choices
 				</div>
 				{value.cases.map((c, i) => (
 					<ReorderableRow
-						key={nodeId(c)}
+						key={rowIdentity.keys[i]}
 						index={i}
-						itemKey={nodeId(c)}
+						itemKey={rowIdentity.keys[i]}
 						containerKey={containerKey}
 						containerKind="switch"
 						pendingDrop={pendingDrop}
-						preview={<SwitchCaseDragPreview index={i} />}
+						preview={<SwitchCaseDragPreview />}
 					>
 						{({
 							wrapperRef,
@@ -207,6 +294,7 @@ export function SwitchCard({
 						}) => (
 							<div
 								ref={wrapperRef}
+								data-removal-focus-row
 								className={`relative ${beingMoved ? "opacity-50" : ""}`}
 							>
 								{closestEdge !== null && (
@@ -226,34 +314,45 @@ export function SwitchCard({
 									onUpdate={(next) => updateCase(i, next)}
 									onRemove={() => removeCase(i)}
 									setHandleEl={setHandleEl}
+									onMove={(key) => moveCase(i, key)}
+									reorderLabel={`Move choice ${i + 1} of ${value.cases.length}`}
 									path={path}
 									whenAccepts={whenAccepts}
-									thenConstraint={constraint}
+									thenConstraint={branchConstraint(
+										constraint,
+										fallbackType,
+										...branchTypes.filter(
+											(_, branchIndex) => branchIndex !== i,
+										),
+									)}
 								/>
 								{previewPortal}
 							</div>
 						)}
 					</ReorderableRow>
 				))}
-				<button
+				<Button
 					type="button"
+					variant="outline"
+					size="xl"
 					onClick={appendCase}
-					className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+					data-removal-focus-fallback
+					className="w-full border-dashed text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:text-nova-violet-bright"
 				>
 					<Icon icon={tablerPlus} width="14" height="14" />
-					<span>Add Case</span>
-				</button>
+					<span>Add choice</span>
+				</Button>
 			</div>
 
 			<div>
-				<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
+				<div className="mb-1.5 text-[13px] font-medium text-nova-text-secondary">
 					Otherwise
 				</div>
 				<ExpressionPicker
 					value={value.fallback}
 					onChange={setFallback}
 					path={appendKindSlot(path, "switch", "fallback")}
-					constraint={constraint}
+					constraint={fallbackConstraint}
 					variant="nested"
 				/>
 			</div>
@@ -268,6 +367,8 @@ interface CaseRowProps {
 	readonly onUpdate: (next: SwitchCase) => void;
 	readonly onRemove: () => void;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
+	readonly onMove: (key: ReorderKeyboardKey) => void;
+	readonly reorderLabel: string;
 	readonly path: EditorPath;
 	/** The accept-set for the `when` literal — `on`'s compatible
 	 *  types. Drives the typed `when` input so an authored value can't
@@ -285,6 +386,8 @@ function CaseRow({
 	onUpdate,
 	onRemove,
 	setHandleEl,
+	onMove,
+	reorderLabel,
 	path,
 	whenAccepts,
 	thenConstraint,
@@ -309,37 +412,59 @@ function CaseRow({
 	};
 
 	return (
-		<div className="rounded-md border border-white/[0.05] bg-nova-surface/30 px-2 py-2 space-y-1.5">
+		<div className="space-y-2 rounded-lg border border-white/[0.05] bg-nova-surface/30 p-3">
 			<div className="flex items-center gap-1.5">
-				<button
-					type="button"
-					ref={setHandleEl}
-					aria-label="Reorder case"
-					className="size-11 -ml-2 grid place-items-center rounded-md cursor-grab text-nova-text-muted hover:text-nova-text-muted transition-colors"
-				>
-					<Icon icon={tablerGripVertical} width="14" height="14" />
-				</button>
-				<span className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted">
-					Case {caseIndex + 1}
+				<SimpleTooltip content="Drag or use arrow keys">
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon"
+						ref={setHandleEl}
+						aria-label={reorderLabel}
+						aria-keyshortcuts="ArrowUp ArrowDown Home End"
+						onKeyDown={(event) => {
+							if (
+								event.key !== "ArrowUp" &&
+								event.key !== "ArrowDown" &&
+								event.key !== "Home" &&
+								event.key !== "End"
+							) {
+								return;
+							}
+							event.preventDefault();
+							onMove(event.key);
+						}}
+						className="size-11 cursor-grab rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text"
+					>
+						<Icon icon={tablerGripVertical} width="16" height="16" />
+					</Button>
+				</SimpleTooltip>
+				<span className="text-[13px] font-medium text-nova-text-secondary">
+					Matching choice
 				</span>
 				<div className="flex-1" />
 				{!isOnlyOne && (
-					<SimpleTooltip content="Remove this case">
-						<button
+					<SimpleTooltip content="Remove choice">
+						<Button
 							type="button"
-							aria-label="Remove case"
-							onClick={onRemove}
-							className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-rose hover:bg-white/[0.05] transition-colors cursor-pointer"
+							variant="ghost"
+							size="icon"
+							aria-label="Remove choice"
+							onClick={(event) =>
+								removeAndRestoreFocus(event.currentTarget, onRemove)
+							}
+							data-removal-action
+							className="size-11 rounded-md text-nova-text-muted not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
 						>
 							<Icon icon={tablerTrash} width="13" height="13" />
-						</button>
+						</Button>
 					</SimpleTooltip>
 				)}
 			</div>
 
-			<div className="grid grid-cols-2 gap-2">
+			<div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">
 				<div>
-					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
+					<div className="mb-1.5 text-[13px] font-medium text-nova-text-secondary">
 						When it equals
 					</div>
 					{/* The when value is typed against `on`'s compatible set,
@@ -354,13 +479,13 @@ function CaseRow({
 						propertyName={undefined}
 						accepts={whenAccepts}
 						invalid={whenErrors.length > 0}
-						ariaLabel="Case when value"
+						ariaLabel="Value to match"
 					/>
 					<InlineError errors={whenErrors} />
 				</div>
 				<div>
-					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-nova-text-muted mb-1.5">
-						Then
+					<div className="mb-1.5 text-[13px] font-medium text-nova-text-secondary">
+						Use this value
 					</div>
 					<ExpressionPicker
 						value={switchCaseValue.then}
@@ -381,7 +506,7 @@ function CaseRow({
 	);
 }
 
-function SwitchCaseDragPreview({ index }: { readonly index: number }) {
+function SwitchCaseDragPreview() {
 	const schema = expressionCardSchemas.switch;
 	return (
 		<div className="inline-flex items-center gap-1.5 rounded-lg border border-nova-violet/40 bg-nova-surface/95 px-3 py-1.5 text-sm text-nova-text shadow-lg backdrop-blur-sm">
@@ -397,7 +522,7 @@ function SwitchCaseDragPreview({ index }: { readonly index: number }) {
 				height="14"
 				className="text-nova-violet-bright"
 			/>
-			<span className="max-w-[240px] truncate">Case {index + 1}</span>
+			<span className="max-w-[240px] truncate">Matching choice</span>
 		</div>
 	);
 }

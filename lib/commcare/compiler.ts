@@ -51,6 +51,7 @@ import { buildShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { buildRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
+import { moduleTypeContext } from "@/lib/commcare/validator/rules/case-list/shared";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
@@ -171,6 +172,11 @@ export function compileCcz(
 		const caseType = hqMod.case_type;
 		const hqForms = hqMod.forms;
 		const caseSearchConfig = effectiveCaseSearchConfig(mod);
+		// Owner exclusion belongs to case availability, not to the presence of
+		// a remote Search action. Read the raw authored slot so an owner-only
+		// module still narrows its ordinary `casedb` list even when
+		// `effectiveCaseSearchConfig` intentionally disables remote Search.
+		const excludedOwnerIds = mod.caseSearchConfig?.excludedOwnerIds;
 		const searchButtonDisplayCondition =
 			caseSearchConfig?.searchButtonDisplayCondition;
 
@@ -251,6 +257,7 @@ export function compileCcz(
 				? buildRemoteRequest({
 						module: { ...mod, caseSearchConfig },
 						moduleIndex: mIdx,
+						typeContext: moduleTypeContext(mod, doc),
 					})
 				: undefined;
 			if (remoteRequestEmission !== undefined) {
@@ -405,6 +412,8 @@ export function compileCcz(
 					? caseListColumnExpressions
 					: undefined,
 				hqForm.actions,
+				excludedOwnerIds,
+				moduleTypeContext(mod, doc),
 			);
 
 			// Re-validate after injection — catches orphaned binds or
@@ -523,6 +532,8 @@ export function compileCcz(
 				(mod.caseListConfig?.columns ?? []).some(
 					(column) => column.visibleInDetail !== false,
 				),
+				excludedOwnerIds,
+				moduleTypeContext(mod, doc),
 			);
 			suiteEntries.push(buildEntryElement(caseListEntryDef, caseListNav.node));
 			menuCommands.push(el("command", { id: `m${mIdx}-case-list` }));

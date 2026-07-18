@@ -19,31 +19,32 @@
 //     captures it inline.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
-import { useRef } from "react";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
+import {
+	ANY_CONSTRAINT,
 	DATE_ADD_INTERVALS,
 	type DateAddInterval,
 	dateAdd,
-	dateOperandConstraint,
+	dateAddOperandConstraint,
 	literal,
 	numericConstraint,
+	type SlotConstraint,
 	term,
 	today,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 
-/** The `date` operand resolves to date or datetime; `quantity` is
- *  numeric — module-consts for stable identities across renders. */
-const DATE_CONSTRAINT = dateOperandConstraint();
+/** The quantity is always numeric. The date operand's exact temporal type
+ * follows the parent result slot and is derived inside the component. */
 const QUANTITY_CONSTRAINT = numericConstraint();
 
 const INTERVAL_LABELS: Record<DateAddInterval, string> = {
@@ -69,9 +70,17 @@ interface DateAddCardProps {
 	readonly value: Extract<ValueExpression, { kind: "date-add" }>;
 	readonly onChange: (next: ValueExpression) => void;
 	readonly path: EditorPath;
+	/** `date-add` returns the exact type of its date operand, so the parent
+	 *  result constraint must narrow that operand to date or datetime. */
+	readonly constraint?: SlotConstraint;
 }
 
-export function DateAddCard({ value, onChange, path }: DateAddCardProps) {
+export function DateAddCard({
+	value,
+	onChange,
+	path,
+	constraint = ANY_CONSTRAINT,
+}: DateAddCardProps) {
 	// Per-slot errors render via each `ExpressionPicker` shell's
 	// `CardShell` footer at the matching slot path. The type checker
 	// emits at `[..., "date"]` and `[..., "quantity"]`; the picker
@@ -88,33 +97,28 @@ export function DateAddCard({ value, onChange, path }: DateAddCardProps) {
 	const setQuantity = (next: ValueExpression) => {
 		onChange(dateAdd(value.date, value.interval, next));
 	};
+	const dateConstraint = dateAddOperandConstraint(constraint);
 
 	return (
-		<div className="space-y-2">
+		<div className="space-y-3">
 			<div>
-				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
-					Date
+				<div className="mb-1.5 text-[13px] font-medium text-nova-text-secondary">
+					Starting date
 				</div>
 				<ExpressionPicker
 					value={value.date}
 					onChange={setDate}
 					path={appendSlot(path, "date")}
-					constraint={DATE_CONSTRAINT}
+					constraint={dateConstraint}
 					variant="nested"
 				/>
 			</div>
 
-			<div className="grid grid-cols-[auto_1fr] gap-2 items-start">
-				<div>
-					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
-						Interval
-					</div>
-					<IntervalMenu interval={value.interval} setInterval={setInterval} />
+			<div>
+				<div className="mb-1.5 text-[13px] font-medium text-nova-text-secondary">
+					Change by
 				</div>
-				<div>
-					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
-						Quantity
-					</div>
+				<div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
 					<ExpressionPicker
 						value={value.quantity}
 						onChange={setQuantity}
@@ -122,6 +126,7 @@ export function DateAddCard({ value, onChange, path }: DateAddCardProps) {
 						constraint={QUANTITY_CONSTRAINT}
 						variant="nested"
 					/>
+					<IntervalMenu interval={value.interval} setInterval={setInterval} />
 				</div>
 			</div>
 		</div>
@@ -134,67 +139,40 @@ interface IntervalMenuProps {
 }
 
 function IntervalMenu({ interval, setInterval }: IntervalMenuProps) {
-	const triggerRef = useRef<HTMLButtonElement>(null);
 	return (
-		<Menu.Root>
-			<Menu.Trigger
-				ref={triggerRef}
-				aria-label={`Interval: ${INTERVAL_LABELS[interval]}`}
-				className="group flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+		<Select
+			value={interval}
+			onValueChange={(next) => {
+				if (
+					next === "seconds" ||
+					next === "minutes" ||
+					next === "hours" ||
+					next === "days" ||
+					next === "weeks" ||
+					next === "months" ||
+					next === "years"
+				) {
+					setInterval(next);
+				}
+			}}
+		>
+			<SelectTrigger
+				aria-label={`Interval ${INTERVAL_LABELS[interval]}`}
+				className="h-11 border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-violet-bright not-disabled:hover:border-nova-violet/30 dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50"
 			>
-				<span>{INTERVAL_LABELS[interval]}</span>
-				<svg
-					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
-					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.2"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
-					align="start"
-					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-				>
-					<Menu.Popup className={MENU_POPUP_CLS}>
-						{DATE_ADD_INTERVALS.map((iv, i) => {
-							const isActive = iv === interval;
-							const last = DATE_ADD_INTERVALS.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
-							return (
-								<Menu.Item
-									key={iv}
-									onClick={() => setInterval(iv)}
-									className={`${corners} ${MENU_ITEM_CLS} ${
-										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									}`}
-								>
-									<span>{INTERVAL_LABELS[iv]}</span>
-								</Menu.Item>
-							);
-						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+				<SelectValue>{INTERVAL_LABELS[interval]}</SelectValue>
+			</SelectTrigger>
+			<SelectContent align="end">
+				{DATE_ADD_INTERVALS.map((nextInterval) => (
+					<SelectItem
+						key={nextInterval}
+						value={nextInterval}
+						className="min-h-11"
+					>
+						{INTERVAL_LABELS[nextInterval]}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
 	);
 }

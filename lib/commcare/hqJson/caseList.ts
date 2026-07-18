@@ -26,10 +26,11 @@
 //     the only divergence is the wire shape (a SortElement struct
 //     here vs. a `<sort>` XML element there).
 //
-//   - `case_details.short.filter` — the always-on `caseListConfig.filter`
-//     compiled to on-device XPath. CCHQ's `case_list_filter` getter
-//     reads from this slot; nothing else stores the filter at module
-//     scope.
+//   - `case_details.short.filter` — the always-on
+//     `caseListConfig.filter` plus owner availability from
+//     `caseSearchConfig.excludedOwnerIds`, compiled to one on-device XPath.
+//     CCHQ's `case_list_filter` getter reads from this slot; keeping owner
+//     exclusion here makes it apply to the ordinary list as well as Search.
 //
 //   - `search_config` (CCHQ's `CaseSearch`) — search-screen chrome,
 //     per-input `<prompt>` projection, and the `_xpath_query` slot
@@ -46,22 +47,26 @@ import {
 import type {
 	BlueprintDoc,
 	CaseListConfig,
+	CaseProperty,
 	Column,
 	CaseSearchConfig as DomainCaseSearchConfig,
 	Module,
 	SearchInputDef,
-	SimpleSearchInputDef,
 } from "@/lib/domain";
 import {
 	canonicalCasePropertyName,
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
+	effectiveCaseTypes,
+	resolveCommCareDatePattern,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
 	simplifyForEmission,
 } from "@/lib/domain/predicate";
+import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import { emitCasePropertyWirePath } from "../casePropertyWire";
 import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
 import { caseSearchConfigShell, detailColumn, detailPair } from "../hqShells";
 import {
@@ -69,16 +74,30 @@ import {
 	requireAssetRef,
 } from "../multimedia/assetWirePath";
 import { emitCaseListFilter } from "../predicate";
-import { TIME_AGO_DIVISOR_DAYS } from "../suite/case-list/columns";
+import {
+	intervalColumnDisplayXpath,
+	plainSelectDisplayXpath,
+} from "../suite/case-list/columns";
+import {
+	emitExcludedOwnerFilterExpression,
+	emitNormalizedExcludedOwnerIdsExpression,
+} from "../suite/case-list/nodesetFilter";
 import {
 	buildSortDirectives,
 	SORT_DIRECTION_WIRE_MAP,
 	SORT_TYPE_WIRE_MAP,
 } from "../suite/case-list/sortKeys";
 import { compileForPlatform } from "../suite/case-search/compileForPlatform";
-import { PROMPT_ATTRIBUTE_MAPPINGS } from "../suite/case-search/searchPrompts";
-import { simpleArmNeedsXPathQueryEmission } from "../suite/case-search/simpleArmDerivation";
-import { composeXPathQueryEmission } from "../suite/case-search/xpathQuery";
+import {
+	PROMPT_ATTRIBUTE_MAPPINGS,
+	type RuntimeCsqlPromptValidation,
+	searchInputSuppressesAutoMatch,
+} from "../suite/case-search/searchPrompts";
+import {
+	buildRuntimeCsqlPromptValidations,
+	type ComposedXPathQuery,
+	composeXPathQueryEmission,
+} from "../suite/case-search/xpathQuery";
 import type {
 	CaseSearchProperty,
 	DefaultCaseSearchProperty,
@@ -88,6 +107,7 @@ import type {
 	CaseSearchConfig as WireCaseSearchConfig,
 	DetailColumn as WireDetailColumn,
 } from "../types";
+import { moduleTypeContext } from "../validator/rules/case-list/shared";
 
 // ============================================================
 // `DetailColumn` projection
@@ -111,23 +131,25 @@ import type {
  * lives under the `en` key (Nova has no multi-language authoring
  * yet).
  *
- * The `interval` arm splits on `display`: `"always"` becomes
- * CCHQ's `time-ago` format scaled by `TIME_AGO_DIVISOR_DAYS[unit]`;
- * `"flag"` becomes CCHQ's `late-flag` format with the threshold
- * stored as an integer days count. CCHQ's `DetailColumn.late_flag`
- * is `IntegerProperty(default=30)`, so the float result of
- * `threshold × divisor` rounds to the nearest integer at the wire
- * boundary; the suite-XML emitter retains the float in the inline
- * XPath because the runtime evaluator coerces.
+ * The `interval` arm uses CCHQ's supported calculated-expression format for
+ * both display modes. Its stock `time-ago` model cannot store Nova's overdue
+ * threshold/text and its stock `late-flag` hard-codes `*`; the calculate arm
+ * preserves the exact expression shared with suite.xml.
  */
 function projectColumnToDetail(
 	column: Column,
 	assets?: AssetManifest,
+	caseProperties: readonly CaseProperty[] = [],
+	typeContext?: TypeContext,
 ): WireDetailColumn {
 	const headerRecord = { en: column.header };
 
 	if (column.kind === "calculated") {
-		const calcXpath = emitOnDeviceExpression(column.expression);
+		const calcXpath = emitOnDeviceExpression(
+			column.expression,
+			undefined,
+			typeContext ?? {},
+		);
 		return {
 			...detailColumn(calcXpath, headerRecord),
 			format: "calculate",
@@ -141,15 +163,33 @@ function projectColumnToDetail(
 	);
 
 	switch (column.kind) {
-		case "plain":
+		case "plain": {
+			const property = caseProperties.find(
+				(candidate) => candidate.name === column.field,
+			);
+			if (
+				property?.data_type === "single_select" ||
+				property?.data_type === "multi_select"
+			) {
+				return {
+					...base,
+					field: plainSelectDisplayXpath(
+						emitCasePropertyWirePath(column.field),
+						property,
+					),
+					format: "calculate",
+					useXpathExpression: true,
+				};
+			}
 			// Baseline already carries `format: "plain"` — no overrides
 			// needed beyond the shared `(field, header)` shape.
 			return base;
+		}
 		case "date":
 			return {
 				...base,
 				format: "date",
-				date_format: column.pattern,
+				date_format: resolveCommCareDatePattern(column.pattern),
 			};
 		case "phone":
 			return {
@@ -194,33 +234,18 @@ function projectColumnToDetail(
 				enum: enumEntries,
 			};
 		}
-		case "interval": {
-			const divisor = TIME_AGO_DIVISOR_DAYS[column.unit];
-			if (column.display === "always") {
-				return {
-					...base,
-					format: "time-ago",
-					time_ago_interval: divisor,
-				};
-			}
-			// `late-flag` shape: CCHQ's `late_flag` is an
-			// `IntegerProperty(default=30)` — a strict integer days
-			// count. The authored threshold-in-unit × the unit divisor
-			// is a float for non-day units (months, years), so we
-			// round at the wire boundary so the persisted document
-			// round-trips. The suite-XML emitter renders the float
-			// into the inline XPath unrounded (e.g. `91.3125` for
-			// "3 months"); CCHQ regenerates the suite from the persisted
-			// integer (`91`) so a sub-day rounding delta exists between
-			// local preview and post-import runtime. Both deltas are
-			// sub-day on every authoring entry; the XPath evaluator
-			// coerces the comparator either way.
+		case "interval":
+			// CCHQ's stock `time-ago` format stores only the divisor and
+			// `late-flag` hard-codes `*`; neither can preserve Nova's authored
+			// threshold + text. The supported calculate arm carries the exact
+			// same XPath as Nova's suite emitter, so upload cannot change what
+			// the author saw in Preview.
 			return {
 				...base,
-				format: "late-flag",
-				late_flag: Math.round(column.threshold * divisor),
+				field: intervalColumnDisplayXpath(column),
+				format: "calculate",
+				useXpathExpression: true,
 			};
-		}
 	}
 }
 
@@ -234,8 +259,15 @@ function projectColumnToDetail(
 function projectColumnForShortDetail(
 	column: Column,
 	assets?: AssetManifest,
+	caseProperties: readonly CaseProperty[] = [],
+	typeContext?: TypeContext,
 ): WireDetailColumn {
-	const projected = projectColumnToDetail(column, assets);
+	const projected = projectColumnToDetail(
+		column,
+		assets,
+		caseProperties,
+		typeContext,
+	);
 	const visible = column.visibleInList ?? true;
 	if (visible) return projected;
 	// Search-only / detail-only columns: keep the column shape (so
@@ -346,19 +378,23 @@ function projectSortElements(mod: Module, doc: BlueprintDoc): SortElement[] {
 // ============================================================
 
 /**
- * Compile `caseListConfig.filter` to the wire-form XPath string
+ * Compile the always-on list rule and owner exclusion to the wire-form XPath
+ * string
  * stored at `case_details.short.filter` (CCHQ's getter
- * `module.case_list_filter` reads through to this slot). Absent
- * filter and the `match-all` sentinel both collapse to `null` —
- * CCHQ omits the slot when no filter is authored.
+ * `module.case_list_filter` reads through to this slot). Either rule can be
+ * present on its own. An absent list filter / `match-all` plus no owner
+ * expression collapses to `null` — CCHQ omits the slot when no availability
+ * rule is authored.
  *
- * The compiled XPath is identical to the bracketed body of the
- * suite-XML nodeset filter at `lib/commcare/suite/case-list/nodesetFilter.ts`;
+ * The compiled XPath is identical to the bracketed bodies of the
+ * suite-XML nodeset filters at `lib/commcare/suite/case-list/nodesetFilter.ts`;
  * the HQ JSON stores it bare (CCHQ's `EntriesHelper.get_filter_xpath`
  * wraps it in `[...]` at suite-emission time on the CCHQ side too).
  */
 function projectCaseListFilter(
 	filter: CaseListConfig["filter"],
+	excludedOwnerIds: DomainCaseSearchConfig["excludedOwnerIds"],
+	typeContext?: TypeContext,
 ): string | null {
 	// `effectiveFilterForEmission` returns null-equivalent (`undefined`)
 	// for an absent filter OR one that reduces to `match-all` (top-level
@@ -367,7 +403,18 @@ function projectCaseListFilter(
 	// `nodesetFilter.ts` surface so both case-list-filter wire forms stay
 	// identity-clean. See `lib/domain/predicate/simplify.ts`.
 	const effective = effectiveFilterForEmission(filter);
-	return effective === undefined ? null : emitCaseListFilter(effective);
+	const authoredFilter =
+		effective === undefined
+			? undefined
+			: emitCaseListFilter(effective, undefined, typeContext ?? {});
+	const ownerFilter = emitExcludedOwnerFilterExpression(
+		excludedOwnerIds,
+		typeContext ?? {},
+	);
+
+	if (authoredFilter === undefined) return ownerFilter ?? null;
+	if (ownerFilter === undefined) return authoredFilter;
+	return `(${authoredFilter}) and (${ownerFilter})`;
 }
 
 // ============================================================
@@ -375,7 +422,7 @@ function projectCaseListFilter(
 // ============================================================
 
 /**
- * Translate one simple-arm `SearchInputDef` to a CCHQ
+ * Translate one `SearchInputDef` to a CCHQ
  * `CaseSearchProperty`. The runtime renders one prompt per entry on
  * the search screen, keyed by `name`.
  *
@@ -396,24 +443,21 @@ function projectCaseListFilter(
  * `searchInputViaModeCompatibility` rule rejects the one mode the
  * single-binding wire shape can't carry (`multi-select-contains`).
  *
- * When the simple-arm derivation gate routes the input through
- * `_xpath_query` (non-self via, OR `name !== property`, OR a
- * non-default mode), `exclude` is set to `true` so CCHQ's runtime
- * skips the auto-match against `name` as a case property — without
- * it the typed value would AND-compose against the wrong case
- * property and silently drop results. The suite-XML emitter does
- * the symmetric stamp on `<prompt exclude="true()">`; the two
- * surfaces consult the same gate so they can never disagree about
- * whether a given input rides on the bare prompt or the explicit
- * predicate.
+ * `exclude` is set for every advanced input and every simple input
+ * whose comparison routes through `_xpath_query`. The prompt remains
+ * present so CommCare binds the user's typed value, while `exclude`
+ * prevents Core from also auto-submitting `name` as a separate case-
+ * property query. The suite-XML emitter consults the same gate.
  *
  * `default` (an authored seed expression) compiles to on-device
  * XPath via `emitOnDeviceExpression` and lands on CCHQ's
  * `default_value` attribute — same dialect the suite-XML
  * `<prompt default>` attribute carries.
  */
-function projectSimpleSearchInput(
-	input: SimpleSearchInputDef,
+function projectSearchInput(
+	input: SearchInputDef,
+	runtimeValidation: RuntimeCsqlPromptValidation | undefined,
+	typeContext?: TypeContext,
 ): CaseSearchProperty {
 	const mapping = PROMPT_ATTRIBUTE_MAPPINGS[input.type];
 	const property: CaseSearchProperty = {
@@ -426,45 +470,69 @@ function projectSimpleSearchInput(
 	if (mapping.input !== undefined) property.input_ = mapping.input;
 	if (mapping.appearance !== undefined)
 		property.appearance = mapping.appearance;
-	if (input.default !== undefined) {
-		property.default_value = emitOnDeviceExpression(input.default);
+	// A date-range answer is a paired wire value; the domain's legacy scalar
+	// default cannot express it. The validator makes the repair visible, and
+	// this omission keeps a bypassed legacy doc from becoming an exact query.
+	if (input.type !== "date-range" && input.default !== undefined) {
+		property.default_value = emitOnDeviceExpression(
+			input.default,
+			undefined,
+			typeContext ?? {},
+		);
 	}
 	// Mirrors the suite-XML `<prompt exclude="true()">` decision; one
 	// gate decides both surfaces. CCHQ stores the field with
 	// `exclude_if_none=True` semantics, so a `true` value persists and
 	// a `false` / absent value omits the key entirely (the CCHQ
 	// runtime's `BooleanProperty(default=False)` reads the same).
-	if (simpleArmNeedsXPathQueryEmission(input)) {
+	if (searchInputSuppressesAutoMatch(input)) {
 		property.exclude = true;
+	}
+	if (runtimeValidation !== undefined) {
+		property.validations = [
+			{
+				test: runtimeValidation.test,
+				text: { en: runtimeValidation.message },
+			},
+		];
 	}
 	return property;
 }
 
 /**
  * Translate a `SearchInputDef[]` to the `properties` slot of
- * `search_config`. Only the simple-arm rows surface as
- * `CaseSearchProperty` entries — advanced-arm rows carry no
- * runtime prompt config (their entire contribution is the
- * AND-composed predicate slot that lands in `_xpath_query`).
+ * `search_config`. Both arms surface as `CaseSearchProperty` entries
+ * because CommCare only creates prompt bindings from this list.
+ * Advanced rows also contribute their predicate to `_xpath_query`
+ * and carry `exclude: true` so the binding is not mistaken for an
+ * implicit case-property match.
  */
 function projectSearchProperties(
 	searchInputs: ReadonlyArray<SearchInputDef>,
+	runtimeValidations: ReadonlyMap<string, RuntimeCsqlPromptValidation>,
+	typeContext?: TypeContext,
 ): CaseSearchProperty[] {
 	const out: CaseSearchProperty[] = [];
 	// DISPLAY order (`sort-by-(order, uuid)`) — the search prompts render in
 	// this sequence.
 	for (const input of [...searchInputs].sort(bySortKey)) {
-		if (input.kind === "simple") {
-			out.push(projectSimpleSearchInput(input));
-		}
+		out.push(
+			projectSearchInput(
+				input,
+				runtimeValidations.get(input.name),
+				typeContext,
+			),
+		);
 	}
 	return out;
 }
 
 /**
- * Project the `caseListConfig.filter` + every advanced-arm
- * predicate + every simple-arm input with a non-self relation walk
- * into the CCHQ-side `default_properties` array. The single
+ * Project the `caseListConfig.filter` + every advanced-arm predicate +
+ * every simple-arm input whose semantics need the explicit predicate route
+ * into the CCHQ-side `default_properties` array. This includes relations,
+ * prompt/target name mismatches, non-exact modes, reserved paths, and exact
+ * whole-day date inputs. The single
  * `_xpath_query` slot is the only entry produced — non-grammar
  * value expressions inline as on-device XPath fragments inside the
  * wrapper concat at the CSQL emitter, matching the canonical CCHQ
@@ -472,8 +540,8 @@ function projectSearchProperties(
  * `commcare-hq/docs/case_search_query_language.rst`.
  *
  * `caseType` threads through `composeXPathQueryEmission` so the
- * simple-arm-with-via derivation builds correctly-qualified
- * property references. Modules without a case type skip the
+ * simple-arm derivation builds correctly-qualified property references and
+ * resolves date-vs-datetime boundaries. Modules without a case type skip the
  * simple-arm derivation; the validator surfaces the structural
  * error separately.
  *
@@ -482,10 +550,8 @@ function projectSearchProperties(
  * filter."
  */
 function projectDefaultProperties(
-	caseListConfig: CaseListConfig,
-	caseType: string | undefined,
+	emission: ComposedXPathQuery | undefined,
 ): DefaultCaseSearchProperty[] {
-	const emission = composeXPathQueryEmission(caseListConfig, caseType);
 	if (emission === undefined) return [];
 	// CCHQ's special `_xpath_query` key routes the value through the
 	// CSQL parser at runtime; the wrapper string is the on-device
@@ -497,6 +563,20 @@ function projectDefaultProperties(
 		},
 	];
 }
+
+/**
+ * CCHQ decides whether a module offers Search from the presence of at least
+ * one prompt or default property (`app_manager/util.py::module_offers_search`).
+ * Nova also supports an intentional zero-input, unfiltered manual Search
+ * action, so that one shape needs a semantically neutral default property to
+ * survive HQ ingestion. `match-all()` is CCHQ's supported CSQL identity
+ * function; the outer quotes make the datum's XPath evaluate to that query
+ * string at runtime.
+ */
+const ZERO_INPUT_SEARCH_SENTINEL: DefaultCaseSearchProperty = {
+	property: "_xpath_query",
+	defaultValue: "'match-all()'",
+};
 
 /**
  * Build the full `module.search_config` document from a module's
@@ -514,7 +594,8 @@ function projectDefaultProperties(
  *     `search_button_display_condition` (compiled to on-device XPath).
  *   - `caseSearchConfig.excludedOwnerIds` →
  *     `blacklisted_owner_ids_expression` (the value expression
- *     compiles to on-device XPath; the suite-XML side wraps it as a
+ *     compiles to normalized on-device XPath; the suite-XML side uses the
+ *     same normalization and wraps it as a
  *     `<data>` slot at search time. The HQ JSON persists the
  *     expression directly — CCHQ regenerates the suite at runtime).
  *   - `caseListConfig.searchInputs` (simple arm) → `properties`.
@@ -538,6 +619,7 @@ function buildSearchConfigDocument(
 	caseSearchConfig: DomainCaseSearchConfig | undefined,
 	caseListConfig: CaseListConfig | undefined,
 	_caseType: string | undefined,
+	typeContext?: TypeContext,
 ): WireCaseSearchConfig {
 	// One CCHQ-defaults seed point — `caseSearchConfigShell` in
 	// `hqShells.ts`. Mutate the shell with authored overrides so the
@@ -570,21 +652,42 @@ function buildSearchConfigDocument(
 			// conjunct — same normalize the filter surfaces apply.
 			config.search_button_display_condition = emitCaseListFilter(
 				simplifyForEmission(caseSearchConfig.searchButtonDisplayCondition),
+				undefined,
+				typeContext ?? {},
 			);
 		}
 		if (caseSearchConfig.excludedOwnerIds !== undefined) {
-			config.blacklisted_owner_ids_expression = emitOnDeviceExpression(
-				caseSearchConfig.excludedOwnerIds,
-			);
+			config.blacklisted_owner_ids_expression =
+				emitNormalizedExcludedOwnerIdsExpression(
+					caseSearchConfig.excludedOwnerIds,
+					typeContext ?? {},
+				);
 		}
 	}
 
-	if (caseListConfig !== undefined) {
-		config.properties = projectSearchProperties(caseListConfig.searchInputs);
-		config.default_properties = projectDefaultProperties(
+	// Search properties are server-query configuration, not a second copy of
+	// the always-on case-list filter. `effectiveCaseSearchConfig` has already
+	// folded legacy modules with authored search inputs into `{}`; when it is
+	// still undefined this is an ordinary on-device list and must not acquire a
+	// dormant `_xpath_query` merely because the list has a filter.
+	if (caseSearchConfig !== undefined && caseListConfig !== undefined) {
+		const xpathQueryEmission = composeXPathQueryEmission(
 			caseListConfig,
 			_caseType,
+			typeContext,
 		);
+		config.properties = projectSearchProperties(
+			caseListConfig.searchInputs,
+			buildRuntimeCsqlPromptValidations(xpathQueryEmission),
+			typeContext,
+		);
+		config.default_properties = projectDefaultProperties(xpathQueryEmission);
+		if (
+			caseListConfig.searchInputs.length === 0 &&
+			config.default_properties.length === 0
+		) {
+			config.default_properties = [{ ...ZERO_INPUT_SEARCH_SENTINEL }];
+		}
 	}
 
 	// `compileForPlatform`'s three-flag `WireShape` projects onto the
@@ -621,8 +724,8 @@ function buildSearchConfigDocument(
  *
  *   - `caseDetails` — the `DetailPair` with per-kind columns
  *     (short + long, visibility-aware), the per-priority sort
- *     directive list (short only), and the `case_list_filter`
- *     XPath (short only) lifted from `caseListConfig.filter`.
+ *     directive list (short only), and the `case_list_filter` XPath (short
+ *     only) composed from `caseListConfig.filter` and owner exclusion.
  *
  *   - `searchConfig` — the full `CaseSearch` document, composed
  *     from `caseSearchConfig` + `caseListConfig.searchInputs` /
@@ -647,6 +750,10 @@ export function projectCaseListForHq(
 ): CaseListHqProjection {
 	const caseListConfig = mod.caseListConfig;
 	const caseSearchConfig = effectiveCaseSearchConfig(mod);
+	const typeContext = moduleTypeContext(mod, doc);
+	const caseProperties =
+		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
+			?.properties ?? [];
 	// CCHQ models short (Results) and long (Details) as independent ordered
 	// arrays. Preserve that distinction here; calculated-sort positional
 	// indices bind only to the short array and therefore use Results order.
@@ -658,20 +765,26 @@ export function projectCaseListForHq(
 		.sort(byDetailColumnOrder);
 
 	const shortColumns = shortSourceColumns.map((c) =>
-		projectColumnForShortDetail(c, assets),
+		projectColumnForShortDetail(c, assets, caseProperties, typeContext),
 	);
 	const longColumns = longSourceColumns.map((c) =>
-		projectColumnToDetail(c, assets),
+		projectColumnToDetail(c, assets, caseProperties, typeContext),
 	);
 	const sortElements = projectSortElements(mod, doc);
-	const filter = projectCaseListFilter(caseListConfig?.filter);
+	const filter = projectCaseListFilter(
+		caseListConfig?.filter,
+		mod.caseSearchConfig?.excludedOwnerIds,
+		typeContext,
+	);
 
 	// `detailPair` from `hqShells` seeds the `(short, long)` pair
 	// with default DetailBase slots; this projection then writes the
 	// short detail's sort + filter overrides. CCHQ stores both
 	// `sort_elements` and `filter` on the short detail per CCHQ's
 	// `module.case_list_filter` getter (which reads `case_details.
-	// short.filter`); the long detail's slots stay at defaults.
+	// short.filter`); the long detail's slots stay at defaults. Owner exclusion
+	// comes from the raw config because disabling Search must not widen the
+	// ordinary case list.
 	const pair = detailPair(shortColumns, longColumns);
 	pair.short.sort_elements = sortElements;
 	pair.short.filter = filter;
@@ -680,6 +793,7 @@ export function projectCaseListForHq(
 		caseSearchConfig,
 		caseListConfig,
 		mod.caseType,
+		typeContext,
 	);
 
 	return { caseDetails: pair, searchConfig };

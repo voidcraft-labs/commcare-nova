@@ -3,6 +3,7 @@ import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryC
 import { usePreviewModeTransition } from "@/components/builder/usePreviewModeTransition";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useCanRedo, useCanUndo } from "@/lib/doc/hooks/useUndoRedo";
 import { notifyMoveRename } from "@/lib/doc/mutations/notify";
 import {
 	flattenFieldRefs,
@@ -30,10 +31,12 @@ import type { Shortcut } from "@/lib/ui/keyboardManager";
  *
  * All navigation and selection is URL-driven — the hook reads the current
  * location via `useLocation()`, dispatches selection via `useSelect()`, and
- * fires mutations via uuid-first `useBlueprintMutations()`. Handlers read
- * the doc imperatively at fire time via `useBlueprintDocApi()` — no need
- * to subscribe to entity-map slices; the handlers only run on keystrokes,
- * and always-fresh state beats any reactive re-render here.
+ * fires mutations via uuid-first `useBlueprintMutations()`. Mutation handlers
+ * read the doc imperatively at fire time via `useBlueprintDocApi()` — no need
+ * to subscribe to entity-map slices; the handlers only run on keystrokes, and
+ * always-fresh state beats a reactive entity-map subscription here. The only
+ * reactive doc values are the two undo/redo availability booleans, which let
+ * those shortcuts decline when their history action cannot run.
  */
 export function useBuilderShortcuts(
 	setPreviewing: (on: boolean) => void,
@@ -44,12 +47,13 @@ export function useBuilderShortcuts(
 	const { setPending } = useScrollIntoView();
 	const deleteSelected = useDeleteSelectedField();
 	const { undo, redo } = useUndoRedo();
+	const canUndo = useCanUndo();
+	const canRedo = useCanRedo();
 	const { duplicateField, moveField } = useBlueprintMutations();
 	const previewing = usePreviewing();
 	const transitionPreview = usePreviewModeTransition(setPreviewing);
-	/* Imperative store handle — handlers read the freshest doc snapshot at
-	 * fire time. The hook never subscribes to a slice, so keystrokes never
-	 * trigger a component re-render on unrelated mutations. */
+	/* Imperative store handle — field handlers read the freshest doc snapshot
+	 * at fire time instead of subscribing to entity-map slices. */
 	const docApi = useBlueprintDocApi();
 
 	return useMemo(() => {
@@ -75,55 +79,69 @@ export function useBuilderShortcuts(
 				handler: () => {
 					if (previewing) {
 						transitionPreview(false);
-						return;
+						return true;
 					}
 					if (loc.kind === "form" && loc.selectedUuid) {
 						select(undefined);
-						return;
+						return true;
 					}
 					return false;
 				},
 			},
 			// P — toggle preview (Figma-style single-key shortcut, suppressed
 			// when an input/editor is focused via keyboardManager)
-			{ key: "p", handler: () => transitionPreview(!previewing) },
+			{
+				key: "p",
+				handler: () => {
+					transitionPreview(!previewing);
+					return true;
+				},
+			},
 			// Tab / Shift+Tab — navigate fields in depth-first order, editing only
 			{
 				key: "Tab",
 				handler: () => {
-					if (previewing) return;
-					if (loc.kind !== "form" || !loc.selectedUuid) return;
+					if (previewing) return false;
+					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const refs = flattenFieldRefs(docApi.getState(), loc.formUuid);
-					if (!refs.length) return;
+					if (!refs.length) return false;
 					const curIdx = refs.findIndex((r) => r.uuid === loc.selectedUuid);
+					if (curIdx < 0) return false;
 					const next = refs[(curIdx + 1) % refs.length];
 					navigateToField(next.uuid);
+					return true;
 				},
 			},
 			{
 				key: "Tab",
 				shift: true,
 				handler: () => {
-					if (previewing) return;
-					if (loc.kind !== "form" || !loc.selectedUuid) return;
+					if (previewing) return false;
+					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const refs = flattenFieldRefs(docApi.getState(), loc.formUuid);
-					if (!refs.length) return;
+					if (!refs.length) return false;
 					const curIdx = refs.findIndex((r) => r.uuid === loc.selectedUuid);
+					if (curIdx < 0) return false;
 					const prev = refs[curIdx <= 0 ? refs.length - 1 : curIdx - 1];
 					navigateToField(prev.uuid);
+					return true;
 				},
 			},
 			// Delete / Backspace — delete selected field
 			{
 				key: "Delete",
 				handler: () => {
-					if (loc.kind === "form" && loc.selectedUuid) deleteSelected();
+					if (loc.kind !== "form" || !loc.selectedUuid) return false;
+					deleteSelected();
+					return true;
 				},
 			},
 			{
 				key: "Backspace",
 				handler: () => {
-					if (loc.kind === "form" && loc.selectedUuid) deleteSelected();
+					if (loc.kind !== "form" || !loc.selectedUuid) return false;
+					deleteSelected();
+					return true;
 				},
 			},
 			// Cmd+D — duplicate field via doc mutation
@@ -131,35 +149,41 @@ export function useBuilderShortcuts(
 				key: "d",
 				meta: true,
 				handler: () => {
-					if (loc.kind !== "form" || !loc.selectedUuid) return;
+					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const result = duplicateField(asUuid(loc.selectedUuid));
-					if (!result) return;
+					/* A gate rejection was still handled by Nova (and may show a
+					 * finding); falling through here would also open the browser's
+					 * bookmark dialog after the user asked Nova to duplicate a field. */
+					if (!result) return true;
 					navigateToField(asUuid(result.newUuid));
+					return true;
 				},
 			},
 			// ArrowUp/ArrowDown — reorder within sibling level via doc mutation
 			{
 				key: "ArrowUp",
 				handler: () => {
-					if (loc.kind !== "form" || !loc.selectedUuid) return;
+					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const { beforeUuid } = getFieldMoveTargets(
 						docApi.getState(),
 						asUuid(loc.selectedUuid),
 					);
-					if (!beforeUuid) return;
+					if (!beforeUuid) return false;
 					moveField(asUuid(loc.selectedUuid), { beforeUuid });
+					return true;
 				},
 			},
 			{
 				key: "ArrowDown",
 				handler: () => {
-					if (loc.kind !== "form" || !loc.selectedUuid) return;
+					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const { afterUuid } = getFieldMoveTargets(
 						docApi.getState(),
 						asUuid(loc.selectedUuid),
 					);
-					if (!afterUuid) return;
+					if (!afterUuid) return false;
 					moveField(asUuid(loc.selectedUuid), { afterUuid });
+					return true;
 				},
 			},
 			// Shift+ArrowUp/Shift+ArrowDown — cross-level (indent/outdent) reorder.
@@ -169,36 +193,38 @@ export function useBuilderShortcuts(
 				key: "ArrowUp",
 				shift: true,
 				handler: () => {
-					if (loc.kind !== "form" || !loc.selectedUuid) return;
+					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const { up } = getCrossLevelFieldMoveTargets(
 						docApi.getState(),
 						asUuid(loc.selectedUuid),
 					);
-					if (!up) return;
+					if (!up) return false;
 					const result = moveField(asUuid(loc.selectedUuid), {
 						toParentUuid: up.toParentUuid,
 						...(up.beforeUuid ? { beforeUuid: up.beforeUuid } : {}),
 						...(up.afterUuid ? { afterUuid: up.afterUuid } : {}),
 					});
 					notifyMoveRename(result);
+					return true;
 				},
 			},
 			{
 				key: "ArrowDown",
 				shift: true,
 				handler: () => {
-					if (loc.kind !== "form" || !loc.selectedUuid) return;
+					if (loc.kind !== "form" || !loc.selectedUuid) return false;
 					const { down } = getCrossLevelFieldMoveTargets(
 						docApi.getState(),
 						asUuid(loc.selectedUuid),
 					);
-					if (!down) return;
+					if (!down) return false;
 					const result = moveField(asUuid(loc.selectedUuid), {
 						toParentUuid: down.toParentUuid,
 						...(down.beforeUuid ? { beforeUuid: down.beforeUuid } : {}),
 						...(down.afterUuid ? { afterUuid: down.afterUuid } : {}),
 					});
 					notifyMoveRename(result);
+					return true;
 				},
 			},
 			// Cmd+Z / Cmd+Shift+Z — undo/redo (not global: TipTap and CodeMirror
@@ -206,13 +232,21 @@ export function useBuilderShortcuts(
 			{
 				key: "z",
 				meta: true,
-				handler: undo,
+				handler: () => {
+					if (!canUndo) return false;
+					undo();
+					return true;
+				},
 			},
 			{
 				key: "z",
 				meta: true,
 				shift: true,
-				handler: redo,
+				handler: () => {
+					if (!canRedo) return false;
+					redo();
+					return true;
+				},
 			},
 		];
 	}, [
@@ -225,6 +259,8 @@ export function useBuilderShortcuts(
 		deleteSelected,
 		undo,
 		redo,
+		canUndo,
+		canRedo,
 		duplicateField,
 		moveField,
 		previewing,

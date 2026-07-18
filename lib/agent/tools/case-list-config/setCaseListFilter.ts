@@ -35,10 +35,7 @@
 
 import { z } from "zod";
 import type { Mutation } from "@/lib/doc/types";
-import {
-	type BlueprintDoc,
-	caseSearchConfigHasAuthoredSettings,
-} from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { type Predicate, predicateSchema } from "@/lib/domain/predicate";
 import { resolveModuleUuid } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -134,23 +131,10 @@ export const setCaseListFilterTool = {
 					patch: { filter: canonicalFilter },
 				},
 			];
-			// A filter-only search uses the empty search marker to auto-launch its
-			// request. Clearing its final rule must remove both pieces in ONE valid
-			// batch; otherwise the marker is left with nothing searchable and the
-			// commit gate correctly rejects it. The semantic disable only clears a
-			// still-empty marker on fresh state, so peer-authored settings survive.
-			if (
-				canonicalFilter === null &&
-				(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
-				mod.caseSearchConfig !== undefined &&
-				!caseSearchConfigHasAuthoredSettings(mod.caseSearchConfig)
-			) {
-				mutations.push({
-					kind: "setCaseSearchMarker",
-					uuid: mod.uuid,
-					enabled: false,
-				});
-			}
+			// Cases available and Search intent are independent. An empty
+			// caseSearchConfig is an intentional zero-input manual action, not a
+			// synthetic by-product of this filter, so clearing the filter must leave
+			// that action in place.
 			const commit = await guardedMutate(
 				ctx,
 				doc,

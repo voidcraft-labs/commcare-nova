@@ -453,6 +453,17 @@ describe("compileTerm — literal", () => {
 		expect(compiled.sql).toContain("as time)");
 		expect(compiled.parameters).toContain("09:00");
 	});
+
+	it.each([
+		["date", dateLiteral(""), "as date)"],
+		["datetime", datetimeLiteral(""), "as timestamptz)"],
+		["time", timeLiteral(""), "as time)"],
+	] as const)("turns an unset %s literal into typed null instead of casting an empty string", (_label, value, castToken) => {
+		const compiled = compileTerm_(compileTerm(value, makeCtx()));
+		expect(compiled.sql.toLowerCase()).toContain("nullif(");
+		expect(compiled.sql).toContain(castToken);
+		expect(compiled.parameters).toContain("");
+	});
 });
 
 // ---------------------------------------------------------------
@@ -500,6 +511,21 @@ describe("compileTerm — session-user", () => {
 		expect(() => compileTerm(sessionUser("missing_field"), makeCtx())).toThrow(
 			/missing_field/i,
 		);
+	});
+
+	it("uses an explicit device-compatible fallback for an unknown user field", () => {
+		const compiled = compileTerm_(
+			compileTerm(
+				sessionUser("region"),
+				makeCtx({
+					bindings: {
+						sessionUser: new Map(),
+						sessionUserFallback: "",
+					},
+				}),
+			),
+		);
+		expect(compiled.parameters).toContain("");
 	});
 });
 

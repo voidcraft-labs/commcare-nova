@@ -48,7 +48,11 @@ import type {
 import { ArithCard, arithDefault } from "./cards/expression/ArithCard";
 import { CoalesceCard, coalesceDefault } from "./cards/expression/CoalesceCard";
 import { ConcatCard, concatDefault } from "./cards/expression/ConcatCard";
-import { CountCard, countDefault } from "./cards/expression/CountCard";
+import {
+	CountCard,
+	countDefault,
+	hasCountableRelation,
+} from "./cards/expression/CountCard";
 import { DateAddCard, dateAddDefault } from "./cards/expression/DateAddCard";
 import {
 	DateCoerceCard,
@@ -109,6 +113,12 @@ export interface ExpressionEditContext {
  */
 export interface ExpressionCardSchema<K extends ValueExpression["kind"]> {
 	readonly kind: K;
+	/** Whether people can create this kind in Nova. `roundTripOnly`
+	 *  kinds remain fully editable when imported, but never appear as a
+	 *  replacement target. This is intentionally separate from
+	 *  `applicable`: applicability answers whether a result type fits a
+	 *  slot, while authorability is a product-level vocabulary boundary. */
+	readonly authoring: "authorable" | "roundTripOnly";
 	readonly label: string;
 	readonly icon: IconifyIcon;
 	readonly description: string;
@@ -208,8 +218,7 @@ function applicableForDatetime(
 /**
  * Date-or-datetime kinds — applicable for either temporal slot type.
  *
- * Used by the kinds whose result type follows the operand or whose
- * structural-twin partner covers the other temporal:
+ * Used by the kind whose result type follows its operand:
  *
  *   - `date-add` — result type follows `date.kind`, so
  *     `dateAdd(today(), "days", literal(7))` resolves to `date`
@@ -218,12 +227,6 @@ function applicableForDatetime(
  *     kind picker surfaces it for either temporal slot — the
  *     operand picker drives which side the type checker validates
  *     against.
- *   - `date-coerce` ↔ `datetime-coerce` — the kind-replace menu's
- *     structural-twin swap (`preservedExpressionSwap`) flips
- *     between the two without losing the operand. Picker-side
- *     parity matches: a date slot accepts `datetime-coerce` (which
- *     the user can then twin-swap to `date-coerce`), and vice
- *     versa, instead of de-emphasizing the wrong-temporal arm.
  */
 function applicableForDateOrDatetime(
 	_ctx: ExpressionEditContext,
@@ -277,10 +280,10 @@ export const expressionCardSchemas: {
 	// ── Term lift (universal value carrier) ─────────────────────────
 	term: {
 		kind: "term",
+		authoring: "authorable",
 		label: "Value",
 		icon: tablerVariable,
-		description:
-			"A typed value, a property, a search field, or a session field",
+		description: "Enter a value or use information already in the app",
 		component: TermCard,
 		defaultValue: termDefault,
 		applicable: applicableAlways,
@@ -289,18 +292,20 @@ export const expressionCardSchemas: {
 	// ── Date / time constants ────────────────────────────────────────
 	today: {
 		kind: "today",
-		label: "Today",
+		authoring: "authorable",
+		label: "Today's date",
 		icon: tablerCalendarEvent,
-		description: "Today's date, at the moment this runs",
+		description: "Use the date when the app runs",
 		component: TodayCard,
 		defaultValue: todayDefault,
 		applicable: applicableForDate,
 	},
 	now: {
 		kind: "now",
-		label: "Now",
+		authoring: "authorable",
+		label: "Current date and time",
 		icon: tablerClock,
-		description: "The exact date and time, at the moment this runs",
+		description: "Use the date and time when the app runs",
 		component: NowCard,
 		defaultValue: nowDefault,
 		applicable: applicableForDatetime,
@@ -309,9 +314,10 @@ export const expressionCardSchemas: {
 	// ── Date arithmetic / coercion ───────────────────────────────────
 	"date-add": {
 		kind: "date-add",
-		label: "Date Shift",
+		authoring: "authorable",
+		label: "Adjust a date",
 		icon: tablerCalendarPlus,
-		description: "A date moved by days, weeks, months, or years",
+		description: "Move a date or time forward or backward",
 		component: DateAddCard,
 		defaultValue: dateAddDefault,
 		// `date-add`'s result type follows the `date` operand —
@@ -323,32 +329,32 @@ export const expressionCardSchemas: {
 	},
 	"date-coerce": {
 		kind: "date-coerce",
-		label: "Read as Date",
+		authoring: "authorable",
+		label: "Read as a date",
 		icon: tablerCalendarStats,
 		description: "Treat a text value as a date",
 		component: DateCoerceCard,
 		defaultValue: dateCoerceDefault,
-		// `date-coerce` ↔ `datetime-coerce` is a structural-twin pair
-		// the kind-replace menu can swap operand-preserving. Picker
-		// parity: a datetime slot still surfaces `date-coerce` (the
-		// author can twin-swap to `datetime-coerce`) instead of
-		// de-emphasizing it.
-		applicable: applicableForDateOrDatetime,
+		// The twin replacement preserves the operand, but this arm's result is
+		// still fixed: only a date-result slot may select it.
+		applicable: applicableForDate,
 	},
 	"datetime-coerce": {
 		kind: "datetime-coerce",
-		label: "Read as Date + Time",
+		authoring: "authorable",
+		label: "Read as a date and time",
 		icon: tablerCalendarStats,
 		description: "Treat a text value as a date and time",
 		component: DateCoerceCard,
 		defaultValue: datetimeCoerceDefault,
-		applicable: applicableForDateOrDatetime,
+		applicable: applicableForDatetime,
 	},
 
 	// ── Numeric ──────────────────────────────────────────────────────
 	double: {
 		kind: "double",
-		label: "Read as Number",
+		authoring: "authorable",
+		label: "Read as a number",
 		icon: tablerHash,
 		description: "Treat a value as a number",
 		component: DoubleCard,
@@ -357,6 +363,7 @@ export const expressionCardSchemas: {
 	},
 	arith: {
 		kind: "arith",
+		authoring: "authorable",
 		label: "Math",
 		icon: tablerCalculator,
 		description: "Add, subtract, multiply, or divide two values",
@@ -368,7 +375,8 @@ export const expressionCardSchemas: {
 	// ── Text ─────────────────────────────────────────────────────────
 	concat: {
 		kind: "concat",
-		label: "Combine Text",
+		authoring: "authorable",
+		label: "Combine text",
 		icon: tablerAbc,
 		description: "Join several pieces of text into one",
 		component: ConcatCard,
@@ -379,7 +387,8 @@ export const expressionCardSchemas: {
 	// ── Conditional / dispatch ───────────────────────────────────────
 	coalesce: {
 		kind: "coalesce",
-		label: "First Filled-In",
+		authoring: "authorable",
+		label: "First available value",
 		icon: tablerCopy,
 		description: "The first value in the list that isn't blank",
 		component: CoalesceCard,
@@ -388,7 +397,8 @@ export const expressionCardSchemas: {
 	},
 	if: {
 		kind: "if",
-		label: "If / Else",
+		authoring: "authorable",
+		label: "Choose by condition",
 		icon: tablerGitMerge,
 		description: "One value when a condition holds, another when it doesn't",
 		component: IfCard,
@@ -397,9 +407,10 @@ export const expressionCardSchemas: {
 	},
 	switch: {
 		kind: "switch",
-		label: "Switch",
+		authoring: "authorable",
+		label: "Choose by matching",
 		icon: tablerSwitch,
-		description: "Pick a value by matching against several cases",
+		description: "Use a different value for each match",
 		component: SwitchCard,
 		defaultValue: switchDefault,
 		applicable: applicableAlways,
@@ -408,7 +419,8 @@ export const expressionCardSchemas: {
 	// ── Aggregation ──────────────────────────────────────────────────
 	count: {
 		kind: "count",
-		label: "Count Related Cases",
+		authoring: "authorable",
+		label: "Count related cases",
 		icon: tablerListSearch,
 		description: "How many connected cases match a condition",
 		component: CountCard,
@@ -416,24 +428,23 @@ export const expressionCardSchemas: {
 		applicable: (ctx, expectedType) => {
 			// `count` always returns `int`; gate on numeric expected types
 			// when set. The case-type schema must declare at least one
-			// related case type for the count to mean anything; bare
-			// `count(self)` is rejected at type-check time and the editor
-			// disallows it via the relation-path builder, but mounting
-			// is still allowed for round-trip preservation.
+			// related case type for the usual count workflow. `count(self)`
+			// is also a valid explicit 1 (or filtered 0/1), and the relation
+			// editor keeps that option available.
 			if (expectedType !== undefined && expectedType !== "_any") {
 				if (!NUMERIC_DATA_TYPES.has(expectedType)) return false;
 			}
-			return ctx.caseTypes.length > 0;
+			return hasCountableRelation(ctx);
 		},
 	},
 
 	// ── Sequence (round-trip-only) ───────────────────────────────────
 	"unwrap-list": {
 		kind: "unwrap-list",
-		label: "Unwrap List",
+		authoring: "roundTripOnly",
+		label: "Saved selections",
 		icon: tablerForklift,
-		description:
-			"Pull a JSON-encoded array from a property as a sequence (CSQL only)",
+		description: "Read several saved selections from one value",
 		component: UnwrapListCard,
 		defaultValue: unwrapListDefault,
 		// Sequence-typed; never compatible with a scalar expectedType. The
@@ -450,9 +461,10 @@ export const expressionCardSchemas: {
 	// ── Date formatting ──────────────────────────────────────────────
 	"format-date": {
 		kind: "format-date",
-		label: "Format Date",
+		authoring: "authorable",
+		label: "Write a date as text",
 		icon: tablerArrowsShuffle,
-		description: "Write a date out as text, in a format you pick",
+		description: "Write a date as text in a format you choose",
 		component: FormatDateCard,
 		defaultValue: formatDateDefault,
 		applicable: (ctx, expectedType) => {
@@ -477,3 +489,12 @@ export const expressionCardSchemaList: readonly ExpressionCardSchema<
 >[] = Object.values(expressionCardSchemas) as readonly ExpressionCardSchema<
 	ValueExpression["kind"]
 >[];
+
+/** Product-level authoring boundary for kind-replacement menus. Keep
+ *  the current `roundTripOnly` kind visible as a recovery source, but
+ *  call sites must exclude it from all new-target lists. */
+export function isAuthorableExpressionKind(
+	kind: ValueExpression["kind"],
+): boolean {
+	return expressionCardSchemas[kind].authoring === "authorable";
+}

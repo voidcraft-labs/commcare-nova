@@ -4,17 +4,22 @@
  *
  * Three distinct rejections fire here:
  *
+ *   - `range` and the `date-range` widget are an inseparable pair. A
+ *     single-date widget cannot collect the two bounds `range` consumes, and
+ *     a date-range widget cannot feed one scalar mode. Legacy mismatches load
+ *     for repair but never pass the commit/export gate.
+ *
  *   - `range` mode requires self-walk AND `name === property`.
- *     CCHQ's `date` / `daterange` widget reads two bindings
- *     (`<name>:from` and `<name>:to`) and CCHQ's runtime auto-matches
- *     the typed range against the case property named by the prompt
- *     key (the prompt key IS the property name on the wire). Two
- *     shapes break that:
+ *     CCHQ's `daterange` widget serializes one encoded
+ *     `__range__<start>__<end>` answer, and CCHQ's special runtime matcher
+ *     applies that pair to the current-case property named by the prompt key
+ *     (the prompt key IS the property name on the wire). Two shapes break
+ *     that:
  *
  *       - **Non-self via** — the single `<prompt key="X">` element
  *         binds one runtime value and carries no relation-walk
- *         metadata; the daterange's two-bound semantic has no
- *         equivalent wire form on a related case.
+ *         metadata; the encoded pair's matcher has no equivalent wire form
+ *         on a related case.
  *
  *       - **`name !== property`** — the auto-match queries the case
  *         property named by `name`, not the authored target
@@ -66,9 +71,10 @@
 import {
 	type BlueprintDoc,
 	canonicalCasePropertyName,
-	DEFAULT_SEARCH_MODE_KIND,
+	effectiveSimpleSearchModeKind,
 	type Module,
 	type SimpleSearchInputDef,
+	simpleSearchInputHasCoherentRangeWidget,
 	type Uuid,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
@@ -90,7 +96,31 @@ export function searchInputViaModeCompatibility(
 		// resolves to `range`, which trips the cross-walk rejection;
 		// gate by the resolved mode kind, not just the authored `mode`
 		// slot.
-		const modeKind = resolveModeKind(input);
+		const modeKind = effectiveSimpleSearchModeKind(input);
+
+		if (!simpleSearchInputHasCoherentRangeWidget(input)) {
+			const needsRangeWidget = modeKind === "range";
+			errors.push(
+				validationError(
+					"CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE",
+					"module",
+					needsRangeWidget
+						? `Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" uses the \`range\` match with a "${input.type}" field. CommCare's range answer contains both a start and an end, but that field collects one value. Change the field type to \`date-range\`; Nova stores that widget's native \`range\` mode automatically.`
+						: `Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" uses a \`date-range\` field with the \`${modeKind}\` match. The field collects a start/end pair, but that match consumes one value. Change the field type to a single Date picker, or use the date range's \`range\` match.`,
+					{ moduleUuid, moduleName: mod.name },
+					{
+						inputName: input.name,
+						inputUuid: input.uuid,
+						modeKind,
+						inputType: input.type,
+						reason: needsRangeWidget
+							? "range-needs-date-range-widget"
+							: "date-range-needs-range-mode",
+					},
+				),
+			);
+			continue;
+		}
 
 		// `multi-select-contains` rejects on every simple-arm input;
 		// see the rule docstring for the wire-shape rationale.
@@ -187,9 +217,9 @@ function buildRangeRejectionMessage(args: {
 	if (viaIsCrossWalk && via !== undefined && via.kind !== "self") {
 		const directionLabel = relationDirectionLabel(via.kind);
 		if (nameDiverges) {
-			return `${inputDescriptor} uses the \`range\` mode, walks ${directionLabel}, AND names the prompt "${input.name}" against a different case property "${input.property}". CCHQ's \`daterange\` widget reads two runtime values per input and CCHQ's runtime auto-matches the typed range against the case property named by the prompt key; neither half works here — the relation walk has no two-bound wire form, and the prompt key doesn't name the targeted property. ${fixHints}`;
+			return `${inputDescriptor} uses the \`range\` mode, walks ${directionLabel}, AND names the prompt "${input.name}" against a different case property "${input.property}". CCHQ's \`daterange\` widget stores one encoded start/end answer, and CCHQ's special runtime matcher applies that pair to the current-case property named by the prompt key; neither half works here — the prompt carries no relation walk, and the prompt key doesn't name the targeted property. ${fixHints}`;
 		}
-		return `${inputDescriptor} walks ${directionLabel} but uses the \`range\` mode. CCHQ's \`daterange\` widget reads two separate values per input (a start and an end), but each \`<prompt>\` element binds only one value on the wire — so a range-mode input only works when the property lives on the current case (the widget handles the two-bound semantic internally). ${fixHints}`;
+		return `${inputDescriptor} walks ${directionLabel} but uses the \`range\` mode. CCHQ's \`daterange\` widget stores one encoded start/end answer, and its special matcher can apply that pair only to the current-case property named by the prompt key; a \`<prompt>\` carries no relation-walk metadata. ${fixHints}`;
 	}
 	return `${inputDescriptor} uses the \`range\` mode and names the prompt "${input.name}" against a different case property "${input.property}". CCHQ's runtime auto-matches the typed range against the case property named by the prompt key (the prompt key IS the property name on the wire), and the simple-arm \`_xpath_query\` route has no range arm to fall back to. Rename the prompt to match its targeted property (so the prompt key and the property name agree), pick a single-value mode the explicit-predicate route covers (\`exact\` / \`fuzzy-date\`), or convert the input to the advanced arm so the predicate is fully authored.`;
 }
@@ -200,11 +230,6 @@ function buildRangeRejectionMessage(args: {
  * simple-arm derivation apply. All three surfaces consume the
  * canonical `DEFAULT_SEARCH_MODE_KIND` table at `lib/domain/modules.ts`.
  */
-function resolveModeKind(input: SimpleSearchInputDef): string {
-	if (input.mode !== undefined) return input.mode.kind;
-	return DEFAULT_SEARCH_MODE_KIND[input.type];
-}
-
 function relationDirectionLabel(
 	viaKind: "ancestor" | "subcase" | "any-relation",
 ): string {

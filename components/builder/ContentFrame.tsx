@@ -33,7 +33,12 @@
  * frames all agree by construction.
  */
 "use client";
-import { animate, motion, useMotionValue } from "motion/react";
+import {
+	animate,
+	motion,
+	useMotionValue,
+	useReducedMotion,
+} from "motion/react";
 import {
 	createContext,
 	type ReactNode,
@@ -171,10 +176,23 @@ export function ContentFrame({
 }: ContentFrameProps) {
 	const { seq, deltaFor } = useContext(ModeFlipGlideContext);
 	const x = useMotionValue(0);
+	const reduceMotion = useReducedMotion();
 	const elRef = useRef<HTMLDivElement | null>(null);
 	const lastSeqRef = useRef(seq);
+	const animationRef = useRef<ReturnType<typeof animate> | null>(null);
 
 	useLayoutEffect(() => {
+		/* Reduced motion is a runtime preference, not a one-time page-load
+		 * choice. If it changes while a glide is in flight, settle the frame
+		 * immediately and consume the current sequence without introducing a
+		 * compensating offset. The layout itself already commits atomically. */
+		if (reduceMotion) {
+			animationRef.current?.stop();
+			animationRef.current = null;
+			lastSeqRef.current = seq;
+			if (x.get() !== 0) x.set(0);
+			return;
+		}
 		if (seq !== lastSeqRef.current) {
 			lastSeqRef.current = seq;
 			const el = elRef.current;
@@ -190,15 +208,17 @@ export function ContentFrame({
 				if (Math.abs(delta) >= 0.5) x.set(x.get() + delta);
 			}
 		}
-		/* Settle as a separate, idempotent step — `animate` retargets any
-		 * running glide to the same destination, so re-invocation (dev
-		 * StrictMode replay, Activity-reveal effect re-creation) is
-		 * harmless. There is deliberately NO stop() cleanup: an effect
-		 * cleanup fires between StrictMode's double invokes and on Activity
-		 * hide, either of which would freeze the frame mid-glide; an
-		 * orphaned value tween just settles to 0 within the transition. */
-		if (x.get() !== 0) animate(x, 0, SIDEBAR_TRANSITION);
-	}, [seq, deltaFor, width, x]);
+		/* Settle as a separate, idempotent step. Explicitly retarget a live
+		 * glide so an OS preference change can stop the exact controls that
+		 * own it. There is deliberately NO effect stop() cleanup: cleanup
+		 * fires between StrictMode's double invokes and on Activity
+		 * hide, either of which would freeze the frame mid-glide. The active
+		 * tween instead keeps settling to 0 within the shared transition. */
+		if (x.get() !== 0) {
+			animationRef.current?.stop();
+			animationRef.current = animate(x, 0, SIDEBAR_TRANSITION);
+		}
+	}, [seq, deltaFor, width, x, reduceMotion]);
 
 	const setRefs = (node: HTMLDivElement | null) => {
 		elRef.current = node;

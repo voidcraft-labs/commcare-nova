@@ -108,8 +108,8 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 	);
 
 	return (
-		<div className="space-y-2">
-			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto_1.6fr] gap-2 items-start">
+		<div className="space-y-3">
+			<div className="grid grid-cols-1 items-start gap-2 @sm:grid-cols-[minmax(0,1fr)_auto]">
 				<div>
 					<PropertyRefPicker
 						mode="property-only"
@@ -117,32 +117,32 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 						onChange={setProperty}
 						filter={propertyFilter}
 						invalid={propertyErrors.length > 0}
-						ariaLabel="Property"
+						ariaLabel="Case information"
 					/>
 					<InlineError errors={propertyErrors} />
 				</div>
 
 				<PredicateVerbMenu value={value} onChange={onChange} />
+			</div>
 
-				<div>
-					{/* Match value routes through `ExpressionPicker` so the
-					 *  full Term family is reachable at the slot. The
-					 *  `matchValueConstraint` is `termOnly` (the wire match
-					 *  emitter consumes terms — no computed kinds offered),
-					 *  `nonEmpty` (the text widget refuses to commit an
-					 *  empty value), and carries the mode's allow-list so
-					 *  only a value of an admitted type is authorable. The
-					 *  picker's own `CardShell` footer surfaces inline errors
-					 *  at the slot path, so no parallel `<InlineError>` is
-					 *  needed here. */}
-					<ExpressionPicker
-						value={value.value}
-						onChange={setValue}
-						path={appendSlot(path, "value")}
-						constraint={valueConstraint}
-						variant="nested"
-					/>
-				</div>
+			<div className="min-w-0">
+				{/* Match value routes through `ExpressionPicker` so the
+				 *  full Term family is reachable at the slot. The
+				 *  `matchValueConstraint` is `termOnly` (the wire match
+				 *  emitter consumes terms — no computed kinds offered),
+				 *  `nonEmpty` (the text widget refuses to commit an
+				 *  empty value), and carries the mode's allow-list so
+				 *  only a value of an admitted type is authorable. The
+				 *  picker's own `CardShell` footer surfaces inline errors
+				 *  at the slot path, so no parallel `<InlineError>` is
+				 *  needed here. */}
+				<ExpressionPicker
+					value={value.value}
+					onChange={setValue}
+					path={appendSlot(path, "value")}
+					constraint={valueConstraint}
+					variant="nested"
+				/>
 			</div>
 		</div>
 	);

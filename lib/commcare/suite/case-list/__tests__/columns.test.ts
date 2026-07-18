@@ -59,6 +59,7 @@ const emptyCtx: CaseListEmitContext = {
 	sortByUuid: new Map(),
 	detailKind: "short",
 	target: "case",
+	caseProperties: [],
 };
 
 /** Build a single-entry sort map keyed under a column's uuid. */
@@ -97,9 +98,72 @@ describe("emitColumnField — plain", () => {
 		expect(a.xml).toContain("m0.case_short.case_full_name_1.header");
 		expect(b.xml).toContain("m0.case_short.case_full_name_2.header");
 	});
+
+	it("labels a plain single-select while preserving an unknown raw value", () => {
+		const col = plainColumn(COL_UUIDS.a, "priority", "Priority");
+		const ctx: CaseListEmitContext = {
+			...emptyCtx,
+			caseProperties: [
+				{
+					name: "priority",
+					label: "Priority",
+					data_type: "single_select",
+					options: [
+						{ value: "routine", label: "Routine" },
+						{ value: "urgent", label: "Urgent" },
+					],
+				},
+			],
+		};
+		const out = emitColumnField({ column: col, position: 1, ctx });
+
+		expect(out.xml).toContain(
+			"if(selected(priority, &apos;routine&apos;), &apos;Routine&apos;, if(selected(priority, &apos;urgent&apos;), &apos;Urgent&apos;, priority))",
+		);
+	});
+
+	it("labels known multi-select tokens and leaves imported tokens visible", () => {
+		const col = plainColumn(COL_UUIDS.a, "tags", "Tags");
+		const ctx: CaseListEmitContext = {
+			...emptyCtx,
+			caseProperties: [
+				{
+					name: "tags",
+					label: "Tags",
+					data_type: "multi_select",
+					options: [
+						{ value: "vip", label: "VIP" },
+						{ value: "follow.up", label: "Needs follow-up" },
+					],
+				},
+			],
+		};
+		const out = emitColumnField({ column: col, position: 1, ctx });
+
+		// Known labels use selected() in catalog order. The independent raw-value
+		// remainder removes known tokens with escaped regex literals, so an
+		// unknown historical token survives the final normalize-space(concat()).
+		expect(out.xml).toContain(
+			"if(selected(tags, &apos;vip&apos;), &apos;VIP&apos;, &apos;&apos;)",
+		);
+		expect(out.xml).toContain(
+			"if(selected(tags, &apos;follow.up&apos;), &apos;Needs follow-up&apos;, &apos;&apos;)",
+		);
+		expect(out.xml).toContain("&apos; follow\\.up &apos;");
+		expect(out.xml).toContain("normalize-space(concat(");
+		expect(out.xml).toContain("normalize-space(tags)");
+	});
 });
 
 describe("emitColumnField — date", () => {
+	it("lowers a semantic preset to the same supported pattern as Preview", () => {
+		const col = dateColumn(COL_UUIDS.a, "opened_on", "Opened", "long");
+		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
+		expect(out.xml).toContain(
+			"format-date(date(opened_on), &apos;%B %e, %Y&apos;)",
+		);
+	});
+
 	it("wraps the property in CCHQ's empty-string-guarded format-date shape", () => {
 		const col = dateColumn(COL_UUIDS.a, "opened_on", "Opened", "%d/%m/%Y");
 		const out = emitColumnField({ column: col, position: 1, ctx: emptyCtx });
@@ -351,6 +415,7 @@ describe("emitColumnField — calculated", () => {
 			moduleIndex: 0,
 			detailKind: "short",
 			target: "case",
+			caseProperties: [],
 			sortByUuid: singleSort(calc.uuid, {
 				kind: "calculated",
 				order: 1,
@@ -401,6 +466,7 @@ describe("emitColumnField — sort integration", () => {
 			moduleIndex: 0,
 			detailKind: "short",
 			target: "case",
+			caseProperties: [],
 			sortByUuid: singleSort(col.uuid, {
 				kind: "property",
 				order: 1,
@@ -429,6 +495,7 @@ describe("emitColumnField — sort integration", () => {
 			moduleIndex: 0,
 			detailKind: "short",
 			target: "case",
+			caseProperties: [],
 			sortByUuid: singleSort(col.uuid, {
 				kind: "property",
 				order: 1,
@@ -452,6 +519,7 @@ describe("emitColumnField — sort integration", () => {
 			moduleIndex: 0,
 			detailKind: "short",
 			target: "case",
+			caseProperties: [],
 			sortByUuid: singleSort(otherUuid, {
 				kind: "property",
 				order: 1,

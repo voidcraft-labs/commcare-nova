@@ -1,48 +1,50 @@
 /**
- * Rule: `match` predicate modes `fuzzy`, `phonetic`, and `fuzzy-date`
- * only land on slots that lower to CSQL (server-side ES). On
- * slots that lower to JavaRosa on-device XPath, only `starts-with`
- * is admissible.
+ * Rule: keep CSQL-only match modes out of every module AST slot that lowers
+ * through JavaRosa's on-device XPath evaluator.
  *
- * JavaRosa registers `starts-with` at
- * `commcare-core/.../org/javarosa/xpath/expr/XPathStartsWithFunc.java::NAME`
- * (and dispatched at
- * `commcare-core/.../xpath/parser/ast/ASTNodeFunctionCall.java::buildFunction`).
- * It has no entries for `fuzzy-match`, `phonetic-match`, or
- * `fuzzy-date` — those are CCHQ-server-only functions registered
- * on
- * `commcare-hq/.../case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
- * JavaRosa raises `XPathUnhandledException` at the first
- * unrecognized function call, so a case-list nodeset filter or
- * search-button display condition carrying a CSQL-only mode
- * throws on every case-list load — fail-closed, no silent
- * regression but no working module either.
+ * Local wire-source audit (2026-07-17): commcare-core registers
+ * `XPathStartsWithFunc.NAME` in `FunctionUtils` and dispatches it from
+ * `ASTNodeFunctionCall`, but contains no `fuzzy-match`, `phonetic-match`, or
+ * `fuzzy-date` implementation. Those three functions instead live in CCHQ's
+ * server-side case-search function registry. Letting one reach an on-device
+ * slot makes the exported module fail at runtime rather than merely changing
+ * how it matches.
  *
- * On-device-lowering authoring slots:
+ * The inventory mirrors the actual emitters rather than the presence of an
+ * authored definition:
  *
- *   - `caseListConfig.filter` — wraps the entry nodeset for
- *     case-list display via
- *     `lib/commcare/suite/case-list/nodesetFilter.ts::emitNodesetFilter`.
- *     ALSO AND-composes into `_xpath_query` (CSQL) when the module
- *     carries a `caseSearchConfig`, but the on-device requirement
- *     is the limiting factor — the case-list display has to render
- *     before search starts.
- *   - `caseSearchConfig.searchButtonDisplayCondition` — feeds the
- *     `relevant` attribute on the `<action>` block (case-search
- *     button) AND on the `<remote-request>`'s `<command>` (via
- *     `lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument`'s
- *     `search_button_display_condition` slot).
+ *   - the effective case-list filter (after wire simplification),
+ *   - calculated columns that have a list/detail/sort runtime role,
+ *   - every simple or advanced search-input default,
+ *   - the assigned-cases / excluded-owner expression, and
+ *   - the simplified search-button display condition.
  *
- * The advanced-arm `searchInputs[i].predicate` slot is exempt —
- * that one routes only through CSQL (`composeXPathQueryEmission`'s
- * `_xpath_query` AND-composition), so the three CSQL-only modes are
- * wire-correct there.
- *
- * Short-circuits cleanly when the module has no in-scope slots.
+ * An advanced input's direct predicate operators lower through server-side
+ * CSQL, so a direct fuzzy/phonetic/fuzzy-date match remains valid. CSQL is a
+ * mixed-runtime wrapper, however: non-native ValueExpression roots inline as
+ * JavaRosa XPath inside the outer `concat(...)`. The shared dialect-state
+ * walker therefore inventories only predicate nodes below those runtime
+ * boundaries (including `if.cond` and a non-native `count.where`). A direct
+ * comparison-LHS subcase count remains native CSQL, including its where
+ * predicate. The input's `default` is independently on-device through the
+ * `<prompt default="...">` XPath attribute.
  */
 
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate";
+import {
+	type BlueprintDoc,
+	caseListColumnHasRuntimeRole,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
+import {
+	effectiveFilterForEmission,
+	type Predicate,
+	simplifyForEmission,
+	type ValueExpression,
+	walkExpressionPredicateNodes,
+	walkPredicateNodes,
+} from "@/lib/domain/predicate";
 import { type ValidationError, validationError } from "../../errors";
 
 type MatchPredicate = Extract<Predicate, { kind: "match" }>;
@@ -64,114 +66,228 @@ export function matchModeOnDeviceCompatibility(
 	_doc: BlueprintDoc,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
+	const csqlPredicates: Predicate[] = [];
 
-	const filter = mod.caseListConfig?.filter;
+	const filter = effectiveFilterForEmission(mod.caseListConfig?.filter);
 	if (filter !== undefined) {
-		for (const offender of collectCsqlOnlyMatches(filter)) {
-			errors.push(
-				buildError({
-					mod,
-					moduleUuid,
-					match: offender,
-					slot: "caseListConfig.filter",
-					adviceSlotName: "the case list's always-on filter",
-				}),
-			);
+		csqlPredicates.push(filter);
+		addPredicateError(errors, filter, {
+			mod,
+			moduleUuid,
+			slot: "caseListConfig.filter",
+			slotLabel: "the Cases available rule",
+			surface: "filter",
+		});
+	}
+
+	const columns = mod.caseListConfig?.columns ?? [];
+	for (let index = 0; index < columns.length; index += 1) {
+		const column = columns[index];
+		if (column.kind !== "calculated" || !caseListColumnHasRuntimeRole(column)) {
+			continue;
+		}
+		const label = column.header || "Untitled field";
+		addExpressionError(errors, column.expression, {
+			mod,
+			moduleUuid,
+			slot: `caseListConfig.columns[${index}].expression`,
+			slotLabel: `calculated field "${label}"`,
+			surface: "calculated-column",
+			column: { uuid: column.uuid, label },
+		});
+	}
+
+	const inputs = mod.caseListConfig?.searchInputs ?? [];
+	for (let index = 0; index < inputs.length; index += 1) {
+		const input = inputs[index];
+		const inputIdentity = {
+			uuid: input.uuid,
+			name: input.name,
+			label: input.label || input.name,
+		};
+		if (input.default !== undefined) {
+			addExpressionError(errors, input.default, {
+				mod,
+				moduleUuid,
+				slot: `caseListConfig.searchInputs[${index}].default`,
+				slotLabel: `the default for search field "${inputIdentity.label}"`,
+				surface: "search-input-default",
+				input: inputIdentity,
+			});
+		}
+		if (input.kind !== "advanced") continue;
+		const effective = effectiveFilterForEmission(input.predicate);
+		if (effective === undefined) continue;
+		csqlPredicates.push(effective);
+		addCsqlPredicateError(errors, effective, {
+			mod,
+			moduleUuid,
+			slot: `caseListConfig.searchInputs[${index}].predicate`,
+			slotLabel: `advanced search input "${inputIdentity.label}"`,
+			surface: "advanced-input",
+			input: inputIdentity,
+		});
+	}
+
+	// The filter and advanced predicates AND-compose into one CSQL query. An
+	// effective match-none clause absorbs that composition, so runtime fragments
+	// inside sibling advanced predicates never reach the wire. The filter still
+	// emits independently on-device, so retain its own finding.
+	if (csqlPredicates.some((predicate) => predicate.kind === "match-none")) {
+		for (let index = errors.length - 1; index >= 0; index -= 1) {
+			if (errors[index].details?.surface === "advanced-input") {
+				errors.splice(index, 1);
+			}
 		}
 	}
 
-	const buttonCondition = mod.caseSearchConfig?.searchButtonDisplayCondition;
-	if (buttonCondition !== undefined) {
-		for (const offender of collectCsqlOnlyMatches(buttonCondition)) {
-			errors.push(
-				buildError({
-					mod,
-					moduleUuid,
-					match: offender,
-					slot: "caseSearchConfig.searchButtonDisplayCondition",
-					adviceSlotName: "the search-button display condition",
-				}),
-			);
-		}
+	const searchConfig = mod.caseSearchConfig;
+	if (searchConfig?.excludedOwnerIds !== undefined) {
+		addExpressionError(errors, searchConfig.excludedOwnerIds, {
+			mod,
+			moduleUuid,
+			slot: "caseSearchConfig.excludedOwnerIds",
+			slotLabel: "the assigned-cases setting",
+			surface: "excluded-owner-ids",
+		});
+	}
+
+	if (searchConfig?.searchButtonDisplayCondition !== undefined) {
+		addPredicateError(
+			errors,
+			simplifyForEmission(searchConfig.searchButtonDisplayCondition),
+			{
+				mod,
+				moduleUuid,
+				slot: "caseSearchConfig.searchButtonDisplayCondition",
+				slotLabel: "the search-button display condition",
+				surface: "search-button",
+			},
+		);
 	}
 
 	return errors;
 }
 
-function buildError(args: {
-	mod: Module;
-	moduleUuid: Uuid;
-	match: MatchPredicate;
-	slot: string;
-	adviceSlotName: string;
-}): ValidationError {
-	const { mod, moduleUuid, match, slot, adviceSlotName } = args;
-	const mode = match.mode;
+interface SlotIdentity {
+	readonly mod: Module;
+	readonly moduleUuid: Uuid;
+	readonly slot: string;
+	readonly slotLabel: string;
+	readonly surface: string;
+	readonly input?: {
+		readonly uuid: Uuid;
+		readonly name: string;
+		readonly label: string;
+	};
+	readonly column?: {
+		readonly uuid: Uuid;
+		readonly label: string;
+	};
+}
+
+function addPredicateError(
+	errors: ValidationError[],
+	predicate: Predicate,
+	slot: SlotIdentity,
+): void {
+	const offender = firstCsqlOnlyMatch(predicate);
+	if (offender !== undefined) errors.push(buildError(slot, offender));
+}
+
+function addExpressionError(
+	errors: ValidationError[],
+	expression: ValueExpression,
+	slot: SlotIdentity,
+): void {
+	const offender = firstCsqlOnlyMatchInExpression(expression);
+	if (offender !== undefined) errors.push(buildError(slot, offender));
+}
+
+function addCsqlPredicateError(
+	errors: ValidationError[],
+	predicate: Predicate,
+	slot: SlotIdentity,
+): void {
+	let offender: MatchPredicate | undefined;
+	walkCsqlOnDeviceNodes(predicate, {
+		visitPredicate(node) {
+			if (
+				offender === undefined &&
+				node.kind === "match" &&
+				isCsqlOnlyMode(node.mode)
+			) {
+				offender = node;
+			}
+		},
+	});
+	if (offender !== undefined) errors.push(buildError(slot, offender));
+}
+
+/** One finding per emitted slot is enough to block the invalid document and
+ * points the editor at the one place that needs repair. Reporting every nested
+ * match from the same expression produces duplicate cards with the same fix. */
+function firstCsqlOnlyMatch(predicate: Predicate): MatchPredicate | undefined {
+	let offender: MatchPredicate | undefined;
+	walkPredicateNodes(predicate, (node) => {
+		if (
+			offender === undefined &&
+			node.kind === "match" &&
+			isCsqlOnlyMode(node.mode)
+		) {
+			offender = node;
+		}
+	});
+	return offender;
+}
+
+function firstCsqlOnlyMatchInExpression(
+	expression: ValueExpression,
+): MatchPredicate | undefined {
+	let offender: MatchPredicate | undefined;
+	walkExpressionPredicateNodes(expression, (node) => {
+		if (
+			offender === undefined &&
+			node.kind === "match" &&
+			isCsqlOnlyMode(node.mode)
+		) {
+			offender = node;
+		}
+	});
+	return offender;
+}
+
+function buildError(
+	args: SlotIdentity,
+	match: MatchPredicate,
+): ValidationError {
+	const repair =
+		args.surface === "filter"
+			? "Use `starts-with` in this setting, or move this matching rule into an advanced search condition if it needs the server-side match type."
+			: "Use `starts-with` or choose another condition that can run on the device.";
 	return validationError(
 		"CASE_LIST_MATCH_MODE_NOT_ON_DEVICE",
 		"module",
-		`Module "${mod.name}" has a \`${mode}\` match on case property "${match.property.property}" in ${slot}, but that slot lowers to on-device XPath where only \`starts-with\` is available — JavaRosa's runtime has no \`fuzzy-match\` / \`phonetic-match\` / \`fuzzy-date\` function, so the case list would fail to load. Move the predicate to an advanced-arm search input (\`caseListConfig.searchInputs[i].predicate\`) — that path routes only through CSQL on the server, where the three modes are supported — or switch the match mode to \`starts-with\` in ${adviceSlotName} if a prefix match satisfies the author's intent.`,
-		{ moduleUuid, moduleName: mod.name },
+		`Module "${args.mod.name}" uses a \`${match.mode}\` match on case property "${match.property.property}" in ${args.slotLabel}, but that setting runs on the device and CommCare only provides \`starts-with\` there. ${repair}`,
+		{ moduleUuid: args.moduleUuid, moduleName: args.mod.name },
 		{
-			mode,
+			mode: match.mode,
 			property: match.property.property,
-			slot,
+			slot: args.slot,
+			surface: args.surface,
+			...(args.input !== undefined
+				? {
+						inputUuid: args.input.uuid,
+						inputName: args.input.name,
+						inputLabel: args.input.label,
+					}
+				: {}),
+			...(args.column !== undefined
+				? {
+						columnUuid: args.column.uuid,
+						columnLabel: args.column.label,
+					}
+				: {}),
 		},
 	);
-}
-
-function collectCsqlOnlyMatches(predicate: Predicate): MatchPredicate[] {
-	const offenders: MatchPredicate[] = [];
-	walkMatchPredicates(predicate, (node) => {
-		if (isCsqlOnlyMode(node.mode)) offenders.push(node);
-	});
-	return offenders;
-}
-
-function walkMatchPredicates(
-	predicate: Predicate,
-	visit: (node: MatchPredicate) => void,
-): void {
-	switch (predicate.kind) {
-		case "match":
-			visit(predicate);
-			return;
-		case "and":
-		case "or":
-			for (const clause of predicate.clauses) {
-				walkMatchPredicates(clause, visit);
-			}
-			return;
-		case "not":
-		case "when-input-present":
-			walkMatchPredicates(predicate.clause, visit);
-			return;
-		case "exists":
-		case "missing":
-			if (predicate.where !== undefined) {
-				walkMatchPredicates(predicate.where, visit);
-			}
-			return;
-		case "match-all":
-		case "match-none":
-		case "eq":
-		case "neq":
-		case "gt":
-		case "gte":
-		case "lt":
-		case "lte":
-		case "in":
-		case "within-distance":
-		case "is-null":
-		case "is-blank":
-		case "between":
-		case "multi-select-contains":
-			return;
-		default: {
-			const _exhaustive: never = predicate;
-			throw new Error(
-				`matchModeOnDeviceCompatibility: hit an unhandled predicate kind '${String(_exhaustive)}' while walking the AST. The walker covers every variant on the Predicate discriminated union; extending the union surfaces here as a TypeScript never error. Add a branch matching the new kind so the rule walks it correctly.`,
-			);
-		}
-	}
 }

@@ -154,7 +154,7 @@ describe("setCaseListFilter", () => {
 		expect(result.result.kind).toBe("cleared");
 	});
 
-	it("atomically turns off filter-only automatic search when its final rule is cleared", async () => {
+	it("keeps an intentional zero-input Search action when its availability rule is cleared", async () => {
 		const { doc: baseDoc, ctx } = docWithConfig();
 		const doc: BlueprintDoc = {
 			...baseDoc,
@@ -182,10 +182,9 @@ describe("setCaseListFilter", () => {
 
 		expect(result.mutations.map((mutation) => mutation.kind)).toEqual([
 			"setCaseListMeta",
-			"setCaseSearchMarker",
 		]);
 		expect(result.newDoc.modules[MOD_A].caseListConfig?.filter).toBeUndefined();
-		expect(result.newDoc.modules[MOD_A].caseSearchConfig).toBeUndefined();
+		expect(result.newDoc.modules[MOD_A].caseSearchConfig).toEqual({});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expect(result.result.kind).toBe("cleared");
 	});
@@ -303,7 +302,7 @@ describe("setCaseListFilter", () => {
 		// (`caseListConfigWithName`), so a `setCaseListFilter` landing on a
 		// config-less module means a peer concurrently cleared the whole case
 		// list. The `setCaseListMeta` reducer edits an EXISTING config and no
-		// longer runs `ensureCaseListConfig`, so the config stays absent rather
+		// longer runs the semantic case-list ensure, so the config stays absent rather
 		// than reappearing empty-but-present with the filter stranded on it. The
 		// guarded commit turns this into a 409 reload (batchTargetsMissing); the
 		// tool's own reducer run just no-ops.
@@ -354,7 +353,7 @@ describe("setCaseListFilter", () => {
 	it("clearing (filter=null) on a config-less module is a no-op, not a config birth", async () => {
 		// The dual of the resurrection guard: clearing a filter on a module with
 		// no config must NOT materialize an empty config either. `setCaseListMeta`
-		// edits an existing config; absent → absent (no `ensureCaseListConfig`).
+		// edits an existing config; absent → absent (no semantic ensure).
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const baseMod = baseDoc.modules[MOD_A];
 		const docWithoutConfig: BlueprintDoc = {

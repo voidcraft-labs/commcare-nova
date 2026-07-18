@@ -1,4 +1,12 @@
-export function Logo({ size = "md" }: { size?: "sm" | "md" | "lg" | "hero" }) {
+export function Logo({
+	size = "md",
+	markOnly = false,
+}: {
+	size?: "sm" | "md" | "lg" | "hero";
+	/** Keep the recognizable violet mark when a wordmark cannot fit. The
+	 * surrounding control must provide its accessible name. */
+	markOnly?: boolean;
+}) {
 	const textSizes = {
 		sm: "text-lg",
 		md: "text-xl",
@@ -20,17 +28,25 @@ export function Logo({ size = "md" }: { size?: "sm" | "md" | "lg" | "hero" }) {
 		hero: "gap-3.5",
 	};
 
+	const dotSize = markOnly ? "w-3 h-3" : dotSizes[size];
+
 	return (
 		<div
 			className={`${textSizes[size]} font-display font-bold tracking-tight flex items-center ${gaps[size]}`}
 		>
-			<div className={`relative ${dotSizes[size]} shrink-0`}>
-				<div className={`${dotSizes[size]} rounded-full bg-nova-violet`} />
+			<div className={`relative ${dotSize} shrink-0`}>
+				<div className={`${dotSize} rounded-full bg-nova-violet`} />
 				<div
-					className={`absolute inset-0 ${dotSizes[size]} rounded-full bg-nova-violet animate-ping opacity-30 motion-reduce:hidden`}
+					className={`absolute inset-0 ${dotSize} rounded-full bg-nova-violet animate-ping opacity-30 motion-reduce:hidden`}
 				/>
 			</div>
-			<span className="bg-gradient-to-r from-nova-text to-nova-violet-bright bg-clip-text text-transparent [text-box:trim-both_ex_alphabetic]">
+			<span
+				className={
+					markOnly
+						? "sr-only"
+						: "bg-gradient-to-r from-nova-text to-nova-violet-bright bg-clip-text text-transparent [text-box:trim-both_ex_alphabetic]"
+				}
+			>
 				commcare nova
 			</span>
 		</div>

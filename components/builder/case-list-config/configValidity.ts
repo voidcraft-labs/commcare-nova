@@ -16,7 +16,7 @@
 //     calculated columns run `checkValueExpression` with the same
 //     bare context `CalculatedColumnCard`'s editor builds.
 //   - filter: `checkPredicate` with the full search-input list as
-//     known inputs — the context `FilterInspector`'s
+//     known inputs — the context Results' Cases available
 //     `PredicateCardEditor` receives.
 //   - search inputs: the structural row resolution from
 //     `searchInputResolution` plus per-row default-expression (no
@@ -33,9 +33,11 @@
 //     them. Hidden recovery items never make an unrelated tab look broken.
 //   - `brokenColumns` — the per-column set behind the in-canvas
 //     error marks (a tab dot must point at something findable).
-//   - `filterBroken` — the one non-row Search finding, used to mark the
-//     Cases available summary directly so every tab dot leads somewhere.
+//   - `filterBroken` — used to mark Results' Cases available composer
+//     directly so every tab dot leads somewhere.
 
+import { caseSearchPredicateVerdict } from "@/lib/doc/hooks/predicateVerdicts";
+import type { CaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import {
 	type CaseListConfig,
 	type CaseType,
@@ -72,16 +74,38 @@ export interface CaseListConfigErrorAreas {
 export interface CaseListConfigVerdicts {
 	readonly errorAreas: CaseListConfigErrorAreas;
 	readonly brokenColumns: ReadonlySet<Uuid>;
-	/** The Search canvas marks its one filter summary row directly so a
+	/** The Results canvas marks its filter composer directly so a
 	 *  problem remains findable even when no result fields are visible. */
 	readonly filterBroken: boolean;
+	/** Imported Search-action rules need a distinct mark in Search settings. */
+	readonly searchButtonConditionBroken: boolean;
+	/** Assigned-case expressions live in Results beside Cases available. */
+	readonly excludedOwnerIdsBroken: boolean;
 }
+
+export interface CaseListConfigVerdictOptions {
+	readonly caseSearchEnabled?: boolean;
+	/** Absolute module-rule findings projected from the live BlueprintDoc. */
+	readonly boundary?: CaseWorkspaceBoundaryVerdicts;
+}
+
+const CLEAN_BOUNDARY: CaseWorkspaceBoundaryVerdicts = {
+	filterBroken: false,
+	searchInputsBroken: false,
+	searchButtonConditionBroken: false,
+	excludedOwnerIdsBroken: false,
+	brokenColumnUuids: [],
+};
 
 export function caseListConfigVerdicts(
 	config: CaseListConfig,
 	caseTypes: readonly CaseType[],
 	currentCaseType: string,
+	options: CaseListConfigVerdictOptions = {},
 ): CaseListConfigVerdicts {
+	const caseSearchEnabled =
+		options.caseSearchEnabled ?? config.searchInputs.length > 0;
+	const boundary = options.boundary ?? CLEAN_BOUNDARY;
 	const editCtx = { caseTypes, currentCaseType };
 	const bareCtx: TypeContext = {
 		caseTypes: [...caseTypes],
@@ -112,28 +136,37 @@ export function caseListConfigVerdicts(
 		);
 		if (!applicable) markBrokenColumn(col);
 	}
+	for (const uuid of boundary.brokenColumnUuids) {
+		const column = config.columns.find((candidate) => candidate.uuid === uuid);
+		if (column !== undefined && caseListColumnHasRuntimeRole(column)) {
+			markBrokenColumn(column);
+		}
+	}
+
+	// Search widgets expose their runtime scalar type, not the targeted case
+	// property's type. This is the same domain mapping the gate and Preview use.
+	const inputDecls = searchInputDecls(config.searchInputs);
 
 	// ── Filter ──
-	let filterIsBroken = false;
+	let filterIsBroken = boundary.filterBroken;
 	if (config.filter !== undefined) {
 		const filterCtx: TypeContext = {
 			caseTypes: [...caseTypes],
-			knownInputs: [...config.searchInputs],
+			knownInputs: [...inputDecls],
 			currentCaseType,
 		};
-		filterIsBroken = !checkPredicate(config.filter, filterCtx).ok;
+		filterIsBroken =
+			filterIsBroken ||
+			!checkPredicate(config.filter, filterCtx).ok ||
+			(caseSearchEnabled && !caseSearchPredicateVerdict(config.filter).ok);
 	}
 
 	// ── Search inputs ──
 	// An advanced predicate resolves `input(...)` against EVERY named
 	// row — the full scope the validator's `moduleTypeContext` and the
 	// wire emitter use. Hoisted out of the loop: it doesn't vary per row.
-	let search = false;
-	const inputDecls = searchInputDecls(
-		config.searchInputs,
-		caseTypes,
-		currentCaseType,
-	);
+	let search =
+		boundary.searchInputsBroken || boundary.searchButtonConditionBroken;
 	const resolved = resolveRows(config.searchInputs, caseTypes, currentCaseType);
 	for (let i = 0; i < config.searchInputs.length; i++) {
 		const row = config.searchInputs[i];
@@ -149,6 +182,13 @@ export function caseListConfigVerdicts(
 		// NO_SEARCH_INPUTS scope (and the commit gate's forbids-input-ref
 		// rule). Session / user-data refs still resolve without it.
 		if (row.default !== undefined) {
+			// A daterange answer is an indivisible start/end pair on the wire.
+			// The legacy scalar default slot cannot represent it faithfully, so
+			// keep Preview gated until the author removes that imported setting.
+			if (row.type === "date-range") {
+				search = true;
+				continue;
+			}
 			const defaultCtx: TypeContext = {
 				caseTypes: [...caseTypes],
 				knownInputs: [...NO_SEARCH_INPUTS],
@@ -167,17 +207,25 @@ export function caseListConfigVerdicts(
 				knownInputs: [...inputDecls],
 				currentCaseType,
 			};
-			if (!checkPredicate(row.predicate, predicateCtx).ok) search = true;
+			if (
+				!checkPredicate(row.predicate, predicateCtx).ok ||
+				!caseSearchPredicateVerdict(row.predicate).ok
+			) {
+				search = true;
+			}
 		}
 	}
 
 	return {
 		errorAreas: {
-			search: search || filterIsBroken,
-			list: listColumnsBroken,
+			search,
+			list:
+				listColumnsBroken || filterIsBroken || boundary.excludedOwnerIdsBroken,
 			detail: detailColumnsBroken,
 		},
 		brokenColumns,
 		filterBroken: filterIsBroken,
+		searchButtonConditionBroken: boundary.searchButtonConditionBroken,
+		excludedOwnerIdsBroken: boundary.excludedOwnerIdsBroken,
 	};
 }

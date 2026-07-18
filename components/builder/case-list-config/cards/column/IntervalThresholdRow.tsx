@@ -14,14 +14,18 @@
 // `NumericInput`.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { TIME_SINCE_UNITS, type TimeSinceUnit } from "@/lib/domain";
+import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
+import { FieldError } from "@/components/shadcn/field";
+import { Input } from "@/components/shadcn/input";
 import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
+import { TIME_SINCE_UNITS, type TimeSinceUnit } from "@/lib/domain";
 
 /**
  * Per-unit display label. The `Record<TimeSinceUnit, string>` shape
@@ -60,149 +64,154 @@ export function IntervalThresholdRow({
 	onUnitChange,
 	thresholdLabel,
 }: IntervalThresholdRowProps) {
+	const thresholdId = useId();
+	const unitId = useId();
 	return (
-		<div className="grid grid-cols-[1fr_auto] gap-2 items-start">
+		<div className="grid grid-cols-[1fr_auto] items-start gap-3">
 			<div>
-				<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
+				<label
+					htmlFor={thresholdId}
+					className={`mb-2 block ${INSPECTOR_LABEL_CLS}`}
+				>
 					{thresholdLabel}
-				</div>
-				<ThresholdInput value={threshold} onChange={onThresholdChange} />
+				</label>
+				<ThresholdInput
+					id={thresholdId}
+					value={threshold}
+					onChange={onThresholdChange}
+				/>
 			</div>
 			<div>
-				<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
+				<label htmlFor={unitId} className={`mb-2 block ${INSPECTOR_LABEL_CLS}`}>
 					Unit
-				</div>
-				<UnitMenu unit={unit} onUnitChange={onUnitChange} />
+				</label>
+				<UnitMenu triggerId={unitId} unit={unit} onUnitChange={onUnitChange} />
 			</div>
 		</div>
 	);
 }
 
 interface ThresholdInputProps {
+	readonly id: string;
 	readonly value: number;
 	readonly onChange: (next: number) => void;
 }
 
 /**
- * Numeric threshold input. Same draft / commit pattern as
- * `LiteralValueInput`'s `NumericInput` — local draft holds the
- * in-flight edit, commits on blur, re-syncs to the external value
- * when the input isn't focused. NaN parses are refused so the AST
- * never carries a non-finite threshold.
+ * Numeric threshold input. Local draft state preserves incomplete
+ * and invalid edits so the author can correct them in place. Blur
+ * commits only a finite, positive whole number — exactly the domain
+ * schema's `int().positive()` contract — and otherwise exposes a
+ * friendly inline action without changing the document.
  */
-function ThresholdInput({ value, onChange }: ThresholdInputProps) {
+function ThresholdInput({ id, value, onChange }: ThresholdInputProps) {
 	const inputRef = useRef<HTMLInputElement>(null);
+	const errorId = `${id}-error`;
 	const initial = String(value);
 	const [draft, setDraft] = useState(initial);
+	const [showError, setShowError] = useState(false);
 	useEffect(() => {
 		if (initial !== draft && document.activeElement !== inputRef.current) {
 			setDraft(initial);
+			setShowError(false);
 		}
 	}, [initial, draft]);
 	const commit = useCallback(() => {
-		if (draft === initial) return;
-		const parsed = Number.parseInt(draft, 10);
-		if (Number.isNaN(parsed)) {
-			// Refuse the commit; reset the draft so the input matches
-			// the persisted value. The user sees their non-numeric
-			// input vanish — a stronger signal than a silent revert
-			// would produce, since the number-typed input UI in modern
-			// browsers already constrains keyboard entry.
-			setDraft(initial);
+		if (draft === initial) {
+			setShowError(false);
 			return;
 		}
+		const parsed = positiveWholeNumber(draft);
+		if (parsed === undefined) {
+			setShowError(true);
+			return;
+		}
+		setShowError(false);
 		onChange(parsed);
 	}, [draft, initial, onChange]);
 	return (
-		<input
-			ref={inputRef}
-			type="number"
-			step={1}
-			value={draft}
-			onChange={(e) => setDraft(e.target.value)}
-			onBlur={commit}
-			autoComplete="off"
-			data-1p-ignore
-			aria-label="Threshold"
-			className="w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text font-mono placeholder:text-nova-text-muted focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
-		/>
+		<div>
+			<Input
+				id={id}
+				ref={inputRef}
+				type="number"
+				min={1}
+				step={1}
+				value={draft}
+				onChange={(event) => {
+					const next = event.target.value;
+					setDraft(next);
+					if (showError && positiveWholeNumber(next) !== undefined) {
+						setShowError(false);
+					}
+				}}
+				onBlur={commit}
+				autoComplete="off"
+				data-1p-ignore
+				aria-invalid={showError || undefined}
+				aria-describedby={showError ? errorId : undefined}
+				className={`h-auto min-h-11 w-full border bg-nova-deep/50 px-3 text-[14px] text-nova-text placeholder:text-nova-text-muted focus-visible:ring-1 md:text-[14px] dark:bg-nova-deep/50 ${
+					showError
+						? "border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30"
+						: "border-white/[0.06] focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30"
+				}`}
+			/>
+			{showError ? (
+				<FieldError
+					id={errorId}
+					className="mt-2 text-[13px] leading-5 text-nova-rose"
+				>
+					Enter a whole number greater than 0
+				</FieldError>
+			) : null}
+		</div>
 	);
 }
 
+function positiveWholeNumber(draft: string): number | undefined {
+	if (draft.trim() === "") return undefined;
+	const parsed = Number(draft);
+	return Number.isFinite(parsed) && Number.isInteger(parsed) && parsed > 0
+		? parsed
+		: undefined;
+}
+
 interface UnitMenuProps {
+	readonly triggerId: string;
 	readonly unit: TimeSinceUnit;
 	readonly onUnitChange: (next: TimeSinceUnit) => void;
 }
 
 /**
- * Closed-enum unit dropdown. Mirrors `DateAddCard`'s
- * `IntervalMenu` shape; same Base UI Menu primitive, same active-
- * row styling, same corner-rounding pattern.
+ * Closed-enum unit dropdown using the shared Select primitive.
  */
-function UnitMenu({ unit, onUnitChange }: UnitMenuProps) {
-	const triggerId = useId();
-	const triggerRef = useRef<HTMLButtonElement>(null);
+function UnitMenu({ triggerId, unit, onUnitChange }: UnitMenuProps) {
 	return (
-		<Menu.Root>
-			<Menu.Trigger
-				ref={triggerRef}
+		<Select
+			value={unit}
+			onValueChange={(next) => {
+				if (next !== null && TIME_SINCE_UNITS.includes(next)) {
+					onUnitChange(next);
+				}
+			}}
+		>
+			<SelectTrigger
 				id={triggerId}
-				aria-label={`Unit: ${UNIT_LABELS[unit]}`}
-				className="group flex items-center gap-1.5 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				className="h-auto min-h-11 gap-1.5 border-white/[0.06] bg-nova-deep/50 px-3 py-2 text-[14px] text-nova-violet-bright not-disabled:hover:border-nova-violet/30 dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50"
 			>
-				<span>{UNIT_LABELS[unit]}</span>
-				<svg
-					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
-					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.2"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
-					align="start"
-					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-				>
-					<Menu.Popup className={MENU_POPUP_CLS}>
-						{TIME_SINCE_UNITS.map((u, i) => {
-							const isActive = u === unit;
-							const last = TIME_SINCE_UNITS.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
-							return (
-								<Menu.Item
-									key={u}
-									onClick={() => onUnitChange(u)}
-									className={`${corners} min-h-11 ${MENU_ITEM_CLS} ${
-										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									}`}
-								>
-									<span>{UNIT_LABELS[u]}</span>
-								</Menu.Item>
-							);
-						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+				<SelectValue>{UNIT_LABELS[unit]}</SelectValue>
+			</SelectTrigger>
+			<SelectContent align="start">
+				{TIME_SINCE_UNITS.map((nextUnit) => (
+					<SelectItem
+						key={nextUnit}
+						value={nextUnit}
+						className="min-h-11 text-[14px]"
+					>
+						{UNIT_LABELS[nextUnit]}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
 	);
 }

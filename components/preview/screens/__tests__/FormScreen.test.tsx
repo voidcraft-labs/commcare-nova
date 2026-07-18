@@ -324,6 +324,7 @@ describe("FormScreen — destructive case-data replacement", () => {
 				external_id: null,
 				parent_case_id: null,
 				properties: {},
+				calculated: {},
 			},
 			ancestors: [],
 		});
@@ -404,6 +405,7 @@ describe("FormScreen — followup submit", () => {
 				external_id: null,
 				parent_case_id: null,
 				properties: {},
+				calculated: {},
 			},
 			ancestors: [],
 		});
@@ -455,6 +457,7 @@ describe("FormScreen — close submit", () => {
 				external_id: null,
 				parent_case_id: null,
 				properties: {},
+				calculated: {},
 			},
 			ancestors: [],
 		});
@@ -550,6 +553,7 @@ describe("FormScreen — error arms render inline", () => {
 				external_id: null,
 				parent_case_id: null,
 				properties: {},
+				calculated: {},
 			},
 			ancestors: [],
 		});

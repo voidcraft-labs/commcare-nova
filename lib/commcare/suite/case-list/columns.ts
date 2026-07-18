@@ -12,9 +12,11 @@
 //
 // The seven Nova column kinds map to CCHQ formats as follows:
 //
-//   - `plain`             → CCHQ `detail_screen.py::Plain` format.
-//     Bare property reference; the runtime renders the case
-//     property's value as text.
+//   - `plain`             → CCHQ `detail_screen.py::Plain` template.
+//     Most properties emit a bare reference. A declared single- or
+//     multi-select property derives its worker-facing option labels from the
+//     case-property catalog; unknown imported tokens remain raw so changing an
+//     option catalog never makes historical data disappear.
 //
 //   - `date`              → CCHQ `detail_screen.py::Date` format.
 //     Wire shape:
@@ -104,7 +106,12 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
-import type { Column } from "@/lib/domain";
+import {
+	type CaseProperty,
+	type Column,
+	resolveCommCareDatePattern,
+	TIME_SINCE_UNIT_DAYS,
+} from "@/lib/domain";
 import { emitCasePropertyWirePath } from "../../casePropertyWire";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import {
@@ -113,6 +120,7 @@ import {
 } from "../../multimedia/assetWirePath";
 import { quoteLiteral } from "../../predicate/stringQuoting";
 import type { InstanceRoot } from "../../predicate/termEmitter";
+import { escapeRegex } from "../../xml";
 import { buildSortBlock, type ResolvedSortDirective } from "./sortKeys";
 import type {
 	CaseListEmission,
@@ -179,6 +187,19 @@ function instanceRootFor(target: DetailTarget): InstanceRoot {
 	return target === "search" ? "results" : "casedb";
 }
 
+/** Preserve both graph and root-scope identity whenever a calculated value is
+ * lowered. Passing only the graph is insufficient for an authored unqualified
+ * relation: the canonicalizer needs the surrounding module case type to know
+ * which uniquely typed edge the identifier names. */
+function relationContextFor(ctx: CaseListEmitContext) {
+	return {
+		...(ctx.caseTypes === undefined ? {} : { caseTypes: ctx.caseTypes }),
+		...(ctx.currentCaseType === undefined
+			? {}
+			: { currentCaseType: ctx.currentCaseType }),
+	};
+}
+
 /**
  * Days-equivalent divisor for each `TimeSinceUnit` arm. Shared by
  * both `interval` arms — `display: "always"` renders the integer
@@ -206,12 +227,7 @@ function instanceRootFor(target: DetailTarget): InstanceRoot {
  * grammar-safe per the XPath grammar's decimal-literal rule
  * (`grammar.lezer.grammar::NumberLiteral`).
  */
-export const TIME_AGO_DIVISOR_DAYS = {
-	days: 1,
-	weeks: 7,
-	months: 365.25 / 12,
-	years: 365.25,
-} as const;
+export const TIME_AGO_DIVISOR_DAYS = TIME_SINCE_UNIT_DAYS;
 
 /**
  * Render a `TIME_AGO_DIVISOR_DAYS` value as a wire-form decimal
@@ -379,6 +395,46 @@ function plainDisplayXpath(field: string): string {
 }
 
 /**
+ * A plain select column is still authored as Nova's simplest column kind, but
+ * its property catalog carries the worker-facing option labels. Derive those
+ * labels on device while preserving unknown historical/imported tokens.
+ * Non-select plain columns never route through this helper.
+ */
+export function plainSelectDisplayXpath(
+	field: string,
+	property: CaseProperty,
+): string {
+	const options = property.options ?? [];
+	if (options.length === 0) return plainDisplayXpath(field);
+	if (property.data_type === "single_select") {
+		return options.reduceRight((elseArm, option) => {
+			const value = quoteLiteral(option.value, "case-list-filter");
+			const label = quoteLiteral(option.label, "case-list-filter");
+			return `if(selected(${field}, ${value}), ${label}, ${elseArm})`;
+		}, field);
+	}
+
+	// Multi-select values are space-delimited tokens on device. Known labels
+	// use option-catalog order. A second expression removes only those known
+	// tokens from the normalized raw value, leaving unknown tokens intact; the
+	// final concat appends that honest fallback without ever remapping a label.
+	const tokenOptions = options.filter(
+		(option) => option.value !== "" && !/\s/.test(option.value),
+	);
+	if (tokenOptions.length === 0) return plainDisplayXpath(field);
+	const knownLabels = idMappingDisplayXpath(field, tokenOptions);
+	let unknownTokens = `concat(' ', normalize-space(${field}), ' ')`;
+	for (const option of tokenOptions) {
+		const pattern = quoteLiteral(
+			` ${escapeRegex(option.value)} `,
+			"case-list-filter",
+		);
+		unknownTokens = `replace(${unknownTokens}, ${pattern}, ' ')`;
+	}
+	return `normalize-space(concat(${knownLabels}, ' ', ${unknownTokens}))`;
+}
+
+/**
  * Date-formatted column display XPath. Per CCHQ's
  * `detail_screen.py::Date` format:
  *
@@ -391,7 +447,10 @@ function plainDisplayXpath(field: string): string {
  * concat-fallback shape rather than producing broken XPath.
  */
 function dateDisplayXpath(field: string, pattern: string): string {
-	const quotedPattern = quoteLiteral(pattern, "case-list-filter");
+	const quotedPattern = quoteLiteral(
+		resolveCommCareDatePattern(pattern),
+		"case-list-filter",
+	);
 	return `if(${field} = '', '', format-date(date(${field}), ${quotedPattern}))`;
 }
 
@@ -466,6 +525,31 @@ function intervalFlagXpath(args: {
 	const thresholdWire = formatTimeAgoDivisor(thresholdDays);
 	const flagLiteral = quoteLiteral(args.text, "case-list-filter");
 	return `if(${args.field} = '', ${flagLiteral}, if(today() - date(${args.field}) > ${thresholdWire}, ${flagLiteral}, ''))`;
+}
+
+/**
+ * Complete display expression for an authored interval column. HQ JSON uses
+ * this same expression through its calculated-column arm; projecting to
+ * CCHQ's stock `time-ago` / `late-flag` formats would discard Nova's authored
+ * threshold text (and hard-code `*` for flags).
+ */
+export function intervalColumnDisplayXpath(
+	column: Extract<Column, { kind: "interval" }>,
+): string {
+	const field = emitCasePropertyWirePath(column.field);
+	return column.display === "always"
+		? intervalAlwaysXpath({
+				field,
+				threshold: column.threshold,
+				unit: column.unit,
+				text: column.text,
+			})
+		: intervalFlagXpath({
+				field,
+				threshold: column.threshold,
+				unit: column.unit,
+				text: column.text,
+			});
 }
 
 /**
@@ -579,12 +663,19 @@ function imageMapDisplayXpath(
  */
 function propertyDisplayXpath(
 	column: Exclude<Column, { kind: "calculated" }>,
-	assets: AssetManifest | undefined,
+	ctx: CaseListEmitContext,
 ): string {
 	const field = emitCasePropertyWirePath(column.field);
 	switch (column.kind) {
-		case "plain":
-			return plainDisplayXpath(field);
+		case "plain": {
+			const property = ctx.caseProperties.find(
+				(candidate) => candidate.name === column.field,
+			);
+			return property?.data_type === "single_select" ||
+				property?.data_type === "multi_select"
+				? plainSelectDisplayXpath(field, property)
+				: plainDisplayXpath(field);
+		}
 		case "date":
 			return dateDisplayXpath(field, column.pattern);
 		case "phone":
@@ -596,23 +687,11 @@ function propertyDisplayXpath(
 			// `<template form="image">`). Media-OFF (no manifest) → degrade
 			// to the raw property value as a plain column; `templateFormFor`
 			// drops the `form="image"` in lockstep so the two never disagree.
-			return assets
-				? imageMapDisplayXpath(field, column.mapping, assets)
+			return ctx.assets
+				? imageMapDisplayXpath(field, column.mapping, ctx.assets)
 				: plainDisplayXpath(field);
 		case "interval":
-			return column.display === "always"
-				? intervalAlwaysXpath({
-						field,
-						threshold: column.threshold,
-						unit: column.unit,
-						text: column.text,
-					})
-				: intervalFlagXpath({
-						field,
-						threshold: column.threshold,
-						unit: column.unit,
-						text: column.text,
-					});
+			return intervalColumnDisplayXpath(column);
 	}
 }
 
@@ -672,7 +751,7 @@ function resolveSortElement(
 	if (ctx.detailKind === "long") return undefined;
 	const directive = ctx.sortByUuid.get(column.uuid);
 	if (directive === undefined) return undefined;
-	const targeted = retargetSortDirective(directive, column, ctx.target);
+	const targeted = retargetSortDirective(directive, column, ctx);
 	return buildSortBlock(targeted);
 }
 
@@ -689,9 +768,9 @@ function resolveSortElement(
 function retargetSortDirective(
 	directive: ResolvedSortDirective,
 	column: Column,
-	target: DetailTarget,
+	ctx: CaseListEmitContext,
 ): ResolvedSortDirective {
-	if (target === "case" || directive.kind === "property") return directive;
+	if (ctx.target === "case" || directive.kind === "property") return directive;
 	if (column.kind !== "calculated") {
 		// Structural invariant: a calc-arm directive always pairs with
 		// a calculated column. The `buildSortDirectives` pipeline
@@ -704,7 +783,8 @@ function retargetSortDirective(
 		...directive,
 		calcXpath: emitOnDeviceExpression(
 			column.expression,
-			instanceRootFor(target),
+			instanceRootFor(ctx.target),
+			relationContextFor(ctx),
 		),
 	};
 }
@@ -740,7 +820,7 @@ export function buildColumnField(args: {
 		return buildCalculatedField({ column, position, ctx, hidden });
 	}
 
-	const displayXpath = propertyDisplayXpath(column, ctx.assets);
+	const displayXpath = propertyDisplayXpath(column, ctx);
 	const headerLocaleId = detailHeaderLocaleId(
 		ctx.target,
 		ctx.detailKind,
@@ -802,6 +882,7 @@ function buildCalculatedField(args: {
 	const calcXpath = emitOnDeviceExpression(
 		column.expression,
 		instanceRootFor(ctx.target),
+		relationContextFor(ctx),
 	);
 	const headerLocaleId = detailCalculatedHeaderLocaleId(
 		ctx.target,

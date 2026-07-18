@@ -196,7 +196,7 @@ export const columnCardSchemas: {
 		kind: "plain",
 		label: "Text",
 		icon: tablerTextSize,
-		description: "Show the value exactly as it's stored.",
+		description: "Show the value as saved",
 		component: PlainColumnCard,
 		defaultValue: (ctx) => plainColumn(newUuid(), pickFirstAny(ctx), ""),
 		applicableForProperty: applicableFor("plain"),
@@ -206,7 +206,7 @@ export const columnCardSchemas: {
 		kind: "date",
 		label: "Date",
 		icon: tablerCalendarStats,
-		description: "Format a date for easy reading.",
+		description: "Make a date easier to read",
 		component: DateColumnCard,
 		defaultValue: (ctx) =>
 			dateColumn(newUuid(), pickFirstDate(ctx), "", "%Y-%m-%d"),
@@ -215,9 +215,9 @@ export const columnCardSchemas: {
 	},
 	phone: {
 		kind: "phone",
-		label: "Phone Number",
+		label: "Phone number",
 		icon: tablerPhone,
-		description: "Tap the number to call it.",
+		description: "Let people tap the number to call",
 		component: PhoneColumnCard,
 		defaultValue: (ctx) => phoneColumn(newUuid(), pickFirstText(ctx), ""),
 		applicableForProperty: applicableFor("phone"),
@@ -225,9 +225,9 @@ export const columnCardSchemas: {
 	},
 	"id-mapping": {
 		kind: "id-mapping",
-		label: "Value Labels",
+		label: "Value labels",
 		icon: tablerListNumbers,
-		description: "Show a friendly label in place of each stored value.",
+		description: "Replace saved values with friendly labels",
 		component: IdMappingCard,
 		defaultValue: (ctx) =>
 			idMappingColumn(newUuid(), pickFirstAny(ctx), "", []),
@@ -236,9 +236,9 @@ export const columnCardSchemas: {
 	},
 	"image-map": {
 		kind: "image-map",
-		label: "Value Images",
+		label: "Value images",
 		icon: tablerPhoto,
-		description: "Show an image in place of each stored value.",
+		description: "Replace saved values with images",
 		component: ImageMapColumnCard,
 		defaultValue: (ctx) => imageMapColumn(newUuid(), pickFirstAny(ctx), "", []),
 		applicableForProperty: applicableFor("image-map"),
@@ -246,9 +246,9 @@ export const columnCardSchemas: {
 	},
 	interval: {
 		kind: "interval",
-		label: "Time Since",
+		label: "Time since",
 		icon: tablerHourglass,
-		description: "How long since (or until) the date, with an overdue flag.",
+		description: "Show time since a date or flag overdue cases",
 		component: IntervalCard,
 		defaultValue: (ctx) =>
 			intervalColumn(
@@ -267,7 +267,7 @@ export const columnCardSchemas: {
 		kind: "calculated",
 		label: "Calculated",
 		icon: tablerMathFunction,
-		description: "Compute what's shown with a formula.",
+		description: "Build a value from other case information",
 		component: CalculatedColumnCard,
 		defaultValue: () => calculatedColumn(newUuid(), "", term(literal(""))),
 		applicableForProperty: applicableFor("calculated"),

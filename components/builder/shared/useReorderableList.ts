@@ -83,14 +83,51 @@ export interface ReorderMove<T> {
 	readonly toIndex: number;
 }
 
+/** Keyboard commands shared by every reorder handle. Home and End provide a
+ * fast path through long authored lists; arrow keys make one-step changes. */
+export type ReorderKeyboardKey = "ArrowUp" | "ArrowDown" | "Home" | "End";
+
+/** Pure keyboard counterpart to drag reordering. Returns undefined at a list
+ * boundary so the caller can announce that the item is already first/last
+ * without emitting a no-op document mutation. */
+export function reorderByKeyboard<T>(
+	items: readonly T[],
+	fromIndex: number,
+	key: ReorderKeyboardKey,
+): { readonly items: readonly T[]; readonly move: ReorderMove<T> } | undefined {
+	const toIndex =
+		key === "Home"
+			? 0
+			: key === "End"
+				? items.length - 1
+				: fromIndex + (key === "ArrowUp" ? -1 : 1);
+	if (
+		fromIndex < 0 ||
+		fromIndex >= items.length ||
+		toIndex < 0 ||
+		toIndex >= items.length ||
+		toIndex === fromIndex
+	) {
+		return undefined;
+	}
+
+	const reordered = [...items];
+	const [moved] = reordered.splice(fromIndex, 1);
+	if (moved === undefined) return undefined;
+	reordered.splice(toIndex, 0, moved);
+	return {
+		items: reordered,
+		move: { item: moved, fromIndex, toIndex },
+	};
+}
+
 interface UseReorderableListArgs<T> {
 	/** Stable per-container identity. The monitor and the source /
 	 *  target payloads scope drops to this key, so an outer container
 	 *  with a sibling list at the same nesting level doesn't accept
-	 *  drags from this list. Use `nodeId(value)` from
-	 *  `nodeIdentity.ts` for AST-rooted containers; for non-AST
-	 *  containers (e.g. the SortKey list, which has no envelope
-	 *  object), use a stable per-mount identifier. */
+	 *  drags from this list. Use a stable per-mount identifier such as
+	 *  React's `useId()`: immutable edits replace AST envelope objects,
+	 *  so a value envelope is not a container identity. */
 	readonly containerKey: string;
 	/** The container's discriminator — drives the source / target
 	 *  payloads and gates the monitor against cross-container drops.
@@ -102,10 +139,10 @@ interface UseReorderableListArgs<T> {
 	 *  reference; the monitor effect re-installs only when
 	 *  `containerKey` / `containerKind` changes. */
 	readonly items: readonly T[];
-	/** Stable, unique identity for an item within this container. This must not
+	/** Stable, occurrence-safe identities parallel to `items`. These must not
 	 * depend on array position: a multiplayer update can reorder `items` while
 	 * the pointer is still down. */
-	readonly getItemKey: (item: T) => string;
+	readonly itemKeys: readonly string[];
 	/** Fired when a drop produces a new item order. Collection-valued editors
 	 *  rebuild from `next`; fractional-order surfaces use `move` to write only
 	 *  the moved entity rather than resequencing its neighbors. */
@@ -129,7 +166,7 @@ interface UseReorderableListResult {
 export function useReorderableList<T>(
 	args: UseReorderableListArgs<T>,
 ): UseReorderableListResult {
-	const { containerKey, containerKind, items, getItemKey, onReorder } = args;
+	const { containerKey, containerKind, items, itemKeys, onReorder } = args;
 	const [pendingDrop, setPendingDrop] = useState<PendingDrop>(null);
 
 	// Ref-stash: write the latest items + onReorder during render so
@@ -138,10 +175,10 @@ export function useReorderableList<T>(
 	// re-installs on every parent render that emits a fresh items
 	// array.
 	const itemsRef = useRef(items);
-	const getItemKeyRef = useRef(getItemKey);
+	const itemKeysRef = useRef(itemKeys);
 	const onReorderRef = useRef(onReorder);
 	itemsRef.current = items;
-	getItemKeyRef.current = getItemKey;
+	itemKeysRef.current = itemKeys;
 	onReorderRef.current = onReorder;
 
 	useEffect(() => {
@@ -177,7 +214,7 @@ export function useReorderableList<T>(
 				const edge = extractClosestEdge(target.data);
 				const resolved = reorderByStableItemKey({
 					items: itemsRef.current,
-					getItemKey: getItemKeyRef.current,
+					itemKeys: itemKeysRef.current,
 					sourceItemKey: sourceData.itemKey,
 					targetItemKey: targetData.itemKey,
 					placeAfterTarget: edge === "bottom" || edge === "right",
@@ -211,7 +248,7 @@ export function useReorderableList<T>(
 				const edge = extractClosestEdge(target.data);
 				const resolved = reorderByStableItemKey({
 					items: itemsRef.current,
-					getItemKey: getItemKeyRef.current,
+					itemKeys: itemKeysRef.current,
 					sourceItemKey: sourceData.itemKey,
 					targetItemKey: targetData.itemKey,
 					placeAfterTarget: edge === "bottom" || edge === "right",
@@ -236,7 +273,7 @@ export function useReorderableList<T>(
 
 interface StableItemReorderArgs<T> {
 	readonly items: readonly T[];
-	readonly getItemKey: (item: T) => string;
+	readonly itemKeys: readonly string[];
 	readonly sourceItemKey: string;
 	readonly targetItemKey: string;
 	readonly placeAfterTarget: boolean;
@@ -257,14 +294,11 @@ interface StableItemReorderResult<T> {
 export function reorderByStableItemKey<T>(
 	args: StableItemReorderArgs<T>,
 ): StableItemReorderResult<T> | undefined {
-	const { items, getItemKey, sourceItemKey, targetItemKey, placeAfterTarget } =
+	const { items, itemKeys, sourceItemKey, targetItemKey, placeAfterTarget } =
 		args;
-	const fromIndex = items.findIndex(
-		(item) => getItemKey(item) === sourceItemKey,
-	);
-	const targetIndex = items.findIndex(
-		(item) => getItemKey(item) === targetItemKey,
-	);
+	if (itemKeys.length !== items.length) return undefined;
+	const fromIndex = itemKeys.indexOf(sourceItemKey);
+	const targetIndex = itemKeys.indexOf(targetItemKey);
 	if (fromIndex < 0 || targetIndex < 0) return undefined;
 
 	let toIndex = targetIndex + (placeAfterTarget ? 1 : 0);
@@ -309,7 +343,7 @@ export interface ReorderableRowWiring {
 
 interface ReorderableRowProps {
 	readonly index: number;
-	/** Stable identity matching `getItemKey(item)` in the container hook. */
+	/** Stable identity from the parallel `itemKeys` vector in the container hook. */
 	readonly itemKey: string;
 	readonly containerKey: string;
 	readonly containerKind: string;

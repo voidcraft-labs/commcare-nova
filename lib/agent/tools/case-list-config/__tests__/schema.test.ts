@@ -418,6 +418,49 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 		);
 	});
 
+	it("rejects scalar date-range defaults and range/widget mismatches at the tool boundary", () => {
+		const base = {
+			moduleIndex: 0,
+			searchInputUuid: "11111111-1111-1111-1111-111111111111",
+		};
+		const legacyDefault = updateSearchInputTool.inputSchema.safeParse({
+			...base,
+			searchInput: {
+				kind: "simple",
+				name: "visit_window",
+				label: "Visit window",
+				type: "date-range",
+				property: "visit_date",
+				default: { kind: "today" },
+			},
+		});
+		const wrongWidget = updateSearchInputTool.inputSchema.safeParse({
+			...base,
+			searchInput: {
+				kind: "simple",
+				name: "visit_window",
+				label: "Visit window",
+				type: "date",
+				property: "visit_date",
+				mode: { kind: "range" },
+			},
+		});
+		const validRange = updateSearchInputTool.inputSchema.safeParse({
+			...base,
+			searchInput: {
+				kind: "simple",
+				name: "visit_window",
+				label: "Visit window",
+				type: "date-range",
+				property: "visit_date",
+			},
+		});
+
+		expect(legacyDefault.success).toBe(false);
+		expect(wrongWidget.success).toBe(false);
+		expect(validRange.success).toBe(true);
+	});
+
 	it("updateSearchInput: parses with full simple-arm optional coverage", () => {
 		const result = updateSearchInputTool.inputSchema.safeParse({
 			moduleIndex: 0,

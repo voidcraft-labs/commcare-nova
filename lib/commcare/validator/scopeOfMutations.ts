@@ -437,11 +437,6 @@ export function scopeOfMutations(
 				break;
 
 			// ── Granular case-list collections ─────────────────────────
-			case "ensureCaseListConfig":
-				// Presence can introduce or clear structural findings only on the
-				// owning module; the ensure carries no references of its own.
-				acc.moduleUuids.add(mut.uuid);
-				break;
 			case "addColumn":
 			case "updateColumn":
 				// A column edit re-walks its module. A CALCULATED column carries
@@ -454,10 +449,9 @@ export function scopeOfMutations(
 				break;
 			case "removeColumn":
 			case "moveColumn":
-			case "moveColumnInList":
-			case "moveColumnInDetail":
-				// Removing a read-only reference or reordering can only flip
-				// the owning module's own findings.
+				// Removing a read-only reference or reordering (generic or through
+				// the optional surface patch) can only flip the owning module's own
+				// findings.
 				acc.moduleUuids.add(mut.moduleUuid);
 				break;
 			case "addSearchInput":
@@ -475,11 +469,6 @@ export function scopeOfMutations(
 			case "removeSearchInput":
 			case "moveSearchInput":
 				acc.moduleUuids.add(mut.moduleUuid);
-				break;
-			case "setCaseSearchMarker":
-				// Presence-only search state can flip the module's structural
-				// case-search findings; it never reaches another module.
-				acc.moduleUuids.add(mut.uuid);
 				break;
 			case "setCaseListMeta":
 				// The always-on `filter` is a predicate that can walk to another

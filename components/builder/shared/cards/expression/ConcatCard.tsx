@@ -16,6 +16,8 @@
 import { Icon } from "@iconify/react/offline";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
+import { useId, useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import {
 	concat,
 	concatPartConstraint,
@@ -25,10 +27,15 @@ import {
 } from "@/lib/domain/predicate";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { expressionCardSchemas } from "../../expressionEditorSchemas";
-import { nodeId } from "../../nodeIdentity";
 import { appendSlotIndex, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
-import { ReorderableRow, useReorderableList } from "../../useReorderableList";
+import {
+	ReorderableRow,
+	type ReorderKeyboardKey,
+	reorderByKeyboard,
+	useReorderableList,
+} from "../../useReorderableList";
+import { useStableListIdentity } from "../../useStableListIdentity";
 
 /** Default `concat` — two empty text literals. The schema rejects
  *  empty parts; seeding two rows lets the user immediately see the
@@ -51,7 +58,9 @@ interface ConcatCardProps {
 }
 
 export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
-	const containerKey = nodeId(value);
+	const containerKey = useId();
+	const [moveAnnouncement, setMoveAnnouncement] = useState("");
+	const rowIdentity = useStableListIdentity(value.parts);
 
 	// Build the next concat from a transformed parts array. Every
 	// code path here guarantees `parts.length >= 1` (the "Add" button
@@ -72,12 +81,22 @@ export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 		containerKey,
 		containerKind: "concat",
 		items: value.parts,
-		getItemKey: nodeId,
-		onReorder: (next) => onChange(apply(next)),
+		itemKeys: rowIdentity.keys,
+		onReorder: (next, move) => {
+			rowIdentity.stage(next, {
+				kind: "move",
+				fromIndex: move.fromIndex,
+				toIndex: move.toIndex,
+			});
+			onChange(apply(next));
+		},
 	});
 
 	const updatePart = (index: number, next: ValueExpression) => {
-		const updated = value.parts.map((p, i) => (i === index ? next : p));
+		const updated = value.parts.map((part, partIndex) =>
+			partIndex === index ? next : part,
+		);
+		rowIdentity.stage(updated, { kind: "replace" });
 		onChange(apply(updated));
 	};
 
@@ -85,24 +104,64 @@ export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 		// Schema requires non-empty; refuse the last row's removal.
 		if (value.parts.length === 1) return;
 		const filtered = value.parts.filter((_, i) => i !== index);
+		rowIdentity.stage(filtered, {
+			kind: "splice",
+			index,
+			deleteCount: 1,
+			insertCount: 0,
+		});
 		onChange(apply(filtered));
 	};
 
 	const append = () => {
 		const next = [...value.parts, term(literal(""))];
+		rowIdentity.stage(next, {
+			kind: "splice",
+			index: value.parts.length,
+			deleteCount: 0,
+			insertCount: 1,
+		});
 		onChange(apply(next));
 	};
 
+	const movePart = (index: number, key: ReorderKeyboardKey) => {
+		const result = reorderByKeyboard(value.parts, index, key);
+		const towardStart = key === "ArrowUp" || key === "Home";
+		if (result === undefined) {
+			setMoveAnnouncement(
+				`Value ${index + 1} is already at the ${towardStart ? "beginning" : "end"}`,
+			);
+			return;
+		}
+		rowIdentity.stage(result.items, {
+			kind: "move",
+			fromIndex: result.move.fromIndex,
+			toIndex: result.move.toIndex,
+		});
+		onChange(apply(result.items));
+		setMoveAnnouncement(
+			`Value ${index + 1} moved ${towardStart ? "earlier" : "later"}`,
+		);
+	};
+
 	return (
-		<div className="space-y-1.5">
+		<div className="space-y-2">
+			<p
+				role="status"
+				aria-live="polite"
+				aria-atomic="true"
+				className="sr-only"
+			>
+				{moveAnnouncement}
+			</p>
+			<div className="text-[13px] leading-relaxed text-nova-text-muted">
+				Join these values in order
+			</div>
 			{value.parts.map((part, i) => (
 				<ReorderableRow
-					// Stable per-part identity from the WeakMap-backed
-					// `nodeId(part)` rather than the array index — keeps
-					// React state on the right row across reorders.
-					key={nodeId(part)}
+					key={rowIdentity.keys[i]}
 					index={i}
-					itemKey={nodeId(part)}
+					itemKey={rowIdentity.keys[i]}
 					containerKey={containerKey}
 					containerKind="concat"
 					pendingDrop={pendingDrop}
@@ -117,6 +176,7 @@ export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 					}) => (
 						<div
 							ref={wrapperRef}
+							data-removal-focus-row
 							className={`relative ${beingMoved ? "opacity-50" : ""}`}
 						>
 							{closestEdge !== null && (
@@ -136,6 +196,8 @@ export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 								onUpdate={(next) => updatePart(i, next)}
 								onRemove={() => removePart(i)}
 								setHandleEl={setHandleEl}
+								onMove={(key) => movePart(i, key)}
+								reorderLabel={`Move value ${i + 1} of ${value.parts.length}`}
 								path={appendSlotIndex(path, "parts", i)}
 							/>
 							{previewPortal}
@@ -143,14 +205,17 @@ export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 					)}
 				</ReorderableRow>
 			))}
-			<button
+			<Button
 				type="button"
+				variant="outline"
+				size="xl"
 				onClick={append}
-				className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				data-removal-focus-fallback
+				className="w-full border-dashed text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerPlus} width="14" height="14" />
-				<span>Add Part</span>
-			</button>
+				<span>Add value</span>
+			</Button>
 		</div>
 	);
 }
@@ -162,6 +227,8 @@ interface PartRowProps {
 	readonly onUpdate: (next: ValueExpression) => void;
 	readonly onRemove: () => void;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
+	readonly onMove: (key: ReorderKeyboardKey) => void;
+	readonly reorderLabel: string;
 	readonly path: EditorPath;
 }
 
@@ -171,6 +238,8 @@ function PartRow({
 	onUpdate,
 	onRemove,
 	setHandleEl,
+	onMove,
+	reorderLabel,
 	path,
 }: PartRowProps) {
 	// Per-part errors render via the `ExpressionPicker` shell's
@@ -186,6 +255,8 @@ function PartRow({
 			constraint={PART_CONSTRAINT}
 			variant="nested"
 			dragHandleRef={setHandleEl}
+			onMove={onMove}
+			reorderLabel={reorderLabel}
 			onRemove={isOnlyOne ? undefined : onRemove}
 		/>
 	);

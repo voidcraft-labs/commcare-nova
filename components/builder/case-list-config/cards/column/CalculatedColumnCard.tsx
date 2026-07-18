@@ -20,6 +20,7 @@
 // kind-replace menu) is identical to every other kind's card.
 
 "use client";
+import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import type { Column } from "@/lib/domain";
@@ -48,6 +49,7 @@ export function CalculatedColumnCard({
 	onChange,
 	ctx,
 }: CalculatedColumnCardProps) {
+	const usesDefaultHeader = value.header.trim() === "";
 	const setHeader = (next: string) =>
 		onChange(
 			calculatedColumn(value.uuid, next, value.expression, slotsFrom(value)),
@@ -58,27 +60,24 @@ export function CalculatedColumnCard({
 		);
 
 	return (
-		<div className="space-y-2">
-			<div>
-				<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
-					Label
+		<div className="space-y-4">
+			<div className="[&_input]:!text-[14px]">
+				<div className="mb-2 flex items-baseline justify-between gap-3">
+					<div className={INSPECTOR_LABEL_CLS}>Label</div>
+					{usesDefaultHeader ? (
+						<span className="text-[12px] leading-4 text-nova-text-muted">
+							Default
+						</span>
+					) : null}
 				</div>
 				<BlurCommitTextInput
-					value={value.header}
+					value={usesDefaultHeader ? "Calculated value" : value.header}
 					onCommit={setHeader}
-					placeholder="Label shown in the app"
 					ariaLabel="Display label"
 				/>
 			</div>
-			<div className="space-y-1.5 rounded-lg border border-white/[0.04] bg-nova-deep/30 p-3">
-				<div>
-					<div className="text-[11px] font-medium text-nova-text-muted">
-						What to show
-					</div>
-					<p className="mt-0.5 text-[11px] leading-relaxed text-nova-text-muted">
-						Build the value people should see for each case.
-					</p>
-				</div>
+			<div className="space-y-3 rounded-lg border border-white/[0.04] bg-nova-deep/30 p-3.5">
+				<div className={INSPECTOR_LABEL_CLS}>Calculation</div>
 				<ExpressionCardEditor
 					value={value.expression}
 					onChange={setExpression}

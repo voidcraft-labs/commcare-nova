@@ -10,12 +10,20 @@
 // `[..., "values", i]` path.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
 import { useMemo, useRef } from "react";
+import { Button } from "@/components/shadcn/button";
+import {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuPopup,
+	DropdownMenuPortal,
+	DropdownMenuPositioner,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { type CaseProperty, canonicalCasePropertyName } from "@/lib/domain";
 import {
@@ -27,17 +35,16 @@ import {
 	type PropertyRef,
 	prop,
 } from "@/lib/domain/predicate";
-import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
 import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
-import { nodeId } from "../nodeIdentity";
+import { removeAndRestoreFocus } from "../focusAfterRemoval";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import {
+	type StableListOperation,
+	useStableListIdentity,
+} from "../useStableListIdentity";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 /** Module-level filter so render-time identity stays stable —
@@ -80,6 +87,7 @@ export function MultiSelectContainsCard({
 }: MultiSelectContainsCardProps) {
 	const ctx = usePredicateEditContext();
 	const propertyErrors = useEditorErrorsAt(appendSlot(path, "property"));
+	const rowIdentity = useStableListIdentity(value.values);
 
 	const ct = useMemo(
 		() => ctx.caseTypes.find((c) => c.name === ctx.currentCaseType),
@@ -108,22 +116,46 @@ export function MultiSelectContainsCard({
 		const seed = nextProp?.options?.[0]?.value ?? "";
 		const builder =
 			value.quantifier === "all" ? multiSelectAll : multiSelectAny;
-		onChange(builder(next, literal(seed)));
+		const firstValue = literal(seed);
+		const nextValues = [firstValue];
+		rowIdentity.stage(nextValues, { kind: "reset" });
+		onChange(builder(next, firstValue));
 	};
 
-	const toggleOption = (optionValue: string) => {
-		const next = selectedValues.has(optionValue)
-			? value.values.filter((v) => v.value !== optionValue)
-			: [...value.values, literal(optionValue)];
-		// The schema rejects an empty values list. When the toggle
-		// would empty the list, ignore the click — the author must
-		// pick at least one token. Surface the constraint subtly via
-		// the disabled-styled X button on the last remaining chip.
+	const commitValues = (
+		next: readonly Literal[],
+		operation: StableListOperation,
+	) => {
+		// The schema rejects an empty values list. Keep the guard at the
+		// mutation boundary even though the last chip has no remove action.
 		if (next.length === 0) return;
 		const builder =
 			value.quantifier === "all" ? multiSelectAll : multiSelectAny;
 		const [first, ...rest] = next;
+		rowIdentity.stage(next, operation);
 		onChange(builder(value.property, first, ...rest));
+	};
+
+	const addOption = (optionValue: string) => {
+		if (selectedValues.has(optionValue)) return;
+		commitValues([...value.values, literal(optionValue)], {
+			kind: "splice",
+			index: value.values.length,
+			deleteCount: 0,
+			insertCount: 1,
+		});
+	};
+
+	const removeValueAt = (index: number) => {
+		commitValues(
+			value.values.filter((_, valueIndex) => valueIndex !== index),
+			{
+				kind: "splice",
+				index,
+				deleteCount: 1,
+				insertCount: 0,
+			},
+		);
 	};
 
 	return (
@@ -136,7 +168,7 @@ export function MultiSelectContainsCard({
 						onChange={setProperty}
 						filter={MULTI_SELECT_PROPERTY_FILTER}
 						invalid={propertyErrors.length > 0}
-						ariaLabel="Multi-select property"
+						ariaLabel="Multiple-choice information"
 					/>
 					<InlineError errors={propertyErrors} />
 				</div>
@@ -150,9 +182,11 @@ export function MultiSelectContainsCard({
 			 *  per-chip type errors land at `[..., "values", i]`. */}
 			<TokenList
 				values={value.values}
+				rowKeys={rowIdentity.keys}
 				options={allOptions}
 				selectedValues={selectedValues}
-				toggleOption={toggleOption}
+				onAddOption={addOption}
+				onRemoveValue={removeValueAt}
 				path={path}
 			/>
 		</div>
@@ -161,24 +195,35 @@ export function MultiSelectContainsCard({
 
 function TokenList({
 	values,
+	rowKeys,
 	options,
 	selectedValues,
-	toggleOption,
+	onAddOption,
+	onRemoveValue,
 	path,
 }: {
 	readonly values: readonly Literal[];
+	readonly rowKeys: readonly string[];
 	readonly options: readonly { value: string; label: string }[];
 	readonly selectedValues: ReadonlySet<string>;
-	readonly toggleOption: (value: string) => void;
+	readonly onAddOption: (value: string) => void;
+	readonly onRemoveValue: (index: number) => void;
 	readonly path: EditorPath;
 }) {
 	if (options.length === 0) {
 		return (
-			<div className="text-xs text-nova-text-muted px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
-				This property has no options to pick from yet.
+			<div className="rounded-md border border-dashed border-white/[0.06] px-3 py-2 text-[13px] text-nova-text-muted">
+				This information has no choices yet
 			</div>
 		);
 	}
+	const labelCounts = new Map<string, number>();
+	for (const option of options) {
+		labelCounts.set(option.label, (labelCounts.get(option.label) ?? 0) + 1);
+	}
+	const ambiguousLabels = new Set(
+		[...labelCounts].filter(([, count]) => count > 1).map(([label]) => label),
+	);
 	const lastSelectedIndex = values.length - 1;
 	return (
 		<div className="space-y-1.5">
@@ -188,10 +233,12 @@ function TokenList({
 						options.find((o) => o.value === v.value)?.label ?? String(v.value);
 					return (
 						<TokenChip
-							key={nodeId(v)}
+							key={rowKeys[i]}
 							label={optLabel}
-							value={String(v.value)}
-							onRemove={() => toggleOption(String(v.value))}
+							disambiguator={
+								ambiguousLabels.has(optLabel) ? String(v.value) : undefined
+							}
+							onRemove={() => onRemoveValue(i)}
 							isOnlyOne={lastSelectedIndex === 0}
 							indexPath={appendSlotIndex(path, "values", i)}
 						/>
@@ -200,7 +247,8 @@ function TokenList({
 				<OptionPicker
 					options={options}
 					selectedValues={selectedValues}
-					onPick={toggleOption}
+					ambiguousLabels={ambiguousLabels}
+					onPick={onAddOption}
 				/>
 			</div>
 		</div>
@@ -209,13 +257,13 @@ function TokenList({
 
 function TokenChip({
 	label,
-	value,
+	disambiguator,
 	onRemove,
 	isOnlyOne,
 	indexPath,
 }: {
 	readonly label: string;
-	readonly value: string;
+	readonly disambiguator: string | undefined;
 	readonly onRemove: () => void;
 	readonly isOnlyOne: boolean;
 	readonly indexPath: EditorPath;
@@ -223,28 +271,34 @@ function TokenChip({
 	const errors = useEditorErrorsAt(indexPath);
 	const invalid = errors.length > 0;
 	const cls = [
-		"group inline-flex items-center gap-1 pl-2.5 pr-0.5 min-h-11 text-[12px] rounded-lg border transition-colors",
+		"group inline-flex min-h-11 items-center gap-1 rounded-lg border py-0.5 pr-0.5 pl-3 text-sm transition-colors",
 		invalid
 			? "border-nova-rose/40 bg-nova-rose/10 text-nova-rose"
 			: "border-nova-violet/25 bg-nova-violet/10 text-nova-violet-bright",
 	].join(" ");
 	return (
-		<SimpleTooltip
-			content={
-				invalid ? errors.join("\n") : value !== label ? value : undefined
-			}
-		>
-			<span className={cls}>
-				<span className="font-mono">{label}</span>
+		<SimpleTooltip content={invalid ? errors.join("\n") : undefined}>
+			<span className={cls} data-removal-focus-row>
+				<span>{label}</span>
+				{disambiguator !== undefined && (
+					<span className="text-xs text-nova-text-muted">
+						({disambiguator})
+					</span>
+				)}
 				{!isOnlyOne && (
-					<button
+					<Button
 						type="button"
-						aria-label={`Remove ${label}`}
-						onClick={onRemove}
-						className="size-11 grid place-items-center rounded-md text-current/70 hover:text-current hover:bg-white/[0.08] cursor-pointer"
+						variant="ghost"
+						size="icon-lg"
+						aria-label={`Remove ${label}${disambiguator === undefined ? "" : `, saved as ${disambiguator}`}`}
+						onClick={(event) =>
+							removeAndRestoreFocus(event.currentTarget, onRemove)
+						}
+						data-removal-action
+						className="size-11 rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.08] not-disabled:hover:text-nova-violet-bright dark:not-disabled:hover:bg-white/[0.08]"
 					>
 						<Icon icon={tablerX} width="12" height="12" />
-					</button>
+					</Button>
 				)}
 			</span>
 		</SimpleTooltip>
@@ -254,10 +308,12 @@ function TokenChip({
 function OptionPicker({
 	options,
 	selectedValues,
+	ambiguousLabels,
 	onPick,
 }: {
 	readonly options: readonly { value: string; label: string }[];
 	readonly selectedValues: ReadonlySet<string>;
+	readonly ambiguousLabels: ReadonlySet<string>;
 	readonly onPick: (value: string) => void;
 }) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
@@ -265,39 +321,37 @@ function OptionPicker({
 	if (remaining.length === 0) return null;
 
 	return (
-		<Menu.Root>
-			<Menu.Trigger
+		<DropdownMenu>
+			<DropdownMenuTrigger
 				ref={triggerRef}
-				aria-label="Add Option"
-				className="inline-flex items-center gap-1.5 px-3 min-h-11 text-[12px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+				aria-label="Add option"
+				data-removal-focus-fallback
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className="gap-1.5 border-dashed border-white/[0.10] bg-transparent px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-transparent"
+					/>
+				}
 			>
 				<Icon icon={tablerPlus} width="13" height="13" />
-				<span>Add Option</span>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
+				<span>Add option</span>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
 					side="bottom"
 					align="start"
 					sideOffset={4}
 					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
 				>
-					<Menu.Popup className={`${MENU_POPUP_CLS} max-h-72 overflow-y-auto`}>
-						{remaining.map((opt, i) => {
-							const last = remaining.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
+					<DropdownMenuPopup className="max-h-72">
+						{remaining.map((opt) => {
 							return (
-								<Menu.Item
+								<DropdownMenuItem
 									key={opt.value}
 									onClick={() => onPick(opt.value)}
-									className={`${corners} ${MENU_ITEM_CLS}`}
+									className="h-auto min-h-11 items-start whitespace-normal py-2"
 								>
 									<Icon
 										icon={tablerCheck}
@@ -305,20 +359,20 @@ function OptionPicker({
 										height="14"
 										className="opacity-0 group-data-[selected]:opacity-100"
 									/>
-									<span className="flex-1 text-left">
-										<div className="truncate">{opt.label}</div>
-										{opt.label !== opt.value && (
-											<div className="text-[10px] font-mono text-nova-text-muted truncate">
-												{opt.value}
+									<span className="min-w-0 flex-1 text-left">
+										<div className="break-words">{opt.label}</div>
+										{ambiguousLabels.has(opt.label) && (
+											<div className="break-words text-xs text-nova-text-muted">
+												Saved as {opt.value}
 											</div>
 										)}
 									</span>
-								</Menu.Item>
+								</DropdownMenuItem>
 							);
 						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
 	);
 }

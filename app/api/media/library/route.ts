@@ -14,12 +14,15 @@
  *       - `cursor` — the opaque token the previous page returned in
  *         `nextCursor`; pass it back verbatim to fetch the next page.
  *         Omit it for the first page.
+ *       - `q` — case-insensitive literal name search, applied server-side before
+ *         pagination. Searches the visible filename and extracted document title,
+ *         so an older match is discoverable without loading unrelated pages first.
  *   - **Resolve** — repeated `?id=` looks up exactly those rows (Project-filtered;
  *     an id that's missing or in another Project is silently absent, so ids stay
  *     non-enumerable). Backs the browser attach budget check, which needs the
  *     byte sizes of referenced assets the session hasn't otherwise loaded.
  *     Returns ready AND pending rows (the wire shape carries `status`);
- *     `nextCursor` is always `null`. `kind`/`cursor` are ignored in this mode.
+ *     `nextCursor` is always `null`. `kind`/`cursor`/`q` are ignored in this mode.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -41,6 +44,7 @@ const querySchema = z
 		// `[]` (no param) means "every kind" — passed through as no filter.
 		kinds: z.array(z.enum(ASSET_KINDS)),
 		cursor: z.string().optional(),
+		query: z.string().max(200).optional(),
 		// Repeated `?id=` switches to resolve mode. Capped at the export-asset
 		// ceiling — a doc can't reference more exportable assets than that, so
 		// a larger request is malformed, and the cap bounds the row set loaded
@@ -60,18 +64,19 @@ export async function GET(req: NextRequest) {
 		const parsed = querySchema.safeParse({
 			kinds: url.searchParams.getAll("kind"),
 			cursor: url.searchParams.get("cursor") ?? undefined,
+			query: url.searchParams.get("q") ?? undefined,
 			ids: url.searchParams.getAll("id"),
 			appId: url.searchParams.get("appId") ?? undefined,
 		});
 		if (!parsed.success) {
 			throw new ApiError(
-				"Library query couldn't be parsed — each `kind` must be one of image/audio/video/pdf/text/docx/xlsx, `cursor` must be the opaque token a prior page returned, and `id` must be repeated asset ids (at most the export-asset limit).",
+				"Library query couldn't be parsed — each `kind` must be one of image/audio/video/pdf/text/docx/xlsx, `cursor` must be the opaque token a prior page returned, `q` must be at most 200 characters, and `id` must be repeated asset ids (at most the export-asset limit).",
 				400,
 				parsed.error.issues.map((e) => `${e.path.join(".")}: ${e.message}`),
 			);
 		}
 
-		const { ids, kinds, cursor, appId } = parsed.data;
+		const { ids, kinds, cursor, query, appId } = parsed.data;
 
 		// Resolve the Project to read from — the app's Project in an app context
 		// (view-gated; a denied app throws AppAccessError → 404), else the
@@ -88,9 +93,11 @@ export async function GET(req: NextRequest) {
 			});
 		}
 
+		const normalizedQuery = query?.trim();
 		const { assets, nextCursor } = await listReadyAssetsForProject(project, {
 			kinds,
 			cursor,
+			...(normalizedQuery ? { query: normalizedQuery } : {}),
 		}).catch((err: unknown) => {
 			// A bad cursor is a client error — surface its helpful
 			// message as a 400 rather than collapsing to a 500.

@@ -24,6 +24,7 @@
 
 import type { Kysely } from "kysely";
 import type { AppDatabase } from "../../lib/db/pg";
+import { updateModuleMutation } from "../../lib/doc/addModuleMutation";
 import type { BlueprintDoc, Mutation, Uuid } from "../../lib/doc/types";
 import { asUuid, type Media, type SelectOption } from "../../lib/domain";
 import {
@@ -314,17 +315,15 @@ export function planMediaRefClears(
 		// survives JSON whole, so the dropped key clears cleanly (the same
 		// path the case-list workspace's own clear uses).
 		const { icon, audioLabel, ...rest } = config;
-		mutations.push({
-			kind: "updateModule",
-			uuid: moduleUuid,
-			patch: {
+		mutations.push(
+			updateModuleMutation(moduleUuid, {
 				caseListConfig: {
 					...rest,
 					...(slots.icon || icon === undefined ? {} : { icon }),
 					...(slots.audio || audioLabel === undefined ? {} : { audioLabel }),
 				},
-			},
-		} as unknown as Mutation);
+			}),
+		);
 		if (slots.icon) note(slots.icon);
 		if (slots.audio) note(slots.audio);
 	}

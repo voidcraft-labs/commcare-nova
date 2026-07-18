@@ -98,10 +98,17 @@ describe("reorderCaseListColumns", () => {
 		);
 		expect(result.mutations).toHaveLength(3);
 		expect(result.mutations.map((mutation) => mutation.kind)).toEqual([
-			"moveColumnInList",
-			"moveColumnInList",
-			"moveColumnInList",
+			"moveColumn",
+			"moveColumn",
+			"moveColumn",
 		]);
+		expect(result.mutations).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					surfaceOrderPatch: expect.objectContaining({ surface: "list" }),
+				}),
+			]),
+		);
 	});
 
 	it("reorders Details without changing Results", async () => {

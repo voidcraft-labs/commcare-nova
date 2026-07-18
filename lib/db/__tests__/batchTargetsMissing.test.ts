@@ -158,7 +158,12 @@ describe("batchTargetsMissing — entity kinds", () => {
 		).toBe(true);
 		expect(
 			batchTargetsMissing(doc, [
-				{ kind: "ensureCaseListConfig", uuid: MISSING } as Mutation,
+				{
+					kind: "updateModule",
+					uuid: MISSING,
+					patch: { caseListConfig: { columns: [], searchInputs: [] } },
+					ensureCaseListConfig: true,
+				} as unknown as Mutation,
 			]),
 		).toBe(true);
 	});
@@ -215,7 +220,7 @@ describe("batchTargetsMissing — granular catalog kinds", () => {
 					kind: "addCaseProperty",
 					caseType: "household",
 					property: { name: "x", label: "X" },
-				} as Mutation,
+				} as unknown as Mutation,
 			]),
 		).toBe(true);
 		expect(
@@ -263,16 +268,18 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				order: "a1",
 			} as Mutation,
 			{
-				kind: "moveColumnInList",
+				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
 				order: "a2",
+				surfaceOrderPatch: { surface: "list", order: "a2" },
 			} as Mutation,
 			{
-				kind: "moveColumnInDetail",
+				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
 				order: "a3",
+				surfaceOrderPatch: { surface: "detail", order: "a3" },
 			} as Mutation,
 			{
 				kind: "updateColumn",
@@ -324,20 +331,22 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 		expect(
 			batchTargetsMissing(doc, [
 				{
-					kind: "moveColumnInList",
+					kind: "moveColumn",
 					moduleUuid,
 					uuid: MISSING,
 					order: "a1",
+					surfaceOrderPatch: { surface: "list", order: "a1" },
 				} as Mutation,
 			]),
 		).toBe(true);
 		expect(
 			batchTargetsMissing(doc, [
 				{
-					kind: "moveColumnInDetail",
+					kind: "moveColumn",
 					moduleUuid,
 					uuid: MISSING,
 					order: "a1",
+					surfaceOrderPatch: { surface: "detail", order: "a1" },
 				} as Mutation,
 			]),
 		).toBe(true);
@@ -467,9 +476,11 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 		expect(
 			batchTargetsMissing(cleared, [
 				{
-					kind: "ensureCaseListConfig",
+					kind: "updateModule",
 					uuid: moduleUuid,
-				} as Mutation,
+					patch: { caseListConfig: { columns: [], searchInputs: [] } },
+					ensureCaseListConfig: true,
+				} as unknown as Mutation,
 				{
 					kind: "setCaseListMeta",
 					uuid: moduleUuid,

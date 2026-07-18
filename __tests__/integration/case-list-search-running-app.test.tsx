@@ -636,14 +636,14 @@ describe("CaseListScreen with search inputs — real Postgres narrowing", () => 
 		// form, end-to-end against a real-Postgres render.
 		expect(screen.getByRole("heading", { name: MODULE_NAME })).toBeDefined();
 
-		// Sort order — `age desc` puts Bob (40) before Alice (25). Each
-		// data row renders as a clickable `<button>` whose text is the
-		// concatenated cell values; `getAllByRole` preserves DOM order,
-		// so filtering to the case-name-bearing buttons yields the body
-		// rows in their rendered order.
-		const bodyRows = screen
-			.getAllByRole("button")
-			.filter((row) => /Bob|Alice/.test(row.textContent ?? ""));
+		// Sort order — `age desc` puts Bob (40) before Alice (25). The
+		// visual row contains the cell values and a sibling full-row action,
+		// allowing phone/value-detail actions to remain valid independent controls.
+		const bodyRows = Array.from(
+			document.querySelectorAll<HTMLElement>(
+				'[data-case-result-row="interactive"]',
+			),
+		);
 		expect(bodyRows).toHaveLength(2);
 		expect(bodyRows[0]?.textContent).toContain("Bob");
 		expect(bodyRows[1]?.textContent).toContain("Alice");
@@ -855,10 +855,15 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 		await waitFor(() => {
 			expect(screen.getByText("Alice")).toBeDefined();
 		});
-		// Alice's data row renders as one clickable button whose text
-		// concatenates the cell values in column order.
-		const aliceRow = screen.getByRole("button", { name: /Alice/ });
-		const rowText = aliceRow.textContent ?? "";
+		// Alice's data row keeps the full-row action separate from its visible
+		// cells so an actionable cell (such as a phone link) never nests inside
+		// a button. Read the sibling content from the shared row container.
+		const aliceAction = screen.getByRole("button", { name: /Alice/ });
+		const aliceRow = aliceAction.closest<HTMLElement>(
+			'[data-case-result-row="interactive"]',
+		);
+		expect(aliceRow).not.toBeNull();
+		const rowText = aliceRow?.textContent ?? "";
 		// Plain Age column reads the patched property → "41"; calc
 		// column re-evaluates → 42 (age + 1).
 		expect(rowText).toContain("41");

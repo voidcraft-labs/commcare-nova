@@ -160,6 +160,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const autoCases = useCases({
 		appId,
 		caseType: autoSelectCase ? mod?.caseType : undefined,
+		requestScopeKey: `${moduleUuid ?? ""}\u0000${formUuid ?? ""}`,
 	});
 	const autoRow =
 		autoSelectCase && autoCases.state.kind === "rows"
@@ -525,6 +526,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					{canEdit ? (
 						<EditableTitle
 							value={form.name}
+							ariaLabel="Form name"
 							/* Forward the gated dispatch's outcome — a refused rename
 							 * keeps the editor open with the draft and surfaces the
 							 * finding inline; the saved checkmark only fires on a
@@ -534,7 +536,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							}
 						/>
 					) : (
-						<EditableTitle value={form.name} readOnly />
+						<EditableTitle value={form.name} readOnly ariaLabel="Form name" />
 					)}
 					{canEdit && (
 						<FormSettingsButton

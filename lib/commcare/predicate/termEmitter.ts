@@ -126,14 +126,34 @@ export const DEFAULT_INSTANCE_ROOT: InstanceRoot = "casedb";
  * already enforces non-empty at parse time.
  */
 export function buildAncestorJoinNodeset(
-	via: ReadonlyArray<{ identifier: string }>,
+	via: ReadonlyArray<RelationStep>,
 	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
 ): string {
-	let anchor = `current()/index/${via[0].identifier}`;
+	let nodeset = buildCaseByIdNodeset(
+		`current()/index/${via[0].identifier}`,
+		via[0].throughCaseType,
+		root,
+	);
 	for (let i = 1; i < via.length; i++) {
-		anchor = `instance('${root}')/${root}/case[@case_id=${anchor}]/index/${via[i].identifier}`;
+		nodeset = buildCaseByIdNodeset(
+			`${nodeset}/index/${via[i].identifier}`,
+			via[i].throughCaseType,
+			root,
+		);
 	}
-	return `instance('${root}')/${root}/case[@case_id=${anchor}]`;
+	return nodeset;
+}
+
+function buildCaseByIdNodeset(
+	caseId: string,
+	caseType: string | undefined,
+	root: InstanceRoot,
+): string {
+	const typeFilter =
+		caseType === undefined
+			? ""
+			: ` and @case_type=${quoteLiteral(caseType, "case-list-filter")}`;
+	return `instance('${root}')/${root}/case[@case_id=${caseId}${typeFilter}]`;
 }
 
 /**
@@ -161,8 +181,14 @@ export function buildAncestorJoinNodeset(
 export function buildSubcaseJoinNodeset(
 	identifier: string,
 	root: InstanceRoot = DEFAULT_INSTANCE_ROOT,
+	ofCaseType?: string,
+	anchorCaseId = "current()/@case_id",
 ): string {
-	return `instance('${root}')/${root}/case[index/${identifier}=current()/@case_id]`;
+	const typeFilter =
+		ofCaseType === undefined
+			? ""
+			: ` and @case_type=${quoteLiteral(ofCaseType, "case-list-filter")}`;
+	return `instance('${root}')/${root}/case[index/${identifier}=${anchorCaseId}${typeFilter}]`;
 }
 
 // ============================================================
@@ -251,14 +277,13 @@ export function emitTerm(
  *     control compose via `exists` / `count` instead.
  *   - **Direction-agnostic walk** (`any-relation`): combine both
  *     direction-specific paths via XPath's union operator `|`,
- *     producing `(<ancestor-path> | <subcase-path>)`. Union joins
- *     two node-sets into one node-set whose comparisons follow XPath
- *     1.0's existential semantics — `(a | b) = 'south'` is true when
- *     any node in the unified set equals `'south'`. A boolean `or`
- *     would coerce each path to its boolean value (non-empty →
- *     `true()`) before string equality, comparing the literal
- *     `'true'` / `'false'` against the RHS — which is never the
- *     intent.
+ *     producing `(<ancestor-path> | <subcase-path>)`. This helper only
+ *     constructs the raw node-set. CommCare Core does NOT implement XPath
+ *     1.0 general node-set comparison and throws when scalar coercion sees
+ *     several nodes, so validated scalar slots reject this shape and
+ *     predicate slots normalize it into explicit direction-specific
+ *     quantifiers before comparison. Callers must not treat this union as an
+ *     existential scalar comparison shortcut.
  *
  * `root` selects the storage-instance id woven into every relation-
  * walk anchor — `"casedb"` for the case-loading roster (default),
@@ -282,14 +307,13 @@ export function emitOnDevicePropertyRef(
 		case "ancestor":
 			return `${buildAncestorJoinNodeset(via.via, root)}/${leaf}`;
 		case "subcase":
-			return `${buildSubcaseJoinNodeset(via.identifier, root)}/${leaf}`;
+			return `${buildSubcaseJoinNodeset(via.identifier, root, via.ofCaseType)}/${leaf}`;
 		case "any-relation": {
-			// XPath `|` is the node-set union operator; the result is
-			// one node-set containing every node from either direction,
-			// and `(<set>) = <rhs>` returns true when any member of the
-			// set equals the RHS.
-			const ancestor = `${buildAncestorJoinNodeset([{ identifier: via.identifier }], root)}/${leaf}`;
-			const subcase = `${buildSubcaseJoinNodeset(via.identifier, root)}/${leaf}`;
+			// XPath `|` is the node-set union operator. Core cannot generally
+			// scalar-compare a multi-node result; validated consumers normalize
+			// or reject this shape before it reaches a comparison.
+			const ancestor = `${buildAncestorJoinNodeset([{ identifier: via.identifier, throughCaseType: via.ofCaseType }], root)}/${leaf}`;
+			const subcase = `${buildSubcaseJoinNodeset(via.identifier, root, via.ofCaseType)}/${leaf}`;
 			return `(${ancestor} | ${subcase})`;
 		}
 		default: {
@@ -348,8 +372,22 @@ export type ConstantTermEmission = {
 export type RuntimeTermEmission = {
 	readonly kind: "runtime";
 	readonly xpath: string;
+	readonly inputNames?: readonly string[];
 };
 export type TermEmission = ConstantTermEmission | RuntimeTermEmission;
+
+/**
+ * Fixed CSQL expression returned instead of an authored query when a runtime
+ * string contains both quote delimiters. CCHQ's CSQL parser accepts either
+ * single- or double-quoted XPath literals but has no escape syntax and does
+ * not whitelist `concat()` as a value function, so such a value is inherently
+ * unrepresentable. A fixed unknown function makes the remote query fail
+ * explicitly without allowing any runtime bytes to reach the CSQL grammar.
+ */
+export const CSQL_UNREPRESENTABLE_RUNTIME_STRING =
+	"nova-runtime-value-contains-both-quote-types()";
+
+export type RuntimeCsqlQuoteStyle = "single" | "double";
 
 /**
  * Compile a term to its CSQL wire form. Terms with a compile-time-
@@ -363,7 +401,11 @@ export function emitTermSegment(t: Term): TermEmission {
 		case "prop":
 			return { kind: "constant", text: emitCsqlPropertyRefText(t) };
 		case "input":
-			return { kind: "runtime", xpath: emitSearchInputXPath(t) };
+			return {
+				kind: "runtime",
+				xpath: emitSearchInputXPath(t),
+				inputNames: [t.name],
+			};
 		case "session-user":
 			return { kind: "runtime", xpath: emitSessionUserXPath(t) };
 		case "session-context":
@@ -387,8 +429,9 @@ export function emitTermSegment(t: Term): TermEmission {
  * User-defined properties pass through bare.
  *
  * The `via` slot is always `self` (or absent) at this emission
- * layer: the property-via lift pre-pass in `./csqlHoist.ts`
- * rewrites every operator-direct `prop(via)` reference into an
+ * layer: `lib/domain/predicate/normalizeRelationReads.ts`
+ * rewrites every `prop(via)` reference that reaches native CSQL
+ * emission — directly or through a native value function — into an
  * enclosing `exists` envelope before the segment emitter runs, so
  * the relation walk emits via CCHQ's `ancestor-exists` /
  * `subcase-exists` query functions rather than as an inline read on
@@ -476,10 +519,9 @@ export function emitCsqlLiteralSegment(
 
 /**
  * Wrap a single `TermEmission` into a `CsqlSegment[]`. Constant
- * emissions become a single constant segment; runtime emissions wrap
- * in CSQL double-quoted brackets so the runtime XPath result
- * interpolates as a CSQL string value (the canonical pattern
- * documented in `commcare-hq/docs/case_search_query_language.rst`).
+ * emissions become a single constant segment; runtime emissions route
+ * through `quoteRuntimeCsqlValue` so the runtime XPath result becomes a
+ * complete CSQL string literal with a delimiter chosen after evaluation.
  *
  * Centralising the wrap shape here keeps every operand emission path
  * — comparison operands, `in` values, `between` bounds, expression-
@@ -489,10 +531,46 @@ export function wrapTermAsSegmentList(term: TermEmission): CsqlSegment[] {
 	if (term.kind === "constant") {
 		return [{ kind: "constant", text: term.text }];
 	}
+	return quoteRuntimeCsqlValue(term.xpath, "double", term.inputNames);
+}
+
+/**
+ * Emit one runtime XPath value as an already-quoted CSQL string literal.
+ *
+ * The quote choice happens on-device after the value resolves:
+ *
+ * - use the preferred delimiter when the value does not contain it;
+ * - otherwise use the other CSQL delimiter, preserving every byte;
+ * - attach a rejection condition when the value contains both delimiters.
+ *
+ * The final wrapper consumes `rejectWhen` before evaluating the query-building
+ * concat. This is intentionally not sanitization: removing or replacing quote
+ * characters would silently change exact-match semantics. The preferred style
+ * defaults to CCHQ's documented double-quoted runtime scalar form; callers
+ * interpolating JSON (notably `unwrap-list`) prefer single quotes because JSON
+ * necessarily carries double quotes.
+ */
+export function quoteRuntimeCsqlValue(
+	xpath: string,
+	preferredStyle: RuntimeCsqlQuoteStyle = "double",
+	inputNames?: readonly string[],
+): CsqlSegment[] {
+	const containsSingle = `contains(${xpath}, "'")`;
+	const containsDouble = `contains(${xpath}, '"')`;
+	const singleQuoted = `concat("'", ${xpath}, "'")`;
+	const doubleQuoted = `concat('"', ${xpath}, '"')`;
+	const quoted =
+		preferredStyle === "single"
+			? `if(${containsSingle}, ${doubleQuoted}, ${singleQuoted})`
+			: `if(${containsDouble}, ${singleQuoted}, ${doubleQuoted})`;
+
 	return [
-		{ kind: "constant", text: '"' },
-		{ kind: "runtime", xpath: term.xpath },
-		{ kind: "constant", text: '"' },
+		{
+			kind: "runtime",
+			xpath: quoted,
+			rejectWhen: `${containsSingle} and ${containsDouble}`,
+			rejectionInputNames: inputNames,
+		},
 	];
 }
 

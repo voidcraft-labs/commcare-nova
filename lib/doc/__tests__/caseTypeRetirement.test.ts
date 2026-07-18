@@ -42,6 +42,7 @@ function twoModuleDoc(overrides?: {
 	visitParent?: string;
 	patientExtraFields?: ReturnType<typeof f>[];
 	patientFilter?: boolean;
+	patientAssignedCasesReference?: boolean;
 }): BlueprintDoc {
 	return buildDoc({
 		appName: "Clinic",
@@ -64,6 +65,14 @@ function twoModuleDoc(overrides?: {
 						filter: eq(prop("visit", "case_name"), literal("x")),
 					}),
 				},
+				...(overrides?.patientAssignedCasesReference && {
+					caseSearchConfig: {
+						excludedOwnerIds: {
+							kind: "term",
+							term: prop("visit", "case_name"),
+						},
+					},
+				}),
 				forms: [
 					{
 						name: "Register patient",
@@ -313,6 +322,27 @@ describe("planCaseTypeRetirementOnRemove", () => {
 		expect(plan.references).toEqual([
 			'the case-list filter on module "Patients" reads a "visit" property',
 		]);
+		expect(plan.userMessage).toContain(
+			'the Cases available setting on module "Patients" uses "visit" information',
+		);
+		expect(plan.userMessage).not.toContain("case-list filter");
+		expect(plan.userMessage).not.toContain('a "visit" property');
+	});
+
+	it("describes the assigned cases setting without exposing its stored slot name", () => {
+		const doc = twoModuleDoc({ patientAssignedCasesReference: true });
+		const plan = planCaseTypeRetirementOnRemove(
+			doc,
+			moduleUuidByName(doc, "Visits"),
+		);
+
+		expect(plan.kind).toBe("blocked");
+		if (plan.kind !== "blocked") return;
+		expect(plan.references).toEqual([
+			'the assigned cases setting on module "Patients" reads "visit" information',
+		]);
+		expect(plan.userMessage).not.toContain("excluded_owner_ids");
+		expect(plan.userMessage).not.toContain("excluded owners");
 	});
 
 	it("never counts the removed module's OWN subtree — its references go with it", () => {

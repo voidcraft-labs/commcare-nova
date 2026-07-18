@@ -38,7 +38,7 @@ import type {
 } from "@/lib/commcare/multimedia/assetWirePath";
 import { asUuid, plainColumn } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain/multimedia";
-import { eq, literal, sessionUser } from "@/lib/domain/predicate";
+import { eq, literal, sessionUser, term } from "@/lib/domain/predicate";
 
 const ICON_HASH = "c".repeat(64);
 const ICON_BYTES = Buffer.from("CASE-LIST-ICON-PNG-BYTES");
@@ -216,5 +216,41 @@ describe("caseListOnly browse-entry emission (local .ccz)", () => {
 		expect(entry).toContain(
 			'<instance id="commcaresession" src="jr://instance/session"/>',
 		);
+	});
+
+	it("applies an owner-only availability rule without emitting a Search action", () => {
+		const doc = caseListOnlyDoc();
+		const mod = doc.modules[doc.moduleOrder[0]];
+		mod.caseSearchConfig = {
+			searchActionEnabled: false,
+			excludedOwnerIds: term(literal("owner-a owner-b")),
+		};
+
+		const suite = suiteXml(doc);
+		const entryMatch = suite.match(
+			/<entry>(?:(?!<\/entry>)[\s\S])*<command id="m0-case-list">[\s\S]*?<\/entry>/,
+		);
+		const entry = entryMatch?.[0] ?? "";
+
+		// The raw owner rule narrows the ordinary casedb nodeset. The
+		// internal false marker means this rule did not author a Search action,
+		// so neither a remote request nor an action is invented on export.
+		expect(entry).toContain(
+			"[normalize-space(&apos;owner-a owner-b&apos;) = &apos;&apos; or not(selected(normalize-space(&apos;owner-a owner-b&apos;), @owner_id))]",
+		);
+		expect(suite).not.toContain("<remote-request");
+		expect(suite).not.toContain("<action");
+	});
+
+	it("emits a manual Search action when zero inputs are intentional", () => {
+		const doc = caseListOnlyDoc();
+		const mod = doc.modules[doc.moduleOrder[0]];
+		mod.caseSearchConfig = {};
+
+		const suite = suiteXml(doc);
+
+		expect(suite).toContain("<remote-request>");
+		expect(suite).toContain('auto_launch="false()"');
+		expect(suite).toMatch(/<action auto_launch="false\(\)"[^>]*>/);
 	});
 });

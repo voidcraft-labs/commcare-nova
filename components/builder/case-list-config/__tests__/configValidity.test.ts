@@ -23,6 +23,7 @@ import {
 	matchAll,
 	prop,
 	term,
+	today,
 	whenInput,
 } from "@/lib/domain/predicate";
 import { asUuid } from "@/lib/domain/uuid";
@@ -34,6 +35,8 @@ const CASE_TYPES: CaseType[] = [
 		properties: [
 			{ name: "name", label: "Name", data_type: "text" },
 			{ name: "dob", label: "Date of birth", data_type: "date" },
+			{ name: "age", label: "Age", data_type: "int" },
+			{ name: "score", label: "Score", data_type: "int" },
 		],
 	} as CaseType,
 ];
@@ -77,6 +80,24 @@ describe("caseListConfigVerdicts", () => {
 				),
 			],
 		});
+		expect(v.errorAreas).toEqual(CLEAN);
+		expect(v.filterBroken).toBe(false);
+	});
+
+	it("checks Results filters against a date field's runtime date value", () => {
+		const v = verdicts({
+			filter: eq(prop("patient", "dob"), input("visit_date")),
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("date-search"),
+					"visit_date",
+					"Visit date",
+					"date",
+					"dob",
+				),
+			],
+		});
+
 		expect(v.errorAreas).toEqual(CLEAN);
 		expect(v.filterBroken).toBe(false);
 	});
@@ -166,7 +187,7 @@ describe("caseListConfigVerdicts", () => {
 		expect(v.brokenColumns.size).toBe(0);
 	});
 
-	it("marks Cases available on Search when its rule references an unknown property", () => {
+	it("marks Cases available on Results when its rule references an unknown property", () => {
 		const v = verdicts({
 			filter: {
 				kind: "eq",
@@ -174,8 +195,8 @@ describe("caseListConfigVerdicts", () => {
 				right: term(literal("x")),
 			},
 		});
-		expect(v.errorAreas.search).toBe(true);
-		expect(v.errorAreas.list).toBe(false);
+		expect(v.errorAreas.search).toBe(false);
+		expect(v.errorAreas.list).toBe(true);
 		expect(v.filterBroken).toBe(true);
 	});
 
@@ -214,6 +235,44 @@ describe("caseListConfigVerdicts", () => {
 		expect(v.errorAreas.list).toBe(false);
 	});
 
+	it("flags legacy range defaults and range/widget mismatches on Search", () => {
+		const legacyDefault = verdicts({
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("range-default"),
+					"dob",
+					"DOB",
+					"date-range",
+					"dob",
+					{ default: today() },
+				),
+			],
+		});
+		const mismatchedWidget = verdicts({
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("range-mode"),
+					"dob",
+					"DOB",
+					"date",
+					"dob",
+					{ mode: { kind: "range" } },
+				),
+			],
+		});
+
+		expect(legacyDefault.errorAreas).toEqual({
+			search: true,
+			list: false,
+			detail: false,
+		});
+		expect(mismatchedWidget.errorAreas).toEqual({
+			search: true,
+			list: false,
+			detail: false,
+		});
+	});
+
 	it("accepts an advanced input whose condition references its own input", () => {
 		// The custom-condition seed self-references the row's own input
 		// via the when-input-present envelope. The edited row must be in
@@ -237,5 +296,68 @@ describe("caseListConfigVerdicts", () => {
 		const v = verdicts({ filter: matchAll() });
 		expect(v.errorAreas).toEqual(CLEAN);
 		expect(v.filterBroken).toBe(false);
+	});
+
+	it("applies the remote-query restriction only when Results are search-backed", () => {
+		const propertyComparison = config({
+			filter: eq(prop("patient", "age"), prop("patient", "score")),
+		});
+		const onDevice = caseListConfigVerdicts(
+			propertyComparison,
+			CASE_TYPES,
+			"patient",
+			{ caseSearchEnabled: false },
+		);
+		const searchBacked = caseListConfigVerdicts(
+			propertyComparison,
+			CASE_TYPES,
+			"patient",
+			{ caseSearchEnabled: true },
+		);
+
+		expect(onDevice.filterBroken).toBe(false);
+		expect(onDevice.errorAreas).toEqual(CLEAN);
+		expect(searchBacked.filterBroken).toBe(true);
+		expect(searchBacked.errorAreas.list).toBe(true);
+	});
+
+	it("keeps Search-action and assigned-case findings owned by their settings", () => {
+		const baseBoundary = {
+			filterBroken: false,
+			searchInputsBroken: false,
+			searchButtonConditionBroken: false,
+			excludedOwnerIdsBroken: false,
+			brokenColumnUuids: [],
+		} as const;
+		const searchButton = caseListConfigVerdicts(
+			config({}),
+			CASE_TYPES,
+			"patient",
+			{
+				boundary: { ...baseBoundary, searchButtonConditionBroken: true },
+			},
+		);
+		const assignedCases = caseListConfigVerdicts(
+			config({}),
+			CASE_TYPES,
+			"patient",
+			{
+				boundary: { ...baseBoundary, excludedOwnerIdsBroken: true },
+			},
+		);
+
+		expect(searchButton.errorAreas).toEqual({
+			search: true,
+			list: false,
+			detail: false,
+		});
+		expect(searchButton.searchButtonConditionBroken).toBe(true);
+		expect(assignedCases.errorAreas).toEqual({
+			search: false,
+			list: true,
+			detail: false,
+		});
+		expect(assignedCases.filterBroken).toBe(false);
+		expect(assignedCases.excludedOwnerIdsBroken).toBe(true);
 	});
 });

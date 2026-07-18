@@ -6,11 +6,21 @@
 // + unit menu (miles / kilometers).
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { FieldError } from "@/components/shadcn/field";
+import { Input } from "@/components/shadcn/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
 import { canonicalCasePropertyName } from "@/lib/domain";
 import {
+	DISTANCE_UNITS,
 	type DistanceUnit,
+	distanceValidationIssue,
 	literal,
 	type Predicate,
 	type PropertyRef,
@@ -18,11 +28,6 @@ import {
 	within,
 	withinCenterConstraint,
 } from "@/lib/domain/predicate";
-import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
 import { useEditorErrorsAt } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
@@ -33,7 +38,7 @@ import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 const UNIT_LABELS: Record<DistanceUnit, string> = {
 	miles: "miles",
-	kilometers: "km",
+	kilometers: "kilometers",
 };
 
 /** Module-level filter so render-time identity stays stable —
@@ -98,7 +103,7 @@ export function WithinDistanceCard({
 						onChange={setProperty}
 						filter={GEOPOINT_PROPERTY_FILTER}
 						invalid={propertyErrors.length > 0}
-						ariaLabel="Geopoint property"
+						ariaLabel="Location information"
 					/>
 					<InlineError errors={propertyErrors} />
 				</div>
@@ -107,7 +112,7 @@ export function WithinDistanceCard({
 
 			<div className="grid grid-cols-1 @md:grid-cols-[1.6fr_auto_auto] gap-2 items-start">
 				<div>
-					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
+					<div className="mb-1 text-[13px] font-medium text-nova-text-secondary">
 						Center
 					</div>
 					{/* Center coordinate routes through `ExpressionPicker`.
@@ -128,16 +133,24 @@ export function WithinDistanceCard({
 					/>
 				</div>
 				<div>
-					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
+					<div className="mb-1 text-[13px] font-medium text-nova-text-secondary">
 						Distance
 					</div>
-					<DistanceInput value={value.distance} onChange={setDistance} />
+					<DistanceInput
+						value={value.distance}
+						unit={value.unit}
+						onChange={setDistance}
+					/>
 				</div>
 				<div>
-					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
+					<div className="mb-1 text-[13px] font-medium text-nova-text-secondary">
 						Unit
 					</div>
-					<UnitMenu unit={value.unit} setUnit={setUnit} />
+					<UnitMenu
+						unit={value.unit}
+						distance={value.distance}
+						setUnit={setUnit}
+					/>
 				</div>
 			</div>
 		</div>
@@ -146,113 +159,164 @@ export function WithinDistanceCard({
 
 function DistanceInput({
 	value,
+	unit,
 	onChange,
 }: {
 	readonly value: number;
+	readonly unit: DistanceUnit;
 	readonly onChange: (next: number) => void;
 }) {
 	const inputRef = useRef<HTMLInputElement>(null);
+	const errorId = useId();
 	const initial = String(value);
 	const [draft, setDraft] = useState(initial);
+	const [error, setError] = useState<string>();
 	useEffect(() => {
 		if (initial !== draft && document.activeElement !== inputRef.current) {
 			setDraft(initial);
+			setError(undefined);
 		}
 	}, [initial, draft]);
 	const commit = () => {
-		const parsed = Number.parseFloat(draft);
-		if (Number.isFinite(parsed) && parsed >= 0) {
-			onChange(parsed);
-		} else {
-			setDraft(initial);
+		const result = positiveDistance(draft, unit);
+		if (result.error !== undefined) {
+			setError(result.error);
+			return;
 		}
+		setError(undefined);
+		if (draft === initial) return;
+		onChange(result.value);
 	};
 	return (
-		<input
-			ref={inputRef}
-			type="number"
-			step="0.1"
-			min="0"
-			value={draft}
-			onChange={(e) => setDraft(e.target.value)}
-			onBlur={commit}
-			autoComplete="off"
-			data-1p-ignore
-			aria-label="Distance"
-			className="w-24 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text font-mono focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors"
-		/>
+		<div className="w-36">
+			<Input
+				ref={inputRef}
+				type="number"
+				step="any"
+				min={Number.MIN_VALUE}
+				value={draft}
+				onChange={(event) => {
+					const next = event.target.value;
+					setDraft(next);
+					if (
+						error !== undefined &&
+						positiveDistance(next, unit).error === undefined
+					) {
+						setError(undefined);
+					}
+				}}
+				onBlur={commit}
+				autoComplete="off"
+				data-1p-ignore
+				aria-label="Distance"
+				aria-invalid={error !== undefined || undefined}
+				aria-describedby={error !== undefined ? errorId : undefined}
+				className={`h-auto min-h-11 w-full border bg-nova-deep/50 px-3 text-sm text-nova-text focus-visible:ring-1 md:text-sm dark:bg-nova-deep/50 ${
+					error !== undefined
+						? "border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30"
+						: "border-white/[0.06] focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30"
+				}`}
+			/>
+			{error !== undefined ? (
+				<FieldError
+					id={errorId}
+					className="mt-2 text-[13px] leading-5 text-nova-rose"
+				>
+					{error}
+				</FieldError>
+			) : null}
+		</div>
 	);
+}
+
+function positiveDistance(
+	draft: string,
+	unit: DistanceUnit,
+): { value: number; error?: undefined } | { value?: undefined; error: string } {
+	if (draft.trim() === "") {
+		return { error: "Enter a distance greater than 0" };
+	}
+	const parsed = Number(draft);
+	const issue = distanceValidationIssue(parsed, unit);
+	switch (issue) {
+		case "not-positive-finite":
+			return { error: "Enter a distance greater than 0" };
+		case "meters-overflow":
+			return { error: `Enter a smaller distance in ${UNIT_LABELS[unit]}` };
+		case undefined:
+			return { value: parsed };
+		default: {
+			const _exhaustive: never = issue;
+			return _exhaustive;
+		}
+	}
 }
 
 function UnitMenu({
 	unit,
+	distance,
 	setUnit,
 }: {
 	readonly unit: DistanceUnit;
+	readonly distance: number;
 	readonly setUnit: (unit: DistanceUnit) => void;
 }) {
-	const triggerRef = useRef<HTMLButtonElement>(null);
-	const items: readonly DistanceUnit[] = ["miles", "kilometers"];
+	const errorId = useId();
+	const [errorState, setErrorState] = useState<{
+		readonly distance: number;
+		readonly unit: DistanceUnit;
+		readonly message: string;
+	}>();
+	const error =
+		errorState?.distance === distance && errorState.unit === unit
+			? errorState.message
+			: undefined;
 	return (
-		<Menu.Root>
-			<Menu.Trigger
-				ref={triggerRef}
-				aria-label={`Distance unit: ${UNIT_LABELS[unit]}`}
-				className="group flex items-center gap-1 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer @max-md:justify-self-start"
+		<div>
+			<Select
+				value={unit}
+				onValueChange={(next) => {
+					if (next !== "miles" && next !== "kilometers") return;
+					if (distanceValidationIssue(distance, next) === "meters-overflow") {
+						setErrorState({
+							distance,
+							unit,
+							message: `Enter a smaller distance before switching to ${UNIT_LABELS[next]}`,
+						});
+						return;
+					}
+					setErrorState(undefined);
+					setUnit(next);
+				}}
 			>
-				<span>{UNIT_LABELS[unit]}</span>
-				<svg
-					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
-					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+				<SelectTrigger
+					aria-label={`Distance unit ${UNIT_LABELS[unit]}`}
+					aria-invalid={error !== undefined || undefined}
+					aria-describedby={error === undefined ? undefined : errorId}
+					className={`h-auto min-h-11 bg-nova-deep/50 px-3 text-sm text-nova-violet-bright dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50 ${
+						error === undefined
+							? "border-white/[0.06] not-disabled:hover:border-nova-violet/30"
+							: "border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30"
+					}`}
 				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.2"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
-					align="end"
-					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
+					<SelectValue>{UNIT_LABELS[unit]}</SelectValue>
+				</SelectTrigger>
+				<SelectContent align="end">
+					{DISTANCE_UNITS.map((nextUnit) => (
+						<SelectItem key={nextUnit} value={nextUnit} className="min-h-11">
+							{UNIT_LABELS[nextUnit]}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+			{error === undefined ? null : (
+				<FieldError
+					id={errorId}
+					className="mt-2 max-w-44 text-[13px] leading-5 text-nova-rose"
 				>
-					<Menu.Popup className={MENU_POPUP_CLS}>
-						{items.map((u, i) => {
-							const isActive = u === unit;
-							const last = items.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
-							return (
-								<Menu.Item
-									key={u}
-									onClick={() => setUnit(u)}
-									className={`${corners} ${MENU_ITEM_CLS} ${
-										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									}`}
-								>
-									<span>{UNIT_LABELS[u]}</span>
-								</Menu.Item>
-							);
-						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+					{error}
+				</FieldError>
+			)}
+		</div>
 	);
 }

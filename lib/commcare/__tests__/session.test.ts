@@ -86,6 +86,23 @@ describe("deriveSessionDatums", () => {
 		);
 	});
 
+	it("applies owner exclusion after the always-on list filter", () => {
+		const filter = eq(prop("patient", "is_priority"), literal(true));
+		const excludedOwners = term(literal("owner-a owner-b"));
+		const datums = deriveSessionDatums(
+			"followup",
+			0,
+			"patient",
+			filter,
+			undefined,
+			excludedOwners,
+		);
+
+		expect(datums[0].nodeset).toBe(
+			"instance('casedb')/casedb/case[@case_type='patient'][@status='open'][is_priority = 'true'][normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))]",
+		);
+	});
+
 	it("ignores the filter for non-case-loading form types", () => {
 		// Registration / survey forms emit no case-loading datum
 		// at all; the filter is meaningful only against the
@@ -446,6 +463,35 @@ describe("deriveEntryDefinition", () => {
 		);
 		const ids = entry.instances.map((i) => i.id);
 		expect(ids).toContain("commcaresession");
+	});
+
+	it("accumulates instances referenced by the owner-exclusion expression", () => {
+		const excludedOwners = term({
+			kind: "session-user",
+			field: "excluded_owner_ids",
+		});
+		const entry = deriveEntryDefinition(
+			"http://openrosa.org/formdesigner/abc",
+			0,
+			1,
+			"followup",
+			"previous",
+			"patient",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			excludedOwners,
+		);
+
+		expect(entry.instances).toContainEqual({
+			id: "commcaresession",
+			src: "jr://instance/session",
+		});
+		expect(entry.session?.datums[0].nodeset).toContain(
+			"[normalize-space(instance('commcaresession')/session/user/data/excluded_owner_ids) = '' or not(selected(normalize-space(instance('commcaresession')/session/user/data/excluded_owner_ids), @owner_id))]",
+		);
 	});
 
 	it("omits detail-confirm when a case-list viewer has no Details fields", () => {

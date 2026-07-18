@@ -20,6 +20,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { type ReactNode, useId, useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import { SlotCardHeader } from "./SlotCardHeader";
 import { useValidityPropagator } from "./useInnerValidityShadow";
 
@@ -56,7 +57,7 @@ export interface OptionalSlotCardProps<T> {
 	 *  `value !== undefined`. */
 	readonly clearLabel: string;
 	/** Screen-reader name for the Clear button — the specific action
-	 *  ("Clear the excluded owners"), since SRs don't get the
+	 *  ("Clear the assigned cases setting"), since SRs don't get the
 	 *  visual adjacency to the section title. */
 	readonly clearAriaLabel: string;
 	/** Current slot value. `undefined` ≡ slot empty (the card surfaces
@@ -149,15 +150,17 @@ export function OptionalSlotCard<T>({
 	const body = slotPresent ? (
 		renderEditor(value, onChange, setInnerValid)
 	) : (
-		<button
+		<Button
 			type="button"
+			variant="outline"
+			size="xl"
 			onClick={handleAdd}
-			className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+			className="w-full rounded-lg border-dashed border-white/[0.10] bg-transparent px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
 			aria-label={addLabel}
 		>
 			<Icon icon={tablerPlus} width="14" height="14" />
 			<span>{addLabel}</span>
-		</button>
+		</Button>
 	);
 
 	return (

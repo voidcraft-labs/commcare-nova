@@ -875,7 +875,7 @@ export function ChatContainer({
 				showToast(
 					"error",
 					"Couldn't confirm the app was created",
-					"Check your connection, then look in your app list before trying again — one may already be there.",
+					"Check your connection, then look in your app list before trying again. The app may already be there.",
 				);
 			},
 		);

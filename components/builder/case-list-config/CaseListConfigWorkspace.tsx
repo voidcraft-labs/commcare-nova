@@ -28,8 +28,16 @@ import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import tablerId from "@iconify-icons/tabler/id";
 import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerSearch from "@iconify-icons/tabler/search";
-import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	Activity,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
 import { EditableTitle } from "@/components/builder/EditableTitle";
@@ -45,13 +53,29 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog";
+import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import {
+	columnSnapshotBatchMutations,
+	columnSnapshotMutations,
+} from "@/lib/doc/caseListColumnMutations";
+import {
+	cleanupCaseSearchAfterFinalInputMutation,
+	enableCaseSearchMutation,
+	setOwnerOnlyCaseSearchMutation,
+} from "@/lib/doc/caseSearchConfigMutations";
+import {
+	caseSearchConfigPatchMutations,
+	clearCaseSearchConfigSettingsMutations,
+} from "@/lib/doc/caseSearchConfigPatchMutations";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useCaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { appendOrderKey } from "@/lib/doc/order/append";
 import type { ColumnSurface } from "@/lib/doc/order/columnSurface";
 import { bySortKey } from "@/lib/doc/order/compare";
+import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
 	type CaseListConfig,
@@ -59,35 +83,48 @@ import {
 	type CaseSearchConfig,
 	type Column,
 	type CommitOutcome,
-	caseSearchConfigHasAuthoredSettings,
+	caseSearchConfigAfterFinalInputRemoval,
 	DEFAULT_CASE_SEARCH_TITLE,
+	effectiveCaseSearchConfig,
+	isOwnerOnlyCaseSearchConfig,
+	normalizeOwnerOnlyCaseSearchConfig,
 	type SearchInputDef,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
 	type Predicate,
+	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useAppId, useCanEdit } from "@/lib/session/hooks";
+import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
 import { ColumnEditor } from "./ColumnEditor";
-import { CaseListCanvas } from "./canvas/CaseListCanvas";
+import {
+	CaseListCanvas,
+	type CaseListCanvasProps,
+} from "./canvas/CaseListCanvas";
 import { DetailCanvas } from "./canvas/DetailCanvas";
 import { SearchCanvas } from "./canvas/SearchCanvas";
+import { SearchConditionCanvas } from "./canvas/SearchConditionCanvas";
 import {
 	type CaseListConfigErrorAreas,
 	caseListConfigVerdicts,
 } from "./configValidity";
-import { FilterInspectorBody } from "./inspector/FilterInspectorBody";
-import { ListPanelInspectorBody } from "./inspector/ListPanelInspectorBody";
 import { SearchInputEditor } from "./inspector/SearchInputEditor";
 import { SearchPanelInspectorBody } from "./inspector/SearchPanelInspectorBody";
 import { withPreservedIdentity } from "./preserveIdentity";
 import {
+	type SearchInputRemovalDependency,
+	searchInputRemovalDependencies,
+} from "./searchInputRemovalDependencies";
+import { searchInputDecls } from "./searchInputResolution";
+import {
 	labelFromProperty,
 	seedCalculatedColumn,
 	seedColumnForProperty,
-	seedSearchInput,
+	seededColumnAddMutation,
+	seedSearchInputForProperty,
 } from "./seeds";
 import {
 	projectCaseWorkspaceColumns,
@@ -108,11 +145,105 @@ export interface CaseListConfigWorkspaceProps {
 	readonly tab: CaseListWorkspaceTab;
 }
 
+type SearchInputRemovalReviewSession =
+	| {
+			readonly phase: "dependencies";
+			readonly inputUuid: SearchInputDef["uuid"];
+			readonly inputLabel: string;
+			readonly token: number;
+	  }
+	| {
+			readonly phase: "target";
+			readonly inputUuid: SearchInputDef["uuid"];
+			readonly inputLabel: string;
+			readonly token: number;
+			readonly dependency: SearchInputRemovalDependency;
+	  };
+
+const INSPECTOR_RETURN_FOCUS_ATTRIBUTE = "data-inspector-return-focus";
+
+function findCanvasControl(
+	root: HTMLElement,
+	attribute: string,
+	value?: string,
+): HTMLElement | null {
+	for (const candidate of root.querySelectorAll<HTMLElement>(
+		`[${attribute}]`,
+	)) {
+		if (value === undefined || candidate.getAttribute(attribute) === value) {
+			return candidate;
+		}
+	}
+	return null;
+}
+
+/** Resolve the stable canvas control that opened a properties selection. The
+ * active tab scopes shared column definitions to the row the author actually
+ * used; recovery selections that have no row yet fall back to that canvas's
+ * Add information control. */
+function canvasOriginForSelection(
+	selection: WorkspaceSelection,
+	activeTab: CaseListWorkspaceTab,
+): HTMLElement | null {
+	const canvas = document.querySelector<HTMLElement>(
+		`[data-case-workspace-scroll-body="${activeTab}"]`,
+	);
+	if (canvas === null) return null;
+
+	switch (selection.type) {
+		case "column": {
+			const row = findCanvasControl(
+				canvas,
+				"data-case-column-select",
+				selection.uuid,
+			);
+			if (row !== null) return row;
+			const surface =
+				selection.reveal?.surface ??
+				(activeTab === "list" || activeTab === "detail" ? activeTab : null);
+			return surface === null
+				? null
+				: canvas.querySelector<HTMLElement>(`[data-case-add="${surface}"]`);
+		}
+		case "input":
+			return (
+				findCanvasControl(canvas, "data-case-search-field", selection.uuid) ??
+				canvas.querySelector<HTMLElement>("[data-case-add-search-field]")
+			);
+		case "search-panel":
+			return canvas.querySelector<HTMLElement>("[data-case-search-panel]");
+		case "search-condition":
+			return null;
+	}
+}
+
+function inspectorOriginSelection(
+	selection: WorkspaceSelection,
+): WorkspaceSelection {
+	if (selection.type !== "search-condition") return selection;
+	return selection.target.kind === "input"
+		? { type: "input", uuid: selection.target.uuid }
+		: { type: "search-panel" };
+}
+
+function clearInspectorReturnFocusMarkers(): void {
+	for (const previous of document.querySelectorAll<HTMLElement>(
+		`[${INSPECTOR_RETURN_FOCUS_ATTRIBUTE}]`,
+	)) {
+		previous.removeAttribute(INSPECTOR_RETURN_FOCUS_ATTRIBUTE);
+	}
+}
+
+function markInspectorReturnFocus(target: HTMLElement): void {
+	clearInspectorReturnFocusMarkers();
+	target.setAttribute(INSPECTOR_RETURN_FOCUS_ATTRIBUTE, "");
+}
+
 /**
  * Hover hint surfaced on disabled add affordances whose seed depends
  * on a case-property reference.
  */
-const PROPERTYLESS_HINT = "Define case-type properties first.";
+const PROPERTYLESS_HINT = "Add case information before adding fields";
 
 /** Stable empty config for modules whose `caseListConfig` slot is
  *  still absent — first edit persists the seeded shape. */
@@ -124,7 +255,64 @@ const EMPTY_VERDICTS = {
 	errorAreas: { search: false, list: false, detail: false },
 	brokenColumns: new Set<string>(),
 	filterBroken: false,
+	searchButtonConditionBroken: false,
+	excludedOwnerIdsBroken: false,
 } as const;
+
+type SearchScreenSettingKey = "searchScreenTitle" | "searchScreenSubtitle";
+
+type SearchActionSettingKey =
+	| "searchButtonLabel"
+	| "searchButtonDisplayCondition";
+
+const SEARCH_SCREEN_SETTING_LABELS: Readonly<
+	Record<SearchScreenSettingKey, string>
+> = {
+	searchScreenTitle: "custom title",
+	searchScreenSubtitle: "subtitle",
+};
+
+const SEARCH_ACTION_SETTING_LABELS: Readonly<
+	Record<SearchActionSettingKey, string>
+> = {
+	searchButtonLabel: "custom Search action label",
+	searchButtonDisplayCondition: "Search availability condition",
+};
+
+function authoredSearchScreenSettings(
+	config: CaseSearchConfig | undefined,
+): readonly string[] {
+	if (config === undefined) return [];
+	return (Object.keys(SEARCH_SCREEN_SETTING_LABELS) as SearchScreenSettingKey[])
+		.filter((key) => config[key] !== undefined)
+		.map((key) => SEARCH_SCREEN_SETTING_LABELS[key]);
+}
+
+function authoredSearchActionSettings(
+	config: CaseSearchConfig | undefined,
+): readonly string[] {
+	if (config === undefined) return [];
+	return (Object.keys(SEARCH_ACTION_SETTING_LABELS) as SearchActionSettingKey[])
+		.filter((key) => config[key] !== undefined)
+		.map((key) => SEARCH_ACTION_SETTING_LABELS[key]);
+}
+
+/**
+ * Removing the final field removes the visible Search screen. Screen title and
+ * subtitle no longer have a surface, but the action label/availability rule
+ * still governs CommCare's zero-input Search action (including web auto-launch
+ * when Cases available narrows the list), so those settings must survive.
+ * Assigned-case behavior remains independent as well.
+ */
+export function caseSearchConfigAfterFinalFieldRemoval(
+	config: CaseSearchConfig | undefined,
+	hasCasesAvailableCondition: boolean,
+): CaseSearchConfig | undefined {
+	return caseSearchConfigAfterFinalInputRemoval(
+		config,
+		hasCasesAvailableCondition,
+	);
+}
 
 /** Append to the active surface's resolved sequence, including legacy columns
  * that still use the shared `order` fallback. */
@@ -158,8 +346,51 @@ function columnDisplayLabel(column: Column): string {
 	);
 }
 
-function surfaceDisplayName(surface: ColumnSurface): "results" | "details" {
-	return surface === "list" ? "results" : "details";
+function surfaceDisplayName(surface: ColumnSurface): "Results" | "Details" {
+	return surface === "list" ? "Results" : "Details";
+}
+
+/** Module identity for a bare case-list module, whose workspace is its home. */
+export function CaseListModuleHeader({
+	moduleUuid,
+	name,
+	onSave,
+	compact = false,
+}: {
+	readonly moduleUuid: Uuid;
+	readonly name: string;
+	readonly onSave: (name: string) => CommitOutcome | undefined;
+	/** A short viewport already names the module in the breadcrumb. Keep only
+	 *  its settings action in the fixed tab bar so the canvas remains usable. */
+	readonly compact?: boolean;
+}) {
+	if (compact) {
+		return (
+			<div
+				data-case-list-module-header="compact"
+				className="absolute top-1 right-3 z-raised size-11 @sm:right-6"
+			>
+				<ModuleSettingsButton moduleUuid={moduleUuid} />
+			</div>
+		);
+	}
+
+	return (
+		<div
+			data-case-list-module-header="full"
+			className="mb-3 flex min-w-0 items-start gap-2 border-b border-nova-border/60 pb-3"
+		>
+			<EditableTitle
+				value={name}
+				onSave={onSave}
+				wrap
+				ariaLabel="Module name"
+			/>
+			<span className="shrink-0">
+				<ModuleSettingsButton moduleUuid={moduleUuid} />
+			</span>
+		</div>
+	);
 }
 
 // ── Top-level component ───────────────────────────────────────────
@@ -168,37 +399,185 @@ export function CaseListConfigWorkspace({
 	moduleUuid,
 	tab,
 }: CaseListConfigWorkspaceProps) {
+	/* WorkspaceBody is intentionally keyed by module identity, but scroll is
+	 * friendlier when returning to a module. Keep this ephemeral map one level
+	 * above the keyed body; same-module tab switches are preserved by Activity,
+	 * while these offsets bridge a module unmount/remount. */
+	const scrollPositions = useRef(new Map<string, number>());
 	/* Key the body by module so selection state can't leak across
 	 * modules — the Activity boundary keeps ONE workspace instance
 	 * alive while the URL's module changes under it. */
-	return <WorkspaceBody key={moduleUuid} moduleUuid={moduleUuid} tab={tab} />;
+	return (
+		<WorkspaceBody
+			key={moduleUuid}
+			moduleUuid={moduleUuid}
+			tab={tab}
+			scrollPositions={scrollPositions}
+		/>
+	);
 }
 
-function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
+interface WorkspaceBodyProps extends CaseListConfigWorkspaceProps {
+	readonly scrollPositions: { readonly current: Map<string, number> };
+}
+
+function WorkspaceBody({
+	moduleUuid,
+	tab,
+	scrollPositions,
+}: WorkspaceBodyProps) {
 	const mod = useModule(moduleUuid);
 	/* The EFFECTIVE view — the same property admission set + types the
 	 * commit gate validates against (see the hook doc). */
 	const caseTypes = useEffectiveCaseTypes();
 	const appId = useAppId() ?? "";
-	const canEdit = useCanEdit();
+	const compactHeight = useIsBreakpoint("max", 360, "height");
 	const navigate = useNavigate();
-	const {
-		updateModule,
-		moveColumnOnSurface,
-		moveSearchInputToIndex,
-		commitMany,
-		inline,
-	} = useBlueprintMutations();
+	const { moveColumnOnSurface, moveSearchInputToIndex, commitMany, inline } =
+		useBlueprintMutations();
 
 	const caseType = mod?.caseType;
 	const config = mod?.caseListConfig ?? EMPTY_CONFIG;
 	const searchConfig = mod?.caseSearchConfig;
+	const effectiveSearchConfig = mod
+		? effectiveCaseSearchConfig(mod)
+		: undefined;
+	const boundaryVerdicts = useCaseWorkspaceBoundaryVerdicts(moduleUuid);
+	const opensResultsAutomatically =
+		effectiveSearchConfig !== undefined &&
+		config.searchInputs.length === 0 &&
+		effectiveFilterForEmission(config.filter) !== undefined;
 
 	// ── Selection ──
 	const [sel, setSel] = useState<WorkspaceSelection | null>(null);
 	const [workspaceAnnouncement, setWorkspaceAnnouncement] = useState("");
 	const pendingCanvasFocusRef = useRef<ColumnSurface | null>(null);
-	const deselect = useCallback(() => setSel(null), []);
+	const pendingSearchFocusRef = useRef<SearchInputDef["uuid"] | "add" | null>(
+		null,
+	);
+	const [inputRemovalReview, setInputRemovalReview] =
+		useState<SearchInputRemovalReviewSession | null>(null);
+	const inputRemovalReviewTokenRef = useRef(0);
+	const searchConditionFocusTokenRef = useRef(0);
+	const [
+		searchButtonConditionFocusRequest,
+		setSearchButtonConditionFocusRequest,
+	] = useState<{
+		readonly token: number;
+		readonly path: readonly [];
+		readonly focusTarget: "first-control";
+	}>();
+	const pendingInspectorFocusRef = useRef<WorkspaceSelection | null>(null);
+	const searchOverviewScrollRef = useRef<number | null>(null);
+	const pendingSearchOverviewScrollRef = useRef<number | null>(null);
+	const searchConditionReturnFrameRef = useRef<number | null>(null);
+	const openSearchCondition = useCallback(
+		(
+			target: Extract<
+				WorkspaceSelection,
+				{ type: "search-condition" }
+			>["target"],
+		) => {
+			const scroller = document.querySelector<HTMLElement>(
+				'[data-case-workspace-scroll-body="search"]',
+			);
+			if (searchOverviewScrollRef.current === null) {
+				searchOverviewScrollRef.current = scroller?.scrollTop ?? 0;
+			}
+			if (scroller !== null) scroller.scrollTop = 0;
+			setSel({ type: "search-condition", target });
+		},
+		[],
+	);
+	const leaveSearchCondition = useCallback(
+		(next: WorkspaceSelection | null) => {
+			const savedScroll = searchOverviewScrollRef.current;
+			if (savedScroll !== null) {
+				// Restore only after React replaces the shorter condition canvas with
+				// the overview. Restoring against the outgoing canvas lets the browser
+				// clamp a deep offset and silently loses the author's place.
+				pendingSearchOverviewScrollRef.current = savedScroll;
+				searchOverviewScrollRef.current = null;
+			}
+			setSel(next);
+		},
+		[],
+	);
+	useLayoutEffect(() => {
+		if (
+			sel?.type === "search-condition" ||
+			pendingSearchOverviewScrollRef.current === null
+		) {
+			return;
+		}
+		const scroller = document.querySelector<HTMLElement>(
+			'[data-case-workspace-scroll-body="search"]',
+		);
+		if (scroller === null) return;
+		scroller.scrollTop = pendingSearchOverviewScrollRef.current;
+		pendingSearchOverviewScrollRef.current = null;
+	}, [sel]);
+	const returnFromSearchCondition = useCallback(
+		(next: WorkspaceSelection) => {
+			leaveSearchCondition(next);
+			if (searchConditionReturnFrameRef.current !== null) {
+				cancelAnimationFrame(searchConditionReturnFrameRef.current);
+			}
+			searchConditionReturnFrameRef.current = requestAnimationFrame(() => {
+				searchConditionReturnFrameRef.current = null;
+				const inspector = document.querySelector<HTMLElement>(
+					'[data-builder-secondary-header="inspector"]',
+				)?.parentElement;
+				inspector
+					?.querySelector<HTMLButtonElement>("[data-search-condition-origin]")
+					?.focus();
+			});
+		},
+		[leaveSearchCondition],
+	);
+	useEffect(
+		() => () => {
+			if (searchConditionReturnFrameRef.current !== null) {
+				cancelAnimationFrame(searchConditionReturnFrameRef.current);
+				searchConditionReturnFrameRef.current = null;
+			}
+		},
+		[],
+	);
+	const deselect = useCallback(
+		() => leaveSearchCondition(null),
+		[leaveSearchCondition],
+	);
+	const closeSelectionAndRestoreFocus = useCallback(() => {
+		if (sel === null) return;
+		const origin = inspectorOriginSelection(sel);
+		pendingInspectorFocusRef.current = origin;
+		const target = canvasOriginForSelection(origin, tab);
+		if (target !== null) markInspectorReturnFocus(target);
+		leaveSearchCondition(null);
+	}, [leaveSearchCondition, sel, tab]);
+	const scrollBodyRefs = useMemo(() => {
+		const bind =
+			(kind: CaseListWorkspaceTab) => (node: HTMLDivElement | null) => {
+				if (node === null) return;
+				const key = `${moduleUuid}:${kind}`;
+				node.scrollTop = scrollPositions.current.get(key) ?? 0;
+				return () => {
+					scrollPositions.current.set(key, node.scrollTop);
+				};
+			};
+		return {
+			search: bind("search"),
+			list: bind("list"),
+			detail: bind("detail"),
+		};
+	}, [moduleUuid, scrollPositions]);
+	const rememberScroll = useCallback(
+		(kind: CaseListWorkspaceTab, scrollTop: number) => {
+			scrollPositions.current.set(`${moduleUuid}:${kind}`, scrollTop);
+		},
+		[moduleUuid, scrollPositions],
+	);
 
 	/* Tab switches deselect — covers in-app tab clicks AND browser
 	 * back/forward, since both arrive as a `tab` prop change. */
@@ -206,8 +585,55 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 	useEffect(() => {
 		if (prevTabRef.current === tab) return;
 		prevTabRef.current = tab;
-		setSel(null);
-	}, [tab]);
+		setSearchButtonConditionFocusRequest(undefined);
+		leaveSearchCondition(null);
+	}, [tab, leaveSearchCondition]);
+
+	/* A dependency review is a short navigation session, not inspector-local
+	 * state. Returning from Results must survive the tab transition, restore the
+	 * original field, and reopen its freshly recomputed list of uses. */
+	useEffect(() => {
+		if (tab !== "search" || inputRemovalReview?.phase !== "dependencies") {
+			return;
+		}
+		const inputStillExists = config.searchInputs.some(
+			(input) => input.uuid === inputRemovalReview.inputUuid,
+		);
+		if (!inputStillExists) {
+			setInputRemovalReview(null);
+			setWorkspaceAnnouncement(
+				`${inputRemovalReview.inputLabel} was already removed`,
+			);
+			return;
+		}
+		setSel((current) =>
+			current?.type === "input" && current.uuid === inputRemovalReview.inputUuid
+				? current
+				: { type: "input", uuid: inputRemovalReview.inputUuid },
+		);
+	}, [config.searchInputs, inputRemovalReview, tab]);
+
+	/* If another editor removes the selected condition while this workspace is
+	 * open, return to its owning Search settings instead of leaving a blank
+	 * center surface. */
+	useEffect(() => {
+		if (sel?.type !== "search-condition") return;
+		if (sel.target.kind === "input") {
+			const inputUuid = sel.target.uuid;
+			const input = config.searchInputs.find(
+				(candidate) => candidate.uuid === inputUuid,
+			);
+			if (input?.kind === "advanced") return;
+			leaveSearchCondition(
+				input === undefined ? null : { type: "input", uuid: input.uuid },
+			);
+			return;
+		}
+		if (searchConfig?.searchButtonDisplayCondition === undefined) {
+			setSearchButtonConditionFocusRequest(undefined);
+			leaveSearchCondition({ type: "search-panel" });
+		}
+	}, [config.searchInputs, leaveSearchCondition, searchConfig, sel]);
 
 	/* Hiding is initiated from the inspector, so its focused button unmounts.
 	 * Return focus to the active canvas's Add information control after React
@@ -224,6 +650,64 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		return () => cancelAnimationFrame(frame);
 	}, [sel]);
 
+	/* Removing a Search field starts in the inspector, so its focused action
+	 * disappears with the selection. Hand focus to the next field in display
+	 * order, or to Add search field when the screen is now empty. The stable
+	 * canvas targets avoid guessing from translated labels or DOM position. */
+	useEffect(() => {
+		const target = pendingSearchFocusRef.current;
+		if (target === null || sel !== null) return;
+		const frame = requestAnimationFrame(() => {
+			const element =
+				target === "add"
+					? document.querySelector<HTMLButtonElement>(
+							"[data-case-add-search-field]",
+						)
+					: document.querySelector<HTMLButtonElement>(
+							`[data-case-search-field="${target}"]`,
+						);
+			element?.focus();
+			pendingSearchFocusRef.current = null;
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [sel]);
+
+	/* Close and Escape return to the exact canvas control that opened the
+	 * properties surface. Desktop can focus it as soon as the selection commit
+	 * lands. A narrow modal drawer keeps the marker until Base UI requests its
+	 * final focus, because the underlying canvas is inert while the drawer is
+	 * still closing. */
+	useLayoutEffect(() => {
+		const origin = pendingInspectorFocusRef.current;
+		if (origin === null || sel !== null) return;
+		pendingInspectorFocusRef.current = null;
+		const target = canvasOriginForSelection(origin, tab);
+		if (target === null) {
+			clearInspectorReturnFocusMarkers();
+			return;
+		}
+		markInspectorReturnFocus(target);
+		target.focus({ preventScroll: true });
+		if (
+			target.closest(
+				'[data-builder-layout="narrow"], [data-builder-layout="handset"]',
+			) === null
+		) {
+			target.removeAttribute(INSPECTOR_RETURN_FOCUS_ATTRIBUTE);
+		}
+	}, [sel, tab]);
+
+	/* A later canvas selection supersedes any retained narrow-drawer marker. */
+	useEffect(() => {
+		if (
+			sel !== null &&
+			sel.type !== "search-condition" &&
+			pendingInspectorFocusRef.current === null
+		) {
+			clearInspectorReturnFocusMarkers();
+		}
+	}, [sel]);
+
 	/* Escape closes the inspector. Routed through the shared keyboard
 	 * manager (not a raw listener — the manager preventDefaults every
 	 * matched key, and later registrations win) so it layers over the
@@ -233,35 +717,109 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 	useKeyboardShortcuts(
 		"case-list-workspace",
 		useMemo(
-			() => (sel !== null ? [{ key: "Escape", handler: deselect }] : []),
-			[sel, deselect],
+			() =>
+				sel !== null
+					? [{ key: "Escape", handler: closeSelectionAndRestoreFocus }]
+					: [],
+			[sel, closeSelectionAndRestoreFocus],
 		),
 	);
 
 	// One whole-config walk answers the tab dots and the findable marks in the
 	// active canvas. Real case data belongs to the global Preview; authoring
 	// stays focused on composing the screen instead of sampling one arbitrary row.
-	const { errorAreas, brokenColumns, filterBroken } = useMemo(
+	const {
+		errorAreas,
+		brokenColumns,
+		filterBroken,
+		searchButtonConditionBroken,
+		excludedOwnerIdsBroken,
+	} = useMemo(
 		() =>
 			caseType !== undefined
-				? caseListConfigVerdicts(config, caseTypes, caseType)
+				? caseListConfigVerdicts(config, caseTypes, caseType, {
+						caseSearchEnabled: effectiveSearchConfig !== undefined,
+						boundary: boundaryVerdicts,
+					})
 				: EMPTY_VERDICTS,
-		[config, caseTypes, caseType],
+		[boundaryVerdicts, config, caseTypes, caseType, effectiveSearchConfig],
 	);
 
 	// ── Mutators ──
 
-	const updateConfig = useCallback(
-		(next: CaseListConfig) => {
-			updateModule(moduleUuid, { caseListConfig: next });
-		},
-		[updateModule, moduleUuid],
-	);
 	const updateSearchConfig = useCallback(
 		(next: CaseSearchConfig) => {
-			updateModule(moduleUuid, { caseSearchConfig: next });
+			// Reaching Search settings is explicit action authoring. Clear the
+			// owner-only provenance bit while preserving every real setting.
+			const { searchActionEnabled: _previousIntent, ...enabled } = next;
+			commitMany(
+				caseSearchConfigPatchMutations(moduleUuid, searchConfig, enabled),
+			);
 		},
-		[updateModule, moduleUuid],
+		[commitMany, moduleUuid, searchConfig],
+	);
+	const updateExcludedOwnerIds = useCallback(
+		(next: ValueExpression | undefined) => {
+			if (next !== undefined) {
+				if (
+					searchConfig === undefined ||
+					isOwnerOnlyCaseSearchConfig(searchConfig)
+				) {
+					const base =
+						searchConfig === undefined
+							? ({ searchActionEnabled: false } as const)
+							: normalizeOwnerOnlyCaseSearchConfig(searchConfig);
+					commitMany([
+						setOwnerOnlyCaseSearchMutation(moduleUuid, {
+							...base,
+							excludedOwnerIds: next,
+						}),
+					]);
+					return;
+				}
+				commitMany(
+					caseSearchConfigPatchMutations(moduleUuid, searchConfig, {
+						...searchConfig,
+						excludedOwnerIds: next,
+					}),
+				);
+				return;
+			}
+			if (searchConfig === undefined) return;
+			if (isOwnerOnlyCaseSearchConfig(searchConfig)) {
+				commitMany(
+					clearCaseSearchConfigSettingsMutations(moduleUuid, searchConfig),
+				);
+				return;
+			}
+			const { excludedOwnerIds: _previous, ...rest } = searchConfig;
+			commitMany(
+				caseSearchConfigPatchMutations(moduleUuid, searchConfig, rest),
+			);
+		},
+		[commitMany, moduleUuid, searchConfig],
+	);
+	const configureSearchAction = useCallback(() => {
+		const outcome = commitMany([
+			enableCaseSearchMutation(moduleUuid, searchConfig),
+		]);
+		if (outcome.ok) setSel({ type: "search-panel" });
+	}, [commitMany, moduleUuid, searchConfig]);
+	const editSearchButtonCondition = useCallback(
+		(focusNewCondition = false) => {
+			if (focusNewCondition) {
+				searchConditionFocusTokenRef.current += 1;
+				setSearchButtonConditionFocusRequest({
+					token: searchConditionFocusTokenRef.current,
+					path: [],
+					focusTarget: "first-control",
+				});
+			} else {
+				setSearchButtonConditionFocusRequest(undefined);
+			}
+			openSearchCondition({ kind: "search-button" });
+		},
+		[openSearchCondition],
 	);
 
 	/* Rename — only surfaced for a `caseListOnly` module, where this
@@ -283,7 +841,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		messages: readonly string[] = [],
 	) => {
 		setWorkspaceAnnouncement(
-			`${columnDisplayLabel(column)} needs a quick fix before it can be added to ${surfaceDisplayName(surface)}.`,
+			`${columnDisplayLabel(column)} needs more setup before it can be added to ${surfaceDisplayName(surface)}`,
 		);
 		setSel({
 			type: "column",
@@ -295,16 +853,13 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 	const replaceColumn = (uuid: string, next: Column) => {
 		// Carry identity and all display-order keys forward — see
 		// `withPreservedIdentity`.
-		const nextConfig = {
-			...config,
-			columns: config.columns.map((c) =>
-				c.uuid === uuid ? withPreservedIdentity(c, next) : c,
-			),
-		};
+		const current = config.columns.find((column) => column.uuid === uuid);
+		if (current === undefined) return;
+		const replacement = withPreservedIdentity(current, next);
 		const repair =
 			sel?.type === "column" && sel.uuid === uuid ? sel.reveal : undefined;
 		if (repair === undefined) {
-			updateConfig(nextConfig);
+			commitMany(columnSnapshotMutations(moduleUuid, current, replacement));
 			return;
 		}
 
@@ -313,33 +868,34 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		 * field appears without another confirmation click or a half-valid
 		 * intermediate state. If more repair remains, preserve the safe hidden
 		 * edit and keep the inspector open with the fresh gate guidance. */
-		const order = appendSurfaceOrderKey(nextConfig.columns, repair.surface);
-		const revealConfig = {
-			...nextConfig,
-			columns: showColumnOnDisplay(
-				nextConfig.columns,
-				next.uuid,
-				repair.surface,
-				order,
-			),
-		};
-		const revealOutcome = inline.updateModule(moduleUuid, {
-			caseListConfig: revealConfig,
-		});
+		const repairedColumns = config.columns.map((column) =>
+			column.uuid === uuid ? replacement : column,
+		);
+		const order = appendSurfaceOrderKey(repairedColumns, repair.surface);
+		const revealed = showColumnOnDisplay(
+			repairedColumns,
+			replacement.uuid,
+			repair.surface,
+			order,
+		).find((column) => column.uuid === replacement.uuid);
+		if (revealed === undefined) return;
+		const revealOutcome = inline.commitMany(
+			columnSnapshotMutations(moduleUuid, current, revealed),
+		);
 		if (revealOutcome.ok) {
 			setWorkspaceAnnouncement(
-				`${columnDisplayLabel(next)} fixed and added to ${surfaceDisplayName(repair.surface)}.`,
+				`${columnDisplayLabel(replacement)} added to ${surfaceDisplayName(repair.surface)}`,
 			);
-			setSel({ type: "column", uuid: next.uuid });
+			setSel({ type: "column", uuid: replacement.uuid });
 			return;
 		}
 
-		const repairOutcome = inline.updateModule(moduleUuid, {
-			caseListConfig: nextConfig,
-		});
+		const repairOutcome = inline.commitMany(
+			columnSnapshotMutations(moduleUuid, current, replacement),
+		);
 		setSel({
 			type: "column",
-			uuid: next.uuid,
+			uuid: replacement.uuid,
 			reveal: {
 				surface: repair.surface,
 				messages:
@@ -352,21 +908,13 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		});
 	};
 	const addSeededColumn = (surface: ColumnSurface, seed: Column) => {
-		const seeded = {
-			...seed,
-			order: appendOrderKey(config.columns),
-			...(surface === "list"
-				? { listOrder: appendSurfaceOrderKey(config.columns, "list") }
-				: { detailOrder: appendSurfaceOrderKey(config.columns, "detail") }),
-		} as Column;
-		const outcome = commitMany([
-			{ kind: "addColumn", moduleUuid, column: seeded },
-		]);
+		const mutation = seededColumnAddMutation(moduleUuid, config, surface, seed);
+		const outcome = commitMany([mutation]);
 		if (outcome.ok) {
 			setWorkspaceAnnouncement(
-				`${columnDisplayLabel(seeded)} added to ${surfaceDisplayName(surface)}.`,
+				`${columnDisplayLabel(seed)} added to ${surfaceDisplayName(surface)}`,
 			);
-			setSel({ type: "column", uuid: seeded.uuid });
+			setSel({ type: "column", uuid: seed.uuid });
 		}
 	};
 	const addColumn = (surface: ColumnSurface, property: CaseProperty) => {
@@ -399,22 +947,31 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		toIndex: number,
 	) => moveColumnOnSurface(moduleUuid, uuid, surface, toIndex);
 	const updateColumns = (next: readonly Column[]) => {
-		updateConfig({
-			...config,
-			columns: pruneStoppedSortOrphans(config.columns, next),
-		});
+		commitMany(
+			columnSnapshotBatchMutations(
+				moduleUuid,
+				config.columns,
+				pruneStoppedSortOrphans(config.columns, next),
+			),
+		);
 	};
 	const hideColumnFromSurface = (surface: ColumnSurface, column: Column) => {
 		const visible = projectCaseWorkspaceColumns(config.columns);
 		if (surface === "list" && visible.listVisible.length <= 1) return;
 		const label = columnDisplayLabel(column);
-		updateConfig({
-			...config,
-			columns: removeColumnFromDisplay(config.columns, column.uuid, surface),
-		});
+		const hidden = removeColumnFromDisplay(
+			config.columns,
+			column.uuid,
+			surface,
+		).find((candidate) => candidate.uuid === column.uuid);
+		if (hidden === undefined) return;
+		const outcome = commitMany(
+			columnSnapshotMutations(moduleUuid, column, hidden),
+		);
+		if (!outcome.ok) return;
 		pendingCanvasFocusRef.current = surface;
 		setWorkspaceAnnouncement(
-			`${label} hidden from ${surface === "list" ? "results" : "details"}. You can add it again from Add information.`,
+			`${label} hidden from ${surfaceDisplayName(surface)}. You can add it again from Add information.`,
 		);
 		deselect();
 	};
@@ -429,7 +986,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		if (!outcome.ok) return;
 		pendingCanvasFocusRef.current = surface;
 		setWorkspaceAnnouncement(
-			`${columnDisplayLabel(column)} display setup deleted${displayedOn.length === 0 ? "" : ` from ${displayedOn.join(" and ")}`}. Case data was not deleted.`,
+			`${columnDisplayLabel(column)} removed${displayedOn.length === 0 ? "" : ` from ${displayedOn.join(" and ")}`}. Saved case data wasn’t deleted.`,
 		);
 		deselect();
 	};
@@ -441,78 +998,181 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 			return;
 		}
 		const order = appendSurfaceOrderKey(config.columns, surface);
-		const nextConfig = {
-			...config,
-			columns: showColumnOnDisplay(config.columns, column.uuid, surface, order),
-		};
+		const shown = showColumnOnDisplay(
+			config.columns,
+			column.uuid,
+			surface,
+			order,
+		).find((candidate) => candidate.uuid === column.uuid);
+		if (shown === undefined) return;
 		/* Fully hidden legacy definitions are deliberately absent from normal
 		 * config warnings. Ask the SAME gate silently before revealing one: a
 		 * refusal becomes a repair route, never a toast plus a dead click. */
-		const outcome = inline.updateModule(moduleUuid, {
-			caseListConfig: nextConfig,
-		});
+		const outcome = inline.commitMany(
+			columnSnapshotMutations(moduleUuid, column, shown),
+		);
 		if (!outcome.ok) {
 			routeColumnToRepair(surface, column, outcome.messages);
 			return;
 		}
 		setWorkspaceAnnouncement(
-			`${columnDisplayLabel(column)} added to ${surfaceDisplayName(surface)}.`,
+			`${columnDisplayLabel(column)} added to ${surfaceDisplayName(surface)}`,
 		);
 		setSel({ type: "column", uuid: column.uuid });
 	};
 
 	const replaceInput = (uuid: string, next: SearchInputDef) => {
 		// Carry the existing identity + display order forward.
-		updateConfig({
-			...config,
-			searchInputs: config.searchInputs.map((s) =>
-				s.uuid === uuid ? withPreservedIdentity(s, next) : s,
+		const current = config.searchInputs.find((input) => input.uuid === uuid);
+		if (current === undefined) return;
+		commitMany([
+			searchInputUpdateMutation(
+				moduleUuid,
+				current,
+				withPreservedIdentity(current, next),
 			),
-		});
-	};
-	const removeInput = (
-		uuid: SearchInputDef["uuid"],
-		options?: { readonly discardSearchSettings?: boolean },
-	) => {
-		const remainingInputs = config.searchInputs.filter((s) => s.uuid !== uuid);
-		const removesSearchSurface =
-			remainingInputs.length === 0 &&
-			searchConfig !== undefined &&
-			(!caseSearchConfigHasAuthoredSettings(searchConfig) ||
-				options?.discardSearchSettings === true) &&
-			effectiveFilterForEmission(config.filter) === undefined;
-		const outcome = commitMany([
-			{ kind: "removeSearchInput", moduleUuid, uuid },
-			...(removesSearchSurface
-				? options?.discardSearchSettings === true
-					? ([
-							{
-								kind: "updateModule",
-								uuid: moduleUuid,
-								patch: { caseSearchConfig: null },
-							},
-						] satisfies Mutation[])
-					: ([
-							{
-								kind: "setCaseSearchMarker",
-								uuid: moduleUuid,
-								enabled: false,
-							},
-						] satisfies Mutation[])
-				: []),
 		]);
-		if (outcome.ok) deselect();
 	};
-	const addInput = () => {
-		// Smart seed — bound property, human label, widget matched to the
-		// data type, fuzzy match for text. An unbound input matches
-		// NOTHING at runtime, which reads as "search is broken"; a seed
-		// must work the moment it lands.
-		const seed = seedSearchInput(config, ct);
-		if (seed === undefined) return;
+	const removeInput = (uuid: SearchInputDef["uuid"]) => {
+		const orderedInputs = [...config.searchInputs].sort(bySortKey);
+		const removedIndex = orderedInputs.findIndex(
+			(input) => input.uuid === uuid,
+		);
+		const remainingInputs = config.searchInputs.filter((s) => s.uuid !== uuid);
+		const orderedRemainingInputs = orderedInputs.filter(
+			(input) => input.uuid !== uuid,
+		);
+		const removesVisibleSearchScreen = remainingInputs.length === 0;
+		const hasCasesAvailableCondition =
+			effectiveFilterForEmission(config.filter) !== undefined;
+		const nextSearchConfig = removesVisibleSearchScreen
+			? caseSearchConfigAfterFinalFieldRemoval(
+					searchConfig,
+					hasCasesAvailableCondition,
+				)
+			: searchConfig;
+		const mutations: Mutation[] = [
+			{ kind: "removeSearchInput", moduleUuid, uuid },
+		];
+		if (removesVisibleSearchScreen && searchConfig !== undefined) {
+			mutations.push(
+				cleanupCaseSearchAfterFinalInputMutation({
+					uuid: moduleUuid,
+					config: searchConfig,
+					hasCasesAvailableCondition,
+				}),
+			);
+		}
+		const outcome = commitMany(mutations);
+		if (!outcome.ok) return;
+		setInputRemovalReview(null);
+
+		const nextInput =
+			orderedRemainingInputs[
+				Math.min(Math.max(removedIndex, 0), orderedRemainingInputs.length - 1)
+			];
+		pendingSearchFocusRef.current = nextInput?.uuid ?? "add";
+		const removedLabel =
+			orderedInputs.find((input) => input.uuid === uuid)?.label ||
+			"Search field";
+		setWorkspaceAnnouncement(
+			removesVisibleSearchScreen
+				? nextSearchConfig !== undefined &&
+					nextSearchConfig.searchActionEnabled !== false
+					? "Search screen removed. Cases available, the Search action, and the Results layout are unchanged."
+					: nextSearchConfig?.excludedOwnerIds !== undefined
+						? "Search screen removed. Assigned cases and the Results layout are unchanged."
+						: "Search screen removed. The case list no longer asks for search information."
+				: `${removedLabel} removed from Search`,
+		);
+		deselect();
+	};
+	const startInputRemovalReview = useCallback((input: SearchInputDef) => {
+		inputRemovalReviewTokenRef.current += 1;
+		setInputRemovalReview({
+			phase: "dependencies",
+			inputUuid: input.uuid,
+			inputLabel: input.label.trim() || input.name.trim() || "Search field",
+			token: inputRemovalReviewTokenRef.current,
+		});
+	}, []);
+	const cancelInputRemovalReview = useCallback(() => {
+		setInputRemovalReview(null);
+	}, []);
+	const completeInputRemovalReview = useCallback((inputLabel: string) => {
+		setInputRemovalReview(null);
+		setWorkspaceAnnouncement(
+			`No rules use ${inputLabel} now. You can remove the field.`,
+		);
+	}, []);
+	const reviewInputRemovalDependency = useCallback(
+		(dependency: SearchInputRemovalDependency) => {
+			if (inputRemovalReview?.phase !== "dependencies") return;
+			inputRemovalReviewTokenRef.current += 1;
+			const nextReview: SearchInputRemovalReviewSession = {
+				phase: "target",
+				inputUuid: inputRemovalReview.inputUuid,
+				inputLabel: inputRemovalReview.inputLabel,
+				token: inputRemovalReviewTokenRef.current,
+				dependency,
+			};
+			setInputRemovalReview(nextReview);
+			setWorkspaceAnnouncement(
+				`Reviewing ${dependency.label}. It uses the ${inputRemovalReview.inputLabel} answer.`,
+			);
+			if (dependency.kind === "search-field-condition") {
+				openSearchCondition({ kind: "input", uuid: dependency.inputUuid });
+				return;
+			}
+			deselect();
+			navigate.openCaseList(moduleUuid);
+		},
+		[deselect, inputRemovalReview, moduleUuid, navigate, openSearchCondition],
+	);
+	const returnToInputRemovalReview = useCallback(() => {
+		if (inputRemovalReview?.phase !== "target") return;
+		const remaining = searchInputRemovalDependencies(
+			config,
+			searchConfig,
+			inputRemovalReview.inputUuid,
+		).length;
+		inputRemovalReviewTokenRef.current += 1;
+		setInputRemovalReview({
+			phase: "dependencies",
+			inputUuid: inputRemovalReview.inputUuid,
+			inputLabel: inputRemovalReview.inputLabel,
+			token: inputRemovalReviewTokenRef.current,
+		});
+		setWorkspaceAnnouncement(
+			remaining === 0
+				? `No rules use ${inputRemovalReview.inputLabel} now. You can remove the field.`
+				: `${remaining} ${remaining === 1 ? "rule still uses" : "rules still use"} ${inputRemovalReview.inputLabel}`,
+		);
+		if (tab === "search") {
+			leaveSearchCondition({
+				type: "input",
+				uuid: inputRemovalReview.inputUuid,
+			});
+		} else {
+			navigate.openSearchConfig(moduleUuid);
+		}
+	}, [
+		config,
+		inputRemovalReview,
+		leaveSearchCondition,
+		moduleUuid,
+		navigate,
+		searchConfig,
+		tab,
+	]);
+	const addInput = (property: CaseProperty) => {
+		// The canvas owns the meaningful choice. This layer carries it into a
+		// working input with a unique internal name, a matching widget, and the
+		// established per-type match default.
+		const seed = seedSearchInputForProperty(config, property);
 		const seeded = { ...seed, order: appendOrderKey(config.searchInputs) };
 		const outcome = commitMany([
-			{ kind: "setCaseSearchMarker", uuid: moduleUuid, enabled: true },
+			enableCaseSearchMutation(moduleUuid, searchConfig),
 			{ kind: "addSearchInput", moduleUuid, searchInput: seeded },
 		]);
 		// Never select an identity the gate refused to create. The gate can still
@@ -524,34 +1184,29 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 		moveSearchInputToIndex(moduleUuid, uuid, toIndex);
 	const clearFilter = useCallback(
 		(nextFilter: Predicate | undefined) => {
-			const stopsAutomaticSearch =
-				config.searchInputs.length === 0 && searchConfig !== undefined;
-			return commitMany([
+			const mutations: Mutation[] = [
 				{
 					kind: "setCaseListMeta",
 					uuid: moduleUuid,
 					patch: { filter: nextFilter ?? null },
 				},
-				...(stopsAutomaticSearch
-					? caseSearchConfigHasAuthoredSettings(searchConfig)
-						? ([
-								{
-									kind: "updateModule",
-									uuid: moduleUuid,
-									patch: { caseSearchConfig: null },
-								},
-							] satisfies Mutation[])
-						: ([
-								{
-									kind: "setCaseSearchMarker",
-									uuid: moduleUuid,
-									enabled: false,
-								},
-							] satisfies Mutation[])
-					: []),
-			]);
+			];
+			// Cases available and Search intent are independent. `{}` is a real
+			// zero-input manual Search action, so "Show all cases" never removes it.
+			return commitMany(mutations);
 		},
-		[commitMany, config.searchInputs.length, moduleUuid, searchConfig],
+		[commitMany, moduleUuid],
+	);
+	const updateFilter = useCallback(
+		(nextFilter: Predicate | undefined) =>
+			commitMany([
+				{
+					kind: "setCaseListMeta",
+					uuid: moduleUuid,
+					patch: { filter: nextFilter ?? null },
+				},
+			]),
+		[commitMany, moduleUuid],
 	);
 
 	// `currentCaseType` is required below. When the module has no case
@@ -564,37 +1219,134 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 	const inspector = resolveInspector({
 		sel,
 		activeTab: tab,
-		moduleUuid,
 		config,
 		searchConfig,
 		caseTypes,
 		caseType,
-		appId,
-		caseListOnly: mod.caseListOnly === true,
-		onConfigChange: updateConfig,
-		onClearFilter: clearFilter,
 		onSearchConfigChange: updateSearchConfig,
 		replaceColumn,
 		replaceInput,
+		onEditInputCondition: (uuid) =>
+			openSearchCondition({ kind: "input", uuid }),
+		onEditSearchButtonCondition: editSearchButtonCondition,
+		searchSettingsHasError: searchButtonConditionBroken,
 		onHideColumn: hideColumnFromSurface,
 		onDeleteColumn: deleteColumn,
 		onRemoveInput: removeInput,
+		inputRemovalReview,
+		onStartInputRemovalReview: startInputRemovalReview,
+		onCancelInputRemovalReview: cancelInputRemovalReview,
+		onCompleteInputRemovalReview: completeInputRemovalReview,
+		onReviewInputRemovalDependency: reviewInputRemovalDependency,
 	});
 
 	/* A `caseListOnly` module has no module screen (it would be an empty form
 	 * menu), so this workspace is its only home — carry the module identity
-	 * (rename + settings: case type, menu appearance) in the sticky header,
-	 * reusing the same controls the module screen mounts. Form-bearing modules
-	 * keep their identity on the module screen, so no header here. */
+	 * (rename + settings: case type and both appearance surfaces) in the fixed
+	 * header, reusing the same controls the module screen mounts. Form-bearing
+	 * modules keep their identity on the module screen, so no header here. */
 	const moduleHeader: ReactNode = mod.caseListOnly ? (
-		<div className="flex items-center gap-2 pb-2.5 mb-2.5 border-b border-nova-border/60">
-			<EditableTitle value={mod.name} onSave={saveModuleName} />
-			<ModuleSettingsButton moduleUuid={moduleUuid} />
-		</div>
+		<CaseListModuleHeader
+			moduleUuid={moduleUuid}
+			name={mod.name}
+			onSave={saveModuleName}
+			compact={compactHeight}
+		/>
 	) : null;
 
+	let searchConditionSurface: ReactNode = null;
+	if (sel?.type === "search-condition") {
+		if (sel.target.kind === "input") {
+			const inputUuid = sel.target.uuid;
+			const input = config.searchInputs.find(
+				(candidate) => candidate.uuid === inputUuid,
+			);
+			if (input?.kind === "advanced") {
+				const dependencyReview =
+					inputRemovalReview?.phase === "target" &&
+					inputRemovalReview.dependency.kind === "search-field-condition" &&
+					inputRemovalReview.dependency.inputUuid === input.uuid
+						? {
+								token: inputRemovalReview.token,
+								path: inputRemovalReview.dependency.paths[0],
+								inputLabel: inputRemovalReview.inputLabel,
+							}
+						: undefined;
+				searchConditionSurface = (
+					<SearchConditionCanvas
+						context={{
+							kind: "input",
+							label:
+								input.label ||
+								labelFromProperty(input.name) ||
+								"this search field",
+						}}
+						value={input.predicate}
+						onChange={(predicate) =>
+							replaceInput(input.uuid, { ...input, predicate })
+						}
+						onBack={
+							dependencyReview === undefined
+								? () =>
+										returnFromSearchCondition({
+											type: "input",
+											uuid: input.uuid,
+										})
+								: returnToInputRemovalReview
+						}
+						caseTypes={caseTypes}
+						currentCaseType={caseType}
+						knownInputs={searchInputDecls(config.searchInputs)}
+						dependencyReview={dependencyReview}
+					/>
+				);
+			}
+		} else if (searchConfig?.searchButtonDisplayCondition !== undefined) {
+			searchConditionSurface = (
+				<SearchConditionCanvas
+					context={{ kind: "search-button" }}
+					value={searchConfig.searchButtonDisplayCondition}
+					onChange={(searchButtonDisplayCondition) =>
+						updateSearchConfig({
+							...searchConfig,
+							searchButtonDisplayCondition,
+						})
+					}
+					onBack={() => {
+						setSearchButtonConditionFocusRequest(undefined);
+						returnFromSearchCondition({ type: "search-panel" });
+					}}
+					caseTypes={caseTypes}
+					currentCaseType={caseType}
+					focusRequest={searchButtonConditionFocusRequest}
+				/>
+			);
+		}
+	}
+	let resultsDependencyReview: CaseListCanvasProps["dependencyReview"];
+	if (
+		inputRemovalReview?.phase === "target" &&
+		inputRemovalReview.dependency.kind === "cases-available"
+	) {
+		resultsDependencyReview = {
+			kind: "cases-available",
+			token: inputRemovalReview.token,
+			path: inputRemovalReview.dependency.paths[0],
+			inputLabel: inputRemovalReview.inputLabel,
+		};
+	} else if (
+		inputRemovalReview?.phase === "target" &&
+		inputRemovalReview.dependency.kind === "assigned-cases"
+	) {
+		resultsDependencyReview = {
+			kind: "assigned-cases",
+			token: inputRemovalReview.token,
+			inputLabel: inputRemovalReview.inputLabel,
+		};
+	}
+
 	return (
-		<div className="case-list-workspace @container">
+		<div className="case-list-workspace @container flex h-full min-h-0 flex-col overflow-hidden">
 			<p
 				className="sr-only"
 				role="status"
@@ -605,6 +1357,7 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 			</p>
 			<WorkspaceTabs
 				header={moduleHeader}
+				compactHeight={compactHeight}
 				tab={tab}
 				errorAreas={errorAreas}
 				onSelectTab={(next) => {
@@ -616,65 +1369,112 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 				}}
 			/>
 
-			{tab === "search" && (
-				<SearchCanvas
-					searchInputs={config.searchInputs}
-					searchConfig={searchConfig}
-					caseTypes={caseTypes}
-					currentCaseType={caseType}
-					filter={config.filter}
-					filterBroken={filterBroken}
-					selection={sel}
-					onSelect={setSel}
-					onAddInput={addInput}
-					addInputDisabledReason={addDisabledReason}
-					hasSearchSurface={config.searchInputs.length > 0}
-					hasAutomaticResultsFilter={
-						effectiveFilterForEmission(config.filter) !== undefined
-					}
-					onMoveInput={moveInput}
-				/>
-			)}
-			{tab === "list" && (
-				<CaseListCanvas
-					config={config}
-					caseType={ct}
-					caseTypes={caseTypes}
-					brokenColumns={brokenColumns}
-					selection={sel}
-					onSelect={setSel}
-					onAddColumn={(property) => addColumn("list", property)}
-					onAddCalculated={() => addCalculatedColumn("list")}
-					addColumnDisabledReason={addDisabledReason}
-					onMoveColumn={(uuid, toIndex) => moveColumn("list", uuid, toIndex)}
-					onColumnsChange={updateColumns}
-					onShowColumn={(column) => showColumn("list", column)}
-					onRepairColumn={(column) => routeColumnToRepair("list", column)}
-					onOpenOptions={() => setSel({ type: "list-panel" })}
-					showMenuAppearance={canEdit && mod.caseListOnly === true}
-				/>
-			)}
-			{tab === "detail" && (
-				<DetailCanvas
-					config={config}
-					caseType={ct}
-					brokenColumns={brokenColumns}
-					selection={sel}
-					onSelect={setSel}
-					onAddDetailField={(property) => addColumn("detail", property)}
-					onAddCalculated={() => addCalculatedColumn("detail")}
-					addDisabledReason={addDisabledReason}
-					onMoveColumn={(uuid, toIndex) => moveColumn("detail", uuid, toIndex)}
-					onShowColumn={(column) => showColumn("detail", column)}
-					onRepairColumn={(column) => routeColumnToRepair("detail", column)}
-				/>
-			)}
+			{/* Each tab keeps its own body scroller mounted. The strip above is a
+			 * fixed flex sibling, so it cannot drift before "sticking" and each
+			 * canvas naturally remembers its own scroll position on return. Do not
+			 * use data-preview-scroll-container here: that selector belongs to the
+			 * builder's form flipbook contract. */}
+			<div className="relative min-h-0 flex-1 overflow-hidden">
+				<Activity mode={tab === "search" ? "visible" : "hidden"}>
+					<div
+						ref={scrollBodyRefs.search}
+						data-case-workspace-scroll-body="search"
+						onScroll={(event) =>
+							rememberScroll("search", event.currentTarget.scrollTop)
+						}
+						className="h-full overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
+					>
+						{searchConditionSurface ?? (
+							<SearchCanvas
+								searchInputs={config.searchInputs}
+								searchConfig={searchConfig}
+								caseTypes={caseTypes}
+								currentCaseType={caseType}
+								selection={sel}
+								onSelect={setSel}
+								onConfigureSearchAction={configureSearchAction}
+								onAddInput={addInput}
+								addInputDisabledReason={addDisabledReason}
+								hasSearchSurface={config.searchInputs.length > 0}
+								hasSearchAction={effectiveSearchConfig !== undefined}
+								opensResultsAutomatically={opensResultsAutomatically}
+								onMoveInput={moveInput}
+								searchSettingsHasError={searchButtonConditionBroken}
+							/>
+						)}
+					</div>
+				</Activity>
+				<Activity mode={tab === "list" ? "visible" : "hidden"}>
+					<div
+						ref={scrollBodyRefs.list}
+						data-case-workspace-scroll-body="list"
+						onScroll={(event) =>
+							rememberScroll("list", event.currentTarget.scrollTop)
+						}
+						className="h-full overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
+					>
+						<CaseListCanvas
+							config={config}
+							caseType={ct}
+							caseTypes={caseTypes}
+							brokenColumns={brokenColumns}
+							selection={sel}
+							onSelect={setSel}
+							onAddColumn={(property) => addColumn("list", property)}
+							onAddCalculated={() => addCalculatedColumn("list")}
+							addColumnDisabledReason={addDisabledReason}
+							onMoveColumn={(uuid, toIndex) =>
+								moveColumn("list", uuid, toIndex)
+							}
+							onColumnsChange={updateColumns}
+							onShowColumn={(column) => showColumn("list", column)}
+							onRepairColumn={(column) => routeColumnToRepair("list", column)}
+							filterBroken={filterBroken}
+							excludedOwnerIdsBroken={excludedOwnerIdsBroken}
+							onFilterChange={updateFilter}
+							onClearFilter={clearFilter}
+							searchConfig={searchConfig}
+							caseSearchEnabled={effectiveSearchConfig !== undefined}
+							onExcludedOwnerIdsChange={updateExcludedOwnerIds}
+							appId={appId}
+							dependencyReview={resultsDependencyReview}
+							onReturnToSearchField={returnToInputRemovalReview}
+						/>
+					</div>
+				</Activity>
+				<Activity mode={tab === "detail" ? "visible" : "hidden"}>
+					<div
+						ref={scrollBodyRefs.detail}
+						data-case-workspace-scroll-body="detail"
+						onScroll={(event) =>
+							rememberScroll("detail", event.currentTarget.scrollTop)
+						}
+						className="h-full overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
+					>
+						<DetailCanvas
+							config={config}
+							caseType={ct}
+							brokenColumns={brokenColumns}
+							selection={sel}
+							onSelect={setSel}
+							onAddDetailField={(property) => addColumn("detail", property)}
+							onAddCalculated={() => addCalculatedColumn("detail")}
+							addDisabledReason={addDisabledReason}
+							onMoveColumn={(uuid, toIndex) =>
+								moveColumn("detail", uuid, toIndex)
+							}
+							onShowColumn={(column) => showColumn("detail", column)}
+							onRepairColumn={(column) => routeColumnToRepair("detail", column)}
+						/>
+					</div>
+				</Activity>
+			</div>
 
 			{inspector !== null && (
 				<InspectorSurface
 					kicker={inspector.kicker}
 					title={inspector.title}
-					onClose={deselect}
+					onClose={closeSelectionAndRestoreFocus}
 				>
 					{inspector.body}
 				</InspectorSurface>
@@ -688,25 +1488,25 @@ function WorkspaceBody({ moduleUuid, tab }: CaseListConfigWorkspaceProps) {
 interface ResolveInspectorArgs {
 	readonly sel: WorkspaceSelection | null;
 	readonly activeTab: CaseListWorkspaceTab;
-	/** Owning module — used to key media-slot staged uploads
-	 *  (`caselist:<moduleUuid>:<slot>`). */
-	readonly moduleUuid: Uuid;
 	readonly config: CaseListConfig;
 	readonly searchConfig: CaseSearchConfig | undefined;
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
 	readonly caseType: string;
-	readonly appId: string;
-	readonly caseListOnly: boolean;
-	readonly onConfigChange: (next: CaseListConfig) => void;
-	readonly onClearFilter: (next: Predicate | undefined) => CommitOutcome;
 	readonly onSearchConfigChange: (next: CaseSearchConfig) => void;
 	readonly replaceColumn: (uuid: string, next: Column) => void;
 	readonly replaceInput: (uuid: string, next: SearchInputDef) => void;
+	readonly onEditInputCondition: (uuid: SearchInputDef["uuid"]) => void;
+	readonly onEditSearchButtonCondition: (focusNewCondition?: boolean) => void;
+	readonly searchSettingsHasError: boolean;
 	readonly onHideColumn: (surface: ColumnSurface, column: Column) => void;
 	readonly onDeleteColumn: (surface: ColumnSurface, column: Column) => void;
-	readonly onRemoveInput: (
-		uuid: SearchInputDef["uuid"],
-		options?: { readonly discardSearchSettings?: boolean },
+	readonly onRemoveInput: (uuid: SearchInputDef["uuid"]) => void;
+	readonly inputRemovalReview: SearchInputRemovalReviewSession | null;
+	readonly onStartInputRemovalReview: (input: SearchInputDef) => void;
+	readonly onCancelInputRemovalReview: () => void;
+	readonly onCompleteInputRemovalReview: (inputLabel: string) => void;
+	readonly onReviewInputRemovalDependency: (
+		dependency: SearchInputRemovalDependency,
 	) => void;
 }
 
@@ -739,7 +1539,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						: null);
 			const title =
 				column.kind === "calculated"
-					? column.header || "Untitled field"
+					? column.header || "Calculated value"
 					: column.header ||
 						labelFromProperty(column.field) ||
 						"Untitled field";
@@ -749,6 +1549,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 				body:
 					surface === null ? null : (
 						<ColumnInspectorBody
+							key={column.uuid}
 							column={column}
 							surface={surface}
 							visibleCount={
@@ -774,6 +1575,11 @@ function resolveInspector(args: ResolveInspectorArgs): {
 			const index = sortedInputs.findIndex((s) => s.uuid === sel.uuid);
 			const input = sortedInputs[index];
 			if (input === undefined) return null;
+			const removalDependencies = searchInputRemovalDependencies(
+				config,
+				args.searchConfig,
+				input.uuid,
+			);
 			return {
 				kicker: "Search field",
 				title: input.label || labelFromProperty(input.name) || "Untitled field",
@@ -785,52 +1591,59 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						caseTypes={args.caseTypes}
 						currentCaseType={args.caseType}
 						onChange={(next) => args.replaceInput(input.uuid, next)}
-						removalNeedsConfirmation={
-							sortedInputs.length === 1 &&
-							effectiveFilterForEmission(config.filter) === undefined &&
-							caseSearchConfigHasAuthoredSettings(args.searchConfig)
+						onEditCondition={() => args.onEditInputCondition(input.uuid)}
+						searchScreenSettingsRemoved={
+							sortedInputs.length === 1
+								? authoredSearchScreenSettings(args.searchConfig)
+								: []
 						}
-						onRemove={(discardSearchSettings) =>
-							args.onRemoveInput(
-								input.uuid,
-								discardSearchSettings
-									? { discardSearchSettings: true }
-									: undefined,
+						searchActionSettingsPreserved={
+							sortedInputs.length === 1
+								? authoredSearchActionSettings(args.searchConfig)
+								: []
+						}
+						opensResultsAutomatically={
+							sortedInputs.length === 1 &&
+							args.searchConfig !== undefined &&
+							effectiveFilterForEmission(config.filter) !== undefined
+						}
+						preservesAssignedCaseRule={
+							sortedInputs.length === 1 &&
+							args.searchConfig?.excludedOwnerIds !== undefined
+						}
+						removalDependencies={removalDependencies}
+						removalReviewOpen={
+							args.inputRemovalReview?.phase === "dependencies" &&
+							args.inputRemovalReview.inputUuid === input.uuid
+						}
+						onStartRemovalReview={() => args.onStartInputRemovalReview(input)}
+						onCancelRemovalReview={args.onCancelInputRemovalReview}
+						onCompleteRemovalReview={() =>
+							args.onCompleteInputRemovalReview(
+								input.label.trim() || input.name.trim() || "Search field",
 							)
 						}
+						onReviewRemovalDependency={args.onReviewInputRemovalDependency}
+						onRemove={() => args.onRemoveInput(input.uuid)}
 					/>
 				),
 			};
 		}
-		case "filter":
-			return {
-				kicker: "Search",
-				title: "Cases available",
-				body: (
-					<FilterInspectorBody
-						config={config}
-						onChange={args.onConfigChange}
-						onClearFilter={args.onClearFilter}
-						stopsAutomaticSearch={
-							config.searchInputs.length === 0 &&
-							args.searchConfig !== undefined
-						}
-						discardsAutomaticSearchSettings={caseSearchConfigHasAuthoredSettings(
-							args.searchConfig,
-						)}
-						caseTypes={args.caseTypes}
-						currentCaseType={args.caseType}
-						appId={args.appId}
-					/>
-				),
-			};
 		case "search-panel": {
 			const hasVisibleSearchScreen = config.searchInputs.length > 0;
+			const effectiveSearch = effectiveCaseSearchConfig({
+				caseListConfig: config,
+				caseSearchConfig: args.searchConfig,
+			});
+			const opensResultsAutomatically =
+				effectiveSearch !== undefined &&
+				!hasVisibleSearchScreen &&
+				effectiveFilterForEmission(config.filter) !== undefined;
 			return {
-				kicker: hasVisibleSearchScreen ? "Search screen" : "Search",
+				kicker: hasVisibleSearchScreen ? "Search screen" : "More settings",
 				title: hasVisibleSearchScreen
 					? (args.searchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE)
-					: "Automatic search rules",
+					: "Search action",
 				body: (
 					<SearchPanelInspectorBody
 						value={args.searchConfig}
@@ -839,23 +1652,17 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						currentCaseType={args.caseType}
 						knownInputs={config.searchInputs}
 						hasVisibleSearchScreen={hasVisibleSearchScreen}
+						hasSearchAction={effectiveSearch !== undefined}
+						opensResultsAutomatically={opensResultsAutomatically}
+						onEditDisplayCondition={args.onEditSearchButtonCondition}
+						searchSettingsHasError={args.searchSettingsHasError}
 					/>
 				),
 			};
 		}
-		case "list-panel":
-			return {
-				kicker: "Results",
-				title: "Menu appearance",
-				body: (
-					<ListPanelInspectorBody
-						moduleUuid={args.moduleUuid}
-						config={config}
-						onChange={args.onConfigChange}
-						caseListOnly={args.caseListOnly}
-					/>
-				),
-			};
+		case "search-condition":
+			// The center workbench is the single editing surface for this setting.
+			return null;
 	}
 }
 
@@ -895,21 +1702,23 @@ function ColumnInspectorBody({
 		...(column.visibleInList !== false ? ["Results"] : []),
 		...(column.visibleInDetail !== false ? ["Details"] : []),
 	];
-	const deleteScope =
+	const deleteLocation =
 		displayedOn.length === 0
-			? "this saved display setup"
-			: `this display setup from ${displayedOn.join(" and ")}`;
+			? "its saved label and formatting"
+			: `it from ${displayedOn.join(" and ")}`;
 	return (
 		<>
 			{repairing && (
-				<div className="rounded-xl border border-nova-violet/25 bg-nova-violet/[0.06] px-3 py-3 text-[12px] leading-relaxed">
-					<p className="font-medium text-nova-text">One quick fix first</p>
-					<p className="mt-1 text-nova-text-secondary">
-						Review the source or display settings below. Nova will add this to{" "}
-						{screenName} automatically as soon as it’s ready.
+				<div className="rounded-xl border border-nova-violet/25 bg-nova-violet/[0.06] px-3 py-3 leading-relaxed">
+					<p className="text-[14px] font-medium text-nova-text">
+						Finish setting up this information
+					</p>
+					<p className="mt-1 text-[13px] text-nova-text-secondary">
+						Choose what it shows and how it appears below. It will be added to{" "}
+						{screenName} when it’s ready.
 					</p>
 					{uniqueRepairMessages.length > 0 && (
-						<ul className="mt-2 list-disc space-y-1 pl-4 text-nova-text-muted">
+						<ul className="mt-2 list-disc space-y-1 pl-4 text-[13px] text-nova-text-muted">
 							{uniqueRepairMessages.map((message) => (
 								<li key={message}>{message}</li>
 							))}
@@ -918,6 +1727,7 @@ function ColumnInspectorBody({
 				</div>
 			)}
 			<ColumnEditor
+				key={column.uuid}
 				value={column}
 				onChange={onChange}
 				caseTypes={caseTypes}
@@ -925,61 +1735,60 @@ function ColumnInspectorBody({
 			/>
 			{!repairing && (
 				<div className="border-t border-nova-border pt-3">
-					<button
+					<Button
 						type="button"
-						onClick={keepLastResult ? undefined : onHide}
+						onClick={onHide}
+						disabled={keepLastResult}
 						aria-disabled={keepLastResult}
-						className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border px-3 text-[13px] transition-colors ${
+						variant="outline"
+						size="xl"
+						className={`w-full bg-transparent px-3 text-[14px] dark:bg-transparent ${
 							keepLastResult
-								? "cursor-not-allowed border-white/[0.04] text-nova-text-muted opacity-60"
-								: "cursor-pointer border-white/[0.06] text-nova-text-secondary hover:border-nova-violet/30 hover:bg-nova-violet/[0.06] hover:text-nova-text"
+								? "border-white/[0.04] text-nova-text-muted"
+								: "border-white/[0.06] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.06] not-disabled:hover:text-nova-text"
 						}`}
 					>
 						<Icon icon={tablerEyeOff} width="15" height="15" />
 						Hide from {screenName}
-					</button>
+					</Button>
 					<p className="mt-2 text-[12px] leading-relaxed text-nova-text-muted">
 						{keepLastResult
-							? "Add another result first. People need at least one piece of information to choose a case."
-							: `You can add it back later from Add information in ${screenName}.`}
+							? "People need at least one piece of information to choose a case. Add another before hiding this one."
+							: `You can add it back from Add information in ${screenName}`}
 					</p>
 				</div>
 			)}
 			<RemoveRow
-				label="Delete information…"
+				label="Delete information"
 				onClick={() => setConfirmingDelete(true)}
 				disabledReason={
 					deleteWouldRemoveLastResult
-						? "Add another result first. People need at least one piece of information to choose a case."
+						? "People need at least one piece of information to choose a case. Add another before deleting this one."
 						: undefined
 				}
 			/>
 			{!deleteWouldRemoveLastResult && (
-				<p className="-mt-1 text-[11px] leading-relaxed text-nova-text-muted">
-					Deletes only this display setup. Saved case data stays.
+				<p className="-mt-1 text-[12px] leading-relaxed text-nova-text-muted">
+					Deleting this information won’t delete saved case data
 				</p>
 			)}
 			<AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display">
-							Delete {columnDisplayLabel(column)}?
+							Deleting {columnDisplayLabel(column)} removes {deleteLocation}
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							This removes {deleteScope}
+							Saved case data will stay
 							{column.sort !== undefined
-								? " and removes its Default order rule"
+								? ". This information will also be removed from the default order."
 								: ""}
-							. This does not delete any case property or saved case data.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Keep information</AlertDialogCancel>
-						<AlertDialogAction
-							onClick={onDelete}
-							className="bg-nova-rose text-nova-void not-disabled:hover:bg-[color-mix(in_oklab,var(--nova-rose),black_14%)] focus-visible:ring-nova-rose/40"
-						>
-							Delete information
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction variant="destructive" onClick={onDelete}>
+							Delete
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
@@ -995,7 +1804,17 @@ function SearchInputInspectorBody({
 	caseTypes,
 	currentCaseType,
 	onChange,
-	removalNeedsConfirmation,
+	onEditCondition,
+	searchScreenSettingsRemoved,
+	searchActionSettingsPreserved,
+	opensResultsAutomatically,
+	preservesAssignedCaseRule,
+	removalDependencies,
+	removalReviewOpen,
+	onStartRemovalReview,
+	onCancelRemovalReview,
+	onCompleteRemovalReview,
+	onReviewRemovalDependency,
 	onRemove,
 }: {
 	readonly input: SearchInputDef;
@@ -1004,14 +1823,64 @@ function SearchInputInspectorBody({
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
 	readonly currentCaseType: string;
 	readonly onChange: (next: SearchInputDef) => void;
-	readonly removalNeedsConfirmation: boolean;
-	readonly onRemove: (discardSearchSettings: boolean) => void;
+	readonly onEditCondition: () => void;
+	readonly searchScreenSettingsRemoved: readonly string[];
+	readonly searchActionSettingsPreserved: readonly string[];
+	readonly opensResultsAutomatically: boolean;
+	readonly preservesAssignedCaseRule: boolean;
+	readonly removalDependencies: readonly SearchInputRemovalDependency[];
+	readonly removalReviewOpen: boolean;
+	readonly onStartRemovalReview: () => void;
+	readonly onCancelRemovalReview: () => void;
+	readonly onCompleteRemovalReview: () => void;
+	readonly onReviewRemovalDependency: (
+		dependency: SearchInputRemovalDependency,
+	) => void;
+	readonly onRemove: () => void;
 }) {
 	const [confirming, setConfirming] = useState(false);
+	const removeTriggerRef = useRef<HTMLElement | null>(null);
+	const removeRegionRef = useRef<HTMLDivElement>(null);
+	const navigatingReviewRef = useRef(false);
+	const completedReviewRef = useRef(false);
+	const removesSearchScreen = siblings.length === 1;
 	const remove = () => {
-		if (removalNeedsConfirmation) setConfirming(true);
-		else onRemove(false);
+		removeTriggerRef.current =
+			document.activeElement instanceof HTMLElement
+				? document.activeElement
+				: null;
+		if (removalDependencies.length > 0) {
+			onStartRemovalReview();
+			return;
+		}
+		if (removesSearchScreen) {
+			setConfirming(true);
+		} else onRemove();
 	};
+	const inputLabel = input.label.trim() || input.name.trim() || "this field";
+	useEffect(() => {
+		if (!removalReviewOpen || removalDependencies.length > 0) {
+			completedReviewRef.current = false;
+			return;
+		}
+		if (completedReviewRef.current) return;
+		const frame = requestAnimationFrame(() => {
+			completedReviewRef.current = true;
+			removeRegionRef.current
+				?.querySelector<HTMLButtonElement>("button")
+				?.focus({ preventScroll: true });
+			onCompleteRemovalReview();
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [onCompleteRemovalReview, removalDependencies.length, removalReviewOpen]);
+	const settingsList = new Intl.ListFormat("en", {
+		style: "long",
+		type: "conjunction",
+	}).format(searchScreenSettingsRemoved);
+	const actionSettingsList = new Intl.ListFormat("en", {
+		style: "long",
+		type: "conjunction",
+	}).format(searchActionSettingsPreserved);
 	return (
 		<>
 			<SearchInputEditor
@@ -1021,34 +1890,111 @@ function SearchInputInspectorBody({
 				caseTypes={caseTypes}
 				currentCaseType={currentCaseType}
 				onChange={onChange}
+				onEditCondition={onEditCondition}
 			/>
-			<RemoveRow
-				label={
-					removalNeedsConfirmation
-						? "Remove search field and screen settings…"
-						: "Remove search field"
-				}
-				onClick={remove}
-			/>
-			<AlertDialog open={confirming} onOpenChange={setConfirming}>
-				<AlertDialogContent className="text-left">
+			<div ref={removeRegionRef}>
+				<RemoveRow label="Remove search field" onClick={remove} />
+			</div>
+			<AlertDialog
+				open={removalReviewOpen && removalDependencies.length > 0}
+				onOpenChange={(open) => {
+					if (!open && !navigatingReviewRef.current) {
+						onCancelRemovalReview();
+					}
+				}}
+			>
+				<AlertDialogContent
+					finalFocus={() => {
+						if (navigatingReviewRef.current) {
+							navigatingReviewRef.current = false;
+							return false;
+						}
+						return removeTriggerRef.current;
+					}}
+					className="text-left"
+				>
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display">
-							Remove the search screen?
+							Update{" "}
+							{removalDependencies.length === 1 ? "this rule" : "these rules"}{" "}
+							before removing {inputLabel}
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							This is the final search field, so removing it also removes the
-							screen title and button settings. Results, Details, and the rule
-							for who appears stay unchanged.
+							This search field supplies an answer used somewhere else. Remove
+							or replace that answer in each rule first.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<ul aria-label={`Rules using ${inputLabel}`} className="grid gap-2">
+						{removalDependencies.map((dependency) => (
+							<li
+								key={`${dependency.kind}:${
+									dependency.kind === "search-field-condition"
+										? dependency.inputUuid
+										: "results"
+								}:${JSON.stringify(dependency.paths)}`}
+							>
+								<Button
+									type="button"
+									variant="outline"
+									size="xl"
+									onClick={() => {
+										navigatingReviewRef.current = true;
+										onReviewRemovalDependency(dependency);
+									}}
+									className="h-auto min-h-11 w-full justify-between gap-3 border-white/[0.08] bg-white/[0.025] px-3 py-2.5 text-left text-[14px]"
+								>
+									<span className="min-w-0 flex-1 break-words font-medium text-nova-text">
+										<span className="block">{dependency.label}</span>
+										<span className="mt-0.5 block text-[12px] font-normal text-nova-text-muted">
+											{dependency.paths.length === 1
+												? "Uses this answer once"
+												: `Uses this answer in ${dependency.paths.length} places`}
+										</span>
+									</span>
+									<span className="shrink-0 font-medium text-nova-violet-bright">
+										Review
+									</span>
+								</Button>
+							</li>
+						))}
+					</ul>
+					<AlertDialogFooter>
+						<AlertDialogCancel onClick={onCancelRemovalReview}>
+							Keep field
+						</AlertDialogCancel>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+			<AlertDialog open={confirming} onOpenChange={setConfirming}>
+				<AlertDialogContent
+					finalFocus={() => removeTriggerRef.current}
+					className="text-left"
+				>
+					<AlertDialogHeader>
+						<AlertDialogTitle className="font-display">
+							Removing this field removes the Search screen
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							This is the only Search field. After it is removed,
+							{opensResultsAutomatically
+								? " people will go straight to Results using Cases available."
+								: " people can browse the case list without searching first."}
+							{searchScreenSettingsRemoved.length > 0
+								? ` The ${settingsList} will be removed.`
+								: ""}
+							{searchActionSettingsPreserved.length > 0
+								? ` Your ${actionSettingsList} will stay in More settings.`
+								: ""}{" "}
+							Cases available and the Results layout will stay the same.
+							{preservesAssignedCaseRule
+								? " The assigned cases setting doesn’t change."
+								: ""}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Keep search</AlertDialogCancel>
-						<AlertDialogAction
-							onClick={() => onRemove(true)}
-							className="bg-nova-rose text-nova-void not-disabled:hover:bg-[color-mix(in_oklab,var(--nova-rose),black_14%)] focus-visible:ring-nova-rose/40"
-						>
-							Remove search
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction variant="destructive" onClick={onRemove}>
+							Remove field
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
@@ -1064,9 +2010,12 @@ interface WorkspaceTabsProps {
 	readonly errorAreas: CaseListConfigErrorAreas;
 	readonly onSelectTab: (next: CaseListWorkspaceTab) => void;
 	/** Optional module-identity row rendered above the tabs, inside the same
-	 *  sticky frame — present only when this workspace is the module's home
+	 *  fixed workspace header — present only when this workspace is the module's home
 	 *  (a `caseListOnly` module). */
 	readonly header?: ReactNode;
+	/** Compact fixed chrome for unusually short windows. The body remains the
+	 *  only scroller and receives real height instead of collapsing to zero. */
+	readonly compactHeight?: boolean;
 }
 
 const TAB_DEFS: ReadonlyArray<{
@@ -1102,25 +2051,38 @@ const TAB_DEFS: ReadonlyArray<{
  * lives behind the chrome's global Preview toggle, so the strip is
  * pure workbench navigation.
  */
-function WorkspaceTabs({
+export function WorkspaceTabs({
 	tab,
 	errorAreas,
 	onSelectTab,
 	header,
+	compactHeight = false,
 }: WorkspaceTabsProps) {
+	const canEdit = useCanEdit();
 	/* The canvas narrows when the inspector docks (and again with both
 	 * sidebars open), so the concise Search / Results / Details labels must
 	 * remain visible. Below the `sm` container boundary, spacing tightens and
 	 * the decorative icons step away; the text stays intact and the buttons keep
 	 * their full accessible names. The
-	 * bar spans the column (sticky, border); its contents use the same `3xl`
+	 * bar spans the column; its contents use the same `3xl`
 	 * frame as the composition canvases so navigation and content share a
 	 * calm, consistent width when either sidebar collapses. */
 	return (
-		<div className="sticky top-0 z-raised py-2.5 border-b border-nova-border bg-pv-bg/90 backdrop-blur-md">
+		<div
+			data-case-workspace-tabs
+			data-compact-height={compactHeight || undefined}
+			className={`relative z-raised shrink-0 border-b border-nova-border bg-pv-bg ${
+				compactHeight ? "py-1" : "py-2.5"
+			}`}
+		>
 			<ContentFrame width="3xl" className="px-3 @sm:px-6">
 				{header}
-				<div className="flex items-center gap-1 @sm:gap-1.5 @2xl:gap-2">
+				<nav
+					aria-label="Case workspace screens"
+					className={`flex items-center gap-1 @sm:gap-1.5 @2xl:gap-2 ${
+						compactHeight && header ? "pr-12 @sm:pr-14" : ""
+					}`}
+				>
 					{TAB_DEFS.map(({ id, icon, label, accessibleLabel }) => {
 						const active = tab === id;
 						const hasErrors = errorAreas[id];
@@ -1132,20 +2094,24 @@ function WorkspaceTabs({
 								key={id}
 								content={
 									hasErrors
-										? `${accessibleLabel} needs attention — open it to see what's wrong`
+										? canEdit
+											? `Open ${accessibleLabel} to fix it`
+											: `${accessibleLabel} needs attention`
 										: accessibleLabel
 								}
 								side="bottom"
 							>
-								<button
+								<Button
 									type="button"
 									aria-label={accessibleName}
 									aria-current={active ? "page" : undefined}
 									onClick={() => onSelectTab(id)}
-									className={`relative flex min-w-0 flex-1 items-center justify-center gap-1 px-1.5 @sm:gap-2 @sm:px-2 @2xl:px-3.5 py-1.5 min-h-11 rounded-lg text-left whitespace-nowrap cursor-pointer border transition-all ${
+									variant="ghost"
+									size="xl"
+									className={`relative min-w-0 flex-1 gap-1 border px-1.5 py-1.5 text-left @sm:gap-2 @sm:px-2 @2xl:px-3.5 ${
 										active
 											? "bg-nova-violet/[0.13] border-nova-border-bright"
-											: "border-transparent hover:bg-white/[0.03]"
+											: "border-transparent not-disabled:hover:bg-white/[0.03]"
 									}`}
 								>
 									{hasErrors && (
@@ -1174,7 +2140,7 @@ function WorkspaceTabs({
 										{/* Grid stacks the visible label over an invisible bold
 										 *  ghost, so the slot is always as wide as the bold form —
 										 *  selecting a tab must never nudge its neighbors. */}
-										<span className="grid text-[13px] leading-tight">
+										<span className="grid text-sm leading-tight">
 											<span
 												className={`col-start-1 row-start-1 ${
 													active
@@ -1192,11 +2158,11 @@ function WorkspaceTabs({
 											</span>
 										</span>
 									</span>
-								</button>
+								</Button>
 							</SimpleTooltip>
 						);
 					})}
-				</div>
+				</nav>
 			</ContentFrame>
 		</div>
 	);

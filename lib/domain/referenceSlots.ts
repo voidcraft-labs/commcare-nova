@@ -847,6 +847,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].type": "config",
 	"caseListConfig.searchInputs[].mode.kind": "discriminator",
 	"caseListConfig.searchInputs[].mode.quantifier": "config",
+	"caseSearchConfig.searchActionEnabled": "config",
 	"caseSearchConfig.searchScreenTitle": "display-text",
 	"caseSearchConfig.searchScreenSubtitle": "display-text",
 	"caseSearchConfig.searchButtonLabel": "display-text",

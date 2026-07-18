@@ -7,7 +7,8 @@
  *     prompt slot defaults to full-string exact match, so token
  *     containment silently mismatches regardless of via).
  *   - `range` on simple-arm inputs whose `via` is non-self (CCHQ's
- *     daterange widget reads two values, but each prompt binds one;
+ *     daterange widget binds one encoded start/end pair, but a prompt carries
+ *     no relation-walk metadata;
  *     the two-bound semantic can only ride on the self-walk shape).
  *   - `range` on simple-arm inputs whose `name !== property` (CCHQ
  *     auto-matches the typed range against the case property named
@@ -41,6 +42,7 @@ const caseTypes = [
 		parent_type: "household",
 		properties: [
 			{ name: "case_name", label: "Name", data_type: "text" as const },
+			{ name: "visit_date", label: "Visit", data_type: "date" as const },
 			{ name: "tags", label: "Tags", data_type: "multi_select" as const },
 		],
 	},
@@ -79,6 +81,76 @@ const standardForm = {
 };
 
 describe("searchInputViaModeCompatibility", () => {
+	it("rejects range mode paired with a one-date widget", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-date-range-mode"),
+								"visit_date",
+								"Visit date",
+								"date",
+								"visit_date",
+								{ mode: { kind: "range" } },
+							),
+						],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes,
+		});
+
+		const hits = runValidation(doc).filter((error) => error.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].details).toMatchObject({
+			inputType: "date",
+			modeKind: "range",
+			reason: "range-needs-date-range-widget",
+		});
+	});
+
+	it("rejects a date-range widget paired with a one-value mode", () => {
+		const doc = buildDoc({
+			appName: "T",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						searchInputs: [
+							simpleSearchInputDef(
+								asUuid("si-range-exact-mode"),
+								"visit_date",
+								"Visit date",
+								"date-range",
+								"visit_date",
+								{ mode: { kind: "exact" } },
+							),
+						],
+					},
+					forms: [standardForm],
+				},
+			],
+			caseTypes,
+		});
+
+		const hits = runValidation(doc).filter((error) => error.code === CODE);
+		expect(hits).toHaveLength(1);
+		expect(hits[0].details).toMatchObject({
+			inputType: "date-range",
+			modeKind: "exact",
+			reason: "date-range-needs-range-mode",
+		});
+	});
+
 	it("fires for `multi-select-contains` mode on a non-self via", () => {
 		const doc = buildDoc({
 			appName: "T",

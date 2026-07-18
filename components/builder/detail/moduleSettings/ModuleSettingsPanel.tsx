@@ -1,6 +1,8 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
+import { Button } from "@/components/shadcn/button";
+import { PopoverTitle } from "@/components/shadcn/popover";
 import type { Uuid } from "@/lib/doc/types";
 import { ModuleAppearanceSection } from "./ModuleAppearanceSection";
 import { ModuleCaseTypeSection } from "./ModuleCaseTypeSection";
@@ -15,33 +17,34 @@ interface ModuleSettingsPanelProps {
 /**
  * Module-settings drawer body rendered inside the Popover popup. Pure
  * chrome — a labeled header with a dismiss button and a content region
- * that hosts the module's appearance section. Mirrors
- * `FormSettingsPanel`'s `w-80` drawer layout; the module surface
- * currently carries a single section (menu appearance), but the shell is
- * shaped to compose more the same way the form panel composes its three.
+ * that hosts the module's case-type and appearance sections. The shell keeps
+ * its header fixed while the body scrolls within the available viewport.
  */
 export function ModuleSettingsPanel({
 	moduleUuid,
 	onClose,
 }: ModuleSettingsPanelProps) {
 	return (
-		<div className="w-80">
+		<div className="flex max-h-[calc(var(--available-height)-0.5rem)] min-h-0 w-full flex-col">
 			{/* Header */}
-			<div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/[0.06]">
-				<span className="text-xs font-medium text-nova-text-secondary uppercase tracking-wider">
-					Module Settings
-				</span>
-				<button
+			<div className="flex min-h-14 shrink-0 items-center justify-between border-b border-nova-border px-4">
+				<PopoverTitle className="font-display text-base font-semibold text-nova-text">
+					Module settings
+				</PopoverTitle>
+				<Button
 					type="button"
+					variant="ghost"
+					size="icon-lg"
 					onClick={onClose}
-					className="p-1 -mr-1 rounded-md text-nova-text-muted hover:text-nova-text hover:bg-white/[0.06] transition-colors cursor-pointer"
+					aria-label="Close module settings"
+					className="-mr-2 size-11 text-nova-text-muted not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text"
 				>
-					<Icon icon={tablerX} width="14" height="14" />
-				</button>
+					<Icon icon={tablerX} className="size-4" />
+				</Button>
 			</div>
 
 			{/* Content */}
-			<div className="px-3.5 py-3 space-y-4 overflow-y-auto max-h-[480px]">
+			<div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4">
 				<ModuleCaseTypeSection moduleUuid={moduleUuid} />
 				<ModuleAppearanceSection moduleUuid={moduleUuid} />
 			</div>

@@ -41,7 +41,7 @@ beforeEach(() => {
 });
 
 describe("setCaseSearchAdvanced", () => {
-	it("canonicalizes standard-property aliases in advanced expressions", async () => {
+	it("rejects case-property reads defensively when execute is called directly", async () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
@@ -52,9 +52,11 @@ describe("setCaseSearchAdvanced", () => {
 			doc,
 		);
 
-		expect(
-			result.newDoc.modules[MOD_A]?.caseSearchConfig?.excludedOwnerIds,
-		).toEqual(term(prop("patient", "case_name")));
+		expect(result.mutations).toEqual([]);
+		expect(result.newDoc).toBe(doc);
+		expect(result.result).toMatchObject({
+			error: expect.stringContaining("before a case is selected"),
+		});
 	});
 
 	it("sets the advanced cluster to the supplied values", async () => {
@@ -227,6 +229,62 @@ describe("setCaseSearchAdvanced", () => {
 		const config = result.newDoc.modules[MOD_A]?.caseSearchConfig;
 		expect(config).toBeDefined();
 		expect(config?.excludedOwnerIds).toBeDefined();
+		expect(config?.searchActionEnabled).toBeUndefined();
+	});
+
+	it("marks a fresh owner-only rule as not authoring Search", async () => {
+		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
+		const mod = baseDoc.modules[MOD_A];
+		const ownerOnlyDoc: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				[MOD_A]: {
+					...mod,
+					caseListConfig: { columns: [], searchInputs: [] },
+					caseSearchConfig: undefined,
+				} as Module,
+			},
+		};
+		const result = await setCaseSearchAdvancedTool.execute(
+			{
+				moduleIndex: 0,
+				excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+			},
+			ctx,
+			ownerOnlyDoc,
+		);
+		expect(result.newDoc.modules[MOD_A]?.caseSearchConfig).toMatchObject({
+			searchActionEnabled: false,
+		});
+	});
+
+	it("deletes the owner-only config when its owner rule is cleared", async () => {
+		const { doc: baseDoc, ctx } = makeCaseSearchFixture();
+		const ownerOnlyDoc: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				[MOD_A]: {
+					...baseDoc.modules[MOD_A],
+					caseListConfig: { columns: [], searchInputs: [] },
+					caseSearchConfig: {
+						searchActionEnabled: false,
+						excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+					},
+				},
+			},
+		};
+		const result = await setCaseSearchAdvancedTool.execute(
+			{ moduleIndex: 0, excludedOwnerIds: null },
+			ctx,
+			ownerOnlyDoc,
+		);
+		expect(result.newDoc.modules[MOD_A]?.caseSearchConfig).toBeUndefined();
+		expect(result.mutations).toContainEqual({
+			kind: "updateModule",
+			uuid: MOD_A,
+			patch: { caseSearchConfig: null },
+			caseSearchConfigPatch: { excludedOwnerIds: null },
+		});
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {

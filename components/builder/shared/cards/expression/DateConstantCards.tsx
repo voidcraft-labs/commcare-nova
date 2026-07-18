@@ -51,20 +51,15 @@ interface NowCardProps {
  *  parent shell handles the kind-replace affordance. */
 export function TodayCard(_props: TodayCardProps) {
 	return (
-		<div className="flex items-center gap-2 px-2 py-2 rounded-md border border-dashed border-white/[0.06] bg-nova-surface/20">
+		<div className="flex items-center gap-2 rounded-lg border border-dashed border-white/[0.06] bg-nova-surface/20 px-3 py-2.5">
 			<Icon
 				icon={tablerCalendarEvent}
 				width="14"
 				height="14"
 				className="text-nova-violet-bright"
 			/>
-			<div className="text-xs">
-				<div className="text-nova-text">
-					Resolves to today's date at evaluation time.
-				</div>
-				<div className="text-[10px] text-nova-text-muted">
-					Project-timezone ISO 8601 date (`YYYY-MM-DD`).
-				</div>
+			<div className="text-[13px] leading-relaxed text-nova-text">
+				Uses today's date in your app's time zone
 			</div>
 		</div>
 	);
@@ -74,20 +69,15 @@ export function TodayCard(_props: TodayCardProps) {
  *  time. Inert body; same shape as `TodayCard`. */
 export function NowCard(_props: NowCardProps) {
 	return (
-		<div className="flex items-center gap-2 px-2 py-2 rounded-md border border-dashed border-white/[0.06] bg-nova-surface/20">
+		<div className="flex items-center gap-2 rounded-lg border border-dashed border-white/[0.06] bg-nova-surface/20 px-3 py-2.5">
 			<Icon
 				icon={tablerClock}
 				width="14"
 				height="14"
 				className="text-nova-violet-bright"
 			/>
-			<div className="text-xs">
-				<div className="text-nova-text">
-					Resolves to the current datetime at evaluation time.
-				</div>
-				<div className="text-[10px] text-nova-text-muted">
-					UTC ISO 8601 datetime (`YYYY-MM-DDTHH:MM:SSZ`).
-				</div>
+			<div className="text-[13px] leading-relaxed text-nova-text">
+				Uses the current date and time
 			</div>
 		</div>
 	);

@@ -6,14 +6,14 @@
 // half-bounded range) + per-bound inclusivity toggles.
 
 "use client";
-import { Icon } from "@iconify/react/offline";
-import tablerSquare from "@iconify-icons/tabler/square";
-import tablerSquareCheck from "@iconify-icons/tabler/square-check-filled";
+import { useId } from "react";
+import { Switch } from "@/components/shadcn/switch";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { canonicalCasePropertyName, isOrdered } from "@/lib/domain";
 import {
 	between,
 	betweenBoundConstraint,
+	betweenSubjectConstraint,
 	compatibleTypesFor,
 	literal,
 	type Predicate,
@@ -23,30 +23,16 @@ import {
 	type ValueExpression,
 	term as wrapTerm,
 } from "@/lib/domain/predicate";
-import {
-	useEditorErrorsAt,
-	usePredicateEditContext,
-	useResolvedType,
-} from "../editorContext";
+import { usePredicateEditContext, useResolvedType } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
-import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
-import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 import {
 	reseedValueForConstraint,
 	resolveExpressionType,
 	seedLiteralForProperty,
 } from "./reseed";
-
-/** Module-level filter so render-time identity stays stable —
- *  `PropertyPicker`'s `useMemo` on `[caseType, filter]` invalidates
- *  on each fresh-arrow filter, even when the actual selection rule
- *  is constant. The shared `isOrdered` helper (in
- *  `lib/domain/casePropertyTypes.ts`) consolidates the
- *  `data_type ?? "text"` fallback every consumer applies. */
-const ORDERED_PROPERTY_FILTER = isOrdered;
 
 export function betweenDefault(
 	ctx: PredicateEditContext,
@@ -114,14 +100,6 @@ function reseedBoundIfNeeded(
 }
 
 export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
-	// Left-side errors render via the picker's `invalid` prop +
-	// inline `<InlineError>` below — `PropertyRefPicker` doesn't
-	// have a card-shell footer of its own. Bound-side (`lower` /
-	// `upper`) errors render via the `ExpressionPicker` shell's
-	// `CardShell` footer at the matching slot path; rendering them
-	// again here would double the diagnostic row count for the
-	// same message.
-	const leftErrors = useEditorErrorsAt(appendSlot(path, "left"));
 	const ctx = usePredicateEditContext();
 
 	// The anchor (left) drives both bounds — each bound offers only
@@ -140,17 +118,14 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 	return (
 		<div className="space-y-2">
 			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto] gap-2 items-start">
-				<div>
-					<PropertyRefPicker
-						mode="left"
-						value={value.left}
-						onChange={setLeft}
-						filter={ORDERED_PROPERTY_FILTER}
-						invalid={leftErrors.length > 0}
-						ariaLabel="Property"
-					/>
-					<InlineError errors={leftErrors} />
-				</div>
+				<ExpressionPicker
+					value={value.left}
+					onChange={setLeft}
+					path={appendSlot(path, "left")}
+					constraint={betweenSubjectConstraint()}
+					presentation="subject"
+					variant="nested"
+				/>
 				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
 
@@ -164,7 +139,7 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 				 *  bounded range disable one bound; the schema accepts
 				 *  the half-open shape. */}
 				<BoundEditor
-					label="From"
+					label="Minimum"
 					boundSlot="lower"
 					value={value.lower}
 					onChange={(next) => onChange(buildBetween(value, { lower: next }))}
@@ -177,7 +152,7 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 					canDisable={value.upper !== undefined}
 				/>
 				<BoundEditor
-					label="To"
+					label="Maximum"
 					boundSlot="upper"
 					value={value.upper}
 					onChange={(next) => onChange(buildBetween(value, { upper: next }))}
@@ -223,22 +198,32 @@ function BoundEditor({
 }: BoundEditorProps) {
 	const isEnabled = value !== undefined;
 	const toggleDisabled = isEnabled && !canDisable;
+	const enabledId = useId();
 	return (
 		<div>
-			<div className="flex items-center justify-between mb-1">
+			<div className="mb-1 flex min-h-11 items-center justify-between gap-2">
 				<SimpleTooltip
-					content={toggleDisabled ? "At least one end must stay on" : undefined}
+					content={toggleDisabled ? "Keep at least one limit" : undefined}
 				>
-					<button
-						type="button"
-						aria-pressed={isEnabled}
-						onClick={() => {
-							if (isEnabled) {
-								if (toggleDisabled) return;
-								onChange(undefined);
-							} else {
-								// Enable with a bound of the anchor's type — a text
-								// `literal("")` opposite an ordered subject is invalid.
+					<label
+						htmlFor={enabledId}
+						className={`flex min-h-11 items-center gap-2 text-[13px] font-medium ${
+							toggleDisabled
+								? "cursor-not-allowed text-nova-text-muted"
+								: "cursor-pointer text-nova-text-secondary"
+						}`}
+					>
+						<Switch
+							id={enabledId}
+							checked={isEnabled}
+							onCheckedChange={(next) => {
+								if (!next) {
+									if (toggleDisabled) return;
+									onChange(undefined);
+									return;
+								}
+								// Enable with a bound of the anchor's type. A text
+								// literal opposite an ordered subject is invalid.
 								onChange(
 									constraint.accepts === "any"
 										? wrapTerm(literal(""))
@@ -247,21 +232,14 @@ function BoundEditor({
 												constraint.accepts,
 											),
 								);
-							}
-						}}
-						disabled={toggleDisabled}
-						className={`min-h-11 px-1.5 text-[10px] uppercase tracking-wider transition-colors ${
-							toggleDisabled
-								? "text-nova-text-muted cursor-not-allowed"
-								: isEnabled
-									? "text-nova-violet-bright cursor-pointer"
-									: "text-nova-text-muted hover:text-nova-text-muted cursor-pointer"
-						}`}
-					>
-						{label}
-					</button>
+							}}
+							disabled={toggleDisabled}
+						/>
+						<span>{label}</span>
+					</label>
 				</SimpleTooltip>
 				<InclusiveToggle
+					label={label}
 					inclusive={inclusive}
 					setInclusive={setInclusive}
 					disabled={!isEnabled}
@@ -283,8 +261,8 @@ function BoundEditor({
 					/>
 				</div>
 			) : (
-				<div className="text-xs text-nova-text-muted italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
-					No {label.toLowerCase()} bound
+				<div className="rounded-md border border-dashed border-white/[0.06] px-3 py-2 text-[13px] text-nova-text-muted">
+					No {label.toLowerCase()}
 				</div>
 			)}
 		</div>
@@ -292,42 +270,45 @@ function BoundEditor({
 }
 
 function InclusiveToggle({
+	label,
 	inclusive,
 	setInclusive,
 	disabled,
 }: {
+	readonly label: string;
 	readonly inclusive: boolean;
 	readonly setInclusive: (next: boolean) => void;
 	readonly disabled: boolean;
 }) {
+	const id = useId();
+	const isMinimum = label === "Minimum";
 	return (
 		<SimpleTooltip
 			content={
 				inclusive
-					? "The end itself counts as a match (≤)"
-					: "Up to, but not including, the end (<)"
+					? `Cases can equal the ${label.toLowerCase()}`
+					: isMinimum
+						? "Cases must be greater than the minimum"
+						: "Cases must be less than the maximum"
 			}
 		>
-			<button
-				type="button"
-				aria-pressed={inclusive}
-				onClick={() => setInclusive(!inclusive)}
-				disabled={disabled}
-				className={`flex items-center gap-1 min-h-11 px-1.5 text-[10px] uppercase tracking-wider transition-colors ${
+			<label
+				htmlFor={id}
+				className={`flex min-h-11 items-center gap-2 text-[13px] ${
 					disabled
-						? "text-nova-text-muted cursor-not-allowed"
-						: inclusive
-							? "text-nova-violet-bright cursor-pointer"
-							: "text-nova-text-muted hover:text-nova-text cursor-pointer"
+						? "cursor-not-allowed text-nova-text-muted"
+						: "cursor-pointer text-nova-text-secondary"
 				}`}
 			>
-				<Icon
-					icon={inclusive ? tablerSquareCheck : tablerSquare}
-					width="11"
-					height="11"
+				<span>Include limit</span>
+				<Switch
+					id={id}
+					checked={inclusive}
+					onCheckedChange={setInclusive}
+					disabled={disabled}
+					size="sm"
 				/>
-				<span>Inclusive</span>
-			</button>
+			</label>
 		</SimpleTooltip>
 	);
 }

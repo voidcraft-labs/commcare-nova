@@ -66,7 +66,6 @@ function UncarriedLogoNotice() {
 			<InfoPopover
 				title="Why won't my logo appear?"
 				ariaLabel="Why won't my logo appear?"
-				className="mt-px size-3.5"
 			>
 				CommCare doesn't carry an app logo by itself when you upload — logos are
 				set inside <span className="text-nova-text">CommCare HQ</span>. Your app

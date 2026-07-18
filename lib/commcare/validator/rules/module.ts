@@ -13,10 +13,13 @@ import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCanno
 import { calculatedColumnTypeCheck } from "./case-list/calculatedColumnTypeCheck";
 import { columnKindPropertyType } from "./case-list/columnKindPropertyType";
 import { columnReferences } from "./case-list/columnReferences";
+import { csqlPredicateRepresentability } from "./case-list/csqlPredicateRepresentability";
+import { dateAddOnDeviceCompatibility } from "./case-list/dateAddOnDeviceCompatibility";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
 import { idMappingValueRequired } from "./case-list/idMappingValueRequired";
 import { matchModeOnDeviceCompatibility } from "./case-list/matchModeOnDeviceCompatibility";
 import { matchModeWhitespaceInValue } from "./case-list/matchModeWhitespaceInValue";
+import { onDeviceExpressionCompatibility } from "./case-list/onDeviceExpressionCompatibility";
 import { searchInputDefaultTypeCheck } from "./case-list/searchInputDefaultTypeCheck";
 import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeMatchesPropertyType";
 import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
@@ -26,6 +29,7 @@ import { searchInputSelectWidgetNotSupported } from "./case-list/searchInputSele
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
 import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
+import { strictNullPortability } from "./case-list/strictNullPortability";
 import { caseSearchConfigRequiresCaseType } from "./case-search/caseSearchConfigRequiresCaseType";
 import { caseSearchConfigRequiresSearchableSurface } from "./case-search/caseSearchConfigRequiresSearchableSurface";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
@@ -203,6 +207,9 @@ export const MODULE_RULES = [
 	imageMapValueUnique,
 	matchModeWhitespaceInValue,
 	matchModeOnDeviceCompatibility,
+	onDeviceExpressionCompatibility,
+	dateAddOnDeviceCompatibility,
+	strictNullPortability,
 	ancestorExistsCannotNestSubcase,
 	sortPriorityUniqueness,
 	searchInputNameUniqueness,
@@ -211,6 +218,7 @@ export const MODULE_RULES = [
 	searchInputSelectWidgetNotSupported,
 	searchInputDefaultTypeCheck,
 	searchInputPredicateTypeCheck,
+	csqlPredicateRepresentability,
 	searchInputRefUsesWhenInputPresent,
 	searchInputViaModeCompatibility,
 	// Case-search-config rules. Slot-specific checks read authored config;

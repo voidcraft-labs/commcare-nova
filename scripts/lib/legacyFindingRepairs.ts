@@ -80,6 +80,7 @@ import {
 } from "../../lib/commcare/validator/gate";
 import { runValidation } from "../../lib/commcare/validator/runner";
 import { detectUnquotedStringLiteral, parser } from "../../lib/commcare/xpath";
+import { updateModuleMutation } from "../../lib/doc/addModuleMutation";
 import { mutationCommitVerdict } from "../../lib/doc/commitVerdicts";
 import {
 	type DocExpressionMigrationResult,
@@ -230,6 +231,18 @@ export const REPAIR_JUDGMENTS: Readonly<
 	CASE_LIST_MATCH_MODE_NOT_ON_DEVICE: owner(
 		"picking an on-device match mode changes what the filter matches",
 	),
+	CASE_LIST_DATE_ADD_NOT_ON_DEVICE: owner(
+		"changing the date-arithmetic base or unit changes what the authored expression computes",
+	),
+	CASE_LIST_EXPRESSION_NOT_ON_DEVICE: owner(
+		"replacing an unsupported expression changes the value or condition the author wrote",
+	),
+	CASE_LIST_STRICT_NULL_NOT_PORTABLE: owner(
+		"replacing strict null with blank changes missing-versus-empty semantics on Nova's richer runtimes",
+	),
+	CASE_LIST_CSQL_NOT_REPRESENTABLE: owner(
+		"rewriting the server-search predicate changes which cases Search returns",
+	),
 	FIELD_KIND_PROPERTY_TYPE_MISMATCH: owner(
 		"the field kind and the property's declared type disagree about the data model — the owner picks which is right",
 	),
@@ -239,6 +252,9 @@ export const REPAIR_JUDGMENTS: Readonly<
 	// ── Case-search-config rules ─────────────────────────────────────
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR: owner(
 		"the display condition is content",
+	),
+	CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE: owner(
+		"replacing a row-dependent assigned-case expression changes which cases appear",
 	),
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: owner(
 		"the owner-id expression is content",
@@ -1135,11 +1151,9 @@ const planSortPriorityRenumber: RepairModule = (finding, doc) => {
 		tier: "mechanical",
 		description: `renumber sort priorities on module "${mod.name}" in the existing resolution order (wire bytes unchanged)`,
 		mutations: [
-			{
-				kind: "updateModule",
-				uuid: moduleUuid,
-				patch: { caseListConfig: { ...config, columns } },
-			},
+			updateModuleMutation(moduleUuid, {
+				caseListConfig: { ...config, columns },
+			}),
 		],
 	};
 };
@@ -1174,11 +1188,9 @@ const planSeedCaseNameColumn: RepairModule = (finding, doc) => {
 			tier: "proposed",
 			description: `restore "${field}" as a visible Results field on module "${mod.name}"`,
 			mutations: [
-				{
-					kind: "updateModule",
-					uuid: moduleUuid,
-					patch: { caseListConfig: { ...config, columns: nextColumns } },
-				},
+				updateModuleMutation(moduleUuid, {
+					caseListConfig: { ...config, columns: nextColumns },
+				}),
 			],
 		};
 	}
@@ -1188,17 +1200,13 @@ const planSeedCaseNameColumn: RepairModule = (finding, doc) => {
 		tier: "proposed",
 		description: `seed the case list of module "${mod.name}" with the single "case_name" column (header "Name") — the column every Nova build leads with`,
 		mutations: [
-			{
-				kind: "updateModule",
-				uuid: moduleUuid,
-				patch: {
-					caseListConfig: {
-						...(config ?? {}),
-						columns: [column],
-						searchInputs: config?.searchInputs ?? [],
-					},
+			updateModuleMutation(moduleUuid, {
+				caseListConfig: {
+					...(config ?? {}),
+					columns: [column],
+					searchInputs: config?.searchInputs ?? [],
 				},
-			},
+			}),
 		],
 	};
 };

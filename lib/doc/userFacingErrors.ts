@@ -143,47 +143,190 @@ const USER_MESSAGE_BY_CODE: Partial<
 
 	// ── Case-list config ─────────────────────────────────────────────
 	CASE_LIST_COLUMN_UNKNOWN_FIELD: (e) =>
-		`One of ${q(modName(e))}'s case list columns shows ${q(det(e, "field", "a property"))}, which isn't a property on this case type. Point it at one that exists.`,
+		`One item in ${q(modName(e))} shows ${q(det(e, "field", "case information"))}, but that information isn't saved on this case type. Choose information that exists.`,
 	CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH: (e) =>
-		`A column in ${q(modName(e))} shows ${q(det(e, "field", "a property"))}, but that property holds ${det(e, "resolvedType", "a different kind of")} values, which the column's style can't format. Pick a matching property, or switch the column to a style that fits — plain text always works.`,
+		`An item in ${q(modName(e))} shows ${q(det(e, "field", "case information"))}, but its display style can't format ${det(e, "resolvedType", "this kind of")} information. Choose matching information or change the display style. Plain text always works.`,
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: (e) =>
-		`A calculated column in ${q(modName(e))} has a calculation that doesn't quite add up. Open it and take a look.`,
+		`A calculated value in ${q(modName(e))} has a calculation that doesn't quite add up. Open it and fix the calculation.`,
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>
-		`The case list filter in ${q(modName(e))} is comparing values that don't go together. Open it and adjust the comparison.`,
+		`The Cases available setting in ${q(modName(e))} compares values that don't go together. Open the condition and adjust the comparison.`,
 	CASE_LIST_ID_MAPPING_EMPTY_VALUE: (e) =>
-		`A value-mapping column in ${q(modName(e))} has a row with no value to match on. Fill it in, or remove the row.`,
+		`A value label in ${q(modName(e))} has no saved value to match. Enter a value or remove the row.`,
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: (e) =>
-		`Two case list columns in ${q(modName(e))} are sorting at the same priority. Change one of them, or drop the sort from one.`,
+		`Two items in ${q(modName(e))}'s Default order use the same position. Move one of them or remove it from the order.`,
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: (e) =>
-		`An image column in ${q(modName(e))} has two rows with the value ${q(det(e, "value", ""))}, so only the first image shows up. Change or remove one of them.`,
+		`An image display in ${q(modName(e))} uses ${q(det(e, "value", "the same value"))} twice, so only the first image appears. Change or remove one of the rules.`,
 	CASE_LIST_SEARCH_INPUT_SELECT_WIDGET_NOT_SUPPORTED: (e) =>
-		`The search input ${q(det(e, "inputName", "in this module"))} is set to a dropdown, which isn't supported here. Switch it to a plain text input.`,
+		`The search field ${q(det(e, "inputName", "in this module"))} uses a dropdown that isn't available here. Change its field type to Text.`,
 	CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR: (e) =>
-		`The search input ${q(det(e, "inputName", "in this module"))} has a condition that doesn't add up. Open it and fix the condition.`,
+		`The search field ${q(det(e, "inputName", "in this module"))} has a condition that compares values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY: (e) =>
-		`The search input ${q(det(e, "inputName", "in this module"))} searches ${q(det(e, "property", "a property"))}, which doesn't exist on that case type. Point it at one that does.`,
+		`The search field ${q(det(e, "inputName", "in this module"))} looks for ${q(det(e, "property", "case information"))}, but that information isn't saved on this case type. Choose information that exists.`,
 	CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH: (e) =>
-		`The search input ${q(det(e, "inputName", "in this module"))} uses a search mode that doesn't fit the property it's searching. Pick a different mode, or search a property that fits.`,
+		`The search field ${q(det(e, "inputName", "in this module"))} uses a matching option that doesn't fit the information it searches. Choose another matching option or different information.`,
 	CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH: (e) =>
-		`The search input ${q(det(e, "inputName", "in this module"))} uses an input type that doesn't match the property it searches — like a date picker on a text field. Change one so they line up.`,
+		`The search field ${q(det(e, "inputName", "in this module"))} doesn't match the information it searches. For example, a date picker can't search text. Change the field type or choose different information.`,
 	CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR: (e) =>
-		`The search input ${q(det(e, "inputName", "in this module"))} has a default value that doesn't match its input type. Fix the default, or clear it.`,
+		det(e, "reason", "") === "date-range-default-unsupported"
+			? `The search field ${q(det(e, "inputName", "in this module"))} has an old one-date starting value, but a date range needs both dates. Remove the starting value.`
+			: `The starting value for search field ${q(det(e, "inputName", "in this module"))} doesn't match its field type. Change the starting value or clear it.`,
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: (e) =>
-		`Two search inputs in ${q(modName(e))} share the name ${q(det(e, "inputName", ""))}. Rename one of them.`,
+		`Two search fields in ${q(modName(e))} use the same name for conditions, ${q(det(e, "inputName", ""))}. Rename one under More settings.`,
 	CASE_LIST_BARE_SEARCH_INPUT_REF: (e) => {
 		const input = q(det(e, "inputName", "the search box"));
 		return det(e, "mode", "") === "forbids-input-ref"
-			? `A setting in ${q(modName(e))} reads ${input}, but it runs before anyone searches — so it always comes back empty. Remove that reference.`
-			: `A filter in ${q(modName(e))} checks ${input} before anyone's typed in it, so it matches empty values too. Have it apply only once ${input} has something in it.`;
+			? `A setting in ${q(modName(e))} reads ${input} before anyone searches, so it always comes back empty. Remove that reference.`
+			: `The Cases available setting in ${q(modName(e))} checks ${input} before anyone's typed in it, so it also matches empty values. Have the condition apply only after ${input} has an answer.`;
 	},
-	CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE: (e) =>
-		`The search input ${q(det(e, "inputName", "in this module"))} uses a mode the case list can't handle this way. Switch to a single-value mode like "exact", or build it as an advanced search input.`,
-	CASE_LIST_MATCH_MODE_NOT_ON_DEVICE: (e) =>
-		`A search in ${q(modName(e))} uses a match type that isn't available where it runs, so the case list won't load. Use "starts-with" here instead, or move it to an advanced search input.`,
+	CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE: (e) => {
+		const input = q(det(e, "inputName", "in this module"));
+		switch (det(e, "reason", "")) {
+			case "range-needs-date-range-widget":
+				return `The search field ${input} uses “Between dates” with a one-date field. Change its field type to Date range.`;
+			case "date-range-needs-range-mode":
+				return `The search field ${input} collects a date range but uses a one-value match. Change it to “Between dates” or choose a one-date field.`;
+			default:
+				return `The search field ${input} uses a matching option that doesn't work with this setup. Choose “Exact value,” or use a custom condition.`;
+		}
+	},
+	CASE_LIST_MATCH_MODE_NOT_ON_DEVICE: (e) => {
+		const inputLabel = e.details?.inputLabel || e.details?.inputName;
+		const subject = (() => {
+			switch (e.details?.surface) {
+				case "search-button":
+					return `The Search button condition in ${q(modName(e))}`;
+				case "advanced-input":
+					return `The condition for search field ${q(inputLabel || "this field")}`;
+				case "search-input-default":
+					return `The default for search field ${q(inputLabel || "this field")}`;
+				case "calculated-column":
+					return `The calculation for field ${q(det(e, "columnLabel", "this field"))}`;
+				case "excluded-owner-ids":
+					return `${q(modName(e))}'s assigned cases setting`;
+				default:
+					return `${q(modName(e))}'s Cases available rule`;
+			}
+		})();
+		const repair =
+			e.details?.surface === "filter"
+				? "Use “Begins with” here instead, or move the matching rule into a custom search condition."
+				: "Use “Begins with,” or choose another matching option.";
+		return `${subject} uses a matching option that isn't available here. ${repair}`;
+	},
+	CASE_LIST_DATE_ADD_NOT_ON_DEVICE: (e) => {
+		const inputLabel = e.details?.inputLabel || e.details?.inputName;
+		const subject = (() => {
+			switch (e.details?.surface) {
+				case "search-button":
+					return `The Search button condition in ${q(modName(e))}`;
+				case "advanced-input":
+					return `The condition for search field ${q(inputLabel || "this field")}`;
+				case "search-input-default":
+					return `The default for search field ${q(inputLabel || "this field")}`;
+				case "calculated-column":
+					return `The calculation for field ${q(det(e, "columnLabel", "this field"))}`;
+				case "excluded-owner-ids":
+					return `${q(modName(e))}'s assigned cases setting`;
+				default:
+					return `${q(modName(e))}'s Cases available rule`;
+			}
+		})();
+		switch (e.details?.reason) {
+			case "datetime-base":
+				return `${subject} uses a date and time in a calculation that only supports whole dates here, so the time would be lost. Use a date without a time or rewrite the calculation.`;
+			default:
+				return `${subject} adds ${det(e, "interval", "a calendar interval")}, but month and year calculations aren't available here. Use seconds, minutes, hours, days, or weeks. To use months or years, put the comparison directly in a search condition.`;
+		}
+	},
+	CASE_LIST_EXPRESSION_NOT_ON_DEVICE: (e) => {
+		const inputLabel = e.details?.inputLabel || e.details?.inputName;
+		const subject = (() => {
+			switch (e.details?.surface) {
+				case "search-button":
+					return `The Search button condition in ${q(modName(e))}`;
+				case "advanced-input":
+					return `The condition for search field ${q(inputLabel || "this field")}`;
+				case "search-input-default":
+					return `The default for search field ${q(inputLabel || "this field")}`;
+				case "calculated-column":
+					return `The calculation for field ${q(det(e, "columnLabel", "this field"))}`;
+				case "excluded-owner-ids":
+					return `${q(modName(e))}'s assigned cases setting`;
+				default:
+					return `${q(modName(e))}'s Cases available rule`;
+			}
+		})();
+		switch (e.details?.reason) {
+			case "multi-valued-relation-read":
+				return `${subject} can read several ${q(det(e, "property", "values"))} values from related cases, but it needs one value. Use “Count related cases” or move the check into a related-case condition.`;
+			case "mixed-property-scopes":
+				return `${subject} compares information from different cases inside one condition. Finish one condition for each case, then combine those conditions with All, Any, or Not.`;
+			case "unrebasable-relation-scope":
+				return `${subject} puts a related-case condition or count inside another related-case calculation. Move that condition outside the calculation so each relationship has a clear case to check.`;
+			case "nested-multi-case-count":
+				return `${subject} counts child cases from inside another child-case condition. Move the count to its own condition, then combine the finished conditions.`;
+			case "invalid-geopoint-center":
+				return `${subject} uses ${q(det(e, "value", "this value"))} as a location, but it needs a valid latitude and longitude, such as ${q("42.3601, -71.0589")}.`;
+			default:
+				return `${subject} turns saved list text into several values, but this setting can only use one. Replace it with a single-value calculation.`;
+		}
+	},
 	CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE: (e) =>
-		`A search in ${q(modName(e))} matches against a value with spaces in it, which splits into separate words and matches more than you'd expect. Use a single word, or "starts-with".`,
+		`A search in ${q(modName(e))} checks each word in a value separately, so a value with spaces may match more cases than you expect. Use one word or “Begins with.”`,
+	CASE_LIST_STRICT_NULL_NOT_PORTABLE: (e) => {
+		const inputLabel = e.details?.inputLabel || e.details?.inputName;
+		const subject = (() => {
+			switch (e.details?.surface) {
+				case "search-button":
+					return `The Search button condition in ${q(modName(e))}`;
+				case "advanced-input":
+					return `The condition for search field ${q(inputLabel || "this field")}`;
+				case "search-input-default":
+					return `The default for search field ${q(inputLabel || "this field")}`;
+				case "calculated-column":
+					return `The calculation for field ${q(det(e, "columnLabel", "this field"))}`;
+				case "excluded-owner-ids":
+					return `${q(modName(e))}'s assigned cases setting`;
+				default:
+					return `${q(modName(e))}'s Cases available rule`;
+			}
+		})();
+		return `${subject} checks whether information was never recorded, but the app can only tell whether it's blank here. Use “is blank” instead.`;
+	},
 	CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK: (e) =>
-		`A search in ${q(modName(e))} tucks a child-case check inside a parent-case check, which it can't run. Put them side by side instead, or split them into separate inputs.`,
+		`A condition in ${q(modName(e))} checks a child case inside a parent case, which search can't run. Put the checks side by side or split them into separate search fields.`,
+	CASE_LIST_CSQL_NOT_REPRESENTABLE: (e) => {
+		const inputLabel = e.details?.inputLabel || e.details?.inputName;
+		const subject = inputLabel
+			? `The condition for search field ${q(inputLabel)}`
+			: `${q(modName(e))}'s Cases available rule`;
+		switch (e.details?.reason) {
+			case "comparison-needs-case-property":
+				return `${subject} needs one piece of case information to search. Choose it first, then compare it with a fixed value or a search answer.`;
+			case "case-property-on-value-side":
+				return `${subject} compares two case properties. Choose one property and compare it with a fixed value or a search answer.`;
+			case "multiple-property-scopes":
+				return `${subject} compares properties from different cases. Choose one property and compare it with a value, or make separate related-case conditions.`;
+			case "case-query-in-runtime-value":
+				return `${subject} puts a case condition inside a calculation. Move that condition into the surrounding rule.`;
+			case "related-count-on-value-side":
+				return `${subject} uses a related-case count as the comparison value. Put the child-case count first, then compare it with a fixed number or a search answer.`;
+			case "unsupported-related-count":
+				return `${subject} can only count child cases here. Choose a child relationship, or rewrite the condition without a related-case count.`;
+			case "strict-null-not-portable":
+				return `${subject} checks whether information was never recorded, but case search can only check whether it's blank. Use “is blank” instead.`;
+			case "self-relation-not-queryable":
+				return `${subject} uses “this case” as a relationship. Choose a parent or child relationship, or remove the related-case condition.`;
+			case "csql-string-not-quotable":
+				return `${subject} includes both single and double quotation marks in the same fixed value. Use only one kind of quotation mark in that value.`;
+			case "calendar-date-add-needs-whole-number":
+				return `${subject} shifts a date by months or years without a whole number. Use a fixed whole number or convert one search answer to Number.`;
+			case "subcase-count-needs-nonnegative-whole-number":
+				return `${subject} compares a child-case count with an unsupported value. Use a whole number that is zero or greater.`;
+			default:
+				return `${subject} uses a condition that isn't available here. Choose one piece of case information to search, then compare it with a fixed value or a search answer.`;
+		}
+	},
 	FIELD_KIND_PROPERTY_TYPE_MISMATCH: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, but its type doesn't match how that property is set up. Change the field's type, or save it somewhere else.`,
 	FIELD_KIND_WRITERS_DISAGREE: (e) =>
@@ -194,10 +337,12 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(modName(e))} has a search set up but no case type, so there's nothing for it to look through. Pick the kind of case it should find, like "patient" or "household".`,
 	CASE_SEARCH_CONFIG_NO_SEARCHABLE_SURFACE: (e) =>
 		`Search for ${q(modName(e))} has nothing to narrow yet. Add a search field, or narrow Cases available.`,
+	CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE: (e) =>
+		`The assigned cases setting on ${q(modName(e))} tries to read a case before one has been selected. Replace it with Show in Results or Hide from Results.`,
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: (e) =>
-		`The excluded-owners setting on ${q(modName(e))} isn't coming out as text. Check the formula, or clear it.`,
+		`The assigned cases setting on ${q(modName(e))} isn't coming out as text. Check the formula, or clear it.`,
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
-		`The condition for when ${q(modName(e))}'s search button shows has an error. Fix it, or clear it to always show the button.`,
+		`The condition that controls whether ${q(modName(e))}'s Search button appears has an error. Fix it or clear the condition to always show the button.`,
 
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: (e) =>

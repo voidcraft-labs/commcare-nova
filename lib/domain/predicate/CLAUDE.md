@@ -13,7 +13,9 @@ Predicate operators carry `ValueExpression` operands, and `ValueExpression`'s `i
 - `unwrap-list` resolves to the `SEQUENCE_TYPE` sentinel; no Predicate/Expression operator consumes a sequence — the CSQL wire emitter's `selected-any(prop, unwrap-list(...))` is the only consumer, and the Postgres compiler defensive-throws on the arm.
 - `Term` has NO value-expression arm — cross-family composition lives one level up (`ValueExpression.term` lifts any Term; Predicate operators take `ValueExpression` directly).
 - A `via` of kind `self` collapses to the inner where (no identity join).
-- `any-relation` is direction-agnostic but CCHQ's grammars are direction-specific, so wire emitters expand it to `(<ancestor-form> or <subcase-form>)`; Postgres compiles a `unionAll` of the two single-hop variants.
+- `any-relation` is direction-agnostic: for the canonical `parent` index its possible destination types are the origin's parent UNION its direct children (deduplicated for recursive case types), and an omitted `ofCaseType` is valid only when that union has one member. When the selected destination is exclusively the parent or exclusively a child, shared normalization materializes that proven direction; this avoids emitting an impossible CSQL arm that can make an otherwise valid nested filter unrepresentable. Recursive, custom-index, and otherwise ambiguous paths stay direction-agnostic. CCHQ's grammars are direction-specific, so those remaining paths expand to `(<ancestor-form> or <subcase-form>)`; Postgres compiles their two single-hop variants as a `unionAll`.
+- `parent` is the only relation identifier the `CaseType.parent_type` graph can infer. Every custom saved index name needs an explicit `throughCaseType` / `ofCaseType`; that destination may be any declared case type because Nova has no metadata proving the custom index's direction. Never pretend a custom index follows the `parent_type` graph.
+- `count(self)` is the cardinality of the current row: `1` without a filter, or `1`/`0` according to its `where` predicate. It is a useful compositional reduction, not an invalid relation walk.
 
 ## Null vs blank semantics — locked invariant
 
@@ -26,6 +28,26 @@ Three data-model states: key absent, key present with JSON null, key present wit
 - Strings are deliberately excluded from `ORDERED_TYPES` — locale-dependent string ordering is rarely meaningful for case-list filtering, so `gt`/`lt` reject text.
 - Property references inside relational `where` clauses must resolve against the surrounding `via`'s DESTINATION scope, not the originating one.
 - **The checker is the gate every emitter trusts.** Compiler/emitter code that hits a state the checker should have rejected throws a "the type checker should have caught this" error — never falls back to a default. Checker coverage is the structural contract, not a hint.
+
+## Exact calendar-day search
+
+A simple `date` search input in exact mode means the whole selected calendar day, never string equality and never "the datetime happened exactly at midnight." Both CommCare CSQL and Preview/Postgres derive the same half-open predicate through `dateSearch.ts::exactDateSearchPredicate`: a date property uses `[date(day), date-add(date(day), 1 day))`; a datetime property uses `[datetime(day), datetime-add(datetime(day), 1 day))`. Nova does not yet author an app timezone, so the datetime interval is deliberately a UTC day. This also applies to indexed metadata such as `date_opened` and `last_modified`; explicit datetime bounds bypass CCHQ's hidden project-timezone special case so standard and custom datetime properties behave identically in Nova. If Nova adds an authored app timezone, this one helper is where the contract changes.
+
+For a related property, both bounds live inside ONE `exists(via, where: lower AND upper)`. Two independently lifted `prop(via)` comparisons are not equivalent: different related rows could satisfy each bound. The exact-date helper resolves the destination case type first and constructs one quantifier, preserving one-row semantics on every target.
+
+## Relation-read target contracts
+
+`normalizeRelationEvaluationScopes` is the shared semantic boundary before every predicate target. A scalar predicate leaf whose non-self properties all share relation `R` becomes `exists(R, where: <the leaf rebased to self>)`. Multiple property reads in that leaf therefore refer to the same related row. Separate boolean leaves quantify independently. Generic `between(prop(via), lower, upper)` intentionally becomes two independent bound comparisons, so different related rows may satisfy them; callers that require one row to satisfy both bounds author `exists(via, where: between(prop(self), ...))`. The exact-day and date-range helpers above intentionally build that explicit shape.
+
+The normalizer also descends into scalar-expression slots and normalizes independent boolean boundaries (`if.cond`, explicit `exists`/`missing`, and `count.where`) in place. It fails closed when one scalar leaf mixes self and related properties, combines two different relation scopes, or combines an outer related read with an anchor-sensitive nested quantifier. Those shapes have no faithful implicit row scope; the module validator must surface the authoring repair before an emitter reaches the defensive exception. Relation paths are canonicalized with case-type context so an inferred child hop and its equivalent explicit hop coalesce rather than looking like different scopes.
+
+On-device `exists`/`missing` never compares two XPath node-sets: CommCare Core does not implement XPath general node-set equality, and nested `current()` still points at the original listed case. The emitter uses guarded immediate-scope membership (`count(index/<relationship>) > 0 and selected(join(' ', <candidate ids>), index/<relationship>)`) at every level. The non-empty guard is required because Core treats `selected('', '')` as true. This supports nested ancestor, subcase, and any-relation presence checks without cross-row correlation. Nested subcase/any-relation counts are rejected whenever the current related scope cannot be named as a provable singleton anchor.
+
+CSQL next runs `normalizeRelationReads.ts::normalizeRelationPropertyReads` only as a grammar adapter: supported native operand shapes become query-function envelopes after the shared semantic pass. Its representability validator rejects property/value-expression shapes the server grammar cannot encode faithfully. Postgres consumes the shared normalized AST and defensively rejects any non-self `PropertyRef` that survives predicate normalization; it never invents `LIMIT 1`, pairwise node-set, or cross-product semantics for predicate leaves.
+
+Both passes deliberately leave non-subject properties below scalar expression/value slots (`arith`, `concat`, `coalesce`, `if`, `switch`, `count`, `format-date`, `match.value`, `within-distance.center`) on the scalar contract. The CSQL representability validator separately rejects property-bearing runtime expressions the remote-query wire cannot evaluate.
+
+A `date-range` prompt is also target-type aware in Preview. CommCare represents it as one indivisible `__range__<start>__<end>` value, so Nova preserves partial picker state only as a draft and blocks execution until both valid, ordered bounds exist. A date property keeps inclusive `[start, end]` comparisons. A datetime property uses the UTC half-open interval `[datetime(start), datetime-add(datetime(end), 1 day))`, so an event later on the selected final day is included instead of being cut off at midnight. `dateSearch.ts::dateRangeSearchPredicate` owns that lowering alongside exact-day search.
 
 ## JSON Schema generator
 
@@ -45,7 +67,7 @@ The AST family schemas carry registered ids (`z.globalRegistry.add`, end of `typ
 
 ## Wire-emission boundary
 
-Three wire targets consume this one AST, all from outside the package: the on-device XPath dialect, the CSQL dialect (with a property-via lift that rewrites operator-direct `prop(via)` refs into enclosing `exists` envelopes before emission; non-grammar value expressions inline as on-device XPath fragments inside a wrapper `concat(...)` — the canonical CCHQ pattern per `commcare-hq/docs/case_search_query_language.rst`), and Postgres SQL via `lib/case-store/sql`. The type checker runs before any emission, so a typed AST is the single contract every consumer trusts.
+Three targets consume this one AST, all from outside the package: the on-device XPath dialect, the CSQL dialect, and Postgres SQL via `lib/case-store/sql`. They first consume the same relation-evaluation-scope normalization, then apply only target grammar/runtime restrictions. Non-grammar CSQL value expressions inline as on-device XPath fragments inside a wrapper `concat(...)` — the canonical CCHQ pattern per `commcare-hq/docs/case_search_query_language.rst`. The type checker and target-compatibility validators run before emission, so a validated typed AST is the single contract every consumer trusts.
 
 ## Barrel
 

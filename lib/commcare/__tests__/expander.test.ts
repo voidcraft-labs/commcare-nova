@@ -19,11 +19,13 @@ import {
 } from "@/lib/domain";
 import {
 	ancestorPath,
+	dateLiteral,
 	eq,
 	literal,
 	prop,
 	relationStep,
 	term,
+	today,
 	toValueExpression,
 } from "@/lib/domain/predicate";
 
@@ -3765,10 +3767,10 @@ describe("Connect mode gate", () => {
 //      breaker; calc columns route through `sort_calculation`.
 //   4. Case-list filter projection — `caseListConfig.filter` lands at
 //      `case_details.short.filter` with `match-all` collapsing to `null`.
-//   5. Search-config projection — `caseSearchConfig` + simple-arm
-//      `searchInputs` map to `module.search_config` slots; advanced-arm
-//      predicates + filter AND-compose into `_xpath_query` on
-//      `default_properties`.
+//   5. Search-config projection — `caseSearchConfig` + both search-input
+//      arms map to `module.search_config.properties`; advanced prompts
+//      suppress Core's implicit property matcher while their predicates
+//      + filter AND-compose into `_xpath_query` on `default_properties`.
 
 const HQ_PROJECTION_MODULE_UUID = asUuid(
 	"77777777-7777-4777-8777-777777777771",
@@ -3784,6 +3786,15 @@ const HQ_PROJECTION_PATIENT_CASE_TYPE = {
 		{ name: "last_visit", label: "Last Visit", data_type: "date" as const },
 		{ name: "dob", label: "DOB", data_type: "date" as const },
 		{ name: "status", label: "Status", data_type: "text" as const },
+		{
+			name: "tags",
+			label: "Tags",
+			data_type: "multi_select" as const,
+			options: [
+				{ value: "vip", label: "VIP" },
+				{ value: "follow_up", label: "Needs follow-up" },
+			],
+		},
 	],
 };
 
@@ -3848,6 +3859,25 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		expect(shortCols[0].useXpathExpression).toBe(false);
 	});
 
+	it("projects a plain select as a label expression with raw-token fallback", () => {
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000010013"),
+					"tags",
+					"Tags",
+				),
+			],
+			searchInputs: [],
+		});
+		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
+
+		expect(column.format).toBe("calculate");
+		expect(column.useXpathExpression).toBe(true);
+		expect(column.field).toContain("if(selected(tags, 'vip'), 'VIP', '')");
+		expect(column.field).toContain("normalize-space(tags)");
+	});
+
 	it("projects date columns with `date` format and the authored `date_format` pattern", () => {
 		// Date columns ride CCHQ's `Date` format. The authored
 		// `pattern` lands on `date_format`; the runtime formatter
@@ -3869,6 +3899,23 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		expect(shortCols[0].format).toBe("date");
 		expect(shortCols[0].date_format).toBe("%Y-%m-%d");
 		expect(shortCols[0].field).toBe("last_visit");
+	});
+
+	it("lowers semantic date presets before HQ JSON emission", () => {
+		const doc = buildHqProjectionDoc({
+			columns: [
+				dateColumn(
+					asUuid("00000000-0000-4000-8000-000000010012"),
+					"last_visit",
+					"Last Visit",
+					"long",
+				),
+			],
+			searchInputs: [],
+		});
+		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
+		expect(column.format).toBe("date");
+		expect(column.date_format).toBe("%B %e, %Y");
 	});
 
 	it("projects phone columns with `phone` format and the bare property reference", () => {
@@ -3917,10 +3964,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		]);
 	});
 
-	it("projects interval columns with `display: always` as `time-ago` and the unit divisor", () => {
-		// `interval` columns split on `display`: `always` → CCHQ's
-		// `time-ago` with `time_ago_interval` set to the unit's
-		// days-equivalent divisor (`TIME_AGO_DIVISOR_DAYS`).
+	it("preserves an always interval's threshold and authored text in HQ JSON", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				intervalColumn(
@@ -3936,17 +3980,14 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			searchInputs: [],
 		});
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
-		expect(shortCols[0].format).toBe("time-ago");
-		expect(shortCols[0].time_ago_interval).toBe(1);
-		expect(shortCols[0].field).toBe("last_visit");
+		expect(shortCols[0].format).toBe("calculate");
+		expect(shortCols[0].useXpathExpression).toBe(true);
+		expect(shortCols[0].field).toBe(
+			"if(last_visit = '', '', if(today() - date(last_visit) > 3, 'OVERDUE', string(int((today() - date(last_visit)) div 1))))",
+		);
 	});
 
-	it("projects interval columns with `display: flag` as `late-flag` and the threshold in days", () => {
-		// `flag` arm → CCHQ's `late-flag` with `late_flag` set to
-		// `threshold × divisor` rounded to int. CCHQ's schema is
-		// `IntegerProperty(default=30)`; the suite-XML side carries
-		// the float threshold inline in the XPath, but CCHQ's
-		// persistent doc rounds. `2 weeks` → 14 days.
+	it("preserves a flag interval's threshold and authored text in HQ JSON", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				intervalColumn(
@@ -3962,9 +4003,11 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			searchInputs: [],
 		});
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
-		expect(shortCols[0].format).toBe("late-flag");
-		expect(shortCols[0].late_flag).toBe(14);
-		expect(shortCols[0].field).toBe("last_visit");
+		expect(shortCols[0].format).toBe("calculate");
+		expect(shortCols[0].useXpathExpression).toBe(true);
+		expect(shortCols[0].field).toBe(
+			"if(last_visit = '', 'OVERDUE', if(today() - date(last_visit) > 14, 'OVERDUE', ''))",
+		);
 	});
 
 	it("projects calculated columns with `useXpathExpression: true` and the lowered XPath as `field`", () => {
@@ -4166,9 +4209,112 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 		});
 		expect(expandDoc(doc).modules[0].case_details.short.filter).toBeNull();
 	});
+
+	it("projects an owner-only availability rule without enabling remote Search", () => {
+		const doc = buildHqProjectionDoc(
+			{
+				columns: [
+					plainColumn(
+						asUuid("00000000-0000-4000-8000-000000030003"),
+						"case_name",
+						"Name",
+					),
+				],
+				searchInputs: [],
+			},
+			{
+				searchActionEnabled: false,
+				excludedOwnerIds: toValueExpression(literal("owner-a owner-b")),
+			},
+		);
+		const module = expandDoc(doc).modules[0];
+
+		expect(module.case_details.short.filter).toBe(
+			"normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))",
+		);
+		expect(module.search_config.properties).toEqual([]);
+		expect(module.search_config.default_properties).toEqual([]);
+		expect(
+			module.search_config.blacklisted_owner_ids_expression,
+		).toBeUndefined();
+	});
+
+	it("AND-composes the list rule and owner exclusion in the HQ detail filter", () => {
+		const doc = buildHqProjectionDoc(
+			{
+				columns: [
+					plainColumn(
+						asUuid("00000000-0000-4000-8000-000000030004"),
+						"case_name",
+						"Name",
+					),
+				],
+				filter: eq(prop("patient", "region"), literal("North")),
+				searchInputs: [],
+			},
+			{
+				searchActionEnabled: false,
+				excludedOwnerIds: toValueExpression(literal("owner-a")),
+			},
+		);
+
+		expect(expandDoc(doc).modules[0].case_details.short.filter).toBe(
+			"(region = 'North') and (normalize-space('owner-a') = '' or not(selected(normalize-space('owner-a'), @owner_id)))",
+		);
+	});
 });
 
 describe("expandDoc HQ JSON projection — search_config", () => {
+	it("preserves an intentional zero-input Search action through HQ JSON", () => {
+		const doc = buildHqProjectionDoc(
+			{
+				columns: [
+					plainColumn(
+						asUuid("00000000-0000-4000-8000-000000040099"),
+						"case_name",
+						"Name",
+					),
+				],
+				searchInputs: [],
+			},
+			{},
+		);
+
+		const searchConfig = expandDoc(doc).modules[0].search_config;
+		// CCHQ's module_offers_search() ignores a CaseSearch document that has
+		// neither properties nor default_properties. The neutral CSQL identity
+		// is therefore load-bearing provenance for Nova's manual action.
+		expect(searchConfig.properties).toEqual([]);
+		expect(searchConfig.default_properties).toEqual([
+			{ property: "_xpath_query", defaultValue: "'match-all()'" },
+		]);
+		expect(searchConfig.auto_launch).toBe(false);
+		expect(searchConfig.default_search).toBe(false);
+		expect(searchConfig.inline_search).toBe(false);
+	});
+
+	it("does not turn an ordinary always-on list filter into dormant server-search configuration", () => {
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000040000"),
+					"case_name",
+					"Name",
+				),
+			],
+			// Property-to-property equality is valid for the on-device list
+			// evaluator but intentionally outside CCHQ's server query language.
+			// With search disabled it belongs only on the short detail filter.
+			filter: eq(prop("patient", "age"), prop("patient", "age")),
+			searchInputs: [],
+		});
+
+		const module = expandDoc(doc).modules[0];
+		expect(module.case_details.short.filter).toBe("age = age");
+		expect(module.search_config.properties).toEqual([]);
+		expect(module.search_config.default_properties).toEqual([]);
+	});
+
 	it("lands display chrome on `title_label`, `description`, `search_button_label`, and `search_button_display_condition`", () => {
 		// Each authored display slot in `caseSearchConfig` maps to its
 		// matching CCHQ slot in `search_config`. Empty / absent
@@ -4209,8 +4355,9 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 	});
 
 	it("compiles `excludedOwnerIds` to `blacklisted_owner_ids_expression`", () => {
-		// CCHQ stores the excluded-owners filter as a bare on-device
-		// XPath string. The suite-XML side wraps it as a `<data>` slot
+		// CCHQ stores the excluded-owners filter as a normalized on-device
+		// XPath string. The suite-XML side uses the same normalization and
+		// wraps it as a `<data>` slot
 		// at search time; the persistent doc carries the expression
 		// directly because CCHQ regenerates the suite from the doc.
 		const doc = buildHqProjectionDoc(
@@ -4230,7 +4377,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		);
 		const searchConfig = expandDoc(doc).modules[0].search_config;
 		expect(searchConfig.blacklisted_owner_ids_expression).toBe(
-			"'excluded-owner-id'",
+			"normalize-space('excluded-owner-id')",
 		);
 	});
 
@@ -4284,6 +4431,96 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		// Barcode rides `appearance`.
 		expect(properties[2].name).toBe("scan_search");
 		expect(properties[2].appearance).toBe("barcode_scan");
+	});
+
+	it("omits an imported scalar default from a paired date-range property", () => {
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000040014"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-000000040015"),
+					"last_visit",
+					"Visit window",
+					"date-range",
+					"last_visit",
+					{ default: today() },
+				),
+			],
+		});
+
+		const [property] = expandDoc(doc).modules[0].search_config.properties;
+		expect(property).toEqual(
+			expect.objectContaining({ name: "last_visit", input_: "daterange" }),
+		);
+		expect(property.default_value).toBeUndefined();
+	});
+
+	it("keeps mixed simple and advanced prompt bindings with shared widget/default metadata", () => {
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-0000000400a1"),
+					"case_name",
+					"Name",
+				),
+			],
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("00000000-0000-4000-8000-0000000400a2"),
+					"case_name",
+					"Name",
+					"text",
+					"case_name",
+				),
+				advancedSearchInputDef(
+					asUuid("00000000-0000-4000-8000-0000000400a3"),
+					"status",
+					"Status rule",
+					"text",
+					eq(prop("patient", "status"), literal("open")),
+				),
+				advancedSearchInputDef(
+					asUuid("00000000-0000-4000-8000-0000000400a4"),
+					"visited_after",
+					"",
+					"date",
+					eq(prop("patient", "last_visit"), dateLiteral("2026-07-17")),
+					{ default: today() },
+				),
+			],
+		});
+
+		const properties = expandDoc(doc).modules[0].search_config.properties;
+		expect(properties).toHaveLength(3);
+		expect(properties[0]).toEqual(
+			expect.objectContaining({ name: "case_name" }),
+		);
+		expect(properties[0].exclude).toBeUndefined();
+		// Even a real/reserved case-property name must be excluded for an
+		// advanced row: its authored predicate, not Core's exact matcher,
+		// owns the comparison.
+		expect(properties[1]).toEqual(
+			expect.objectContaining({
+				name: "status",
+				label: { en: "Status rule" },
+				exclude: true,
+			}),
+		);
+		expect(properties[2]).toEqual(
+			expect.objectContaining({
+				name: "visited_after",
+				label: { en: "visited_after" },
+				input_: "date",
+				default_value: "today()",
+				exclude: true,
+			}),
+		);
 	});
 
 	it("never sets a `fuzzy` or `starts_with_search` boolean on `CaseSearchProperty` (CCHQ has no such field — non-exact modes route through `_xpath_query`)", () => {
@@ -4365,7 +4602,15 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 				),
 			],
 		});
-		const defaults = expandDoc(doc).modules[0].search_config.default_properties;
+		const searchConfig = expandDoc(doc).modules[0].search_config;
+		// CCHQ only creates input bindings from `search_config.properties`.
+		// The advanced row therefore stays present as an excluded prompt:
+		// its value is bound for `_xpath_query`, but Core does not also
+		// submit `status_search=<value>` as an implicit property filter.
+		expect(searchConfig.properties).toEqual([
+			expect.objectContaining({ name: "status_search", exclude: true }),
+		]);
+		const defaults = searchConfig.default_properties;
 		const xpathQueryEntry = defaults.find((d) => d.property === "_xpath_query");
 		expect(xpathQueryEntry).toBeDefined();
 		// The CSQL emitter wraps the AND-composed predicate in a
@@ -4423,7 +4668,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					"age_filter",
 					"Age",
 					"text",
-					// Right-hand operand is `arith(age, +, 1)` — CSQL
+					// Right-hand operand is a pure runtime `arith(18, +, 1)` — CSQL
 					// doesn't admit arith inline, so the emitter
 					// inlines the whole expression as an on-device
 					// XPath fragment inside the wrapper concat.
@@ -4434,7 +4679,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 							{
 								kind: "arith",
 								op: "+",
-								left: term(prop("patient", "age")),
+								left: term(literal(18)),
 								right: term(literal(1)),
 							},
 						),
@@ -4447,9 +4692,9 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		// entries for the inlined on-device fragment.
 		expect(defaults).toHaveLength(1);
 		expect(defaults[0].property).toBe("_xpath_query");
-		// The arith's on-device emission `(age + 1)` lands as a
+		// The arith's on-device emission `(18 + 1)` lands as a
 		// runtime fragment inside the wrapper concat.
-		expect(defaults[0].defaultValue).toContain("(age + 1)");
+		expect(defaults[0].defaultValue).toContain("(18 + 1)");
 		// The `_xpath_query` value never references a synthetic
 		// search-input ref — that shape would silently zero out at
 		// runtime per the CCHQ-side reasoning above.
@@ -4497,6 +4742,10 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 							literal("North"),
 						),
 					},
+					// Explicitly enable the rare filter-only search surface. Without
+					// this marker the same rule is only the on-device list filter and
+					// correctly does not create `_xpath_query` configuration.
+					caseSearchConfig: {},
 					forms: [
 						{
 							name: "Follow-up",
@@ -4614,8 +4863,12 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		expect(module.case_details.short.sort_elements).toHaveLength(1);
 		expect(module.case_details.short.sort_elements[0].field).toBe("last_visit");
 
-		// Always-on filter at `case_details.short.filter`.
-		expect(module.case_details.short.filter).toBe("region = 'North'");
+		// Both always-on availability rules share
+		// `case_details.short.filter`; owner exclusion is not limited to the
+		// remote Search request.
+		expect(module.case_details.short.filter).toBe(
+			"(region = 'North') and (normalize-space('excluded') = '' or not(selected(normalize-space('excluded'), @owner_id)))",
+		);
 
 		// Search-config chrome lands on the matching CCHQ slots.
 		expect(module.search_config.title_label).toEqual({ en: "Find a patient" });
@@ -4623,12 +4876,19 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 			en: "Search patients",
 		});
 		expect(module.search_config.blacklisted_owner_ids_expression).toBe(
-			"'excluded'",
+			"normalize-space('excluded')",
 		);
 
-		// Simple-arm input lands on `properties`.
-		expect(module.search_config.properties).toHaveLength(1);
+		// Both arms land on `properties`: CCHQ creates runtime prompt
+		// bindings only from this list. The advanced prompt is excluded
+		// from Core's implicit property matcher because its predicate is
+		// already carried by `_xpath_query`.
+		expect(module.search_config.properties).toHaveLength(2);
 		expect(module.search_config.properties[0].name).toBe("name_search");
+		expect(module.search_config.properties[0].exclude).toBe(true);
+		expect(module.search_config.properties[1]).toEqual(
+			expect.objectContaining({ name: "age_filter", exclude: true }),
+		);
 
 		// Advanced-arm predicate + filter AND-compose into
 		// `_xpath_query` on `default_properties`.

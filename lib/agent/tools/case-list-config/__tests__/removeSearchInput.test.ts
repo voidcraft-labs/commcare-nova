@@ -122,11 +122,14 @@ describe("removeSearchInput", () => {
 		expect(result.newDoc.modules[MOD_A].caseSearchConfig).toBeUndefined();
 		expect(result.mutations.map((mutation) => mutation.kind)).toEqual([
 			"removeSearchInput",
-			"setCaseSearchMarker",
+			"updateModule",
 		]);
+		expect(result.mutations[1]).toMatchObject({
+			caseSearchConfigOperation: "cleanup-after-final-input",
+		});
 	});
 
-	it("keeps the final input and custom screen settings when removal would orphan them", async () => {
+	it("removes the final input and drops copy that belonged to its Search screen", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithInputs();
 		const onlyInput = doc.modules[MOD_A].caseListConfig?.searchInputs[0];
@@ -155,17 +158,25 @@ describe("removeSearchInput", () => {
 			customized,
 		);
 
-		expect(result.mutations).toEqual([]);
-		expect(result.newDoc.modules[MOD_A].caseSearchConfig).toEqual({
-			searchScreenTitle: "Find a patient",
-		});
+		expect(result.mutations).toEqual([
+			{
+				kind: "removeSearchInput",
+				moduleUuid: MOD_A,
+				uuid: TARGET_UUID,
+			},
+			{
+				kind: "updateModule",
+				uuid: MOD_A,
+				patch: { caseSearchConfig: null },
+				caseSearchConfigOperation: "cleanup-after-final-input",
+			},
+		]);
+		expect(result.newDoc.modules[MOD_A].caseSearchConfig).toBeUndefined();
 		expect(
 			result.newDoc.modules[MOD_A].caseListConfig?.searchInputs,
-		).toHaveLength(1);
-		if (!("error" in result.result)) throw new Error("expected rejection");
-		expect(result.result.error).toMatch(
-			/neither available-case rules nor search fields/i,
-		);
+		).toHaveLength(0);
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(result.result.remaining).toBe(0);
 	});
 
 	it("returns an Elm-style error on out-of-range moduleIndex", async () => {

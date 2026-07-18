@@ -39,20 +39,36 @@ import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
+import tablerLogin2 from "@iconify-icons/tabler/login-2";
+import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
-import { renderColumnCell } from "@/components/builder/case-list-config/columnCellRenderer";
+import {
+	type CalculatedTemporalType,
+	type ColumnDisplayContext,
+	projectColumnDisplay,
+	renderColumnCell,
+	resolveCalculatedTemporalType,
+} from "@/components/builder/case-list-config/columnCellRenderer";
+import { propertyDisplayLabelForName } from "@/components/builder/shared/primitives/propertyDisplay";
 import {
 	ListFilterBox,
 	rowMatchesFilterText,
 } from "@/components/preview/shared/listFilter";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
+import { Button } from "@/components/shadcn/button";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
-import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import {
+	useEffectiveCaseTypes,
+	useMaterializableCaseTypes,
+} from "@/lib/doc/hooks/useCaseTypes";
 import { useModule as useModuleEntity } from "@/lib/doc/hooks/useEntity";
-import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
+import {
+	useOrderedForms,
+	useOrderedModules,
+} from "@/lib/doc/hooks/useModuleIds";
 import {
 	byDetailColumnOrder,
 	byListColumnOrder,
@@ -61,53 +77,71 @@ import type { Uuid } from "@/lib/doc/types";
 import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseListConfig,
+	type CaseProperty,
+	type Column,
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
+	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import {
 	effectiveFilterForEmission,
-	isMatchNone,
-	simplifyForEmission,
+	type ValueExpression,
 } from "@/lib/domain/predicate";
+import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type {
 	CaseQueryConstraintContext,
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
-import { previewSearchSessionValues } from "@/lib/preview/engine/searchExpressionEvaluation";
+import {
+	evaluatePreviewSearchPredicate,
+	previewSearchSessionValues,
+} from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
-import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
+import {
+	useCaseCount,
+	useCaseData,
+	useCases,
+} from "@/lib/preview/hooks/useCaseDataBinding";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAppId,
+	useCanEdit,
 	usePreviewCaseTarget,
 	useSetPreviewCaseTarget,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
+import { useLocalCalendarDay } from "@/lib/ui/hooks/useLocalCalendarDay";
 
 /** Canvas width where search sits beside the results instead of above
  *  them — the same responsive truth the running app follows. */
 const SPLIT_MIN_WIDTH = 760;
+/** Keep real case populations bounded in both the SQL payload and the DOM. */
+const CASE_LIST_PAGE_SIZE = 50;
+const EMPTY_SEARCH_INPUT_VALUES: ReadonlyMap<string, string> = new Map();
 
 interface CaseListScreenProps {
 	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
 	screen: Extract<PreviewScreen, { type: "caseList" }>;
 }
 
-export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
+export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const loc = useLocation();
 	const navigate = useNavigate();
+	const orderedModules = useOrderedModules();
 	/* The MATERIALIZABLE case-type view — derived property types
 	 * included, implicit standard entries excluded. The same shape the
 	 * running-app query compiler and stored insert schema derive from,
 	 * so the list sorts/filters with the same casts and the sample
 	 * generator emits keys the row validation accepts. */
 	const caseTypes = useMaterializableCaseTypes();
+	const effectiveCaseTypes = useEffectiveCaseTypes();
 	const appId = useAppId() ?? "";
+	const canEdit = useCanEdit();
 
 	/* All three case-list workspace URLs (`results` / `search` / `details`)
 	 * render this screen in preview mode — search and
@@ -118,7 +152,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		loc.kind === "search-config" ||
 		loc.kind === "detail-config"
 			? loc.moduleUuid
-			: undefined;
+			: orderedModules[screen.moduleIndex]?.uuid;
 	const routeCaseId = loc.kind === "cases" ? loc.caseId : undefined;
 
 	/* Where selecting a case leads — read from the running app's own
@@ -160,9 +194,43 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 
 	const mod = useModuleEntity(moduleUuid);
 	const caseType = caseTypes.find((ct) => ct.name === mod?.caseType);
+	const effectiveCaseType = effectiveCaseTypes.find(
+		(candidate) => candidate.name === mod?.caseType,
+	);
 	const config = mod?.caseListConfig;
 	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
-	const { user } = useAuth();
+	const displayToday = useLocalCalendarDay();
+	const calculatedTemporalTypes = useMemo(() => {
+		const types = new Map<Column["uuid"], CalculatedTemporalType>();
+		if (config === undefined) return types;
+		const typeContext = {
+			caseTypes: [...effectiveCaseTypes],
+			currentCaseType: effectiveCaseType?.name,
+			// Calculated-column expressions cannot read worker search inputs.
+			// Keeping this empty matches their validator slot constraint.
+			knownInputs: [],
+		};
+		for (const column of config.columns) {
+			const temporalType = resolveCalculatedTemporalType(column, typeContext);
+			if (temporalType !== undefined) types.set(column.uuid, temporalType);
+		}
+		return types;
+	}, [config, effectiveCaseType?.name, effectiveCaseTypes]);
+	const columnDisplayContext = useMemo<ColumnDisplayContext>(
+		() => ({
+			calculatedTemporalTypes,
+			caseProperties:
+				effectiveCaseType?.properties ?? caseType?.properties ?? [],
+			today: displayToday,
+		}),
+		[
+			calculatedTemporalTypes,
+			caseType?.properties,
+			displayToday,
+			effectiveCaseType?.properties,
+		],
+	);
+	const { user, signIn } = useAuth();
 	// Better Auth can resolve its cached session synchronously on the browser's
 	// first paint while SSR has no client session. Keep the first render on the
 	// shared empty context, then apply session-backed defaults after hydration.
@@ -171,6 +239,17 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const searchSession = useMemo(
 		() => previewSearchSessionValues(authMounted ? user : null),
 		[authMounted, user],
+	);
+	const searchTypeContext = useMemo<TypeContext>(
+		() => ({
+			caseTypes: [...effectiveCaseTypes],
+			knownInputs: (config?.searchInputs ?? []).map((input) => ({
+				name: input.name,
+				data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+			})),
+			...(caseType !== undefined && { currentCaseType: caseType.name }),
+		}),
+		[caseType, config?.searchInputs, effectiveCaseTypes],
 	);
 
 	// ── Responsive split — the canvas's own width decides ──
@@ -200,41 +279,192 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		searchInputs: config?.searchInputs ?? [],
 		session: searchSession,
 	});
-	const hasSearch = (config?.searchInputs.length ?? 0) > 0;
-	const hasEffectiveBaselineFilter =
-		effectiveFilterForEmission(config?.filter) !== undefined;
-	/* Ownership exclusions are part of the authored search, not the passive
-	 * list load. Do not narrow the initial list before the worker actually
-	 * submits Search — even an all-blank submit is intentional. A real
-	 * filter-only search has no submit screen, so its effective filter is the
-	 * launch and activates the exclusion immediately. */
-	const filterOnlyAutoLaunch =
-		!hasSearch && searchConfig !== undefined && hasEffectiveBaselineFilter;
-	const excludedOwnerIdsExpression =
-		searchRun.hasSubmitted || filterOnlyAutoLaunch
-			? searchConfig?.excludedOwnerIds
-			: undefined;
+	const hasSearchInputs = (config?.searchInputs.length ?? 0) > 0;
+	const searchButtonCondition = searchConfig?.searchButtonDisplayCondition;
+	/* CommCare evaluates this predicate on the case-list Search action, before
+	 * the prompt screen exists. Preview's combined Search + Results composition
+	 * therefore gates the whole Search pane from the same session/global context;
+	 * it must never make the pane's submit button react to its own draft. */
+	const searchActionIsRelevant = (() => {
+		if (searchConfig === undefined) return false;
+		if (searchButtonCondition === undefined) return true;
+		try {
+			return evaluatePreviewSearchPredicate(
+				searchButtonCondition,
+				config?.searchInputs ?? [],
+				searchSession,
+				EMPTY_SEARCH_INPUT_VALUES,
+			);
+		} catch {
+			/* Legacy/imported documents can carry a schema-valid condition that a
+			 * newer on-device validator rejects. Preview remains a repair surface for
+			 * those documents: fail the action closed instead of crashing the entire
+			 * case list while the builder points the author to the invalid setting. */
+			return false;
+		}
+	})();
+	/* A retained flipbook submission belongs to the Search action. If a live
+	 * session/config edit makes that action irrelevant, show the ordinary case
+	 * list instead of silently keeping an inaccessible remote-search query. The
+	 * retained draft/submission resumes if the action becomes relevant again. */
+	const activeSearchInputValues = searchActionIsRelevant
+		? searchRun.submitted
+		: undefined;
+	/* Assigned-case exclusions constrain the Results population itself. They
+	 * therefore apply on the first load, with or without a visible Search
+	 * screen, and remain active when a worker clears or removes Search fields.
+	 * Read the stored rule rather than the effective Search action: the private
+	 * `searchActionEnabled: false` provenance marker suppresses Search without
+	 * suppressing this independent Results rule. */
+	const excludedOwnerIdsExpression = mod?.caseSearchConfig?.excludedOwnerIds;
+	const replacementRevision = useCaseDataReplacementRevision(
+		appId,
+		caseType?.name,
+	);
 	const [filterText, setFilterText] = useState("");
+	/* Paging belongs to the effective module query. A newly submitted Search or
+	 * authored config changes that query identity and synchronously derives page
+	 * zero; no effect-frame can briefly request a stale far-away page. */
+	const [pageSelection, setPageSelection] = useState<{
+		readonly moduleUuid: Uuid | undefined;
+		readonly caseTypeName: string | undefined;
+		readonly config: CaseListConfig | undefined;
+		readonly submitted: typeof activeSearchInputValues;
+		readonly excludedOwnerIdsExpression: ValueExpression | undefined;
+		readonly replacementRevision: number;
+		readonly index: number;
+	}>({
+		moduleUuid,
+		caseTypeName: caseType?.name,
+		config,
+		submitted: activeSearchInputValues,
+		excludedOwnerIdsExpression,
+		replacementRevision,
+		index: 0,
+	});
+	const pageScopeMatches =
+		pageSelection.moduleUuid === moduleUuid &&
+		pageSelection.caseTypeName === caseType?.name &&
+		pageSelection.config === config &&
+		pageSelection.submitted === activeSearchInputValues &&
+		pageSelection.excludedOwnerIdsExpression === excludedOwnerIdsExpression &&
+		pageSelection.replacementRevision === replacementRevision;
+	const requestedPageIndex = pageScopeMatches ? pageSelection.index : 0;
+	const casePage = useMemo(
+		() => ({
+			offset: requestedPageIndex * CASE_LIST_PAGE_SIZE,
+			limit: CASE_LIST_PAGE_SIZE,
+		}),
+		[requestedPageIndex],
+	);
+	const choosePage = useCallback(
+		(index: number) => {
+			setPageSelection({
+				moduleUuid,
+				caseTypeName: caseType?.name,
+				config,
+				submitted: activeSearchInputValues,
+				excludedOwnerIdsExpression,
+				replacementRevision,
+				index: Math.max(0, index),
+			});
+			requestAnimationFrame(() => resultsTitleRef.current?.focus());
+		},
+		[
+			caseType?.name,
+			config,
+			excludedOwnerIdsExpression,
+			moduleUuid,
+			replacementRevision,
+			activeSearchInputValues,
+		],
+	);
 	const [openCase, setOpenCase] = useState<CaseRowWithCalculated | null>(null);
 	/** When set, the case has been picked (and confirmed) and the running app
 	 *  is on the form menu — choosing among the module's case-loading forms.
 	 *  Only reached on a case-first entry with more than one such form. */
 	const [formMenuCase, setFormMenuCase] =
 		useState<CaseRowWithCalculated | null>(null);
+	const surfaceRef = useRef<HTMLDivElement>(null);
+	const searchPaneRef = useRef<HTMLDivElement>(null);
+	const detailBackRef = useRef<HTMLButtonElement>(null);
+	const formMenuBackRef = useRef<HTMLButtonElement>(null);
+	const routeBackRef = useRef<HTMLButtonElement>(null);
+	const routeFallbackElementRef = useRef<HTMLDivElement>(null);
+	const routeFallbackOwnedFocusRef = useRef<string | null>(null);
+	const resultsTitleRef = useRef<HTMLHeadingElement>(null);
+	const originatingCaseIdRef = useRef<string | null>(null);
+	const previousRouteCaseIdRef = useRef(routeCaseId);
+	const previousRouteModuleUuidRef = useRef(moduleUuid);
+	const explicitRouteCloseRef = useRef<string | null>(null);
+	const routeDrivenExit =
+		previousRouteCaseIdRef.current !== undefined && routeCaseId === undefined;
+	const focusNextFrame = useCallback((target: () => HTMLElement | null) => {
+		requestAnimationFrame(() => target()?.focus());
+	}, []);
+	const routeFallbackPaneRef = useCallback(
+		(element: HTMLDivElement | null) => {
+			if (element === null) return;
+			routeFallbackElementRef.current = element;
+			const caseId = routeCaseId;
+			return () => {
+				if (caseId !== undefined && element.contains(document.activeElement)) {
+					routeFallbackOwnedFocusRef.current = caseId;
+				}
+				if (routeFallbackElementRef.current === element) {
+					routeFallbackElementRef.current = null;
+				}
+			};
+		},
+		[routeCaseId],
+	);
+	const restoreResultsFocus = useCallback(() => {
+		focusNextFrame(() => {
+			const actions = Array.from(
+				surfaceRef.current?.querySelectorAll<HTMLButtonElement>(
+					"[data-case-result-action]",
+				) ?? [],
+			);
+			return (
+				actions.find(
+					(action) =>
+						action.dataset.caseResultAction === originatingCaseIdRef.current,
+				) ??
+				actions[0] ??
+				resultsTitleRef.current
+			);
+		});
+	}, [focusNextFrame]);
+	const focusFirstSearchControl = useCallback(() => {
+		focusNextFrame(
+			() =>
+				searchPaneRef.current?.querySelector<HTMLElement>(
+					"[data-search-input-card] input:not([disabled]), [data-search-input-card] button:not([disabled]), [data-search-input-card] [tabindex='0']",
+				) ?? null,
+		);
+	}, [focusNextFrame]);
 	/* The list stays mounted inside React Activity while authoring is visible.
 	 * A record opened from Results therefore leaves its optimistic local row in
 	 * memory after a URL-only preview exit unless we clear it when the record
 	 * segment disappears. Without this boundary, re-entering Preview could show
 	 * the old record under the plain `/results` URL. */
 	useEffect(() => {
+		const previousRouteCaseId = previousRouteCaseIdRef.current;
+		const previousRouteModuleUuid = previousRouteModuleUuidRef.current;
+		const exitedRouteDetail =
+			previousRouteCaseId !== undefined && routeCaseId === undefined;
+		previousRouteCaseIdRef.current = routeCaseId;
+		previousRouteModuleUuidRef.current = moduleUuid;
 		if (routeCaseId !== undefined) return;
 		setOpenCase(null);
 		setFormMenuCase(null);
-	}, [routeCaseId]);
-	const replacementRevision = useCaseDataReplacementRevision(
-		appId,
-		caseType?.name,
-	);
+		if (exitedRouteDetail && previousRouteModuleUuid === moduleUuid) {
+			const explicitlyClosed =
+				explicitRouteCloseRef.current === previousRouteCaseId;
+			explicitRouteCloseRef.current = null;
+			if (!explicitlyClosed) restoreResultsFocus();
+		}
+	}, [moduleUuid, restoreResultsFocus, routeCaseId]);
 	const routeRevisionRef = useRef({
 		caseId: routeCaseId,
 		revision: replacementRevision,
@@ -249,6 +479,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		routeCaseId !== undefined &&
 		routeRevisionRef.current.revision !== replacementRevision;
 	const stateScopeRef = useRef(moduleUuid);
+	const stateBelongsToModule = stateScopeRef.current === moduleUuid;
 	useEffect(() => {
 		if (stateScopeRef.current === moduleUuid) return;
 		stateScopeRef.current = moduleUuid;
@@ -266,28 +497,84 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 		navigate.replace({ kind: "cases", moduleUuid });
 	}, [routeCaseReplaced, moduleUuid, navigate, setPreviewSelectedCase]);
 
-	const { state, fetching, queryConstraintSource } = useCases({
+	const {
+		state,
+		fetching,
+		queryConstraintSource,
+		reload: reloadCases,
+	} = useCases({
 		appId,
 		caseType: caseType?.name,
 		caseListConfig: config,
-		inputValues: searchRun.submitted,
+		inputValues: activeSearchInputValues,
 		excludedOwnerIdsExpression,
 		// The live case-type catalog — the schema slice the SQL compiler
 		// casts the config's predicate/sort/calc against. Sent with the
 		// config so a property rename/retype reaches both together, and a
 		// fresh `caseTypes` reference re-fires the load on a schema edit.
 		caseTypes,
+		page: casePage,
+		requestScopeKey: moduleUuid,
 	});
+	/* The Results query can be empty because there is no data OR because the
+	 * authored/search conditions exclude an existing population. Keep those
+	 * states distinct: only the first should invite an author to create sample
+	 * cases. The count deliberately bypasses every module-level condition and
+	 * only runs when a constrained empty result needs that distinction. */
+	const authoredMatchingCount =
+		state.kind === "empty" ? state.authoredMatchingCount : undefined;
+	const workerSearchProvesUnderlyingRows =
+		queryConstraintSource === "worker-search" &&
+		authoredMatchingCount !== undefined &&
+		authoredMatchingCount > 0;
+	const needsUnfilteredCount =
+		state.kind === "empty" &&
+		queryConstraintSource !== "unconstrained" &&
+		!workerSearchProvesUnderlyingRows;
+	const { state: unfilteredCountState, reload: reloadUnfilteredCount } =
+		useCaseCount({
+			appId: needsUnfilteredCount ? appId : undefined,
+			caseType: needsUnfilteredCount ? caseType?.name : undefined,
+		});
 	/* A record deep link must not depend on the row surviving the authored
-	 * Results filter. Load it directly by identity; when the list query also
-	 * contains the row, prefer that projection so calculated fields remain
-	 * available in Details. */
-	const { state: routeCaseState } = useCaseData({
+	 * Results filter or current 50-row page. Load it directly by identity while
+	 * sending the same display config/catalog solely for calculated projection;
+	 * when the list query also contains the row, prefer that existing projection. */
+	const { state: routeCaseState, reload: reloadRouteCase } = useCaseData({
 		appId,
 		caseType: caseType?.name,
 		caseId: routeCaseId,
 		ancestorDepth: 0,
+		caseListConfig: config,
+		caseTypes,
 	});
+	const retryCasesWithFocus = useCallback(async () => {
+		const pending = reloadCases();
+		focusNextFrame(() => resultsTitleRef.current);
+		await pending;
+		focusNextFrame(() => resultsTitleRef.current);
+	}, [focusNextFrame, reloadCases]);
+	const retryCountWithFocus = useCallback(async () => {
+		const pending = reloadUnfilteredCount();
+		focusNextFrame(() => resultsTitleRef.current);
+		await pending;
+		focusNextFrame(() => resultsTitleRef.current);
+	}, [focusNextFrame, reloadUnfilteredCount]);
+	const retryRouteCaseWithFocus = useCallback(
+		async (trigger?: HTMLButtonElement) => {
+			const pending = reloadRouteCase();
+			await pending;
+			focusNextFrame(
+				() =>
+					detailBackRef.current ??
+					routeFallbackElementRef.current?.querySelector<HTMLButtonElement>(
+						"[data-case-list-empty-action]",
+					) ??
+					(trigger?.isConnected ? trigger : routeBackRef.current),
+			);
+		},
+		[focusNextFrame, reloadRouteCase],
+	);
 
 	/* Clear what the worker typed into the authored Search fields. The list's
 	 * quick filter owns its own adjacent clear button; coupling the two produced
@@ -295,6 +582,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	 * interchangeable when they are not. */
 	const clearSearch = () => {
 		searchRun.clear();
+		focusFirstSearchControl();
 	};
 
 	// Results and Details are independent compositions. Each consumes its own
@@ -309,17 +597,55 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	const queryActive = searchRun.queryActive;
 	const draftActive = searchRun.draftActive;
 	const loadedRows = state.kind === "rows" ? state.rows : [];
+	const totalMatchingCases =
+		state.kind === "rows" ? (state.totalCount ?? loadedRows.length) : 0;
+	const settledPageOffset =
+		state.kind === "rows"
+			? (state.pageOffset ?? requestedPageIndex * CASE_LIST_PAGE_SIZE)
+			: requestedPageIndex * CASE_LIST_PAGE_SIZE;
+	const settledPageSize =
+		state.kind === "rows" ? (state.pageSize ?? CASE_LIST_PAGE_SIZE) : 0;
+	const settledPageIndex =
+		settledPageSize > 0
+			? Math.floor(settledPageOffset / settledPageSize)
+			: requestedPageIndex;
+	const pageStart = loadedRows.length === 0 ? 0 : settledPageOffset + 1;
+	const pageEnd = settledPageOffset + loadedRows.length;
+	const pageLocalFilter = totalMatchingCases > loadedRows.length;
 	const routeCase = useMemo<CaseRowWithCalculated | null>(() => {
 		if (!routeCaseId || routeCaseReplaced) return null;
 		const projected = loadedRows.find((row) => row.case_id === routeCaseId);
 		if (projected) return projected;
 		if (routeCaseState.kind !== "row") return null;
-		return { ...routeCaseState.row, calculated: {} };
+		return routeCaseState.row;
 	}, [routeCaseId, routeCaseReplaced, loadedRows, routeCaseState]);
-	const displayedOpenCase = routeCaseId ? routeCase : openCase;
+	/* A deep-linked case first owns a loading/error fallback pane. If its Back
+	 * action had focus when the automatic case read succeeds, transfer that
+	 * ownership to the equivalent Back action in Details instead of letting the
+	 * unmounted fallback drop focus to the document body. */
+	useEffect(() => {
+		if (
+			routeCase === null ||
+			routeCaseId === undefined ||
+			routeFallbackOwnedFocusRef.current !== routeCaseId
+		) {
+			return;
+		}
+		routeFallbackOwnedFocusRef.current = null;
+		focusNextFrame(() => detailBackRef.current);
+	}, [focusNextFrame, routeCase, routeCaseId]);
+	const displayedOpenCase = routeCaseId
+		? routeCase
+		: stateBelongsToModule && !routeDrivenExit
+			? openCase
+			: null;
+	const displayedFormMenuCase =
+		stateBelongsToModule && !routeDrivenExit ? formMenuCase : null;
 	/* Mirror the URL-backed or local selection into session so the sibling
 	 * breadcrumb names the same record the screen is actually showing. */
-	const selectedCase = formMenuCase ?? displayedOpenCase;
+	const selectedCase = stateBelongsToModule
+		? (displayedFormMenuCase ?? displayedOpenCase)
+		: null;
 	useEffect(() => {
 		setPreviewSelectedCase(
 			selectedCase
@@ -335,16 +661,92 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			filterText === ""
 				? loadedRows
 				: loadedRows.filter((row) =>
-						rowMatchesFilterText(visibleColumns, row, filterText),
+						rowMatchesFilterText(
+							visibleColumns,
+							row,
+							filterText,
+							columnDisplayContext,
+						),
 					),
-		[loadedRows, visibleColumns, filterText],
+		[loadedRows, visibleColumns, filterText, columnDisplayContext],
 	);
+	const visibleResultCount =
+		filterText !== ""
+			? `${filteredRows.length.toLocaleString()} of ${loadedRows.length.toLocaleString()} ${loadedRows.length === 1 ? "case" : "cases"}${pageLocalFilter ? " on this page" : ""}`
+			: pageLocalFilter
+				? `${pageStart.toLocaleString()}–${pageEnd.toLocaleString()} of ${totalMatchingCases.toLocaleString()} cases`
+				: `${totalMatchingCases.toLocaleString()} ${totalMatchingCases === 1 ? "case" : "cases"}`;
+	const announcedResultCount =
+		filterText !== ""
+			? visibleResultCount
+			: pageLocalFilter
+				? `Showing ${visibleResultCount}`
+				: `${visibleResultCount} found`;
+	const title = searchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
+	const subtitle = searchConfig?.searchScreenSubtitle;
+	const searchButtonLabel =
+		searchConfig?.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL;
+	const effectiveSearchFilter = effectiveFilterForEmission(config?.filter);
+	const hasEffectiveSearchFilter = effectiveSearchFilter !== undefined;
+	const zeroInputSearchActionIsRelevant =
+		!hasSearchInputs && searchActionIsRelevant;
+	const automaticallyLaunchesZeroInputSearch =
+		zeroInputSearchActionIsRelevant && hasEffectiveSearchFilter;
+	const automaticSearchToken = automaticallyLaunchesZeroInputSearch
+		? JSON.stringify({
+				moduleUuid,
+				filter: effectiveSearchFilter,
+				condition: searchButtonCondition,
+			})
+		: undefined;
+	const launchedAutomaticSearchRef = useRef<string | undefined>(undefined);
+	const submitSearch = searchRun.submit;
+	useEffect(() => {
+		if (
+			automaticSearchToken === undefined ||
+			launchedAutomaticSearchRef.current === automaticSearchToken
+		) {
+			return;
+		}
 
-	if (!mod || !caseType || visibleColumns.length === 0) {
+		/* CommCare auto-launches an input-free Search only when its Results
+		 * filter actually narrows the population and the action is relevant. The
+		 * ref makes that launch idempotent under React's development effect replay
+		 * while still allowing a changed module/filter to launch as a new action. */
+		launchedAutomaticSearchRef.current = automaticSearchToken;
+		submitSearch(EMPTY_SEARCH_INPUT_VALUES);
+	}, [automaticSearchToken, submitSearch]);
+	if (mod === undefined) {
 		return (
-			<div className="p-6 text-center text-nova-text-muted">
-				No case list configured for this module.
-			</div>
+			<ContentFrame width="5xl" className="px-6 pt-6 pb-24">
+				<CaseListEmptyNotice
+					headingLevel={1}
+					title="This module is no longer available"
+					description="Return to edit mode and choose another module"
+				/>
+			</ContentFrame>
+		);
+	}
+	if (caseType === undefined) {
+		return (
+			<ContentFrame width="5xl" className="px-6 pt-6 pb-24">
+				<CaseListEmptyNotice
+					headingLevel={1}
+					title="Results need a case type"
+					description="Return to edit mode and choose one in module settings"
+				/>
+			</ContentFrame>
+		);
+	}
+	if (visibleColumns.length === 0) {
+		return (
+			<ContentFrame width="5xl" className="px-6 pt-6 pb-24">
+				<CaseListEmptyNotice
+					headingLevel={1}
+					title="Results need information"
+					description="Return to edit mode and add information to Results"
+				/>
+			</ContentFrame>
 		);
 	}
 
@@ -383,6 +785,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 			openFormWithCase(caseLoadingForms[0].uuid, row);
 		} else if (caseLoadingForms.length > 1) {
 			setFormMenuCase(row);
+			focusNextFrame(() => formMenuBackRef.current);
 		}
 	};
 
@@ -392,165 +795,203 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	 * informational). */
 	const rowAction: "detail" | "form" | "none" =
 		detailColumns.length > 0 ? "detail" : canContinue ? "form" : "none";
-	const handleOpenCase = (row: CaseRowWithCalculated) => {
+	const handleOpenCase = (
+		row: CaseRowWithCalculated,
+		trigger: HTMLButtonElement,
+	) => {
+		originatingCaseIdRef.current =
+			trigger.dataset.caseResultAction ?? row.case_id;
 		if (rowAction === "detail") {
 			setOpenCase(row);
 			if (moduleUuid) navigate.openCaseDetail(moduleUuid, row.case_id);
+			focusNextFrame(() => detailBackRef.current);
 		} else if (rowAction === "form") proceedWithCase(row);
 	};
 	const closeCaseDetail = () => {
+		if (routeCaseId !== undefined) {
+			explicitRouteCloseRef.current = routeCaseId;
+		}
 		setOpenCase(null);
 		setFormMenuCase(null);
 		if (moduleUuid) navigate.openCaseList(moduleUuid);
+		restoreResultsFocus();
 	};
-
-	const title = searchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
-	const subtitle = searchConfig?.searchScreenSubtitle;
-	const searchButtonLabel =
-		searchConfig?.searchButtonLabel ?? DEFAULT_CASE_SEARCH_BUTTON_LABEL;
-	const buttonCondition = searchConfig?.searchButtonDisplayCondition;
-	// The preview has no authoritative CommCare session/case-action context in
-	// which to evaluate a dynamic predicate. It can still honor every static
-	// boolean identity exactly (including nested `not` / `and` / `or`) without
-	// inventing values: deeply simplify, hide only when the condition proves
-	// false, and keep unresolved dynamic conditions visible.
-	const showSearchButton =
-		buttonCondition === undefined ||
-		!isMatchNone(simplifyForEmission(buttonCondition));
 
 	// ── Panes ──
 
-	const searchPane = hasSearch ? (
-		<div
-			className={`${split ? "w-72 shrink-0" : "w-full"} self-start rounded-lg border border-pv-input-border bg-pv-surface p-4`}
-		>
-			<div className="flex items-center gap-2 mb-1">
-				<Icon
-					icon={tablerSearch}
-					width="16"
-					height="16"
-					className="text-nova-text-secondary"
+	const searchPane =
+		hasSearchInputs && searchActionIsRelevant ? (
+			<div
+				ref={searchPaneRef}
+				className={`${split ? "w-72 shrink-0" : "w-full"} grid self-start gap-4 rounded-lg border border-pv-input-border bg-pv-surface p-4`}
+			>
+				<div>
+					<div className="flex min-h-11 min-w-0 items-center gap-2">
+						<Icon
+							icon={tablerSearch}
+							width="16"
+							height="16"
+							className="shrink-0 text-nova-text-secondary"
+						/>
+						<div
+							data-search-pane-title
+							className="min-w-0 flex-1 whitespace-normal break-words font-display text-[15px] font-semibold leading-snug text-nova-text [overflow-wrap:anywhere]"
+						>
+							{title}
+						</div>
+						{/* Clear what was typed — lives WITH the search (where you'd
+						 *  reach to start over) and only appears when there's an active
+						 *  query to clear. */}
+						{(queryActive || draftActive) && (
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={clearSearch}
+								className="ml-auto min-h-11 shrink-0 gap-1 rounded-md px-2 text-[14px] text-nova-text-muted not-disabled:hover:bg-transparent not-disabled:hover:text-nova-text"
+							>
+								<Icon icon={tablerX} width="13" height="13" />
+								Clear search
+							</Button>
+						)}
+					</div>
+					{subtitle !== undefined && (
+						<div className="preview-markdown mt-1 text-sm text-nova-text-secondary">
+							<PreviewMarkdown>{subtitle}</PreviewMarkdown>
+						</div>
+					)}
+				</div>
+				<SearchInputForm
+					key={moduleUuid}
+					landmarkLabel={title}
+					scopeKey={moduleUuid}
+					searchInputs={config?.searchInputs ?? []}
+					filter={config?.filter}
+					caseType={caseType}
+					session={searchSession}
+					typeContext={searchTypeContext}
+					value={searchRun.draft}
+					onChange={searchRun.changeDraft}
+					onSubmit={searchRun.submit}
+					submitLabel={searchButtonLabel}
 				/>
-				<span className="font-display font-semibold text-[15px] text-nova-text">
-					{title}
-				</span>
-				{/* Clear what was typed — lives WITH the search (where you'd
-				 *  reach to start over) and only appears when there's an active
-				 *  query to clear. */}
-				{(queryActive || draftActive) && (
-					<button
-						type="button"
-						onClick={clearSearch}
-						className="ml-auto inline-flex items-center gap-1 px-2 min-h-11 -my-1 rounded-md text-xs text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer"
+				{state.kind === "invalid-search" && (
+					<div
+						role="alert"
+						className="rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] p-3"
 					>
-						<Icon icon={tablerX} width="13" height="13" />
-						Clear
-					</button>
+						<p className="text-sm font-semibold text-nova-text">
+							Search needs attention
+						</p>
+						<p className="mt-1 text-sm leading-relaxed text-nova-text-secondary">
+							{state.message}
+						</p>
+						<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
+							{state.repair === "inputs"
+								? "Change the Search information, then search again"
+								: "Return to edit mode and review Search settings"}
+						</p>
+					</div>
 				)}
 			</div>
-			{subtitle !== undefined && (
-				<div className="mb-2 preview-markdown text-xs text-nova-text-muted">
-					<PreviewMarkdown>{subtitle}</PreviewMarkdown>
-				</div>
-			)}
-			<SearchInputForm
-				searchInputs={config?.searchInputs ?? []}
-				caseType={caseType}
-				value={searchRun.draft}
-				onChange={searchRun.changeDraft}
-				onSubmit={showSearchButton ? searchRun.submit : undefined}
-				submitLabel={searchButtonLabel}
-			/>
-		</div>
-	) : null;
+		) : null;
 
 	const detailPane = displayedOpenCase !== null && (
 		<div className="max-w-lg min-w-0 flex-1">
-			<button
+			<Button
+				ref={detailBackRef}
 				type="button"
+				variant="ghost"
 				onClick={closeCaseDetail}
-				className="inline-flex items-center gap-1.5 -ml-2 mb-3 px-2 py-1.5 min-h-11 rounded-md text-[13px] text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer"
+				className="-ml-2 mb-3 min-h-11 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
-				Back to Results
-			</button>
-			<h2 className="font-display font-bold text-xl tracking-tight text-nova-text mb-4">
+				Back to results
+			</Button>
+			<h1
+				data-case-detail-title
+				className="mb-4 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tight text-nova-text [overflow-wrap:anywhere]"
+			>
 				{displayedOpenCase.case_name || "Case"}
-			</h2>
-			<div
+			</h1>
+			<dl
 				data-case-detail="responsive"
 				className="@container/detail overflow-hidden rounded-lg border border-pv-input-border bg-pv-surface"
 			>
 				{detailColumns.map((col, i) => {
-					const label =
-						col.kind === "calculated"
-							? col.header || "untitled"
-							: col.header || col.field || "untitled";
+					const label = caseColumnLabel(col, caseType.properties);
 					return (
 						<div
 							key={col.uuid}
 							data-case-detail-field={col.uuid}
 							className={`grid grid-cols-1 items-start gap-1 px-4 py-3 @sm/detail:grid-cols-[minmax(110px,0.38fr)_minmax(0,1fr)] @sm/detail:gap-3 ${i > 0 ? "border-t border-nova-violet/[0.08]" : ""}`}
 						>
-							<span className="break-words text-xs font-medium text-nova-text-muted">
+							<dt className="break-words text-xs font-medium text-nova-text-muted">
 								{label}
-							</span>
-							<span
+							</dt>
+							<dd
 								data-case-detail-value
-								className="min-w-0 break-words text-[13px] leading-relaxed text-nova-text-secondary [overflow-wrap:anywhere]"
+								className="min-w-0 break-words text-[14px] leading-relaxed text-nova-text-secondary [overflow-wrap:anywhere]"
 							>
-								{renderColumnCell(col, displayedOpenCase)}
-							</span>
+								{renderColumnCell(col, displayedOpenCase, columnDisplayContext)}
+							</dd>
 						</div>
 					);
 				})}
-			</div>
+			</dl>
 			{/* The running app's confirm step ends in Continue — on to the
 			 *  case-loading form (or the form menu, when the module has more
 			 *  than one). A module with no case-loading form has nowhere to
 			 *  continue, so the detail is the end of the road and no button
 			 *  renders. */}
 			{canContinue && (
-				<button
+				<Button
 					type="button"
 					onClick={() => proceedWithCase(displayedOpenCase)}
-					className="mt-4 inline-flex items-center gap-2 px-4 min-h-11 rounded-lg bg-pv-accent text-white text-[13px] font-semibold hover:brightness-110 transition-all cursor-pointer"
+					className="mt-4 min-h-11 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-white not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 				>
 					Continue
 					<Icon icon={tablerArrowRight} width="15" height="15" />
-				</button>
+				</Button>
 			)}
 		</div>
 	);
 
 	const routeCaseFallbackPane = routeCaseId !== undefined &&
 		routeCase === null && (
-			<div className="max-w-lg min-w-0 flex-1">
-				<button
+			<div ref={routeFallbackPaneRef} className="max-w-lg min-w-0 flex-1">
+				<Button
+					ref={routeBackRef}
 					type="button"
+					variant="ghost"
 					onClick={closeCaseDetail}
-					className="inline-flex items-center gap-1.5 -ml-2 mb-3 px-2 py-1.5 min-h-11 rounded-md text-[13px] text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer"
+					className="-ml-2 mb-3 min-h-11 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 				>
 					<Icon icon={tablerChevronLeft} width="15" height="15" />
-					Back to Results
-				</button>
+					Back to results
+				</Button>
 				{routeCaseState.kind === "missing" ? (
-					<div className="rounded-lg border border-pv-input-border px-6 py-10 text-center">
-						<p className="text-sm text-nova-text-secondary mb-1">
-							This case is no longer available
-						</p>
-						<p className="text-xs text-nova-text-muted">
-							Return to Results and choose another case.
-						</p>
-					</div>
+					<CaseListEmptyNotice
+						headingLevel={1}
+						title="This case is no longer available"
+						description="To choose another case, return to Results"
+					/>
 				) : routeCaseState.kind === "error" ? (
-					<div className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] px-5 py-6 text-center text-xs text-nova-rose">
-						{routeCaseState.message}
-					</div>
+					<CaseListEmptyNotice
+						headingLevel={1}
+						title="This case didn’t load"
+						description="Try again to view this case"
+						tone="error"
+						action={{
+							label: "Try again",
+							onClick: (trigger) => void retryRouteCaseWithFocus(trigger),
+						}}
+					/>
 				) : routeCaseState.kind === "unauthenticated" ? (
-					<div className="rounded-lg border border-pv-input-border px-5 py-6 text-center text-xs text-nova-text-muted">
-						Sign in to view this case.
-					</div>
+					<SessionEndedNotice
+						headingLevel={1}
+						description="To view this case, sign in again"
+						onSignIn={() => void signIn()}
+					/>
 				) : (
 					<CasesLoading />
 				)}
@@ -562,31 +1003,44 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	 *  now picks which form to run for it (Follow-up / Close / …). Mirrors
 	 *  CommCare resolving the shared case datum and THEN asking for the
 	 *  command. Each choice carries the chosen case into the form. */
-	const formMenuPane = formMenuCase !== null && (
+	const formMenuPane = displayedFormMenuCase !== null && (
 		<div className="max-w-lg min-w-0 flex-1">
 			{/* Back returns to whatever sits beneath the menu — the case
 			 *  detail when one is configured, otherwise the results list. */}
-			<button
+			<Button
+				ref={formMenuBackRef}
 				type="button"
-				onClick={() => setFormMenuCase(null)}
-				className="inline-flex items-center gap-1.5 -ml-2 mb-3 px-2 py-1.5 min-h-11 rounded-md text-[13px] text-nova-violet-bright hover:bg-nova-violet/[0.08] transition-colors cursor-pointer"
+				variant="ghost"
+				onClick={() => {
+					setFormMenuCase(null);
+					if (displayedOpenCase !== null) {
+						focusNextFrame(() => detailBackRef.current);
+					} else {
+						restoreResultsFocus();
+					}
+				}}
+				className="-ml-2 mb-3 min-h-11 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
-				{displayedOpenCase !== null ? "Back" : "Back to Results"}
-			</button>
-			<h2 className="font-display font-bold text-xl tracking-tight text-nova-text mb-1">
-				{formMenuCase.case_name || "Case"}
-			</h2>
+				{displayedOpenCase !== null ? "Back" : "Back to results"}
+			</Button>
+			<h1
+				data-form-menu-case-title
+				className="mb-1 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tight text-nova-text [overflow-wrap:anywhere]"
+			>
+				{displayedFormMenuCase.case_name || "Case"}
+			</h1>
 			<p className="mb-4 text-[13px] text-nova-text-muted">
-				Choose what to do with this case.
+				Choose what to do with this case
 			</p>
 			<div className="grid gap-2">
 				{caseLoadingForms.map((form) => (
-					<button
+					<Button
 						key={form.uuid}
 						type="button"
-						onClick={() => openFormWithCase(form.uuid, formMenuCase)}
-						className="w-full flex items-center gap-3 p-3 rounded-lg bg-pv-surface border border-pv-input-border hover:border-pv-input-focus transition-all duration-200 cursor-pointer text-left group"
+						variant="outline"
+						onClick={() => openFormWithCase(form.uuid, displayedFormMenuCase)}
+						className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
 					>
 						<Icon
 							icon={formTypeIcons[form.type]}
@@ -594,7 +1048,10 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 							height="18"
 							className="text-nova-text-muted group-hover:text-pv-accent-bright transition-colors shrink-0"
 						/>
-						<span className="flex-1 min-w-0 text-sm font-medium text-nova-text">
+						<span
+							data-form-menu-choice-label
+							className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]"
+						>
 							{form.name}
 						</span>
 						<Icon
@@ -603,7 +1060,7 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 							height="15"
 							className="text-nova-text-muted shrink-0"
 						/>
-					</button>
+					</Button>
 				))}
 			</div>
 		</div>
@@ -611,56 +1068,136 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 
 	const resultsPane = (
 		<div className="flex-1 min-w-0">
-			<div className="flex items-baseline gap-3 mb-3">
-				<h2 className="font-display font-bold text-xl tracking-tight text-nova-text">
+			<div className="mb-3 flex min-w-0 items-baseline gap-3">
+				<h1
+					ref={resultsTitleRef}
+					tabIndex={-1}
+					data-results-title
+					className="min-w-0 flex-1 font-display font-bold text-xl whitespace-normal break-words tracking-tight text-nova-text [overflow-wrap:anywhere]"
+				>
 					{mod.name}
-				</h2>
+				</h1>
 				{state.kind === "rows" && (
-					<span className="ml-auto inline-flex items-center gap-1.5 text-xs text-nova-text-muted whitespace-nowrap">
-						{filteredRows.length} {filteredRows.length === 1 ? "case" : "cases"}
-						{/* Trailing, always-reserved spinner slot. The count text must
-						 *  stay the span's FIRST flex item: the row aligns by baseline,
-						 *  and a flex container's baseline comes from its first item —
-						 *  an SVG's baseline is its bottom edge (~2px off the text
-						 *  baseline), so a leading or unmounting spinner bounces the
-						 *  count vertically every time fetching toggles. */}
-						<Icon
-							icon={tablerLoader2}
-							width="12"
-							height="12"
-							className={fetching ? "animate-spin" : "invisible"}
-							aria-label={fetching ? "Updating" : undefined}
-							aria-hidden={!fetching}
-						/>
-					</span>
+					<>
+						<span
+							data-results-count
+							aria-hidden="true"
+							className="ml-auto inline-flex shrink-0 items-center gap-1.5 text-xs whitespace-nowrap text-nova-text-muted"
+						>
+							{visibleResultCount}
+							{/* Trailing, always-reserved spinner slot. The count text must
+							 *  stay the span's FIRST flex item: the row aligns by baseline,
+							 *  and a flex container's baseline comes from its first item —
+							 *  an SVG's baseline is its bottom edge (~2px off the text
+							 *  baseline), so a leading or unmounting spinner bounces the
+							 *  count vertically every time fetching toggles. */}
+							<Icon
+								icon={tablerLoader2}
+								width="12"
+								height="12"
+								className={fetching ? "animate-spin" : "invisible"}
+							/>
+						</span>
+						<span
+							role="status"
+							aria-live="polite"
+							aria-atomic="true"
+							className="sr-only"
+						>
+							{fetching ? "Updating cases…" : announcedResultCount}
+						</span>
+					</>
 				)}
 			</div>
+			{zeroInputSearchActionIsRelevant && !hasEffectiveSearchFilter && (
+				<Button
+					type="button"
+					onClick={() => {
+						submitSearch(EMPTY_SEARCH_INPUT_VALUES);
+						focusNextFrame(() => resultsTitleRef.current);
+					}}
+					className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-white not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
+				>
+					<Icon icon={tablerSearch} width="16" height="16" />
+					{searchButtonLabel}
+				</Button>
+			)}
 			{state.kind === "rows" && loadedRows.length > 0 && (
 				<div className="mb-3">
 					<ListFilterBox
 						value={filterText}
 						onChange={setFilterText}
 						resultCount={filterText === "" ? undefined : filteredRows.length}
+						scope={pageLocalFilter ? "page" : "results"}
 					/>
+					{pageLocalFilter && (
+						<p className="mt-2 text-xs leading-relaxed text-nova-text-muted">
+							This filter checks the {loadedRows.length.toLocaleString()}{" "}
+							{loadedRows.length === 1 ? "case" : "cases"} on this page. Go to
+							another page to check more cases.
+						</p>
+					)}
 				</div>
 			)}
 			<ResultsBody
 				state={state}
+				unfilteredCountState={unfilteredCountState}
+				authoredMatchingCount={authoredMatchingCount}
 				fetching={fetching}
+				onRetryCases={retryCasesWithFocus}
+				onRetryCount={retryCountWithFocus}
+				onSignIn={() => void signIn()}
 				rows={filteredRows}
 				filterActive={filterText !== ""}
+				pageLocalFilter={pageLocalFilter}
 				visibleColumns={visibleColumns}
+				caseProperties={caseType.properties}
+				columnDisplayContext={columnDisplayContext}
 				emptyResultContext={queryConstraintSource}
+				canEdit={canEdit}
+				searchErrorShown={hasSearchInputs && searchActionIsRelevant}
 				rowAction={rowAction}
 				onOpenCase={handleOpenCase}
+				busy={fetching}
 			/>
+			{state.kind === "rows" && totalMatchingCases > settledPageSize && (
+				<nav
+					aria-label="Results pages"
+					className="mt-4 flex flex-wrap items-center justify-between gap-3"
+				>
+					<p className="text-xs text-nova-text-muted">
+						Showing {pageStart.toLocaleString()}–{pageEnd.toLocaleString()} of{" "}
+						{totalMatchingCases.toLocaleString()} cases
+					</p>
+					<div className="flex items-center gap-2">
+						<Button
+							type="button"
+							variant="outline"
+							disabled={fetching || settledPageOffset === 0}
+							onClick={() => choosePage(settledPageIndex - 1)}
+							className="min-h-11"
+						>
+							Previous
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							disabled={fetching || pageEnd >= totalMatchingCases}
+							onClick={() => choosePage(settledPageIndex + 1)}
+							className="min-h-11"
+						>
+							Next
+						</Button>
+					</div>
+				</nav>
+			)}
 			{state.kind === "rows" &&
 				filteredRows.length > 0 &&
 				rowAction !== "none" && (
 					<p className="mt-2.5 text-xs text-nova-text-muted">
 						{rowAction === "detail"
-							? "Click any row to open the case."
-							: "Click any row to continue into the form."}
+							? "To view details, select a case"
+							: "To continue, select a case"}
 					</p>
 				)}
 		</div>
@@ -670,18 +1207,19 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
 	 * form menu (post-selection) sits above the detail confirm, which sits
 	 * above the results list. */
 	const onSubScreen =
-		formMenuCase !== null ||
+		displayedFormMenuCase !== null ||
 		displayedOpenCase !== null ||
 		routeCaseId !== undefined;
 	return (
 		<ContentFrame ref={containerRef} width="5xl" className="px-6 pt-6 pb-24">
 			<div
+				ref={surfaceRef}
 				className={`flex gap-5 ${split ? "flex-row items-start" : "flex-col"}`}
 			>
 				{/* Stacked + a sub-screen open = the narrow experience: the
 				 *  sub-screen takes the whole canvas, search waits behind Back. */}
 				{(split || !onSubScreen) && searchPane}
-				{formMenuCase !== null
+				{displayedFormMenuCase !== null
 					? formMenuPane
 					: displayedOpenCase !== null
 						? detailPane
@@ -699,12 +1237,18 @@ export function CaseListScreen({ screen: _screen }: CaseListScreenProps) {
  *  stale-empty view revalidates. */
 function CasesLoading() {
 	return (
-		<div className="flex items-center justify-center gap-2 py-12 text-xs text-nova-text-muted">
+		<div
+			role="status"
+			aria-live="polite"
+			aria-atomic="true"
+			className="flex items-center justify-center gap-2 py-12 text-sm text-nova-text-secondary"
+		>
 			<Icon
 				icon={tablerLoader2}
-				width="14"
-				height="14"
+				width="16"
+				height="16"
 				className="animate-spin"
+				aria-hidden="true"
 			/>
 			Loading cases…
 		</div>
@@ -713,42 +1257,88 @@ function CasesLoading() {
 
 function ResultsBody({
 	state,
+	unfilteredCountState,
+	authoredMatchingCount,
 	fetching,
+	onRetryCases,
+	onRetryCount,
+	onSignIn,
 	rows,
 	filterActive,
+	pageLocalFilter,
 	visibleColumns,
+	caseProperties,
+	columnDisplayContext,
 	emptyResultContext,
+	canEdit,
+	searchErrorShown,
 	rowAction,
 	onOpenCase,
+	busy,
 }: {
 	readonly state: ReturnType<typeof useCases>["state"];
+	/** Complete case-type population, before Results/search conditions. Keeping
+	 * the loading/error arms prevents the copy from guessing before it settles. */
+	readonly unfilteredCountState: ReturnType<typeof useCaseCount>["state"];
+	readonly authoredMatchingCount: number | undefined;
 	readonly fetching: boolean;
+	readonly onRetryCases: () => Promise<void>;
+	readonly onRetryCount: () => Promise<void>;
+	readonly onSignIn: () => void;
 	/** Rows after the list filter box's narrowing. */
 	readonly rows: readonly CaseRowWithCalculated[];
 	readonly filterActive: boolean;
+	readonly pageLocalFilter: boolean;
 	readonly visibleColumns: CaseListConfig["columns"];
+	readonly caseProperties: readonly CaseProperty[];
+	readonly columnDisplayContext: ColumnDisplayContext;
 	/** Why an empty server result may differ from a truly empty case type. */
 	readonly emptyResultContext: CaseQueryConstraintContext;
+	readonly canEdit: boolean;
+	readonly searchErrorShown: boolean;
 	readonly rowAction: "detail" | "form" | "none";
-	readonly onOpenCase: (row: CaseRowWithCalculated) => void;
+	readonly onOpenCase: (
+		row: CaseRowWithCalculated,
+		trigger: HTMLButtonElement,
+	) => void;
+	readonly busy: boolean;
 }) {
 	if (state.kind === "idle" || state.kind === "loading") {
 		return <CasesLoading />;
 	}
 
 	if (state.kind === "error") {
-		return (
-			<div className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] px-5 py-6 text-center text-xs text-nova-rose">
-				{state.message}
-			</div>
+		return <CasesLoadFailureNotice onRetry={onRetryCases} />;
+	}
+	if (state.kind === "invalid-search") {
+		return searchErrorShown ? (
+			<CaseListEmptyNotice
+				title={
+					state.repair === "inputs"
+						? "Change Search to see Results"
+						: "Search settings need attention"
+				}
+				description={
+					state.repair === "inputs"
+						? "Change the Search information to update Results"
+						: "An app editor needs to review Search settings"
+				}
+			/>
+		) : (
+			<CaseListEmptyNotice
+				title="Search needs attention"
+				description={`${state.message.replace(/[.!?]+$/, "")}. Return to edit mode and review Search settings`}
+				tone="warning"
+			/>
 		);
 	}
 
 	if (state.kind === "unauthenticated") {
 		return (
-			<div className="rounded-lg border border-pv-input-border px-5 py-6 text-center text-xs text-nova-text-muted">
-				Sign in to view case data.
-			</div>
+			<SessionEndedNotice
+				description="To view these cases, sign in again"
+				onSignIn={onSignIn}
+			/>
 		);
 	}
 
@@ -758,56 +1348,105 @@ function ResultsBody({
 		if (fetching) {
 			return <CasesLoading />;
 		}
-		if (emptyResultContext === "worker-search") return <NoMatchNotice />;
+		// An unconstrained empty query is itself an unfiltered population read,
+		// so it proves that no cases exist without waiting for the sibling count.
+		if (emptyResultContext === "unconstrained") {
+			return <NoCaseDataNotice canEdit={canEdit} />;
+		}
+		if (
+			emptyResultContext === "worker-search" &&
+			authoredMatchingCount !== undefined &&
+			authoredMatchingCount > 0
+		) {
+			return <NoMatchNotice />;
+		}
+		if (
+			unfilteredCountState.kind === "idle" ||
+			unfilteredCountState.kind === "loading"
+		) {
+			return <CasesLoading />;
+		}
+		if (unfilteredCountState.kind === "unauthenticated") {
+			return (
+				<SessionEndedNotice
+					description="To view these cases, sign in again"
+					onSignIn={onSignIn}
+				/>
+			);
+		}
+		if (unfilteredCountState.kind === "error") {
+			return <CaseCountFailureNotice onRetry={onRetryCount} />;
+		}
+		if (unfilteredCountState.count === 0) {
+			return <NoCaseDataNotice canEdit={canEdit} />;
+		}
+		if (emptyResultContext === "worker-search") {
+			return authoredMatchingCount === 0 ? (
+				<AvailabilityConditionsEmptyNotice canEdit={canEdit} />
+			) : (
+				<CaseListEmptyNotice
+					title="No cases are available for this search"
+					description={
+						canEdit
+							? "Try different Search information or review Cases available in Results"
+							: "Try different Search information or ask an app editor to review Cases available"
+					}
+				/>
+			);
+		}
 		if (emptyResultContext === "authored-rules") {
-			return <CurrentRulesEmptyNotice />;
+			return <AvailabilityConditionsEmptyNotice canEdit={canEdit} />;
 		}
 		if (emptyResultContext === "unknown") {
-			return <UnavailableCasesNotice />;
+			return <UnavailableCasesNotice onRetry={onRetryCases} />;
 		}
-		return (
-			<div className="rounded-lg border border-dashed border-nova-border-bright px-6 py-10 text-center">
-				<p className="text-sm text-nova-text-secondary mb-1">No cases yet</p>
-				<p className="text-xs text-nova-text-muted">
-					Cases will appear here after someone completes a registration form.
-				</p>
-			</div>
-		);
+		return <NoCaseDataNotice canEdit={canEdit} />;
 	}
 
 	if (rows.length === 0) {
 		if (filterActive) {
 			return (
-				<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center text-xs text-nova-text-muted">
-					Nothing here matches the filter — clear it to see every result.
-				</div>
+				<CaseListEmptyNotice
+					title={
+						pageLocalFilter
+							? "No cases on this page match your filter"
+							: "No cases match your filter"
+					}
+					description={
+						pageLocalFilter
+							? "Clear the filter, try a different phrase, or check another page"
+							: "Clear the filter or try a different phrase"
+					}
+				/>
 			);
 		}
 		if (emptyResultContext === "worker-search") {
 			return <NoMatchNotice />;
 		}
 		if (emptyResultContext === "authored-rules") {
-			return <CurrentRulesEmptyNotice />;
+			return <AvailabilityConditionsEmptyNotice canEdit={canEdit} />;
 		}
 		if (emptyResultContext === "unknown") {
-			return <UnavailableCasesNotice />;
+			return <UnavailableCasesNotice onRetry={onRetryCases} />;
 		}
 		return (
-			<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center text-xs text-nova-text-muted">
-				No cases match the list's filter.
-			</div>
+			<CaseListEmptyNotice
+				title="No cases to show"
+				description="Try searching again or change which cases appear in Results"
+			/>
 		);
 	}
 
 	return (
-		<div
-			className={`transition-opacity ${fetching ? "opacity-80" : "opacity-100"}`}
-		>
+		<div>
 			<ResultsTable
 				rows={rows}
 				visibleColumns={visibleColumns}
+				caseProperties={caseProperties}
+				columnDisplayContext={columnDisplayContext}
 				rowAction={rowAction}
 				onOpenCase={onOpenCase}
+				busy={busy}
 			/>
 		</div>
 	);
@@ -815,50 +1454,171 @@ function ResultsBody({
 
 // ── No-match state ────────────────────────────────────────────────
 
-/**
- * Worker-facing zero-results guidance. Preview never mutates authoring
- * configuration; changing match behavior belongs in edit mode.
- */
-function NoMatchNotice() {
+/** One visual grammar for every settled empty Results state. The title carries
+ * the outcome; the quieter second line gives the next useful action. */
+function CaseListEmptyNotice({
+	headingLevel = 2,
+	title,
+	description,
+	tone = "neutral",
+	action,
+}: {
+	readonly headingLevel?: 1 | 2;
+	readonly title: string;
+	readonly description: string;
+	readonly tone?: "neutral" | "warning" | "error";
+	readonly action?: {
+		readonly label: string;
+		readonly onClick: (trigger: HTMLButtonElement) => void;
+		readonly icon?: typeof tablerRefresh;
+	};
+}) {
+	const Heading = headingLevel === 1 ? "h1" : "h2";
 	return (
-		<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center">
-			<p className="text-sm text-nova-text-secondary">
-				No cases match this search.
+		<div
+			data-case-list-empty-notice
+			role={tone === "error" ? "alert" : "status"}
+			className={`rounded-lg border px-6 py-10 text-center ${
+				tone === "error"
+					? "border-nova-rose/30 bg-nova-rose/[0.06]"
+					: tone === "warning"
+						? "border-nova-amber/30 bg-nova-amber/[0.06]"
+						: "border-pv-input-border bg-pv-surface/20"
+			}`}
+		>
+			<Heading className="text-base font-semibold text-nova-text">
+				{title}
+			</Heading>
+			<p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-nova-text-secondary">
+				{description}
 			</p>
-			<p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-nova-text-muted">
-				Check the spelling, clear a field, or try a broader search.
-			</p>
+			{action && (
+				<Button
+					type="button"
+					variant="outline"
+					className="mt-4 min-h-11"
+					data-case-list-empty-action
+					onClick={(event) => action.onClick(event.currentTarget)}
+				>
+					<Icon icon={action.icon ?? tablerRefresh} />
+					{action.label}
+				</Button>
+			)}
 		</div>
 	);
 }
 
-/** Zero results caused only by app-authored filters or ownership rules. The
- * worker has no prompt value to broaden, so do not tell them to clear a field. */
-function CurrentRulesEmptyNotice() {
+/** The complete case type is empty, not merely this Results query. */
+function NoCaseDataNotice({ canEdit }: { readonly canEdit: boolean }) {
 	return (
-		<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center">
-			<p className="text-sm text-nova-text-secondary">
-				No cases are available with the app's current rules.
-			</p>
-			<p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-nova-text-muted">
-				Case availability may change when the app's data or rules change.
-			</p>
-		</div>
+		<CaseListEmptyNotice
+			title="No cases yet"
+			description={
+				canEdit
+					? "Create a case or add sample cases in Case data"
+					: "Ask an app editor to create a case or add sample cases"
+			}
+		/>
+	);
+}
+
+/** Worker-facing zero-results guidance for a submitted search. */
+function NoMatchNotice() {
+	return (
+		<CaseListEmptyNotice
+			title="No cases match your search"
+			description="Check your spelling, clear a field, or try a broader search"
+		/>
+	);
+}
+
+/** Existing cases are present, but the authored availability conditions
+ * exclude all of them from this module. */
+function AvailabilityConditionsEmptyNotice({
+	canEdit,
+}: {
+	readonly canEdit: boolean;
+}) {
+	return (
+		<CaseListEmptyNotice
+			title={
+				canEdit
+					? "Your availability settings hide every case"
+					: "No cases match this app’s availability settings"
+			}
+			description={
+				canEdit
+					? "To show cases, update Cases available in Results or create a matching case"
+					: "Ask an app editor to review Cases available or create a matching case"
+			}
+		/>
 	);
 }
 
 /** Neutral compatibility copy for an older action response that cannot tell
  * the new client whether the settled query was narrowed. */
-function UnavailableCasesNotice() {
+function UnavailableCasesNotice({
+	onRetry,
+}: {
+	readonly onRetry: () => Promise<void>;
+}) {
 	return (
-		<div className="rounded-lg border border-pv-input-border px-5 py-8 text-center">
-			<p className="text-sm text-nova-text-secondary">
-				No cases are available right now.
-			</p>
-			<p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-nova-text-muted">
-				Try again in a moment.
-			</p>
-		</div>
+		<CaseListEmptyNotice
+			title="Cases aren’t available right now"
+			description="Try again to view cases"
+			tone="error"
+			action={{ label: "Try again", onClick: () => void onRetry() }}
+		/>
+	);
+}
+
+function CasesLoadFailureNotice({
+	onRetry,
+}: {
+	readonly onRetry: () => Promise<void>;
+}) {
+	return (
+		<CaseListEmptyNotice
+			title="This case list didn’t load"
+			description="Try again to view cases"
+			tone="error"
+			action={{ label: "Try again", onClick: () => void onRetry() }}
+		/>
+	);
+}
+
+function CaseCountFailureNotice({
+	onRetry,
+}: {
+	readonly onRetry: () => Promise<void>;
+}) {
+	return (
+		<CaseListEmptyNotice
+			title="Nova couldn’t check why no cases are showing"
+			description="Try again to check whether cases need to be created or your availability settings are hiding them"
+			tone="error"
+			action={{ label: "Try again", onClick: () => void onRetry() }}
+		/>
+	);
+}
+
+function SessionEndedNotice({
+	headingLevel = 2,
+	description,
+	onSignIn,
+}: {
+	readonly headingLevel?: 1 | 2;
+	readonly description: string;
+	readonly onSignIn: () => void;
+}) {
+	return (
+		<CaseListEmptyNotice
+			headingLevel={headingLevel}
+			title="You’re signed out"
+			description={description}
+			tone="error"
+			action={{ label: "Sign in", onClick: onSignIn, icon: tablerLogin2 }}
+		/>
 	);
 }
 
@@ -923,6 +1683,15 @@ const FOUR_XL_RESULTS: ResultsLayoutClasses = {
 	arrow: "@4xl/results:static @4xl/results:grid",
 };
 
+/** Visible row content sits above the stretched primary button. Ordinary text
+ * passes pointer input through to that button; authored cell controls opt back
+ * in as independent siblings with their own focus and touch behavior. */
+const INTERACTIVE_RESULT_CELL_CLASSES =
+	"pointer-events-none [&_a]:pointer-events-auto [&_a]:relative [&_a]:z-20 [&_button]:pointer-events-auto [&_button]:relative [&_button]:z-20";
+
+const INTERACTIVE_RESULT_ROW_CLASSES =
+	"cursor-pointer transition-colors hover:bg-nova-violet/[0.05] focus-within:bg-nova-violet/[0.05] [&_a]:rounded-sm [&_a]:focus-visible:outline-none [&_a]:focus-visible:ring-2 [&_a]:focus-visible:ring-nova-violet-bright/75 [&_a]:focus-visible:ring-offset-2 [&_a]:focus-visible:ring-offset-pv-surface";
+
 function resultsLayoutClasses(columnCount: number): ResultsLayoutClasses {
 	if (columnCount <= 3) return XL_RESULTS;
 	if (columnCount === 4) return TWO_XL_RESULTS;
@@ -931,22 +1700,38 @@ function resultsLayoutClasses(columnCount: number): ResultsLayoutClasses {
 	return ALWAYS_STACKED_RESULTS;
 }
 
-function resultColumnLabel(col: CaseListConfig["columns"][number]): string {
-	return col.kind === "calculated"
-		? col.header || "untitled"
-		: col.header || col.field || "untitled";
+function caseColumnLabel(
+	col: CaseListConfig["columns"][number],
+	caseProperties: readonly CaseProperty[],
+): string {
+	const authoredHeader = col.header.trim();
+	if (authoredHeader !== "") return authoredHeader;
+	if (col.kind === "calculated") return "Calculated value";
+	const field = col.field.trim();
+	return field === ""
+		? "Case information"
+		: propertyDisplayLabelForName(field, caseProperties);
 }
 
 function ResultsTable({
 	rows,
 	visibleColumns,
+	caseProperties,
+	columnDisplayContext,
 	rowAction,
 	onOpenCase,
+	busy,
 }: {
 	readonly rows: readonly CaseRowWithCalculated[];
 	readonly visibleColumns: CaseListConfig["columns"];
+	readonly caseProperties: readonly CaseProperty[];
+	readonly columnDisplayContext: ColumnDisplayContext;
 	readonly rowAction: "detail" | "form" | "none";
-	readonly onOpenCase: (row: CaseRowWithCalculated) => void;
+	readonly onOpenCase: (
+		row: CaseRowWithCalculated,
+		trigger: HTMLButtonElement,
+	) => void;
+	readonly busy: boolean;
 }) {
 	const clickable = rowAction !== "none";
 	const layout = resultsLayoutClasses(visibleColumns.length);
@@ -954,7 +1739,10 @@ function ResultsTable({
 	return (
 		<div
 			data-case-results="responsive"
-			className="@container/results overflow-clip rounded-lg border border-pv-input-border bg-pv-surface"
+			data-refreshing={busy || undefined}
+			aria-busy={busy}
+			inert={busy ? true : undefined}
+			className={`@container/results overflow-clip rounded-lg border border-pv-input-border bg-pv-surface transition-opacity ${busy ? "opacity-60" : ""}`}
 		>
 			<div
 				data-case-results-header
@@ -967,51 +1755,98 @@ function ResultsTable({
 						key={col.uuid}
 						className="min-w-0 px-3.5 py-2.5 text-[13px] font-semibold text-nova-text break-words"
 					>
-						{resultColumnLabel(col)}
+						{caseColumnLabel(col, caseProperties)}
 					</div>
 				))}
 				<div aria-hidden="true" />
 			</div>
-			{rows.map((row) => (
-				<button
-					type="button"
-					key={row.case_id}
-					onClick={() => onOpenCase(row)}
-					disabled={!clickable}
-					className={`relative block w-full border-b border-nova-violet/[0.07] py-1.5 pr-9 text-left transition-colors last:border-b-0 ${layout.row} ${
-						clickable
-							? "hover:bg-nova-violet/[0.05] cursor-pointer"
-							: "cursor-default"
-					}`}
-					style={{ gridTemplateColumns }}
-				>
-					{visibleColumns.map((col, index) => (
-						<span
-							key={col.uuid}
-							data-case-result-field={col.uuid}
-							className={`grid min-w-0 grid-cols-[minmax(84px,0.38fr)_minmax(0,1fr)] items-start gap-3 px-3.5 py-2 text-[13px] ${layout.cell}`}
+			<ul className="m-0 list-none p-0" aria-label="Cases">
+				{rows.map((row) => {
+					const content = (
+						<>
+							{visibleColumns.map((col, index) => (
+								<span
+									key={col.uuid}
+									data-case-result-field={col.uuid}
+									className={`relative z-10 grid min-w-0 grid-cols-[minmax(84px,0.38fr)_minmax(0,1fr)] items-start gap-3 px-3.5 py-2 text-[14px] ${clickable ? INTERACTIVE_RESULT_CELL_CLASSES : ""} ${layout.cell}`}
+								>
+									<span
+										className={`text-xs font-medium text-nova-text-muted ${layout.label}`}
+									>
+										{caseColumnLabel(col, caseProperties)}
+									</span>
+									<span
+										className={`min-w-0 break-words [overflow-wrap:anywhere] ${index === 0 ? "font-medium text-nova-text" : "text-nova-text-secondary"}`}
+									>
+										{renderColumnCell(col, row, columnDisplayContext)}
+									</span>
+								</span>
+							))}
+							<span
+								aria-hidden="true"
+								className={`pointer-events-none absolute top-3 right-3 z-10 grid place-items-center text-nova-text-muted ${layout.arrow}`}
+							>
+								{clickable && (
+									<Icon icon={tablerChevronRight} width="14" height="14" />
+								)}
+							</span>
+						</>
+					);
+					const rowClassName = `relative block h-auto w-full min-w-0 whitespace-normal rounded-none border-x-0 border-t-0 border-b border-nova-violet/[0.07] py-1.5 pr-9 pl-0 text-left font-normal last:border-b-0 ${layout.row}`;
+					if (!clickable) {
+						return (
+							<li
+								key={row.case_id}
+								data-case-result-row="informational"
+								className={rowClassName}
+								style={{ gridTemplateColumns }}
+							>
+								{content}
+							</li>
+						);
+					}
+					const visibleSummary = visibleColumns
+						.map((column) =>
+							projectColumnDisplay(
+								column,
+								row,
+								columnDisplayContext,
+							).text.trim(),
+						)
+						.filter(Boolean)
+						.slice(0, 3)
+						.join(", ");
+					const caseReference =
+						visibleSummary || row.case_name.trim() || "this case";
+					const primaryActionLabel =
+						rowAction === "detail"
+							? `View details for ${caseReference}`
+							: `Continue with ${caseReference}`;
+					return (
+						<li
+							key={row.case_id}
+							data-case-result-row="interactive"
+							className={`${rowClassName} ${INTERACTIVE_RESULT_ROW_CLASSES}`}
+							style={{ gridTemplateColumns }}
 						>
-							<span
-								className={`text-xs font-medium text-nova-text-muted ${layout.label}`}
-							>
-								{resultColumnLabel(col)}
-							</span>
-							<span
-								className={`min-w-0 break-words ${index === 0 ? "font-medium text-nova-text" : "text-nova-text-secondary"}`}
-							>
-								{renderColumnCell(col, row)}
-							</span>
-						</span>
-					))}
-					<span
-						className={`absolute top-3 right-3 grid place-items-center text-nova-text-muted ${layout.arrow}`}
-					>
-						{clickable && (
-							<Icon icon={tablerChevronRight} width="14" height="14" />
-						)}
-					</span>
-				</button>
-			))}
+							{/* Keep the primary row action and authored in-cell actions as
+							 * siblings. A button cannot contain a phone link or a value-details
+							 * button; the full-size action sits beneath the visible content while
+							 * those cell actions opt back into pointer events above it. */}
+							<Button
+								type="button"
+								variant="ghost"
+								aria-label={primaryActionLabel}
+								data-case-result-action={row.case_id}
+								onClick={(event) => onOpenCase(row, event.currentTarget)}
+								disabled={busy}
+								className="absolute inset-0 z-0 h-auto w-auto rounded-none border-0 p-0 focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nova-violet-bright/75 not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
+							/>
+							{content}
+						</li>
+					);
+				})}
+			</ul>
 		</div>
 	);
 }

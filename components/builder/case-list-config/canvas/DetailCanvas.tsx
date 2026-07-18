@@ -13,6 +13,7 @@ import type {
 	CaseType,
 	Column,
 } from "@/lib/domain";
+import { useCanEdit } from "@/lib/session/hooks";
 import {
 	representedColumnProperties,
 	unrepresentedColumnProperties,
@@ -52,6 +53,7 @@ export function DetailCanvas({
 	onShowColumn,
 	onRepairColumn,
 }: DetailCanvasProps) {
+	const canEdit = useCanEdit();
 	const projection = projectCaseWorkspaceColumns(config.columns);
 	const availableProperties = unrepresentedColumnProperties(config, caseType);
 	const repeatableProperties = representedColumnProperties(config, caseType);
@@ -66,7 +68,9 @@ export function DetailCanvas({
 						Details
 					</h1>
 					<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
-						Choose what people see after opening a case.
+						{canEdit
+							? "Choose what people see after opening a case"
+							: "People can review more information here after opening a case"}
 					</p>
 				</header>
 
@@ -78,17 +82,19 @@ export function DetailCanvas({
 						>
 							Information shown
 						</h2>
-						<p className="mt-1 text-[12px] leading-relaxed text-nova-text-muted">
-							Drag to set the reading order. Select a row to change its label or
-							appearance.
+						<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
+							{canEdit
+								? "Drag to reorder. Select an item to change its label or appearance."
+								: "People see this information after opening a case"}
 						</p>
 					</div>
 
 					{projection.detailVisible.length === 0 ? (
 						<div className="overflow-hidden rounded-xl border border-dashed border-nova-border-bright">
-							<CanvasNotice tone="muted">
-								Details are optional. Without them, people continue directly
-								from Results.
+							<CanvasNotice tone="muted" title="Details are optional">
+								{canEdit
+									? "Add information when people need more context after choosing a case"
+									: "People see no extra information after choosing a case"}
 							</CanvasNotice>
 						</div>
 					) : (

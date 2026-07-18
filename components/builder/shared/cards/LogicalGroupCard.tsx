@@ -29,7 +29,6 @@ import {
 	type Edge,
 	extractClosestEdge,
 } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
-import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
@@ -37,11 +36,21 @@ import {
 	type ReactNode,
 	useCallback,
 	useEffect,
+	useId,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { Button } from "@/components/shadcn/button";
+import {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuPopup,
+	DropdownMenuPortal,
+	DropdownMenuPositioner,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import {
 	and,
 	matchAll,
@@ -50,11 +59,7 @@ import {
 	or,
 	type Predicate,
 } from "@/lib/domain/predicate";
-import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
+import { firstConditionSeed } from "../conditionSeed";
 import {
 	asDragPayload,
 	type ClauseDragData,
@@ -64,13 +69,14 @@ import {
 } from "../dragData";
 import { usePredicateEditContext } from "../editorContext";
 import {
+	isAuthorablePredicateKind,
 	type PredicateCardSchema,
 	type PredicateEditContext,
 	predicateCardSchemaList,
 	predicateCardSchemas,
 } from "../editorSchemas";
-import { nodeId } from "../nodeIdentity";
 import { appendKindIndex, appendKindSlot, type EditorPath } from "../path";
+import { useStableListIdentity } from "../useStableListIdentity";
 import { ChildPredicateEditor } from "./ChildPredicateEditor";
 
 // ── Default-value factories ─────────────────────────────────────────────
@@ -84,8 +90,14 @@ import { ChildPredicateEditor } from "./ChildPredicateEditor";
 export function andDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "and" }> {
-	const inner = predicateCardSchemas.eq.defaultValue(ctx);
-	const second = predicateCardSchemas.eq.defaultValue(ctx);
+	const inner = firstConditionSeed(ctx);
+	const second = firstConditionSeed(ctx);
+	if (inner === undefined || second === undefined) {
+		// Unreachable from the authoring menu: its applicability gate requires a
+		// meaningful seed. Keep the total factory structurally and semantically
+		// valid for registry consumers that call it directly.
+		return { kind: "and", clauses: [matchAll(), matchAll()] };
+	}
 	// `and(p1, p2, ...)` resolves through the two-or-more overload
 	// to `Extract<Predicate, { kind: "and" }>` directly — the
 	// non-reducing path. Both inputs are non-sentinel comparison
@@ -97,15 +109,19 @@ export function andDefault(
 export function orDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "or" }> {
-	const a = predicateCardSchemas.eq.defaultValue(ctx);
-	const b = predicateCardSchemas.eq.defaultValue(ctx);
+	const a = firstConditionSeed(ctx);
+	const b = firstConditionSeed(ctx);
+	if (a === undefined || b === undefined) {
+		return { kind: "or", clauses: [matchNone(), matchNone()] };
+	}
 	return or(a, b);
 }
 
 export function notDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "not" }> {
-	const inner = predicateCardSchemas.eq.defaultValue(ctx);
+	const inner = firstConditionSeed(ctx);
+	if (inner === undefined) return { kind: "not", clause: matchAll() };
 	// Route through the builder so the reductions in
 	// `lib/domain/predicate/reduction.ts` apply on every
 	// construction call (per the file-level JSDoc on
@@ -148,8 +164,8 @@ function NotBody({ value, onChange, path }: NotBodyProps) {
 	};
 	return (
 		<div>
-			<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1.5">
-				Inverts the inner clause
+			<div className="mb-1.5 text-[13px] font-medium text-nova-text-secondary">
+				Cases must not match this condition
 			</div>
 			<ChildPredicateEditor
 				value={value.clause}
@@ -200,15 +216,15 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 		}),
 		[ctx.caseTypes, ctx.currentCaseType, ctx.knownInputs],
 	);
-	const containerKey = nodeId(value);
+	const containerKey = useId();
+	const rowIdentity = useStableListIdentity(value.clauses);
 
 	// Track per-clause drag state so the editor can render an
 	// insertion indicator. Pragmatic DnD's `monitorForElements` is
 	// the single owner of the drop logic — same pattern the form
 	// virtual list uses.
 	const [pendingDrop, setPendingDrop] = useState<{
-		fromIndex: number;
-		toIndex: number;
+		itemKey: string;
 	} | null>(null);
 
 	// Stash the latest `value.clauses` / `value.kind` / `onChange` in
@@ -221,9 +237,13 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 	// shrink to `[containerKey]` — the only value that genuinely
 	// identifies a new monitor scope.
 	const clausesRef = useRef(value.clauses);
+	const rowKeysRef = useRef(rowIdentity.keys);
+	const stageIdentityRef = useRef(rowIdentity.stage);
 	const kindRef = useRef(value.kind);
 	const onChangeRef = useRef(onChange);
 	clausesRef.current = value.clauses;
+	rowKeysRef.current = rowIdentity.keys;
+	stageIdentityRef.current = rowIdentity.stage;
 	kindRef.current = value.kind;
 	onChangeRef.current = onChange;
 
@@ -245,8 +265,9 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 				if (targetData === undefined || targetData.nodeKey !== containerKey) {
 					return;
 				}
-				const fromIndex = sourceData.clauseIndex;
-				let toIndex = targetData.clauseIndex;
+				const fromIndex = rowKeysRef.current.indexOf(sourceData.itemKey);
+				let toIndex = rowKeysRef.current.indexOf(targetData.itemKey);
+				if (fromIndex < 0 || toIndex < 0) return;
 				const edge = extractClosestEdge(target.data);
 				// Translate the edge into an insertion index — bottom
 				// edge inserts after the target row.
@@ -258,6 +279,11 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 				const reordered = [...clausesRef.current];
 				const [moved] = reordered.splice(fromIndex, 1);
 				reordered.splice(toIndex, 0, moved);
+				stageIdentityRef.current(reordered, {
+					kind: "move",
+					fromIndex,
+					toIndex,
+				});
 				onChangeRef.current(applyLogical(kindRef.current, reordered));
 			},
 			onDrag: ({ source, location }) => {
@@ -276,14 +302,19 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 					return;
 				}
 				const edge = extractClosestEdge(target.data);
-				let to = targetData.clauseIndex;
-				if (edge === "bottom") to += 1;
-				if (sourceData.clauseIndex < to) to -= 1;
-				if (sourceData.clauseIndex === to) {
+				const fromIndex = rowKeysRef.current.indexOf(sourceData.itemKey);
+				let to = rowKeysRef.current.indexOf(targetData.itemKey);
+				if (fromIndex < 0 || to < 0) {
 					setPendingDrop(null);
 					return;
 				}
-				setPendingDrop({ fromIndex: sourceData.clauseIndex, toIndex: to });
+				if (edge === "bottom") to += 1;
+				if (fromIndex < to) to -= 1;
+				if (fromIndex === to) {
+					setPendingDrop(null);
+					return;
+				}
+				setPendingDrop({ itemKey: sourceData.itemKey });
 			},
 		});
 		return () => cleanup();
@@ -292,6 +323,12 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 	const removeClause = useCallback(
 		(index: number) => {
 			const filtered = value.clauses.filter((_, i) => i !== index);
+			rowIdentity.stage(filtered, {
+				kind: "splice",
+				index,
+				deleteCount: 1,
+				insertCount: 0,
+			});
 			if (filtered.length === 0) {
 				// All clauses removed — replace the group with the
 				// algebraic identity element. AND collapses to
@@ -306,23 +343,33 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 			// group with the unwrapped clause.
 			onChange(applyLogical(value.kind, filtered));
 		},
-		[onChange, value.clauses, value.kind],
+		[onChange, rowIdentity, value.clauses, value.kind],
 	);
 
 	const updateClause = useCallback(
 		(index: number, next: Predicate) => {
-			const updated = value.clauses.map((c, i) => (i === index ? next : c));
+			const updated = value.clauses.map((clause, clauseIndex) =>
+				clauseIndex === index ? next : clause,
+			);
+			rowIdentity.stage(updated, { kind: "replace" });
 			onChange(applyLogical(value.kind, updated));
 		},
-		[onChange, value.clauses, value.kind],
+		[onChange, rowIdentity, value.clauses, value.kind],
 	);
 
 	const addClause = useCallback(
 		(schema: PredicateCardSchema<Predicate["kind"]>) => {
 			const next = schema.defaultValue(editCtx);
-			onChange(applyLogical(value.kind, [...value.clauses, next]));
+			const clauses = [...value.clauses, next];
+			rowIdentity.stage(clauses, {
+				kind: "splice",
+				index: value.clauses.length,
+				deleteCount: 0,
+				insertCount: 1,
+			});
+			onChange(applyLogical(value.kind, clauses));
 		},
-		[editCtx, onChange, value.clauses, value.kind],
+		[editCtx, onChange, rowIdentity, value.clauses, value.kind],
 	);
 
 	return (
@@ -330,8 +377,9 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 			<div className="space-y-1.5">
 				{value.clauses.map((clause, i) => (
 					<ClauseRow
-						key={nodeId(clause)}
+						key={rowIdentity.keys[i]}
 						clause={clause}
+						itemKey={rowIdentity.keys[i]}
 						clauseIndex={i}
 						containerKey={containerKey}
 						groupKind={value.kind}
@@ -349,13 +397,14 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 
 interface ClauseRowProps {
 	readonly clause: Predicate;
+	readonly itemKey: string;
 	readonly clauseIndex: number;
 	readonly containerKey: string;
 	readonly groupKind: "and" | "or";
 	readonly onChange: (next: Predicate) => void;
 	readonly onRemove: () => void;
 	readonly path: EditorPath;
-	readonly pendingDrop: { fromIndex: number; toIndex: number } | null;
+	readonly pendingDrop: { itemKey: string } | null;
 }
 
 /** Custom drag preview rendered in place of the browser's default
@@ -395,6 +444,7 @@ type PreviewState =
 
 function ClauseRow({
 	clause,
+	itemKey,
 	clauseIndex,
 	containerKey,
 	groupKind,
@@ -422,12 +472,14 @@ function ClauseRow({
 		const dragData: ClauseDragData = {
 			kind: "predicate-clause-drag",
 			groupKind,
+			itemKey,
 			clauseIndex,
 			nodeKey: containerKey,
 		};
 		const dropData: ClauseDropData = {
 			kind: "predicate-clause-drop",
 			groupKind,
+			itemKey,
 			clauseIndex,
 			nodeKey: containerKey,
 		};
@@ -487,7 +539,7 @@ function ClauseRow({
 			}),
 		);
 		return () => cleanup();
-	}, [clauseIndex, containerKey, groupKind, handleEl]);
+	}, [clauseIndex, containerKey, groupKind, handleEl, itemKey]);
 
 	// Visual indicator: a violet outline at the closest-edge position
 	// during a drag-over. Pinned via `closestEdge` state, cleared on
@@ -505,8 +557,7 @@ function ClauseRow({
 		) : null;
 
 	// Highlight the row currently being moved during drag.
-	const beingMoved =
-		pendingDrop !== null && pendingDrop.fromIndex === clauseIndex;
+	const beingMoved = pendingDrop !== null && pendingDrop.itemKey === itemKey;
 
 	// Portal the custom preview into the library-owned container
 	// while a drag is in flight. The container lives outside this
@@ -553,68 +604,60 @@ function AddClauseMenu({ onAdd }: AddClauseMenuProps) {
 	};
 
 	return (
-		<Menu.Root>
-			<Menu.Trigger
+		<DropdownMenu>
+			<DropdownMenuTrigger
 				ref={triggerRef}
-				className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
-				aria-label="Add Condition"
+				aria-label="Add condition"
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className="w-full gap-2 border-dashed border-white/[0.10] bg-transparent px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-transparent"
+					/>
+				}
 			>
 				<Icon icon={tablerPlus} width="14" height="14" />
-				<span>Add Condition</span>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
+				<span>Add condition</span>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
 					side="bottom"
 					align="start"
 					sideOffset={4}
 					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-					style={{ maxHeight: 320 }}
+					style={{ minWidth: "18rem", maxHeight: 320 }}
 				>
-					<Menu.Popup
-						className={`${MENU_POPUP_CLS} max-h-80 overflow-y-auto min-w-[18rem]`}
-					>
-						{predicateCardSchemaList.map((s, i) => {
-							const isApplicable = s.applicable(editCtx);
-							const last = predicateCardSchemaList.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
-							const cls = [
-								corners,
-								MENU_ITEM_CLS,
-								isApplicable ? "" : "opacity-40",
-							].join(" ");
-							return (
-								<Menu.Item
-									key={s.kind}
-									onClick={() => onAdd(s)}
-									disabled={!isApplicable}
-									className={cls}
-								>
-									<Icon
-										icon={s.icon}
-										width="14"
-										height="14"
-										className="text-nova-text-muted"
-									/>
-									<span className="flex-1 text-left min-w-0">
-										<div className="truncate">{s.label}</div>
-										<div className="text-[10px] text-nova-text-muted truncate">
-											{s.description}
-										</div>
-									</span>
-								</Menu.Item>
-							);
-						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+					<DropdownMenuPopup className="max-h-80 min-w-0">
+						{predicateCardSchemaList
+							.filter((s) => isAuthorablePredicateKind(s.kind))
+							.map((s) => {
+								const isApplicable = s.applicable(editCtx);
+								return (
+									<DropdownMenuItem
+										key={s.kind}
+										onClick={() => onAdd(s)}
+										disabled={!isApplicable}
+										className="h-auto min-h-11 items-start whitespace-normal py-2"
+									>
+										<Icon
+											icon={s.icon}
+											width="14"
+											height="14"
+											className="text-nova-text-muted"
+										/>
+										<span className="flex-1 text-left min-w-0">
+											<div className="break-words">{s.label}</div>
+											<div className="break-words text-xs text-nova-text-muted">
+												{s.description}
+											</div>
+										</span>
+									</DropdownMenuItem>
+								);
+							})}
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
 	);
 }

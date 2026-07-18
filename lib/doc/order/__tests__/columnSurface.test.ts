@@ -42,11 +42,15 @@ function applyOne(columns: readonly Column[], mutation: Mutation): Column[] {
 		if (candidate.uuid !== ("uuid" in mutation ? mutation.uuid : undefined)) {
 			return candidate;
 		}
-		if (mutation.kind === "moveColumnInList") {
-			return { ...candidate, listOrder: mutation.order ?? undefined };
-		}
-		if (mutation.kind === "moveColumnInDetail") {
-			return { ...candidate, detailOrder: mutation.order ?? undefined };
+		if (mutation.kind === "moveColumn" && mutation.surfaceOrderPatch) {
+			const key =
+				mutation.surfaceOrderPatch.surface === "list"
+					? "listOrder"
+					: "detailOrder";
+			return {
+				...candidate,
+				[key]: mutation.surfaceOrderPatch.order ?? undefined,
+			};
 		}
 		return candidate;
 	});
@@ -63,9 +67,10 @@ describe("columnSurfaceMoveMutation", () => {
 		});
 
 		expect(mutation).toMatchObject({
-			kind: "moveColumnInList",
+			kind: "moveColumn",
 			moduleUuid: MODULE,
 			uuid: C,
+			surfaceOrderPatch: { surface: "list" },
 		});
 		if (mutation === undefined) throw new Error("expected a move");
 		const next = applyOne(COLUMNS, mutation);
@@ -96,12 +101,11 @@ describe("columnSurfaceMoveMutation", () => {
 			toIndex: 0,
 		});
 
-		expect(mutation?.kind).toBe("moveColumnInList");
-		if (mutation?.kind !== "moveColumnInList") {
+		expect(mutation?.kind).toBe("moveColumn");
+		if (mutation?.kind !== "moveColumn") {
 			throw new Error("expected a Results move");
 		}
-		expect(mutation.order).not.toBeNull();
-		if (mutation.order === null) throw new Error("expected a fractional key");
+		expect(mutation.surfaceOrderPatch).toMatchObject({ surface: "list" });
 		expect(mutation.order < "a").toBe(true);
 	});
 

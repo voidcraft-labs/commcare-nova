@@ -6,15 +6,7 @@ import type {
 	MediaAssetView,
 } from "@/components/builder/media/mediaClient";
 import { useDocumentExtraction } from "@/components/builder/media/useDocumentExtraction";
-import { READ_ENERGY_PER_CHAR, signalGrid } from "@/lib/signalGrid/store";
 import { AttachmentChip } from "./AttachmentChip";
-
-/** Pulse the signal grid with real read progress as a doc streams in — so the grid
- *  shows tokens flowing, not an idle resting state, during the read. Module-level
- *  (only touches the signal-grid singleton) so it stays valid after the chip
- *  unmounts on send, while the build-scoped read keeps streaming. */
-const feedGridEnergy = (chars: number): void =>
-	signalGrid.injectThinkEnergy(chars * READ_ENERGY_PER_CHAR);
 
 interface ChatAttachmentBarProps {
 	/** The assets staged for the next send. */
@@ -27,7 +19,7 @@ interface ChatAttachmentBarProps {
 	 *  chip preview (and the eventual send ref) carry the fresh title/summary. */
 	onExtracted: (assetId: string, extract: ExtractMeta) => void;
 	/** Build-scoped abort signal for the extraction reads (see `ChatInput`). Keeps a
-	 *  read feeding the grid after its chip unmounts on send, until it completes. */
+	 *  read running after its chip unmounts on send, until it completes. */
 	extractionAbortSignal?: AbortSignal;
 }
 
@@ -54,7 +46,7 @@ function StagedChip({
 	const { status, retry } = useDocumentExtraction(
 		asset,
 		(extract) => onExtracted(asset.id, extract),
-		feedGridEnergy,
+		undefined,
 		// Build-scoped, NOT chip-scoped: the read must keep feeding the grid after
 		// this chip unmounts on send, until extraction finishes.
 		extractionAbortSignal,
@@ -70,10 +62,10 @@ function StagedChip({
 			filename={asset.displayName ?? asset.originalFilename}
 			onPreview={() => onPreview(asset)}
 			previewDisabled={reading}
-			previewDisabledTooltip="Still reading this in — the preview opens once it's done."
+			previewDisabledTooltip="Nova is still reading this file. You can preview it when it's ready."
 			onRemove={() => onRemove(asset.id)}
 			removeDisabled={reading}
-			removeDisabledTooltip="Still reading this in — you can remove it once it's done."
+			removeDisabledTooltip="Nova is still reading this file. You can remove it when it's ready."
 			trailing={<ExtractionStatusBadgeView status={status} retry={retry} />}
 		/>
 	);

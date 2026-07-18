@@ -11,10 +11,10 @@
 // so the surrounding save affordance can gate.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
-import { useMemo, useRef } from "react";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	CONSOLE_MENU_ITEM_MIN,
 	CONSOLE_TRIGGER_CLS,
@@ -22,6 +22,22 @@ import {
 } from "@/components/builder/inspector/inspectorChrome";
 import { PredicateEditProvider } from "@/components/builder/shared/editorContext";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/shadcn/alert-dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import type { CaseType, Column, ColumnKind } from "@/lib/domain";
 import {
 	calculatedColumn,
@@ -33,11 +49,6 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
-import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
 import { propertyDisplayLabel } from "../shared/primitives/propertyDisplay";
 import {
 	type ColumnCardSchema,
@@ -155,9 +166,15 @@ export function ColumnEditor({
 			knownInputs={NO_SEARCH_INPUTS}
 			validityIndex={EMPTY_VALIDITY_INDEX}
 		>
-			<InspectorSection label="What this shows">
-				<KindPicker currentValue={value} onChange={onChange} ctx={ctx} />
+			<InspectorSection label="Display as">
+				<KindPicker
+					key={`kind:${value.uuid}`}
+					currentValue={value}
+					onChange={onChange}
+					ctx={ctx}
+				/>
 				<Component
+					key={`card:${value.uuid}`}
 					value={value}
 					onChange={onChange}
 					ctx={ctx}
@@ -337,7 +354,18 @@ function KindPicker({
 	readonly onChange: (next: Column) => void;
 	readonly ctx: ColumnEditContext;
 }) {
+	const [pendingKind, setPendingKind] = useState<ColumnKind | null>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
+	/* A style experiment should be reversible while this inspector remains
+	 * open. The document stores only the active column arm, so retain exact
+	 * per-kind drafts locally and merge the current common display slots back
+	 * in when an author returns to one. The confirmation below still tells the
+	 * truth about the persisted change: leaving the inspector commits only the
+	 * active style, while ordinary Undo remains available at document level. */
+	const draftsByKindRef = useRef(new Map<ColumnKind, Column>());
+	useEffect(() => {
+		draftsByKindRef.current.set(currentValue.kind, currentValue);
+	}, [currentValue]);
 	const property =
 		currentValue.kind === "calculated"
 			? undefined
@@ -345,130 +373,225 @@ function KindPicker({
 	const currentKind = currentValue.kind;
 	const currentSchema = columnCardSchemas[currentKind];
 
-	const replaceWith = <K extends ColumnKind>(schema: ColumnCardSchema<K>) => {
-		onChange(preservedColumnSwap(currentValue, schema.kind, ctx));
+	const nextFor = (targetKind: ColumnKind): Column => {
+		const draft = draftsByKindRef.current.get(targetKind);
+		if (draft === undefined) {
+			return preservedColumnSwap(currentValue, targetKind, ctx);
+		}
+		return restoreColumnDraft(draft, currentValue);
 	};
+	const replaceWith = <K extends ColumnKind>(schema: ColumnCardSchema<K>) => {
+		const consequence = columnKindChangeConsequence(
+			currentValue,
+			schema.kind,
+			ctx,
+		);
+		if (consequence !== null) {
+			setPendingKind(schema.kind);
+			return;
+		}
+		onChange(nextFor(schema.kind));
+	};
+	const pendingSchema =
+		pendingKind === null ? null : columnCardSchemas[pendingKind];
+	const pendingConsequence =
+		pendingKind === null
+			? null
+			: columnKindChangeConsequence(currentValue, pendingKind, ctx);
 
 	return (
-		<Menu.Root>
-			<Menu.Trigger
-				ref={triggerRef}
-				aria-label={`Display as: ${currentSchema.label}`}
-				className={CONSOLE_TRIGGER_CLS}
-			>
-				<Icon
-					icon={currentSchema.icon}
-					width="16"
-					height="16"
-					className="text-nova-violet-bright shrink-0"
-				/>
-				<span className="flex-1 min-w-0 text-left">
-					<span className="block text-nova-text">{currentSchema.label}</span>
-					<span className="block text-[11px] text-nova-text-muted truncate">
-						{currentSchema.description}
+		<>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					ref={triggerRef}
+					aria-label={`Display as: ${currentSchema.label}`}
+					className={CONSOLE_TRIGGER_CLS}
+				>
+					<Icon
+						icon={currentSchema.icon}
+						width="16"
+						height="16"
+						className="text-nova-violet-bright shrink-0"
+					/>
+					<span className="flex-1 min-w-0 text-left">
+						<span className="block text-nova-text">{currentSchema.label}</span>
+						<span className="block whitespace-normal break-words text-[13px] leading-5 text-nova-text-muted">
+							{currentSchema.description}
+						</span>
 					</span>
-				</span>
-				<Chevron />
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
+					<Chevron />
+				</DropdownMenuTrigger>
+				<DropdownMenuContent
 					align="start"
 					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-					style={{ minWidth: "var(--anchor-width)", maxHeight: 360 }}
+					preferredMinWidth="19rem"
+					className="max-h-[min(22.5rem,var(--available-height))] overflow-y-auto"
 				>
-					<Menu.Popup
-						className={`${MENU_POPUP_CLS} max-h-[22.5rem] overflow-y-auto min-w-[19rem]`}
-					>
-						{columnCardSchemaList.map((s, i) => {
-							const isCurrent = s.kind === currentKind;
-							// Calculated source has no property; every target kind
-							// stays at full opacity. Otherwise consult the
-							// per-target schema's applicability predicate against
-							// the current property.
-							const isApplicable =
-								currentValue.kind === "calculated"
-									? true
-									: s.applicableForProperty(property);
-							const last = columnCardSchemaList.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
-							return (
-								<Menu.Item
-									key={s.kind}
-									onClick={() => replaceWith(s)}
-									disabled={isCurrent || !isApplicable}
-									className={`${corners} ${MENU_ITEM_CLS} ${CONSOLE_MENU_ITEM_MIN} ${
-										isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									}`}
-								>
-									<Icon
-										icon={s.icon}
-										width="15"
-										height="15"
-										className={
+					{columnCardSchemaList.map((s) => {
+						const isCurrent = s.kind === currentKind;
+						// Calculated source has no property; every target kind
+						// stays at full opacity. Otherwise consult the
+						// per-target schema's applicability predicate against
+						// the current property.
+						const isApplicable =
+							currentValue.kind === "calculated"
+								? true
+								: s.applicableForProperty(property);
+						return (
+							<DropdownMenuItem
+								key={s.kind}
+								onClick={() => replaceWith(s)}
+								disabled={isCurrent || !isApplicable}
+								className={`${CONSOLE_MENU_ITEM_MIN} ${
+									isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : ""
+								}`}
+							>
+								<Icon
+									icon={s.icon}
+									width="15"
+									height="15"
+									className={
+										isCurrent
+											? "text-nova-violet-bright"
+											: "text-nova-text-muted"
+									}
+								/>
+								<span className="flex-1 text-left min-w-0">
+									<div className="whitespace-normal break-words">{s.label}</div>
+									<div
+										className={`whitespace-normal break-words text-[13px] leading-5 ${
 											isCurrent
 												? "text-nova-violet-bright"
 												: "text-nova-text-muted"
-										}
+										}`}
+									>
+										{isApplicable
+											? s.description
+											: `Choose ${s.applicabilityRequirement ?? "different information"}`}
+									</div>
+								</span>
+								{isCurrent && (
+									<Icon
+										icon={tablerCheck}
+										width="14"
+										height="14"
+										className="text-nova-violet-bright"
 									/>
-									<span className="flex-1 text-left min-w-0">
-										<div className="truncate">{s.label}</div>
-										<div
-											className={`text-[11px] truncate ${
-												isCurrent
-													? "text-nova-violet-bright"
-													: "text-nova-text-muted"
-											}`}
-										>
-											{isApplicable
-												? s.description
-												: `Choose ${s.applicabilityRequirement ?? "different information"}.`}
-										</div>
-									</span>
-									{isCurrent && (
-										<Icon
-											icon={tablerCheck}
-											width="14"
-											height="14"
-											className="text-nova-violet-bright"
-										/>
-									)}
-								</Menu.Item>
-							);
-						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+								)}
+							</DropdownMenuItem>
+						);
+					})}
+				</DropdownMenuContent>
+			</DropdownMenu>
+
+			<AlertDialog
+				open={pendingSchema !== null}
+				onOpenChange={(open) => {
+					if (open) return;
+					setPendingKind(null);
+				}}
+			>
+				<AlertDialogContent finalFocus={triggerRef} className="text-left">
+					<AlertDialogHeader>
+						<AlertDialogTitle className="font-display">
+							{pendingConsequence ?? "This display setup will be replaced"}
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							The display will change to {pendingSchema?.label}. Saved case
+							information stays unchanged.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							onClick={() => {
+								if (pendingKind === null) return;
+								onChange(nextFor(pendingKind));
+								setPendingKind(null);
+							}}
+						>
+							Change display
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</>
 	);
+}
+
+/** Common slots follow the active display while a locally retained kind draft
+ * restores only that kind's source and formatting. */
+function restoreColumnDraft(draft: Column, current: Column): Column {
+	return {
+		...draft,
+		uuid: current.uuid,
+		header: current.header,
+		sort: current.sort,
+		visibleInList: current.visibleInList,
+		visibleInDetail: current.visibleInDetail,
+		listOrder: current.listOrder,
+		detailOrder: current.detailOrder,
+	} as Column;
+}
+
+/** Explain only changes that discard meaningful authored work. Ordinary
+ * presentation changes stay one click; custom mappings, calculations, and
+ * tuned formats receive a truthful consequence before replacement. */
+function columnKindChangeConsequence(
+	current: Column,
+	targetKind: ColumnKind,
+	ctx: ColumnEditContext,
+): string | null {
+	if (current.kind === targetKind) return null;
+	if (targetKind === "calculated" && current.kind !== "calculated") {
+		return "The current information source will be replaced with a new calculation";
+	}
+	switch (current.kind) {
+		case "plain":
+		case "phone":
+			return null;
+		case "date": {
+			const seed = columnCardSchemas.date.defaultValue(ctx);
+			return current.pattern === seed.pattern
+				? null
+				: "The custom date format will be removed";
+		}
+		case "id-mapping":
+			return current.mapping.length === 0
+				? null
+				: "The friendly value labels will be removed";
+		case "image-map":
+			return current.mapping.length === 0
+				? null
+				: "The value images will be removed";
+		case "interval": {
+			const seed = columnCardSchemas.interval.defaultValue(ctx);
+			const customized =
+				current.threshold !== seed.threshold ||
+				current.unit !== seed.unit ||
+				current.display !== seed.display ||
+				current.text !== seed.text;
+			return customized ? "The time range settings will be removed" : null;
+		}
+		case "calculated": {
+			const seed = columnCardSchemas.calculated.defaultValue(ctx);
+			return JSON.stringify(current.expression) ===
+				JSON.stringify(seed.expression)
+				? null
+				: "The calculation will be replaced with saved case information";
+		}
+	}
 }
 
 function Chevron() {
 	return (
-		<svg
+		<Icon
+			icon={tablerChevronDown}
 			aria-hidden="true"
-			width="10"
-			height="10"
-			viewBox="0 0 10 10"
+			width="14"
+			height="14"
 			className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-		>
-			<path
-				d="M2 3.5L5 6.5L8 3.5"
-				stroke="currentColor"
-				strokeWidth="1.2"
-				fill="none"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-		</svg>
+		/>
 	);
 }

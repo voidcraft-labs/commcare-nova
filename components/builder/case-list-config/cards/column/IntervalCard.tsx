@@ -4,9 +4,8 @@
 // a date property, with a `display` discriminator that picks between
 // two cell shapes:
 //
-//   - `display: "always"` — always show the relative interval
-//     (e.g. "3 days ago"). The `text` slot is the runtime label
-//     that decorates rows whose interval has crossed the threshold.
+//   - `display: "always"` — show the whole-unit interval until the
+//     threshold is crossed, then replace it with `text`.
 //   - `display: "flag"` — show `text` only when the threshold is
 //     exceeded; otherwise the cell renders empty.
 //
@@ -25,7 +24,11 @@
 //   - `text` — the runtime label whose role flips by `display`.
 
 "use client";
-import { SegmentedRow } from "@/components/builder/inspector/inspectorChrome";
+import {
+	INSPECTOR_LABEL_CLS,
+	InspectorHint,
+	SegmentedRow,
+} from "@/components/builder/inspector/inspectorChrome";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import type {
 	CaseProperty,
@@ -59,16 +62,15 @@ interface IntervalCardProps {
  */
 const DISPLAY_COPY: Record<
 	IntervalDisplay,
-	{ readonly textLabel: string; readonly textPlaceholder: string }
+	{ readonly textLabel: string; readonly textHint: string }
 > = {
 	always: {
 		textLabel: "Text when overdue",
-		textPlaceholder: "Shown next to the interval once a row is overdue",
+		textHint: "Replaces the interval after it becomes overdue",
 	},
 	flag: {
 		textLabel: "Flag text",
-		textPlaceholder:
-			"Shown when a row is overdue — otherwise the cell stays empty",
+		textHint: "Shown only after the case becomes overdue",
 	},
 };
 
@@ -160,7 +162,7 @@ export function IntervalCard({ value, onChange, errors }: IntervalCardProps) {
 	const copy = DISPLAY_COPY[value.display];
 
 	return (
-		<div className="space-y-2">
+		<div className="space-y-4">
 			<ColumnFieldRow
 				field={value.field}
 				onFieldChange={setField}
@@ -177,16 +179,16 @@ export function IntervalCard({ value, onChange, errors }: IntervalCardProps) {
 				thresholdLabel="Overdue after"
 			/>
 			<DisplayToggle value={value.display} onChange={setDisplay} />
-			<div>
-				<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
-					{copy.textLabel}
-				</div>
+			<div className="[&_input]:!text-[14px]">
+				<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>{copy.textLabel}</div>
 				<BlurCommitTextInput
 					value={value.text}
 					onCommit={setText}
-					placeholder={copy.textPlaceholder}
 					ariaLabel={copy.textLabel}
 				/>
+				<div className="mt-2">
+					<InspectorHint>{copy.textHint}</InspectorHint>
+				</div>
 			</div>
 		</div>
 	);
@@ -205,9 +207,7 @@ interface DisplayToggleProps {
 function DisplayToggle({ value, onChange }: DisplayToggleProps) {
 	return (
 		<div>
-			<div className="mb-1.5 text-[11px] font-medium text-nova-text-muted">
-				Show
-			</div>
+			<div className={`mb-2 ${INSPECTOR_LABEL_CLS}`}>Show</div>
 			<SegmentedRow
 				legend="Interval display mode"
 				options={[

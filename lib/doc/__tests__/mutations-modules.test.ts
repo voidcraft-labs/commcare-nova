@@ -213,7 +213,7 @@ describe("updateModule", () => {
 	});
 });
 
-describe("ensureCaseListConfig", () => {
+describe("updateModule.ensureCaseListConfig", () => {
 	it("materializes the required empty shape when the config is absent", () => {
 		const start: BlueprintDoc = {
 			...emptyDoc(),
@@ -222,7 +222,12 @@ describe("ensureCaseListConfig", () => {
 			formOrder: { [M("A")]: [] },
 		};
 		const next = produce(start, (d) => {
-			applyMutation(d, { kind: "ensureCaseListConfig", uuid: M("A") });
+			applyMutation(d, {
+				kind: "updateModule",
+				uuid: M("A"),
+				patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				ensureCaseListConfig: true,
+			});
 		});
 		expect(next.modules[M("A")]?.caseListConfig).toEqual({
 			columns: [],
@@ -252,7 +257,12 @@ describe("ensureCaseListConfig", () => {
 			formOrder: { [M("A")]: [] },
 		};
 		const next = produce(start, (d) => {
-			applyMutation(d, { kind: "ensureCaseListConfig", uuid: M("A") });
+			applyMutation(d, {
+				kind: "updateModule",
+				uuid: M("A"),
+				patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				ensureCaseListConfig: true,
+			});
 		});
 		expect(next.modules[M("A")]?.caseListConfig).toEqual(existing);
 	});

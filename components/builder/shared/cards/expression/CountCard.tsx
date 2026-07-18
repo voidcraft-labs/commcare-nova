@@ -5,8 +5,8 @@
 //
 //   - `via` — `RelationPath` to walk along. Routes through the
 //     shared `RelationPathBuilder` primitive so non-canonical walks
-//     (multi-hop ancestor, qualified subcase, any-relation) round-trip
-//     through the read-only badge.
+//     (multi-hop ancestor, qualified subcase, any-relation) remain
+//     editable through the complete path builder.
 //   - `where` — optional `Predicate`. When present, the count is
 //     filtered to related cases where the predicate holds. Routes
 //     through `ChildPredicateEditor` so the full Predicate-side
@@ -16,7 +16,8 @@
 //   - The `via` walk must resolve to a destination case type.
 //   - The `where` clause type-checks in the destination scope (per
 //     `checkInDestinationScope`).
-//   - Top-level `via.kind === "self"` is rejected (no useful semantic).
+//   - `via.kind === "self"` counts the current case (1, or 0/1 when
+//     filtered) and is valid across the expression emitters.
 //
 // Path encoding: errors emit at `[..., "count"]` (operator-level,
 // e.g. "missing scope"), `[..., "count", "via"]`, `[..., "count",
@@ -24,16 +25,23 @@
 // `appendKindSlot(path, "count", slot)` for sub-slots.
 
 "use client";
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
+import { Button } from "@/components/shadcn/button";
+import { FieldDescription } from "@/components/shadcn/field";
 import {
 	ancestorPath,
 	count,
-	matchAll,
 	type Predicate,
 	type RelationPath,
 	relationStep,
+	selfPath,
+	subcasePath,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import {
+	CONDITION_SEED_UNAVAILABLE_REASON,
+	firstConditionSeed,
+} from "../../conditionSeed";
 import {
 	useEditorErrorsAt,
 	usePredicateEditContext,
@@ -44,16 +52,45 @@ import { appendKind, appendKindSlot, type EditorPath } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
 import { RelationPathBuilder } from "../../primitives/RelationPathBuilder";
 import { resolveRelationDestination } from "../../relationDestination";
-import { ChildPredicateEditor } from "../ChildPredicateEditor";
-import { rescopeWhereForVia } from "../reseed";
+import { PredicateFocusBoundary } from "../ChildPredicateEditor";
 
-/** Default `count` — one-step ancestor walk via `parent` with no
- *  filter. Mirrors `existsDefault` on the Predicate side; authors
- *  pivot via the relation-path builder. */
+export function hasCountableRelation(ctx: ExpressionEditContext): boolean {
+	const current = ctx.caseTypes.find(
+		(caseType) => caseType.name === ctx.currentCaseType,
+	);
+	const hasParent =
+		current?.parent_type !== undefined &&
+		ctx.caseTypes.some((caseType) => caseType.name === current.parent_type);
+	const hasChild = ctx.caseTypes.some(
+		(caseType) => caseType.parent_type === ctx.currentCaseType,
+	);
+	return hasParent || hasChild;
+}
+
+/** Seed the first real catalog connection: parent first, then the first child.
+ * A no-relation fallback remains valid for the total registry factory, but the
+ * new-target menu disables Count in that scope with a specific explanation. */
 export function countDefault(
-	_ctx: ExpressionEditContext,
+	ctx: ExpressionEditContext,
 ): Extract<ValueExpression, { kind: "count" }> {
-	return count(ancestorPath(relationStep("parent")));
+	const current = ctx.caseTypes.find(
+		(caseType) => caseType.name === ctx.currentCaseType,
+	);
+	if (
+		current?.parent_type !== undefined &&
+		ctx.caseTypes.some((caseType) => caseType.name === current.parent_type)
+	) {
+		return count(ancestorPath(relationStep("parent")));
+	}
+
+	const child = ctx.caseTypes.find(
+		(caseType) => caseType.parent_type === ctx.currentCaseType,
+	);
+	if (child !== undefined) {
+		return count(subcasePath("parent", child.name));
+	}
+
+	return count(selfPath());
 }
 
 interface CountCardProps {
@@ -66,13 +103,15 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 	const ctx = usePredicateEditContext();
 	const operatorErrors = useEditorErrorsAt(appendKind(path, "count"));
 	const viaErrors = useEditorErrorsAt(appendKindSlot(path, "count", "via"));
+	const unavailableReasonId = useId();
 
 	const setVia = (next: RelationPath) => {
-		// A new walk can change the destination scope; a `where` whose
-		// property refs no longer resolve there resets to `matchAll()`
-		// in the same onChange so the committed count stays sound.
-		const where = rescopeWhereForVia(value.where, next, ctx);
-		onChange(where === undefined ? count(next) : count(next, where));
+		// Preserve the complete filter tree when the connection changes.
+		// A newly incompatible destination is a visible repair state, not
+		// permission to silently replace the condition with match-all.
+		onChange(
+			value.where === undefined ? count(next) : count(next, value.where),
+		);
 	};
 
 	const setWhere = (next: Predicate | undefined) => {
@@ -92,40 +131,78 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 			resolveRelationDestination(value.via, ctx.currentCaseType, ctx.caseTypes),
 		[value.via, ctx.currentCaseType, ctx.caseTypes],
 	);
+	const whereSeed = useMemo(
+		() =>
+			destinationCaseType === undefined
+				? undefined
+				: firstConditionSeed({
+						caseTypes: ctx.caseTypes,
+						currentCaseType: destinationCaseType,
+						knownInputs: ctx.knownInputs,
+					}),
+		[destinationCaseType, ctx.caseTypes, ctx.knownInputs],
+	);
+	const addWhere = () => {
+		if (whereSeed === undefined) return;
+		setWhere(whereSeed);
+	};
+	const addWhereUnavailable =
+		value.where === undefined && whereSeed === undefined;
 
 	return (
 		<div className="space-y-2">
 			<div>
-				<div className="text-[10px] text-nova-text-muted uppercase tracking-wider mb-1">
-					Count related cases via
-				</div>
 				<RelationPathBuilder
 					value={value.via}
 					onChange={setVia}
 					invalid={operatorErrors.length > 0 || viaErrors.length > 0}
+					allowSelf
 				/>
 				<InlineError errors={viaErrors} />
 				{operatorErrors.length > 0 && <InlineError errors={operatorErrors} />}
 			</div>
 
-			<div>
-				<div className="flex items-center justify-between mb-1">
-					<div className="text-[10px] text-nova-text-muted uppercase tracking-wider">
-						Where (optional)
+			<div className="space-y-1.5">
+				<div className="flex flex-wrap items-center justify-between gap-2">
+					<div>
+						<p className="text-[13px] font-medium text-nova-text-secondary">
+							Cases to count
+						</p>
+						<p className="mt-0.5 text-[13px] leading-relaxed text-nova-text-muted">
+							Without a condition, every case on this connection is counted
+						</p>
 					</div>
-					<button
+					<Button
 						type="button"
-						onClick={() =>
-							setWhere(value.where === undefined ? matchAll() : undefined)
+						variant="ghost"
+						size="xl"
+						disabled={addWhereUnavailable}
+						aria-describedby={
+							addWhereUnavailable ? unavailableReasonId : undefined
 						}
-						className="min-h-11 px-2 text-[10px] uppercase tracking-wider text-nova-text-muted hover:text-nova-violet-bright transition-colors cursor-pointer"
+						onClick={() =>
+							value.where === undefined ? addWhere() : setWhere(undefined)
+						}
+						className={
+							value.where === undefined
+								? "text-nova-text-secondary"
+								: "text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
+						}
 					>
-						{value.where === undefined ? "+ Add filter" : "Remove filter"}
-					</button>
+						{value.where === undefined ? "Add condition" : "Delete condition"}
+					</Button>
 				</div>
+				{addWhereUnavailable ? (
+					<FieldDescription
+						id={unavailableReasonId}
+						className="text-[13px] leading-relaxed text-nova-text-muted"
+					>
+						{CONDITION_SEED_UNAVAILABLE_REASON}
+					</FieldDescription>
+				) : null}
 				{value.where !== undefined && destinationCaseType !== undefined && (
 					<WithCurrentCaseType caseType={destinationCaseType}>
-						<ChildPredicateEditor
+						<PredicateFocusBoundary
 							value={value.where}
 							onChange={(next) => setWhere(next)}
 							path={appendKindSlot(path, "count", "where")}
@@ -134,8 +211,8 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 					</WithCurrentCaseType>
 				)}
 				{value.where !== undefined && destinationCaseType === undefined && (
-					<div className="text-[11px] text-nova-text-muted italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
-						Pick a valid connection before narrowing it with a condition.
+					<div className="rounded-lg border border-dashed border-white/[0.06] px-3 py-2 text-[13px] text-nova-text-muted">
+						Pick a valid connection before narrowing it with a condition
 					</div>
 				)}
 			</div>

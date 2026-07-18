@@ -27,15 +27,16 @@
 // no longer admits it (legacy-open backstop).
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import tablerSwitch from "@iconify-icons/tabler/switch";
 import tablerUser from "@iconify-icons/tabler/user";
 import tablerVariable from "@iconify-icons/tabler/variable";
 import {
+	type RefObject,
 	useCallback,
 	useEffect,
 	useId,
@@ -44,7 +45,32 @@ import {
 	useState,
 } from "react";
 import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/shadcn/alert-dialog";
+import { Button } from "@/components/shadcn/button";
+import {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuPopup,
+	DropdownMenuPortal,
+	DropdownMenuPositioner,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
+import { FieldError } from "@/components/shadcn/field";
+import { Input } from "@/components/shadcn/input";
+import {
 	type CaseProperty,
+	type CasePropertyDataType,
 	canonicalCasePropertyName,
 	effectiveDataType,
 } from "@/lib/domain";
@@ -66,15 +92,13 @@ import {
 	timeLiteral,
 	type ValueExpression,
 	term as wrapTerm,
+	XML_ELEMENT_NAME_PATTERN,
 } from "@/lib/domain/predicate";
 import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
-import {
+	type AdmitExpressionChange,
 	useEditorErrorsAt,
 	useEditorErrorsBelow,
+	useExpressionFocusTarget,
 	usePredicateEditContext,
 } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
@@ -82,6 +106,7 @@ import { rebuildLiteralPreservingDataType } from "../../literalRebuild";
 import type { EditorPath } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
 import { PropertyRefPicker } from "../../primitives/PropertyRefPicker";
+import { searchInputDisplayLabel } from "../../searchInputPresentation";
 import { reseedLiteralForConstraint } from "../reseed";
 
 /** Default Term-arm value — a `term(literal(""))`. The empty literal
@@ -102,6 +127,20 @@ type TermMode =
 	| "session-context"
 	| "session-user";
 
+interface TermDraft {
+	readonly value: Term;
+	readonly authored: boolean;
+}
+
+interface PendingTermModeChange {
+	readonly source: Term;
+	readonly targetMode: TermMode;
+	/** A source without a schema-valid automatic default is collected inside
+	 * the confirmation before it is allowed to reach the document. */
+	readonly userFieldDraft?: string;
+	readonly replacesAuthoredSource: boolean;
+}
+
 interface TermCardProps {
 	readonly value: Extract<ValueExpression, { kind: "term" }>;
 	readonly onChange: (next: ValueExpression) => void;
@@ -109,6 +148,11 @@ interface TermCardProps {
 	/** The slot's type constraint — gates the value sources and the
 	 *  literal shape menu. Defaults to `ANY_CONSTRAINT`. */
 	readonly constraint?: SlotConstraint;
+	/** Copy context for the source menu. A predicate's left side is the
+	 *  condition subject, so its property source reads "Case information";
+	 *  ordinary value slots read "Other case information". The editor and AST
+	 *  behavior are identical. */
+	readonly sourceContext?: "value" | "subject";
 	/** Extra entries the picker shell injects into the source menu —
 	 *  the computed expression kinds (math, if–then, today, …), so ONE
 	 *  dropdown answers "what is this value?" without a separate
@@ -131,6 +175,7 @@ export function TermCard({
 	onChange,
 	path,
 	constraint = ANY_CONSTRAINT,
+	sourceContext = "value",
 	computedItems,
 }: TermCardProps) {
 	const ctx = usePredicateEditContext();
@@ -156,40 +201,388 @@ export function TermCard({
 
 	const term = value.term;
 	const mode = termMode(term);
+	const sourceTriggerRef = useRef<HTMLButtonElement>(null);
+	const { register: registerExpressionFocusTarget } =
+		useExpressionFocusTarget(path);
+	const setSourceTriggerRef = useCallback(
+		(target: HTMLButtonElement | null) => {
+			sourceTriggerRef.current = target;
+			registerExpressionFocusTarget(target);
+		},
+		[registerExpressionFocusTarget],
+	);
+	const draftsByModeRef = useRef(new Map<TermMode, TermDraft>());
+	const [pendingModeChange, setPendingModeChange] =
+		useState<PendingTermModeChange | null>(null);
+	const replacementUserFieldId = useId();
+	const replacementUserFieldHelpId = `${replacementUserFieldId}-help`;
+
+	// Each source keeps its own mounted draft. Controlled parents often parse
+	// and clone the emitted object, so preserve the draft's authored/default
+	// provenance when the semantic value is unchanged rather than relying on
+	// object identity.
+	useEffect(() => {
+		const saved = draftsByModeRef.current.get(mode);
+		if (saved === undefined) {
+			draftsByModeRef.current.set(mode, {
+				value: term,
+				authored: termHasMeaningfulContent(term),
+			});
+			return;
+		}
+		if (saved.value === term) return;
+		draftsByModeRef.current.set(mode, {
+			value: term,
+			authored: termsMatch(saved.value, term)
+				? saved.authored
+				: termHasMeaningfulContent(term),
+		});
+	}, [mode, term]);
 
 	const modeAdmission = useMemo(
-		() => computeModeAdmission(ctx, constraint),
-		[ctx, constraint],
+		() => computeModeAdmission(ctx, constraint, path),
+		[ctx, constraint, path],
 	);
 
-	const setMode = (next: TermMode) => {
-		// Rebuild via the matching builder so the constructed shape
-		// stays canonical. The mode switch resets the inner Term to a
-		// per-mode default chosen valid for the slot's constraint;
-		// preserving the source content across modes would require a
-		// per-mode coercion table that doesn't exist (a literal text "5"
-		// doesn't naturally become `prop("patient", "5")`).
-		onChange(wrapTerm(buildTermDefault(next, ctx, constraint)));
-	};
+	const applyMode = useCallback(
+		(next: TermMode, explicitTarget?: Term) => {
+			if (next === mode) return;
+			const currentDraft = draftsByModeRef.current.get(mode);
+			draftsByModeRef.current.set(mode, {
+				value: term,
+				authored:
+					currentDraft !== undefined && termsMatch(currentDraft.value, term)
+						? currentDraft.authored
+						: termHasMeaningfulContent(term),
+			});
+
+			let targetDraft =
+				explicitTarget === undefined
+					? draftsByModeRef.current.get(next)
+					: { value: explicitTarget, authored: true };
+			if (targetDraft === undefined) {
+				targetDraft = {
+					value: buildTermDefault(next, ctx, constraint),
+					authored: false,
+				};
+			}
+			draftsByModeRef.current.set(next, targetDraft);
+			onChange(wrapTerm(targetDraft.value));
+		},
+		[constraint, ctx, mode, onChange, term],
+	);
+
+	const requestMode = useCallback(
+		(next: TermMode) => {
+			if (next === mode) return;
+			const currentDraft = draftsByModeRef.current.get(mode);
+			const authored =
+				currentDraft !== undefined && termsMatch(currentDraft.value, term)
+					? currentDraft.authored
+					: termHasMeaningfulContent(term);
+			const replacesAuthoredSource = authored && termHasMeaningfulContent(term);
+			const savedTarget = draftsByModeRef.current.get(next)?.value;
+			const userFieldDraft =
+				next === "session-user"
+					? savedTarget?.kind === "session-user"
+						? savedTarget.field
+						: ""
+					: undefined;
+			const needsUserField =
+				next === "session-user" &&
+				(userFieldDraft === undefined || !userFieldIsValid(userFieldDraft));
+			if (replacesAuthoredSource || needsUserField) {
+				setPendingModeChange({
+					source: term,
+					targetMode: next,
+					userFieldDraft,
+					replacesAuthoredSource,
+				});
+				return;
+			}
+			applyMode(next);
+		},
+		[applyMode, mode, term],
+	);
+
+	const handleTermChange = useCallback(
+		(next: Term) => {
+			draftsByModeRef.current.set(termMode(next), {
+				value: next,
+				authored: true,
+			});
+			onChange(wrapTerm(next));
+		},
+		[onChange],
+	);
+	const literalValue = term.kind === "literal" ? term : null;
+	const literalShape =
+		literalValue === null ? "text" : classifyLiteralShape(literalValue);
+	const draftsByShapeRef = useRef(new Map<LiteralShape, LiteralDraft>());
+	const [pendingShapeChange, setPendingShapeChange] =
+		useState<PendingLiteralShapeChange | null>(null);
+
+	useEffect(() => {
+		if (literalValue === null) return;
+		const saved = draftsByShapeRef.current.get(literalShape);
+		if (saved === undefined) {
+			draftsByShapeRef.current.set(literalShape, {
+				value: literalValue,
+				authored: literalHasMeaningfulContent(literalValue),
+			});
+			return;
+		}
+		if (saved.value === literalValue) return;
+		draftsByShapeRef.current.set(literalShape, {
+			value: literalValue,
+			authored: literalsMatch(saved.value, literalValue)
+				? saved.authored
+				: literalHasMeaningfulContent(literalValue),
+		});
+	}, [literalShape, literalValue]);
+
+	const applyLiteralShape = useCallback(
+		(next: LiteralShape) => {
+			if (literalValue === null || next === literalShape) return;
+			const currentDraft = draftsByShapeRef.current.get(literalShape);
+			draftsByShapeRef.current.set(literalShape, {
+				value: literalValue,
+				authored:
+					currentDraft !== undefined &&
+					literalsMatch(currentDraft.value, literalValue)
+						? currentDraft.authored
+						: literalHasMeaningfulContent(literalValue),
+			});
+			let targetDraft = draftsByShapeRef.current.get(next);
+			if (targetDraft === undefined) {
+				targetDraft = {
+					value: buildLiteralForShape(next),
+					authored: false,
+				};
+				draftsByShapeRef.current.set(next, targetDraft);
+			}
+			handleTermChange(targetDraft.value);
+		},
+		[handleTermChange, literalShape, literalValue],
+	);
+
+	const requestLiteralShape = useCallback(
+		(next: LiteralShape) => {
+			if (literalValue === null || next === literalShape) return;
+			const currentDraft = draftsByShapeRef.current.get(literalShape);
+			const authored =
+				currentDraft !== undefined &&
+				literalsMatch(currentDraft.value, literalValue)
+					? currentDraft.authored
+					: literalHasMeaningfulContent(literalValue);
+			if (authored && literalHasMeaningfulContent(literalValue)) {
+				setPendingShapeChange({ source: literalValue, targetShape: next });
+				return;
+			}
+			applyLiteralShape(next);
+		},
+		[applyLiteralShape, literalShape, literalValue],
+	);
+
+	const handleBodyTermChange = useCallback(
+		(next: Term) => {
+			if (next.kind === "literal") {
+				draftsByShapeRef.current.set(classifyLiteralShape(next), {
+					value: next,
+					authored: true,
+				});
+			}
+			handleTermChange(next);
+		},
+		[handleTermChange],
+	);
+
+	const pendingCopy =
+		pendingModeChange === null
+			? null
+			: !pendingModeChange.replacesAuthoredSource &&
+					pendingModeChange.targetMode === "session-user"
+				? {
+						title: "Which user information?",
+						description: "Enter the saved user field this condition should use",
+					}
+				: describeTermModeReplacement(
+						pendingModeChange.source,
+						termModeLabel(pendingModeChange.targetMode, sourceContext),
+					);
+	const pendingUserField = pendingModeChange?.userFieldDraft;
+	const pendingUserFieldError =
+		pendingUserField === undefined ||
+		pendingUserField.length === 0 ||
+		userFieldIsValid(pendingUserField)
+			? undefined
+			: userFieldError(pendingUserField);
+	const pendingShapeCopy =
+		pendingShapeChange === null
+			? null
+			: describeLiteralShapeReplacement(
+					classifyLiteralShape(pendingShapeChange.source),
+					pendingShapeChange.targetShape,
+				);
 
 	return (
-		<div className="space-y-1">
-			<div className="grid grid-cols-1 @md:grid-cols-[auto_1fr] gap-2 items-start">
-				<ModeMenu
-					mode={mode}
-					setMode={setMode}
-					admission={modeAdmission}
-					computedItems={computedItems}
-				/>
-				<TermBodyInput
-					term={term}
-					onChange={(t) => onChange(wrapTerm(t))}
-					constraint={constraint}
-					invalid={errors.length > 0 || descendantErrors.length > 0}
-				/>
+		<>
+			<div className="space-y-1">
+				<div className="grid grid-cols-1 @md:grid-cols-[auto_1fr] gap-2 items-start">
+					<ModeMenu
+						mode={mode}
+						setMode={requestMode}
+						admission={modeAdmission}
+						sourceContext={sourceContext}
+						computedItems={computedItems}
+						triggerRef={sourceTriggerRef}
+						setTriggerRef={setSourceTriggerRef}
+						literalShape={literalValue === null ? undefined : literalShape}
+						onLiteralShapeChange={requestLiteralShape}
+						literalConstraint={constraint}
+					/>
+					<TermBodyInput
+						term={term}
+						onChange={handleBodyTermChange}
+						constraint={constraint}
+						invalid={errors.length > 0 || descendantErrors.length > 0}
+						path={path}
+						admitExpressionChange={ctx.admitExpressionChange}
+					/>
+				</div>
+				{descendantErrors.length > 0 && (
+					<InlineError errors={descendantErrors} />
+				)}
 			</div>
-			{descendantErrors.length > 0 && <InlineError errors={descendantErrors} />}
-		</div>
+			<AlertDialog
+				open={pendingModeChange !== null}
+				onOpenChange={(open) => {
+					if (open) return;
+					setPendingModeChange(null);
+				}}
+			>
+				<AlertDialogContent finalFocus={sourceTriggerRef} className="text-left">
+					<AlertDialogHeader>
+						<AlertDialogTitle>{pendingCopy?.title}</AlertDialogTitle>
+						<AlertDialogDescription className="text-left">
+							{pendingCopy?.description}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					{pendingUserField !== undefined ? (
+						<div className="space-y-2">
+							<label
+								htmlFor={replacementUserFieldId}
+								className="text-sm font-medium text-nova-text"
+							>
+								User field name
+							</label>
+							<Input
+								id={replacementUserFieldId}
+								type="text"
+								required
+								value={pendingUserField}
+								onChange={(event) =>
+									setPendingModeChange((current) =>
+										current === null
+											? null
+											: {
+													...current,
+													userFieldDraft: event.target.value,
+												},
+									)
+								}
+								autoComplete="off"
+								data-1p-ignore
+								aria-invalid={pendingUserFieldError !== undefined || undefined}
+								aria-describedby={replacementUserFieldHelpId}
+								className={userFieldInputClass(
+									pendingUserFieldError !== undefined,
+								)}
+							/>
+							{pendingUserFieldError === undefined ? (
+								<p
+									id={replacementUserFieldHelpId}
+									className="text-[13px] leading-5 text-nova-text-secondary"
+								>
+									Use the field name saved on the user, like assigned_region
+								</p>
+							) : (
+								<FieldError
+									id={replacementUserFieldHelpId}
+									className="text-[13px] leading-5 text-nova-rose"
+								>
+									{pendingUserFieldError}
+								</FieldError>
+							)}
+						</div>
+					) : null}
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							variant={
+								pendingModeChange?.replacesAuthoredSource === true
+									? "destructive"
+									: "default"
+							}
+							disabled={
+								pendingUserField !== undefined &&
+								!userFieldIsValid(pendingUserField)
+							}
+							onClick={() => {
+								if (pendingModeChange === null) return;
+								const explicitTarget =
+									pendingModeChange.userFieldDraft === undefined
+										? undefined
+										: userFieldIsValid(pendingModeChange.userFieldDraft)
+											? sessionUser(pendingModeChange.userFieldDraft)
+											: null;
+								if (explicitTarget === null) return;
+								if (termsMatch(pendingModeChange.source, term)) {
+									applyMode(pendingModeChange.targetMode, explicitTarget);
+								}
+								setPendingModeChange(null);
+							}}
+						>
+							{pendingModeChange?.replacesAuthoredSource === false
+								? "Use field"
+								: "Replace"}
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+			<AlertDialog
+				open={pendingShapeChange !== null}
+				onOpenChange={(open) => {
+					if (open) return;
+					setPendingShapeChange(null);
+				}}
+			>
+				<AlertDialogContent finalFocus={sourceTriggerRef} className="text-left">
+					<AlertDialogHeader>
+						<AlertDialogTitle>{pendingShapeCopy?.title}</AlertDialogTitle>
+						<AlertDialogDescription className="text-left">
+							{pendingShapeCopy?.description}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							onClick={() => {
+								if (pendingShapeChange === null || literalValue === null)
+									return;
+								if (literalsMatch(pendingShapeChange.source, literalValue)) {
+									applyLiteralShape(pendingShapeChange.targetShape);
+								}
+								setPendingShapeChange(null);
+							}}
+						>
+							Replace
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</>
 	);
 }
 
@@ -208,6 +601,93 @@ function termMode(term: Term): TermMode {
 			return "session-context";
 		case "session-user":
 			return "session-user";
+	}
+}
+
+function termsMatch(left: Term, right: Term): boolean {
+	if (left === right) return true;
+	return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function literalHasMeaningfulContent(value: Literal): boolean {
+	return typeof value.value === "string" ? value.value.length > 0 : true;
+}
+
+export function termHasMeaningfulContent(value: Term): boolean {
+	switch (value.kind) {
+		case "literal":
+			return literalHasMeaningfulContent(value);
+		case "prop":
+			return value.property.length > 0 || value.via !== undefined;
+		case "input":
+			return (value.name ?? "").length > 0;
+		case "session-context":
+			return true;
+		case "session-user":
+			return value.field.length > 0;
+	}
+}
+
+function termModeLabel(
+	mode: TermMode,
+	sourceContext: "value" | "subject",
+): string {
+	switch (mode) {
+		case "literal":
+			return "A value";
+		case "property":
+			return sourceContext === "subject"
+				? "Case information"
+				: "Other case information";
+		case "input":
+			return "A search answer";
+		case "session-context":
+			return "App information";
+		case "session-user":
+			return "User information";
+	}
+}
+
+function describeTermModeReplacement(
+	source: Term,
+	targetLabel: string,
+): { readonly title: string; readonly description: string } {
+	const replacement = targetLabel.replace(/^./, (letter) =>
+		letter.toLocaleLowerCase(),
+	);
+	const restoreCopy =
+		"Choose the previous source again to restore the saved choice";
+	switch (source.kind) {
+		case "literal":
+			return {
+				title: `The saved value will be replaced with ${replacement}`,
+				description: restoreCopy,
+			};
+		case "prop":
+			return source.via === undefined
+				? {
+						title: `The selected case information will be replaced with ${replacement}`,
+						description: restoreCopy,
+					}
+				: {
+						title: `The selected case information and connection will be replaced with ${replacement}`,
+						description: restoreCopy,
+					};
+		case "input":
+			return {
+				title: `The selected search answer will be replaced with ${replacement}`,
+				description: restoreCopy,
+			};
+		case "session-context":
+			return {
+				title: `The selected app information will be replaced with ${replacement}`,
+				description: restoreCopy,
+			};
+		case "session-user":
+			return {
+				title: `The saved user information field will be replaced with ${replacement}`,
+				description: restoreCopy,
+			};
 	}
 }
 
@@ -234,11 +714,16 @@ function propertyFilterFor(
 /** Per-mode admission verdict + reason for the source menu. */
 type ModeAdmission = Record<TermMode, { admitted: boolean; reason?: string }>;
 
+interface TermAdmissionContext extends ExpressionEditContext {
+	readonly admitExpressionChange?: AdmitExpressionChange;
+}
+
 /**
  * Resolve which Term sources can produce a value the slot accepts:
- *   - `literal` — always admitted; a literal can be `null`, which is
- *     compatible with every type, and the shape menu does the
- *     fine-grained gating per accepted type.
+ *   - `literal` — admitted unless this exact node is an absence-check
+ *     subject. Otherwise a literal can be `null`, which is compatible
+ *     with every type, and the shape menu does the fine-grained gating
+ *     per accepted type.
  *   - `property` — admitted when a property of an accepted type
  *     exists on the current case type.
  *   - `input` — admitted when a declared search input of an accepted
@@ -247,8 +732,9 @@ type ModeAdmission = Record<TermMode, { admitted: boolean; reason?: string }>;
  *     admitted only when the slot accepts text.
  */
 function computeModeAdmission(
-	ctx: ExpressionEditContext,
+	ctx: TermAdmissionContext,
 	constraint: SlotConstraint,
+	path: EditorPath,
 ): ModeAdmission {
 	const reason = reasonFor(constraint);
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
@@ -262,8 +748,15 @@ function computeModeAdmission(
 		constraint.accepts === "any" ||
 		ctx.knownInputs.some((i) => acceptsType(constraint, i.data_type ?? "text"));
 	const textAdmitted = constraintAdmitsType(constraint, "text");
-	return {
-		literal: { admitted: true },
+	const typeAdmission: ModeAdmission = {
+		literal:
+			constraint.forbidDirectLiteral === true
+				? {
+						admitted: false,
+						reason:
+							"Use case information, a search answer, app information, or a calculation here",
+					}
+				: { admitted: true },
 		property: hasAcceptedProperty
 			? { admitted: true }
 			: { admitted: false, reason },
@@ -275,14 +768,38 @@ function computeModeAdmission(
 			? { admitted: true }
 			: { admitted: false, reason },
 	};
+	if (ctx.admitExpressionChange === undefined) return typeAdmission;
+
+	return Object.fromEntries(
+		(Object.keys(typeAdmission) as TermMode[]).map((mode) => {
+			const slotVerdict = typeAdmission[mode];
+			if (!slotVerdict.admitted) return [mode, slotVerdict];
+			const ruleVerdict = ctx.admitExpressionChange?.(
+				path,
+				wrapTerm(buildTermAdmissionProbe(mode, ctx, constraint)),
+			);
+			return [mode, ruleVerdict ?? slotVerdict];
+		}),
+	) as ModeAdmission;
 }
 
-/** Build the per-mode default Term used when the user flips modes.
- *  Each mode's default is chosen valid for the slot's constraint — a
- *  property / input of an accepted type, an empty literal of an
- *  accepted shape — so picking an enabled source never lands a type
- *  error. The type checker still surfaces "fill this in" for an unbound
- *  placeholder (an empty property name). */
+/** Use a schema-valid representative only to ask a rule-level admission
+ * checker whether a source family is allowed. User information has no honest
+ * semantic default, so this probe must never become authored data. */
+function buildTermAdmissionProbe(
+	mode: TermMode,
+	ctx: ExpressionEditContext,
+	constraint: SlotConstraint,
+): Term {
+	return mode === "session-user"
+		? sessionUser("_")
+		: buildTermDefault(mode, ctx, constraint);
+}
+
+/** Build a per-mode draft. Property, search-answer, and app-information
+ * defaults are schema-valid choices. User information deliberately starts
+ * incomplete because inventing a field would silently change the rule's
+ * meaning; `requestMode` collects that field before this draft may commit. */
 function buildTermDefault(
 	mode: TermMode,
 	ctx: ExpressionEditContext,
@@ -330,11 +847,27 @@ interface ModeMenuProps {
 	readonly mode: TermMode;
 	readonly setMode: (mode: TermMode) => void;
 	readonly admission: ModeAdmission;
+	readonly sourceContext: "value" | "subject";
 	readonly computedItems?: React.ReactNode;
+	readonly triggerRef: RefObject<HTMLButtonElement | null>;
+	readonly setTriggerRef: (target: HTMLButtonElement | null) => void;
+	readonly literalShape?: LiteralShape;
+	readonly onLiteralShapeChange: (shape: LiteralShape) => void;
+	readonly literalConstraint: SlotConstraint;
 }
 
-function ModeMenu({ mode, setMode, admission, computedItems }: ModeMenuProps) {
-	const triggerRef = useRef<HTMLButtonElement>(null);
+function ModeMenu({
+	mode,
+	setMode,
+	admission,
+	sourceContext,
+	computedItems,
+	triggerRef,
+	setTriggerRef,
+	literalShape,
+	onLiteralShapeChange,
+	literalConstraint,
+}: ModeMenuProps) {
 	const triggerId = useId();
 	const ctx = usePredicateEditContext();
 
@@ -342,38 +875,53 @@ function ModeMenu({ mode, setMode, admission, computedItems }: ModeMenuProps) {
 		readonly { mode: TermMode; label: string; icon: IconifyIcon }[]
 	>(() => {
 		const base: { mode: TermMode; label: string; icon: IconifyIcon }[] = [
-			{ mode: "literal", label: "Typed Value", icon: tablerVariable },
-			{ mode: "property", label: "Case Property", icon: tablerDatabase },
+			{
+				mode: "literal",
+				label: termModeLabel("literal", sourceContext),
+				icon: tablerVariable,
+			},
+			{
+				mode: "property",
+				label: termModeLabel("property", sourceContext),
+				icon: tablerDatabase,
+			},
 		];
-		if (ctx.knownInputs.length > 0) {
+		if (mode === "input" || ctx.knownInputs.length > 0) {
 			base.push({
 				mode: "input",
-				label: "Search Field",
+				label: termModeLabel("input", sourceContext),
 				icon: tablerSwitch,
 			});
 		}
 		base.push({
 			mode: "session-context",
-			label: "Session Field",
+			label: termModeLabel("session-context", sourceContext),
 			icon: tablerUser,
 		});
 		base.push({
 			mode: "session-user",
-			label: "User-Data Field",
+			label: termModeLabel("session-user", sourceContext),
 			icon: tablerSparkles,
 		});
 		return base;
-	}, [ctx.knownInputs]);
+	}, [ctx.knownInputs, mode, sourceContext]);
 
 	const activeItem = items.find((i) => i.mode === mode) ?? items[0];
 
 	return (
-		<Menu.Root>
-			<Menu.Trigger
-				ref={triggerRef}
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				ref={setTriggerRef}
 				id={triggerId}
-				aria-label={`Term source: ${activeItem.label}`}
-				className="group flex items-center gap-1.5 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text-muted hover:border-nova-violet/30 hover:text-nova-text transition-colors cursor-pointer"
+				aria-label={`${sourceContext === "subject" ? "Condition source" : "Value source"}: ${activeItem.label}`}
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className="group min-h-11 justify-start border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-deep/50 not-disabled:hover:text-nova-text dark:bg-nova-deep/50"
+					/>
+				}
 			>
 				<Icon
 					icon={activeItem.icon}
@@ -382,33 +930,22 @@ function ModeMenu({ mode, setMode, admission, computedItems }: ModeMenuProps) {
 					className="text-nova-violet-bright"
 				/>
 				<span>{activeItem.label}</span>
-				<svg
-					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
-					className="shrink-0 transition-transform group-data-[popup-open]:rotate-180"
-				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.2"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
+				<Icon
+					icon={tablerChevronDown}
+					width="14"
+					height="14"
+					className="ml-auto shrink-0 transition-transform group-data-[popup-open]:rotate-180"
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
 					side="bottom"
 					align="start"
 					sideOffset={4}
 					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
 				>
-					<Menu.Popup className={MENU_POPUP_CLS}>
-						{items.map((item, i) => {
+					<DropdownMenuPopup>
+						{items.map((item) => {
 							const isActive = item.mode === mode;
 							// The active source stays selectable even when the
 							// constraint no longer admits it (legacy-open backstop);
@@ -416,23 +953,14 @@ function ModeMenu({ mode, setMode, admission, computedItems }: ModeMenuProps) {
 							// reason rather than dimmed-but-clickable.
 							const verdict = admission[item.mode];
 							const admitted = isActive || verdict.admitted;
-							const last = items.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
 							return (
-								<Menu.Item
+								<DropdownMenuItem
 									key={item.mode}
 									disabled={!admitted}
 									onClick={() => setMode(item.mode)}
-									className={`${corners} ${MENU_ITEM_CLS} ${
-										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									} ${admitted ? "" : "opacity-45"}`}
+									className={`h-auto min-h-11 items-start whitespace-normal py-2 ${
+										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
+									}`}
 								>
 									<Icon
 										icon={item.icon}
@@ -445,31 +973,38 @@ function ModeMenu({ mode, setMode, admission, computedItems }: ModeMenuProps) {
 										}
 									/>
 									<span className="flex-1 text-left min-w-0">
-										<div className="truncate">{item.label}</div>
+										<div className="break-words">{item.label}</div>
 										{!admitted && verdict.reason !== undefined && (
-											<div className="text-[11px] truncate text-nova-text-muted">
+											<div className="break-words text-xs text-nova-text-muted">
 												{verdict.reason}
 											</div>
 										)}
 									</span>
-								</Menu.Item>
+								</DropdownMenuItem>
 							);
 						})}
+						{literalShape !== undefined && (
+							<LiteralShapeSubmenu
+								shape={literalShape}
+								onSelect={onLiteralShapeChange}
+								constraint={literalConstraint}
+							/>
+						)}
 						{computedItems !== undefined && (
 							<>
 								<div
-									className="px-3 pt-2.5 pb-1 font-mono text-[9px] uppercase tracking-[0.14em] text-nova-text-muted border-t border-white/[0.06] mt-1"
+									className="mt-1 border-t border-white/[0.06] px-3 pt-2.5 pb-1 text-xs font-medium text-nova-text-muted"
 									role="presentation"
 								>
-									Computed
+									Calculated
 								</div>
 								{computedItems}
 							</>
 						)}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
 	);
 }
 
@@ -478,6 +1013,8 @@ interface TermBodyInputProps {
 	readonly onChange: (next: Term) => void;
 	readonly constraint: SlotConstraint;
 	readonly invalid: boolean;
+	readonly path: EditorPath;
+	readonly admitExpressionChange: AdmitExpressionChange | undefined;
 }
 
 /**
@@ -491,6 +1028,8 @@ function TermBodyInput({
 	onChange,
 	constraint,
 	invalid,
+	path,
+	admitExpressionChange,
 }: TermBodyInputProps) {
 	const propertyFilter = useMemo(
 		() => propertyFilterFor(constraint),
@@ -498,20 +1037,16 @@ function TermBodyInput({
 	);
 	switch (term.kind) {
 		case "literal":
-			// Free-form literal — no anchor property to derive the input
-			// variant from. `LiteralCardEditor` reads the literal's own
-			// `data_type` qualifier (or the JS-runtime type of `value` as
-			// a fallback) to pick text / number / boolean / null / typed-
-			// date inputs, gating the shape menu to the constraint's
-			// accepted types. Unlike `LiteralValueInput` (which short-
-			// circuits on missing propertyName), this inline editor
-			// supports the bare-literal case so authors can author a
-			// literal at any value slot without a property anchor.
+			// The constraint already carries the subject's resolved type, so the
+			// ordinary path is just the matching input. Literal type choices remain
+			// available from the single Value source menu instead of leaking a
+			// second technical selector into every comparison row.
 			return (
-				<LiteralCardEditor
+				<LiteralBodyInput
 					value={term}
 					onChange={onChange}
-					constraint={constraint}
+					shape={classifyLiteralShape(term)}
+					nonEmpty={constraint.nonEmpty === true}
 					invalid={invalid}
 				/>
 			);
@@ -529,6 +1064,11 @@ function TermBodyInput({
 					mode="property-only"
 					value={term}
 					onChange={(next) => onChange(next)}
+					admitChange={(next) =>
+						admitExpressionChange?.(path, wrapTerm(next)) ?? {
+							admitted: true,
+						}
+					}
 					filter={propertyFilter}
 					invalid={invalid}
 				/>
@@ -568,11 +1108,23 @@ interface InputRefMenuProps {
 	readonly invalid: boolean;
 }
 
+const SEARCH_ANSWER_TYPE_LABELS: Record<CasePropertyDataType, string> = {
+	text: "Text",
+	int: "Number",
+	decimal: "Number",
+	date: "Date",
+	time: "Time",
+	datetime: "Date and time",
+	single_select: "Single choice",
+	multi_select: "Multiple choices",
+	geopoint: "Location",
+};
+
 /** Search-input dropdown — picks from declared search inputs in
- *  scope whose declared type the slot accepts. Empty when no
- *  admissible inputs exist; the editor surfaces a hint and the type
- *  checker emits the resolution error. The currently-selected input
- *  always shows (legacy-open backstop) even when its type is no longer
+ *  scope whose declared type the slot accepts. A saved input that is
+ *  no longer declared keeps its readable identity and a recovery menu
+ *  instead of collapsing to an empty placeholder. The currently-selected
+ *  input always shows (legacy-open backstop) even when its type is no longer
  *  admitted. */
 function InputRefMenu({
 	value,
@@ -593,90 +1145,114 @@ function InputRefMenu({
 		[ctx.knownInputs, constraint, value],
 	);
 	const current = items.find((i) => i.name === value);
+	const hasSavedValue = value !== undefined && value.trim().length > 0;
+	const currentMissing = hasSavedValue && current === undefined;
+	const currentLabel =
+		current !== undefined
+			? searchInputDisplayLabel(current.name, ctx.knownInputs)
+			: hasSavedValue
+				? searchInputDisplayLabel(value, ctx.knownInputs)
+				: undefined;
 	const triggerClass = [
-		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
+		"group h-auto min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 py-2 text-sm text-nova-text whitespace-normal dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50",
 		invalid
 			? "border-nova-rose/40"
-			: "border-white/[0.06] hover:border-nova-violet/30",
+			: "border-white/[0.06] not-disabled:hover:border-nova-violet/30",
 	].join(" ");
 
-	if (items.length === 0) {
-		return (
-			<div className="text-xs text-nova-text-muted italic px-2 py-1.5 rounded-md border border-dashed border-white/[0.06]">
-				No matching search inputs
-			</div>
-		);
-	}
-
 	return (
-		<Menu.Root>
-			<Menu.Trigger
+		<DropdownMenu>
+			<DropdownMenuTrigger
 				ref={triggerRef}
-				className={triggerClass}
-				aria-label={`Search input: ${current?.name ?? "Pick an input"}`}
-			>
-				<span className="font-mono truncate text-nova-violet-bright">
-					{current?.name ?? "Pick an input"}
-				</span>
-				<svg
-					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
-					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.2"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
+				aria-label={`Search answer: ${currentLabel ?? "Choose a search answer"}${currentMissing ? ", no longer available" : ""}`}
+				aria-invalid={invalid || undefined}
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className={triggerClass}
 					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
+				}
+			>
+				<span className="min-w-0 flex-1 text-left">
+					<span className="block break-words text-nova-violet-bright">
+						{currentLabel ?? "Choose a search answer"}
+					</span>
+					{currentMissing ? (
+						<span className="block text-xs font-normal text-nova-rose">
+							No longer available
+						</span>
+					) : null}
+				</span>
+				<Icon
+					icon={tablerChevronDown}
+					width="14"
+					height="14"
+					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
 					side="bottom"
 					align="start"
 					sideOffset={4}
 					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
 					style={{ minWidth: "var(--anchor-width)" }}
 				>
-					<Menu.Popup className={MENU_POPUP_CLS}>
-						{items.map((it, i) => {
+					<DropdownMenuPopup className="min-w-0">
+						{currentMissing ? (
+							<div
+								className={
+									items.length > 0
+										? "border-b border-white/[0.06] px-3 py-2.5"
+										: "px-3 py-2.5"
+								}
+								role="presentation"
+							>
+								<div className="break-words text-sm font-medium text-nova-text">
+									{currentLabel} is no longer available
+								</div>
+								<div className="mt-1 text-[13px] leading-5 text-nova-text-secondary">
+									{items.length > 0
+										? "Choose another search answer below, or add this search field again"
+										: "Choose another value source, or add this search field again"}
+								</div>
+							</div>
+						) : items.length === 0 ? (
+							<div
+								className="px-3 py-2.5 text-[13px] leading-5 text-nova-text-secondary"
+								role="presentation"
+							>
+								No compatible search answers are available. Choose another value
+								source or add a search field.
+							</div>
+						) : null}
+						{items.map((it) => {
 							const isActive = it.name === value;
-							const last = items.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
 							return (
-								<Menu.Item
+								<DropdownMenuItem
 									key={it.name}
 									onClick={() => onChange(it.name)}
-									className={`${corners} ${MENU_ITEM_CLS} ${
-										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
+									className={`h-auto min-h-11 whitespace-normal py-2 ${
+										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
 									}`}
 								>
-									<span className="font-mono">{it.name}</span>
+									<span className="min-w-0 flex-1 break-words">
+										{searchInputDisplayLabel(it.name, ctx.knownInputs)}
+									</span>
 									{it.data_type && (
-										<span className="text-[10px] uppercase tracking-wider text-nova-text-muted">
-											{it.data_type}
+										<span className="text-xs text-nova-text-muted">
+											{SEARCH_ANSWER_TYPE_LABELS[it.data_type]}
 										</span>
 									)}
-								</Menu.Item>
+								</DropdownMenuItem>
 							);
 						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
 	);
 }
 
@@ -700,156 +1276,69 @@ function SessionContextMenu({
 		field: "userid" | "username" | "deviceid" | "appversion";
 		label: string;
 	}[] = [
-		{ field: "userid", label: "User ID" },
-		{ field: "username", label: "Username" },
-		{ field: "deviceid", label: "Device ID" },
-		{ field: "appversion", label: "App Version" },
+		{ field: "userid", label: "Current user's ID" },
+		{ field: "username", label: "Current user's name" },
+		{ field: "deviceid", label: "This device's ID" },
+		{ field: "appversion", label: "App version" },
 	];
 	const current = items.find((i) => i.field === value) ?? items[0];
 	const triggerClass = [
-		"group w-full flex items-center justify-between px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50",
+		"group min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 text-sm text-nova-text dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50",
 		invalid
 			? "border-nova-rose/40"
-			: "border-white/[0.06] hover:border-nova-violet/30",
+			: "border-white/[0.06] not-disabled:hover:border-nova-violet/30",
 	].join(" ");
 
 	return (
-		<Menu.Root>
-			<Menu.Trigger
+		<DropdownMenu>
+			<DropdownMenuTrigger
 				ref={triggerRef}
-				className={triggerClass}
-				aria-label={`Session field: ${current.label}`}
+				aria-label={`App information: ${current.label}`}
+				aria-invalid={invalid || undefined}
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className={triggerClass}
+					/>
+				}
 			>
 				<span className="text-nova-violet-bright">{current.label}</span>
-				<svg
-					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
+				<Icon
+					icon={tablerChevronDown}
+					width="14"
+					height="14"
 					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
-				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.2"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
 					side="bottom"
 					align="start"
 					sideOffset={4}
 					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
 					style={{ minWidth: "var(--anchor-width)" }}
 				>
-					<Menu.Popup className={MENU_POPUP_CLS}>
-						{items.map((it, i) => {
+					<DropdownMenuPopup className="min-w-0">
+						{items.map((it) => {
 							const isActive = it.field === value;
-							const last = items.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
 							return (
-								<Menu.Item
+								<DropdownMenuItem
 									key={it.field}
 									onClick={() => onChange(it.field)}
-									className={`${corners} ${MENU_ITEM_CLS} ${
-										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
+									className={`h-auto min-h-11 items-start whitespace-normal py-2 ${
+										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
 									}`}
 								>
 									<span>{it.label}</span>
-									<span className="text-[10px] font-mono text-nova-text-muted">
-										{it.field}
-									</span>
-								</Menu.Item>
+								</DropdownMenuItem>
 							);
 						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
-	);
-}
-
-/** Free-form literal editor — reads the existing literal's
- *  `data_type` qualifier (or its JS-runtime value type when no
- *  qualifier is set) to pick the input shape. Five shapes:
- *    - `data_type === "date" / "datetime" / "time"` → typed-date
- *      input. The wire form is the platform's ISO-formatted string.
- *      Edits commit through the matching `dateLiteral` /
- *      `datetimeLiteral` / `timeLiteral` builder so the qualifier
- *      survives every keystroke.
- *    - `value` typeof "number" → numeric input. Decimals and ints
- *      both round-trip through `Number.parseFloat`; the type
- *      checker classifies via `Number.isInteger`.
- *    - `value` typeof "boolean" → segmented true/false toggle.
- *    - `value === null` → "null" sentinel chip + a "use a value"
- *      affordance that swaps to a text literal.
- *    - default → text input.
- *
- *  Mode picker on the leading edge lets the author flip between
- *  shapes — offering only shapes whose value type the slot accepts,
- *  the current shape always included (legacy-open backstop). Flipping
- *  is a destructive operation — it RESETS the literal to the new
- *  shape's default value via `buildLiteralForShape`, replacing both
- *  the value and the `data_type` qualifier (e.g. flipping
- *  `dateLiteral("2024")` to text shape commits `literal("")` — empty
- *  value, qualifier cleared). Edits within a single shape preserve the
- *  qualifier via `rebuildLiteralPreservingDataType`; the shape menu is
- *  the one path that rebases the qualifier intentionally.
- *
- *  The `LiteralValueInput` primitive handles property-anchored
- *  typed inputs; this editor handles the free-form case where no
- *  anchor property exists. */
-function LiteralCardEditor({
-	value,
-	onChange,
-	constraint,
-	invalid,
-}: {
-	readonly value: Literal;
-	readonly onChange: (next: Literal) => void;
-	readonly constraint: SlotConstraint;
-	readonly invalid: boolean;
-}) {
-	// Mode classification — drives the input variant. Reads through
-	// the literal's `data_type` qualifier first (highest fidelity),
-	// then the JS runtime type as a fallback for unqualified
-	// literals.
-	const literalShape = classifyLiteralShape(value);
-	const setShape = (next: LiteralShape) => {
-		onChange(buildLiteralForShape(next));
-	};
-
-	return (
-		// Always one row — the type chip + its input read as a single
-		// typed-value control ("NUMBER · 50"), and the pair fits even
-		// the inspector rail's narrow container. Stacking them made the
-		// value cost three rows in the rail.
-		<div className="grid grid-cols-[auto_1fr] gap-2 items-start">
-			<LiteralShapeMenu
-				shape={literalShape}
-				setShape={setShape}
-				constraint={constraint}
-			/>
-			<LiteralBodyInput
-				value={value}
-				onChange={onChange}
-				shape={literalShape}
-				nonEmpty={constraint.nonEmpty === true}
-				invalid={invalid}
-			/>
-		</div>
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
 	);
 }
 
@@ -861,6 +1350,16 @@ type LiteralShape =
 	| "date"
 	| "datetime"
 	| "time";
+
+interface LiteralDraft {
+	readonly value: Literal;
+	readonly authored: boolean;
+}
+
+interface PendingLiteralShapeChange {
+	readonly source: Literal;
+	readonly targetShape: LiteralShape;
+}
 
 /** Classify a literal into the editor's shape enum. Reads
  *  `data_type` first (the explicit qualifier set by `dateLiteral`
@@ -878,6 +1377,10 @@ function classifyLiteralShape(lit: Literal): LiteralShape {
 	return "text";
 }
 
+function literalsMatch(left: Literal, right: Literal): boolean {
+	return left.value === right.value && left.data_type === right.data_type;
+}
+
 /** The resolved type a literal shape produces — drives the shape
  *  menu's per-shape admission against the slot's accept-set.
  *  `boolean` resolves to `text` (CommCare has no Boolean type); `null`
@@ -893,14 +1396,9 @@ const LITERAL_SHAPE_TYPE: Record<LiteralShape, ResolvedType> = {
 	time: "time",
 };
 
-/** Default literal for a given shape. Routes through the typed
- *  builders (`dateLiteral` / `datetimeLiteral` / `timeLiteral` for
- *  the temporal shapes; bare `literal()` for the others). Called
- *  ONLY on shape-menu flip — flipping is a destructive operation
- *  that RESETS both the value and the `data_type` qualifier to the
- *  new shape's defaults. Within-shape edits route through
- *  `rebuildLiteralPreservingDataType` instead, which carries the
- *  source's qualifier through. */
+/** Initial draft for a shape the mounted editor has not visited yet.
+ *  Typed builders carry the intended temporal qualifier; returning to
+ *  a visited shape restores its cached draft instead. */
 function buildLiteralForShape(shape: LiteralShape): Literal {
 	switch (shape) {
 		case "text":
@@ -923,28 +1421,39 @@ function buildLiteralForShape(shape: LiteralShape): Literal {
 const LITERAL_SHAPE_LABELS: Record<LiteralShape, string> = {
 	text: "Text",
 	number: "Number",
-	boolean: "Boolean",
-	null: "Null",
+	boolean: "Yes or no",
+	null: "No value",
 	date: "Date",
-	datetime: "Datetime",
+	datetime: "Date and time",
 	time: "Time",
 };
 
-/** Per-shape mode picker. Shares the corner-rounding + active-state
- *  styling with the term-mode menu above so the editor reads as
- *  one consistent surface family. Offers only shapes whose value type
- *  the slot accepts; the current shape always shows (legacy-open
- *  backstop). */
-function LiteralShapeMenu({
+function describeLiteralShapeReplacement(
+	source: LiteralShape,
+	target: LiteralShape,
+): { readonly title: string; readonly description: string } {
+	const sourceDescription =
+		source === "null"
+			? "saved “No value” choice"
+			: `saved ${LITERAL_SHAPE_LABELS[source].toLocaleLowerCase()} value`;
+	return {
+		title: `The ${sourceDescription} will change to ${LITERAL_SHAPE_LABELS[target].toLocaleLowerCase()}`,
+		description: `Choose ${LITERAL_SHAPE_LABELS[source]} again to restore the saved value`,
+	};
+}
+
+/** Literal types are progressive options inside the existing value-source
+ * menu. The ordinary comparison path therefore renders one inferred input,
+ * while imported and advanced literal shapes remain fully editable. */
+function LiteralShapeSubmenu({
 	shape,
-	setShape,
+	onSelect,
 	constraint,
 }: {
 	readonly shape: LiteralShape;
-	readonly setShape: (shape: LiteralShape) => void;
+	readonly onSelect: (shape: LiteralShape) => void;
 	readonly constraint: SlotConstraint;
 }) {
-	const triggerRef = useRef<HTMLButtonElement>(null);
 	const items: readonly LiteralShape[] = [
 		"text",
 		"number",
@@ -956,94 +1465,70 @@ function LiteralShapeMenu({
 	];
 	const reason = reasonFor(constraint);
 	return (
-		<Menu.Root>
-			<Menu.Trigger
-				ref={triggerRef}
-				aria-label={`Literal type: ${LITERAL_SHAPE_LABELS[shape]}`}
-				className="group flex items-center gap-1 px-2.5 min-h-11 text-[10px] uppercase tracking-wider rounded-md border border-white/[0.06] bg-nova-deep/50 text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+		<>
+			<div
+				className="mt-1 border-t border-white/[0.06] px-3 pt-2.5 pb-1 text-xs font-medium text-nova-text-muted"
+				role="presentation"
 			>
-				<span>{LITERAL_SHAPE_LABELS[shape]}</span>
-				<svg
-					aria-hidden="true"
-					width="10"
-					height="10"
-					viewBox="0 0 10 10"
-					className="shrink-0 transition-transform group-data-[popup-open]:rotate-180"
-				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.4"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
-					align="start"
-					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-				>
-					<Menu.Popup className={MENU_POPUP_CLS}>
-						{items.map((s, i) => {
-							const isActive = s === shape;
-							// The active shape stays selectable even when the
-							// constraint no longer admits it (legacy-open backstop).
-							const admitted =
-								isActive ||
-								constraintAdmitsType(constraint, LITERAL_SHAPE_TYPE[s]);
-							const last = items.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
-							return (
-								<Menu.Item
-									key={s}
-									disabled={!admitted}
-									onClick={() => setShape(s)}
-									className={`${corners} ${MENU_ITEM_CLS} ${
-										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
-									} ${admitted ? "" : "opacity-45"}`}
-								>
-									<span className="flex-1 text-left min-w-0">
-										<div className="truncate">{LITERAL_SHAPE_LABELS[s]}</div>
-										{!admitted && (
-											<div className="text-[10px] truncate text-nova-text-muted">
-												{reason}
-											</div>
-										)}
-									</span>
-									{isActive && (
-										<Icon
-											icon={tablerCheck}
-											width="14"
-											height="14"
-											className="text-nova-violet-bright"
-										/>
+				Value options
+			</div>
+			<DropdownMenuSub>
+				<DropdownMenuSubTrigger className="h-auto min-h-11 items-start whitespace-normal py-2">
+					<span className="min-w-0 flex-1 text-left">
+						<span className="block">Value type</span>
+						<span className="block text-xs text-nova-text-muted">
+							{LITERAL_SHAPE_LABELS[shape]}
+						</span>
+					</span>
+				</DropdownMenuSubTrigger>
+				<DropdownMenuSubContent>
+					{items.map((s) => {
+						const isActive = s === shape;
+						// The active shape stays selectable even when the
+						// constraint no longer admits it (legacy-open backstop).
+						const admitted =
+							isActive ||
+							constraintAdmitsType(constraint, LITERAL_SHAPE_TYPE[s]);
+						return (
+							<DropdownMenuItem
+								key={s}
+								disabled={!admitted}
+								onClick={() => onSelect(s)}
+								className={
+									isActive
+										? "bg-nova-violet/10 text-nova-violet-bright"
+										: undefined
+								}
+							>
+								<span className="flex-1 text-left min-w-0">
+									<div className="break-words">{LITERAL_SHAPE_LABELS[s]}</div>
+									{!admitted && (
+										<div className="break-words text-xs text-nova-text-muted">
+											{reason}
+										</div>
 									)}
-								</Menu.Item>
-							);
-						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+								</span>
+								{isActive && (
+									<Icon
+										icon={tablerCheck}
+										width="14"
+										height="14"
+										className="text-nova-violet-bright"
+									/>
+								)}
+							</DropdownMenuItem>
+						);
+					})}
+				</DropdownMenuSubContent>
+			</DropdownMenuSub>
+		</>
 	);
 }
 
 const LITERAL_INPUT_CLS_VALID =
-	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
+	"h-auto min-h-11 w-full rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30 md:text-sm dark:bg-nova-deep/50";
 const LITERAL_INPUT_CLS_INVALID =
-	"w-full px-3 min-h-11 text-[13px] rounded-lg border border-nova-rose/40 bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 focus:border-nova-rose/60 focus:ring-nova-rose/30 transition-colors";
+	"h-auto min-h-11 w-full rounded-lg border border-nova-rose/40 bg-nova-deep/50 px-3 text-sm text-nova-text placeholder:text-nova-text-muted focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30 md:text-sm dark:bg-nova-deep/50";
 
 function literalInputCls(invalid: boolean): string {
 	return invalid ? LITERAL_INPUT_CLS_INVALID : LITERAL_INPUT_CLS_VALID;
@@ -1127,13 +1612,9 @@ function LiteralBodyInput({
 }
 
 /** Text-typed literal input — commits on blur to avoid hammering
- *  the type checker on every keystroke. A `nonEmpty` slot (a `match`
- *  value, say) reverts an emptied draft to the prior value rather
- *  than committing `literal("")`. An empty match value is a
- *  COMPLETENESS state ("fill this in") — every match mode collapses an
- *  empty value to a non-match — so the editor only ever LEAVES it
- *  unfilled (the seed), never lets the input actively empty a value the
- *  author already filled. */
+ *  the type checker on every keystroke. A required slot keeps an
+ *  emptied draft in place and explains how to correct it; restoring
+ *  the previous value would make the user's edit appear to vanish. */
 function LiteralTextInput({
 	value,
 	onChange,
@@ -1147,10 +1628,13 @@ function LiteralTextInput({
 }) {
 	const initial = typeof value.value === "string" ? value.value : "";
 	const inputRef = useRef<HTMLInputElement>(null);
+	const requiredErrorId = useId();
 	const [draft, setDraft] = useState(initial);
+	const [showRequiredError, setShowRequiredError] = useState(false);
 	useEffect(() => {
 		if (initial !== draft && document.activeElement !== inputRef.current) {
 			setDraft(initial);
+			setShowRequiredError(false);
 		}
 	}, [initial, draft]);
 	// Commit gating + qualifier preservation:
@@ -1158,42 +1642,61 @@ function LiteralTextInput({
 	//     pulse on an untouched input from re-emitting the AST. The
 	//     parent receives nothing, so the source reference flows
 	//     through untouched.
-	//   - A `nonEmpty` slot reverts an emptied draft to `initial` rather
-	//     than committing the empty literal.
+	//   - A `nonEmpty` slot preserves an emptied draft with an inline
+	//     correction rather than committing or silently restoring it.
 	//   - On a real edit, `rebuildLiteralPreservingDataType` carries
 	//     the source's `data_type` qualifier through. A literal
 	//     declared `data_type: "single_select"` (or any non-temporal
 	//     qualifier) stays declared after the edit; the bare
 	//     `literal(draft)` rebuild would silently drop it.
 	const commit = useCallback(() => {
-		if (draft === initial) return;
 		if (nonEmpty && draft === "") {
-			setDraft(initial);
+			setShowRequiredError(true);
 			return;
 		}
+		setShowRequiredError(false);
+		if (draft === initial) return;
 		onChange(rebuildLiteralPreservingDataType(value, draft));
 	}, [draft, initial, nonEmpty, onChange, value]);
+	const effectiveInvalid = invalid || showRequiredError;
 	return (
-		<input
-			ref={inputRef}
-			type="text"
-			value={draft}
-			onChange={(e) => setDraft(e.target.value)}
-			onBlur={commit}
-			autoComplete="off"
-			data-1p-ignore
-			placeholder="Enter text"
-			aria-label="Literal text value"
-			aria-invalid={invalid || undefined}
-			className={literalInputCls(invalid)}
-		/>
+		<div>
+			<Input
+				ref={inputRef}
+				type="text"
+				value={draft}
+				onChange={(event) => {
+					const next = event.target.value;
+					setDraft(next);
+					if (showRequiredError && next !== "") {
+						setShowRequiredError(false);
+					}
+				}}
+				onBlur={commit}
+				autoComplete="off"
+				data-1p-ignore
+				placeholder="Type a value"
+				aria-label="Text value"
+				aria-invalid={effectiveInvalid || undefined}
+				aria-describedby={showRequiredError ? requiredErrorId : undefined}
+				className={literalInputCls(effectiveInvalid)}
+			/>
+			{showRequiredError ? (
+				<FieldError
+					id={requiredErrorId}
+					className="mt-2 text-[13px] leading-5 text-nova-rose"
+				>
+					Enter a value
+				</FieldError>
+			) : null}
+		</div>
 	);
 }
 
-/** Numeric literal input — commits on blur, accepting integers and
- *  decimals. Empty input commits a `literal(null)` so the type
- *  checker treats the slot as the absent-or-null compatibility
- *  case. */
+/** Numeric literal input — commits on blur, accepting finite integers
+ *  and decimals. Empty input commits a `literal(null)` so the type
+ *  checker treats the slot as the absent-or-null compatibility case;
+ *  malformed drafts remain visible with an inline correction. */
 function LiteralNumberInput({
 	value,
 	onChange,
@@ -1205,10 +1708,13 @@ function LiteralNumberInput({
 }) {
 	const initial = typeof value.value === "number" ? String(value.value) : "";
 	const inputRef = useRef<HTMLInputElement>(null);
+	const numberErrorId = useId();
 	const [draft, setDraft] = useState(initial);
+	const [showNumberError, setShowNumberError] = useState(false);
 	useEffect(() => {
 		if (initial !== draft && document.activeElement !== inputRef.current) {
 			setDraft(initial);
+			setShowNumberError(false);
 		}
 	}, [initial, draft]);
 	// Commit gating + qualifier preservation: same shape as
@@ -1219,32 +1725,65 @@ function LiteralNumberInput({
 	// checker treats null as universally compatible per
 	// `typesCompatible`'s `_any` rule.
 	const commit = useCallback(() => {
-		if (draft === initial) return;
 		const trimmed = draft.trim();
 		if (trimmed === "") {
-			onChange(rebuildLiteralPreservingDataType(value, null));
+			setShowNumberError(false);
+			if (draft !== initial) {
+				onChange(rebuildLiteralPreservingDataType(value, null));
+			}
 			return;
 		}
-		const parsed = Number.parseFloat(trimmed);
-		if (Number.isNaN(parsed)) return;
+		const parsed = finiteLiteralNumber(trimmed);
+		if (parsed === undefined) {
+			setShowNumberError(true);
+			return;
+		}
+		setShowNumberError(false);
+		if (draft === initial) return;
 		onChange(rebuildLiteralPreservingDataType(value, parsed));
 	}, [draft, initial, onChange, value]);
+	const effectiveInvalid = invalid || showNumberError;
 	return (
-		<input
-			ref={inputRef}
-			type="number"
-			step="any"
-			value={draft}
-			onChange={(e) => setDraft(e.target.value)}
-			onBlur={commit}
-			autoComplete="off"
-			data-1p-ignore
-			placeholder="0"
-			aria-label="Literal number value"
-			aria-invalid={invalid || undefined}
-			className={`${literalInputCls(invalid)} font-mono`}
-		/>
+		<div>
+			<Input
+				ref={inputRef}
+				type="text"
+				inputMode="decimal"
+				value={draft}
+				onChange={(event) => {
+					const next = event.target.value;
+					setDraft(next);
+					if (
+						showNumberError &&
+						(next.trim() === "" || finiteLiteralNumber(next) !== undefined)
+					) {
+						setShowNumberError(false);
+					}
+				}}
+				onBlur={commit}
+				autoComplete="off"
+				data-1p-ignore
+				aria-label="Number value"
+				aria-invalid={effectiveInvalid || undefined}
+				aria-describedby={showNumberError ? numberErrorId : undefined}
+				className={literalInputCls(effectiveInvalid)}
+			/>
+			{showNumberError ? (
+				<FieldError
+					id={numberErrorId}
+					className="mt-2 text-[13px] leading-5 text-nova-rose"
+				>
+					Enter a number
+				</FieldError>
+			) : null}
+		</div>
 	);
+}
+
+function finiteLiteralNumber(draft: string): number | undefined {
+	if (draft.trim() === "") return undefined;
+	const parsed = Number(draft);
+	return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 /** Boolean literal toggle — segmented control showing both states
@@ -1259,8 +1798,7 @@ function LiteralBooleanToggle({
 	readonly invalid: boolean;
 }) {
 	const current = typeof value.value === "boolean" ? value.value : false;
-	const baseCls =
-		"flex-1 px-2 min-h-11 text-[11px] uppercase tracking-wider transition-colors cursor-pointer rounded-md";
+	const baseCls = "h-11 flex-1 rounded-md text-sm";
 	const activeCls = "text-nova-violet-bright bg-nova-violet/10";
 	const idleCls =
 		"text-nova-text-muted hover:text-nova-text hover:bg-white/[0.04]";
@@ -1272,7 +1810,7 @@ function LiteralBooleanToggle({
 	// `useSemanticElements` rule prefers the semantic element. The
 	// visible-label decoration uses `aria-label` rather than a
 	// `<legend>` because the surrounding card already carries a
-	// "Term source: Literal" label and a redundant legend would
+	// surrounding value-source label and a redundant legend would
 	// add a structural heading the screen reader doesn't need.
 	// Qualifier-preserving toggle: each button rebuilds via
 	// `rebuildLiteralPreservingDataType` so a literal carrying a
@@ -1281,9 +1819,11 @@ function LiteralBooleanToggle({
 	// state) matches the text / numeric inputs' commit-on-change
 	// contract.
 	return (
-		<fieldset className={wrapCls} aria-label="Literal boolean value">
-			<button
+		<fieldset className={wrapCls} aria-label="Yes or no value">
+			<Button
 				type="button"
+				variant="ghost"
+				size="xl"
 				onClick={() => {
 					if (current) return;
 					onChange(rebuildLiteralPreservingDataType(value, true));
@@ -1291,10 +1831,12 @@ function LiteralBooleanToggle({
 				className={`${baseCls} ${current ? activeCls : idleCls}`}
 				aria-pressed={current}
 			>
-				True
-			</button>
-			<button
+				Yes
+			</Button>
+			<Button
 				type="button"
+				variant="ghost"
+				size="xl"
 				onClick={() => {
 					if (!current) return;
 					onChange(rebuildLiteralPreservingDataType(value, false));
@@ -1302,8 +1844,8 @@ function LiteralBooleanToggle({
 				className={`${baseCls} ${!current ? activeCls : idleCls}`}
 				aria-pressed={!current}
 			>
-				False
-			</button>
+				No
+			</Button>
 		</fieldset>
 	);
 }
@@ -1313,8 +1855,8 @@ function LiteralBooleanToggle({
  *  user wants a non-null value. */
 function LiteralNullChip() {
 	return (
-		<div className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md border border-dashed border-white/[0.08] bg-nova-deep/30 text-nova-text-muted italic">
-			<span className="font-mono">null</span>
+		<div className="flex min-h-11 items-center rounded-lg border border-dashed border-white/[0.08] bg-nova-deep/30 px-3 text-[13px] text-nova-text-muted">
+			<span>No value</span>
 		</div>
 	);
 }
@@ -1326,11 +1868,8 @@ function LiteralNullChip() {
  *  than blur — picker commits are atomic events, not in-flight
  *  edits. Same shape `LiteralValueInput`'s `DateInput` uses.
  *
- *  A `nonEmpty` slot (a `fuzzy-date` match value) ignores a cleared
- *  value: the input is controlled by `value={initial}`, so dropping the
- *  commit snaps the native picker back to the prior value — the same
- *  revert the text widget does, so `dateLiteral("")` can't be authored
- *  where an empty value is a non-match. */
+ *  A required slot keeps a cleared picker visible with a correction
+ *  instead of snapping back to the previous date or time. */
 function LiteralTypedDateInput({
 	value,
 	onChange,
@@ -1345,27 +1884,90 @@ function LiteralTypedDateInput({
 	readonly invalid: boolean;
 }) {
 	const initial = typeof value.value === "string" ? value.value : "";
+	const inputRef = useRef<HTMLInputElement>(null);
+	const requiredErrorId = useId();
+	const [draft, setDraft] = useState(initial);
+	const [showRequiredError, setShowRequiredError] = useState(false);
+	useEffect(() => {
+		if (initial !== draft && document.activeElement !== inputRef.current) {
+			setDraft(initial);
+			setShowRequiredError(false);
+		}
+	}, [draft, initial]);
+	const effectiveInvalid = invalid || showRequiredError;
 	return (
-		<input
-			type={inputType}
-			value={initial}
-			onChange={(e) => {
-				if (nonEmpty && e.target.value === "") return;
-				onChange(e.target.value);
-			}}
-			autoComplete="off"
-			data-1p-ignore
-			aria-label={`Literal ${inputType.replace("-local", "")} value`}
-			aria-invalid={invalid || undefined}
-			className={`${literalInputCls(invalid)} font-mono`}
-		/>
+		<div>
+			<Input
+				ref={inputRef}
+				type={inputType}
+				value={draft}
+				required={nonEmpty}
+				onChange={(event) => {
+					const next = event.target.value;
+					setDraft(next);
+					if (
+						!event.currentTarget.validity.valid ||
+						(nonEmpty && next === "")
+					) {
+						setShowRequiredError(true);
+						return;
+					}
+					setShowRequiredError(false);
+					onChange(next);
+				}}
+				onBlur={() => {
+					if (!inputRef.current?.validity.valid || (nonEmpty && draft === "")) {
+						setShowRequiredError(true);
+					}
+				}}
+				autoComplete="off"
+				data-1p-ignore
+				aria-label={
+					inputType === "datetime-local"
+						? "Date and time value"
+						: inputType === "date"
+							? "Date value"
+							: "Time value"
+				}
+				aria-invalid={effectiveInvalid || undefined}
+				aria-describedby={showRequiredError ? requiredErrorId : undefined}
+				className={literalInputCls(effectiveInvalid)}
+			/>
+			{showRequiredError ? (
+				<FieldError
+					id={requiredErrorId}
+					className="mt-2 text-[13px] leading-5 text-nova-rose"
+				>
+					Enter a value
+				</FieldError>
+			) : null}
+		</div>
 	);
 }
 
-/** Open-namespace user-data field input. Free-text — the type
- *  checker can't validate the field name against any closed set
- *  (CCHQ user records carry arbitrary `additionalFields`), so the
- *  card defers to the user's explicit input. */
+function userFieldIsValid(value: string): boolean {
+	return XML_ELEMENT_NAME_PATTERN.test(value);
+}
+
+function userFieldError(value: string): string {
+	return value.length === 0
+		? "Enter a user field name"
+		: "Start with a letter or underscore, then use only letters, numbers, and underscores";
+}
+
+function userFieldInputClass(invalid: boolean): string {
+	return [
+		"h-auto min-h-11 w-full rounded-lg border bg-nova-deep/50 px-3 text-sm text-nova-text md:text-sm dark:bg-nova-deep/50",
+		invalid
+			? "border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30"
+			: "border-white/[0.06] focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30",
+	].join(" ");
+}
+
+/** Open-namespace user-data field input. The namespace is open, but the wire
+ * path still requires an XML-safe element name. Keep incomplete or malformed
+ * typing local and commit only a schema-valid field, so deleting or correcting
+ * the name can never send an invalid autosave mutation. */
 function UserFieldInput({
 	value,
 	onChange,
@@ -1375,23 +1977,66 @@ function UserFieldInput({
 	readonly onChange: (field: string) => void;
 	readonly invalid: boolean;
 }) {
-	const inputCls = [
-		"w-full px-3 min-h-11 text-[13px] rounded-lg border bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 transition-colors font-mono",
-		invalid
-			? "border-nova-rose/40 focus:border-nova-rose/60 focus:ring-nova-rose/30"
-			: "border-white/[0.06] focus:border-nova-violet/40 focus:ring-nova-violet/30",
-	].join(" ");
+	const inputRef = useRef<HTMLInputElement>(null);
+	const helpId = useId();
+	const [draft, setDraft] = useState(value);
+	const [showDraftError, setShowDraftError] = useState(false);
+	useEffect(() => {
+		if (value !== draft && document.activeElement !== inputRef.current) {
+			setDraft(value);
+			setShowDraftError(false);
+		}
+	}, [draft, value]);
+	const commit = () => {
+		if (!userFieldIsValid(draft)) {
+			setShowDraftError(true);
+			return;
+		}
+		setShowDraftError(false);
+		if (draft !== value) onChange(draft);
+	};
+	const effectiveInvalid = invalid || showDraftError;
 	return (
-		<input
-			type="text"
-			value={value}
-			onChange={(e) => onChange(e.target.value)}
-			placeholder="user_field_name"
-			autoComplete="off"
-			data-1p-ignore
-			aria-label="User-Data Field"
-			aria-invalid={invalid || undefined}
-			className={inputCls}
-		/>
+		<div>
+			<Input
+				ref={inputRef}
+				type="text"
+				value={draft}
+				onChange={(event) => {
+					const next = event.target.value;
+					setDraft(next);
+					if (showDraftError && userFieldIsValid(next)) {
+						setShowDraftError(false);
+					}
+				}}
+				onBlur={commit}
+				onKeyDown={(event) => {
+					if (event.key !== "Enter") return;
+					event.preventDefault();
+					commit();
+				}}
+				autoComplete="off"
+				data-1p-ignore
+				aria-label="User information field"
+				aria-invalid={effectiveInvalid || undefined}
+				aria-describedby={helpId}
+				className={userFieldInputClass(effectiveInvalid)}
+			/>
+			{showDraftError ? (
+				<FieldError
+					id={helpId}
+					className="mt-2 text-[13px] leading-5 text-nova-rose"
+				>
+					{userFieldError(draft)}
+				</FieldError>
+			) : (
+				<p
+					id={helpId}
+					className="mt-2 text-[13px] leading-5 text-nova-text-secondary"
+				>
+					Use the field name saved on the user, like assigned_region
+				</p>
+			)}
+		</div>
 	);
 }

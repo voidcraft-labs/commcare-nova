@@ -9,10 +9,13 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerX from "@iconify-icons/tabler/x";
+import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import { canonicalCasePropertyName } from "@/lib/domain";
+import { canonicalCasePropertyName, effectiveDataType } from "@/lib/domain";
 import {
+	acceptsType,
 	compatibleTypesFor,
+	inSubjectConstraint,
 	inValueConstraint,
 	isIn,
 	type Literal,
@@ -29,11 +32,12 @@ import {
 	useResolvedType,
 } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
-import { nodeId } from "../nodeIdentity";
+import { removeAndRestoreFocus } from "../focusAfterRemoval";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
+import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { LiteralValueInput } from "../primitives/LiteralValueInput";
-import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import { useStableListIdentity } from "../useStableListIdentity";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 import {
 	reseedLiteralForConstraint,
@@ -45,7 +49,10 @@ export function inDefault(
 	ctx: PredicateEditContext,
 ): Extract<Predicate, { kind: "in" }> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
-	const property = ct?.properties[0];
+	const subjectConstraint = inSubjectConstraint();
+	const property = ct?.properties.find((candidate) =>
+		acceptsType(subjectConstraint, effectiveDataType(candidate)),
+	);
 	const propName = canonicalCasePropertyName(property?.name ?? "");
 	// Seed the value of the property's OWN type — a text `literal("")`
 	// opposite a non-text first property would be a soundness error.
@@ -63,7 +70,7 @@ interface InCardProps {
 
 export function InCard({ value, onChange, path }: InCardProps) {
 	const ctx = usePredicateEditContext();
-	const leftErrors = useEditorErrorsAt(appendSlot(path, "left"));
+	const rowIdentity = useStableListIdentity(value.values);
 
 	// Anchor property name for typed-input switching in each value
 	// row. Pulled from the LEFT-slot AST shape; only meaningful
@@ -86,16 +93,22 @@ export function InCard({ value, onChange, path }: InCardProps) {
 
 	const setLeft = (left: ValueExpression) => {
 		const accepts = compatibleTypesFor(resolveExpressionType(left, ctx));
-		const reseeded = value.values.map((v) =>
-			accepts.has(literalType(v)) ? v : reseedLiteralForConstraint(v, accepts),
+		const reseeded = value.values.map((item) =>
+			accepts.has(literalType(item))
+				? item
+				: reseedLiteralForConstraint(item, accepts),
 		);
 		const [first, ...rest] = reseeded;
+		rowIdentity.stage(reseeded, { kind: "replace" });
 		onChange(isIn(left, first, ...rest));
 	};
 
 	const setValueAt = (index: number, next: Literal) => {
-		const updated = value.values.map((v, i) => (i === index ? next : v));
+		const updated = value.values.map((item, itemIndex) =>
+			itemIndex === index ? next : item,
+		);
 		const [first, ...rest] = updated;
+		rowIdentity.stage(updated, { kind: "replace" });
 		onChange(isIn(value.left, first, ...rest));
 	};
 
@@ -104,6 +117,12 @@ export function InCard({ value, onChange, path }: InCardProps) {
 		if (value.values.length === 1) return;
 		const filtered = value.values.filter((_, i) => i !== index);
 		const [first, ...rest] = filtered;
+		rowIdentity.stage(filtered, {
+			kind: "splice",
+			index,
+			deleteCount: 1,
+			insertCount: 0,
+		});
 		onChange(isIn(value.left, first, ...rest));
 	};
 
@@ -115,35 +134,34 @@ export function InCard({ value, onChange, path }: InCardProps) {
 			compatibleTypesFor(subjectType),
 		);
 		const [first, ...rest] = value.values;
+		const next = [...value.values, seed];
+		rowIdentity.stage(next, {
+			kind: "splice",
+			index: value.values.length,
+			deleteCount: 0,
+			insertCount: 1,
+		});
 		onChange(isIn(value.left, first, ...rest, seed));
 	};
 
 	return (
 		<div className="space-y-2">
 			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto] gap-2 items-start">
-				<div>
-					<PropertyRefPicker
-						mode="left"
-						value={value.left}
-						onChange={setLeft}
-						invalid={leftErrors.length > 0}
-						ariaLabel="Property"
-					/>
-					<InlineError errors={leftErrors} />
-				</div>
+				<ExpressionPicker
+					value={value.left}
+					onChange={setLeft}
+					path={appendSlot(path, "left")}
+					constraint={inSubjectConstraint()}
+					presentation="subject"
+					variant="nested"
+				/>
 				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
 
 			<div className="space-y-1.5">
 				{value.values.map((v, i) => (
-					// Stable per-literal identity comes from the WeakMap-
-					// backed `nodeId(v)` rather than the array index — the
-					// schema-required reductions (none for `in`) keep
-					// references stable across edits, so swapping or
-					// removing a row preserves the right row's React
-					// state without index-shift confusion.
 					<ValueRow
-						key={nodeId(v)}
+						key={rowIdentity.keys[i]}
 						value={v}
 						onChange={(next) => setValueAt(i, next)}
 						onRemove={() => removeAt(i)}
@@ -154,14 +172,17 @@ export function InCard({ value, onChange, path }: InCardProps) {
 						indexPath={appendSlotIndex(path, "values", i)}
 					/>
 				))}
-				<button
+				<Button
 					type="button"
+					variant="outline"
+					size="xl"
 					onClick={append}
-					className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-dashed border-white/[0.10] text-nova-text-muted hover:text-nova-violet-bright hover:border-nova-violet/30 transition-colors cursor-pointer"
+					data-removal-focus-fallback
+					className="w-full border-dashed border-white/[0.10] bg-transparent px-3 text-sm text-nova-text-muted not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-transparent"
 				>
 					<Icon icon={tablerPlus} width="14" height="14" />
-					<span>Add Value</span>
-				</button>
+					<span>Add value</span>
+				</Button>
 			</div>
 		</div>
 	);
@@ -188,7 +209,7 @@ function ValueRow({
 }) {
 	const errors = useEditorErrorsAt(indexPath);
 	return (
-		<div className="space-y-0.5">
+		<div className="space-y-0.5" data-removal-focus-row>
 			<div className="flex items-start gap-1.5">
 				<div className="flex-1">
 					<LiteralValueInput
@@ -202,14 +223,19 @@ function ValueRow({
 				</div>
 				{!isOnlyOne && (
 					<SimpleTooltip content="Remove this value">
-						<button
+						<Button
 							type="button"
+							variant="ghost"
+							size="icon-lg"
 							aria-label="Remove value"
-							onClick={onRemove}
-							className="size-11 grid place-items-center rounded-md text-nova-text-muted hover:text-nova-rose hover:bg-white/[0.05] cursor-pointer transition-colors"
+							onClick={(event) =>
+								removeAndRestoreFocus(event.currentTarget, onRemove)
+							}
+							data-removal-action
+							className="size-11 rounded-md text-nova-text-muted not-disabled:hover:bg-white/[0.05] not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-white/[0.05]"
 						>
 							<Icon icon={tablerX} width="13" height="13" />
-						</button>
+						</Button>
 					</SimpleTooltip>
 				)}
 			</div>

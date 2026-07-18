@@ -13,11 +13,12 @@
 // The emitter runs a three-stage pipeline:
 //
 //   1. Run the property-via lift pre-pass (`csqlHoist.ts::liftPropertyVias`).
-//      Every operator-direct `prop(via)` reference rewrites into an
-//      enclosing `exists` envelope so the relation walk emits as
-//      CCHQ's direction-specific query function. After the pre-pass
-//      every property reference reaching the segment walker has
-//      `via.kind === "self"` (or no `via` slot).
+//      Every `prop(via)` reference that reaches native CSQL emission
+//      — operator-direct or nested under a native value function —
+//      rewrites into an enclosing `exists` envelope so the relation
+//      walk emits as CCHQ's direction-specific query function. After
+//      the pre-pass every property reference reaching the native
+//      segment walker has `via.kind === "self"` (or no `via` slot).
 //   2. Walk the lifted AST emitting a `CsqlSegment[]` IR — each
 //      segment is either a constant CSQL fragment or a runtime XPath
 //      expression that produces a string interpolated into the CSQL
@@ -101,26 +102,47 @@
 //     type coercion, so the double-quote wrap is uniform whether the
 //     resolved value parses as a number, string, or date.
 
+import { normalizeRelationEvaluationScopes } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
+import { normalizeRelationPropertyReads } from "@/lib/domain/predicate/normalizeRelationReads";
+import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import type {
 	ComparisonKind,
 	Predicate,
 	RelationStep,
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
-import { emitCsqlExpressionSegments } from "../expression/csqlEmitter";
+import {
+	emitCsqlExpressionSegments,
+	isNativeCsqlValueExpression,
+} from "../expression/csqlEmitter";
 import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
-import { liftPropertyVias } from "./csqlHoist";
+import { normalizeCsqlPredicate } from "./csqlRepresentability";
 import {
 	type CsqlSegment,
 	mergeAdjacentConstants,
 	quoteConstantSegmentForXPath,
+	type RuntimeCsqlRejection,
 } from "./csqlSegment";
+import {
+	collectGeopointCenterInputNames,
+	isValidStaticGeopointCenter,
+	normalizeOnDeviceGeopoint,
+	normalizeStaticGeopoint,
+	validOnDeviceGeopointCenter,
+} from "./geopoint";
+import {
+	classifySubcaseCountBound,
+	invalidNonnegativeWholeNumberXPath,
+} from "./runtimeCsqlNumericSafety";
+import { collectRuntimeCsqlStringExpressionInputNames } from "./runtimeCsqlQuoteSafety";
 import { formatNumeric, quoteLiteral } from "./stringQuoting";
 import {
+	CSQL_UNREPRESENTABLE_RUNTIME_STRING,
 	emitCsqlPropertyRefSegment,
 	emitCsqlPropertyRefText,
 	emitSearchInputXPath,
 	emitTermSegment,
+	quoteRuntimeCsqlValue,
 	serializeAncestorPath,
 	wrapTermAsSegmentList,
 } from "./termEmitter";
@@ -140,6 +162,17 @@ import {
  */
 export interface CsqlEmissionResult {
 	readonly wrapper: string;
+	/**
+	 * Exact on-device XPath condition under which one of the runtime-resolved
+	 * values cannot be represented safely in CSQL. The wrapper uses this same
+	 * condition to replace the WHOLE query with a fail-closed query (or, for the
+	 * quote case that cannot be expressed as a CSQL literal, an intentionally
+	 * invalid sentinel); prompt validation and Preview consume it so every surface
+	 * rejects the identical runtime state before dispatch when a user can repair it.
+	 */
+	readonly rejectionCondition?: string;
+	/** Structured obligations retained for prompt-specific validation copy. */
+	readonly runtimeRejections?: readonly RuntimeCsqlRejection[];
 }
 
 /**
@@ -187,16 +220,32 @@ type OperandPosition = "comparison-operand" | "value";
 
 /**
  * Top-level entry point. Lifts vias, emits, wraps in `concat(...)`.
- * The lift pass is total — every input AST reaches the segment
- * walker with via-free operator-direct property refs.
+ * The lift pass is total — every input AST reaches native segment
+ * emission with via-free property refs. Non-native value expressions
+ * retain their vias because they evaluate through the on-device
+ * expression emitter instead.
  *
  * `emitCsql` is the public entry; internal callers that already hold
  * a via-lifted AST (e.g. the `when-input-present` recursive emitter)
  * call `emitLiftedWrapper` directly to skip the redundant scan.
  */
-export function emitCsql(predicate: Predicate): CsqlEmissionResult {
-	const lifted = liftPropertyVias(predicate);
-	return { wrapper: emitLiftedWrapper(lifted) };
+export function emitCsql(
+	predicate: Predicate,
+	typeContext?: TypeContext,
+): CsqlEmissionResult {
+	const normalized = normalizeRelationEvaluationScopes(
+		normalizeCsqlPredicate(predicate),
+		typeContext ?? {},
+	);
+	// The shared evaluation-scope pass above gives every dialect identical
+	// same-row semantics. The older CSQL lift remains as a grammar adapter and
+	// defensive backstop for a bypassed shape; it must never be the pass that
+	// decides relation correlation one PropertyRef at a time.
+	const lifted = normalizeRelationPropertyReads(normalized, {
+		...(typeContext === undefined ? {} : { caseTypes: typeContext.caseTypes }),
+		unsupportedPropertyOperands: "throw",
+	});
+	return emitLiftedResult(lifted, typeContext);
 }
 
 /**
@@ -205,8 +254,11 @@ export function emitCsql(predicate: Predicate): CsqlEmissionResult {
  * `when-input-present` (where the inner clause is already lifted as
  * part of the outer via-lift walk).
  */
-function emitLiftedWrapper(predicate: Predicate): string {
-	const segments = emitPredicateSegments(predicate, 0);
+function emitLiftedResult(
+	predicate: Predicate,
+	typeContext?: TypeContext,
+): CsqlEmissionResult {
+	const segments = emitPredicateSegments(predicate, 0, typeContext);
 	return wrapInConcat(segments);
 }
 
@@ -228,17 +280,79 @@ function emitLiftedWrapper(predicate: Predicate): string {
  * alternating-quote idiom). Runtime segments pass through verbatim
  * as their own concat args.
  */
-function wrapInConcat(segments: readonly CsqlSegment[]): string {
+function wrapInConcat(segments: readonly CsqlSegment[]): CsqlEmissionResult {
+	const { query, runtimeRejections } = buildConcatExpression(segments);
+	if (runtimeRejections.length === 0) return { wrapper: query };
+
+	const rejectionCondition = runtimeRejections
+		.map(({ condition }) => `(${condition})`)
+		.join(" or ");
+	const quoteCondition = runtimeRejections
+		.filter(({ kind }) => kind === "quote")
+		.map(({ condition }) => `(${condition})`)
+		.join(" or ");
+	const typedCondition = runtimeRejections
+		.filter(({ kind }) => kind !== "quote")
+		.map(({ condition }) => `(${condition})`)
+		.join(" or ");
+	const typedSafeQuery =
+		typedCondition === ""
+			? query
+			: `if(${typedCondition}, 'match-none()', ${query})`;
+	const wrapper =
+		quoteCondition === ""
+			? typedSafeQuery
+			: `if(${quoteCondition}, '${CSQL_UNREPRESENTABLE_RUNTIME_STRING}', ${typedSafeQuery})`;
+	return {
+		wrapper,
+		rejectionCondition,
+		runtimeRejections,
+	};
+}
+
+/**
+ * Render a segment list without consuming its representability obligations.
+ *
+ * Most callers immediately route the result through `wrapInConcat`, which
+ * lifts every obligation ahead of the complete query. A
+ * `when-input-present` clause needs the lower-level shape: its inner query is
+ * one branch of an on-device `if`, while its quote guards must keep travelling
+ * outward so the final, outermost wrapper can reject the complete query. If we
+ * consumed the guards inside that branch, a dangerous value could produce the
+ * invalid sentinel only as a nested `not(...)` / OR operand rather than as the
+ * whole `_xpath_query` result.
+ */
+function buildConcatExpression(segments: readonly CsqlSegment[]): {
+	readonly query: string;
+	readonly runtimeRejections: readonly RuntimeCsqlRejection[];
+} {
 	const merged = mergeAdjacentConstants(segments);
 	const args: string[] = [];
+	const rejectionByKey = new Map<string, RuntimeCsqlRejection>();
 	for (const seg of merged) {
 		if (seg.kind === "runtime") {
 			args.push(seg.xpath);
+			if (seg.rejectWhen !== undefined) {
+				const rejection = {
+					condition: seg.rejectWhen,
+					kind: seg.rejectionKind ?? "quote",
+					...(seg.rejectionInputNames === undefined
+						? {}
+						: { inputNames: [...seg.rejectionInputNames].sort() }),
+				} as const;
+				rejectionByKey.set(
+					`${rejection.kind}\u0000${rejection.condition}\u0000${rejection.inputNames?.join("\u0000") ?? ""}`,
+					rejection,
+				);
+			}
 			continue;
 		}
 		args.push(...quoteConstantSegmentForXPath(seg.text));
 	}
-	return `concat(${args.join(", ")})`;
+	return {
+		query: `concat(${args.join(", ")})`,
+		runtimeRejections: [...rejectionByKey.values()],
+	};
 }
 
 /**
@@ -258,6 +372,7 @@ function wrapInConcat(segments: readonly CsqlSegment[]): string {
 function emitPredicateSegments(
 	p: Predicate,
 	parentPrec: number,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
 	switch (p.kind) {
 		case "match-all":
@@ -274,18 +389,30 @@ function emitPredicateSegments(
 		case "gte":
 		case "lt":
 		case "lte":
-			return emitComparisonSegments(p);
+			return emitComparisonSegments(p, typeContext);
 		case "and":
-			return emitLogicalSegments(p.clauses, " and ", PREC_AND, parentPrec);
+			return emitLogicalSegments(
+				p.clauses,
+				" and ",
+				PREC_AND,
+				parentPrec,
+				typeContext,
+			);
 		case "or":
-			return emitLogicalSegments(p.clauses, " or ", PREC_OR, parentPrec);
+			return emitLogicalSegments(
+				p.clauses,
+				" or ",
+				PREC_OR,
+				parentPrec,
+				typeContext,
+			);
 		case "not": {
 			// `not(...)` is in CCHQ's query-function whitelist on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
 			// The parens around the inner are the function-call argument
 			// list; the inner recurses with `parentPrec: 0` so no outer
 			// paren wraps a logical-operator inner.
-			const inner = emitPredicateSegments(p.clause, 0);
+			const inner = emitPredicateSegments(p.clause, 0, typeContext);
 			return [
 				{ kind: "constant", text: "not(" },
 				...inner,
@@ -293,9 +420,9 @@ function emitPredicateSegments(
 			];
 		}
 		case "in":
-			return emitInSegments(p);
+			return emitInSegments(p, typeContext);
 		case "between":
-			return emitBetweenSegments(p);
+			return emitBetweenSegments(p, typeContext);
 		case "is-blank":
 		case "is-null":
 			// Both emit as `<term> = ''` on CSQL — the server-side
@@ -307,19 +434,19 @@ function emitPredicateSegments(
 			// closest CSQL form (the same wire that `is-blank` uses);
 			// runtime-strict semantics live on the Postgres target and
 			// don't surface on CCHQ's wire dialect.
-			return emitAbsenceSegments(p);
+			return emitAbsenceSegments(p, typeContext);
 		case "match":
-			return emitMatchSegments(p);
+			return emitMatchSegments(p, typeContext);
 		case "multi-select-contains":
 			return emitMultiSelectSegments(p);
 		case "within-distance":
-			return emitWithinDistanceSegments(p);
+			return emitWithinDistanceSegments(p, typeContext);
 		case "exists":
-			return emitExistsSegments(p, "exists");
+			return emitExistsSegments(p, "exists", typeContext);
 		case "missing":
-			return emitExistsSegments(p, "missing");
+			return emitExistsSegments(p, "missing", typeContext);
 		case "when-input-present":
-			return emitWhenInputPresentSegments(p);
+			return emitWhenInputPresentSegments(p, typeContext);
 		default: {
 			const _exhaustive: never = p;
 			throw new Error(
@@ -354,11 +481,27 @@ function emitPredicateSegments(
  */
 function emitWhenInputPresentSegments(
 	p: Extract<Predicate, { kind: "when-input-present" }>,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
 	const triggerXPath = emitSearchInputXPath(p.input);
-	const innerWrapper = emitLiftedWrapper(p.clause);
-	const conditionalXPath = `if(count(${triggerXPath}), ${innerWrapper}, 'match-all()')`;
-	return [{ kind: "runtime", xpath: conditionalXPath }];
+	const innerSegments = emitPredicateSegments(p.clause, 0, typeContext);
+	const inner = buildConcatExpression(innerSegments);
+	const conditionalXPath = `if(count(${triggerXPath}), ${inner.query}, 'match-all()')`;
+	if (inner.runtimeRejections.length === 0) {
+		return [{ kind: "runtime", xpath: conditionalXPath }];
+	}
+	return inner.runtimeRejections.map((rejection, index) => ({
+		kind: "runtime" as const,
+		// Only one carrier contributes the actual conditional query. Additional
+		// typed obligations ride on empty concat args so they stay independently
+		// classifiable without changing the emitted CSQL bytes.
+		xpath: index === 0 ? conditionalXPath : "''",
+		// When the trigger is empty the inner query is not used, so its value
+		// obligations must not reject an otherwise valid search.
+		rejectWhen: `count(${triggerXPath}) and (${rejection.condition})`,
+		rejectionKind: rejection.kind,
+		rejectionInputNames: rejection.inputNames,
+	}));
 }
 
 /**
@@ -378,11 +521,56 @@ function emitWhenInputPresentSegments(
  */
 function emitComparisonSegments(
 	p: Extract<Predicate, { kind: ComparisonKind }>,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const leftSegs = emitOperandSegments(p.left, "comparison-operand");
-	const rightSegs = emitOperandSegments(p.right, "value");
+	const leftSegs = emitOperandSegments(
+		p.left,
+		"comparison-operand",
+		typeContext,
+	);
+	const rightSegs = isSubcaseCountAnchor(p.left)
+		? emitSubcaseCountBoundSegments(p.right)
+		: emitOperandSegments(p.right, "value", typeContext);
 	const op = COMPARISON_OPS[p.kind];
 	return [...leftSegs, { kind: "constant", text: ` ${op} ` }, ...rightSegs];
+}
+
+function isSubcaseCountAnchor(expression: ValueExpression): boolean {
+	return expression.kind === "count" && expression.via.kind === "subcase";
+}
+
+/**
+ * CCHQ parses a native `subcase-count(...)` comparison bound with Python
+ * `int(...)`. Emitting a quoted prompt or `double(prompt)` is rejected by the
+ * parser; allowing a fractional literal silently truncates. Emit one raw
+ * nonnegative integer token and carry a runtime guard for editable prompts.
+ */
+function emitSubcaseCountBoundSegments(
+	expression: ValueExpression,
+): CsqlSegment[] {
+	const classification = classifySubcaseCountBound(expression);
+	if (classification.kind === "static-valid") {
+		return [{ kind: "constant", text: formatNumeric(classification.value) }];
+	}
+	if (classification.kind === "runtime-input") {
+		return [
+			{
+				kind: "runtime",
+				// CSQL parses a leading minus as a UnaryExpression, even for
+				// numeric negative zero. Canonicalize every zero spelling to the
+				// bare token `0`; all other validated integer spellings pass through.
+				xpath: `if(number(${classification.inputXPath}) = 0, 0, ${classification.inputXPath})`,
+				rejectWhen: invalidNonnegativeWholeNumberXPath(
+					classification.inputXPath,
+				),
+				rejectionKind: "nonnegative-whole-number",
+				rejectionInputNames: [classification.inputName],
+			},
+		];
+	}
+	throw new Error(
+		"csqlEmitter: a subcase-count comparison needs a fixed nonnegative whole number or one Number-converted search input. CCHQ's parser cannot consume a quoted or computed bound and truncates fractional values. The CSQL representability validator should have rejected this expression before compilation.",
+	);
 }
 
 /**
@@ -417,8 +605,11 @@ function emitComparisonSegments(
  *      the function-call result which CCHQ's grammar accepts as a
  *      value directly.
  */
-function emitComparisonOperandSegments(expr: ValueExpression): CsqlSegment[] {
-	return emitOperandSegments(expr, "comparison-operand");
+function emitComparisonOperandSegments(
+	expr: ValueExpression,
+	typeContext?: TypeContext,
+): CsqlSegment[] {
+	return emitOperandSegments(expr, "comparison-operand", typeContext);
 }
 
 /**
@@ -429,6 +620,7 @@ function emitComparisonOperandSegments(expr: ValueExpression): CsqlSegment[] {
 function emitOperandSegments(
 	expr: ValueExpression,
 	position: OperandPosition,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
 	if (expr.kind === "count") {
 		if (position === "comparison-operand" && expr.via.kind === "subcase") {
@@ -438,12 +630,17 @@ function emitOperandSegments(
 			// inline so any runtime refs nested inside compose into the
 			// outer concat.
 			const identifierLiteral = quoteLiteral(expr.via.identifier, "csql");
-			if (expr.where === undefined) {
+			if (expr.where === undefined && expr.via.ofCaseType === undefined) {
 				return [
 					{ kind: "constant", text: `subcase-count(${identifierLiteral})` },
 				];
 			}
-			const filterSegments = emitFilterArgumentSegments(expr.where);
+			const filterSegments = prependCaseTypeFilter(
+				expr.via.ofCaseType,
+				expr.where === undefined
+					? [{ kind: "constant", text: "match-all()" }]
+					: emitFilterArgumentSegments(expr.where, typeContext),
+			);
 			return [
 				{ kind: "constant", text: `subcase-count(${identifierLiteral}, ` },
 				...filterSegments,
@@ -455,16 +652,16 @@ function emitOperandSegments(
 		// on-device XPath; the runtime resolves the count to a number
 		// and the result substitutes into the CSQL string as a
 		// double-quoted value.
-		return inlineAsRuntimeOperand(expr);
+		return inlineAsRuntimeOperand(expr, typeContext);
 	}
 	if (expr.kind === "term") {
 		return wrapTermAsSegmentList(emitTermSegment(expr.term));
 	}
-	if (isCsqlValueFunctionArm(expr)) {
+	if (isNativeCsqlValueExpression(expr)) {
 		// Whitelist arms (`today`, `now`, `date-coerce`,
 		// `datetime-coerce`, `double`, `date-add`, `unwrap-list`)
 		// delegate to the value-expression emitter for native CSQL.
-		return emitCsqlExpressionSegments(expr);
+		return emitCsqlExpressionSegments(expr, typeContext);
 	}
 	// Catch-all: `arith`, `concat`, `coalesce`, `if`, `switch`,
 	// `format-date`. These are absent from CSQL's value-function
@@ -474,7 +671,7 @@ function emitOperandSegments(
 	// on-device at concat-time and inline the resolved string into
 	// the CSQL fragment. See the file header for why a sibling
 	// `<data>` slot is structurally wrong on the CCHQ runtime.
-	return inlineAsRuntimeOperand(expr);
+	return inlineAsRuntimeOperand(expr, typeContext);
 }
 
 /**
@@ -493,38 +690,14 @@ function emitOperandSegments(
  * '"))')` interpolates a runtime user clinic id directly into the
  * CSQL fragment.
  */
-function inlineAsRuntimeOperand(expr: ValueExpression): CsqlSegment[] {
-	const xpath = emitOnDeviceExpression(expr);
-	return [
-		{ kind: "constant", text: '"' },
-		{ kind: "runtime", xpath },
-		{ kind: "constant", text: '"' },
-	];
-}
-
-/**
- * Recognise the eight CSQL value-function whitelist arms — the only
- * `ValueExpression` kinds that emit through the value-expression
- * CSQL emitter (which produces native CSQL the server parses).
- *
- * Every other ValueExpression kind inlines as on-device XPath via
- * `inlineAsRuntimeOperand`. Centralising the whitelist check here
- * keeps the per-arm dispatch in `emitOperandSegments` to one
- * straight-line if/else chain.
- */
-function isCsqlValueFunctionArm(expr: ValueExpression): boolean {
-	switch (expr.kind) {
-		case "today":
-		case "now":
-		case "date-coerce":
-		case "datetime-coerce":
-		case "double":
-		case "date-add":
-		case "unwrap-list":
-			return true;
-		default:
-			return false;
-	}
+function inlineAsRuntimeOperand(
+	expr: ValueExpression,
+	typeContext?: TypeContext,
+): CsqlSegment[] {
+	const xpath = emitOnDeviceExpression(expr, undefined, typeContext ?? {});
+	return quoteRuntimeCsqlValue(xpath, "double", [
+		...collectRuntimeCsqlStringExpressionInputNames(expr),
+	]);
 }
 
 /**
@@ -539,11 +712,14 @@ function emitLogicalSegments(
 	separator: string,
 	prec: number,
 	parentPrec: number,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
 	const parts: CsqlSegment[] = [];
 	for (let i = 0; i < clauses.length; i += 1) {
 		if (i > 0) parts.push({ kind: "constant", text: separator });
-		parts.push(...emitPredicateSegments(clauses[i] as Predicate, prec));
+		parts.push(
+			...emitPredicateSegments(clauses[i] as Predicate, prec, typeContext),
+		);
 	}
 	if (parentPrec > prec) {
 		return [
@@ -566,12 +742,20 @@ function emitLogicalSegments(
  * forwards to; `selected-any` would silently break `in` semantics on
  * multi-word values.
  */
-function emitInSegments(p: Extract<Predicate, { kind: "in" }>): CsqlSegment[] {
-	const left = emitComparisonOperandSegments(p.left);
+function emitInSegments(
+	p: Extract<Predicate, { kind: "in" }>,
+	typeContext?: TypeContext,
+): CsqlSegment[] {
+	const left = emitComparisonOperandSegments(p.left, typeContext);
+	const emitRight = (value: (typeof p.values)[number]["value"]) =>
+		isSubcaseCountAnchor(p.left)
+			? emitSubcaseCountBoundSegments({
+					kind: "term",
+					term: { kind: "literal", value },
+				})
+			: wrapTermAsSegmentList(emitTermSegment({ kind: "literal", value }));
 	if (p.values.length === 1) {
-		const right = wrapTermAsSegmentList(
-			emitTermSegment({ kind: "literal", value: p.values[0].value }),
-		);
+		const right = emitRight(p.values[0].value);
 		return [...left, { kind: "constant", text: " = " }, ...right];
 	}
 	// Multi-value — wrap the OR-of-equalities in parens defensively so a
@@ -579,9 +763,7 @@ function emitInSegments(p: Extract<Predicate, { kind: "in" }>): CsqlSegment[] {
 	const parts: CsqlSegment[] = [{ kind: "constant", text: "(" }];
 	for (let i = 0; i < p.values.length; i += 1) {
 		if (i > 0) parts.push({ kind: "constant", text: " or " });
-		const right = wrapTermAsSegmentList(
-			emitTermSegment({ kind: "literal", value: p.values[i].value }),
-		);
+		const right = emitRight(p.values[i].value);
 		parts.push(...left, { kind: "constant", text: " = " }, ...right);
 	}
 	parts.push({ kind: "constant", text: ")" });
@@ -613,14 +795,24 @@ function emitInSegments(p: Extract<Predicate, { kind: "in" }>): CsqlSegment[] {
  */
 function emitBetweenSegments(
 	p: Extract<Predicate, { kind: "between" }>,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const left = emitComparisonOperandSegments(p.left);
+	const left = emitComparisonOperandSegments(p.left, typeContext);
 	const lowerOp = p.lowerInclusive ? ">=" : ">";
 	const upperOp = p.upperInclusive ? "<=" : "<";
+	const subcaseCountAnchor = isSubcaseCountAnchor(p.left);
 	const lowerSegs =
-		p.lower !== undefined ? emitOperandSegments(p.lower, "value") : undefined;
+		p.lower !== undefined
+			? subcaseCountAnchor
+				? emitSubcaseCountBoundSegments(p.lower)
+				: emitOperandSegments(p.lower, "value", typeContext)
+			: undefined;
 	const upperSegs =
-		p.upper !== undefined ? emitOperandSegments(p.upper, "value") : undefined;
+		p.upper !== undefined
+			? subcaseCountAnchor
+				? emitSubcaseCountBoundSegments(p.upper)
+				: emitOperandSegments(p.upper, "value", typeContext)
+			: undefined;
 	if (lowerSegs !== undefined && upperSegs !== undefined) {
 		// Wrap the conjunction in parens unconditionally so a parent
 		// `or` cannot re-associate the chain. Wrapping at every
@@ -666,8 +858,9 @@ function emitBetweenSegments(
  */
 function emitAbsenceSegments(
 	p: Extract<Predicate, { kind: "is-blank" | "is-null" }>,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const left = emitComparisonOperandSegments(p.left);
+	const left = emitComparisonOperandSegments(p.left, typeContext);
 	return [...left, { kind: "constant", text: " = ''" }];
 }
 
@@ -693,20 +886,13 @@ function emitAbsenceSegments(
  */
 function emitMatchSegments(
 	p: Extract<Predicate, { kind: "match" }>,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
 	const wireFunction = matchModeToWireFunction(p.mode);
 	const propEmission = emitCsqlPropertyRefSegment(p.property);
-	// `match.value` is a term-arm `ValueExpression` (per the type
-	// checker's `checkMatch` rule). Non-term arms are rejected at
-	// type-check time; reaching this throw indicates a bypass.
-	if (p.value.kind !== "term") {
-		throw new Error(
-			`csqlEmitter: tried to emit a 'match' predicate with a non-term value of kind '${p.value.kind}'. The type checker's checkMatch rule rejects this shape at authoring time, so reaching this throw means an AST was built at runtime or coerced past validation. Wrap the value as a term-arm ValueExpression or run validation before invoking the compile pipeline.`,
-		);
-	}
-	// Term-arm value compiles via the shared `emitTermSegment`, then
-	// routes through `wrapTermAsSegmentList` so the wire form holds
-	// the canonical CSQL value-position contract:
+	// The full value expression routes through the standard value-position
+	// emitter so literals, input/session refs, native CSQL value functions,
+	// and pure runtime-derived expressions share one quoting contract:
 	//
 	//   - Literal terms emit a self-quoted CSQL string (`'alice'`)
 	//     and pass through `wrapTermAsSegmentList` unchanged.
@@ -720,7 +906,7 @@ function emitMatchSegments(
 	// (`"You cannot reference a case property on the right side..."`).
 	// Every other operand emission in this file routes runtime terms
 	// through the same wrap — the `match` arm was the lone bypass.
-	const valueSegments = wrapTermAsSegmentList(emitTermSegment(p.value.term));
+	const valueSegments = emitOperandSegments(p.value, "value", typeContext);
 	return [
 		{ kind: "constant", text: `${wireFunction}(${propEmission.text}, ` },
 		...valueSegments,
@@ -844,15 +1030,63 @@ function stringifyLiteralValue(
  */
 function emitWithinDistanceSegments(
 	p: Extract<Predicate, { kind: "within-distance" }>,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
 	const propText = emitCsqlPropertyRefText(p.property);
-	const centerSegments = emitOperandSegments(p.center, "value");
+	const centerSegments = emitGeopointCenterSegments(p.center, typeContext);
 	const distanceText = formatNumeric(p.distance);
 	const unitText = quoteLiteral(p.unit, "csql");
 	return [
 		{ kind: "constant", text: `within-distance(${propText}, ` },
 		...centerSegments,
 		{ kind: "constant", text: `, ${distanceText}, ${unitText})` },
+	];
+}
+
+/**
+ * HQ's `GeoPoint.from_string(..., flexible=True)` accepts exactly two or four
+ * space-separated components. Normalize the comma form accepted by Nova's UI
+ * before the value becomes a CSQL argument. Runtime terms normalize on-device
+ * before quote selection so quote-safety still sees the final bytes.
+ */
+function emitGeopointCenterSegments(
+	center: ValueExpression,
+	typeContext?: TypeContext,
+): CsqlSegment[] {
+	if (
+		center.kind === "term" &&
+		center.term.kind === "literal" &&
+		typeof center.term.value === "string"
+	) {
+		if (!isValidStaticGeopointCenter(center.term.value)) {
+			throw new Error(
+				"emitCsql: within-distance has an invalid literal center. Use latitude and longitude (optionally altitude and accuracy) with valid coordinate ranges; validation should reject this before wire emission.",
+			);
+		}
+		return wrapTermAsSegmentList(
+			emitTermSegment({
+				...center.term,
+				value: normalizeStaticGeopoint(center.term.value),
+			}),
+		);
+	}
+	const rawCenter = emitOnDeviceExpression(
+		center,
+		undefined,
+		typeContext ?? {},
+	);
+	const normalized = normalizeOnDeviceGeopoint(rawCenter);
+	const inputNames = [...collectGeopointCenterInputNames(center)].sort();
+	return [
+		{
+			kind: "runtime",
+			// Valid geopoint text contains no quotes, so a fixed CSQL delimiter is
+			// safe. The shape/range obligation subsumes the generic quote guard.
+			xpath: `concat('"', ${normalized}, '"')`,
+			rejectWhen: `not(${validOnDeviceGeopointCenter(rawCenter, normalized)})`,
+			rejectionKind: "geopoint",
+			rejectionInputNames: inputNames,
+		},
 	];
 }
 
@@ -891,8 +1125,9 @@ function emitWithinDistanceSegments(
 function emitExistsSegments(
 	p: Extract<Predicate, { kind: "exists" | "missing" }>,
 	kind: "exists" | "missing",
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const fragments = emitExistsCallSegments(p);
+	const fragments = emitExistsCallSegments(p, typeContext);
 	if (kind === "missing") {
 		return [
 			{ kind: "constant", text: "not(" },
@@ -905,6 +1140,7 @@ function emitExistsSegments(
 
 function emitExistsCallSegments(
 	p: Extract<Predicate, { kind: "exists" | "missing" }>,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
 	const via = p.via;
 	if (via.kind === "self") {
@@ -919,10 +1155,21 @@ function emitExistsCallSegments(
 		// mirroring the on-device emitter's any-relation expansion so
 		// both dialects expand to `(ancestor or subcase)`.
 		const ancestorSegs = emitAncestorExistsCall(
-			[{ identifier: via.identifier }],
+			[
+				{
+					identifier: via.identifier,
+					throughCaseType: via.ofCaseType,
+				},
+			],
 			p.where,
+			typeContext,
 		);
-		const subcaseSegs = emitSubcaseExistsCall(via.identifier, p.where);
+		const subcaseSegs = emitSubcaseExistsCall(
+			via.identifier,
+			via.ofCaseType,
+			p.where,
+			typeContext,
+		);
 		return [
 			{ kind: "constant", text: "(" },
 			...ancestorSegs,
@@ -932,9 +1179,14 @@ function emitExistsCallSegments(
 		];
 	}
 	if (via.kind === "ancestor") {
-		return emitAncestorExistsCall(via.via, p.where);
+		return emitAncestorExistsCall(via.via, p.where, typeContext);
 	}
-	return emitSubcaseExistsCall(via.identifier, p.where);
+	return emitSubcaseExistsCall(
+		via.identifier,
+		via.ofCaseType,
+		p.where,
+		typeContext,
+	);
 }
 
 /**
@@ -972,15 +1224,64 @@ function emitExistsCallSegments(
 function emitAncestorExistsCall(
 	steps: readonly RelationStep[],
 	where: Predicate | undefined,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
+	if (steps.some((step) => step.throughCaseType !== undefined)) {
+		return emitQualifiedAncestorExistsChain(steps, where, typeContext, 0);
+	}
 	const barePath = serializeAncestorPath(steps);
 	const filterSegments =
 		where !== undefined
-			? emitFilterArgumentSegments(where)
+			? emitFilterArgumentSegments(where, typeContext)
 			: ([{ kind: "constant", text: "match-all()" }] as const);
 	return [
 		{ kind: "constant", text: `ancestor-exists(${barePath}, ` },
 		...filterSegments,
+		{ kind: "constant", text: ")" },
+	];
+}
+
+/**
+ * A slash-joined `ancestor-exists(parent/host, ...)` can constrain only the
+ * final ancestor. When any step carries a case-type qualifier, emit one nested
+ * server-side ancestor call per hop so every intermediate type check remains
+ * observable, matching Preview's per-hop SQL filters.
+ */
+function emitQualifiedAncestorExistsChain(
+	steps: readonly RelationStep[],
+	where: Predicate | undefined,
+	typeContext: TypeContext | undefined,
+	index: number,
+): CsqlSegment[] {
+	const step = steps[index];
+	const inner =
+		index === steps.length - 1
+			? where !== undefined
+				? emitFilterArgumentSegments(where, typeContext)
+				: ([{ kind: "constant", text: "match-all()" }] as const)
+			: emitQualifiedAncestorExistsChain(steps, where, typeContext, index + 1);
+	const filter = prependCaseTypeFilter(step.throughCaseType, inner);
+	return [
+		{
+			kind: "constant",
+			text: `ancestor-exists(${step.identifier}, `,
+		},
+		...filter,
+		{ kind: "constant", text: ")" },
+	];
+}
+
+function prependCaseTypeFilter(
+	caseType: string | undefined,
+	filter: readonly CsqlSegment[],
+): CsqlSegment[] {
+	if (caseType === undefined) return [...filter];
+	return [
+		{
+			kind: "constant",
+			text: `@case_type = ${quoteLiteral(caseType, "csql")} and (`,
+		},
+		...filter,
 		{ kind: "constant", text: ")" },
 	];
 }
@@ -999,13 +1300,20 @@ function emitAncestorExistsCall(
  */
 function emitSubcaseExistsCall(
 	identifier: string,
+	ofCaseType: string | undefined,
 	where: Predicate | undefined,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
 	const identifierLiteral = quoteLiteral(identifier, "csql");
-	if (where === undefined) {
+	if (where === undefined && ofCaseType === undefined) {
 		return [{ kind: "constant", text: `subcase-exists(${identifierLiteral})` }];
 	}
-	const filterSegments = emitFilterArgumentSegments(where);
+	const filterSegments = prependCaseTypeFilter(
+		ofCaseType,
+		where === undefined
+			? [{ kind: "constant", text: "match-all()" }]
+			: emitFilterArgumentSegments(where, typeContext),
+	);
 	return [
 		{ kind: "constant", text: `subcase-exists(${identifierLiteral}, ` },
 		...filterSegments,
@@ -1032,6 +1340,9 @@ function emitSubcaseExistsCall(
  * list flows through unchanged and is spliced into the parent's
  * segment list at the call site.
  */
-function emitFilterArgumentSegments(p: Predicate): CsqlSegment[] {
-	return emitPredicateSegments(p, 0);
+function emitFilterArgumentSegments(
+	p: Predicate,
+	typeContext?: TypeContext,
+): CsqlSegment[] {
+	return emitPredicateSegments(p, 0, typeContext);
 }

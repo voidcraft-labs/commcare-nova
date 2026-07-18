@@ -12,16 +12,22 @@
 // here, matching a search screen before a case has been selected.
 
 import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
+import { emitCaseListFilter } from "@/lib/commcare/predicate";
 import { bySortKey } from "@/lib/doc/order/compare";
 import type { SearchInputDef } from "@/lib/domain";
 import type {
+	Predicate,
 	SessionContextField,
 	ValueExpression,
 } from "@/lib/domain/predicate";
-import { xpathToString } from "@/lib/preview/xpath/coerce";
+import { toBoolean, xpathToString } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import type { SearchInputValues } from "./runtimeBindings";
-import { bindSearchInputValuesInExpression } from "./runtimeBindings";
+import {
+	bindSearchInputValuesInExpression,
+	bindSearchInputValuesInPredicate,
+	withSearchInputExpressionValues,
+} from "./runtimeBindings";
 
 /** The session slices a search expression can read on the device. */
 export interface PreviewSearchSessionValues {
@@ -94,17 +100,58 @@ export function evaluatePreviewSearchExpression(
 	expression: ValueExpression,
 	session: PreviewSearchSessionValues,
 	inputValues: SearchInputValues = new Map(),
+	searchInputs: readonly SearchInputDef[] = [],
 ): string {
-	const bound = bindSearchInputValuesInExpression(expression, inputValues);
-	const xpath = emitOnDeviceExpression(bound);
-	const result = evaluate(xpath, {
+	const bound = bindSearchInputValuesInExpression(
+		expression,
+		inputValues,
+		searchInputs,
+	);
+	return xpathToString(
+		evaluatePreviewSearchXPath(emitOnDeviceExpression(bound), session),
+	);
+}
+
+/**
+ * Evaluate a search-screen predicate against the same values CommCare exposes
+ * while the worker is filling the search form. Input refs read the live draft,
+ * including CommCare's scalar projection for a completed date range; session
+ * refs read the authenticated preview worker. There is deliberately no selected
+ * case on this screen, so property/relation reads resolve blank just as they do
+ * for search ValueExpressions before case selection.
+ */
+export function evaluatePreviewSearchPredicate(
+	predicate: Predicate,
+	searchInputs: readonly SearchInputDef[],
+	session: PreviewSearchSessionValues,
+	inputValues: SearchInputValues = new Map(),
+): boolean {
+	const expressionValues = withSearchInputExpressionValues(
+		searchInputs,
+		inputValues,
+	);
+	const bound = bindSearchInputValuesInPredicate(
+		predicate,
+		expressionValues,
+		new Set(searchInputs.map((input) => input.name)),
+		searchInputs,
+	);
+	return toBoolean(
+		evaluatePreviewSearchXPath(emitCaseListFilter(bound), session),
+	);
+}
+
+function evaluatePreviewSearchXPath(
+	xpath: string,
+	session: PreviewSearchSessionValues,
+) {
+	return evaluate(xpath, {
 		contextPath: "",
 		position: 1,
 		size: 1,
 		getValue: (path) => sessionPathValue(path, session),
 		resolveHashtag: () => "",
 	});
-	return xpathToString(result);
 }
 
 function sessionPathValue(
@@ -131,9 +178,10 @@ function sessionPathValue(
  * instance, so sibling defaults do not feed one another. Preview mirrors that
  * lifecycle by evaluating each expression with an empty input bag.
  *
- * A date-range prompt stores one default expression, while Nova renders two
- * explicit bounds. A single date seeds From (the same shape SearchCanvas
- * depicts); legacy full-range strings can seed both bounds.
+ * Date-range inputs deliberately stay empty. Their historical scalar default
+ * slot cannot represent the paired start/end value CommCare requires; the
+ * authoring gate asks legacy documents to remove it and Preview must never
+ * invent a From-only interpretation.
  */
 export function resolveSearchInputDefaults(
 	searchInputs: readonly SearchInputDef[],
@@ -141,39 +189,15 @@ export function resolveSearchInputDefaults(
 ): SearchInputValues {
 	const values = new Map<string, string>();
 	for (const input of [...searchInputs].sort(bySortKey)) {
-		if (input.default === undefined) continue;
+		if (input.default === undefined || input.type === "date-range") continue;
 		const value = evaluatePreviewSearchExpression(
 			input.default,
 			session,
 		).trim();
 		if (value === "") continue;
-		if (input.type === "date-range") {
-			const bounds = dateRangeDefaultBounds(value);
-			if (bounds === undefined) continue;
-			values.set(`${input.name}:from`, bounds.from);
-			if (bounds.to !== undefined) values.set(`${input.name}:to`, bounds.to);
-		} else {
-			values.set(input.name, value);
-		}
+		values.set(input.name, value);
 	}
 	return values;
-}
-
-function dateRangeDefaultBounds(
-	value: string,
-): { readonly from: string; readonly to?: string } | undefined {
-	const wire = /^__range__(\d{4}-\d{2}-\d{2})__(\d{4}-\d{2}-\d{2})$/.exec(
-		value,
-	);
-	if (wire !== null) return { from: wire[1], to: wire[2] };
-
-	const human = /^(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})$/.exec(value);
-	if (human !== null) return { from: human[1], to: human[2] };
-
-	if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-		return { from: value };
-	}
-	return undefined;
 }
 
 /** CCHQ splits this one niche value on whitespace only; commas remain ids. */

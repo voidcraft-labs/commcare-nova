@@ -1,0 +1,172 @@
+/** Rolling-deploy-safe planners for Search-input row edits. */
+
+import type { Mutation } from "@/lib/doc/types";
+import type {
+	CaseListConfig,
+	CaseSearchConfig,
+	SearchInputDef,
+	Uuid,
+} from "@/lib/domain";
+import {
+	type PredicateAstPath,
+	renameSearchInputInExpression,
+	renameSearchInputInPredicate,
+	walkExpressionInputRefsWithPaths,
+	walkInputRefsWithPaths,
+} from "@/lib/domain/predicate";
+
+type SearchInputOccurrencePaths = readonly [
+	PredicateAstPath,
+	...PredicateAstPath[],
+];
+
+function nonEmptyPaths(
+	paths: readonly PredicateAstPath[],
+): SearchInputOccurrencePaths | undefined {
+	const first = paths[0];
+	return first === undefined ? undefined : [first, ...paths.slice(1)];
+}
+
+type UpdateSearchInputMutation = Extract<
+	Mutation,
+	{ kind: "updateSearchInput" }
+>;
+
+export type SearchInputRemovalDependency =
+	| {
+			readonly kind: "cases-available";
+			readonly label: "Cases available";
+			readonly paths: SearchInputOccurrencePaths;
+	  }
+	| {
+			readonly kind: "search-field-condition";
+			readonly label: string;
+			readonly inputUuid: SearchInputDef["uuid"];
+			readonly paths: SearchInputOccurrencePaths;
+	  }
+	| {
+			readonly kind: "assigned-cases";
+			readonly label: "Assigned cases";
+			readonly paths: SearchInputOccurrencePaths;
+	  };
+
+function predicateInputPaths(
+	predicate: NonNullable<CaseListConfig["filter"]>,
+	name: string,
+): PredicateAstPath[] {
+	const paths: PredicateAstPath[] = [];
+	walkInputRefsWithPaths(predicate, (ref, path) => {
+		if (ref.name === name) paths.push(path);
+	});
+	return paths;
+}
+
+function expressionInputPaths(
+	expression: NonNullable<CaseSearchConfig["excludedOwnerIds"]>,
+	name: string,
+): PredicateAstPath[] {
+	const paths: PredicateAstPath[] = [];
+	walkExpressionInputRefsWithPaths(expression, (ref, path) => {
+		if (ref.name === name) paths.push(path);
+	});
+	return paths;
+}
+
+/** Gate-valid rules that still consume the answer of a field being removed. */
+export function searchInputRemovalDependencies(
+	config: CaseListConfig,
+	searchConfig: CaseSearchConfig | undefined,
+	inputUuid: Uuid,
+): readonly SearchInputRemovalDependency[] {
+	const target = config.searchInputs.find((input) => input.uuid === inputUuid);
+	if (target === undefined || target.name.length === 0) return [];
+	const dependencies: SearchInputRemovalDependency[] = [];
+	if (config.filter !== undefined) {
+		const paths = nonEmptyPaths(
+			predicateInputPaths(config.filter, target.name),
+		);
+		if (paths !== undefined) {
+			dependencies.push({
+				kind: "cases-available",
+				label: "Cases available",
+				paths,
+			});
+		}
+	}
+	for (const input of config.searchInputs) {
+		if (input.uuid === target.uuid || input.kind !== "advanced") {
+			continue;
+		}
+		const paths = nonEmptyPaths(
+			predicateInputPaths(input.predicate, target.name),
+		);
+		if (paths === undefined) continue;
+		dependencies.push({
+			kind: "search-field-condition",
+			label: `“${input.label.trim() || input.name.trim() || "Another search field"}” search condition`,
+			inputUuid: input.uuid,
+			paths,
+		});
+	}
+	if (searchConfig?.excludedOwnerIds !== undefined) {
+		const paths = nonEmptyPaths(
+			expressionInputPaths(searchConfig.excludedOwnerIds, target.name),
+		);
+		if (paths !== undefined) {
+			dependencies.push({
+				kind: "assigned-cases",
+				label: "Assigned cases",
+				paths,
+			});
+		}
+	}
+	return dependencies;
+}
+
+/**
+ * Replace one Search field without making its runtime name a rolling-deploy
+ * hazard. Origin/main's reducer does not know how to rewrite `input(name)` AST
+ * leaves, so the nested fallback retains the old declaration name and rewrites
+ * the replacement row's own AST back to that name. Current reducers take the
+ * desired name from the optional top-level extension and rewrite every module
+ * reference against fresh replay-time state.
+ */
+export function searchInputUpdateMutation(
+	moduleUuid: Uuid,
+	current: SearchInputDef,
+	replacement: SearchInputDef,
+): UpdateSearchInputMutation {
+	const desired = {
+		...structuredClone(replacement),
+		uuid: current.uuid,
+	};
+	if (desired.name === current.name) {
+		return {
+			kind: "updateSearchInput",
+			moduleUuid,
+			uuid: current.uuid,
+			searchInput: desired,
+		};
+	}
+
+	const fallback = structuredClone(desired);
+	if (fallback.default !== undefined) {
+		renameSearchInputInExpression(fallback.default, desired.name, current.name);
+	}
+	if (fallback.kind === "advanced") {
+		renameSearchInputInPredicate(
+			fallback.predicate,
+			desired.name,
+			current.name,
+		);
+	}
+	fallback.name = current.name;
+
+	return {
+		kind: "updateSearchInput",
+		moduleUuid,
+		uuid: current.uuid,
+		searchInput: fallback,
+		renamedTo: desired.name,
+	};
+}

@@ -1,4 +1,5 @@
 import { toBoolean, toDate, toNumber, xpathToString } from "./coerce";
+import { formatCommCareDate } from "./dateFormatting";
 import type { XPathValue } from "./types";
 import { XPathDate } from "./types";
 
@@ -52,6 +53,7 @@ register("if", (args) => {
 
 register("string", (args) => xpathToString(args[0] ?? ""));
 register("number", (args) => toNumber(args[0] ?? ""));
+register("double", (args) => toNumber(args[0] ?? ""));
 register("int", (args) => {
 	const n = toNumber(args[0] ?? "");
 	return Number.isNaN(n) ? NaN : Math.trunc(n);
@@ -92,6 +94,19 @@ register("translate", (args) => {
 	}
 	return result;
 });
+register("replace", (args) => {
+	try {
+		const value = xpathToString(args[0] ?? "");
+		const pattern = javaDefaultRegexPattern(xpathToString(args[1] ?? ""));
+		const replacement = xpathToString(args[2] ?? "");
+		// Core treats the XPath replacement argument as literal output. Passing a
+		// string directly to JavaScript replace would reinterpret `$1`, `$&`, and
+		// friends as substitution syntax; a callback preserves the authored bytes.
+		return value.replace(new RegExp(pattern, "g"), () => replacement);
+	} catch {
+		return xpathToString(args[0] ?? "");
+	}
+});
 register("substr", (args) => {
 	const str = xpathToString(args[0] ?? "");
 	// CommCare substr is 0-based: substr(string, start, end?)
@@ -122,6 +137,11 @@ register("count-selected", (args) => {
 	const value = xpathToString(args[0] ?? "").trim();
 	if (value === "") return 0;
 	return value.split(" ").length;
+});
+register("selected-at", (args) => {
+	const values = xpathToString(args[0] ?? "").split(" ");
+	const index = Math.trunc(toNumber(args[1] ?? 0));
+	return values[index] ?? "";
 });
 
 // ── Coalesce ────────────────────────────────────────────────────────
@@ -207,16 +227,11 @@ register("format-date", (args) => {
 	/* Coerce first arg to a date, then to a JS Date for field extraction. */
 	const xd = toDate(raw);
 	if (!xd) return xpathToString(raw);
-	const d = xd.toJSDate();
-
-	return format
-		.replace("%Y", String(d.getUTCFullYear()))
-		.replace("%m", String(d.getUTCMonth() + 1).padStart(2, "0"))
-		.replace("%d", String(d.getUTCDate()).padStart(2, "0"))
-		.replace("%H", String(d.getUTCHours()).padStart(2, "0"))
-		.replace("%M", String(d.getUTCMinutes()).padStart(2, "0"))
-		.replace("%S", String(d.getUTCSeconds()).padStart(2, "0"))
-		.replace("%e", String(d.getUTCDate()));
+	const result = formatCommCareDate(xd, format);
+	// JavaRosa rejects an unsupported escape. The lightweight Preview evaluator
+	// cannot surface a runtime exception inline, so preserve the source value
+	// rather than presenting a fabricated formatting result.
+	return result.kind === "formatted" ? result.text : xpathToString(raw);
 });
 
 // ── Misc ────────────────────────────────────────────────────────────
@@ -225,10 +240,47 @@ register("uuid", () => crypto.randomUUID());
 register("regex", (args) => {
 	try {
 		const str = xpathToString(args[0] ?? "");
-		const pattern = xpathToString(args[1] ?? "");
+		const pattern = javaDefaultRegexPattern(xpathToString(args[1] ?? ""));
 		return new RegExp(pattern).test(str);
 	} catch {
 		return false;
 	}
 });
 register("instance", () => "");
+
+/**
+ * JavaRosa delegates these functions to Java's default `Pattern` mode, where
+ * `\s` is the ASCII whitespace class unless UNICODE_CHARACTER_CLASS is enabled.
+ * JavaScript's `\s` additionally matches NBSP and other Unicode separators.
+ * Rewriting the two shorthands keeps Preview from accepting location text that
+ * the exported app rejects (and preserves the same rule for user-authored
+ * regex/replace expressions).
+ */
+function javaDefaultRegexPattern(pattern: string): string {
+	let translated = "";
+	let index = 0;
+	while (index < pattern.length) {
+		if (pattern[index] !== "\\") {
+			translated += pattern[index];
+			index += 1;
+			continue;
+		}
+
+		const slashStart = index;
+		while (pattern[index] === "\\") index += 1;
+		const slashCount = index - slashStart;
+		const escaped = pattern[index];
+		if ((escaped === "s" || escaped === "S") && slashCount % 2 === 1) {
+			// Every preceding pair encodes one literal backslash. Only the odd final
+			// slash introduces Java's whitespace shorthand.
+			translated += "\\".repeat(slashCount - 1);
+			translated +=
+				escaped === "s" ? "[ \\t\\n\\x0B\\f\\r]" : "[^ \\t\\n\\x0B\\f\\r]";
+			index += 1;
+			continue;
+		}
+
+		translated += "\\".repeat(slashCount);
+	}
+	return translated;
+}

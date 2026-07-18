@@ -8,7 +8,21 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { asUuid, simpleSearchInputDef } from "@/lib/domain";
+import {
+	advancedSearchInputDef,
+	asUuid,
+	simpleSearchInputDef,
+} from "@/lib/domain";
+import {
+	dateAdd,
+	datetimeCoerce,
+	eq,
+	input,
+	literal,
+	prop,
+	term,
+	whenInput,
+} from "@/lib/domain/predicate";
 
 // The compiler consumes the domain doc directly — we build the fixture
 // via the shared DSL, expand it to HQ JSON with `expandDoc`, and feed
@@ -113,6 +127,275 @@ describe("compileCcz", () => {
 		expect(suite).toContain("<remote-request>");
 		expect(suite).toContain('id="m0_search_short"');
 		expect(suite).toContain('id="m0_search_long"');
+	});
+
+	it("keeps an owner-only rule on a form's local case list without inventing Search", () => {
+		const ownerOnly = buildDoc({
+			appName: "Owner availability",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					caseSearchConfig: {
+						searchActionEnabled: false,
+						excludedOwnerIds: term(literal("owner-a owner-b")),
+					},
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+			],
+		});
+		const hq = expandDoc(ownerOnly);
+		const suite = new AdmZip(
+			compileCcz(hq, ownerOnly.appName, ownerOnly),
+		).readAsText("suite.xml");
+
+		expect(hq.modules[0].case_details.short.filter).toBe(
+			"normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))",
+		);
+		expect(suite).toContain(
+			"[normalize-space(&apos;owner-a owner-b&apos;) = &apos;&apos; or not(selected(normalize-space(&apos;owner-a owner-b&apos;), @owner_id))]",
+		);
+		expect(suite).not.toContain("<remote-request");
+		expect(suite).not.toContain("<action");
+	});
+
+	it("emits date-add for an advanced date prompt through HQ JSON and suite CSQL", () => {
+		const config = caseListConfig([
+			{ field: "last_visit", header: "Last visit" },
+		]);
+		config.searchInputs = [
+			advancedSearchInputDef(
+				asUuid("00000000-0000-4000-8000-00000000a002"),
+				"base_date",
+				"Starting date",
+				"date",
+				whenInput(
+					input("base_date"),
+					eq(
+						prop("patient", "last_visit"),
+						dateAdd(term(input("base_date")), "days", term(literal(7))),
+					),
+				),
+			),
+		];
+		const temporalDoc = buildDoc({
+			appName: "Temporal Search",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: config,
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "last_visit",
+							label: "Last visit",
+							data_type: "date",
+						},
+					],
+				},
+			],
+		});
+
+		const hq = expandDoc(temporalDoc);
+		const hqQuery = hq.modules[0].search_config.default_properties.find(
+			(entry) => entry.property === "_xpath_query",
+		)?.defaultValue;
+		expect(hqQuery).toContain("date-add(");
+		expect(hqQuery).not.toContain("datetime-add(");
+
+		const suite = new AdmZip(
+			compileCcz(hq, "Temporal Search", temporalDoc),
+		).readAsText("suite.xml");
+		expect(suite).toContain("date-add(");
+		expect(suite).not.toContain("datetime-add(");
+	});
+
+	it("exports one-day exact search for date, custom datetime, and indexed metadata", () => {
+		const config = caseListConfig([
+			{ field: "last_seen", header: "Last seen" },
+		]);
+		config.searchInputs = [
+			simpleSearchInputDef(
+				asUuid("00000000-0000-4000-8000-00000000a003"),
+				"visit_date",
+				"Visit day",
+				"date",
+				"visit_date",
+			),
+			simpleSearchInputDef(
+				asUuid("00000000-0000-4000-8000-00000000a005"),
+				"last_seen",
+				"Last seen day",
+				"date",
+				"last_seen",
+			),
+			simpleSearchInputDef(
+				asUuid("00000000-0000-4000-8000-00000000a006"),
+				"date_opened",
+				"Date opened",
+				"date",
+				"date_opened",
+			),
+		];
+		const temporalDoc = buildDoc({
+			appName: "Simple Date Search",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: config,
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "visit_date",
+							label: "Visit date",
+							data_type: "date",
+						},
+						{
+							name: "last_seen",
+							label: "Last seen",
+							data_type: "datetime",
+						},
+					],
+				},
+			],
+		});
+
+		const hq = expandDoc(temporalDoc);
+		const hqQuery = hq.modules[0].search_config.default_properties.find(
+			(entry) => entry.property === "_xpath_query",
+		)?.defaultValue;
+		// CCHQ's server query grammar only admits case properties on the left
+		// side of a comparison. `date(property)` is invalid (`unwrap_value`
+		// rejects a property Step), so all three targets use legal half-open
+		// bounds with value functions on the right. Nova has no authored app
+		// timezone yet, so datetime targets deliberately use the UTC day on BOTH
+		// runtimes. Explicit datetime bounds also bypass CCHQ's hidden
+		// domain-timezone special case for indexed metadata: `date_opened` and a
+		// custom datetime property therefore mean the same thing.
+		expect(hqQuery).toContain("visit_date >= date(");
+		expect(hqQuery).toContain("visit_date < date-add(date(");
+		expect(hqQuery).toContain("last_seen >= datetime(");
+		expect(hqQuery).toContain("last_seen < datetime(date-add(date(");
+		expect(hqQuery).toContain("date_opened >= datetime(");
+		expect(hqQuery).toContain("date_opened < datetime(date-add(date(");
+		expect(hq.modules[0].search_config.properties).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ name: "visit_date", exclude: true }),
+				expect.objectContaining({ name: "last_seen", exclude: true }),
+				expect.objectContaining({ name: "date_opened", exclude: true }),
+			]),
+		);
+		const suite = new AdmZip(
+			compileCcz(hq, "Simple Date Search", temporalDoc),
+		).readAsText("suite.xml");
+		expect(suite).toContain("visit_date &gt;= date(");
+		expect(suite).toContain("last_seen &gt;= datetime(");
+		expect(suite).toContain("date_opened &gt;= datetime(");
+		expect(suite).toContain("date-add(");
+		expect(suite).not.toContain("datetime-add(");
+	});
+
+	it("honors an explicit datetime coercion around a date prompt", () => {
+		const config = caseListConfig([
+			{ field: "last_seen", header: "Last seen" },
+		]);
+		config.searchInputs = [
+			advancedSearchInputDef(
+				asUuid("00000000-0000-4000-8000-00000000a004"),
+				"base_date",
+				"Starting date",
+				"date",
+				whenInput(
+					input("base_date"),
+					eq(
+						prop("patient", "last_seen"),
+						dateAdd(
+							datetimeCoerce(term(input("base_date"))),
+							"hours",
+							term(literal(1)),
+						),
+					),
+				),
+			),
+		];
+		const temporalDoc = buildDoc({
+			appName: "Datetime Search",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: config,
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "last_seen",
+							label: "Last seen",
+							data_type: "datetime",
+						},
+					],
+				},
+			],
+		});
+
+		const hq = expandDoc(temporalDoc);
+		const hqQuery = hq.modules[0].search_config.default_properties.find(
+			(entry) => entry.property === "_xpath_query",
+		)?.defaultValue;
+		expect(hqQuery).toContain("datetime-add(datetime(");
+		const suite = new AdmZip(
+			compileCcz(hq, "Datetime Search", temporalDoc),
+		).readAsText("suite.xml");
+		expect(suite).toContain("datetime-add(datetime(");
 	});
 
 	it("produces a valid zip with expected files", () => {

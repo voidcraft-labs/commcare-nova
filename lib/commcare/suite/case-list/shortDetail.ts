@@ -79,7 +79,11 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import { byListColumnOrder } from "@/lib/doc/order/compare";
-import type { BlueprintDoc, Module } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	effectiveCaseTypes,
+	type Module,
+} from "@/lib/domain";
 import { simplifyForEmission } from "@/lib/domain/predicate";
 import type { Predicate } from "@/lib/domain/predicate/types";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
@@ -169,6 +173,10 @@ export function buildShortDetail(args: {
 	const { module: mod, moduleIndex, doc } = args;
 	const target: DetailTarget = args.target ?? "case";
 	const detailId = `m${moduleIndex}_${target}_short`;
+	const relationContext = {
+		caseTypes: effectiveCaseTypes(doc),
+		...(mod.caseType === undefined ? {} : { currentCaseType: mod.caseType }),
+	};
 	// `<action>` lives only on the case-target detail per the
 	// canonical fixture. A `searchAction` arg passed alongside
 	// `target: "search"` would be a logic error at the orchestrator
@@ -183,17 +191,29 @@ export function buildShortDetail(args: {
 	// zero-field detail still emits the `<title>` element.
 	if (!mod.caseType || !mod.caseListConfig) {
 		return {
-			element: buildDetailShell(detailId, [], searchAction, moduleIndex),
+			element: buildDetailShell(
+				detailId,
+				[],
+				searchAction,
+				moduleIndex,
+				relationContext,
+			),
 			strings: {},
 		};
 	}
 
 	const config = mod.caseListConfig;
+	const caseProperties =
+		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
+			?.properties ?? [];
 	const ctx: CaseListEmitContext = {
 		moduleIndex,
 		sortByUuid: buildSortDirectives(mod, doc),
 		detailKind: "short",
 		target,
+		caseProperties,
+		caseTypes: relationContext.caseTypes,
+		currentCaseType: mod.caseType,
 		...(args.assets && { assets: args.assets }),
 	};
 
@@ -226,7 +246,13 @@ export function buildShortDetail(args: {
 	}
 
 	return {
-		element: buildDetailShell(detailId, fields, searchAction, moduleIndex),
+		element: buildDetailShell(
+			detailId,
+			fields,
+			searchAction,
+			moduleIndex,
+			relationContext,
+		),
 		strings,
 	};
 }
@@ -263,13 +289,19 @@ function buildDetailShell(
 	fields: readonly Element[],
 	searchAction: SearchActionContext | undefined,
 	moduleIndex: number,
+	relationContext: {
+		readonly caseTypes: ReturnType<typeof effectiveCaseTypes>;
+		readonly currentCaseType?: string;
+	},
 ): Element {
 	const titleEl = el("title", {}, [
 		el("text", {}, [el("locale", { id: "cchq.case" })]),
 	]);
 	const children: Element[] = [titleEl, ...fields];
 	if (searchAction !== undefined) {
-		children.push(buildSearchActionBlock(searchAction, moduleIndex));
+		children.push(
+			buildSearchActionBlock(searchAction, moduleIndex, relationContext),
+		);
 	}
 	return el("detail", { id: detailId }, children);
 }
@@ -305,6 +337,10 @@ function buildDetailShell(
 function buildSearchActionBlock(
 	searchAction: SearchActionContext,
 	moduleIndex: number,
+	relationContext: {
+		readonly caseTypes: ReturnType<typeof effectiveCaseTypes>;
+		readonly currentCaseType?: string;
+	},
 ): Element {
 	const moduleId = `m${moduleIndex}`;
 	const autoLaunchExpr = searchAction.autoLaunch
@@ -326,6 +362,8 @@ function buildSearchActionBlock(
 		// `search_button_display_condition` apply.
 		actionAttribs.relevant = emitCaseListFilter(
 			simplifyForEmission(searchAction.displayCondition),
+			undefined,
+			relationContext,
 		);
 	}
 

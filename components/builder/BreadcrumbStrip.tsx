@@ -1,5 +1,5 @@
 /**
- * BreadcrumbStrip — back/up navigation + the breadcrumb trail, docked
+ * BreadcrumbStrip — history navigation + the breadcrumb trail, docked
  * at the top of the canvas column (between the sidebars, not in the
  * full-width header). The sidebars bound its width, so a long trail
  * collapses through `CollapsibleBreadcrumb` instead of growing toward
@@ -27,10 +27,7 @@ import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import { useModule } from "@/lib/doc/hooks/useEntity";
-import {
-	useIsBareCaseListModule,
-	useOrderedForms,
-} from "@/lib/doc/hooks/useModuleIds";
+import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
@@ -45,17 +42,47 @@ import {
 	usePreviewSelectedCase,
 	useSetPreviewCaseTarget,
 } from "@/lib/session/hooks";
+import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 
 /** Stable no-op handler for breadcrumb items that don't navigate. */
 const noop = () => {};
 
+/** The complete page-navigation landmark shared by every builder screen. */
+export function BuilderPageNavigation({
+	hasData,
+	canGoBack,
+	onBack,
+	parts,
+	compactWorkspaceBreadcrumb = false,
+}: {
+	readonly hasData: boolean;
+	readonly canGoBack: boolean;
+	readonly onBack: () => void;
+	readonly parts: BreadcrumbPart[];
+	readonly compactWorkspaceBreadcrumb?: boolean;
+}) {
+	return (
+		<nav
+			aria-label="Page navigation"
+			className="flex min-w-0 flex-1 items-center gap-2"
+		>
+			{hasData && <ScreenNavButtons canGoBack={canGoBack} onBack={onBack} />}
+			<CollapsibleBreadcrumb
+				parts={parts}
+				compactWorkspace={compactWorkspaceBreadcrumb}
+			/>
+		</nav>
+	);
+}
+
 export function BreadcrumbStrip() {
 	const hasData = useDocHasData();
+	const compactHeight = useIsBreakpoint("max", 360, "height");
+	const handsetLayout = useIsBreakpoint("max", 560);
 
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const canGoBack = loc.kind !== "home";
-	const canGoUp = loc.kind !== "home";
 
 	/* Every preview/edit surface shares ONE content frame — `5xl` wide with
 	 * a `px-6` inset — so navigating between screens never swaps width OR
@@ -68,6 +95,12 @@ export function BreadcrumbStrip() {
 	 * rewrite lives in the pure, tested `previewBreadcrumbTrail`). Home +
 	 * module crumbs are unchanged; edit mode keeps the URL-derived trail. */
 	const previewing = usePreviewing();
+	const compactWorkspaceBreadcrumb =
+		handsetLayout &&
+		!previewing &&
+		((loc.kind === "cases" && loc.caseId === undefined) ||
+			loc.kind === "search-config" ||
+			loc.kind === "detail-config");
 	const previewCaseTarget = usePreviewCaseTarget();
 	const previewSelectedCase = usePreviewSelectedCase();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
@@ -90,21 +123,6 @@ export function BreadcrumbStrip() {
 		(candidate) => candidate.parent_type === caseType?.name,
 	);
 	const moduleForms = useOrderedForms((moduleUuid ?? "") as Uuid);
-	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
-
-	/* A bare case list has no module screen — its only ancestor is Home. From
-	 * the workspace root, `parentLocation` would send "up" to the (nonexistent)
-	 * module screen, which redirects straight back, so the up button would just
-	 * bounce. parentLocation is doc-free and can't know this, so reroute here.
-	 * A case detail (cases + caseId) keeps its normal parent (the list). */
-	const atBareCaseListRoot =
-		isBareCaseList &&
-		((loc.kind === "cases" && !loc.caseId) ||
-			loc.kind === "search-config" ||
-			loc.kind === "detail-config");
-	const onUp = atBareCaseListRoot
-		? () => navigate.goHome()
-		: () => navigate.up();
 
 	const effectiveBreadcrumbs: PreviewBreadcrumbItem[] = useMemo(() => {
 		if (!previewing) return breadcrumbs;
@@ -162,24 +180,25 @@ export function BreadcrumbStrip() {
 
 	return (
 		<div
-			className="h-16 shrink-0 border-b border-nova-border bg-pv-bg"
+			className={`shrink-0 border-b border-nova-border bg-pv-bg ${
+				compactHeight ? "h-[60px]" : "h-16"
+			}`}
 			data-builder-secondary-header="breadcrumb"
 		>
 			<ContentFrame
 				width="5xl"
 				className="flex items-center gap-2 min-w-0 h-full px-6"
 			>
-				{hasData && (
-					<ScreenNavButtons
-						canGoBack={canGoBack}
-						canGoUp={canGoUp}
-						onBack={() => navigate.back()}
-						onUp={onUp}
-					/>
-				)}
-				<CollapsibleBreadcrumb parts={breadcrumbParts} />
+				<BuilderPageNavigation
+					hasData={hasData}
+					canGoBack={canGoBack}
+					onBack={() => navigate.back()}
+					parts={breadcrumbParts}
+					compactWorkspaceBreadcrumb={compactWorkspaceBreadcrumb}
+				/>
 				{appId && caseType && (
 					<CaseDataManager
+						key={`${appId}\u0000${caseType.name}`}
 						appId={appId}
 						caseType={caseType}
 						canEdit={canEdit}

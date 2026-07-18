@@ -8,6 +8,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
+import { Button } from "@/components/shadcn/button";
 import { highlightSegments, type MatchIndices } from "@/lib/filterTree";
 
 /** Collapsible-section chevron button used by module / form / group rows. */
@@ -20,13 +21,20 @@ export function CollapseChevron({
 	onClick: (e: React.MouseEvent) => void;
 	hidden?: boolean;
 }) {
+	if (hidden) {
+		return <span className="size-11 shrink-0" aria-hidden="true" />;
+	}
+
 	return (
-		<button
+		<Button
 			type="button"
+			variant="ghost"
+			size="icon-lg"
 			aria-label={isCollapsed ? "Expand section" : "Collapse section"}
 			aria-expanded={!isCollapsed}
-			className={`w-4 h-4 flex items-center justify-center shrink-0 cursor-pointer rounded text-nova-text-muted hover:text-nova-text transition-colors ${hidden ? "invisible" : ""}`}
+			className="size-11 shrink-0 text-nova-text-muted hover:bg-white/[0.05] hover:text-nova-text"
 			onClick={onClick}
+			onKeyDown={(event) => event.stopPropagation()}
 		>
 			<Icon
 				icon={tablerChevronRight}
@@ -37,44 +45,49 @@ export function CollapseChevron({
 					transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)",
 				}}
 			/>
-		</button>
+		</Button>
 	);
 }
 
 /**
- * ARIA `role="treeitem"` row wrapper. Handles Enter / Space activation so
- * keyboard users can select rows just like mouse users. Extra data
- * attributes (e.g. `data-tree-field`) forward through to the element.
+ * Row chrome with one native selection button behind its visible content.
+ * The chevron/delete controls remain independent buttons above that target,
+ * avoiding both a malformed partial ARIA tree and nested interactive content.
+ * Native button semantics provide Enter/Space activation and a real disabled
+ * state while generation locks the structure.
  */
 export function TreeItemRow({
 	onClick,
+	label,
+	disabled = false,
+	selected = false,
 	className,
 	style,
 	children,
 	...rest
 }: {
-	onClick: (e: React.MouseEvent | React.KeyboardEvent) => void;
+	onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
+	label: string;
+	disabled?: boolean;
+	selected?: boolean;
 	className?: string;
 	style?: React.CSSProperties;
 	children: React.ReactNode;
 	"data-tree-field"?: string;
 }) {
 	return (
-		<div
-			role="treeitem"
-			tabIndex={0}
-			className={className}
-			style={style}
-			onClick={onClick}
-			onKeyDown={(e) => {
-				if (e.key === "Enter" || e.key === " ") {
-					e.preventDefault();
-					onClick(e);
-				}
-			}}
-			{...rest}
-		>
-			{children}
+		<div className={`relative ${className ?? ""}`} style={style} {...rest}>
+			<button
+				type="button"
+				disabled={disabled}
+				aria-label={label}
+				aria-current={selected ? "page" : undefined}
+				onClick={onClick}
+				className="absolute inset-0 z-0 size-full cursor-pointer rounded-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-nova-violet disabled:cursor-default"
+			/>
+			<div className="contents pointer-events-none [&_button]:relative [&_button]:z-10 [&_button]:pointer-events-auto">
+				{children}
+			</div>
 		</div>
 	);
 }

@@ -1,5 +1,4 @@
 "use client";
-import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import {
@@ -10,7 +9,17 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
+import { Button } from "@/components/shadcn/button";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/shadcn/popover";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/shadcn/tooltip";
 
 /** A breadcrumb segment with a label, stable identity key, and navigation callback. */
 export interface BreadcrumbPart {
@@ -39,7 +48,8 @@ const Chevron = (
  *  so the rendered text width stays constant when a segment transitions between
  *  states — preventing content shift from font-weight changes.
  *  `min-h-[44px]` ensures WCAG 2.5.8 minimum target size compliance. */
-const SEGMENT_BASE = "font-medium min-h-[44px] flex items-center";
+const SEGMENT_BASE =
+	"h-auto min-h-11 rounded-lg px-0 text-lg font-medium flex items-center";
 
 /** Ancestor segment — muted text, clickable to navigate up. */
 const ANCESTOR_CLASS = `${SEGMENT_BASE} shrink-0 whitespace-nowrap text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer`;
@@ -49,16 +59,82 @@ const ANCESTOR_CLASS = `${SEGMENT_BASE} shrink-0 whitespace-nowrap text-nova-tex
  * of the strip (Case data, presence, etc.). */
 const CURRENT_CLASS = `${SEGMENT_BASE} min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-nova-text cursor-default`;
 
+/** Current-location text is ordinarily inert. It becomes a keyboard-accessible
+ * tooltip trigger only when the bar actually clips it; a static breadcrumb that
+ * already fits should not add a mystery stop to the tab order. */
+function CurrentBreadcrumbSegment({ label }: { label: string }) {
+	const [clipped, setClipped] = useState(false);
+	const elementRef = useRef<HTMLSpanElement | null>(null);
+
+	const measure = useCallback(() => {
+		const element = elementRef.current;
+		if (element === null) return;
+		const hasLayout = element.clientWidth > 0 || element.scrollWidth > 0;
+		setClipped(hasLayout && element.scrollWidth > element.clientWidth + 1);
+	}, []);
+
+	const setElementRef = useCallback(
+		(element: HTMLSpanElement | null) => {
+			elementRef.current = element;
+			if (element === null) return;
+			const observer = new ResizeObserver(measure);
+			observer.observe(element);
+			measure();
+			return () => observer.disconnect();
+		},
+		[measure],
+	);
+
+	// A label edit can change scrollWidth without changing the element's border
+	// box, which ResizeObserver does not promise to report. Measure after every
+	// render; identical results are ignored by React's state setter.
+	useLayoutEffect(() => {
+		measure();
+	});
+
+	return (
+		<Tooltip disabled={!clipped}>
+			<TooltipTrigger
+				disabled={!clipped}
+				render={
+					<span
+						ref={setElementRef}
+						aria-current="location"
+						className={CURRENT_CLASS}
+						// When clipped, focus opens the same full-text disclosure
+						// available on pointer hover. When it fits, the current
+						// location remains inert.
+						tabIndex={clipped ? 0 : undefined}
+					/>
+				}
+			>
+				{label}
+			</TooltipTrigger>
+			<TooltipContent side="bottom">{label}</TooltipContent>
+		</Tooltip>
+	);
+}
+
 /**
  * Deep equality check for BreadcrumbPart arrays. Compares labels by value
  * and onClick by reference, so the component only re-renders when the visible
  * breadcrumb text changes (e.g. inline title edit) or the navigation structure
  * changes (different handler references from a new breadcrumbPath).
  */
+interface CollapsibleBreadcrumbProps {
+	readonly parts: BreadcrumbPart[];
+	/** The handset case-workspace already names the active screen in its fixed
+	 * tab strip. Preserve ancestor navigation in one touch-safe path menu there,
+	 * but do not spend the remaining header width repeating and clipping the
+	 * active tab label beside Case data. */
+	readonly compactWorkspace?: boolean;
+}
+
 function breadcrumbPartsEqual(
-	prev: { parts: BreadcrumbPart[] },
-	next: { parts: BreadcrumbPart[] },
+	prev: CollapsibleBreadcrumbProps,
+	next: CollapsibleBreadcrumbProps,
 ): boolean {
+	if (prev.compactWorkspace !== next.compactWorkspace) return false;
 	const a = prev.parts,
 		b = next.parts;
 	if (a.length !== b.length) return false;
@@ -71,6 +147,51 @@ function breadcrumbPartsEqual(
 			return false;
 	}
 	return true;
+}
+
+function BreadcrumbPathMenu({
+	parts,
+	open,
+	onOpenChange,
+}: {
+	readonly parts: readonly BreadcrumbPart[];
+	readonly open: boolean;
+	readonly onOpenChange: (open: boolean) => void;
+}) {
+	return (
+		<Popover open={open} onOpenChange={onOpenChange}>
+			<PopoverTrigger
+				render={<Button variant="ghost" size="icon-lg" />}
+				aria-label="Show breadcrumb path"
+				className="size-11 shrink-0 text-nova-text-muted hover:text-nova-text"
+			>
+				&hellip;
+			</PopoverTrigger>
+			<PopoverContent
+				side="bottom"
+				align="start"
+				sideOffset={4}
+				className="w-auto min-w-[180px] max-w-[280px] gap-0 overflow-hidden p-1"
+			>
+				{parts.map((part) => (
+					<Button
+						key={part.key}
+						type="button"
+						variant="ghost"
+						onClick={() => {
+							part.onClick();
+							onOpenChange(false);
+						}}
+						className="h-auto min-h-11 w-full justify-start rounded-lg px-3 py-2 text-left text-sm text-nova-text-muted hover:text-nova-text"
+					>
+						<span className="min-w-0 flex-1 break-words whitespace-normal">
+							{part.label}
+						</span>
+					</Button>
+				))}
+			</PopoverContent>
+		</Popover>
+	);
 }
 
 /**
@@ -97,9 +218,8 @@ function breadcrumbPartsEqual(
  */
 export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 	parts,
-}: {
-	parts: BreadcrumbPart[];
-}) {
+	compactWorkspace = false,
+}: CollapsibleBreadcrumbProps) {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [collapsed, setCollapsed] = useState(false);
 	const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -107,8 +227,8 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 
 	/* Compare the natural (fully-expanded) trail width — read off the inert
 	 * mirror, which always renders every segment — against the width actually
-	 * available. Reading the mirror, not the live nav, is what keeps the fold
-	 * from oscillating: collapsing shrinks the live nav, which would otherwise
+	 * available. Reading the mirror, not the live trail, is what keeps the fold
+	 * from oscillating: collapsing shrinks the live trail, which would otherwise
 	 * read as "fits" and immediately re-expand. */
 	const measure = useCallback(() => {
 		const avail = wrapperRef.current?.clientWidth ?? 0;
@@ -148,12 +268,36 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 	 * ancestor into one compact path menu. */
 	const needsCollapse = collapsed && parts.length > 1;
 	const collapsedAncestors = needsCollapse ? parts.slice(0, -1) : [];
+	const compactAncestors = compactWorkspace ? parts.slice(0, -1) : [];
+
+	/* Search, Results, and Details are already the fixed workspace tabs at this
+	 * width. Repeating the current tab in this 60–64px bar produced hard-clipped
+	 * words beside the intentionally stable Case data action. Keep the hierarchy
+	 * available through one 44px path menu, and let the tabs own current-location
+	 * semantics. Other builder screens retain their full current breadcrumb. */
+	if (compactWorkspace) {
+		return compactAncestors.length > 0 ? (
+			<div className="relative min-w-0 flex-1">
+				<div
+					data-breadcrumb-trail
+					data-compact-workspace-breadcrumb
+					className="flex min-w-0 items-center"
+				>
+					<BreadcrumbPathMenu
+						parts={compactAncestors}
+						open={menuOpen}
+						onOpenChange={setMenuOpen}
+					/>
+				</div>
+			</div>
+		) : null;
+	}
 
 	return (
 		<div ref={setWrapperRef} className="relative min-w-0 flex-1">
-			<nav
+			<div
+				data-breadcrumb-trail
 				className="flex items-center gap-1 text-lg min-w-0 overflow-hidden"
-				aria-label="Breadcrumb"
 			>
 				{parts.map((part, i) => {
 					const isLast = i === parts.length - 1;
@@ -163,40 +307,11 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 						if (i !== 0) return null;
 						return (
 							<Fragment key="collapse">
-								<Popover.Root open={menuOpen} onOpenChange={setMenuOpen}>
-									<Popover.Trigger
-										aria-label="Show breadcrumb path"
-										className="text-nova-text-muted hover:text-nova-text hover:bg-nova-surface min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md transition-colors cursor-pointer"
-									>
-										&hellip;
-									</Popover.Trigger>
-									<Popover.Portal>
-										<Popover.Positioner
-											side="bottom"
-											align="start"
-											sideOffset={4}
-											className={POPOVER_POSITIONER_GLASS_CLS}
-										>
-											<Popover.Popup className={POPOVER_POPUP_CLS}>
-												<div className="min-w-[180px] max-w-[280px] overflow-hidden py-1">
-													{collapsedAncestors.map((mp) => (
-														<button
-															key={mp.key}
-															type="button"
-															onClick={() => {
-																mp.onClick();
-																setMenuOpen(false);
-															}}
-															className="w-full px-3 py-2 text-left text-sm text-nova-text-muted hover:text-nova-text hover:bg-nova-elevated/80 transition-colors cursor-pointer truncate"
-														>
-															{mp.label}
-														</button>
-													))}
-												</div>
-											</Popover.Popup>
-										</Popover.Positioner>
-									</Popover.Portal>
-								</Popover.Root>
+								<BreadcrumbPathMenu
+									parts={collapsedAncestors}
+									open={menuOpen}
+									onOpenChange={setMenuOpen}
+								/>
 							</Fragment>
 						);
 					}
@@ -206,26 +321,25 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 						<Fragment key={part.key}>
 							{i > 0 && Chevron}
 							{isLast ? (
-								<span aria-current="location" className={CURRENT_CLASS}>
-									{part.label}
-								</span>
+								<CurrentBreadcrumbSegment label={part.label} />
 							) : (
-								<button
+								<Button
 									type="button"
+									variant="ghost"
 									onClick={part.onClick}
 									className={ANCESTOR_CLASS}
 								>
 									{part.label}
-								</button>
+								</Button>
 							)}
 						</Fragment>
 					);
 				})}
-			</nav>
+			</div>
 			{/* Inert width probe: the full trail, laid out but invisible and
 			 *  un-clickable, so `measure` always reads the natural (uncollapsed)
-			 *  width regardless of what the live nav above is showing. aria-hidden
-			 *  keeps it out of the a11y tree (the nav above is the labelled one). */}
+			 *  width regardless of what the live trail above is showing. aria-hidden
+			 *  keeps it out of the a11y tree (the live group above is labelled). */}
 			<div
 				ref={mirrorRef}
 				aria-hidden="true"

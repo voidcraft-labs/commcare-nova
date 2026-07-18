@@ -22,10 +22,12 @@
 //      through the editor untouched.
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { asUuid } from "@/lib/doc/types";
 import {
 	type CaseType,
+	type Column,
 	calculatedColumn,
 	columnSchema,
 	dateColumn,
@@ -57,8 +59,80 @@ const PATIENT: CaseType = {
 };
 
 const TEST_UUID = asUuid("00000000-0000-0000-0000-000000000001");
+const OTHER_UUID = asUuid("00000000-0000-0000-0000-000000000002");
+
+function StatefulColumnEditor({ initial }: { readonly initial: Column }) {
+	const [value, setValue] = useState(initial);
+	return (
+		<>
+			<output data-testid="active-column-kind">{value.kind}</output>
+			<output data-testid="active-date-pattern">
+				{value.kind === "date" ? value.pattern : ""}
+			</output>
+			<ColumnEditor
+				value={value}
+				onChange={setValue}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>
+		</>
+	);
+}
 
 describe("ColumnEditor — applicability errors", () => {
+	it("uses the inspector's readable section, label, and control hierarchy", () => {
+		render(
+			<ColumnEditor
+				value={plainColumn(TEST_UUID, "name", "Patient")}
+				onChange={() => {}}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		expect(
+			screen.getByRole("heading", { name: "Display as" }).className,
+		).toContain("text-[14px]");
+		expect(screen.getByText("Information from").className).toContain(
+			"text-[13px]",
+		);
+		expect(
+			screen.getByRole("button", { name: "Display as: Text" }).className,
+		).toContain("text-[14px]");
+	});
+
+	it("shows an inherited property label as the input's effective value", () => {
+		render(
+			<ColumnEditor
+				value={plainColumn(TEST_UUID, "name", "")}
+				onChange={() => {}}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		const input = screen.getByLabelText("Display label") as HTMLInputElement;
+		expect(input.value).toBe("Case name");
+		expect(input.placeholder).toBe("");
+		expect(screen.getByText("Uses information label")).toBeDefined();
+	});
+
+	it("shows the calculated-field default as state instead of placeholder copy", () => {
+		render(
+			<ColumnEditor
+				value={calculatedColumn(TEST_UUID, "", term(literal("Ready")))}
+				onChange={() => {}}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		const input = screen.getByLabelText("Display label") as HTMLInputElement;
+		expect(input.value).toBe("Calculated value");
+		expect(input.placeholder).toBe("");
+		expect(screen.getByText("Default")).toBeDefined();
+	});
+
 	it("names a legacy case-name reference with Nova's canonical label", () => {
 		render(
 			<ColumnEditor
@@ -215,10 +289,14 @@ describe("ColumnEditor — applicability errors", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Display as: Text" }));
+		const displayAs = screen.getByRole("button", { name: "Display as: Text" });
+		expect(displayAs.getAttribute("data-slot")).toBe("dropdown-menu-trigger");
+		fireEvent.click(displayAs);
 		const dateChoice = screen.getByRole("menuitem", {
 			name: /date.*choose date or date-and-time information/i,
 		});
+		expect(dateChoice.getAttribute("data-slot")).toBe("dropdown-menu-item");
+		expect(dateChoice.className).toContain("rounded-lg");
 		expect(dateChoice.getAttribute("aria-disabled")).toBe("true");
 		fireEvent.click(dateChoice);
 
@@ -432,6 +510,103 @@ describe("ColumnEditor — applicability errors", () => {
 });
 
 describe("ColumnEditor — round-trip preservation", () => {
+	it("never restores a display draft from a previously selected column", () => {
+		const onChange = vi.fn();
+		const { rerender } = render(
+			<ColumnEditor
+				value={dateColumn(TEST_UUID, "dob", "Birthday", "%d-%b-%Y")}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+
+		rerender(
+			<ColumnEditor
+				value={plainColumn(OTHER_UUID, "last_seen", "Last seen")}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Display as: Text" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: /^Date\b/ }));
+
+		const next = onChange.mock.lastCall?.[0] as Column | undefined;
+		expect(next?.uuid).toBe(OTHER_UUID);
+		expect(next?.kind).toBe("date");
+		if (next?.kind === "date") {
+			expect(next.field).toBe("last_seen");
+			expect(next.pattern).not.toBe("%d-%b-%Y");
+		}
+	});
+
+	it("confirms before replacing custom display work, restores focus, and retains its draft", async () => {
+		render(
+			<StatefulColumnEditor
+				initial={dateColumn(TEST_UUID, "dob", "Birthday", "%d-%b-%Y")}
+			/>,
+		);
+
+		const displayTrigger = screen.getByRole("button", {
+			name: "Display as: Date",
+		});
+		fireEvent.click(displayTrigger);
+		fireEvent.click(await screen.findByRole("menuitem", { name: /^Text\b/ }));
+
+		expect(
+			screen.getByRole("alertdialog", {
+				name: "The custom date format will be removed",
+			}),
+		).toBeDefined();
+		expect(
+			screen.getByText(
+				"The display will change to Text. Saved case information stays unchanged.",
+			),
+		).toBeDefined();
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		await waitFor(() => {
+			expect(screen.queryByRole("alertdialog")).toBeNull();
+			expect(document.activeElement).toBe(displayTrigger);
+		});
+		expect(screen.getByTestId("active-column-kind").textContent).toBe("date");
+
+		fireEvent.click(displayTrigger);
+		fireEvent.click(await screen.findByRole("menuitem", { name: /^Text\b/ }));
+		fireEvent.click(screen.getByRole("button", { name: "Change display" }));
+		await waitFor(() => {
+			expect(screen.queryByRole("alertdialog")).toBeNull();
+			expect(document.activeElement).toBe(displayTrigger);
+		});
+		expect(screen.getByTestId("active-column-kind").textContent).toBe("plain");
+
+		fireEvent.click(screen.getByRole("button", { name: "Display as: Text" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: /^Date\b/ }));
+		expect(screen.getByTestId("active-column-kind").textContent).toBe("date");
+		expect(screen.getByTestId("active-date-pattern").textContent).toBe(
+			"%d-%b-%Y",
+		);
+	});
+
+	it("keeps ordinary style changes direct when no custom settings are lost", async () => {
+		render(
+			<StatefulColumnEditor
+				initial={dateColumn(TEST_UUID, "dob", "Birthday", "%Y-%m-%d")}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Display as: Date" }));
+		// Let FloatingFocusManager finish the menu's initial-focus microtask
+		// before selecting an item and closing the popup.
+		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		fireEvent.click(screen.getByRole("menuitem", { name: /^Text\b/ }));
+		// Let Base UI finish the closed menu's focus and scroll-lock cleanup.
+		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+		expect(screen.queryByRole("alertdialog")).toBeNull();
+		expect(screen.getByTestId("active-column-kind").textContent).toBe("plain");
+	});
+
 	it("preserves a custom date pattern across mount / re-render", () => {
 		const value = dateColumn(TEST_UUID, "dob", "Birthday", "%d-%b-%Y");
 		const onChange = vi.fn();

@@ -29,6 +29,7 @@ import {
 import {
 	type ExpressionEditContext,
 	expressionCardSchemas,
+	isAuthorableExpressionKind,
 } from "../expressionEditorSchemas";
 
 // ── Fixture ───────────────────────────────────────────────────────────
@@ -81,12 +82,27 @@ describe("expressionCardSchemas — registry exhaustivity", () => {
 		) as ValueExpression["kind"][]) {
 			const entry = expressionCardSchemas[kind];
 			expect(entry.kind).toBe(kind);
+			expect(["authorable", "roundTripOnly"]).toContain(entry.authoring);
 			expect(entry.label).toBeTruthy();
 			expect(entry.icon).toBeTruthy();
 			expect(typeof entry.component).toBe("function");
 			expect(typeof entry.defaultValue).toBe("function");
 			expect(typeof entry.applicable).toBe("function");
 		}
+	});
+});
+
+describe("expressionCardSchemas — authoring boundary", () => {
+	it("keeps unwrap-list editable only as imported data", () => {
+		expect(expressionCardSchemas["unwrap-list"].authoring).toBe(
+			"roundTripOnly",
+		);
+		expect(isAuthorableExpressionKind("unwrap-list")).toBe(false);
+	});
+
+	it("keeps format-date available as an authored calculation", () => {
+		expect(expressionCardSchemas["format-date"].authoring).toBe("authorable");
+		expect(isAuthorableExpressionKind("format-date")).toBe(true);
 	});
 });
 
@@ -171,19 +187,19 @@ describe("expressionCardSchemas — applicable predicates", () => {
 		);
 	});
 
-	it("date-coerce ↔ datetime-coerce: each is applicable for the other's temporal slot", () => {
-		// The structural-twin pair is operand-preserving via
-		// `preservedExpressionSwap`; picker parity matches that
-		// authoring path so the wrong-temporal arm doesn't de-emphasize.
+	it("date-coerce and datetime-coerce expose only their fixed result type", () => {
+		// The pair can preserve its operand during an explicit twin swap, but
+		// each AST arm still has one fixed result type. Admission follows that
+		// result instead of offering a knowingly invalid intermediate value.
 		expect(expressionCardSchemas["date-coerce"].applicable(ctx, "date")).toBe(
 			true,
 		);
 		expect(
 			expressionCardSchemas["date-coerce"].applicable(ctx, "datetime"),
-		).toBe(true);
+		).toBe(false);
 		expect(
 			expressionCardSchemas["datetime-coerce"].applicable(ctx, "date"),
-		).toBe(true);
+		).toBe(false);
 		expect(
 			expressionCardSchemas["datetime-coerce"].applicable(ctx, "datetime"),
 		).toBe(true);
@@ -212,11 +228,34 @@ describe("expressionCardSchemas — applicable predicates", () => {
 		expect(expressionCardSchemas.concat.applicable(ctx, "int")).toBe(false);
 	});
 
-	it("count applies to numeric / unset expectedTypes; not to text", () => {
-		expect(expressionCardSchemas.count.applicable(ctx)).toBe(true);
-		expect(expressionCardSchemas.count.applicable(ctx, "int")).toBe(true);
-		expect(expressionCardSchemas.count.applicable(ctx, "decimal")).toBe(true);
-		expect(expressionCardSchemas.count.applicable(ctx, "text")).toBe(false);
+	it("count requires a real case connection and a numeric result slot", () => {
+		const connectedCtx: ExpressionEditContext = {
+			...ctx,
+			caseTypes: [
+				PATIENT,
+				{
+					name: "visit",
+					parent_type: "patient",
+					properties: [],
+				},
+			],
+		};
+
+		expect(expressionCardSchemas.count.applicable(connectedCtx)).toBe(true);
+		expect(expressionCardSchemas.count.applicable(connectedCtx, "int")).toBe(
+			true,
+		);
+		expect(
+			expressionCardSchemas.count.applicable(connectedCtx, "decimal"),
+		).toBe(true);
+		expect(expressionCardSchemas.count.applicable(connectedCtx, "text")).toBe(
+			false,
+		);
+
+		// In an unconnected case type, the picker must not offer a relation
+		// count that would immediately drop the user into a repair state.
+		expect(expressionCardSchemas.count.applicable(ctx)).toBe(false);
+		expect(expressionCardSchemas.count.applicable(ctx, "int")).toBe(false);
 	});
 
 	it("unwrap-list is gated to `_sequence` expectedTypes (round-trip-only)", () => {

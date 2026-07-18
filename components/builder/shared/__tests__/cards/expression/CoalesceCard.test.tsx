@@ -7,7 +7,8 @@
 // (variadic value list) so the tests pin the same structural
 // guarantees.
 
-import { render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { coalesce, literal, term } from "@/lib/domain/predicate";
@@ -45,8 +46,45 @@ describe("CoalesceCard — drag handle wiring", () => {
 			/>,
 		);
 		const grips = container.querySelectorAll(
-			'button[aria-label="Drag to reorder"]',
+			'button[aria-label^="Move fallback"]',
 		);
 		expect(grips.length).toBe(2);
+	});
+
+	it("moves focus to the next fallback's remove action after deletion", async () => {
+		const initial = coalesce(
+			term(literal("first")),
+			term(literal("second")),
+			term(literal("third")),
+		);
+		function Harness() {
+			const [value, setValue] = useState(initial);
+			return (
+				<ExpressionCardEditor
+					value={value}
+					onChange={(next) => {
+						if (next.kind === "coalesce") setValue(next);
+					}}
+					caseTypes={[PATIENT]}
+					currentCaseType="patient"
+				/>
+			);
+		}
+		render(<Harness />);
+
+		const removeActions = screen.getAllByRole("button", {
+			name: "Remove value",
+		});
+		const nextAction = removeActions[1];
+		removeActions[0].focus();
+		await act(async () => {
+			fireEvent.click(removeActions[0]);
+			await Promise.resolve();
+		});
+
+		expect(document.activeElement).toBe(nextAction);
+		expect(
+			screen.getAllByRole("button", { name: "Remove value" }),
+		).toHaveLength(2);
 	});
 });

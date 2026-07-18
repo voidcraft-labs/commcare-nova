@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
 	propertyDisplayLabelForName,
 	propertyFallbackDisplayLabel,
@@ -56,5 +57,28 @@ describe("propertyDisplayLabel", () => {
 				{ name: "external_id", label: "external_id", data_type: "text" },
 			]),
 		).toBe("Partner registry number");
+	});
+
+	it("never repeats the visible label as its own disambiguator", () => {
+		const properties = [
+			{ name: "case_name", label: "case_name", data_type: "text" as const },
+			{ name: "name", label: "name", data_type: "text" as const },
+		];
+		expect(friendlyPropertyDisambiguator(properties[0], properties)).toBe(
+			undefined,
+		);
+	});
+
+	it("keeps a parenthetical when it genuinely distinguishes equal labels", () => {
+		const properties = [
+			{ name: "home_region", label: "Region", data_type: "text" as const },
+			{ name: "work_region", label: "Region", data_type: "text" as const },
+		];
+		expect(friendlyPropertyDisambiguator(properties[0], properties)).toBe(
+			"Home region",
+		);
+		expect(friendlyPropertyDisambiguator(properties[1], properties)).toBe(
+			"Work region",
+		);
 	});
 });

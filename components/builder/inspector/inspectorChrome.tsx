@@ -11,29 +11,30 @@
 import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useId } from "react";
+import { Button } from "@/components/shadcn/button";
 import { Switch } from "@/components/shadcn/switch";
 
 /** Full-width picker trigger — the recessed well every dropdown in
  *  the rail uses. Pair with `CONSOLE_MENU_ITEM_CLS` for the items. */
 export const CONSOLE_TRIGGER_CLS =
-	"group w-full flex items-center gap-2.5 px-3 min-h-11 text-[13px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30";
+	"group w-full flex items-center gap-2.5 px-3 py-2.5 min-h-11 text-[14px] rounded-lg border transition-colors cursor-pointer text-nova-text bg-nova-deep/50 border-white/[0.06] hover:border-nova-violet/30";
 
 /** Menu item sizing for the rail's pickers — full-size targets even
  *  for single-line items. */
-export const CONSOLE_MENU_ITEM_MIN = "min-h-11";
+export const CONSOLE_MENU_ITEM_MIN = "min-h-11 text-[14px]";
 
 /** The friendly label that titles a single control inside a section.
  *  Sentence case and ordinary type keep configuration readable instead
  *  of making common choices feel like technical instrumentation. */
 export const INSPECTOR_LABEL_CLS =
-	"text-[12px] font-medium leading-5 text-nova-text-secondary";
+	"text-[13px] font-medium leading-5 text-nova-text-secondary";
 
 /** The recessed single-line input well every text field in the rail uses.
  *  Pure `focus:` ring — for inputs that also carry a refusable state, build
  *  the focused class by hand (see EditableText) so a rejection border isn't
  *  overridden by the focus pseudo-class. */
 export const INSPECTOR_INPUT_CLS =
-	"w-full min-h-11 px-3 text-[13px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
+	"w-full min-h-11 px-3 text-[14px] rounded-lg border border-white/[0.06] bg-nova-deep/50 text-nova-text placeholder:text-nova-text-muted focus:outline-none focus:ring-1 focus:border-nova-violet/40 focus:ring-nova-violet/30 transition-colors";
 
 /**
  * One titled cluster of controls. The heading is deliberately plain-language
@@ -48,8 +49,8 @@ export function InspectorSection({
 	readonly children: React.ReactNode;
 }) {
 	return (
-		<section className="pt-4 first:pt-0 border-t border-nova-border first:border-t-0 space-y-2.5">
-			<h3 className="text-[12px] font-semibold leading-5 text-nova-text-secondary">
+		<section className="space-y-4 border-t border-nova-border pt-5 first:border-t-0 first:pt-0">
+			<h3 className="text-[14px] font-semibold leading-5 text-nova-text">
 				{label}
 			</h3>
 			{children}
@@ -64,9 +65,7 @@ export function InspectorHint({
 	readonly children: React.ReactNode;
 }) {
 	return (
-		<p className="text-[11px] leading-relaxed text-nova-text-muted">
-			{children}
-		</p>
+		<p className="text-[13px] leading-5 text-nova-text-muted">{children}</p>
 	);
 }
 
@@ -90,12 +89,14 @@ export function ToggleRow({
 	return (
 		<label
 			htmlFor={id}
-			className="flex items-center gap-3 w-full min-h-11 px-3 py-2 rounded-lg border border-white/[0.04] bg-nova-deep/30 cursor-pointer hover:border-white/[0.08] transition-colors"
+			className="flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-lg border border-white/[0.04] bg-nova-deep/30 px-3 py-2.5 transition-colors hover:border-white/[0.08]"
 		>
 			<span className="flex-1 min-w-0">
-				<span className="block text-[13px] text-nova-text">{label}</span>
+				<span className="block text-[14px] leading-5 text-nova-text">
+					{label}
+				</span>
 				{description !== undefined && (
-					<span className="block text-[11px] text-nova-text-muted leading-snug">
+					<span className="mt-0.5 block text-[13px] leading-5 text-nova-text-muted">
 						{description}
 					</span>
 				)}
@@ -125,21 +126,23 @@ export function RemoveRow({
 }) {
 	const reasonId = useId();
 	return (
-		<div className="pt-3 border-t border-nova-border">
-			<button
+		<div className="border-t border-nova-border pt-4">
+			<Button
 				type="button"
+				variant="outline"
+				size="xl"
 				onClick={onClick}
 				disabled={disabledReason !== undefined}
 				aria-describedby={disabledReason === undefined ? undefined : reasonId}
-				className="w-full inline-flex items-center justify-center gap-2 px-3 min-h-11 text-[13px] rounded-lg border border-white/[0.06] text-nova-text-muted not-disabled:hover:text-nova-rose not-disabled:hover:border-nova-rose/40 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+				className="w-full rounded-lg border-white/[0.06] bg-transparent px-3 text-[14px] text-nova-text-muted not-disabled:hover:border-nova-rose/40 not-disabled:hover:bg-nova-rose/[0.05] not-disabled:hover:text-nova-rose dark:bg-transparent dark:not-disabled:hover:bg-nova-rose/[0.05]"
 			>
 				<Icon icon={tablerTrash} width="14" height="14" />
 				<span>{label}</span>
-			</button>
+			</Button>
 			{disabledReason !== undefined && (
 				<p
 					id={reasonId}
-					className="mt-2 text-[11px] leading-relaxed text-nova-text-muted"
+					className="mt-2.5 text-[13px] leading-5 text-nova-text-muted"
 				>
 					{disabledReason}
 				</p>
@@ -175,19 +178,21 @@ export function SegmentedRow<T extends string>({
 			{options.map((opt) => {
 				const active = opt.value === value;
 				return (
-					<button
+					<Button
 						key={opt.value}
 						type="button"
+						variant="ghost"
+						size="xl"
 						onClick={() => onChange(opt.value)}
 						aria-pressed={active}
-						className={`flex-1 min-h-11 px-2 text-[13px] rounded-md transition-colors cursor-pointer ${
+						className={`min-w-0 flex-1 rounded-md px-2 text-[14px] active:translate-y-0 ${
 							active
 								? "bg-nova-violet/[0.18] text-nova-violet-bright font-medium shadow-[inset_0_0_0_1px_rgba(139,92,246,0.35)]"
-								: "text-nova-text-muted hover:text-nova-text hover:bg-white/[0.04]"
+								: "text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text dark:not-disabled:hover:bg-white/[0.04]"
 						}`}
 					>
 						{opt.label}
-					</button>
+					</Button>
 				);
 			})}
 		</fieldset>

@@ -652,12 +652,12 @@ describe("buildSortDirectives — calc fallback: ANY_TYPE result type", () => {
 });
 
 describe("buildSortDirectives — calc fallback: unmapped ResolvedType", () => {
-	it("collapses to `plain` when the expression resolves to SEQUENCE_TYPE (unwrap-list)", () => {
+	it("refuses an unwrap-list sort that CommCare Core cannot evaluate on-device", () => {
 		// `unwrapList(term(prop("patient", "tags")))` resolves to
-		// `SEQUENCE_TYPE`, which has no entry in
-		// `mapResolvedTypeToSortType`'s table. The fallback rule routes
-		// the unmapped resolved type to `"plain"`. The checker accepts
-		// the operand because `tags` is text-shaped.
+		// `SEQUENCE_TYPE`, but `unwrap-list` exists only in CCHQ's server-side
+		// case-search function table. A case-list sort executes in CommCare
+		// Core's on-device evaluator, so the validator must reject this shape
+		// and the low-level emitter must fail closed if a caller bypasses it.
 		const col = calculatedColumn(
 			asUuid("00000000-0000-4000-8000-aaaa00000072"),
 			"Tags sequence",
@@ -673,8 +673,9 @@ describe("buildSortDirectives — calc fallback: unmapped ResolvedType", () => {
 			caseType: "patient",
 			properties: [{ name: "tags", data_type: "text" }],
 		});
-		const directives = buildSortDirectives(mod, doc);
-		expect(directives.get(col.uuid)?.type).toBe("plain");
+		expect(() => buildSortDirectives(mod, doc)).toThrow(
+			/unwrap-list is a server-side case-search function/i,
+		);
 	});
 });
 

@@ -52,6 +52,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
+import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import {
 	type ColumnSurface,
@@ -1010,10 +1011,14 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					 * (`CASE_LIST_COLUMN_UNKNOWN_FIELD`); composing into one
 					 * `setCaseTypes` stops the two wholesale writes from clobbering
 					 * each other. */
+					const moduleMutations = modulePatchMutations(
+						doc.modules[uuid],
+						patch,
+					);
 					return toOutcome(
 						guardedApply([
 							...caseTypeCatalogMutations(doc, retirement, patch.caseType),
-							{ kind: "updateModule", uuid, patch },
+							...moduleMutations,
 						]),
 					);
 				},

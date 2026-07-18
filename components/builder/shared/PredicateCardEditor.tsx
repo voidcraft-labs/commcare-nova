@@ -38,12 +38,12 @@ import {
 	type CheckError,
 	checkPredicate,
 	type Predicate,
-	type SearchInputDecl,
 	type TypeContext,
 } from "@/lib/domain/predicate";
 import { ChildPredicateEditor } from "./cards/ChildPredicateEditor";
 import { buildValidityIndex, PredicateEditProvider } from "./editorContext";
 import { ROOT_PATH } from "./path";
+import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
 interface PredicateCardEditorProps {
 	/** Current AST. */
@@ -61,7 +61,7 @@ interface PredicateCardEditorProps {
 	 */
 	readonly currentCaseType: string;
 	/** Search inputs declared on the parent surface. */
-	readonly knownInputs?: readonly SearchInputDecl[];
+	readonly knownInputs?: readonly EditorSearchInputDecl[];
 	/**
 	 * Surfaces the boolean validity verdict to the parent on every
 	 * onChange. The editor authors valid by construction — no sequence
@@ -73,6 +73,13 @@ interface PredicateCardEditorProps {
 	 * be re-saved while broken.
 	 */
 	readonly onValidityChange?: (valid: boolean) => void;
+	/**
+	 * Optional removal action supplied by a parent list composer. Standalone
+	 * predicate slots omit it; surfaces that visibly list peer conditions (for
+	 * example Results' Cases available card) pass it so the root condition is
+	 * just as removable as a nested clause.
+	 */
+	readonly onRemove?: () => void;
 }
 
 /**
@@ -88,6 +95,7 @@ export function PredicateCardEditor({
 	currentCaseType,
 	knownInputs = [],
 	onValidityChange,
+	onRemove,
 }: PredicateCardEditorProps) {
 	// Build the type-check context from props. The same context
 	// reaches both the validation pass below and the per-card
@@ -137,6 +145,7 @@ export function PredicateCardEditor({
 			<ChildPredicateEditor
 				value={value}
 				onChange={onChange}
+				onRemove={onRemove}
 				path={ROOT_PATH}
 			/>
 		</PredicateEditProvider>

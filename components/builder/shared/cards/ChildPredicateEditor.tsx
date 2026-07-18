@@ -13,9 +13,28 @@
 // shell at the root.
 
 "use client";
-import { Menu } from "@base-ui/react/menu";
 import { Icon } from "@iconify/react/offline";
-import { useRef } from "react";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import { type ReactNode, useRef, useState } from "react";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/shadcn/alert-dialog";
+import { Button } from "@/components/shadcn/button";
+import {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuPopup,
+	DropdownMenuPortal,
+	DropdownMenuPositioner,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import {
 	ANY_CONSTRAINT,
 	and,
@@ -25,24 +44,33 @@ import {
 	isBlank,
 	isNull,
 	missing,
+	not,
 	or,
 	type Predicate,
 	type SlotConstraint,
 } from "@/lib/domain/predicate";
 import {
-	MENU_ITEM_CLS,
-	MENU_POPUP_CLS,
-	MENU_POSITIONER_CLS,
-} from "@/lib/styles";
-import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
+	useEditorErrorsAt,
+	useEditorErrorsBelow,
+	usePredicateEditContext,
+} from "../editorContext";
 import {
+	isAuthorablePredicateKind,
 	type PredicateCardSchema,
 	type PredicateEditContext,
 	predicateCardSchemaList,
 	predicateCardSchemas,
+	predicateUnavailableReason,
 } from "../editorSchemas";
 import type { EditorPath } from "../path";
 import { CardShell, PredicateRowShell } from "../primitives/CardShell";
+import {
+	pathsEqual,
+	predicateFocusDescription,
+	predicateFocusTitle,
+	RuleFocusSummary,
+	useRuleFocusContext,
+} from "../RuleFocusContext";
 import { KIND_BUILDERS as COMPARISON_BUILDERS } from "./ComparisonCard";
 
 interface ChildPredicateEditorProps {
@@ -57,6 +85,10 @@ interface ChildPredicateEditorProps {
 	 * be deleted, only replaced).
 	 */
 	readonly onRemove?: () => void;
+	/** User-facing consequence for the remove action. */
+	readonly removeLabel?: string;
+	/** Optional card-bound action row supplied by a list composer. */
+	readonly footerAction?: ReactNode;
 	/**
 	 * Display variant — the top-level card uses `"normal"`; nested
 	 * children inside a logical group use `"nested"` so the parent
@@ -96,6 +128,53 @@ const SENTENCE_KINDS: ReadonlySet<Predicate["kind"]> = new Set([
 	"match-none",
 ]);
 
+/** Focus-aware boundary for Predicate slots inside a ValueExpression. The
+ * workbench shows the child as one semantic row; opening it promotes that
+ * subtree into the same full-width editor as every other condition. Outside
+ * the workbench this remains the ordinary recursive card editor. */
+export function PredicateFocusBoundary(props: ChildPredicateEditorProps) {
+	const {
+		value,
+		path,
+		onRemove,
+		removeLabel,
+		footerAction,
+		dragHandleRef,
+		variant = "normal",
+	} = props;
+	const focus = useRuleFocusContext();
+	const editContext = usePredicateEditContext();
+	const operatorErrors = useEditorErrorsAt(path);
+	const descendantErrors = useEditorErrorsBelow(path);
+
+	if (focus !== null && !pathsEqual(path, focus.activePath)) {
+		const schema = predicateCardSchemas[value.kind];
+		return (
+			<PredicateRowShell
+				variant={variant}
+				onRemove={onRemove}
+				removeLabel={removeLabel}
+				footerAction={footerAction}
+				dragHandleRef={dragHandleRef}
+				errors={operatorErrors}
+			>
+				<RuleFocusSummary
+					path={path}
+					icon={schema.icon}
+					title={predicateFocusTitle(value)}
+					description={predicateFocusDescription(
+						value,
+						editContext.knownInputs,
+					)}
+					hasErrors={operatorErrors.length > 0 || descendantErrors.length > 0}
+				/>
+			</PredicateRowShell>
+		);
+	}
+
+	return <ChildPredicateEditor {...props} />;
+}
+
 /**
  * Render one predicate node. Sentence-shaped kinds (comparisons,
  * matches, membership, blank/missing, the sentinels) render as
@@ -110,6 +189,8 @@ export function ChildPredicateEditor({
 	onChange,
 	path,
 	onRemove,
+	removeLabel,
+	footerAction,
 	variant = "normal",
 	dragHandleRef,
 	constraint = ANY_CONSTRAINT,
@@ -128,6 +209,8 @@ export function ChildPredicateEditor({
 			<PredicateRowShell
 				variant={variant}
 				onRemove={onRemove}
+				removeLabel={removeLabel}
+				footerAction={footerAction}
 				dragHandleRef={dragHandleRef}
 				errors={operatorErrors}
 			>
@@ -147,9 +230,13 @@ export function ChildPredicateEditor({
 			label={schema.label}
 			variant={variant}
 			onRemove={onRemove}
+			removeLabel={removeLabel}
+			footerAction={footerAction}
 			dragHandleRef={dragHandleRef}
 			errors={operatorErrors}
-			kindAccent={<KindReplaceMenu currentValue={value} onChange={onChange} />}
+			kindAccent={
+				<PredicateKindReplaceMenu currentValue={value} onChange={onChange} />
+			}
 		>
 			<Component
 				value={value}
@@ -161,9 +248,319 @@ export function ChildPredicateEditor({
 	);
 }
 
-interface KindReplaceMenuProps {
+interface PredicateKindReplaceMenuProps {
 	readonly currentValue: Predicate;
 	readonly onChange: (next: Predicate) => void;
+	readonly label?: string;
+}
+
+export interface PredicateTransitionConfirmation {
+	readonly title: string;
+	readonly description: string;
+}
+
+export interface PredicateTransitionPlan {
+	readonly next: Predicate;
+	readonly confirmation?: PredicateTransitionConfirmation;
+}
+
+interface PreservationGroup {
+	readonly values: readonly object[];
+	readonly allLost: string;
+	readonly partlyLost?: string;
+}
+
+function subjectNodes(
+	value: Extract<
+		Predicate,
+		{
+			kind: ComparisonKind | "in" | "between" | "is-null" | "is-blank";
+		}
+	>["left"],
+): readonly object[] {
+	// Property-only target shapes (`match`, containment, near) unwrap the
+	// ordinary `term(prop)` subject. Treat that as preservation of the same
+	// subject, while keeping a computed/input subject atomic so replacing its
+	// expression still requires confirmation.
+	return value.kind === "term" && value.term.kind === "prop"
+		? [value.term]
+		: [value];
+}
+
+function valueNodes(value: object): readonly object[] {
+	// Literal-only targets store the Literal directly, while comparisons and
+	// matches wrap it in `term(literal)`. Reusing that same Literal is a lossless
+	// move, so track the authored leaf instead of treating the envelope as data.
+	if (
+		"kind" in value &&
+		value.kind === "term" &&
+		"term" in value &&
+		value.term !== null &&
+		typeof value.term === "object" &&
+		"kind" in value.term &&
+		value.term.kind === "literal"
+	) {
+		return [value.term];
+	}
+	return [value];
+}
+
+/** AST nodes are immutable plain objects. Builders that preserve authored work
+ * reuse those exact nodes, even when they wrap them in a different envelope.
+ * Reference containment therefore lets both predicate menus distinguish a
+ * genuine reset from a lossless move without brittle kind-pair checklists. */
+function containsReference(root: unknown, target: object): boolean {
+	if (root === target) return true;
+	if (Array.isArray(root)) {
+		return root.some((item) => containsReference(item, target));
+	}
+	if (root === null || typeof root !== "object") return false;
+	return Object.values(root).some((item) => containsReference(item, target));
+}
+
+function preservationGroups(value: Predicate): readonly PreservationGroup[] {
+	switch (value.kind) {
+		case "eq":
+		case "neq":
+		case "gt":
+		case "gte":
+		case "lt":
+		case "lte":
+			return [
+				{ values: subjectNodes(value.left), allLost: "the subject" },
+				{ values: valueNodes(value.right), allLost: "the comparison value" },
+			];
+		case "in":
+			return [
+				{ values: subjectNodes(value.left), allLost: "the subject" },
+				{
+					values: value.values,
+					allLost: "the list values",
+					partlyLost: "some list values",
+				},
+			];
+		case "between": {
+			const bounds = [value.lower, value.upper]
+				.filter(
+					(bound): bound is NonNullable<typeof bound> => bound !== undefined,
+				)
+				.flatMap(valueNodes);
+			return [
+				{ values: subjectNodes(value.left), allLost: "the subject" },
+				{
+					values: bounds,
+					allLost: bounds.length === 1 ? "the range bound" : "the range bounds",
+					partlyLost: "one range bound",
+				},
+			];
+		}
+		case "match":
+			return [
+				{ values: [value.property], allLost: "the subject" },
+				{ values: valueNodes(value.value), allLost: "the match value" },
+			];
+		case "multi-select-contains":
+			return [
+				{ values: [value.property], allLost: "the subject" },
+				{
+					values: value.values,
+					allLost: "the selected options",
+					partlyLost: "some selected options",
+				},
+			];
+		case "within-distance":
+			return [
+				{ values: [value.property], allLost: "the location" },
+				{ values: valueNodes(value.center), allLost: "the center point" },
+			];
+		case "is-null":
+		case "is-blank":
+			return [{ values: subjectNodes(value.left), allLost: "the subject" }];
+		case "and":
+		case "or":
+			return [
+				{
+					values: value.clauses,
+					allLost: "the grouped conditions",
+					partlyLost: "some grouped conditions",
+				},
+			];
+		case "not":
+			return [{ values: [value.clause], allLost: "the condition inside" }];
+		case "when-input-present":
+			return [
+				{ values: [value.input], allLost: "the search answer" },
+				{ values: [value.clause], allLost: "the condition inside" },
+			];
+		case "exists":
+		case "missing":
+			return [
+				{ values: [value.via], allLost: "the case connection" },
+				...(value.where === undefined
+					? []
+					: [
+							{
+								values: [value.where],
+								allLost: "the related-case condition",
+							},
+						]),
+			];
+		case "match-all":
+		case "match-none":
+			return [];
+	}
+}
+
+function structurallyEqual(left: unknown, right: unknown): boolean {
+	if (left === right) return true;
+	if (left === null || right === null) return false;
+	if (typeof left !== "object" || typeof right !== "object") return false;
+	if (Array.isArray(left) || Array.isArray(right)) {
+		return (
+			Array.isArray(left) &&
+			Array.isArray(right) &&
+			left.length === right.length &&
+			left.every((item, index) => structurallyEqual(item, right[index]))
+		);
+	}
+	const leftRecord = left as Record<string, unknown>;
+	const rightRecord = right as Record<string, unknown>;
+	const leftKeys = Object.keys(leftRecord);
+	const rightKeys = Object.keys(rightRecord);
+	return (
+		leftKeys.length === rightKeys.length &&
+		leftKeys.every(
+			(key) =>
+				Object.hasOwn(rightRecord, key) &&
+				structurallyEqual(leftRecord[key], rightRecord[key]),
+		)
+	);
+}
+
+function preservesBetweenBoundaryChoices(
+	current: Extract<Predicate, { kind: "between" }>,
+	next: Predicate,
+): boolean {
+	if (containsReference(next, current)) return true;
+	if (next.kind === "between") {
+		return (
+			next.lowerInclusive === current.lowerInclusive &&
+			next.upperInclusive === current.upperInclusive
+		);
+	}
+	if (current.lower !== undefined && current.upper === undefined) {
+		return (
+			(next.kind === "gte" && current.lowerInclusive) ||
+			(next.kind === "gt" && !current.lowerInclusive)
+		);
+	}
+	if (current.upper !== undefined && current.lower === undefined) {
+		return (
+			(next.kind === "lte" && current.upperInclusive) ||
+			(next.kind === "lt" && !current.upperInclusive)
+		);
+	}
+	return (
+		next.kind === "eq" &&
+		current.lower !== undefined &&
+		current.upper !== undefined &&
+		current.lowerInclusive &&
+		current.upperInclusive &&
+		structurallyEqual(current.lower, current.upper)
+	);
+}
+
+function formatConsequenceList(parts: readonly string[]): string {
+	if (parts.length === 1) return parts[0] ?? "part of this condition";
+	if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+	return `${parts.slice(0, -1).join(", ")}, and ${parts.at(-1)}`;
+}
+
+/** Produce a confirmation only when the proposed AST no longer contains an
+ * authored operand, subtree, or setting. Callers are expected to build the
+ * most-preserving target first; this function is the shared loss backstop. */
+export function planPredicateTransition(
+	current: Predicate,
+	next: Predicate,
+	targetLabel: string,
+): PredicateTransitionPlan {
+	const losses = preservationGroups(current).flatMap((group) => {
+		const lostCount = group.values.filter(
+			(value) => !containsReference(next, value),
+		).length;
+		if (lostCount === 0) return [];
+		if (lostCount < group.values.length && group.partlyLost !== undefined) {
+			return [group.partlyLost];
+		}
+		return [group.allLost];
+	});
+
+	if (
+		current.kind === "between" &&
+		!preservesBetweenBoundaryChoices(current, next)
+	) {
+		losses.push("the range boundary choices");
+	}
+	if (
+		current.kind === "within-distance" &&
+		!containsReference(next, current) &&
+		(next.kind !== "within-distance" ||
+			next.distance !== current.distance ||
+			next.unit !== current.unit)
+	) {
+		losses.push("the distance and unit");
+	}
+
+	const uniqueLosses = [...new Set(losses)];
+	if (uniqueLosses.length === 0) return { next };
+	const consequence = formatConsequenceList(uniqueLosses);
+	return {
+		next,
+		confirmation: {
+			title: `Changing to “${targetLabel}” removes ${consequence}`,
+			description: "Saved case data stays unchanged",
+		},
+	};
+}
+
+export function PredicateTransitionAlert({
+	plan,
+	onCancel,
+	onConfirm,
+	finalFocus,
+}: {
+	readonly plan: PredicateTransitionPlan | null;
+	readonly onCancel: () => void;
+	readonly onConfirm: () => void;
+	readonly finalFocus?: React.ComponentProps<
+		typeof AlertDialogContent
+	>["finalFocus"];
+}) {
+	return (
+		<AlertDialog
+			open={plan?.confirmation !== undefined}
+			onOpenChange={(open) => {
+				if (!open) onCancel();
+			}}
+		>
+			<AlertDialogContent finalFocus={finalFocus} className="text-left">
+				<AlertDialogHeader>
+					<AlertDialogTitle className="font-display">
+						{plan?.confirmation?.title}
+					</AlertDialogTitle>
+					<AlertDialogDescription className="text-left">
+						{plan?.confirmation?.description}
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel>Cancel</AlertDialogCancel>
+					<AlertDialogAction variant="destructive" onClick={onConfirm}>
+						Change condition
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
+	);
 }
 
 /** Comparison-kind membership Set, sourced from the canonical
@@ -263,30 +660,64 @@ export function preservedOperandSwap(
 	return null;
 }
 
-/**
- * Menu that replaces the current card's predicate with a
- * different kind. Two replacement strategies:
- *
- *   1. **Operand-preserving swap** — when the source and target
- *      kinds share an identical operand shape (the four
- *      structural-twin pairs documented on
- *      `preservedOperandSwap`), the existing operands carry over
- *      to the new kind verbatim. Same result the in-card
- *      `KindMenu` produces for `exists` ↔ `missing`, so the two
- *      affordances are interchangeable.
- *   2. **Default-value reset** — for every other kind transition
- *      (e.g. `eq` → `between`), the target schema's
- *      `defaultValue(...)` factory rebuilds from the case-type
- *      schema. Operand SHAPES differ enough that no structural
- *      carry-over is sound (e.g. `eq`'s `{ left, right }` doesn't
- *      map cleanly onto `between`'s `{ left, lower?, upper?,
- *      lowerInclusive, upperInclusive }`).
- *
- * The menu lists every kind, marking the current one with a
- * violet dot.
- */
-function KindReplaceMenu({ currentValue, onChange }: KindReplaceMenuProps) {
+/** Build the most-preserving replacement available to the structural-card
+ * menu. Groups and wrappers keep the current tree inside them. Removing a
+ * `not` or search-answer wrapper can return its exact child (or a structural
+ * twin of that child) instead of reseeding a blank condition. Shapes that
+ * cannot represent the existing work still fall back to their valid default;
+ * `planPredicateTransition` then requires an explicit confirmation. */
+export function buildPredicateKindReplacement(
+	currentValue: Predicate,
+	targetKind: Predicate["kind"],
+	ctx: PredicateEditContext,
+): Predicate {
+	const preserved = preservedOperandSwap(currentValue, targetKind);
+	if (preserved !== null) return preserved;
+
+	if (targetKind === "and" || targetKind === "or") {
+		if (
+			currentValue.kind === "match-all" ||
+			currentValue.kind === "match-none"
+		) {
+			return predicateCardSchemas[targetKind].defaultValue(ctx);
+		}
+		const sibling = predicateCardSchemas.eq.defaultValue(ctx);
+		return targetKind === "and"
+			? and(currentValue, sibling)
+			: or(currentValue, sibling);
+	}
+	if (targetKind === "not") return not(currentValue);
+	if (targetKind === "when-input-present") {
+		const fallback =
+			predicateCardSchemas["when-input-present"].defaultValue(ctx);
+		return { ...fallback, clause: currentValue };
+	}
+
+	const wrappedClause =
+		currentValue.kind === "not" || currentValue.kind === "when-input-present"
+			? currentValue.clause
+			: undefined;
+	if (wrappedClause !== undefined) {
+		if (wrappedClause.kind === targetKind) return wrappedClause;
+		const swappedClause = preservedOperandSwap(wrappedClause, targetKind);
+		if (swappedClause !== null) return swappedClause;
+	}
+
+	return predicateCardSchemas[targetKind].defaultValue(ctx);
+}
+
+/** Structural-card kind menu. Lossless changes are immediate. A change that
+ * would discard an authored subtree or setting closes the menu and stages the
+ * shared consequence-first confirmation instead. */
+export function PredicateKindReplaceMenu({
+	currentValue,
+	onChange,
+	label = "Change condition",
+}: PredicateKindReplaceMenuProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
+	const [pendingKind, setPendingKind] = useState<Predicate["kind"] | null>(
+		null,
+	);
 	const ctx = usePredicateEditContext();
 	const editCtx: PredicateEditContext = {
 		caseTypes: ctx.caseTypes,
@@ -294,117 +725,134 @@ function KindReplaceMenu({ currentValue, onChange }: KindReplaceMenuProps) {
 		knownInputs: ctx.knownInputs,
 	};
 	const currentKind = currentValue.kind;
+	const pendingPlan =
+		pendingKind === null
+			? null
+			: planPredicateTransition(
+					currentValue,
+					buildPredicateKindReplacement(currentValue, pendingKind, editCtx),
+					predicateCardSchemas[pendingKind].label,
+				);
 
 	const replaceWith = <K extends Predicate["kind"]>(
 		schema: PredicateCardSchema<K>,
 	) => {
-		const preserved = preservedOperandSwap(currentValue, schema.kind);
-		onChange(preserved ?? schema.defaultValue(editCtx));
+		const plan = planPredicateTransition(
+			currentValue,
+			buildPredicateKindReplacement(currentValue, schema.kind, editCtx),
+			schema.label,
+		);
+		if (plan.confirmation !== undefined) {
+			setPendingKind(schema.kind);
+			return;
+		}
+		onChange(plan.next);
 	};
 
 	return (
-		<Menu.Root>
-			<Menu.Trigger
-				ref={triggerRef}
-				aria-label="Change card type"
-				className="group flex items-center gap-1 px-2 min-h-11 text-[10px] uppercase tracking-wider rounded-md text-nova-text-muted hover:text-nova-violet-bright hover:bg-white/[0.04] transition-colors cursor-pointer"
-			>
-				<span>Change</span>
-				<svg
-					aria-hidden="true"
-					width="8"
-					height="8"
-					viewBox="0 0 10 10"
-					className="shrink-0 transition-transform group-data-[popup-open]:rotate-180"
+		<>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					ref={triggerRef}
+					aria-label={`${label} type`}
+					render={
+						<Button
+							type="button"
+							variant="ghost"
+							size="xl"
+							className="group px-2 text-sm text-nova-text-muted not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-violet-bright"
+						/>
+					}
 				>
-					<path
-						d="M2 3.5L5 6.5L8 3.5"
-						stroke="currentColor"
-						strokeWidth="1.4"
-						fill="none"
-						strokeLinecap="round"
-						strokeLinejoin="round"
+					<span>{label}</span>
+					<Icon
+						icon={tablerChevronDown}
+						width="14"
+						height="14"
+						className="shrink-0 transition-transform group-data-[popup-open]:rotate-180"
 					/>
-				</svg>
-			</Menu.Trigger>
-			<Menu.Portal>
-				<Menu.Positioner
-					side="bottom"
-					align="end"
-					sideOffset={4}
-					anchor={triggerRef}
-					className={MENU_POSITIONER_CLS}
-					style={{ maxHeight: 320 }}
-				>
-					<Menu.Popup
-						className={`${MENU_POPUP_CLS} max-h-80 overflow-y-auto min-w-[18rem]`}
+				</DropdownMenuTrigger>
+				<DropdownMenuPortal>
+					<DropdownMenuPositioner
+						side="bottom"
+						align="end"
+						sideOffset={4}
+						anchor={triggerRef}
+						style={{ minWidth: "18rem", maxHeight: 320 }}
 					>
-						{predicateCardSchemaList.map((s, i) => {
-							const isCurrent = s.kind === currentKind;
-							const isApplicable = s.applicable(editCtx);
-							const last = predicateCardSchemaList.length - 1;
-							const corners =
-								i === 0 && i === last
-									? "rounded-xl"
-									: i === 0
-										? "rounded-t-xl"
-										: i === last
-											? "rounded-b-xl"
-											: "";
-							const cls = [
-								corners,
-								MENU_ITEM_CLS,
-								isCurrent ? "text-nova-violet-bright bg-nova-violet/10" : "",
-								isApplicable ? "" : "opacity-40",
-							].join(" ");
-							return (
-								<Menu.Item
-									key={s.kind}
-									onClick={() => replaceWith(s)}
-									// Current kind is not a valid replacement target —
-									// clicking it would re-render an identical predicate.
-									// Inapplicable kinds (per the schema's `applicable`
-									// predicate — e.g. `multi-select-contains` on a case
-									// type without a multi_select property) are disabled
-									// WITH a reason so the editor never offers a swap that
-									// would author a kind whose semantics don't fit the
-									// scope. The current kind stays rendered regardless of
-									// its own applicability (legacy-open backstop).
-									// Symmetric with the kind-replace menu in
-									// `primitives/ExpressionPicker.tsx`.
-									disabled={isCurrent || !isApplicable}
-									className={cls}
-								>
-									<Icon
-										icon={s.icon}
-										width="14"
-										height="14"
-										className={
-											isCurrent
-												? "text-nova-violet-bright"
-												: "text-nova-text-muted"
-										}
-									/>
-									<span className="flex-1 text-left min-w-0">
-										<div className="truncate">{s.label}</div>
-										<div
-											className={`text-[10px] truncate ${
+						<DropdownMenuPopup className="max-h-80 min-w-0">
+							{predicateCardSchemaList
+								.filter(
+									(s) =>
+										s.kind === currentKind || isAuthorablePredicateKind(s.kind),
+								)
+								.map((s) => {
+									const isCurrent = s.kind === currentKind;
+									const isApplicable = s.applicable(editCtx);
+									return (
+										<DropdownMenuItem
+											key={s.kind}
+											onClick={() => replaceWith(s)}
+											// Current kind is not a valid replacement target —
+											// clicking it would re-render an identical predicate.
+											// Inapplicable kinds (per the schema's `applicable`
+											// predicate — e.g. `multi-select-contains` on a case
+											// type without a multi_select property) are disabled
+											// WITH a reason so the editor never offers a swap that
+											// would author a kind whose semantics don't fit the
+											// scope. The current kind stays rendered regardless of
+											// its own applicability (legacy-open backstop).
+											// Symmetric with the kind-replace menu in
+											// `primitives/ExpressionPicker.tsx`.
+											disabled={isCurrent || !isApplicable}
+											className={`h-auto min-h-11 items-start whitespace-normal py-2 ${
 												isCurrent
-													? "text-nova-violet-bright"
-													: "text-nova-text-muted"
+													? "bg-nova-violet/10 text-nova-violet-bright"
+													: ""
 											}`}
 										>
-											{isApplicable
-												? s.description
-												: "Not available for this case type."}
-										</div>
-									</span>
-								</Menu.Item>
-							);
-						})}
-					</Menu.Popup>
-				</Menu.Positioner>
-			</Menu.Portal>
-		</Menu.Root>
+											<Icon
+												icon={s.icon}
+												width="14"
+												height="14"
+												className={
+													isCurrent
+														? "text-nova-violet-bright"
+														: "text-nova-text-muted"
+												}
+											/>
+											<span className="flex-1 text-left min-w-0">
+												<div className="break-words">{s.label}</div>
+												<div
+													className={`break-words text-xs ${
+														isCurrent
+															? "text-nova-violet-bright"
+															: "text-nova-text-muted"
+													}`}
+												>
+													{isApplicable
+														? s.description
+														: predicateUnavailableReason(s.kind, editCtx)}
+												</div>
+											</span>
+										</DropdownMenuItem>
+									);
+								})}
+						</DropdownMenuPopup>
+					</DropdownMenuPositioner>
+				</DropdownMenuPortal>
+			</DropdownMenu>
+			<PredicateTransitionAlert
+				plan={pendingPlan}
+				finalFocus={triggerRef}
+				onCancel={() => setPendingKind(null)}
+				onConfirm={() => {
+					if (pendingPlan === null) return;
+					const next = pendingPlan.next;
+					setPendingKind(null);
+					onChange(next);
+				}}
+			/>
+		</>
 	);
 }

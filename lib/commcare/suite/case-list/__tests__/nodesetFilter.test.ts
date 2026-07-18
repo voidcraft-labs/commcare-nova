@@ -40,9 +40,15 @@ import {
 	matchAll,
 	matchNone,
 	prop,
+	sessionUser,
 	subcasePath,
+	term,
 } from "@/lib/domain/predicate/builders";
-import { emitNodesetFilter } from "../nodesetFilter";
+import {
+	emitExcludedOwnerFilterExpression,
+	emitExcludedOwnerNodesetFilter,
+	emitNodesetFilter,
+} from "../nodesetFilter";
 
 // ============================================================
 // SHELL 1 — Empty-fragment shapes
@@ -110,14 +116,15 @@ describe("emitNodesetFilter — predicate compilation", () => {
 	});
 
 	it("wraps a relational-walk predicate that emits its own brackets internally", () => {
-		// Relational quantifiers emit count-based join expressions
-		// that contain inner `[...]` predicates against the casedb
-		// nodeset. The outer wrap is still one bracket pair —
-		// XPath's grammar handles the nesting; the wire layer never
-		// flattens or de-duplicates inner brackets.
+		// Relational quantifiers collect matching destination ids and use
+		// selected-token membership against the immediate candidate. This is
+		// safe when nested: CommCare Core preserves `current()` from the first
+		// predicate forever, so the older `index= current()/@case_id` shape
+		// silently re-anchored inner walks to the original list case. The outer
+		// wrap remains one bracket pair around the complete membership test.
 		const filter = exists(subcasePath("child"));
 		expect(emitNodesetFilter(filter)).toBe(
-			"[count(instance('casedb')/casedb/case[index/child=current()/@case_id]) > 0]",
+			"[count(@case_id) > 0 and selected(join(' ', instance('casedb')/casedb/case[true()]/index/child), @case_id)]",
 		);
 	});
 
@@ -181,5 +188,58 @@ describe("emitNodesetFilter — filter precedence on the full nodeset", () => {
 		expect(fullNodeset).toBe(
 			"instance('casedb')/casedb/case[@case_type='clinic'][@status='open']",
 		);
+	});
+});
+
+describe("owner exclusion on the ordinary case-list nodeset", () => {
+	it("guards blank globally-resolved values before checking owner membership", () => {
+		const excludedOwners = term(literal("owner-a owner-b"));
+
+		expect(emitExcludedOwnerFilterExpression(excludedOwners)).toBe(
+			"normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))",
+		);
+		expect(emitExcludedOwnerNodesetFilter(excludedOwners)).toBe(
+			"[normalize-space('owner-a owner-b') = '' or not(selected(normalize-space('owner-a owner-b'), @owner_id))]",
+		);
+	});
+
+	it.each([
+		"",
+		"   \t  ",
+	])("keeps unassigned cases when the exclusion value is blank (%j)", (value) => {
+		// CommCare Core's XPathSelectedFunc.multiSelected implements
+		// `(\" \" + s1 + \" \").contains(\" \" + s2.trim() + \" \")`, so
+		// `selected('', '')` is true. The leading normalize-space identity
+		// must therefore win before the unassigned row's empty @owner_id is
+		// tested.
+		const literalXpath = value === "" ? "''" : `'${value}'`;
+		expect(emitExcludedOwnerFilterExpression(term(literal(value)))).toBe(
+			`normalize-space(${literalXpath}) = '' or not(selected(normalize-space(${literalXpath}), @owner_id))`,
+		);
+	});
+
+	it("normalizes repeated, trailing, and tab whitespace before membership", () => {
+		const value = "owner-a  owner-b\t ";
+		const literalXpath = `'${value}'`;
+		expect(emitExcludedOwnerFilterExpression(term(literal(value)))).toBe(
+			`normalize-space(${literalXpath}) = '' or not(selected(normalize-space(${literalXpath}), @owner_id))`,
+		);
+	});
+
+	it("guards a runtime session value that may resolve blank", () => {
+		const xpath =
+			"instance('commcaresession')/session/user/data/excluded_owner_ids";
+		expect(
+			emitExcludedOwnerFilterExpression(
+				term(sessionUser("excluded_owner_ids")),
+			),
+		).toBe(
+			`normalize-space(${xpath}) = '' or not(selected(normalize-space(${xpath}), @owner_id))`,
+		);
+	});
+
+	it("omits the owner predicate when no exclusion expression is authored", () => {
+		expect(emitExcludedOwnerFilterExpression(undefined)).toBeUndefined();
+		expect(emitExcludedOwnerNodesetFilter(undefined)).toBe("");
 	});
 });

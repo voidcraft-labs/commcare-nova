@@ -240,13 +240,6 @@ export function batchTargetsMissing(
 			// Add checks the parent module and seeds the new item; update / move
 			// / remove check the ITEM's own uuid (a concurrently-removed target is
 			// a conflict, not a silent no-op). `setCaseListMeta` is module-scoped.
-			case "ensureCaseListConfig":
-				// The ensure targets only the module and idempotently materializes the
-				// config. An already-present peer config is deliberately not a
-				// conflict; its granular contents must survive this stale birth.
-				if (!modules.has(m.uuid)) return true;
-				modulesWithConfig.add(m.uuid);
-				break;
 			case "addColumn":
 				if (!modules.has(m.moduleUuid)) return true;
 				// The first column births a config-less module's config (the
@@ -261,8 +254,6 @@ export function batchTargetsMissing(
 				break;
 			case "updateColumn":
 			case "moveColumn":
-			case "moveColumnInList":
-			case "moveColumnInDetail":
 				if (!columns.has(m.uuid)) return true;
 				break;
 			case "addSearchInput":
@@ -289,11 +280,6 @@ export function batchTargetsMissing(
 				if (!modules.has(m.uuid) || !modulesWithConfig.has(m.uuid)) {
 					return true;
 				}
-				break;
-			case "setCaseSearchMarker":
-				// The semantic reducer may intentionally no-op on fresh peer state,
-				// but a removed owning module is still a real missing target.
-				if (!modules.has(m.uuid)) return true;
 				break;
 			// ── Granular select options (field-owned) ──────────────────
 			case "addOption":

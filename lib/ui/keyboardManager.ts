@@ -7,7 +7,10 @@ export interface Shortcut {
 	/** Return `false` to DECLINE the key: the manager leaves the event
 	 *  untouched and keeps scanning earlier registrations, so a
 	 *  broadly-registered key (layout-level Escape) doesn't eat events
-	 *  it has nothing to do with. Any other return means handled. */
+	 *  it has nothing to do with. Any other return means handled, including
+	 *  an implicit `undefined`, so every conditional handler must explicitly
+	 *  return `false` on paths where it took no action and native behavior
+	 *  should continue. */
 	// biome-ignore lint/suspicious/noConfusingVoidType: `void` is the point — existing handlers return nothing (= handled); only an explicit `false` declines.
 	handler: (e: KeyboardEvent) => boolean | void;
 	/** If true, fires even when focus is inside text inputs */

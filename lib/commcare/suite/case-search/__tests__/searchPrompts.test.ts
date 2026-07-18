@@ -20,14 +20,15 @@
 //      registers `input.label` when set, falling back to
 //      `input.name` for empty labels so the runtime renders
 //      something readable rather than the locale id itself. The
-//      `@default` attribute populates from `input.default` when
-//      present, omitted otherwise.
+//      `@default` attribute populates from a scalar input's
+//      `input.default` when present. Date range deliberately omits the
+//      historical scalar slot because one expression cannot seed both ends.
 //
-//   3. **Per-arm dispatch.** Simple-arm and advanced-arm rows emit
-//      the same `<prompt>` shape. Advanced-arm predicates surface
-//      via the sibling `getAdvancedArmPredicates` helper for the
-//      orchestrator's `_xpath_query` AND-composition. Simple-arm
-//      rows do not contribute to that helper's output.
+//   3. **Per-arm dispatch.** Both arms emit prompt bindings. Advanced
+//      prompts carry `exclude="true()"` so CommCare Core binds their
+//      values without also auto-matching the prompt key as a case
+//      property. Their predicates surface via the sibling
+//      `getAdvancedArmPredicates` helper for `_xpath_query`.
 //
 //   4. **Attribute order.** When multiple optional attributes
 //      populate, the wire emission orders them `key`, `appearance`,
@@ -49,23 +50,40 @@ import { describe, expect, it } from "vitest";
 import {
 	advancedSearchInputDef,
 	asUuid,
+	type CaseListConfig,
 	type SearchInputDef,
+	type SearchInputType,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
 	ancestorPath,
+	and,
+	count,
+	dateAdd,
 	dateCoerce,
 	dateLiteral,
+	double,
 	eq,
+	gt,
 	input,
 	literal,
 	prop,
 	relationStep,
+	subcasePath,
 	term,
 	today,
 	whenInput,
+	within,
 } from "@/lib/domain/predicate/builders";
-import { emitSearchPrompts, getAdvancedArmPredicates } from "../searchPrompts";
+import {
+	emitSearchPrompts,
+	getAdvancedArmPredicates,
+	RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE,
+} from "../searchPrompts";
+import {
+	buildRuntimeCsqlPromptValidations,
+	composeXPathQueryEmission,
+} from "../xpathQuery";
 
 // ============================================================
 // Test helpers
@@ -85,6 +103,251 @@ const MODULE_ID = "m0";
 // ============================================================
 
 describe("emitSearchPrompts — per-input-type attribute mapping", () => {
+	it("combines quote and calendar-number rules into Core's one validation slot", () => {
+		const predicate = whenInput(
+			input("months"),
+			eq(
+				prop("patient", "due_date"),
+				dateAdd(today(), "months", double(term(input("months")))),
+			),
+		);
+		const inputDef = advancedSearchInputDef(
+			INPUT_UUIDS.a,
+			"months",
+			"Months",
+			"text",
+			predicate,
+		);
+		const config: CaseListConfig = { columns: [], searchInputs: [inputDef] };
+		const validations = buildRuntimeCsqlPromptValidations(
+			composeXPathQueryEmission(config, "patient"),
+		);
+		const validation = validations.get("months");
+
+		expect(validation?.test).toContain(
+			"number(instance('search-input:results')",
+		);
+		expect(validation?.test).toContain("= floor(number(");
+		expect(validation?.test).toContain(
+			"count(instance('search-input:results')",
+		);
+		expect(validation?.test).toContain("contains(");
+		expect(validation?.message).toContain("whole number");
+		const { xml } = emitSearchPrompts([inputDef], MODULE_ID, validations);
+		expect(xml.match(/<validation /g)).toHaveLength(1);
+	});
+
+	it("uses a nonnegative whole-number rule for prompted child counts", () => {
+		const predicate = whenInput(
+			input("minimum"),
+			gt(count(subcasePath("child")), double(term(input("minimum")))),
+		);
+		const inputDef = advancedSearchInputDef(
+			INPUT_UUIDS.a,
+			"minimum",
+			"Minimum",
+			"text",
+			predicate,
+		);
+		const config: CaseListConfig = { columns: [], searchInputs: [inputDef] };
+		const validation = buildRuntimeCsqlPromptValidations(
+			composeXPathQueryEmission(config, "patient"),
+		).get("minimum");
+
+		expect(validation?.test).toContain(") >= 0");
+		expect(validation?.test).toContain(
+			"count(instance('search-input:results')",
+		);
+		expect(validation?.message).toContain("zero or greater");
+	});
+
+	it("keeps independent computed location obligations on their own prompts", () => {
+		const first = advancedSearchInputDef(
+			INPUT_UUIDS.a,
+			"near_home",
+			"Near home",
+			"text",
+			whenInput(
+				input("near_home"),
+				within(
+					prop("patient", "home_location"),
+					input("near_home"),
+					5,
+					"kilometers",
+				),
+			),
+		);
+		const second = advancedSearchInputDef(
+			INPUT_UUIDS.b,
+			"near_work",
+			"Near work",
+			"text",
+			whenInput(
+				input("near_work"),
+				within(
+					prop("patient", "work_location"),
+					input("near_work"),
+					5,
+					"kilometers",
+				),
+			),
+		);
+		const config: CaseListConfig = {
+			columns: [],
+			searchInputs: [
+				{ ...first, predicate: and(first.predicate, second.predicate) },
+				second,
+			],
+		};
+		const validations = buildRuntimeCsqlPromptValidations(
+			composeXPathQueryEmission(config, "patient"),
+		);
+
+		expect(validations.get("near_home")?.test).toContain("near_home");
+		expect(validations.get("near_home")?.test).not.toContain("near_work");
+		expect(validations.get("near_work")?.test).toContain("near_work");
+		expect(validations.get("near_work")?.test).not.toContain("near_home");
+	});
+
+	it("emits one localized quote validation only for a CSQL-bound prompt", () => {
+		const input = simpleSearchInputDef(
+			INPUT_UUIDS.a,
+			"name_query",
+			"Name",
+			"text",
+			"case_name",
+		);
+		const { xml, strings } = emitSearchPrompts(
+			[input],
+			MODULE_ID,
+			new Map([
+				[
+					"name_query",
+					{
+						test: `not(contains(., "'") and contains(., '"'))`,
+						message: RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE,
+					},
+				],
+			]),
+		);
+
+		expect(xml).toContain(
+			`<validation test="not(contains(., &quot;&apos;&quot;) and contains(., &apos;&quot;&apos;))">`,
+		);
+		expect(xml.match(/<validation /g)).toHaveLength(1);
+		expect(xml).toContain(
+			`<locale id="search_property.m0.name_query.validation.0.text"/>`,
+		);
+		expect(strings).toEqual({
+			"search_property.m0.name_query": "Name",
+			"search_property.m0.name_query.validation.0.text":
+				RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE,
+		});
+	});
+
+	it("does not restrict an auto-match-only prompt", () => {
+		const input = simpleSearchInputDef(
+			INPUT_UUIDS.a,
+			"case_name",
+			"Name",
+			"text",
+			"case_name",
+		);
+		const { xml, strings } = emitSearchPrompts([input], MODULE_ID, new Map());
+		expect(xml).not.toContain("<validation");
+		expect(strings).toEqual({ "search_property.m0.case_name": "Name" });
+	});
+
+	it("derives prompt validation from the effective query dataflow, including the always-on filter", () => {
+		const filterValue = advancedSearchInputDef(
+			INPUT_UUIDS.a,
+			"filter_value",
+			"Status",
+			"text",
+			{ kind: "match-all" },
+		);
+		const sibling = advancedSearchInputDef(
+			INPUT_UUIDS.b,
+			"sibling",
+			"Region",
+			"text",
+			{ kind: "match-all" },
+		);
+		const owner = advancedSearchInputDef(
+			INPUT_UUIDS.c,
+			"owner",
+			"Owner row",
+			"text",
+			whenInput(
+				input("sibling"),
+				eq(prop("patient", "region"), input("sibling")),
+			),
+		);
+		const triggerOnly = advancedSearchInputDef(
+			asUuid("00000000-0000-4000-8000-aaaa00000004"),
+			"trigger_only",
+			"Optional rule",
+			"text",
+			whenInput(
+				input("trigger_only"),
+				eq(prop("patient", "status"), literal("active")),
+			),
+		);
+		const config: CaseListConfig = {
+			columns: [],
+			filter: whenInput(
+				input("filter_value"),
+				eq(prop("patient", "status"), input("filter_value")),
+			),
+			searchInputs: [filterValue, sibling, owner, triggerOnly],
+		};
+
+		const validations = buildRuntimeCsqlPromptValidations(
+			composeXPathQueryEmission(config, "patient"),
+		);
+
+		expect([...validations.keys()].sort()).toEqual(["filter_value", "sibling"]);
+		expect(validations.get("filter_value")?.test).toContain(
+			"@name='filter_value'",
+		);
+		expect(validations.get("filter_value")?.test).not.toContain(
+			"@name='sibling'",
+		);
+		expect(validations.get("sibling")?.test).toContain("@name='sibling'");
+		expect(validations.get("sibling")?.test).not.toContain("@name='owner'");
+	});
+
+	it.each<SearchInputType>([
+		"text",
+		"select",
+		"date",
+		"date-range",
+		"barcode",
+	])("attaches the same CSQL quote guard to an explicitly bound %s prompt", (type) => {
+		const inputName = `query_${type.replace("-", "_")}`;
+		const inputDef = advancedSearchInputDef(
+			INPUT_UUIDS.a,
+			inputName,
+			"Query",
+			type,
+			whenInput(
+				input(inputName),
+				eq(prop("patient", "case_name"), input(inputName)),
+			),
+		);
+		const config: CaseListConfig = {
+			columns: [],
+			searchInputs: [inputDef],
+		};
+		const validations = buildRuntimeCsqlPromptValidations(
+			composeXPathQueryEmission(config, "patient"),
+		);
+		const { xml } = emitSearchPrompts([inputDef], MODULE_ID, validations);
+
+		expect(validations.get(inputName)?.test).toContain(`@name='${inputName}'`);
+		expect(xml.match(/<validation /g)).toHaveLength(1);
+	});
+
 	it("text type omits both @input and @appearance (CCHQ default)", () => {
 		const inputs: SearchInputDef[] = [
 			simpleSearchInputDef(
@@ -137,7 +400,7 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 
 		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
 
-		expect(xml).toContain(`<prompt key="dob" input="date">`);
+		expect(xml).toContain(`<prompt key="dob" input="date" exclude="true()">`);
 	});
 
 	it("date-range type emits input='daterange' (CCHQ collapses the token)", () => {
@@ -157,6 +420,24 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
 
 		expect(xml).toContain(`<prompt key="visit_date" input="daterange">`);
+	});
+
+	it("never emits a legacy scalar default on a paired date-range prompt", () => {
+		const inputs: SearchInputDef[] = [
+			simpleSearchInputDef(
+				INPUT_UUIDS.a,
+				"visit_date",
+				"Visit window",
+				"date-range",
+				"visit_date",
+				{ default: today() },
+			),
+		];
+
+		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
+
+		expect(xml).toContain(`<prompt key="visit_date" input="daterange">`);
+		expect(xml).not.toContain(" default=");
 	});
 
 	it("keeps a legacy date-opened target on the canonical daterange prompt", () => {
@@ -248,10 +529,9 @@ describe("emitSearchPrompts — @default attribute conditional on input.default"
 		// CCHQ's `QueryPrompt` model declaration order. A regression
 		// that flipped attribute order — say, emitting `default`
 		// before `input`, or `exclude` before `default` — would fail
-		// this exact-string check. The fixture uses `name === property`
-		// (the bare-prompt-correct shape) so the derivation gate
-		// keeps the input off the exclude route; a sibling test
-		// covers the `name !== property` + default combination.
+		// this exact-string check. Calendar-day matching routes through the
+		// explicit same-day predicate, so the prompt suppresses Core's implicit
+		// exact match while still binding the entered/default value.
 		const inputs: SearchInputDef[] = [
 			simpleSearchInputDef(INPUT_UUIDS.a, "dob", "Since", "date", "dob", {
 				default: today(),
@@ -262,7 +542,7 @@ describe("emitSearchPrompts — @default attribute conditional on input.default"
 
 		// Compact serializer output.
 		expect(xml).toBe(
-			`<prompt key="dob" input="date" default="today()">` +
+			`<prompt key="dob" input="date" default="today()" exclude="true()">` +
 				`<display><text><locale id="search_property.m0.dob"/></text></display>` +
 				`</prompt>`,
 		);
@@ -443,12 +723,11 @@ describe("emitSearchPrompts — exclude attribute (simple-arm bogus-auto-match s
 		expect(xml).not.toContain(`exclude=`);
 	});
 
-	it("does NOT emit exclude attribute on an advanced-arm input", () => {
-		// Advanced-arm inputs author their entire predicate; CCHQ's
-		// runtime auto-match against the prompt key isn't part of
-		// their semantic, so the attribute would be noise. Diverging
-		// from CCHQ's typical advanced-arm wire shape without a
-		// runtime benefit is its own footgun.
+	it("emits exclude='true()' on an advanced-arm input", () => {
+		// The prompt still binds the typed value into the search-input
+		// instance. `exclude` prevents CommCare Core from ALSO submitting
+		// `full_name=<value>` as an implicit property query alongside the
+		// authored `_xpath_query` predicate.
 		const inputs: SearchInputDef[] = [
 			advancedSearchInputDef(
 				INPUT_UUIDS.a,
@@ -461,7 +740,7 @@ describe("emitSearchPrompts — exclude attribute (simple-arm bogus-auto-match s
 
 		const { xml } = emitSearchPrompts(inputs, MODULE_ID);
 
-		expect(xml).not.toContain(`exclude=`);
+		expect(xml).toContain(`<prompt key="full_name" exclude="true()">`);
 	});
 
 	it("places exclude='true()' AFTER default attribute (CCHQ-canonical declaration order)", () => {
@@ -493,13 +772,11 @@ describe("emitSearchPrompts — exclude attribute (simple-arm bogus-auto-match s
 // ============================================================
 
 describe("emitSearchPrompts — per-arm dispatch", () => {
-	it("simple-arm and advanced-arm emit the same <prompt> shape", () => {
-		// Both arms carry the same `(name, label, type)` triple — the
-		// wire output should be byte-identical for them. The arms
-		// diverge in their predicate composition (advanced contributes
-		// to `_xpath_query`), not in the prompt-element wire shape.
-		// Uses `name === property` on the simple arm so the simple-arm
-		// derivation gate keeps both arms in the no-exclude branch.
+	it("both arms emit the same prompt metadata while advanced suppresses Core's auto-match", () => {
+		// Both arms carry the same `(name, label, type)` metadata. The
+		// exact simple input relies on Core's implicit property matcher;
+		// the advanced input authors its matcher in `_xpath_query`, so its
+		// prompt must bind the value with `exclude="true()"`.
 		const simple: SearchInputDef = simpleSearchInputDef(
 			INPUT_UUIDS.a,
 			"full_name",
@@ -518,7 +795,32 @@ describe("emitSearchPrompts — per-arm dispatch", () => {
 		const simpleEmission = emitSearchPrompts([simple], MODULE_ID);
 		const advancedEmission = emitSearchPrompts([advanced], MODULE_ID);
 
-		expect(simpleEmission.xml).toBe(advancedEmission.xml);
+		expect(simpleEmission.strings).toEqual(advancedEmission.strings);
+		expect(simpleEmission.xml).toContain(`<prompt key="full_name">`);
+		expect(simpleEmission.xml).not.toContain(`exclude=`);
+		expect(advancedEmission.xml).toContain(
+			`<prompt key="full_name" exclude="true()">`,
+		);
+	});
+
+	it("keeps advanced widget/default metadata and places exclude after default", () => {
+		const advanced = advancedSearchInputDef(
+			INPUT_UUIDS.a,
+			"visited_after",
+			"",
+			"date",
+			eq(prop("patient", "visit_date"), literal("2026-07-17")),
+			{ default: today() },
+		);
+
+		const { xml, strings } = emitSearchPrompts([advanced], MODULE_ID);
+
+		expect(xml).toContain(
+			`<prompt key="visited_after" input="date" default="today()" exclude="true()">`,
+		);
+		expect(strings[`search_property.${MODULE_ID}.visited_after`]).toBe(
+			"visited_after",
+		);
 	});
 
 	it("advanced-arm predicates surface via getAdvancedArmPredicates", () => {
@@ -686,7 +988,7 @@ describe("emitSearchPrompts — golden-file vs CCHQ remote_request.xml", () => {
 			`<prompt key="full_name">` +
 				`<display><text><locale id="search_property.m0.full_name"/></text></display>` +
 				`</prompt>`,
-			`<prompt key="dob" input="date">` +
+			`<prompt key="dob" input="date" exclude="true()">` +
 				`<display><text><locale id="search_property.m0.dob"/></text></display>` +
 				`</prompt>`,
 			`<prompt key="consent" input="select1">` +

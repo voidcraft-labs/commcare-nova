@@ -1,10 +1,14 @@
 "use client";
-import { Popover } from "@base-ui/react/popover";
 import { Icon } from "@iconify/react/offline";
 import tablerSettings from "@iconify-icons/tabler/settings";
 import { useState } from "react";
+import { Button } from "@/components/shadcn/button";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/shadcn/popover";
 import type { Uuid } from "@/lib/doc/types";
-import { POPOVER_POPUP_CLS, POPOVER_POSITIONER_GLASS_CLS } from "@/lib/styles";
 import { ModuleSettingsPanel } from "./ModuleSettingsPanel";
 
 /** Trigger prop shape — the module uuid, carried through to the panel. */
@@ -32,29 +36,27 @@ export function ModuleSettingsButton({
 	const [open, setOpen] = useState(false);
 
 	return (
-		<Popover.Root open={open} onOpenChange={setOpen}>
-			<Popover.Trigger
-				className="ml-auto flex items-center gap-1 p-1.5 rounded-md transition-colors cursor-pointer text-nova-text-muted hover:text-nova-text hover:bg-white/5"
+		<Popover open={open} onOpenChange={setOpen}>
+			<PopoverTrigger
+				render={<Button variant="ghost" size="icon-lg" />}
+				className="ml-auto size-11 text-nova-text-muted not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text"
 				aria-label="Module settings"
 			>
-				<Icon icon={tablerSettings} width="18" height="18" />
-			</Popover.Trigger>
+				<Icon icon={tablerSettings} className="size-5" />
+			</PopoverTrigger>
 
-			<Popover.Portal>
-				<Popover.Positioner
-					side="bottom"
-					align="end"
-					sideOffset={8}
-					className={POPOVER_POSITIONER_GLASS_CLS}
-				>
-					<Popover.Popup className={POPOVER_POPUP_CLS}>
-						<ModuleSettingsPanel
-							moduleUuid={moduleUuid}
-							onClose={() => setOpen(false)}
-						/>
-					</Popover.Popup>
-				</Popover.Positioner>
-			</Popover.Portal>
-		</Popover.Root>
+			<PopoverContent
+				side="bottom"
+				align="end"
+				sideOffset={8}
+				collisionPadding={8}
+				className="max-h-[calc(var(--available-height)-0.5rem)] w-80 max-w-[calc(var(--available-width)-0.5rem)] gap-0 overflow-hidden p-0"
+			>
+				<ModuleSettingsPanel
+					moduleUuid={moduleUuid}
+					onClose={() => setOpen(false)}
+				/>
+			</PopoverContent>
+		</Popover>
 	);
 }

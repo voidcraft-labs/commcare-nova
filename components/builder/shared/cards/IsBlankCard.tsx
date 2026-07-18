@@ -6,12 +6,15 @@
 
 "use client";
 import { canonicalCasePropertyName } from "@/lib/domain";
-import { isBlank, type Predicate, prop } from "@/lib/domain/predicate";
-import { useEditorErrorsAt } from "../editorContext";
+import {
+	absenceSubjectConstraint,
+	isBlank,
+	type Predicate,
+	prop,
+} from "@/lib/domain/predicate";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
-import { InlineError } from "../primitives/CardShell";
-import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
+import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 export function isBlankDefault(
@@ -30,25 +33,21 @@ interface IsBlankCardProps {
 }
 
 export function IsBlankCard({ value, onChange, path }: IsBlankCardProps) {
-	const leftErrors = useEditorErrorsAt(appendSlot(path, "left"));
-
 	return (
 		<div className="space-y-2">
 			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto] gap-2 items-start">
-				<div>
-					<PropertyRefPicker
-						mode="left"
-						value={value.left}
-						onChange={(left) => onChange(isBlank(left))}
-						invalid={leftErrors.length > 0}
-						ariaLabel="Property"
-					/>
-					<InlineError errors={leftErrors} />
-				</div>
+				<ExpressionPicker
+					value={value.left}
+					onChange={(left) => onChange(isBlank(left))}
+					path={appendSlot(path, "left")}
+					constraint={absenceSubjectConstraint()}
+					presentation="subject"
+					variant="nested"
+				/>
 				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
-			<div className="text-[11px] text-nova-text-muted leading-snug">
-				Matches when the property is missing or set to the empty string.
+			<div className="text-[13px] leading-relaxed text-nova-text-muted">
+				Matches when this information is blank or hasn’t been recorded
 			</div>
 		</div>
 	);

@@ -48,7 +48,7 @@ export const addSearchInputsInputSchema = z
 			.array(searchInputDefInputSchema)
 			.min(1)
 			.describe(
-				"The search inputs to append, in order. Each: pick a kind (`simple` for property/mode/via inputs or `advanced` for a free-form predicate) and supply the kind's required fields plus any optional `default` slot. The tool mints each input's uuid; do not supply one.",
+				"The search inputs to append, in order. Each: pick a kind (`simple` for property/mode/via inputs or `advanced` for a free-form predicate) and supply the kind's required fields. Scalar widgets may include an optional `default`; date-range must omit it because one expression cannot seed both ends. The tool mints each input's uuid; do not supply one.",
 			),
 	})
 	.strict();
