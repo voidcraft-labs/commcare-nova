@@ -436,7 +436,9 @@ describe("case-list Preview cell formatting", () => {
 });
 
 function visibleText(html: string): string {
-	return html.replace(/<[^>]+>/g, "");
+	return (
+		new DOMParser().parseFromString(html, "text/html").body.textContent ?? ""
+	);
 }
 
 function makeRow(
