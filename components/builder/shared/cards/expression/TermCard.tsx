@@ -953,12 +953,15 @@ function ModeMenu({
 							// reason rather than dimmed-but-clickable.
 							const verdict = admission[item.mode];
 							const admitted = isActive || verdict.admitted;
+							const hasReason = !admitted && verdict.reason !== undefined;
 							return (
 								<DropdownMenuItem
 									key={item.mode}
 									disabled={!admitted}
 									onClick={() => setMode(item.mode)}
-									className={`h-auto min-h-11 items-start whitespace-normal py-2 ${
+									className={`h-auto min-h-11 whitespace-normal py-2 ${
+										hasReason ? "items-start" : "items-center"
+									} ${
 										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
 									}`}
 								>
@@ -974,7 +977,7 @@ function ModeMenu({
 									/>
 									<span className="flex-1 text-left min-w-0">
 										<div className="break-words">{item.label}</div>
-										{!admitted && verdict.reason !== undefined && (
+										{hasReason && (
 											<div className="break-words text-xs text-nova-text-muted">
 												{verdict.reason}
 											</div>

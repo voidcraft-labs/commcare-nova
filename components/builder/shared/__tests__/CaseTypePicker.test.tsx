@@ -181,9 +181,11 @@ describe("CaseTypePicker", () => {
 			screen.getByRole("button", { name: "Case type: Client record" }),
 		);
 
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Stop managing cases" }),
-		);
+		const stopManaging = await screen.findByRole("button", {
+			name: "Stop managing cases",
+		});
+		expect(stopManaging.className).toContain("bg-destructive");
+		fireEvent.click(stopManaging);
 		expect(onClear).toHaveBeenCalledTimes(1);
 		await waitFor(() =>
 			expect(

@@ -135,6 +135,25 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 		).toBeNull();
 	});
 
+	it("centers one-line source choices without misaligning explained choices", () => {
+		renderEditor(eq(prop("patient", "age"), literal(1)));
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Value source: A value" }),
+		);
+		const searchAnswer = screen.getByRole("menuitem", {
+			name: /^A search answer/,
+		});
+		const appInformation = screen.getByRole("menuitem", {
+			name: /^App information/,
+		});
+
+		expect(searchAnswer.className).toContain("items-center");
+		expect(searchAnswer.className).not.toContain("items-start");
+		expect(appInformation.getAttribute("aria-disabled")).toBe("true");
+		expect(appInformation.className).toContain("items-start");
+	});
+
 	it("authors a search answer as the subject and stays valid", async () => {
 		const onChange = renderEditor(
 			eq(prop("patient", "name"), literal("Alice")),

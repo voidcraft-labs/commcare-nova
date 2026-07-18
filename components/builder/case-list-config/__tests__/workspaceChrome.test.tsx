@@ -1519,6 +1519,7 @@ describe("case workspace chrome", () => {
 		const alwaysContinue = screen.getByRole("button", {
 			name: "Always allow Search",
 		});
+		expect(alwaysContinue.className).toContain("bg-destructive");
 		alwaysContinue.focus();
 		fireEvent.click(alwaysContinue);
 		let dialog = await screen.findByRole("alertdialog");
@@ -1951,6 +1952,11 @@ describe("case workspace chrome", () => {
 			/>
 		);
 		render(editor("cancel"));
+		expect(
+			screen.getByRole("button", {
+				name: "Remove the starting value for search field 1",
+			}).className,
+		).toContain("bg-destructive");
 
 		const typeTrigger = screen.getByRole("button", {
 			name: /search field 1 type: text box/i,
@@ -2110,11 +2116,11 @@ describe("case workspace chrome", () => {
 		view.rerender(
 			<SearchInputEditor value={legacy} siblings={[legacy]} {...props} />,
 		);
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: /remove the incompatible starting value/i,
-			}),
-		);
+		const removeLegacyStartingValue = screen.getByRole("button", {
+			name: /remove the incompatible starting value/i,
+		});
+		expect(removeLegacyStartingValue.className).toContain("bg-destructive");
+		fireEvent.click(removeLegacyStartingValue);
 		expect(onChange).toHaveBeenCalledOnce();
 		expect(onChange.mock.calls[0]?.[0]).not.toHaveProperty("default");
 	});

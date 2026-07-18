@@ -109,9 +109,9 @@ export function ToggleRow({
 /**
  * The inspector's standard footer action for taking the inspected
  * thing out of the app — "Remove column", "Remove filter", "Remove
- * search field". Quiet until hovered, when the rose tint says what a
- * click costs. One shape across every body so removal always lives in
- * the same place: last.
+ * search field". Its persistent rose treatment communicates the cost before
+ * hover; a later confirmation is an additional safeguard, not the first cue.
+ * One shape across every body so removal always lives in the same place: last.
  */
 export function RemoveRow({
 	label,
@@ -129,12 +129,12 @@ export function RemoveRow({
 		<div className="border-t border-nova-border pt-4">
 			<Button
 				type="button"
-				variant="outline"
+				variant="destructive"
 				size="xl"
 				onClick={onClick}
 				disabled={disabledReason !== undefined}
 				aria-describedby={disabledReason === undefined ? undefined : reasonId}
-				className="w-full rounded-lg border-white/[0.06] bg-transparent px-3 text-[14px] text-nova-text-muted not-disabled:hover:border-nova-rose/40 not-disabled:hover:bg-nova-rose/[0.05] not-disabled:hover:text-nova-rose dark:bg-transparent dark:not-disabled:hover:bg-nova-rose/[0.05]"
+				className="w-full rounded-lg px-3 text-[14px]"
 			>
 				<Icon icon={tablerTrash} width="14" height="14" />
 				<span>{label}</span>

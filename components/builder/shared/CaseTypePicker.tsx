@@ -259,9 +259,9 @@ export function CaseTypePickerContent({
 					<div className="my-1.5 h-px shrink-0 bg-white/[0.06]" />
 					<Button
 						type="button"
-						variant="ghost"
+						variant="destructive"
 						onClick={onClear}
-						className={`${ROW_BASE} text-nova-text-muted not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text`}
+						className={ROW_BASE}
 					>
 						<Icon icon={tablerX} width="14" height="14" />
 						<span className="flex-1">Stop managing cases</span>

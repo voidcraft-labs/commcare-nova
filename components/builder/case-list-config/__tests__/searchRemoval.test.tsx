@@ -640,9 +640,11 @@ describe("Search field removal", () => {
 				`[data-case-search-field="${FIRST_UUID}"]`,
 			) as HTMLButtonElement,
 		);
-		fireEvent.click(
-			screen.getByRole("button", { name: "Remove search field" }),
-		);
+		const removeSearchField = screen.getByRole("button", {
+			name: "Remove search field",
+		});
+		expect(removeSearchField.className).toContain("bg-destructive");
+		fireEvent.click(removeSearchField);
 
 		await waitFor(() => {
 			expect(document.activeElement).toBe(

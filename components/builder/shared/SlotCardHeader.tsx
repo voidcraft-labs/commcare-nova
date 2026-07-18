@@ -126,10 +126,10 @@ export function SlotCardHeader({
 					// because an action label must never wrap mid-phrase.
 					<Button
 						type="button"
-						variant="ghost"
+						variant="destructive"
 						size="xl"
 						onClick={clear.onClick}
-						className="shrink-0 gap-1 rounded-lg px-2.5 text-sm text-nova-text-muted not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose dark:not-disabled:hover:bg-nova-rose/[0.08]"
+						className="shrink-0 gap-1 rounded-lg px-2.5 text-sm"
 						aria-label={clear.ariaLabel}
 					>
 						<Icon icon={tablerX} width="13" height="13" />

@@ -383,7 +383,7 @@ export function CaseDataManager({
 									) : (
 										<Button
 											type="button"
-											variant="outline"
+											variant="destructive"
 											className="mt-4 min-h-11 w-full"
 											disabled={loading}
 											onClick={() => {

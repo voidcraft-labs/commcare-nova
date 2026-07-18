@@ -285,10 +285,10 @@ function SearchDisplayConditionSetting({
 							<Button
 								ref={clearButtonRef}
 								type="button"
-								variant="ghost"
+								variant="destructive"
 								size="xl"
 								onClick={() => setConfirmingClear(true)}
-								className="shrink-0 px-3 text-[14px] text-nova-text-muted"
+								className="shrink-0 px-3 text-[14px]"
 							>
 								{clearLabel}
 							</Button>

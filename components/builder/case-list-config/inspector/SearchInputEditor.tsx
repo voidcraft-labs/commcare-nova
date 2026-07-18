@@ -1557,9 +1557,9 @@ function LegacyDateRangeDefaultRepair({
 			<Button
 				type="button"
 				onClick={onRemove}
-				variant="outline"
+				variant="destructive"
 				size="xl"
-				className="w-full border-nova-rose/30 bg-transparent px-3 text-[14px] text-nova-rose not-disabled:hover:border-nova-rose/50 not-disabled:hover:bg-nova-rose/[0.05] dark:bg-transparent dark:not-disabled:hover:bg-nova-rose/[0.05]"
+				className="w-full px-3 text-[14px]"
 				aria-label={`Remove the incompatible starting value from search field ${rowIndex + 1}`}
 			>
 				Remove starting value
@@ -1609,9 +1609,9 @@ function DefaultValueSlot({
 					<Button
 						type="button"
 						onClick={() => onChange(undefined)}
-						variant="outline"
+						variant="destructive"
 						size="xl"
-						className="w-full border-white/[0.06] bg-transparent px-3 text-[14px] text-nova-text-muted not-disabled:hover:border-nova-rose/40 not-disabled:hover:bg-transparent not-disabled:hover:text-nova-rose dark:bg-transparent dark:not-disabled:hover:bg-transparent"
+						className="w-full px-3 text-[14px]"
 						aria-label={`Remove the starting value for search field ${rowIndex + 1}`}
 					>
 						Remove starting value

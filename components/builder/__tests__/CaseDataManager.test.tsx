@@ -132,7 +132,11 @@ describe("CaseDataManager", () => {
 				name: POPULATED_TRIGGER_LABEL,
 			}),
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Replace case data" }));
+		const replaceCaseData = screen.getByRole("button", {
+			name: "Replace case data",
+		});
+		expect(replaceCaseData.className).toContain("bg-destructive");
+		fireEvent.click(replaceCaseData);
 
 		expect(mocks.reset).not.toHaveBeenCalled();
 		expect(
