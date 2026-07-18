@@ -32,7 +32,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { caseSearchPredicateEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseType } from "@/lib/domain";
 import {
@@ -622,10 +621,21 @@ export function PredicateWorkbench({
 								<ChildPredicateEditor
 									value={location.node.value}
 									onChange={updateFocusedPredicate}
-									onRemove={activePath.length === 0 ? onRemoveRoot : undefined}
-									removeLabel={removeRootLabel}
 									path={activePath}
 								/>
+								{activePath.length === 0 && onRemoveRoot !== undefined ? (
+									<div className="flex justify-end">
+										<Button
+											type="button"
+											variant="destructive"
+											size="xl"
+											onClick={onRemoveRoot}
+											className="px-3 text-sm"
+										>
+											{removeRootLabel}
+										</Button>
+									</div>
+								) : null}
 								<WorkbenchAddActions
 									onAdd={addPeer}
 									editContext={editContext}
@@ -774,10 +784,10 @@ function FocusedStructure({
 						{onRemove !== undefined ? (
 							<Button
 								type="button"
-								variant="ghost"
+								variant="destructive"
 								size="xl"
 								onClick={onRemove}
-								className="min-h-11 w-full shrink-0 justify-start px-3 text-sm text-nova-text-secondary not-disabled:hover:bg-white/[0.04] not-disabled:hover:text-nova-text @sm:w-auto @sm:justify-center"
+								className="min-h-11 w-full shrink-0 justify-start px-3 text-sm @sm:w-auto @sm:justify-center"
 							>
 								{removeLabel}
 							</Button>
@@ -816,18 +826,15 @@ function FocusedStructure({
 						label="Change condition"
 					/>
 					{onRemove !== undefined ? (
-						<SimpleTooltip content={removeLabel}>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon"
-								onClick={onRemove}
-								aria-label={removeLabel}
-								className="size-11 rounded-lg text-nova-text-muted not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
-							>
-								<Icon icon={tablerTrash} />
-							</Button>
-						</SimpleTooltip>
+						<Button
+							type="button"
+							variant="destructive"
+							size="xl"
+							onClick={onRemove}
+							className="px-3 text-sm"
+						>
+							{removeLabel}
+						</Button>
 					) : null}
 				</header>
 			)}

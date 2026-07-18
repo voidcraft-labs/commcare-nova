@@ -40,7 +40,6 @@ import {
 } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
-import { EditableTitle } from "@/components/builder/EditableTitle";
 import { InspectorSurface } from "@/components/builder/inspector/InspectorSurface";
 import { RemoveRow } from "@/components/builder/inspector/inspectorChrome";
 import {
@@ -82,7 +81,6 @@ import {
 	type CaseProperty,
 	type CaseSearchConfig,
 	type Column,
-	type CommitOutcome,
 	caseSearchConfigAfterFinalInputRemoval,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
@@ -348,49 +346,6 @@ function columnDisplayLabel(column: Column): string {
 
 function surfaceDisplayName(surface: ColumnSurface): "Results" | "Details" {
 	return surface === "list" ? "Results" : "Details";
-}
-
-/** Module identity for a bare case-list module, whose workspace is its home. */
-export function CaseListModuleHeader({
-	moduleUuid,
-	name,
-	onSave,
-	compact = false,
-}: {
-	readonly moduleUuid: Uuid;
-	readonly name: string;
-	readonly onSave: (name: string) => CommitOutcome | undefined;
-	/** A short viewport already names the module in the breadcrumb. Keep only
-	 *  its settings action in the fixed tab bar so the canvas remains usable. */
-	readonly compact?: boolean;
-}) {
-	if (compact) {
-		return (
-			<div
-				data-case-list-module-header="compact"
-				className="absolute top-1 right-3 z-raised size-11 @sm:right-6"
-			>
-				<ModuleSettingsButton moduleUuid={moduleUuid} />
-			</div>
-		);
-	}
-
-	return (
-		<div
-			data-case-list-module-header="full"
-			className="mb-3 flex min-w-0 items-start gap-2 border-b border-nova-border/60 pb-3"
-		>
-			<EditableTitle
-				value={name}
-				onSave={onSave}
-				wrap
-				ariaLabel="Module name"
-			/>
-			<span className="shrink-0">
-				<ModuleSettingsButton moduleUuid={moduleUuid} />
-			</span>
-		</div>
-	);
 }
 
 // ── Top-level component ───────────────────────────────────────────
@@ -822,15 +777,6 @@ function WorkspaceBody({
 		[openSearchCondition],
 	);
 
-	/* Rename — only surfaced for a `caseListOnly` module, where this
-	 * workspace IS the module's home (no module screen to carry the title).
-	 * Forward the gated outcome so a refused rename keeps the draft + finding
-	 * inline, exactly like the module screen's title. */
-	const saveModuleName = useCallback(
-		(name: string) => inline.updateModule(moduleUuid, { name }),
-		[inline, moduleUuid],
-	);
-
 	const ct = caseTypes.find((c) => c.name === caseType);
 	const addDisabledReason =
 		(ct?.properties.length ?? 0) === 0 ? PROPERTYLESS_HINT : undefined;
@@ -1240,18 +1186,12 @@ function WorkspaceBody({
 		onReviewInputRemovalDependency: reviewInputRemovalDependency,
 	});
 
-	/* A `caseListOnly` module has no module screen (it would be an empty form
-	 * menu), so this workspace is its only home — carry the module identity
-	 * (rename + settings: case type and both appearance surfaces) in the fixed
-	 * header, reusing the same controls the module screen mounts. Form-bearing
-	 * modules keep their identity on the module screen, so no header here. */
-	const moduleHeader: ReactNode = mod.caseListOnly ? (
-		<CaseListModuleHeader
-			moduleUuid={moduleUuid}
-			name={mod.name}
-			onSave={saveModuleName}
-			compact={compactHeight}
-		/>
+	/* A bare case-list module has no separate module screen, so its settings
+	 * remain reachable from every workspace tab. Keep that action in the ONE
+	 * existing tab row; the breadcrumb and structure tree already carry the
+	 * module identity, so repeating an editable title here only adds chrome. */
+	const moduleSettings: ReactNode = mod.caseListOnly ? (
+		<ModuleSettingsButton moduleUuid={moduleUuid} />
 	) : null;
 
 	let searchConditionSurface: ReactNode = null;
@@ -1356,7 +1296,7 @@ function WorkspaceBody({
 				{workspaceAnnouncement}
 			</p>
 			<WorkspaceTabs
-				header={moduleHeader}
+				moduleSettings={moduleSettings}
 				compactHeight={compactHeight}
 				tab={tab}
 				errorAreas={errorAreas}
@@ -2009,10 +1949,9 @@ interface WorkspaceTabsProps {
 	readonly tab: CaseListWorkspaceTab;
 	readonly errorAreas: CaseListConfigErrorAreas;
 	readonly onSelectTab: (next: CaseListWorkspaceTab) => void;
-	/** Optional module-identity row rendered above the tabs, inside the same
-	 *  fixed workspace header — present only when this workspace is the module's home
-	 *  (a `caseListOnly` module). */
-	readonly header?: ReactNode;
+	/** Bare case-list modules have no separate module screen. Their one settings
+	 *  action shares the existing tab row instead of creating another header. */
+	readonly moduleSettings?: ReactNode;
 	/** Compact fixed chrome for unusually short windows. The body remains the
 	 *  only scroller and receives real height instead of collapsing to zero. */
 	readonly compactHeight?: boolean;
@@ -2055,7 +1994,7 @@ export function WorkspaceTabs({
 	tab,
 	errorAreas,
 	onSelectTab,
-	header,
+	moduleSettings,
 	compactHeight = false,
 }: WorkspaceTabsProps) {
 	const canEdit = useCanEdit();
@@ -2076,93 +2015,93 @@ export function WorkspaceTabs({
 			}`}
 		>
 			<ContentFrame width="3xl" className="px-3 @sm:px-6">
-				{header}
-				<nav
-					aria-label="Case workspace screens"
-					className={`flex items-center gap-1 @sm:gap-1.5 @2xl:gap-2 ${
-						compactHeight && header ? "pr-12 @sm:pr-14" : ""
-					}`}
-				>
-					{TAB_DEFS.map(({ id, icon, label, accessibleLabel }) => {
-						const active = tab === id;
-						const hasErrors = errorAreas[id];
-						const accessibleName = `${accessibleLabel}${
-							hasErrors ? ", needs attention" : ""
-						}`;
-						return (
-							<SimpleTooltip
-								key={id}
-								content={
-									hasErrors
-										? canEdit
-											? `Open ${accessibleLabel} to fix it`
-											: `${accessibleLabel} needs attention`
-										: accessibleLabel
-								}
-								side="bottom"
-							>
-								<Button
-									type="button"
-									aria-label={accessibleName}
-									aria-current={active ? "page" : undefined}
-									onClick={() => onSelectTab(id)}
-									variant="ghost"
-									size="xl"
-									className={`relative min-w-0 flex-1 gap-1 border px-1.5 py-1.5 text-left @sm:gap-2 @sm:px-2 @2xl:px-3.5 ${
-										active
-											? "bg-nova-violet/[0.13] border-nova-border-bright"
-											: "border-transparent not-disabled:hover:bg-white/[0.03]"
-									}`}
+				<div className="flex min-w-0 items-center gap-2">
+					<nav
+						aria-label="Case workspace screens"
+						className="flex min-w-0 flex-1 items-center gap-1 @sm:gap-1.5 @2xl:gap-2"
+					>
+						{TAB_DEFS.map(({ id, icon, label, accessibleLabel }) => {
+							const active = tab === id;
+							const hasErrors = errorAreas[id];
+							const accessibleName = `${accessibleLabel}${
+								hasErrors ? ", needs attention" : ""
+							}`;
+							return (
+								<SimpleTooltip
+									key={id}
+									content={
+										hasErrors
+											? canEdit
+												? `Open ${accessibleLabel} to fix it`
+												: `${accessibleLabel} needs attention`
+											: accessibleLabel
+									}
+									side="bottom"
 								>
-									{hasErrors && (
-										<span
-											className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-nova-rose"
-											aria-hidden="true"
-										/>
-									)}
-									<Icon
-										icon={icon}
-										width="17"
-										height="17"
-										className={`hidden shrink-0 @sm:block ${
+									<Button
+										type="button"
+										aria-label={accessibleName}
+										aria-current={active ? "page" : undefined}
+										onClick={() => onSelectTab(id)}
+										variant="ghost"
+										size="xl"
+										className={`relative min-w-0 flex-1 gap-1 border px-1.5 py-1.5 text-left @sm:gap-2 @sm:px-2 @2xl:px-3.5 ${
 											active
-												? "text-nova-violet-bright"
-												: "text-nova-text-muted"
+												? "bg-nova-violet/[0.13] border-nova-border-bright"
+												: "border-transparent not-disabled:hover:bg-white/[0.03]"
 										}`}
-									/>
-									{/* Flex column (not a plain block): a block wrapper carries
-									 *  the inherited 16px/24px line-height strut into the label's
-									 *  anonymous line box, which pads ~5px of dead space above the
-									 *  label and bottom-weights the whole text block. Flex children
-									 *  size to their own line-height, so label + meta center as a
-									 *  unit against the icon. */}
-									<span className="flex min-w-0 flex-col">
-										{/* Grid stacks the visible label over an invisible bold
-										 *  ghost, so the slot is always as wide as the bold form —
-										 *  selecting a tab must never nudge its neighbors. */}
-										<span className="grid text-sm leading-tight">
+									>
+										{hasErrors && (
 											<span
-												className={`col-start-1 row-start-1 ${
-													active
-														? "font-semibold text-nova-text"
-														: "font-medium text-nova-text-secondary"
-												}`}
-											>
-												{label}
-											</span>
-											<span
+												className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-nova-rose"
 												aria-hidden="true"
-												className="col-start-1 row-start-1 font-semibold invisible"
-											>
-												{label}
+											/>
+										)}
+										<Icon
+											icon={icon}
+											width="17"
+											height="17"
+											className={`hidden shrink-0 @sm:block ${
+												active
+													? "text-nova-violet-bright"
+													: "text-nova-text-muted"
+											}`}
+										/>
+										{/* Flex column (not a plain block): a block wrapper carries
+										 *  the inherited 16px/24px line-height strut into the label's
+										 *  anonymous line box, which pads ~5px of dead space above the
+										 *  label and bottom-weights the whole text block. Flex children
+										 *  size to their own line-height, so label + meta center as a
+										 *  unit against the icon. */}
+										<span className="flex min-w-0 flex-col">
+											{/* Grid stacks the visible label over an invisible bold
+											 *  ghost, so the slot is always as wide as the bold form —
+											 *  selecting a tab must never nudge its neighbors. */}
+											<span className="grid text-sm leading-tight">
+												<span
+													className={`col-start-1 row-start-1 ${
+														active
+															? "font-semibold text-nova-text"
+															: "font-medium text-nova-text-secondary"
+													}`}
+												>
+													{label}
+												</span>
+												<span
+													aria-hidden="true"
+													className="col-start-1 row-start-1 font-semibold invisible"
+												>
+													{label}
+												</span>
 											</span>
 										</span>
-									</span>
-								</Button>
-							</SimpleTooltip>
-						);
-					})}
-				</nav>
+									</Button>
+								</SimpleTooltip>
+							);
+						})}
+					</nav>
+					{moduleSettings}
+				</div>
 			</ContentFrame>
 		</div>
 	);

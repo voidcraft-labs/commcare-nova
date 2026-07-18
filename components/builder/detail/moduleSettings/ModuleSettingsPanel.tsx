@@ -6,6 +6,7 @@ import { PopoverTitle } from "@/components/shadcn/popover";
 import type { Uuid } from "@/lib/doc/types";
 import { ModuleAppearanceSection } from "./ModuleAppearanceSection";
 import { ModuleCaseTypeSection } from "./ModuleCaseTypeSection";
+import { ModuleNameSection } from "./ModuleNameSection";
 
 /** Shell prop shape: the module being edited plus a dismiss callback
  *  wired from the popover trigger. */
@@ -17,8 +18,9 @@ interface ModuleSettingsPanelProps {
 /**
  * Module-settings drawer body rendered inside the Popover popup. Pure
  * chrome — a labeled header with a dismiss button and a content region
- * that hosts the module's case-type and appearance sections. The shell keeps
- * its header fixed while the body scrolls within the available viewport.
+ * that hosts the module's name (when it has no other screen), case type, and
+ * appearance sections. The shell keeps its header fixed while the body scrolls
+ * within the available viewport.
  */
 export function ModuleSettingsPanel({
 	moduleUuid,
@@ -45,6 +47,7 @@ export function ModuleSettingsPanel({
 
 			{/* Content */}
 			<div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4">
+				<ModuleNameSection moduleUuid={moduleUuid} />
 				<ModuleCaseTypeSection moduleUuid={moduleUuid} />
 				<ModuleAppearanceSection moduleUuid={moduleUuid} />
 			</div>

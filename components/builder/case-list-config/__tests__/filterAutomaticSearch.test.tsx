@@ -443,6 +443,7 @@ describe("Results Cases available composer", () => {
 		).toBeNull();
 		const showAll = screen.getByRole("button", { name: "Show all cases" });
 		expect(showAll).toBeDefined();
+		expect(showAll.className).toContain("text-destructive");
 		/* The workbench is frequently narrower than the viewport because it sits
 		 * inside the Results card. At a 320px handset its own container is only
 		 * about 200px wide, so the summary and action must become two full rows

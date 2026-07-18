@@ -18,9 +18,9 @@ interface ModuleSettingsButtonProps {
 
 /**
  * Popover trigger that mounts the module-settings panel — the public
- * mount point rendered on the module home screen's header, alongside the
- * module title (the module-level analog of `FormSettingsButton` on the
- * form header). Shows the settings cog and opens the appearance drawer.
+ * mount point rendered on a form-bearing module's home-screen header or beside
+ * the existing Search / Results / Details tabs for a bare case-list module.
+ * Shows the settings cog and opens the one module-settings panel.
  *
  * Unlike `FormSettingsButton`, this panel hosts no CodeMirror editor, so
  * it needs no outside-press dismissal guard — plain `open` /

@@ -12,6 +12,9 @@ vi.mock(
 	"@/components/builder/detail/moduleSettings/ModuleAppearanceSection",
 	() => ({ ModuleAppearanceSection: () => <div>Appearance section</div> }),
 );
+vi.mock("@/components/builder/detail/moduleSettings/ModuleNameSection", () => ({
+	ModuleNameSection: () => <div>Name section</div>,
+}));
 
 class ResizeObserverStub {
 	observe() {}

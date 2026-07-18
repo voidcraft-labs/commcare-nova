@@ -152,8 +152,28 @@ describe("PredicateWorkbench structural peer addition", () => {
 		expect(connector.parentElement).toBe(header);
 		expect(connector.className).toContain("w-full");
 		expect(reset.querySelector("svg")).toBeNull();
+		expect(reset.className).toContain("text-destructive");
 		expect(screen.queryByText("All conditions match")).toBeNull();
 		expect(screen.queryByText("2 conditions, all must match")).toBeNull();
+	});
+
+	it("keeps a one-condition root reset visible and destructive", () => {
+		render(
+			<PredicateWorkbench
+				value={NORTH}
+				onChange={() => {}}
+				onRemoveRoot={() => {}}
+				removeRootLabel="Show all cases"
+				caseTypes={CASE_TYPES}
+				currentCaseType="patient"
+				knownInputs={KNOWN_INPUTS}
+			/>,
+		);
+
+		const reset = screen.getByRole("button", { name: "Show all cases" });
+		expect(reset.textContent).toBe("Show all cases");
+		expect(reset.className).toContain("text-destructive");
+		expect(reset.querySelector("svg")).toBeNull();
 	});
 
 	it.each([
