@@ -305,13 +305,14 @@ export function CaseAvailabilityComposer({
 				<AlertDialogContent className="text-left">
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display">
-							Cases excluded by these conditions can appear in Results
+							{hasAssignedCaseRule
+								? "Remove these conditions?"
+								: "Show all cases in Results?"}
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							These availability conditions will be removed
 							{hasAssignedCaseRule
-								? ". The assigned cases setting doesn’t change."
-								: ""}
+								? "Cases hidden by these conditions can appear in Results. Your assigned cases setting won’t change. You can undo this change."
+								: "Your current conditions will be removed. You can undo this change."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -327,7 +328,7 @@ export function CaseAvailabilityComposer({
 								}
 							}}
 						>
-							Remove conditions
+							{hasAssignedCaseRule ? "Remove" : "Show all cases"}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>

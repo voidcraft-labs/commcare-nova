@@ -520,14 +520,24 @@ describe("Results Cases available composer", () => {
 			expect(screen.queryByText("Counting matches…")).toBeNull(),
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Show all cases" }));
+		const dialog = await screen.findByRole("alertdialog");
 		expect(
 			screen.getByRole("heading", {
-				name: "Cases excluded by these conditions can appear in Results",
+				name: "Show all cases in Results?",
 			}),
+		).toBeDefined();
+		expect(
+			screen.getByText(
+				"Your current conditions will be removed. You can undo this change.",
+			),
 		).toBeDefined();
 		expect(onClearFilter).not.toHaveBeenCalled();
 		await Promise.resolve();
-		fireEvent.click(screen.getByRole("button", { name: "Remove conditions" }));
+		fireEvent.click(
+			dialog.querySelector<HTMLButtonElement>(
+				'[data-slot="alert-dialog-action"]',
+			) as HTMLButtonElement,
+		);
 		expect(onClearFilter).toHaveBeenCalledWith(undefined);
 		expect(onFilterChange).toHaveBeenLastCalledWith(SOUTH);
 
@@ -564,12 +574,14 @@ describe("Results Cases available composer", () => {
 		await waitFor(() =>
 			expect(
 				screen.getByRole("heading", {
-					name: "Cases excluded by these conditions can appear in Results",
+					name: "Remove these conditions?",
 				}),
 			).toBeDefined(),
 		);
 		expect(
-			screen.getByText(/The assigned cases setting doesn’t change/),
+			screen.getByText(
+				"Cases hidden by these conditions can appear in Results. Your assigned cases setting won’t change. You can undo this change.",
+			),
 		).toBeDefined();
 		expect(screen.queryByText(/Search screen .* removed/i)).toBeNull();
 		expect(
@@ -581,7 +593,7 @@ describe("Results Cases available composer", () => {
 		// the async-leak detector.
 		await Promise.resolve();
 
-		const remove = screen.getByRole("button", { name: "Remove conditions" });
+		const remove = screen.getByRole("button", { name: "Remove" });
 		expect(remove.className).toContain("bg-destructive");
 		fireEvent.click(remove);
 		expect(onClearFilter).toHaveBeenCalledWith(undefined);
@@ -772,7 +784,9 @@ describe("Results Cases available composer", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Show all cases" }));
 		const dialog = await screen.findByRole("alertdialog");
 		expect(
-			screen.getByText("These availability conditions will be removed"),
+			screen.getByText(
+				"Your current conditions will be removed. You can undo this change.",
+			),
 		).toBeDefined();
 		expect(screen.queryByText(/go directly to Results/i)).toBeNull();
 		expect(onFilterChange).not.toHaveBeenCalled();

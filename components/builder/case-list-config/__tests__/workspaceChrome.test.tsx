@@ -1670,12 +1670,12 @@ describe("case workspace chrome", () => {
 		const dialog = await screen.findByRole("alertdialog");
 		expect(
 			within(dialog).getByRole("heading", {
-				name: "Cases hidden by your saved setting can appear in Results",
+				name: "Show assigned cases in Results?",
 			}),
 		).toBeDefined();
 		expect(
 			within(dialog).getByText(
-				"Your saved assigned cases setting will be replaced",
+				"This replaces your saved setting. Cases it currently hides can appear in Results. You can undo this change.",
 			),
 		).toBeDefined();
 		expect(
@@ -1710,8 +1710,13 @@ describe("case workspace chrome", () => {
 
 		const dialog = await screen.findByRole("alertdialog");
 		expect(
+			within(dialog).getByRole("heading", {
+				name: "Hide cases assigned to the person using the app?",
+			}),
+		).toBeDefined();
+		expect(
 			within(dialog).getByText(
-				"Your saved assigned cases setting will be replaced. Some cases it currently hides can appear in Results.",
+				"This replaces your saved setting, so some cases it currently hides may appear in Results. You can undo this change.",
 			),
 		).toBeDefined();
 		expect(onChange).not.toHaveBeenCalled();

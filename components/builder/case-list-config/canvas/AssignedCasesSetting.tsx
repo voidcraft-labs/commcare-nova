@@ -267,13 +267,13 @@ export function AssignedCasesSetting({
 					<AlertDialogHeader>
 						<AlertDialogTitle>
 							{pendingReplacement === "all"
-								? "Cases hidden by your saved setting can appear in Results"
-								: "Cases assigned to the person using the app will be hidden from Results"}
+								? "Show assigned cases in Results?"
+								: "Hide cases assigned to the person using the app?"}
 						</AlertDialogTitle>
 						<AlertDialogDescription>
 							{pendingReplacement === "all"
-								? "Your saved assigned cases setting will be replaced"
-								: "Your saved assigned cases setting will be replaced. Some cases it currently hides can appear in Results."}
+								? "This replaces your saved setting. Cases it currently hides can appear in Results. You can undo this change."
+								: "This replaces your saved setting, so some cases it currently hides may appear in Results. You can undo this change."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
