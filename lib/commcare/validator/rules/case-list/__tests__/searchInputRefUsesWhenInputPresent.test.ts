@@ -330,7 +330,7 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("default");
 		// `forbids-input-ref` mode message body names the wire-eval timing.
-		expect(hits[0].message).toContain("before any search input is bound");
+		expect(hits[0].message).toContain("evaluates before the user has typed");
 	});
 
 	it("fires when a calculated column expression references an input", () => {

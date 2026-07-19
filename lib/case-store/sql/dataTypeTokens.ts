@@ -134,11 +134,20 @@ export const RESERVED_SCALAR_COLUMN_BY_PROPERTY: ReadonlyMap<
  * ordinary `timestamptz` cast so an authored `Z` / `+05:30` stays
  * authoritative.
  *
+ * The grammar accepts every zone-less spelling Postgres's timestamp
+ * parser does over the digits-and-dashes shape — single- OR
+ * two-digit month/day/hour/minute/second, `T` or run-of-spaces
+ * separator — because any naive spelling the pattern MISSES falls
+ * to the `timestamptz` arm and silently re-inherits the session
+ * zone. Prose spellings (`July 8, 2026`) stay out of scope: the
+ * tightened authoring layer never emits them and stored ones fail
+ * loudly at the cast, not silently.
+ *
  * The two spellings stay in lockstep: `NAIVE_TEMPORAL_TEXT_PATTERN`
  * is the Postgres POSIX form bound into SQL `~` tests;
  * `NAIVE_TEMPORAL_TEXT_RE` is the same grammar for compile-time
  * (JS) decisions on literals.
  */
 export const NAIVE_TEMPORAL_TEXT_PATTERN =
-	"^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]+)?)?)?$";
+	"^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}((T|[ ]+)[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2}(\\.[0-9]+)?)?)?$";
 export const NAIVE_TEMPORAL_TEXT_RE = new RegExp(NAIVE_TEMPORAL_TEXT_PATTERN);

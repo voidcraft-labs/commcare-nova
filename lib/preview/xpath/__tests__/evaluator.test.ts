@@ -40,6 +40,19 @@ describe("XPath evaluator", () => {
 			expect(evaluate("", makeCtx())).toBe("");
 			expect(evaluate("  ", makeCtx())).toBe("");
 		});
+
+		it("evaluates a fully-parenthesized root expression", () => {
+			// The grammar splices grouping parens flat into the parent (no
+			// wrapper node), so the root's first child is the `(` token —
+			// the evaluator must skip it rather than fall through to blank.
+			// CSQL rejection guards parenthesize each obligation, so a
+			// single-obligation condition arrives exactly in this shape.
+			expect(evaluate("(1 = 1)", makeCtx())).toBe(true);
+			expect(evaluate("('a')", makeCtx())).toBe("a");
+			expect(evaluate("((1 = 1))", makeCtx())).toBe(true);
+			expect(evaluate("(true())", makeCtx())).toBe(true);
+			expect(evaluate("(1 = 1) or (2 = 3)", makeCtx())).toBe(true);
+		});
 	});
 
 	describe("arithmetic", () => {
@@ -215,6 +228,18 @@ describe("XPath evaluator", () => {
 		it("count-selected()", () => {
 			const ctx = makeCtx({ "/data/items": "a b c" });
 			expect(evaluate("count-selected(/data/items)", ctx)).toBe(3);
+		});
+
+		it("selected-at() returns the Nth token and throws out of range like JavaRosa", () => {
+			const ctx = makeCtx({ "/data/items": "a b c" });
+			expect(evaluate("selected-at(/data/items, 1)", ctx)).toBe("b");
+			// commcare-core `XPathSelectedAtFunc.selectedAt` THROWS for an
+			// out-of-range index — the device errors the evaluating screen
+			// instead of rendering blank, and Preview must fail the same way.
+			expect(() => evaluate("selected-at(/data/items, 3)", ctx)).toThrow(
+				/select element 3 of a list with only 3 elements/,
+			);
+			expect(() => evaluate("selected-at(/data/items, -1)", ctx)).toThrow();
 		});
 
 		it("today() returns an XPathDate", () => {

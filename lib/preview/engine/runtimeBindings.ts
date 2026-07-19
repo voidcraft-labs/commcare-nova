@@ -173,6 +173,14 @@ export function bindSearchInputValuesInExpression(
  * Callers must pass expression-projected values (see
  * {@link withSearchInputExpressionValues}) so completed date ranges expose the
  * same bare scalar that CommCare's search-input instance does.
+ *
+ * Values bind RAW — never trimmed or normalized. CommCare stores the typed
+ * answer byte-for-byte (`commcare-core
+ * RemoteQuerySessionManager.answerUserPrompt` → the `search-input` virtual
+ * instance) and interpolates it verbatim into `_xpath_query`, so a
+ * whitespace-padded answer matches nothing on the deployed app; Preview must
+ * agree rather than quietly matching the trimmed spelling. The sibling
+ * expression binder above binds the same raw value.
  */
 export function bindSearchInputValuesInPredicate(
 	predicate: Predicate,
@@ -192,7 +200,7 @@ export function bindSearchInputValuesInPredicate(
 		bound = substituteInputInPredicate(
 			bound,
 			{ name, runtimeValueType: runtimeValueTypes.get(name) },
-			inputValues.get(name)?.trim() ?? "",
+			inputValues.get(name) ?? "",
 			true,
 		);
 	}
@@ -298,10 +306,13 @@ function buildSimpleArmClause(
 		return buildRangeClause(input, inputValues, caseType, caseTypeSchemas);
 	}
 
-	// Trim once at read so downstream `literal(value)` calls see the
-	// normalized value — pasted-from-clipboard padding (`"  alice  "`)
-	// must not silently bypass equality against unpadded case data.
-	const value = inputValues.get(input.name)?.trim();
+	// The typed value binds RAW. CommCare sends a prompt's answer
+	// byte-for-byte (web-apps `query.js::encodeValue` → formplayer →
+	// `RemoteQuerySessionManager`), and the runtime's auto-match / CSQL
+	// comparison uses it verbatim — so a whitespace-padded answer matches
+	// nothing on the deployed app, and Preview must agree rather than
+	// quietly matching the trimmed spelling.
+	const value = inputValues.get(input.name);
 	if (value === undefined || value === "") return undefined;
 
 	const property = prop(caseType, input.property, input.via);

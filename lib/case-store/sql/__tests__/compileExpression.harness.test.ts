@@ -244,6 +244,39 @@ describe("compileExpression — round-trip — coercion arms", () => {
 		expect(rows).toEqual([{ matches: true }]);
 	});
 
+	test("datetime-coerce pins every non-padded naive spelling Postgres accepts", async ({
+		db,
+		pgClient,
+	}) => {
+		// The naive-shape grammar must cover single-digit month/day/
+		// hour/minute/second and a run-of-spaces separator — any naive
+		// spelling it misses falls to the bare `timestamptz` arm and
+		// silently re-inherits the session zone.
+		await pgClient.query("SET LOCAL TIME ZONE 'America/Los_Angeles'");
+		const spellings: ReadonlyArray<[spelling: string, expected: string]> = [
+			["2026-1-1", "2026-01-01 00:00:00+00"],
+			["2026-01-01 20:00", "2026-01-01 20:00:00+00"],
+			["2026-01-01 8:00:00", "2026-01-01 08:00:00+00"],
+			["2026-01-01  20:00:00", "2026-01-01 20:00:00+00"],
+			["2026-1-1T20:0:0", "2026-01-01 20:00:00+00"],
+		];
+		for (const [spelling, expected] of spellings) {
+			const expr = compileExpression(
+				datetimeCoerce(term(literal(spelling))),
+				makeCtx(db),
+			);
+			const rows = await db
+				.selectFrom(sql`(values (1))`.as("v"))
+				.select(
+					sql<boolean>`${expr} = timestamptz ${sql.lit(expected)}`.as(
+						"matches",
+					),
+				)
+				.execute();
+			expect(rows, spelling).toEqual([{ matches: true }]);
+		}
+	});
+
 	test("a naive datetime literal is UTC in a non-UTC session", async ({
 		db,
 		pgClient,
@@ -719,6 +752,41 @@ describe("compileExpression — round-trip — format-date arm", () => {
 			.select(sql<string>`${expr}`.as("v"))
 			.execute();
 		expect(rows[0].v).toBe("12:00");
+	});
+
+	test("format-date rejects an offset-style viewer timezone (UTC fallback, never sign-inverted)", async ({
+		db,
+	}) => {
+		// ICU accepts bare offset spellings like "+05:30", but Postgres
+		// `timezone(...)` reads them with the POSIX-inverted sign (5½ hours
+		// WEST). Passing the Intl-validated string through would render
+		// 06:30; honoring it as IANA-east would render 17:30. The gate must
+		// do neither — the shape check rejects it and falls back to UTC.
+		const expr = compileExpression(
+			formatDate(datetimeCoerce(term(literal(FIXTURE_DATETIME))), "%H:%M %Z"),
+			makeCtx(db, { bindings: { viewerTimeZone: "+05:30" } }),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(sql<string>`${expr}`.as("v"))
+			.execute();
+		expect(rows[0].v).toBe("12:00 Z");
+	});
+
+	test("format-date renders a half-hour viewer zone with the paired %Z offset", async ({
+		db,
+		pgClient,
+	}) => {
+		await pgClient.query("SET LOCAL TIME ZONE 'Asia/Tokyo'");
+		const expr = compileExpression(
+			formatDate(datetimeCoerce(term(literal(FIXTURE_DATETIME))), "%H:%M %Z"),
+			makeCtx(db, { bindings: { viewerTimeZone: "Asia/Kolkata" } }),
+		);
+		const rows = await db
+			.selectFrom(sql`(values (1))`.as("v"))
+			.select(sql<string>`${expr}`.as("v"))
+			.execute();
+		expect(rows[0].v).toBe("17:30 +05:30");
 	});
 });
 

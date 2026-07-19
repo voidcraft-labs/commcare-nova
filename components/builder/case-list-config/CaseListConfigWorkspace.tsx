@@ -1059,6 +1059,10 @@ function WorkspaceBody({
 				openSearchCondition({ kind: "search-button" });
 				return;
 			}
+			if (dependency.kind === "calculated-column") {
+				setSel({ type: "column", uuid: dependency.columnUuid });
+				return;
+			}
 			deselect();
 			navigate.openCaseList(moduleUuid);
 		},

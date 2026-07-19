@@ -12,7 +12,8 @@
 //
 // The emitter runs a three-stage pipeline:
 //
-//   1. Run the property-via lift pre-pass (`csqlHoist.ts::liftPropertyVias`).
+//   1. Run the property-via lift pre-pass
+//      (`normalizeRelationReads.ts::normalizeRelationPropertyReads`).
 //      Every `prop(via)` reference that reaches native CSQL emission
 //      — operator-direct or nested under a native value function —
 //      rewrites into an enclosing `exists` envelope so the relation

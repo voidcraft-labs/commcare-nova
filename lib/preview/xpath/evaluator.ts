@@ -95,8 +95,17 @@ function evalNode(
 
 	// ── XPath root — evaluate its single child expression ──
 	if (type === T.XPath) {
-		const child = node.firstChild;
-		return child ? evalNode(child, source, ctx) : "";
+		// The grammar splices grouping parens flat into the parent — `(expr)`
+		// parses as `XPath → "(" expr ")"` with no wrapper node — so the
+		// root's first child can be the `(` TOKEN. Skip paren tokens to reach
+		// the inner expression; evaluating the token would fall through every
+		// dispatch branch and return blank for any fully-parenthesized root.
+		let child = node.firstChild;
+		while (child && child.type === T.OpenParen) {
+			child = child.nextSibling;
+		}
+		if (!child || child.type === T.CloseParen) return "";
+		return evalNode(child, source, ctx);
 	}
 
 	// ── Literals ──

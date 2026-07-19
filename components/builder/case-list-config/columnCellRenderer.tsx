@@ -490,7 +490,16 @@ export function formatIntervalForPreview(
 				"Preview can’t calculate this interval because the value isn’t a valid date",
 		};
 	}
-	const diffDays = localCalendarDate(today).days - parsed.days;
+	// Both sides of the difference must sit on the LOCAL calendar-day axis:
+	// device `date(@prop)` truncates a datetime in the device-local zone
+	// (commcare-core `DateUtils.roundDate` uses the default-timezone
+	// calendar) and `today()` is the local calendar day. A date-only value
+	// already IS a calendar day; a datetime instant converts to the viewer's
+	// local day first — reading its UTC fields instead would shift the count
+	// by one near midnight for non-UTC viewers.
+	const baseDays =
+		parsed.time === null ? parsed.days : localCalendarDate(parsed.time).days;
+	const diffDays = localCalendarDate(today).days - baseDays;
 	const divisor = TIME_SINCE_UNIT_DAYS[column.unit];
 	const thresholdDays = column.threshold * divisor;
 	if (column.display === "flag") {

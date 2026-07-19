@@ -56,11 +56,18 @@ export class XPathDate {
 		const year = +m[1];
 		const monthIndex = +m[2] - 1;
 		const day = +m[3];
-		const d = new Date(Date.UTC(year, monthIndex, day));
+		// Construct via `setUTCFullYear`, never `Date.UTC(year, ...)` — the
+		// latter remaps two-digit years to 1900-1999, which would both shift
+		// the value and make the round-trip guard below reject every valid
+		// year 0001-0099 date (JavaRosa's `DateFields.check()` accepts them;
+		// it range-checks only month and day).
+		const d = new Date(0);
+		d.setUTCFullYear(year, monthIndex, day);
 		if (Number.isNaN(d.getTime())) return null;
-		// `Date.UTC` normalizes invalid calendar input (February 31 → March 3),
-		// while JavaRosa's `DateFields.check()` rejects it. Compare the parsed
-		// components so Preview does not quietly display a different date.
+		// The setter normalizes invalid calendar input (February 31 → March
+		// 3), while JavaRosa's `DateFields.check()` rejects it. Compare the
+		// parsed components so Preview does not quietly display a different
+		// date.
 		if (
 			d.getUTCFullYear() !== year ||
 			d.getUTCMonth() !== monthIndex ||
@@ -119,11 +126,15 @@ const MS_PER_DAY = 86_400_000;
  * `DateUtils.daysSinceEpoch()` — rounds to midnight then divides.
  */
 function daysSinceEpoch(d: Date): number {
-	/* Round to midnight UTC to avoid DST / timezone fractional-day drift. */
-	const utcMidnight = Date.UTC(
+	/* Round to midnight UTC to avoid DST / timezone fractional-day drift.
+	 * Fields copy via `setUTCFullYear`, never `Date.UTC(year, ...)`, whose
+	 * two-digit-year remapping (years 0-99 → 1900-1999) would shift a
+	 * year 0001-0099 date nineteen centuries forward. */
+	const utcMidnight = new Date(0);
+	utcMidnight.setUTCFullYear(
 		d.getUTCFullYear(),
 		d.getUTCMonth(),
 		d.getUTCDate(),
 	);
-	return Math.round(utcMidnight / MS_PER_DAY);
+	return Math.round(utcMidnight.getTime() / MS_PER_DAY);
 }

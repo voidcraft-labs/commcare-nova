@@ -1720,8 +1720,8 @@ describe("emitCsql — property-via lift (recursion)", () => {
 	});
 
 	it("is idempotent — running the rewrite twice produces the same wire output", () => {
-		// The via-lift pass is total per `csqlHoist.ts`'s contract:
-		// every input AST produces a CSQL-emission-compatible output.
+		// The via-lift pass is total per `normalizeRelationPropertyReads`'s
+		// contract: every input AST produces a CSQL-emission-compatible output.
 		// A second pass over the lifted AST produces no further
 		// changes — every operator-direct via has already lifted. The
 		// emission round-trips identically.

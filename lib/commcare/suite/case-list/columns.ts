@@ -431,7 +431,16 @@ export function plainSelectDisplayXpath(
 	);
 	if (tokenOptions.length === 0) return plainDisplayXpath(field);
 	const knownLabels = idMappingDisplayXpath(field, tokenOptions);
-	let unknownTokens = `concat(' ', normalize-space(${field}), ' ')`;
+	// Double-space the normalized value so every token owns BOTH of its
+	// flanking spaces. Java regex matching is non-overlapping: with
+	// single-space delimiters, removing ` tok ` consumes the shared space
+	// between adjacent identical tokens, so the second copy of a duplicated
+	// known token survives as a bogus "unknown" (` north north ` → `north`).
+	// With dedicated flanks (`  north  north  `), every copy matches its own
+	// ` tok ` window and the remainder holds only genuinely unknown tokens —
+	// duplicates of those included, matching Preview's projection. The final
+	// `normalize-space` collapses the leftover padding.
+	let unknownTokens = `concat('  ', replace(normalize-space(${field}), ' ', '  '), '  ')`;
 	for (const option of tokenOptions) {
 		const pattern = quoteLiteral(
 			` ${escapeRegex(option.value)} `,

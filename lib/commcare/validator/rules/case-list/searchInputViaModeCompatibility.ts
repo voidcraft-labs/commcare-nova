@@ -109,6 +109,11 @@ export function searchInputViaModeCompatibility(
 						: `Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" uses a \`date-range\` field with the \`${modeKind}\` match. The field collects a start/end pair, but that match consumes one value. Change the field type to a single Date picker, or use the date range's \`range\` match.`,
 					{ moduleUuid, moduleName: mod.name },
 					{
+						// `slot` keys the case-workspace boundary verdicts
+						// (`lib/doc/commitVerdicts.ts::caseWorkspaceBoundaryVerdicts`)
+						// — an input finding without it never flips the
+						// workspace's Search attention state.
+						slot: `caseListConfig.searchInputs[${i}]`,
 						inputName: input.name,
 						inputUuid: input.uuid,
 						modeKind,
@@ -132,6 +137,7 @@ export function searchInputViaModeCompatibility(
 					`Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" uses the \`multi-select-contains\` mode on the simple arm. CCHQ's runtime treats a bare search-input value as a full-string exact match against the case property, so simple-arm \`multi-select-contains\` silently mismatches — a multi-select case property storing "red green blue" would not match the typed value "green". Convert this input to the advanced arm and author the predicate as \`selected(prop("${mod.caseType ?? "<case-type>"}", "${input.property}"), input("${input.name}"))\`, which CCHQ evaluates as space-delimited token containment via its \`selected_any\` query function.`,
 					{ moduleUuid, moduleName: mod.name },
 					{
+						slot: `caseListConfig.searchInputs[${i}]`,
 						inputName: input.name,
 						inputUuid: input.uuid,
 						modeKind,
@@ -168,6 +174,7 @@ export function searchInputViaModeCompatibility(
 					}),
 					{ moduleUuid, moduleName: mod.name },
 					{
+						slot: `caseListConfig.searchInputs[${i}]`,
 						inputName: input.name,
 						inputUuid: input.uuid,
 						modeKind,

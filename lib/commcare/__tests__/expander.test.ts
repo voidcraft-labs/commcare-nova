@@ -4155,6 +4155,96 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		expect(sortElements[1].direction).toBe("descending");
 	});
 
+	it("routes a select-typed plain column's sort through the positional calc join", () => {
+		// A plain column on a select-typed property projects with
+		// `useXpathExpression: true` and `field` = the derived label
+		// expression, so a property-name sort element would no longer
+		// join it (CCHQ's `get_sort_and_sort_only_columns` joins by
+		// exact `column.field` string) and the visible column would
+		// lose its `<sort>` on the HQ-regenerated suite. The sort
+		// element must use the positional `_cc_calculated_{index}` key
+		// and carry the RAW property in `sort_calculation` — the same
+		// sort source Nova's direct suite emits.
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000020005"),
+					"case_name",
+					"Name",
+				),
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000020006"),
+					"tags",
+					"Tags",
+					{ sort: { direction: "asc", priority: 0 } },
+				),
+			],
+			searchInputs: [],
+		});
+		const details = expandDoc(doc).modules[0].case_details;
+		// The join is positional into the emitted short array — index 1,
+		// counting the unsorted plain column ahead of it.
+		expect(details.short.columns[1].useXpathExpression).toBe(true);
+		const sortElements = details.short.sort_elements;
+		expect(sortElements).toHaveLength(1);
+		expect(sortElements[0].field).toBe("_cc_calculated_1");
+		expect(sortElements[0].sort_calculation).toBe("tags");
+		expect(sortElements[0].type).toBe("string");
+	});
+
+	it("routes an interval column's sort through the positional calc join on the raw property", () => {
+		const doc = buildHqProjectionDoc({
+			columns: [
+				intervalColumn(
+					asUuid("00000000-0000-4000-8000-000000020007"),
+					"last_visit",
+					"Since Visit",
+					30,
+					"days",
+					"always",
+					"Overdue",
+					{ sort: { direction: "desc", priority: 0 } },
+				),
+			],
+			searchInputs: [],
+		});
+		const details = expandDoc(doc).modules[0].case_details;
+		expect(details.short.columns[0].useXpathExpression).toBe(true);
+		const sortElements = details.short.sort_elements;
+		expect(sortElements).toHaveLength(1);
+		expect(sortElements[0].field).toBe("_cc_calculated_0");
+		// Sorts by the raw date property (ISO-string comparator), not by
+		// the rendered interval count.
+		expect(sortElements[0].sort_calculation).toBe("last_visit");
+		expect(sortElements[0].type).toBe("string");
+		expect(sortElements[0].direction).toBe("descending");
+	});
+
+	it("keeps the positional calc join aligned for an off-Results sort carrier", () => {
+		// A select-typed column hidden from Results but carrying Default
+		// order persists as an `invisible` short column; the projection
+		// keeps `useXpathExpression`, so the sort element must still join
+		// positionally (CCHQ's `Invisible` format class inherits the base
+		// sort path and honors `sort_calculation`).
+		const doc = buildHqProjectionDoc({
+			columns: [
+				plainColumn(
+					asUuid("00000000-0000-4000-8000-000000020008"),
+					"tags",
+					"Tags",
+					{ visibleInList: false, sort: { direction: "asc", priority: 0 } },
+				),
+			],
+			searchInputs: [],
+		});
+		const details = expandDoc(doc).modules[0].case_details;
+		expect(details.short.columns[0].format).toBe("invisible");
+		expect(details.short.columns[0].useXpathExpression).toBe(true);
+		const sortElements = details.short.sort_elements;
+		expect(sortElements[0].field).toBe("_cc_calculated_0");
+		expect(sortElements[0].sort_calculation).toBe("tags");
+	});
+
 	it("leaves sort_elements empty when no column carries a sort directive", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [

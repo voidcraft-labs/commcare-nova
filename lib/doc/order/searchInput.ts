@@ -7,7 +7,7 @@
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { SearchInputDef } from "@/lib/domain";
 import { bySortKey } from "./compare";
-import { keysForSlot } from "./keys";
+import { plannedMoveSlotKey } from "./keys";
 
 /** Search inputs in the exact order the authoring and running screens use. */
 export function orderedSearchInputs(
@@ -38,18 +38,10 @@ export function searchInputMoveMutation(args: {
 	const toIndex = Math.max(0, Math.min(args.toIndex, siblings.length));
 	if (toIndex === fromIndex) return undefined;
 
-	/* Hydration normally backfills every generic key. Count only defined keys
-	 * before the requested slot as a defensive legacy fallback: keyed inputs
-	 * sort before keyless inputs, so this preserves the closest representable
-	 * placement without rewriting the keyless siblings. */
-	const siblingKeys = siblings
-		.map((input) => input.order)
-		.filter((order): order is string => order !== undefined);
-	const keySlot = siblings
-		.slice(0, toIndex)
-		.map((input) => input.order)
-		.filter((order): order is string => order !== undefined).length;
-	const order = keysForSlot(siblingKeys, keySlot, 1)[0];
+	const order = plannedMoveSlotKey(
+		siblings.map((input) => input.order),
+		toIndex,
+	);
 
 	return { kind: "moveSearchInput", moduleUuid, uuid, order };
 }

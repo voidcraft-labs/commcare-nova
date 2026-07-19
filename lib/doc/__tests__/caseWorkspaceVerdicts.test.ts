@@ -6,8 +6,13 @@ import {
 	type CaseSearchConfig,
 	type Column,
 	calculatedColumn,
+	idMappingColumn,
+	idMappingEntry,
+	imageMapColumn,
+	imageMapEntry,
 	plainColumn,
 	type SearchInputDef,
+	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
 	eq,
@@ -143,6 +148,64 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 		expect(verdict.filterBroken).toBe(true);
 		expect(verdict.searchInputsBroken).toBe(true);
 		expect(verdict.brokenColumnUuids).toContain(CALCULATED_UUID);
+	});
+
+	it("marks a column broken for an empty id-mapping value", () => {
+		// `CASE_LIST_ID_MAPPING_EMPTY_VALUE` is a gating finding the repair
+		// pipeline defers to the owner, so the workspace must surface it —
+		// otherwise export fails naming a column the UI shows as clean.
+		const columnUuid = asUuid("status-mapping-column");
+		const doc = docWith({
+			columns: [
+				plainColumn(asUuid("name-column"), "case_name", "Name"),
+				idMappingColumn(columnUuid, "case_name", "Status", [
+					idMappingEntry("", "Blank"),
+				]),
+			],
+		});
+
+		expect(
+			caseWorkspaceBoundaryVerdicts(doc, MODULE_UUID).brokenColumnUuids,
+		).toContain(columnUuid);
+	});
+
+	it("marks a column broken for a duplicate image-map value", () => {
+		const columnUuid = asUuid("flag-image-column");
+		const doc = docWith({
+			columns: [
+				plainColumn(asUuid("name-column"), "case_name", "Name"),
+				imageMapColumn(columnUuid, "case_name", "Flag", [
+					imageMapEntry("open", "asset-a"),
+					imageMapEntry("open", "asset-b"),
+				]),
+			],
+		});
+
+		expect(
+			caseWorkspaceBoundaryVerdicts(doc, MODULE_UUID).brokenColumnUuids,
+		).toContain(columnUuid);
+	});
+
+	it("marks search inputs broken for a range mode on a single-value widget", () => {
+		// `CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE` gates the commit;
+		// the workspace's Search surface must mirror it.
+		const doc = docWith({
+			searchInputs: [
+				simpleSearchInputDef(
+					asUuid("age-range-input"),
+					"age",
+					"Age",
+					"text",
+					"age",
+					{ mode: { kind: "range" } },
+				),
+			],
+			caseSearchConfig: {},
+		});
+
+		expect(
+			caseWorkspaceBoundaryVerdicts(doc, MODULE_UUID).searchInputsBroken,
+		).toBe(true);
 	});
 
 	it("does not apply the remote-query restriction to an on-device-only filter", () => {

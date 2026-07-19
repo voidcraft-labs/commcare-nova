@@ -294,36 +294,49 @@ function projectColumnForShortDetail(
  * (CCHQ's `Detail.sort_elements` is an ordered list; `SortElement.order`
  * is not stored — the array position IS the order).
  *
- * Property-rooted directives populate `field` with the bare
- * property name; calc directives populate `field` with CCHQ's
- * synthetic sort-only key shape `_cc_calculated_{columnIndex}`
- * (matching `commcare-hq/.../app_manager/const.py::CALCULATED_SORT_FIELD_RX`
- * = `^_cc_calculated_(\\d+)$`) and put the lowered XPath in
- * `sort_calculation`. CCHQ's `get_sort_and_sort_only_columns` at
- * `commcare-hq/.../app_manager/util.py` parses the index out of the
- * field name and attaches the sort directive to the calc column at
- * that short-column-array position, so each calc directive lands on its
- * own column instead of colliding with sibling calc sorts in the
- * sort-key dict.
+ * CCHQ's `get_sort_and_sort_only_columns` at
+ * `commcare-hq/.../app_manager/util.py` joins a `SortElement` to its
+ * display column two ways: exact `SortElement.field` ==
+ * `DetailColumn.field` string match, or — for `useXpathExpression`
+ * columns — the positional key shape `_cc_calculated_{columnIndex}`
+ * (`commcare-hq/.../app_manager/const.py::CALCULATED_SORT_FIELD_RX`
+ * = `^_cc_calculated_(\\d+)$`, an index into the short-detail
+ * columns array). A sort element that joins neither way falls into
+ * the sort-ONLY path: CCHQ regenerates the suite with the sort on a
+ * detached hidden column and the visible column loses its sort.
+ *
+ * The caller therefore passes the actually-projected short columns,
+ * and the join shape is decided by the emitted
+ * `useXpathExpression` flag rather than by the Nova column kind:
+ * any column whose wire `field` carries an inline display
+ * expression (calculated columns, select-typed plain columns with
+ * an option catalog, interval columns) joins positionally, with the
+ * sort source in `sort_calculation` — CCHQ passes that string
+ * verbatim as the suite `<sort>` xpath
+ * (`detail_screen.py::FormattedDetailColumn.sort_node`). Property-
+ * rooted directives carry the raw property reference there, which
+ * is exactly the sort source Nova's direct suite emits
+ * (`sortKeys.ts::propertySortXpath`): rows sort by raw value, not
+ * by the derived display label. Plain-field columns keep the bare
+ * property-name join.
  */
-function projectSortElements(mod: Module, doc: BlueprintDoc): SortElement[] {
+function projectSortElements(
+	mod: Module,
+	doc: BlueprintDoc,
+	sourceColumns: readonly Column[],
+	wireColumns: readonly WireDetailColumn[],
+): SortElement[] {
 	const directives = buildSortDirectives(mod, doc);
 	if (directives.size === 0) return [];
 
-	// Build a uuid → column-index map across the full short-column source
-	// sequence so each calc directive can resolve to its CCHQ array position.
-	// CCHQ's `CALCULATED_SORT_FIELD_RX` uses `int(match.group(1))` as
-	// a positional lookup into `detail_columns[column_index]`; the
-	// index must reference the calc column's position in the full
-	// column list, not a calc-only subsequence.
-	// Results order — the same sequence `projectCaseListForHq` emits into
-	// `case_details.short.columns`, so CCHQ's positional
-	// `detail_columns[column_index]` lookup resolves the calculated sort field
-	// correctly even when Details has a different arrangement.
-	const columns = hqShortSourceColumns(mod.caseListConfig?.columns ?? []);
+	// uuid → position in the short columns array. CCHQ's
+	// `CALCULATED_SORT_FIELD_RX` uses `int(match.group(1))` as a
+	// positional lookup into `detail_columns[column_index]`, so the
+	// index must be the column's position in the full emitted short
+	// sequence (Results order, including invisible sort carriers).
 	const columnIndexByUuid = new Map<string, number>();
-	for (let i = 0; i < columns.length; i++) {
-		columnIndexByUuid.set(columns[i].uuid, i);
+	for (let i = 0; i < sourceColumns.length; i++) {
+		columnIndexByUuid.set(sourceColumns[i].uuid, i);
 	}
 
 	// `buildSortDirectives` keys by uuid; the directive `order` is
@@ -335,12 +348,35 @@ function projectSortElements(mod: Module, doc: BlueprintDoc): SortElement[] {
 	return ordered.map(([uuid, directive]) => {
 		const type = SORT_TYPE_WIRE_MAP[directive.type];
 		const direction = SORT_DIRECTION_WIRE_MAP[directive.direction];
+		const columnIndex = columnIndexByUuid.get(uuid);
+		// `buildSortDirectives` only returns directives for columns with a
+		// `sort` slot, and `hqShortSourceColumns` keeps every such column,
+		// so the lookup never misses at runtime; the throw is a
+		// compiler-bug backstop.
+		if (columnIndex === undefined) {
+			throw new Error(
+				"projectSortElements: sort directive references a column UUID that is not in the HQ short-detail source — `buildSortDirectives` should only surface directives for columns in this list.",
+			);
+		}
 		if (directive.kind === "property") {
-			const sourceColumn = columns.find((column) => column.uuid === uuid);
-			if (sourceColumn === undefined || sourceColumn.kind === "calculated") {
+			const sourceColumn = sourceColumns[columnIndex];
+			if (sourceColumn.kind === "calculated") {
 				throw new Error(
-					"projectSortElements: property sort directive has no matching property column in the HQ short-detail source.",
+					"projectSortElements: property sort directive resolved to a calculated column in the HQ short-detail source.",
 				);
+			}
+			if (wireColumns[columnIndex]?.useXpathExpression === true) {
+				// The projected column's `field` is an inline display
+				// expression, so a property-name sort element can't join it.
+				// Join positionally and sort by the raw property.
+				return {
+					field: `_cc_calculated_${columnIndex}`,
+					type,
+					direction,
+					blanks: "",
+					display: {},
+					sort_calculation: emitCasePropertyWirePath(sourceColumn.field),
+				};
 			}
 			return {
 				// CCHQ joins SortElement.field to DetailColumn.field by exact
@@ -353,15 +389,6 @@ function projectSortElements(mod: Module, doc: BlueprintDoc): SortElement[] {
 				display: {},
 				sort_calculation: "",
 			};
-		}
-		const columnIndex = columnIndexByUuid.get(uuid);
-		// `buildSortDirectives` only returns directives for columns in
-		// the same `columns` list we walk here, so the lookup never
-		// misses at runtime; the throw is a compiler-bug backstop.
-		if (columnIndex === undefined) {
-			throw new Error(
-				"projectSortElements: calc-arm sort directive references a column UUID that is not in `caseListConfig.columns` — `buildSortDirectives` should only have surfaced directives for columns in this list.",
-			);
 		}
 		return {
 			field: `_cc_calculated_${columnIndex}`,
@@ -784,7 +811,12 @@ export function projectCaseListForHq(
 	const longColumns = longSourceColumns.map((c) =>
 		projectColumnToDetail(c, assets, caseProperties, typeContext),
 	);
-	const sortElements = projectSortElements(mod, doc);
+	const sortElements = projectSortElements(
+		mod,
+		doc,
+		shortSourceColumns,
+		shortColumns,
+	);
 	const filter = projectCaseListFilter(
 		caseListConfig?.filter,
 		mod.caseSearchConfig?.excludedOwnerIds,

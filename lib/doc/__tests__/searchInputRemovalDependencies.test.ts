@@ -5,6 +5,7 @@ import {
 	asUuid,
 	type CaseListConfig,
 	type CaseSearchConfig,
+	calculatedColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
@@ -133,6 +134,39 @@ describe("searchInputRemovalDependencies", () => {
 					["when-input-present", "input"],
 					["when-input-present", "clause", "right"],
 				],
+			},
+		]);
+	});
+
+	it("surfaces a calculated-column formula that reads the answer", () => {
+		// The gate forbids NEW input refs in column formulas, but stored
+		// pre-gate docs can carry one while its repair is owner-tier
+		// pending — and the rename path keeps such refs coherent, so the
+		// removal review must see them too. Without this arm the dialog
+		// reports "zero uses" and the removal strands the formula.
+		const columnUuid = asUuid("00000000-0000-4000-8000-000000000021");
+		const target = simpleSearchInputDef(
+			targetUuid,
+			"case_name",
+			"Client name",
+			"text",
+			"case_name",
+		);
+		const config: CaseListConfig = {
+			columns: [
+				calculatedColumn(columnUuid, "Match note", term(input("case_name"))),
+			],
+			searchInputs: [target],
+		};
+
+		expect(
+			searchInputRemovalDependencies(config, undefined, targetUuid),
+		).toEqual([
+			{
+				kind: "calculated-column",
+				label: "“Match note” column formula",
+				columnUuid,
+				paths: [[]],
 			},
 		]);
 	});

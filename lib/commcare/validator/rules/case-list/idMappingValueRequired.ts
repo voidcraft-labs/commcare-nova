@@ -49,6 +49,11 @@ export function idMappingValueRequired(
 					`ID-mapping column "${column.header || column.field}" (column #${columnIndex + 1}) on module "${mod.name}" has an empty value at row ${entryIndex + 1} — an empty value would match every case missing that property. Fill the row with the case property value it should match, or remove the row.`,
 					{ moduleUuid, moduleName: mod.name },
 					{
+						// `slot` keys the case-workspace boundary verdicts
+						// (`lib/doc/commitVerdicts.ts::caseWorkspaceBoundaryVerdicts`)
+						// — a column finding without it never reaches the
+						// workspace's broken-column marks.
+						slot: `caseListConfig.columns[${columnIndex}].mapping[${entryIndex}].value`,
 						columnIndex: String(columnIndex),
 						entryIndex: String(entryIndex),
 						columnUuid: column.uuid,

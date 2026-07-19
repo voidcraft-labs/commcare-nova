@@ -139,9 +139,24 @@ register("count-selected", (args) => {
 	return value.split(" ").length;
 });
 register("selected-at", (args) => {
-	const values = xpathToString(args[0] ?? "").split(" ");
+	// Mirrors commcare-core `XPathSelectedAtFunc.selectedAt`: the selection
+	// splits per `DataUtil.splitOnSpaces` ("" → zero entries; runs of spaces
+	// collapse; Java's split drops trailing empty tokens), and an
+	// out-of-range index THROWS — the device errors the evaluating screen
+	// rather than rendering an empty string, and Preview must fail the same
+	// way instead of green-lighting an expression that crashes the real app.
+	const selection = xpathToString(args[0] ?? "");
 	const index = Math.trunc(toNumber(args[1] ?? 0));
-	return values[index] ?? "";
+	const entries = selection === "" ? [] : selection.split(/ +/);
+	while (entries.length > 0 && entries[entries.length - 1] === "") {
+		entries.pop();
+	}
+	if (index < 0 || entries.length <= index) {
+		throw new Error(
+			`Attempting to select element ${index} of a list with only ${entries.length} elements.`,
+		);
+	}
+	return entries[index];
 });
 
 // ── Coalesce ────────────────────────────────────────────────────────

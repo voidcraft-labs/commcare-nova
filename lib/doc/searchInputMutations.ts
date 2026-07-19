@@ -59,6 +59,12 @@ export type SearchInputRemovalDependency =
 			readonly kind: "search-button-visibility";
 			readonly label: "Search button visibility";
 			readonly paths: SearchInputOccurrencePaths;
+	  }
+	| {
+			readonly kind: "calculated-column";
+			readonly label: string;
+			readonly columnUuid: Uuid;
+			readonly paths: SearchInputOccurrencePaths;
 	  };
 
 function predicateInputPaths(
@@ -135,6 +141,25 @@ export function searchInputRemovalDependencies(
 			kind: "search-field-default",
 			label: `“${input.label.trim() || input.name.trim() || "Another search field"}” starting value`,
 			inputUuid: input.uuid,
+			paths,
+		});
+	}
+	// Calculated-column formulas are a reference-bearing surface too — the
+	// rename path (`rewriteModuleSearchInputRefs`) keeps `input(...)` refs
+	// there coherent, and a stored pre-gate doc can carry one while its
+	// repair is owner-tier pending. Without this walk the review dialog
+	// reports "zero uses" for a doc where a use exists, and the removal
+	// strands the formula against a field that no longer exists.
+	for (const column of config.columns) {
+		if (column.kind !== "calculated") continue;
+		const paths = nonEmptyPaths(
+			expressionInputPaths(column.expression, target.name),
+		);
+		if (paths === undefined) continue;
+		dependencies.push({
+			kind: "calculated-column",
+			label: `“${column.header.trim() || "Calculated column"}” column formula`,
+			columnUuid: column.uuid,
 			paths,
 		});
 	}

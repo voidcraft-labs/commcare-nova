@@ -146,13 +146,23 @@ function pad(value: number, length: number): string {
 	return String(value).padStart(length, "0");
 }
 
-function formatTimezoneOffset(offsetMinutes: number): string {
-	if (offsetMinutes === 0) return "Z";
-	const sign = offsetMinutes > 0 ? "+" : "-";
-	const absolute = Math.abs(offsetMinutes);
-	const hours = pad(Math.trunc(absolute / 60), 2);
-	const minutes = absolute % 60;
-	return minutes === 0
-		? `${sign}${hours}`
-		: `${sign}${hours}:${pad(minutes, 2)}`;
+/**
+ * JavaRosa's `%Z` shape (`commcare-core
+ * DateUtils.getOffsetInStandardFormat`) keys on the HOURS field, not the
+ * total offset: `Z` whenever the truncated hour count is zero — so a
+ * ±30-minute offset renders `Z:30`, sign dropped — else `±HH`, with `:MM`
+ * appended whenever the minute remainder is nonzero. The SQL token
+ * compiler (`lib/case-store/sql/compileExpression.ts::
+ * compileTimezoneOffsetToken`) emits the same shape.
+ */
+export function formatTimezoneOffset(offsetMinutes: number): string {
+	const hours = Math.trunc(offsetMinutes / 60);
+	const head =
+		hours > 0
+			? `+${pad(hours, 2)}`
+			: hours === 0
+				? "Z"
+				: `-${pad(Math.abs(hours), 2)}`;
+	const remainderMinutes = Math.abs(offsetMinutes) % 60;
+	return remainderMinutes === 0 ? head : `${head}:${pad(remainderMinutes, 2)}`;
 }

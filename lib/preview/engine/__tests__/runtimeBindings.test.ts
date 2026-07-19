@@ -213,14 +213,18 @@ describe("bindSearchInputValuesInPredicate", () => {
 	);
 	const knownNames = new Set(["region"]);
 
-	it("unwraps a matching gate when its declared input is present", () => {
+	it("unwraps a matching gate and binds the answer verbatim", () => {
+		// CommCare stores and interpolates the typed answer byte-for-byte
+		// (`RemoteQuerySessionManager.answerUserPrompt`), so padding must
+		// survive into the literal — a trimmed binding would show Preview
+		// matches the deployed app never returns.
 		expect(
 			bindSearchInputValuesInPredicate(
 				wrappedFilter,
 				new Map([["region", "  north  "]]),
 				knownNames,
 			),
-		).toEqual(eq(prop(PATIENT, "region"), literal("north")));
+		).toEqual(eq(prop(PATIENT, "region"), literal("  north  ")));
 	});
 
 	it("neutralizes a matching gate when its declared input is absent", () => {
@@ -266,10 +270,12 @@ describe("composeRuntimeFilter — empty-input contributions", () => {
 		expect(result).toEqual(matchAll());
 	});
 
-	it("treats a whitespace-only value as absent (defensive trim)", () => {
-		// The widget layer is expected to pre-trim, but this module
-		// also defensively trims so a stale "   " value doesn't reach
-		// the SQL layer as an explicit-but-empty filter.
+	it("binds a whitespace-only value verbatim (device parity, not absence)", () => {
+		// On the deployed app a whitespace answer still submits (web-apps
+		// `encodeValue` treats `"   "` as provided), the search-input node
+		// exists, and the comparison runs against the raw spelling —
+		// matching nothing. Treating it as absent would make Preview show
+		// every case where the real app shows none.
 		const inputs = [
 			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name"),
 		];
@@ -278,14 +284,14 @@ describe("composeRuntimeFilter — empty-input contributions", () => {
 			new Map(Object.entries({ name: "   " })),
 			PATIENT,
 		);
-		expect(result).toEqual(matchAll());
+		expect(result).toEqual(eq(prop(PATIENT, "name"), literal("   ")));
 	});
 
-	it("trims surrounding whitespace before constructing the literal", () => {
-		// A pasted-from-clipboard value carries padding the user
-		// didn't intend. The trim normalizes the value so equality
-		// against unpadded case data still matches; a literal with
-		// padding (`"  alice  "`) would silently miss every row.
+	it("binds surrounding whitespace into the literal (device parity)", () => {
+		// CommCare's runtime auto-match queries the raw answer, padding
+		// included — `"  alice  "` misses unpadded rows on the deployed
+		// app, so Preview must miss them too rather than quietly matching
+		// the trimmed spelling.
 		const inputs = [
 			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name"),
 		];
@@ -294,7 +300,7 @@ describe("composeRuntimeFilter — empty-input contributions", () => {
 			new Map(Object.entries({ name: "  alice  " })),
 			PATIENT,
 		);
-		expect(result).toEqual(eq(prop(PATIENT, "name"), literal("alice")));
+		expect(result).toEqual(eq(prop(PATIENT, "name"), literal("  alice  ")));
 	});
 });
 

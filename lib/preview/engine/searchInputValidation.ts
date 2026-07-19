@@ -133,7 +133,7 @@ function runtimeRejectionApplies(
 		new Set(rejection.inputNames ?? []),
 	);
 	return toBoolean(
-		evaluate(stripBalancedOuterParentheses(boundCondition), {
+		evaluate(boundCondition, {
 			contextPath: "",
 			position: 1,
 			size: 1,
@@ -189,41 +189,6 @@ export function searchInputSubmissionErrors(
 		errors.set(name, message);
 	}
 	return errors;
-}
-
-/** Preview's scalar XPath evaluator currently returns blank when the complete
- * root expression is wrapped in grouping parentheses. CSQL rejection guards
- * parenthesize each obligation, so a single-obligation query arrives in that
- * shape. Remove only parentheses proven to wrap the WHOLE expression; an OR of
- * independently-parenthesized guards must remain untouched. */
-function stripBalancedOuterParentheses(expression: string): string {
-	let current = expression.trim();
-	while (current.startsWith("(") && current.endsWith(")")) {
-		let depth = 0;
-		let quote: "'" | '"' | undefined;
-		let closesAtEnd = false;
-		for (let index = 0; index < current.length; index += 1) {
-			const char = current[index];
-			if (quote !== undefined) {
-				if (char === quote) quote = undefined;
-				continue;
-			}
-			if (char === "'" || char === '"') {
-				quote = char;
-				continue;
-			}
-			if (char === "(") depth += 1;
-			if (char !== ")") continue;
-			depth -= 1;
-			if (depth === 0) {
-				closesAtEnd = index === current.length - 1;
-				break;
-			}
-		}
-		if (!closesAtEnd) break;
-		current = current.slice(1, -1).trim();
-	}
-	return current;
 }
 
 /**

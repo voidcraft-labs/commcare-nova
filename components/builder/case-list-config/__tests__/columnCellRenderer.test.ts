@@ -185,6 +185,31 @@ describe("case-list Preview cell formatting", () => {
 			).toEqual({ kind: "value", text: "0" });
 		});
 
+		it("truncates a datetime value in the worker's local zone, like device date()", () => {
+			const column = intervalColumn(
+				COLUMN_UUID,
+				"last_visit",
+				"Days since visit",
+				7,
+				"days",
+				"always",
+				"Overdue",
+			);
+			// 03:00 UTC on July 19 is 20:00 on July 18 in America/Los_Angeles.
+			// Device `date(@last_visit)` truncates in the device-local zone
+			// (commcare-core `DateUtils.roundDate`), so the visit and `today`
+			// share one local day and the interval is 0 — reading the
+			// instant's UTC day instead would render -1.
+			const localEvening = new Date("2026-07-19T04:00:00.000Z");
+			expect(
+				formatIntervalForPreview(
+					"2026-07-19T03:00:00.000Z",
+					column,
+					localEvening,
+				),
+			).toEqual({ kind: "value", text: "0" });
+		});
+
 		it("does not invent an interval for invalid stored data", () => {
 			const column = intervalColumn(
 				COLUMN_UUID,

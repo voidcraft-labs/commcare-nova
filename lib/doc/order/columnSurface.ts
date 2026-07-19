@@ -8,7 +8,7 @@
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { Column } from "@/lib/domain";
 import { byDetailColumnOrder, byListColumnOrder } from "./compare";
-import { keysForSlot } from "./keys";
+import { plannedMoveSlotKey } from "./keys";
 
 export type ColumnSurface = "list" | "detail";
 
@@ -95,18 +95,10 @@ export function columnSurfaceMoveMutation(args: {
 	const toIndex = Math.max(0, Math.min(args.toIndex, siblings.length));
 	if (toIndex === fromIndex) return undefined;
 
-	/* Hydration backfills generic `order`, so every resolved key is normally
-	 * present. Count only defined keys before the requested slot as a defensive
-	 * legacy fallback: present keys sort ahead of keyless rows, so this preserves
-	 * the closest representable slot without ever resequencing those rows. */
-	const siblingKeys = siblings
-		.map((column) => resolvedColumnSurfaceOrder(column, surface))
-		.filter((order): order is string => order !== undefined);
-	const keySlot = siblings
-		.slice(0, toIndex)
-		.map((column) => resolvedColumnSurfaceOrder(column, surface))
-		.filter((order): order is string => order !== undefined).length;
-	const order = keysForSlot(siblingKeys, keySlot, 1)[0];
+	const order = plannedMoveSlotKey(
+		siblings.map((column) => resolvedColumnSurfaceOrder(column, surface)),
+		toIndex,
+	);
 
 	const moved = ordered[fromIndex];
 	if (moved === undefined) {

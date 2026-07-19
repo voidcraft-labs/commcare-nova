@@ -181,7 +181,14 @@ describe("emitColumnField — plain", () => {
 		);
 		expect(out.xml).toContain("&apos; follow\\.up &apos;");
 		expect(out.xml).toContain("normalize-space(concat(");
-		expect(out.xml).toContain("normalize-space(tags)");
+		// The remainder double-spaces the normalized value so every token owns
+		// both flanking spaces: Java regex matching is non-overlapping, and
+		// single-space delimiters would let the second copy of a duplicated
+		// known token escape removal (` vip vip ` shares the middle space) and
+		// render as a bogus unknown on device while Preview hides it.
+		expect(out.xml).toContain(
+			"concat(&apos;  &apos;, replace(normalize-space(tags), &apos; &apos;, &apos;  &apos;), &apos;  &apos;)",
+		);
 	});
 });
 
