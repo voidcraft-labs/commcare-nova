@@ -4,15 +4,24 @@
  * Two prompt modes, selected by the route based on appReady:
  *
  * - **Build mode** (new app): core prompt + build interaction + shared tail.
- * - **Edit mode** (existing app): core prompt + editing preamble + compact
- *   blueprint summary + shared tail. Always active when the app exists,
- *   regardless of cache state.
+ * - **Edit mode** (existing app): core prompt + editing preamble + shared
+ *   tail. Always active when the app exists, regardless of cache state.
  *
- * The edit-mode summary is rendered from the normalized `BlueprintDoc`
- * and uses domain vocabulary (`field`, `kind`, `case_property_on`) to
- * match the SA's tool surface.
+ * Both prompts are fully STATIC — byte-identical across turns and across
+ * apps. OpenAI prompt caching is exact-prefix, so anything volatile in the
+ * system prompt re-bills everything after it (the shared tail, the tool
+ * rendering, the history) on every doc-mutating turn. The volatile piece —
+ * the compact blueprint summary an edit turn needs — therefore travels as
+ * a per-turn MESSAGE at the end of the prompt (`buildAppStateMessage`):
+ * the cached prefix then survives through the previous user turn, and the
+ * re-billed suffix shrinks to the turn tail — the prior turn's response
+ * (which replay re-bills regardless, since history drops its reasoning
+ * items), the new user message, and the summary itself. The summary is
+ * rendered from the normalized `BlueprintDoc` and uses domain vocabulary
+ * (`field`, `kind`, `case_property_on`) to match the SA's tool surface.
  */
 
+import type { ModelMessage } from "ai";
 import type { BlueprintDoc } from "@/lib/domain";
 import { buildExpressionReference } from "./expressionReference";
 import { summarizeBlueprint } from "./summarizeBlueprint";
@@ -464,9 +473,9 @@ If you receive an API error (authentication, rate limit, overloaded), do not ret
 
 const EDIT_PREAMBLE = `## Editing Mode
 
-You are editing an existing app — not building one from scratch. The current app state is summarized below. Frame every change as the user will experience it — what their app will do differently, never which tool you'll call — then make the change with your read and mutation tools and confirm when it lands. Your voice spec governs the reply shape. Every edit is checked as it lands — a change that would introduce a problem is rejected with each finding named and nothing saved, so compose dependent edits into one call (the same batch discipline as a build: referents land before or with their referencers). There is no separate validation step and no finishing step — when your last change lands, the work is done.
+You are editing an existing app — not building one from scratch. Frame every change as the user will experience it — what their app will do differently, never which tool you'll call — then make the change with your read and mutation tools and confirm when it lands. Your voice spec governs the reply shape. Every edit is checked as it lands — a change that would introduce a problem is rejected with each finding named and nothing saved, so compose dependent edits into one call (the same batch discipline as a build: referents land before or with their referencers). There is no separate validation step and no finishing step — when your last change lands, the work is done.
 
-**You already have full visibility into this app.** The blueprint summary below shows every module, form, field, and case type. Never ask the user about what exists in the app — you can see it. Use searchBlueprint or the summary to answer any question about current state. Only ask clarifying questions about the user's *intent* — what they want to change, add, or remove — never about what is or isn't already there.
+**You already have full visibility into this app.** You receive a "Current app state" summary — rendered fresh from the app itself, background reference rather than something the user wrote — showing every module, form, field, and case type. Never ask the user about what exists in the app — you can see it. Use searchBlueprint or the summary to answer any question about current state. Only ask clarifying questions about the user's *intent* — what they want to change, add, or remove — never about what is or isn't already there.
 
 An edit touches only what you name: a slot left out keeps its current value; a slot set to null has its value REMOVED. Never pass null for a slot you mean to leave alone — leave it out.
 
@@ -475,23 +484,62 @@ Trust your tool outputs. When a mutation tool returns a success message, the cha
 // ── Public API ────────────────────────────────────────────────────────
 
 /**
+ * The one "is there anything to edit?" predicate — shared by the prompt
+ * builder (edit vs build branch), the per-turn app-state message, and the
+ * MCP prompt renderer's inlined state block, so the edit framing and the
+ * summary it promises can never come apart. An empty doc (created by
+ * `createApp` before generation starts) is not editable — the SA should
+ * run through the initial build sequence rather than try to edit a
+ * skeleton.
+ */
+export function isEditableDoc(doc?: BlueprintDoc): doc is BlueprintDoc {
+	return !!doc && doc.moduleOrder.length > 0;
+}
+
+/**
  * Build the SA system prompt by composing mode-specific sections:
  *
  * - **Build mode** (no doc passed, or an empty doc): core + build
  *   interaction + shared tail.
- * - **Edit mode** (doc with modules): core + edit preamble + summary +
- *   shared tail.
+ * - **Edit mode** (doc with modules): core + edit preamble + shared tail.
  *
- * An empty doc (created by `createApp` before generation starts) is
- * treated as build mode — the SA should run through the initial build
- * sequence rather than try to edit a skeleton.
+ * Both compositions are STATIC — the doc picks the branch and contributes
+ * no bytes, so the rendered prompt is byte-identical across turns and the
+ * provider's exact-prefix cache holds through doc mutations. The volatile
+ * blueprint summary the edit preamble promises is delivered separately:
+ * as a per-turn message on chat (`buildAppStateMessage`), or inlined
+ * after the prompt body by the MCP renderer (`renderAgentPrompt`), which
+ * hands a subagent its one-shot boot prompt where caching isn't in play.
  */
 export function buildSolutionsArchitectPrompt(doc?: BlueprintDoc): string {
-	const isEditing = doc && doc.moduleOrder.length > 0;
-
-	if (!isEditing) {
+	if (!isEditableDoc(doc)) {
 		return `${CORE_PROMPT}\n\n---\n\n${BUILD_INTERACTION}\n\n---\n\n${INITIAL_BUILD}\n\n---\n\n${SHARED_TAIL}`;
 	}
 
-	return `${CORE_PROMPT}\n\n---\n\n${EDIT_PREAMBLE}\n\n${summarizeBlueprint(doc)}\n\n---\n\n${SHARED_TAIL}`;
+	return `${CORE_PROMPT}\n\n---\n\n${EDIT_PREAMBLE}\n\n---\n\n${SHARED_TAIL}`;
+}
+
+/**
+ * The per-turn app-state message — how an edit turn's SA learns the app's
+ * current shape now that the system prompt is static. Appended to the END
+ * of the prompt (after the full history) by the chat route, so the cached
+ * prefix survives through the previous user turn; the re-billed suffix is
+ * the prior turn's response (re-billed regardless — replayed history drops
+ * its reasoning items) plus this snapshot. Rendered fresh per request from
+ * the doc the SA boots with — it reflects builder-side and co-member edits
+ * the conversation never saw. The opening line marks it as reference
+ * material (the wire role is `user`, but the words are Nova's, not the
+ * user's — `EDIT_PREAMBLE` teaches the same contract).
+ *
+ * Returns null when there is nothing to summarize — the build prompt
+ * carries no "Current app state" promise, so an empty doc gets no message.
+ */
+export function buildAppStateMessage(doc: BlueprintDoc): ModelMessage | null {
+	if (!isEditableDoc(doc)) return null;
+	return {
+		role: "user",
+		content:
+			"Current app state (background reference, rendered fresh from the app — not part of the user's own words):\n\n" +
+			summarizeBlueprint(doc),
+	};
 }

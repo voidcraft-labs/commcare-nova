@@ -112,6 +112,22 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 		attempt: z.number().int().positive(),
 		errors: z.array(z.string()),
 	}),
+	/* Step-usage annotation — one per completed agent step, carrying that
+	 * step's token usage. The per-run summary (`run_summaries`) aggregates
+	 * usage across steps, which cannot answer "which step re-billed uncached
+	 * input" — the decomposition a prompt-cache investigation needs. This
+	 * annotation is that decomposition: `inputTokens` is the step's full
+	 * billed input, `cacheReadTokens` the provider-reported cached share of
+	 * it, `cacheWriteTokens` the metered cache-write count when the provider
+	 * reports one. A run annotation, not chat-visible content; aggregate
+	 * cost stays on the run summary (see lib/log/CLAUDE.md). */
+	z.object({
+		type: z.literal("step-usage"),
+		inputTokens: z.number().int().nonnegative(),
+		outputTokens: z.number().int().nonnegative(),
+		cacheReadTokens: z.number().int().nonnegative().optional(),
+		cacheWriteTokens: z.number().int().nonnegative().optional(),
+	}),
 	/* Attachment-prep annotation — brackets the pre-Opus resolve step
 	 * (`resolveAttachments`), which reads each document ref's stored extract
 	 * (and lazily extracts one that has none yet). It's emitted ONLY when a

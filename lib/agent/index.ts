@@ -9,6 +9,10 @@ export { classifyError, MESSAGES } from "./errorClassifier";
 // generationContext — shared LLM wrapper around the AI Gateway provider, SSE
 // writer, event log, and usage accumulator.
 export { GenerationContext, logWarnings } from "./generationContext";
+// prompts — the per-turn app-state message an edit turn appends to the end
+// of its prompt (the system prompt itself is static; the SA factory renders
+// it internally).
+export { buildAppStateMessage } from "./prompts";
 // resolveAttachments — server-side resolution of chat attachment refs. The
 // composer sends asset-id refs in message metadata; the chat route calls
 // `resolveAttachments` to append each ref's stored requirements extract

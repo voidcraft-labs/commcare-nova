@@ -274,6 +274,16 @@ function summarizeConversation(payload: ConversationPayload): string {
 			return `validation-attempt #${payload.attempt}: ${payload.errors.length} error${payload.errors.length === 1 ? "" : "s"}`;
 		case "attachment-prep":
 			return `attachment-prep ${payload.phase}${payload.count !== undefined ? ` (${payload.count} doc${payload.count === 1 ? "" : "s"})` : ""}`;
+		case "step-usage": {
+			/* The per-step billing decomposition: uncached = input − cacheRead,
+			 * computed here so a cache investigation reads it straight off the
+			 * line instead of doing per-row arithmetic. */
+			const uncached =
+				payload.cacheReadTokens !== undefined
+					? ` (${payload.inputTokens - payload.cacheReadTokens} uncached, ${payload.cacheReadTokens} cached)`
+					: "";
+			return `step-usage: in ${payload.inputTokens}${uncached}, out ${payload.outputTokens}`;
+		}
 	}
 }
 
@@ -329,6 +339,16 @@ function printEventVerbose(event: Event): void {
 			console.log(`  │ error.type:    ${p.error.type}`);
 			console.log(`  │ error.fatal:   ${p.error.fatal}`);
 			console.log(`  │ error.message: ${p.error.message}`);
+			break;
+		case "step-usage":
+			console.log(`  │ inputTokens:      ${p.inputTokens}`);
+			console.log(
+				`  │ cacheReadTokens:  ${p.cacheReadTokens ?? "not reported"}`,
+			);
+			console.log(
+				`  │ cacheWriteTokens: ${p.cacheWriteTokens ?? "not reported"}`,
+			);
+			console.log(`  │ outputTokens:     ${p.outputTokens}`);
 			break;
 	}
 	console.log("  └─");

@@ -1,0 +1,139 @@
+/**
+ * `buildSolutionsArchitectPrompt` / `buildAppStateMessage` unit tests.
+ *
+ * The load-bearing property here is prompt STABILITY: provider prompt
+ * caching is exact-prefix, so the system prompt must be byte-identical
+ * across turns and across docs — anything app-specific that leaked into
+ * it would re-bill the shared tail + tool rendering + history on every
+ * doc-mutating turn. The volatile blueprint summary travels instead as
+ * the per-turn app-state message (`buildAppStateMessage`), and the two
+ * halves share one gate (`isEditableDoc`) so the edit framing and the
+ * summary it promises cannot come apart.
+ */
+
+import { describe, expect, it } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
+import type { BlueprintDoc } from "@/lib/domain";
+import { asUuid } from "@/lib/domain";
+import {
+	buildAppStateMessage,
+	buildSolutionsArchitectPrompt,
+	isEditableDoc,
+} from "../prompts";
+
+/** Minimal populated blueprint — one module + one form + one field, with
+ *  distinctive names the assertions can spot in (or prove absent from)
+ *  rendered output. */
+function fixtureDoc(appName: string, moduleName: string): BlueprintDoc {
+	const modUuid = asUuid("11111111-1111-1111-1111-111111111111");
+	const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
+	const fieldUuid = asUuid("33333333-3333-3333-3333-333333333333");
+	return {
+		appId: "a-edit",
+		appName,
+		connectType: null,
+		caseTypes: null,
+		modules: {
+			[modUuid]: {
+				uuid: modUuid,
+				id: "patients",
+				name: moduleName,
+				caseType: "patient",
+			},
+		},
+		forms: {
+			[formUuid]: {
+				uuid: formUuid,
+				id: "register",
+				name: "Register Patient",
+				type: "registration",
+			},
+		},
+		fields: {
+			[fieldUuid]: {
+				uuid: fieldUuid,
+				id: "patient_name",
+				kind: "text",
+				label: "Patient Name",
+				required: xp("true()"),
+			},
+		},
+		moduleOrder: [modUuid],
+		formOrder: { [modUuid]: [formUuid] },
+		fieldOrder: { [formUuid]: [fieldUuid] },
+		fieldParent: {},
+	};
+}
+
+/** The degenerate doc `createApp` writes before generation starts. */
+function fixtureEmptyDoc(): BlueprintDoc {
+	return {
+		appId: "a-empty",
+		appName: "Untitled",
+		connectType: null,
+		caseTypes: null,
+		modules: {},
+		forms: {},
+		fields: {},
+		moduleOrder: [],
+		formOrder: {},
+		fieldOrder: {},
+		fieldParent: {},
+	};
+}
+
+describe("buildSolutionsArchitectPrompt", () => {
+	it("edit prompt carries the editing framing but ZERO doc bytes", () => {
+		const sp = buildSolutionsArchitectPrompt(
+			fixtureDoc("Vaccine Tracker", "Patients"),
+		);
+		expect(sp).toContain("Editing Mode");
+		expect(sp).toContain("full visibility");
+		/* The doc picks the branch and contributes nothing — an app name or
+		 * module name in the prompt means the volatile summary leaked back
+		 * into the cached prefix. */
+		expect(sp).not.toContain("Vaccine Tracker");
+		expect(sp).not.toContain("Patients");
+	});
+
+	it("edit prompt is byte-identical across different apps", () => {
+		const a = buildSolutionsArchitectPrompt(
+			fixtureDoc("Vaccine Tracker", "Patients"),
+		);
+		const b = buildSolutionsArchitectPrompt(
+			fixtureDoc("Household Census", "Households"),
+		);
+		expect(a).toBe(b);
+	});
+
+	it("no doc, or an empty doc, renders the build prompt", () => {
+		for (const sp of [
+			buildSolutionsArchitectPrompt(),
+			buildSolutionsArchitectPrompt(fixtureEmptyDoc()),
+		]) {
+			expect(sp).toContain("Initial Build");
+			expect(sp).not.toContain("Editing Mode");
+		}
+	});
+});
+
+describe("buildAppStateMessage", () => {
+	it("renders the fresh summary as a clearly-labeled reference message", () => {
+		const msg = buildAppStateMessage(fixtureDoc("Vaccine Tracker", "Patients"));
+		expect(msg).not.toBeNull();
+		expect(msg?.role).toBe("user");
+		const content = msg?.content as string;
+		/* The label is the handle `EDIT_PREAMBLE` teaches — the model finds
+		 * the summary by this name. */
+		expect(content).toContain("Current app state");
+		expect(content).toContain("Vaccine Tracker");
+		expect(content).toContain("Patients");
+	});
+
+	it("returns null for a doc with nothing to summarize", () => {
+		/* Same gate as the prompt branch: a build-prompt turn promises no
+		 * app-state summary, so it must not receive one. */
+		expect(buildAppStateMessage(fixtureEmptyDoc())).toBeNull();
+		expect(isEditableDoc(fixtureEmptyDoc())).toBe(false);
+	});
+});

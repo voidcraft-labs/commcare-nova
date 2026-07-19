@@ -23,6 +23,7 @@ import {
 } from "@/lib/db/commitGuard";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid } from "@/lib/domain";
+import { conversationPayloadSchema } from "@/lib/log/types";
 import { log } from "@/lib/logger";
 import type { GenerationContext } from "../generationContext";
 import { makeMinimalDoc, makeTestContext } from "./fixtures";
@@ -578,7 +579,7 @@ describe("GenerationContext.handleAgentStep", () => {
 		expect(ctx.pausedOnInput()).toBe(false);
 	});
 
-	it("emits reasoning + text + tool-call + tool-result events in order for a full step", () => {
+	it("emits step-usage + reasoning + text + tool-call + tool-result events in order for a full step", () => {
 		const { ctx, logWriter, usage } = makeTestContext();
 
 		ctx.handleAgentStep(
@@ -598,12 +599,21 @@ describe("GenerationContext.handleAgentStep", () => {
 			"Solutions Architect",
 		);
 
-		expect(logWriter.logEvent).toHaveBeenCalledTimes(4);
+		expect(logWriter.logEvent).toHaveBeenCalledTimes(5);
 		const payloads = logWriter.logEvent.mock.calls.map((c) => {
 			const ev = c[0] as { payload: unknown };
 			return ev.payload;
 		});
 		expect(payloads).toEqual([
+			/* step-usage leads the step's event burst — it acts as the step
+			 * separator for log readers decomposing per-step billing. */
+			{
+				type: "step-usage",
+				inputTokens: 100,
+				outputTokens: 50,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+			},
 			{ type: "assistant-reasoning", text: "thinking about the answer" },
 			{ type: "assistant-text", text: "the visible answer" },
 			{
@@ -625,6 +635,35 @@ describe("GenerationContext.handleAgentStep", () => {
 		expect(snap.toolCallCount).toBe(1);
 		expect(snap.inputTokens).toBe(100);
 		expect(snap.outputTokens).toBe(50);
+	});
+
+	it("step-usage omits the cache decomposition when the provider reports none, and the payload parses", () => {
+		const { ctx, logWriter } = makeTestContext();
+
+		ctx.handleAgentStep(
+			{
+				usage: {
+					inputTokens: 10,
+					outputTokens: 5,
+					totalTokens: 15,
+				} as unknown as LanguageModelUsage,
+			},
+			"Solutions Architect",
+		);
+
+		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
+		const call = logWriter.logEvent.mock.calls[0];
+		if (!call) throw new Error("logEvent was never called");
+		const payload = (call[0] as { payload: unknown }).payload;
+		expect(payload).toEqual({
+			type: "step-usage",
+			inputTokens: 10,
+			outputTokens: 5,
+		});
+		/* The emitted payload must round-trip the stored-event schema —
+		 * `readEvents` re-validates on read and DROPS drifted rows, so a
+		 * payload the schema rejects would silently vanish from the log. */
+		expect(conversationPayloadSchema.safeParse(payload).success).toBe(true);
 	});
 
 	it("no-ops when usage is undefined — no track, no events", () => {
@@ -659,9 +698,10 @@ describe("GenerationContext.handleAgentStep", () => {
 			"Solutions Architect",
 		);
 
-		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
-		const call = logWriter.logEvent.mock.calls[0];
-		if (!call) throw new Error("logEvent was never called");
+		// step-usage always leads; the bare tool-call follows with no result.
+		expect(logWriter.logEvent).toHaveBeenCalledTimes(2);
+		const call = logWriter.logEvent.mock.calls[1];
+		if (!call) throw new Error("logEvent was not called for the tool-call");
 		const payload = (call[0] as { payload: unknown }).payload;
 		expect(payload).toEqual({
 			type: "tool-call",
@@ -695,10 +735,10 @@ describe("GenerationContext.handleAgentStep", () => {
 			"Solutions Architect",
 		);
 
-		expect(logWriter.logEvent).toHaveBeenCalledTimes(2);
-		const payloads = logWriter.logEvent.mock.calls.map(
-			(c) => (c[0] as { payload: unknown }).payload,
-		);
+		expect(logWriter.logEvent).toHaveBeenCalledTimes(3);
+		const payloads = logWriter.logEvent.mock.calls
+			.map((c) => (c[0] as { payload: { type: string } }).payload)
+			.filter((p) => p.type !== "step-usage");
 		expect(payloads).toEqual([
 			{
 				type: "tool-call",

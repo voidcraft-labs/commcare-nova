@@ -31,12 +31,18 @@ own columns so reads filter and order without parsing the payload.
 (`decodeEventsLenient`), dropping and counting any forward-version /
 drifted row rather than failing the whole read.
 
-## No-usage-in-events rule
+## Usage in events — per-step decomposition only
 
-Token usage and cost live on the per-run summary (`run_summaries`), not on
-the event stream. The event log is supplemental; cost is a separate
-concern owned by `UsageAccumulator` in `lib/db/usage.ts` and read back via
-`readRunSummary` (which delegates to `lib/db/runSummary.ts::loadRunSummary`).
+Aggregate token usage and COST live on the per-run summary
+(`run_summaries`), owned by `UsageAccumulator` in `lib/db/usage.ts` and
+read back via `readRunSummary` (which delegates to
+`lib/db/runSummary.ts::loadRunSummary`) — never on the event stream. The
+one usage shape events DO carry is the `step-usage` conversation
+annotation (`GenerationContext.handleAgentStep`, one per agent step):
+per-step input / cached-input / output tokens, because "which step
+re-billed uncached input" is a per-step question the run summary's
+aggregates cannot answer. No money values on events; sub-generation usage
+(document extraction etc.) stays summary-only.
 
 ## Writer semantics
 

@@ -719,6 +719,19 @@ export class GenerationContext implements ToolExecutionContext {
 			{ step: true },
 		);
 
+		/* Per-step usage annotation — the same numbers the accumulator just
+		 * folded into the run aggregate, preserved per step on the event log
+		 * so a cost investigation can decompose WHERE a run's uncached input
+		 * billed (the run summary alone can't — it sums across steps). Leads
+		 * the step's event burst, acting as the step separator for readers. */
+		this.emitConversation({
+			type: "step-usage",
+			inputTokens: usage.inputTokens ?? 0,
+			outputTokens: usage.outputTokens ?? 0,
+			cacheReadTokens: usage.inputTokenDetails?.cacheReadTokens,
+			cacheWriteTokens: usage.inputTokenDetails?.cacheWriteTokens,
+		});
+
 		if (step.reasoningText) {
 			this.emitConversation({
 				type: "assistant-reasoning",

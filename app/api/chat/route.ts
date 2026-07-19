@@ -7,6 +7,7 @@ import {
 	validateUIMessages,
 } from "ai";
 import {
+	buildAppStateMessage,
 	buildTurnRetryContinuation,
 	classifyError,
 	countDocumentsNeedingRead,
@@ -1482,15 +1483,36 @@ export async function POST(req: Request) {
 						saModel,
 					);
 
+					/* Edit turns deliver the CURRENT blueprint summary as a per-turn
+					 * message at the END of the prompt, not inside the system prompt:
+					 * the summary changes on every doc mutation and provider caching
+					 * is exact-prefix, so a volatile summary in the prompt would
+					 * re-bill the static tail + the tool rendering + the history on
+					 * every doc-mutating turn. Appended after the full history, the
+					 * cached prefix survives through the previous user turn; the
+					 * re-billed suffix is the prior turn's response — which replay
+					 * re-bills regardless, since history drops its reasoning items —
+					 * plus this snapshot. Rendered from the same doc the SA booted
+					 * with, so it reflects builder-side and co-member edits the
+					 * conversation never saw. Ephemeral by construction — a
+					 * ModelMessage appended past `validated` never reaches the thread
+					 * transcript, so each turn carries exactly one fresh snapshot. */
+					const appStateMessage = editing
+						? buildAppStateMessage(sessionDoc)
+						: null;
+
 					/* Record the input-context composition for the per-run finalize
 					 * log: how many messages were actually sent (after the sanitizer's
-					 * drops + the resolve) and their serialized size. The
-					 * system prompt is ~constant, so this is the variable part of the
-					 * per-request input cost — the lever the cost investigation needs
-					 * visibility into. */
+					 * drops + the resolve, plus the app-state message) and their
+					 * serialized size. The system prompt is static, so this is the
+					 * variable part of the per-request input cost — the lever the
+					 * cost investigation needs visibility into. */
 					usage.configureRun({
-						sentMessageCount: effectiveMessages.length,
-						sentMessageChars: JSON.stringify(effectiveMessages).length,
+						sentMessageCount:
+							effectiveMessages.length + (appStateMessage ? 1 : 0),
+						sentMessageChars:
+							JSON.stringify(effectiveMessages).length +
+							(appStateMessage ? JSON.stringify(appStateMessage).length : 0),
 					});
 
 					/* Run the agent to completion SERVER-SIDE, decoupled from the browser.
@@ -1517,6 +1539,16 @@ export async function POST(req: Request) {
 					const baseModelMessages = await convertToModelMessages(validated, {
 						tools: sa.tools,
 					});
+					/* The full per-turn prompt: converted history, then the app-state
+					 * snapshot (edit turns). A retry/redrive attempt REPLACES the
+					 * snapshot with the turn-retry continuation below — the
+					 * continuation embeds its own, fresher committed-state summary,
+					 * and the model must see exactly one authoritative snapshot (a
+					 * stale summary beside the fresh one invites re-planning against
+					 * the wrong state). */
+					const promptMessages = appStateMessage
+						? [...baseModelMessages, appStateMessage]
+						: baseModelMessages;
 
 					/* The turn runs inside a bounded TRANSIENT-failure re-run loop: a
 					 * provider fault mid-generation (a 500 halfway through a step, a
@@ -1576,7 +1608,7 @@ export async function POST(req: Request) {
 						const result = await sa.stream({
 							prompt: continuation
 								? [...baseModelMessages, continuation]
-								: baseModelMessages,
+								: promptMessages,
 						});
 
 						/* Drive the drain UN-awaited so the loop advances to its terminal state

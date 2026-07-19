@@ -204,7 +204,7 @@ function summarizeCaseSearch(mod: Module): string | undefined {
 	if (config === undefined) return undefined;
 	// Both summaries iterate the source-of-truth tuples that the SA
 	// tool surface partitions on. A new slot landing on either tuple
-	// flows into the SA-prompt summary here automatically — no
+	// flows into the SA's app-state summary here automatically — no
 	// per-slot `config.foo !== undefined` check to drift out of sync
 	// with the schema.
 	const setDisplaySlots = DISPLAY_SLOT_NAMES.filter(
