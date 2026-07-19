@@ -51,8 +51,25 @@ export const GATEWAY_PROVIDER_OPTIONS = {
  * `reasoningSummary: 'auto'` is required for human-readable reasoning
  * summaries to stream back as `reasoning-delta` parts; without it the
  * reasoning phase is silent and nothing feeds the live-progress surfaces.
+ *
+ * `promptCacheKey` (optional) is OpenAI's cache-routing affinity hint —
+ * requests sharing a key land on the shard holding that key's cached
+ * prefixes, so a multi-turn surface (the SA: one key per app) hits its own
+ * cache reliably under provider-side load balancing. A key also carries
+ * `promptCacheOptions { mode: 'implicit', ttl: '30m' }`: `ttl` makes the
+ * 30-minute cache lifetime contractual rather than best-effort, and
+ * `implicit` keeps OpenAI's automatic breakpoint on the latest message —
+ * which is what lets each tool-loop step cache-read the previous step's
+ * growing suffix. (`mode: 'explicit'` would disable caching everywhere a
+ * breakpoint isn't hand-placed — a regression for a multi-step loop, not
+ * an upgrade; implicit mode still honors any explicit `promptCacheBreakpoint`
+ * block markers if a surface ever adds them.) One-shot calls (extraction,
+ * scripts) pass no key: there is no second request to route.
  */
-export function reasoningProviderOptions(effort: ReasoningEffort) {
+export function reasoningProviderOptions(
+	effort: ReasoningEffort,
+	cache?: { promptCacheKey: string },
+) {
 	// `satisfies` (not an annotation) so the literal's own type flows into
 	// providerOptions' JSONObject requirement, while a misplaced or
 	// misspelled key is still rejected — the AI SDK's Zod schema silently
@@ -62,6 +79,10 @@ export function reasoningProviderOptions(effort: ReasoningEffort) {
 		openai: {
 			reasoningEffort: effort,
 			reasoningSummary: "auto",
+			...(cache && {
+				promptCacheKey: cache.promptCacheKey,
+				promptCacheOptions: { mode: "implicit", ttl: "30m" },
+			}),
 		} satisfies OpenAIResponsesProviderOptions,
 		gateway: GATEWAY_PROVIDER_OPTIONS,
 	};

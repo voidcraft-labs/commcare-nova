@@ -408,12 +408,15 @@ export function createSolutionsArchitect(
 		prepareStep: () => {
 			// The canonical reasoning literal
 			// (`lib/models.ts::reasoningProviderOptions`) — effort plus the
-			// streamed reasoning summaries the live-thinking feed needs. No
-			// cache option: OpenAI prompt caching is implicit (managed
-			// breakpoints, 30-min TTL).
+			// streamed reasoning summaries the live-thinking feed needs, plus
+			// the SA's cache affinity: one `promptCacheKey` per app routes
+			// every turn of the app's threads to the shard holding its cached
+			// prefix, and rides the contractual 30-minute ttl (see the helper
+			// for why the mode stays implicit).
 			return {
 				providerOptions: reasoningProviderOptions(
 					(editing ? SA_EDIT_REASONING : SA_BUILD_REASONING).effort,
+					{ promptCacheKey: `nova:app:${ctx.appId}` },
 				),
 			};
 		},
